@@ -8,7 +8,7 @@ use parking_lot::Mutex;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::ListArray;
 use vortex::array::arrays::PrimitiveArray;
-use vortex::array::arrays::list::ListArrayParts;
+use vortex::array::arrays::list::ListDataParts;
 use vortex::array::match_each_integer_ptype;
 use vortex::dtype::IntegerPType;
 use vortex::error::VortexResult;
@@ -45,12 +45,12 @@ pub(crate) fn new_exporter(
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let array_len = array.len();
     // Cache an `elements` vector up front so that future exports can reference it.
-    let ListArrayParts {
+    let ListDataParts {
         elements,
         offsets,
         validity,
         dtype,
-    } = array.into_data().into_parts();
+    } = array.into_data_parts();
     let num_elements = elements.len();
     let validity = validity.to_array(array_len).execute::<Mask>(ctx)?;
 
@@ -64,7 +64,7 @@ pub(crate) fn new_exporter(
     let cached_elements = cache
         .values_cache
         .get(&values_key)
-        .map(|entry| entry.value().1.clone());
+        .map(|entry| Arc::clone(&entry.value().1));
 
     let shared_elements = match cached_elements {
         Some(elements) => elements,
@@ -82,7 +82,7 @@ pub(crate) fn new_exporter(
             let shared_elements = Arc::new(Mutex::new(duckdb_elements));
             cache
                 .values_cache
-                .insert(values_key, (elements, shared_elements.clone()));
+                .insert(values_key, (elements, Arc::clone(&shared_elements)));
 
             shared_elements
         }

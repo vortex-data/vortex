@@ -12,6 +12,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::StructArray;
+use crate::arrays::struct_::StructArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::builtins::ExprBuiltins;
 use crate::dtype::DType;
@@ -116,7 +117,7 @@ impl ScalarFnVTable for GetItem {
 
         match input.dtype().nullability() {
             Nullability::NonNullable => Ok(field),
-            Nullability::Nullable => field.mask(input.validity().to_array(input.len())),
+            Nullability::Nullable => field.mask(input.validity()?.to_array(input.len())),
         }
     }
 

@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! L2 norm expression for tensor-like extension arrays
-//! ([`FixedShapeTensor`](crate::fixed_shape::FixedShapeTensor) and
-//! [`Vector`](crate::vector::Vector)).
+//! L2 norm expression for tensor-like types.
 
 use std::fmt::Formatter;
 
@@ -11,7 +9,12 @@ use num_traits::Float;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::ScalarFnArray;
+use vortex_array::arrays::ScalarFnVTable as ScalarFnArrayVTable;
+use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
@@ -20,18 +23,19 @@ use vortex_array::match_each_float_ptype;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ScalarFn;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_buffer::Buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
+use vortex_error::vortex_ensure_eq;
 
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::ApproxOptions;
-use crate::utils::extension_element_ptype;
-use crate::utils::extension_list_size;
-use crate::utils::extension_storage;
+use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::utils::extract_flat_elements;
+use crate::utils::validate_tensor_float_input;
 
 /// L2 norm (Euclidean norm) of a tensor or vector column.
 ///
@@ -42,11 +46,33 @@ use crate::utils::extract_flat_elements;
 #[derive(Clone)]
 pub struct L2Norm;
 
+impl L2Norm {
+    /// Creates a new [`ScalarFn`] wrapping the L2 norm operation with the given [`ApproxOptions`]
+    /// controlling approximation behavior.
+    pub fn new(options: &ApproxOptions) -> ScalarFn<L2Norm> {
+        ScalarFn::new(L2Norm, options.clone())
+    }
+
+    /// Constructs a [`ScalarFnArray`] that lazily computes the L2 norm over `child`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the [`ScalarFnArray`] cannot be constructed (e.g. due to dtype
+    /// mismatches).
+    pub fn try_new_array(
+        options: &ApproxOptions,
+        child: ArrayRef,
+        len: usize,
+    ) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(L2Norm::new(options).erased(), vec![child], len)
+    }
+}
+
 impl ScalarFnVTable for L2Norm {
     type Options = ApproxOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new_ref("vortex.tensor.l2_norm")
+        ScalarFnId::from("vortex.tensor.l2_norm")
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
@@ -73,22 +99,8 @@ impl ScalarFnVTable for L2Norm {
 
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         let input_dtype = &arg_dtypes[0];
-
-        // Input must be a tensor-like extension type.
-        let ext = input_dtype.as_extension_opt().ok_or_else(|| {
-            vortex_err!("L2Norm input must be an extension type, got {input_dtype}")
-        })?;
-
-        vortex_ensure!(
-            ext.is::<AnyTensor>(),
-            "L2Norm input must be an `AnyTensor`, got {input_dtype}"
-        );
-
-        let ptype = extension_element_ptype(ext)?;
-        vortex_ensure!(
-            ptype.is_float(),
-            "L2Norm element dtype must be a float primitive, got {ptype}"
-        );
+        let tensor_match = validate_tensor_float_input(input_dtype)?;
+        let ptype = tensor_match.element_ptype();
 
         let nullability = Nullability::from(input_dtype.is_nullable());
         Ok(DType::Primitive(ptype, nullability))
@@ -100,27 +112,46 @@ impl ScalarFnVTable for L2Norm {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let input = args.get(0)?;
+        let input_ref = args.get(0)?;
         let row_count = args.row_count();
 
-        // Get list size (dimensions) from the dtype.
-        let ext = input.dtype().as_extension_opt().ok_or_else(|| {
-            vortex_err!(
-                "l2_norm input must be an extension type, got {}",
-                input.dtype()
-            )
-        })?;
-        let list_size = extension_list_size(ext)? as usize;
+        let ext = input_ref.dtype().as_extension();
+        let tensor_match = ext
+            .metadata_opt::<AnyTensor>()
+            .vortex_expect("we already validated this in `return_dtype`");
+        let tensor_flat_size = tensor_match.list_size();
+        let element_ptype = tensor_match.element_ptype();
 
-        let storage = extension_storage(&input)?;
-        let flat = extract_flat_elements(&storage, list_size, ctx)?;
+        // L2Norm(L2Denorm(normalized, norms)) == norms, since normalized vectors have unit norm
+        // and L2 norms are non-negative. This avoids decompressing the TQ child just to recompute
+        // norms that are already stored.
+        if let Some(sfn) = input_ref.as_opt::<ScalarFnArrayVTable>()
+            && sfn.scalar_fn().as_opt::<L2Denorm>().is_some()
+        {
+            let norms: PrimitiveArray = sfn.child_at(1).clone().execute(ctx)?;
+
+            vortex_ensure_eq!(
+                norms.dtype(),
+                &DType::Primitive(element_ptype, input_ref.dtype().nullability())
+            );
+
+            return Ok(norms.into_array());
+        }
+
+        let input: ExtensionArray = input_ref.execute(ctx)?;
+        let validity = input.as_ref().validity()?;
+
+        let storage = input.storage_array();
+        let flat = extract_flat_elements(storage, tensor_flat_size, ctx)?;
 
         match_each_float_ptype!(flat.ptype(), |T| {
-            let result: PrimitiveArray = (0..row_count)
+            let buffer: Buffer<T> = (0..row_count)
                 .map(|i| l2_norm_row(flat.row::<T>(i)))
                 .collect();
 
-            Ok(result.into_array())
+            // SAFETY: The buffer length equals `row_count`, which matches the source validity
+            // length.
+            Ok(unsafe { PrimitiveArray::new_unchecked(buffer, validity) }.into_array())
         })
     }
 
@@ -155,12 +186,20 @@ fn l2_norm_row<T: Float + NativePType>(v: &[T]) -> T {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::ArrayRef;
-    use vortex_array::ToCanonical;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::MaskedArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::ScalarFnArray;
     use vortex_array::scalar_fn::ScalarFn;
+    use vortex_array::session::ArraySession;
+    use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::scalar_fns::ApproxOptions;
     use crate::scalar_fns::l2_norm::L2Norm;
@@ -168,11 +207,15 @@ mod tests {
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
 
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
     /// Evaluates L2 norm on a tensor/vector array and returns the result as `Vec<f64>`.
     fn eval_l2_norm(input: ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
         let scalar_fn = ScalarFn::new(L2Norm, ApproxOptions::Exact).erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![input], len)?;
-        let prim = result.as_array().to_primitive();
+        let mut ctx = SESSION.create_execution_ctx();
+        let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
         Ok(prim.as_slice::<f64>().to_vec())
     }
 
@@ -215,6 +258,24 @@ mod tests {
             ],
         )?;
         assert_close(&eval_l2_norm(arr, 2)?, &[1.0, 5.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn null_input_row() -> VortexResult<()> {
+        // 2 rows of dim-2 vectors. Row 1 is masked as null.
+        let arr = tensor_array(&[2], &[3.0, 4.0, 0.0, 0.0])?;
+        let arr = MaskedArray::try_new(arr, Validity::from_iter([true, false]))?.into_array();
+
+        let scalar_fn = ScalarFn::new(L2Norm, ApproxOptions::Exact).erased();
+        let result = ScalarFnArray::try_new(scalar_fn, vec![arr], 2)?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
+
+        // Row 0: norm = 5.0, row 1: null.
+        assert!(prim.is_valid(0)?);
+        assert!(!prim.is_valid(1)?);
+        assert_close(&[prim.as_slice::<f64>()[0]], &[5.0]);
         Ok(())
     }
 }

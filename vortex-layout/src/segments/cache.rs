@@ -143,8 +143,8 @@ impl SegmentSource for SegmentCacheSourceAdapter {
     }
 
     fn request(&self, id: SegmentId) -> SegmentFuture {
-        let cache = self.cache.clone();
-        let source = self.source.clone();
+        let cache = Arc::clone(&self.cache);
+        let source = Arc::clone(&self.source);
 
         async move {
             if let Ok(Some(segment)) = cache.get(id).await {

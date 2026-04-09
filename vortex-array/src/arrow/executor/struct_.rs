@@ -19,7 +19,8 @@ use crate::arrays::Chunked;
 use crate::arrays::ScalarFnVTable;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
-use crate::arrays::struct_::StructArrayParts;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
+use crate::arrays::struct_::StructDataParts;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;
@@ -37,7 +38,7 @@ pub(super) fn to_arrow_struct(
     let len = array.len();
 
     // If the array is chunked, then we invert the chunk-of-struct to struct-of-chunk.
-    let array = match array.try_into::<Chunked>() {
+    let array = match array.try_downcast::<Chunked>() {
         Ok(array) => {
             // NOTE(ngates): this currently uses the old into_canonical code path, but we should
             //  just call directly into the swizzle-chunks function.
@@ -47,15 +48,14 @@ pub(super) fn to_arrow_struct(
     };
 
     // Attempt to short-circuit if the array is already a Struct:
-    let array = match array.try_into::<Struct>() {
+    let array = match array.try_downcast::<Struct>() {
         Ok(array) => {
-            let len = array.len();
-            let StructArrayParts {
+            let StructDataParts {
                 validity,
                 fields,
                 struct_fields,
                 ..
-            } = array.into_parts();
+            } = array.into_data_parts();
             let validity = to_arrow_null_buffer(validity, len, ctx)?;
             return create_from_fields(
                 target_fields.ok_or_else(|| struct_fields.names().clone()),
@@ -97,13 +97,12 @@ pub(super) fn to_arrow_struct(
     };
 
     let struct_array = array.execute::<StructArray>(ctx)?;
-    let len = struct_array.len();
-    let StructArrayParts {
+    let StructDataParts {
         validity,
         fields,
         struct_fields,
         ..
-    } = struct_array.into_parts();
+    } = struct_array.into_data_parts();
 
     let validity = to_arrow_null_buffer(validity, len, ctx)?;
     create_from_fields(

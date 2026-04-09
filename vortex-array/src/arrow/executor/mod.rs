@@ -32,6 +32,8 @@ use vortex_error::vortex_ensure;
 use crate::ArrayRef;
 use crate::arrays::List;
 use crate::arrays::VarBin;
+use crate::arrays::list::ListArrayExt;
+use crate::arrays::varbin::VarBinArrayExt;
 use crate::arrow::executor::bool::to_arrow_bool;
 use crate::arrow::executor::byte::to_arrow_byte_array;
 use crate::arrow::executor::byte_view::to_arrow_byte_view;

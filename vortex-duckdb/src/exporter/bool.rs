@@ -3,6 +3,7 @@
 
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::BoolArray;
+use vortex::array::arrays::bool::BoolArrayExt;
 use vortex::buffer::BitBuffer;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
@@ -23,7 +24,7 @@ pub(crate) fn new_exporter(
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let len = array.len();
     let bits = array.to_bit_buffer();
-    let validity = array.validity().to_array(len).execute::<Mask>(ctx)?;
+    let validity = array.validity()?.to_array(len).execute::<Mask>(ctx)?;
 
     if validity.all_false() {
         return Ok(all_invalid::new_exporter(len, &LogicalType::bool()));

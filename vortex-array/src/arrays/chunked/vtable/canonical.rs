@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::BufferMut;
+use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -15,13 +15,17 @@ use crate::arrays::ChunkedArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
+use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewRebuildMode;
-use crate::builders::builder_with_capacity;
+use crate::arrays::struct_::StructArrayExt;
+use crate::builders::builder_with_capacity_in;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
+use crate::memory::HostAllocatorExt;
 use crate::validity::Validity;
 
 pub(super) fn _canonicalize(
@@ -53,7 +57,7 @@ pub(super) fn _canonicalize(
             ctx,
         )?),
         _ => {
-            let mut builder = builder_with_capacity(array.dtype(), array.len());
+            let mut builder = builder_with_capacity_in(ctx.allocator(), array.dtype(), array.len());
             array.array().append_to_builder(builder.as_mut(), ctx)?;
             builder.finish_into_canonical()
         }
@@ -128,8 +132,12 @@ fn swizzle_list_chunks(
     // this much more complicated.
     // We (somewhat arbitrarily) choose `u64` for our offsets and sizes here. These can always be
     // narrowed later by the compressor.
-    let mut offsets = BufferMut::<u64>::with_capacity(len);
-    let mut sizes = BufferMut::<u64>::with_capacity(len);
+    let allocator = ctx.allocator();
+    let mut offsets = allocator.allocate_typed::<u64>(len)?;
+    let mut sizes = allocator.allocate_typed::<u64>(len)?;
+    let offsets_out: &mut [u64] = offsets.as_mut_slice_typed::<u64>()?;
+    let sizes_slice_out: &mut [u64] = sizes.as_mut_slice_typed::<u64>()?;
+    let mut next_list = 0usize;
 
     for chunk in chunks {
         let chunk_array = chunk.clone().execute::<ListViewArray>(ctx)?;
@@ -159,19 +167,31 @@ fn swizzle_list_chunks(
         let sizes_slice = sizes_arr.as_slice::<u64>();
 
         // Append offsets and sizes, adjusting offsets to point into the combined array.
-        offsets.extend(offsets_slice.iter().map(|o| o + num_elements));
-        sizes.extend(sizes_slice);
+        for (&offset, &size) in offsets_slice.iter().zip(sizes_slice.iter()) {
+            offsets_out[next_list] = offset + num_elements;
+            sizes_slice_out[next_list] = size;
+            next_list += 1;
+        }
 
         num_elements += chunk_array.elements().len() as u64;
     }
+    debug_assert_eq!(next_list, len);
 
     // SAFETY: elements are sliced from valid `ListViewArray`s (from `to_listview()`).
     let chunked_elements =
         unsafe { ChunkedArray::new_unchecked(list_elements_chunks, elem_dtype.clone()) }
             .into_array();
 
-    let offsets = PrimitiveArray::new(offsets.freeze(), Validity::NonNullable).into_array();
-    let sizes = PrimitiveArray::new(sizes.freeze(), Validity::NonNullable).into_array();
+    let offsets = PrimitiveArray::new(
+        Buffer::<u64>::from_byte_buffer(offsets.freeze()),
+        Validity::NonNullable,
+    )
+    .into_array();
+    let sizes = PrimitiveArray::new(
+        Buffer::<u64>::from_byte_buffer(sizes.freeze()),
+        Validity::NonNullable,
+    )
+    .into_array();
 
     // SAFETY:
     // - `offsets` and `sizes` are non-nullable u64 arrays of the same length
@@ -189,9 +209,15 @@ fn swizzle_list_chunks(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
+    use crate::Canonical;
+    use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::accessor::ArrayAccessor;
@@ -199,11 +225,32 @@ mod tests {
     use crate::arrays::ListArray;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinViewArray;
+    use crate::arrays::struct_::StructArrayExt;
     use crate::dtype::DType::List;
     use crate::dtype::DType::Primitive;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::PType::I32;
+    use crate::memory::DefaultHostAllocator;
+    use crate::memory::HostAllocator;
+    use crate::memory::MemorySessionExt;
+    use crate::memory::WritableHostBuffer;
     use crate::validity::Validity;
+
+    #[derive(Debug)]
+    struct CountingAllocator {
+        allocations: Arc<AtomicUsize>,
+    }
+
+    impl HostAllocator for CountingAllocator {
+        fn allocate(
+            &self,
+            len: usize,
+            alignment: vortex_buffer::Alignment,
+        ) -> VortexResult<WritableHostBuffer> {
+            self.allocations.fetch_add(1, Ordering::Relaxed);
+            DefaultHostAllocator.allocate(len, alignment)
+        }
+    }
 
     #[test]
     pub fn pack_nested_structs() {
@@ -260,5 +307,43 @@ mod tests {
 
         assert_eq!(l1.scalar_at(0).unwrap(), canon_values.scalar_at(0).unwrap());
         assert_eq!(l2.scalar_at(0).unwrap(), canon_values.scalar_at(1).unwrap());
+    }
+
+    #[test]
+    fn list_canonicalize_uses_memory_session_allocator() {
+        let allocations = Arc::new(AtomicUsize::new(0));
+        let session = VortexSession::empty();
+        session
+            .memory_mut()
+            .set_allocator(Arc::new(CountingAllocator {
+                allocations: Arc::clone(&allocations),
+            }));
+        let mut ctx = ExecutionCtx::new(session);
+
+        let l1 = ListArray::try_new(
+            buffer![1, 2, 3, 4].into_array(),
+            buffer![0, 3].into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap();
+        let l2 = ListArray::try_new(
+            buffer![5, 6].into_array(),
+            buffer![0, 2].into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let chunked_list = ChunkedArray::try_new(
+            vec![l1.into_array(), l2.into_array()],
+            List(Arc::new(Primitive(I32, NonNullable)), NonNullable),
+        )
+        .unwrap()
+        .into_array();
+
+        drop(chunked_list.execute::<Canonical>(&mut ctx).unwrap());
+        assert!(
+            allocations.load(Ordering::Relaxed) >= 2,
+            "expected offset+size allocations through MemorySession"
+        );
     }
 }

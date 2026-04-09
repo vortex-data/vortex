@@ -227,7 +227,12 @@ impl RDEncoder {
         }
 
         // Bit-pack down the encoded left-parts array that have been dictionary encoded.
-        let primitive_left = PrimitiveArray::new(left_parts, array.validity());
+        let primitive_left = PrimitiveArray::new(
+            left_parts,
+            array
+                .validity()
+                .vortex_expect("ALP RD validity should be derivable"),
+        );
         // SAFETY: by construction, all values in left_parts can be packed to left_bit_width.
         let packed_left = unsafe {
             bitpack_encode_unchecked(primitive_left, left_bit_width as _)

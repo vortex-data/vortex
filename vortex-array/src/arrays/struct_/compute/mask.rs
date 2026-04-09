@@ -8,6 +8,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
+use crate::arrays::struct_::StructArrayExt;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 
@@ -17,7 +18,7 @@ impl MaskReduce for Struct {
             array.unmasked_fields().iter().cloned().collect::<Vec<_>>(),
             array.struct_fields().clone(),
             array.len(),
-            array.validity().and(Validity::Array(mask.clone()))?,
+            array.validity()?.and(Validity::Array(mask.clone()))?,
         )
         .map(|a| Some(a.into_array()))
     }

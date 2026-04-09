@@ -17,9 +17,9 @@ use crate::ByteBoolData;
 impl SliceReduce for ByteBool {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            ByteBoolData::new(
+            ByteBool::new(
                 array.buffer().slice(range.clone()),
-                array.validity().slice(range)?,
+                array.validity()?.slice(range)?,
             )
             .into_array(),
         ))
@@ -29,9 +29,9 @@ impl SliceReduce for ByteBool {
 impl FilterReduce for ByteBool {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            ByteBoolData::new(
+            ByteBool::new(
                 array.buffer().filter(mask, size_of::<u8>())?,
-                array.validity().filter(mask)?,
+                array.validity()?.filter(mask)?,
             )
             .into_array(),
         ))

@@ -450,6 +450,23 @@ impl Mask {
         }
     }
 
+    /// Returns the last true index in the mask.
+    pub fn last(&self) -> Option<usize> {
+        match &self {
+            Self::AllTrue(len) => (*len > 0).then_some(*len - 1),
+            Self::AllFalse(_) => None,
+            Self::Values(values) => {
+                if let Some(indices) = values.indices.get() {
+                    return indices.last().copied();
+                }
+                if let Some(slices) = values.slices.get() {
+                    return slices.last().map(|(_, end)| end - 1);
+                }
+                values.buffer.set_slices().last().map(|(_, end)| end - 1)
+            }
+        }
+    }
+
     /// Returns the position in the mask of the nth true value.
     pub fn rank(&self, n: usize) -> usize {
         if n >= self.true_count() {

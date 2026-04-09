@@ -13,6 +13,7 @@ use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::NullArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
@@ -427,6 +428,7 @@ mod tests {
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
     use vortex::array::arrays::VarBinViewArray;
+    use vortex::array::arrays::bool::BoolArrayExt;
     use vortex::array::validity::Validity;
     use vortex::buffer::buffer;
     #[cfg(not(miri))]

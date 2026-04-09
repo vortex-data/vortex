@@ -11,6 +11,7 @@ use crate::array::ArrayView;
 use crate::arrays::FilterArray;
 use crate::arrays::Patched;
 use crate::arrays::filter::FilterReduce;
+use crate::arrays::patched::PatchedArrayExt;
 
 impl FilterReduce for Patched {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
@@ -31,13 +32,13 @@ impl FilterReduce for Patched {
 
                 // Convert mask indices to absolute positions by adding offset
                 (
-                    (array.offset + first) / 1024,
-                    (array.offset + last).div_ceil(1024),
+                    (array.offset() + first) / 1024,
+                    (array.offset() + last).div_ceil(1024),
                 )
             }
         };
 
-        let n_chunks = (array.offset + array.len).div_ceil(1024);
+        let n_chunks = (array.offset() + array.len()).div_ceil(1024);
 
         // If all chunks already covered, there is nothing to do.
         if chunk_start == 0 && chunk_stop == n_chunks {
@@ -48,9 +49,9 @@ impl FilterReduce for Patched {
 
         // Slice the mask according to if the chunk is sliced.
         // Convert chunk bounds back to mask indices by subtracting offset.
-        let mask_start = (chunk_start * 1024).saturating_sub(array.offset);
+        let mask_start = (chunk_start * 1024).saturating_sub(array.offset());
         let mask_end = (chunk_stop * 1024)
-            .saturating_sub(array.offset)
+            .saturating_sub(array.offset())
             .min(array.len());
         let remainder = mask.slice(mask_start..mask_end);
 
@@ -69,7 +70,7 @@ mod tests {
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    use crate::arrays::PatchedArray;
+    use crate::arrays::Patched;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::optimizer::ArrayOptimizer;
@@ -86,7 +87,7 @@ mod tests {
 
         let patches = Patches::new(5, 0, patched_indices, patched_values, None)?;
 
-        let array = PatchedArray::from_array_and_patches(array, &patches, &mut ctx)?.into_array();
+        let array = Patched::from_array_and_patches(array, &patches, &mut ctx)?.into_array();
 
         let mask = Mask::from_iter([true, false, false, false, true]);
         let filtered = array
@@ -113,7 +114,7 @@ mod tests {
 
         let patches = Patches::new(4096, 0, patched_indices, patched_values, None)?;
 
-        let array = PatchedArray::from_array_and_patches(array, &patches, &mut ctx)?.into_array();
+        let array = Patched::from_array_and_patches(array, &patches, &mut ctx)?.into_array();
 
         let sliced = array.slice(5..4096)?.optimize()?;
 
@@ -141,7 +142,7 @@ mod tests {
 
         let patches = Patches::new(4096, 0, patched_indices, patched_values, None)?;
 
-        let array = PatchedArray::from_array_and_patches(array, &patches, &mut ctx)?.into_array();
+        let array = Patched::from_array_and_patches(array, &patches, &mut ctx)?.into_array();
 
         // Filter that only touches the middle 2 chunks.
         let mask = Mask::from_indices(4096, vec![1024, 1025, 3000]);
@@ -168,7 +169,7 @@ mod tests {
 
         let patches = Patches::new(4096, 1, patched_indices, patched_values, None)?;
 
-        let array = PatchedArray::from_array_and_patches(array, &patches, &mut ctx)?.into_array();
+        let array = Patched::from_array_and_patches(array, &patches, &mut ctx)?.into_array();
 
         // Filter that only touches the middle 2 chunks.
         let mask = Mask::from_indices(4096, vec![1024, 1025, 3000]);
@@ -198,7 +199,7 @@ mod tests {
 
         let patches = Patches::new(6144, 0, patched_indices, patched_values, None)?;
 
-        let patched = PatchedArray::from_array_and_patches(array, &patches, &mut ctx)?;
+        let patched = Patched::from_array_and_patches(array, &patches, &mut ctx)?;
 
         // Slice at chunk boundary to create offset > 0. After slicing [1024..5120],
         // we have 4096 elements and patches are at relative indices 1024 and 1025.
@@ -236,7 +237,7 @@ mod tests {
         let patched_values = buffer![9999u16, 8888].into_array();
 
         let patches = Patches::new(4096, 0, patched_indices, patched_values, None)?;
-        let array = PatchedArray::from_array_and_patches(array, &patches, &mut ctx)?.into_array();
+        let array = Patched::from_array_and_patches(array, &patches, &mut ctx)?.into_array();
 
         // Slice to create offset > 0.
         // After slice(5..4096), logical position 0 = original position 5 (patched to 9999).
@@ -272,7 +273,7 @@ mod tests {
 
         let patches = Patches::new(6144, 0, patched_indices, patched_values, None)?;
 
-        let patched = PatchedArray::from_array_and_patches(array, &patches, &mut ctx)?;
+        let patched = Patched::from_array_and_patches(array, &patches, &mut ctx)?;
 
         // Slice at chunk boundary to create offset > 0.
         // Slice [1024..6144] gives us 5120 elements (5 chunks).

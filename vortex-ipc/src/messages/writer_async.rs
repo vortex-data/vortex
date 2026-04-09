@@ -4,6 +4,7 @@
 use futures::AsyncWrite;
 use futures::AsyncWriteExt;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::messages::EncoderMessage;
 use crate::messages::MessageEncoder;
@@ -14,10 +15,10 @@ pub struct AsyncMessageWriter<W> {
 }
 
 impl<W: AsyncWrite + Unpin> AsyncMessageWriter<W> {
-    pub fn new(write: W) -> Self {
+    pub fn new(write: W, session: &VortexSession) -> Self {
         Self {
             write,
-            encoder: MessageEncoder::default(),
+            encoder: MessageEncoder::new(session.clone()),
         }
     }
 

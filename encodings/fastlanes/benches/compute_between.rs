@@ -6,6 +6,8 @@ use num_traits::NumCast;
 use rand::RngExt;
 use rand::rngs::StdRng;
 use vortex_alp::ALP;
+use vortex_alp::ALPArrayExt;
+use vortex_alp::ALPArraySlotsExt;
 use vortex_alp::alp_encode;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;

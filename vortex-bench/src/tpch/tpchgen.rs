@@ -136,7 +136,7 @@ pub async fn generate_tpch_tables(options: TpchGenOptions) -> Result<()> {
     let (tx, rx) = mpsc::unbounded_channel();
 
     for f in all_futures {
-        let limiter = limiter.clone();
+        let limiter = Arc::clone(&limiter);
         let tx = tx.clone();
         tokio::task::spawn(async move {
             let _guard = limiter.acquire().await?;
@@ -232,7 +232,7 @@ fn generate_table_files(
                 let iter = create_single_batch_iterator(generator, &options_clone, partition_idx)?;
 
                 // Create generator and process batches in streaming fashion
-                let schema = iter.schema().clone();
+                let schema = Arc::clone(iter.schema());
 
                 // Create writer based on format
                 let mut writer: Box<dyn FileWriter + Send> = match write_format {

@@ -1,22 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hasher;
+use std::sync::Arc;
+
+use prost::Message;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::ArrayEq;
+use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
-use crate::ProstMetadata;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::arrays::list::ListArrayExt;
 use crate::arrays::list::ListData;
 use crate::arrays::list::array::NUM_SLOTS;
 use crate::arrays::list::array::SLOT_NAMES;
@@ -27,17 +34,12 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::hash::ArrayEq;
-use crate::hash::ArrayHash;
-use crate::metadata::DeserializeMetadata;
-use crate::metadata::SerializeMetadata;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable;
 mod operations;
 mod validity;
-vtable!(List, List, ListData);
+/// A [`List`]-encoded Vortex array.
+pub type ListArray = Array<List>;
 
 #[derive(Clone, prost::Message)]
 pub struct ListMetadata {
@@ -47,42 +49,24 @@ pub struct ListMetadata {
     offset_ptype: i32,
 }
 
+impl ArrayHash for ListData {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+}
+
+impl ArrayEq for ListData {
+    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+        true
+    }
+}
+
 impl VTable for List {
     type ArrayData = ListData;
 
-    type Metadata = ProstMetadata<ListMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn vtable(_array: &ListData) -> &Self {
-        &List
-    }
 
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn len(array: &ListData) -> usize {
-        array.offsets().len().saturating_sub(1)
-    }
-
-    fn dtype(array: &ListData) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &ListData) -> &ArrayStats {
-        &array.stats_set
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &ListData, state: &mut H, precision: Precision) {
-        array.elements().array_hash(state, precision);
-        array.offsets().array_hash(state, precision);
-        array.validity().array_hash(state, precision);
-    }
-
-    fn array_eq(array: &ListData, other: &ListData, precision: Precision) -> bool {
-        array.elements().array_eq(other.elements(), precision)
-            && array.offsets().array_eq(other.offsets(), precision)
-            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -105,36 +89,66 @@ impl VTable for List {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(ListMetadata {
-            elements_len: array.elements().len() as u64,
-            offset_ptype: PType::try_from(array.offsets().dtype())? as i32,
-        }))
-    }
-
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(SerializeMetadata::serialize(metadata)))
-    }
-
-    fn deserialize(
-        bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
+    fn serialize(
+        array: ArrayView<'_, Self>,
         _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(
-            <ProstMetadata<ListMetadata> as DeserializeMetadata>::deserialize(bytes)?,
+    ) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(
+            ListMetadata {
+                elements_len: array.elements().len() as u64,
+                offset_ptype: PType::try_from(array.offsets().dtype())? as i32,
+            }
+            .encode_to_vec(),
         ))
     }
 
-    fn build(
+    fn validate(
+        &self,
+        _data: &ListData,
         dtype: &DType,
         len: usize,
-        metadata: &Self::Metadata,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "ListArray expected {NUM_SLOTS} slots, found {}",
+            slots.len()
+        );
+        let elements = slots[crate::arrays::list::array::ELEMENTS_SLOT]
+            .as_ref()
+            .vortex_expect("ListArray elements slot");
+        let offsets = slots[crate::arrays::list::array::OFFSETS_SLOT]
+            .as_ref()
+            .vortex_expect("ListArray offsets slot");
+        vortex_ensure!(
+            offsets.len().saturating_sub(1) == len,
+            "ListArray length {} does not match outer length {}",
+            offsets.len().saturating_sub(1),
+            len
+        );
+
+        let actual_dtype = DType::List(Arc::new(elements.dtype().clone()), dtype.nullability());
+        vortex_ensure!(
+            &actual_dtype == dtype,
+            "ListArray dtype {} does not match outer dtype {}",
+            actual_dtype,
+            dtype
+        );
+
+        Ok(())
+    }
+
+    fn deserialize(
+        &self,
+        dtype: &DType,
+        len: usize,
+        metadata: &[u8],
+
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ListData> {
+        _session: &VortexSession,
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
+        let metadata = ListMetadata::decode(metadata)?;
         let validity = if children.len() == 2 {
             Validity::from(dtype.nullability())
         } else if children.len() == 3 {
@@ -150,35 +164,22 @@ impl VTable for List {
         let elements = children.get(
             0,
             element_dtype.as_ref(),
-            usize::try_from(metadata.0.elements_len)?,
+            usize::try_from(metadata.elements_len)?,
         )?;
 
         let offsets = children.get(
             1,
-            &DType::Primitive(metadata.0.offset_ptype(), Nullability::NonNullable),
+            &DType::Primitive(metadata.offset_ptype(), Nullability::NonNullable),
             len + 1,
         )?;
 
-        ListData::try_new(elements, offsets, validity)
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        let data = ListData::try_build(elements.clone(), offsets.clone(), validity.clone())?;
+        let slots = ListData::make_slots(&elements, &offsets, &validity, len);
+        Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ListArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

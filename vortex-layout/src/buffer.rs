@@ -15,11 +15,13 @@ use futures::future::try_join_all;
 use vortex_array::ArrayRef;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::buffer::DeviceBuffer;
-use vortex_array::serde::ArrayParts;
+use vortex_array::serde::SerializedArray;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
 
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
@@ -35,6 +37,8 @@ pub struct LazyBufferHandle {
     source: Arc<dyn SegmentSource>,
     segment_id: SegmentId,
     selection: Selection,
+    /// An optional deferred filter that has not yet been resolved into byte ranges.
+    deferred_filter: Option<DeferredFilter>,
     len: usize,
     alignment: Alignment,
 }
@@ -48,6 +52,16 @@ enum Selection {
     Range(Range<usize>),
     /// Multiple non-overlapping, sorted byte ranges within the segment.
     Ranges(Arc<[Range<usize>]>),
+}
+
+/// A deferred mask filter layered on top of a [`Selection`].
+///
+/// Stored separately so that the mask and byte width are preserved as-is;
+/// slices are only computed at materialization time (if at all).
+#[derive(Clone, Debug)]
+struct DeferredFilter {
+    mask: Mask,
+    byte_width: usize,
 }
 
 #[allow(clippy::same_name_method)]
@@ -65,6 +79,7 @@ impl LazyBufferHandle {
             source,
             segment_id,
             selection: Selection::All,
+            deferred_filter: None,
             len: segment_len,
             alignment,
         }
@@ -91,8 +106,11 @@ impl LazyBufferHandle {
     }
 
     /// Returns the byte ranges that will be read from the segment, or `None` if the
-    /// entire segment is selected.
+    /// entire segment is selected or a deferred filter is pending.
     pub fn byte_ranges(&self) -> Option<&[Range<usize>]> {
+        if self.deferred_filter.is_some() {
+            return None;
+        }
         match &self.selection {
             Selection::All => None,
             Selection::Range(r) => Some(std::slice::from_ref(r)),
@@ -112,8 +130,10 @@ impl LazyBufferHandle {
     /// those bounds are known).
     pub fn slice(&self, range: Range<usize>) -> Self {
         validate_slice_range(&range, self.len);
+        // If there's a deferred filter, resolve it into byte ranges first.
+        let resolved = self.resolve_filter();
         let new_len = range.len();
-        let selection = match &self.selection {
+        let selection = match &resolved.selection {
             Selection::All => Selection::Range(range),
             Selection::Range(base) => {
                 let start = base.start + range.start;
@@ -133,6 +153,7 @@ impl LazyBufferHandle {
             source: Arc::clone(&self.source),
             segment_id: self.segment_id,
             selection,
+            deferred_filter: None,
             len: new_len,
             alignment: self.alignment,
         }
@@ -147,9 +168,11 @@ impl LazyBufferHandle {
     ///
     /// Panics if any range exceeds the bounds of the current selection (when
     /// those bounds are known).
-    pub fn filter(&self, ranges: &[Range<usize>]) -> Self {
+    pub fn select_ranges(&self, ranges: &[Range<usize>]) -> Self {
         validate_filter_ranges(ranges, self.len);
-        let selection = match &self.selection {
+        // If there's a deferred filter, resolve it into byte ranges first.
+        let resolved = self.resolve_filter();
+        let selection = match &resolved.selection {
             Selection::All => Selection::Ranges(Arc::from(ranges)),
             Selection::Range(base) => {
                 let absolute: Arc<[Range<usize>]> = ranges
@@ -186,19 +209,98 @@ impl LazyBufferHandle {
             source: Arc::clone(&self.source),
             segment_id: self.segment_id,
             selection,
+            deferred_filter: None,
             len: ranges.iter().map(Range::len).sum(),
             alignment: self.alignment,
         }
     }
 
+    /// Resolve a deferred filter into concrete byte ranges (or `All` if the filter
+    /// selects enough of the data that a full read is cheaper).
+    ///
+    /// If no deferred filter is present, returns a clone of `self` unchanged.
+    fn resolve_filter(&self) -> Self {
+        let Some(df) = &self.deferred_filter else {
+            return self.clone();
+        };
+        // Decide: if the filter selects everything, just read all.
+        if df.mask.true_count() == df.mask.len() {
+            return Self {
+                source: Arc::clone(&self.source),
+                segment_id: self.segment_id,
+                selection: self.selection.clone(),
+                deferred_filter: None,
+                len: self.len,
+                alignment: self.alignment,
+            };
+        }
+        // Compute byte ranges from mask slices.
+        let slices = match df.mask.slices() {
+            AllOr::Some(slices) => slices,
+            AllOr::All => {
+                return Self {
+                    source: Arc::clone(&self.source),
+                    segment_id: self.segment_id,
+                    selection: self.selection.clone(),
+                    deferred_filter: None,
+                    len: self.len,
+                    alignment: self.alignment,
+                };
+            }
+            AllOr::None => {
+                return Self {
+                    source: Arc::clone(&self.source),
+                    segment_id: self.segment_id,
+                    selection: self.selection.clone(),
+                    deferred_filter: None,
+                    len: 0,
+                    alignment: self.alignment,
+                };
+            }
+        };
+        let byte_ranges: Vec<Range<usize>> = slices
+            .iter()
+            .map(|&(s, e)| (s * df.byte_width)..(e * df.byte_width))
+            .collect();
+        let new_len: usize = byte_ranges.iter().map(Range::len).sum();
+        // Apply the byte ranges on top of the existing selection.
+        let mut resolved = Self {
+            source: Arc::clone(&self.source),
+            segment_id: self.segment_id,
+            selection: self.selection.clone(),
+            deferred_filter: None,
+            len: self.len,
+            alignment: self.alignment,
+        };
+        resolved = resolved.select_ranges(&byte_ranges);
+        resolved.len = new_len;
+        resolved
+    }
+
     /// Materialize the lazy buffer by performing I/O and applying the selection.
+    ///
+    /// If a deferred filter is pending, this is where the decision is made: if the
+    /// mask selects most of the data, the entire segment is fetched; otherwise
+    /// slices are computed for a targeted read.
     ///
     /// # Errors
     ///
     /// Returns an error if the segment cannot be loaded or the selection cannot be
     /// applied.
     pub async fn materialize(&self) -> VortexResult<BufferHandle> {
-        match &self.selection {
+        if let Some(df) = &self.deferred_filter {
+            // Decision point: if the filter selects most rows, just read all.
+            if df.mask.true_count() == df.mask.len() {
+                return self.materialize_selection(&self.selection).await;
+            }
+            let resolved = self.resolve_filter();
+            return resolved.materialize_selection(&resolved.selection).await;
+        }
+        self.materialize_selection(&self.selection).await
+    }
+
+    async fn materialize_selection(&self, selection: &Selection) -> VortexResult<BufferHandle> {
+        match selection {
             Selection::All => self.source.request(self.segment_id).await,
             Selection::Range(range) => {
                 self.source
@@ -229,6 +331,8 @@ impl PartialEq for LazyBufferHandle {
     fn eq(&self, other: &Self) -> bool {
         self.segment_id == other.segment_id
             && self.selection == other.selection
+            && self.deferred_filter.is_none()
+            && other.deferred_filter.is_none()
             && self.len == other.len
             && self.alignment == other.alignment
     }
@@ -281,8 +385,30 @@ impl DeviceBuffer for LazyBufferHandle {
         Arc::new(LazyBufferHandle::slice(self, range))
     }
 
-    fn filter(&self, ranges: &[Range<usize>]) -> VortexResult<Arc<dyn DeviceBuffer>> {
-        Ok(Arc::new(LazyBufferHandle::filter(self, ranges)))
+    fn copy_ranges(&self, ranges: &[Range<usize>]) -> VortexResult<Arc<dyn DeviceBuffer>> {
+        Ok(Arc::new(self.select_ranges(ranges)))
+    }
+
+    fn filter(&self, mask: &Mask, byte_width: usize) -> VortexResult<Arc<dyn DeviceBuffer>> {
+        if mask.all_true() {
+            return Ok(Arc::new(self.clone()));
+        }
+        if mask.is_empty() || mask.true_count() == 0 {
+            return self.copy_ranges(&[]);
+        }
+        // Store the mask as-is — slices are deferred until materialization.
+        let filtered_len = mask.true_count() * byte_width;
+        Ok(Arc::new(Self {
+            source: Arc::clone(&self.source),
+            segment_id: self.segment_id,
+            selection: self.selection.clone(),
+            deferred_filter: Some(DeferredFilter {
+                mask: mask.clone(),
+                byte_width,
+            }),
+            len: filtered_len,
+            alignment: self.alignment,
+        }))
     }
 
     fn aligned(self: Arc<Self>, alignment: Alignment) -> VortexResult<Arc<dyn DeviceBuffer>> {
@@ -293,6 +419,7 @@ impl DeviceBuffer for LazyBufferHandle {
                 source: Arc::clone(&self.source),
                 segment_id: self.segment_id,
                 selection: self.selection.clone(),
+                deferred_filter: self.deferred_filter.clone(),
                 len: self.len,
                 alignment,
             }))
@@ -300,18 +427,18 @@ impl DeviceBuffer for LazyBufferHandle {
     }
 }
 
-/// Build an [`ArrayParts`] with lazy device buffers that defer segment I/O.
+/// Build a [`SerializedArray`] with lazy device buffers that defer segment I/O.
 ///
 /// Each buffer descriptor in the flatbuffer is turned into a [`LazyBufferHandle`]
 /// that records the segment source, segment ID, byte range, and alignment but
-/// does **not** perform any I/O. The returned [`ArrayParts`] can be decoded into
+/// does **not** perform any I/O. The returned [`SerializedArray`] can be decoded into
 /// an array tree and manipulated (sliced, filtered, optimized) before the lazy
 /// buffers are materialized with [`materialize_recursive`].
 pub fn create_lazy_array_parts(
     array_tree: ByteBuffer,
     source: Arc<dyn SegmentSource>,
     segment_id: SegmentId,
-) -> VortexResult<ArrayParts> {
+) -> VortexResult<SerializedArray> {
     use flatbuffers::root;
     use vortex_flatbuffers::FlatBuffer;
     use vortex_flatbuffers::array as fba;
@@ -341,7 +468,7 @@ pub fn create_lazy_array_parts(
         })
         .collect();
 
-    ArrayParts::from_flatbuffer_with_buffers(array_tree, buffers)
+    SerializedArray::from_flatbuffer_with_buffers(array_tree, buffers)
 }
 
 /// Recursively walk the array tree and materialize any [`LazyBufferHandle`]
@@ -573,7 +700,7 @@ mod tests {
     fn filter_from_all() -> VortexResult<()> {
         block_on(|_| async {
             let handle = lazy(&[1, 2, 3, 4, 5, 6])
-                .filter(&[0..2, 4..6])
+                .select_ranges(&[0..2, 4..6])
                 .materialize()
                 .await?;
             assert_eq!(handle.unwrap_host().as_slice(), &[1, 2, 5, 6]);
@@ -586,7 +713,7 @@ mod tests {
         block_on(|_| async {
             let handle = lazy(&[1, 2, 3, 4, 5, 6])
                 .slice(1..5)
-                .filter(&[0..1, 2..4])
+                .select_ranges(&[0..1, 2..4])
                 .materialize()
                 .await?;
             // slice(1..5) → [2, 3, 4, 5]
@@ -600,7 +727,7 @@ mod tests {
     fn slice_of_filter() -> VortexResult<()> {
         block_on(|_| async {
             let handle = lazy(&[10, 20, 30, 40, 50, 60])
-                .filter(&[0..2, 4..6])
+                .select_ranges(&[0..2, 4..6])
                 .slice(1..3)
                 .materialize()
                 .await?;
@@ -615,8 +742,8 @@ mod tests {
     fn filter_of_filter() -> VortexResult<()> {
         block_on(|_| async {
             let handle = lazy(&[10, 20, 30, 40, 50, 60])
-                .filter(&[0..2, 4..6])
-                .filter(&[0..1, 3..4])
+                .select_ranges(&[0..2, 4..6])
+                .select_ranges(&[0..1, 3..4])
                 .materialize()
                 .await?;
             // First filter selects [10, 20, 50, 60] (logical bytes 0..4)
@@ -648,7 +775,7 @@ mod tests {
 
     #[test]
     fn byte_ranges_after_filter() {
-        let lazy = lazy(&[1, 2, 3, 4, 5]).filter(&[0..2, 3..5]);
+        let lazy = lazy(&[1, 2, 3, 4, 5]).select_ranges(&[0..2, 3..5]);
         let expected = [Range { start: 0, end: 2 }, Range { start: 3, end: 5 }];
         assert_eq!(lazy.byte_ranges(), Some(expected.as_slice()));
     }

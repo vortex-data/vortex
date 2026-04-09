@@ -17,6 +17,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray as _;
 use crate::arrays::StructArray;
+use crate::arrays::struct_::StructArrayExt;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
@@ -50,7 +51,7 @@ impl ScalarFnVTable for Merge {
     type Options = DuplicateHandling;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new_ref("vortex.merge")
+        ScalarFnId::from("vortex.merge")
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -214,10 +215,10 @@ impl ScalarFnVTable for Merge {
             for name in child_dtype.names().iter() {
                 if let Some(idx) = names.iter().position(|n| n == name) {
                     duplicate_names.insert(name.clone());
-                    children[idx] = child.clone();
+                    children[idx] = Arc::clone(&child);
                 } else {
                     names.push(name.clone());
-                    children.push(child.clone());
+                    children.push(Arc::clone(&child));
                 }
             }
 
@@ -292,6 +293,7 @@ mod tests {
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;

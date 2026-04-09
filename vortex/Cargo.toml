@@ -56,12 +56,15 @@ divan = { workspace = true }
 fastlanes = { workspace = true }
 mimalloc = { workspace = true }
 parquet = { workspace = true }
+paste = { workspace = true }
 rand = { workspace = true }
+rand_distr = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 vortex = { path = ".", features = ["tokio"] }
+vortex-tensor = { workspace = true }
 
 [features]
 default = ["files", "zstd"]

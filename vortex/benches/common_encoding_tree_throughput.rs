@@ -21,19 +21,26 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::TemporalArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::arrays::VarBinViewArray;
+use vortex::array::arrays::varbin::VarBinArrayExt;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::dtype::DType;
 use vortex::dtype::PType;
 use vortex::encodings::alp::ALP;
+use vortex::encodings::alp::ALPArrayExt;
+use vortex::encodings::alp::ALPArraySlotsExt;
 use vortex::encodings::alp::alp_encode;
 use vortex::encodings::datetime_parts::DateTimeParts;
 use vortex::encodings::datetime_parts::split_temporal;
 use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::FoR;
+use vortex::encodings::fastlanes::FoRArrayExt;
 use vortex::encodings::fsst::FSST;
+use vortex::encodings::fsst::FSSTArrayExt;
 use vortex::encodings::fsst::fsst_compress;
 use vortex::encodings::fsst::fsst_train_compressor;
 use vortex::encodings::runend::RunEnd;
+use vortex::encodings::runend::RunEndArrayExt;
+use vortex::error::VortexExpect;
 use vortex::extension::datetime::TimeUnit;
 
 #[global_allocator]
@@ -262,7 +269,9 @@ mod setup {
             offsets_bp.into_array(),
             codes.bytes().clone(),
             codes.dtype().clone(),
-            codes.validity(),
+            codes
+                .validity()
+                .vortex_expect("FSST code validity should be derivable"),
         )
         .unwrap();
 

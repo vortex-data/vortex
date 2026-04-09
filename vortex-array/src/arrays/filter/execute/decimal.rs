@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use vortex_error::VortexExpect;
 use vortex_mask::MaskValues;
 
 use crate::arrays::DecimalArray;
@@ -11,7 +12,12 @@ use crate::arrays::filter::execute::filter_validity;
 use crate::match_each_decimal_value_type;
 
 pub fn filter_decimal(array: &DecimalArray, mask: &Arc<MaskValues>) -> DecimalArray {
-    let filtered_validity = filter_validity(array.validity(), mask);
+    let filtered_validity = filter_validity(
+        array
+            .validity()
+            .vortex_expect("decimal validity should be derivable"),
+        mask,
+    );
 
     match_each_decimal_value_type!(array.values_type(), |T| {
         let filtered_buffer = buffer::filter_buffer(array.buffer::<T>(), mask.as_ref());

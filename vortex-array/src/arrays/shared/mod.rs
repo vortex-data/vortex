@@ -4,6 +4,7 @@
 mod array;
 mod vtable;
 
+pub use array::SharedArrayExt;
 pub use array::SharedData;
 pub use vtable::Shared;
 pub use vtable::SharedArray;

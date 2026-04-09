@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 
 use crate::Delta;
 use crate::bit_transpose::untranspose_validity;
+use crate::delta::array::DeltaArrayExt;
 
 impl ValidityVTable<Delta> for Delta {
     fn validity(array: ArrayView<'_, Delta>) -> VortexResult<Validity> {

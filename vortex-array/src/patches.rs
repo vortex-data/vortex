@@ -27,6 +27,7 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -459,7 +460,9 @@ impl Patches {
             .saturating_sub(offset_within_chunk);
 
         let patches_end_idx = if chunk_idx < chunk_offsets.len() - 1 {
-            self.chunk_offset_at(chunk_idx + 1)? - base_offset - offset_within_chunk
+            (self.chunk_offset_at(chunk_idx + 1)? - base_offset)
+                .saturating_sub(offset_within_chunk)
+                .min(self.indices.len())
         } else {
             self.indices.len()
         };
@@ -521,13 +524,10 @@ impl Patches {
             .saturating_sub(offset_within_chunk);
 
         let patches_end_idx = if chunk_idx < chunk_offsets.len() - 1 {
-            let base_offset_end = chunk_offsets[chunk_idx + 1];
-
-            let offset_within_chunk = O::from(offset_within_chunk)
-                .ok_or_else(|| vortex_err!("offset_within_chunk failed to convert to O"))?;
-
-            usize::try_from(base_offset_end - chunk_offsets[0] - offset_within_chunk)
+            usize::try_from(chunk_offsets[chunk_idx + 1] - chunk_offsets[0])
                 .map_err(|_| vortex_err!("patches_end_idx failed to convert to usize"))?
+                .saturating_sub(offset_within_chunk)
+                .min(indices.len())
         } else {
             self.indices.len()
         };
@@ -655,7 +655,7 @@ impl Patches {
         let values = self.values().slice(slice_start_idx..slice_end_idx)?;
         let indices = self.indices().slice(slice_start_idx..slice_end_idx)?;
 
-        let chunk_offsets = self
+        let new_chunk_offsets = self
             .chunk_offsets
             .as_ref()
             .map(|chunk_offsets| -> VortexResult<ArrayRef> {
@@ -666,15 +666,17 @@ impl Patches {
             })
             .transpose()?;
 
-        let offset_within_chunk = chunk_offsets
+        let offset_within_chunk = new_chunk_offsets
             .as_ref()
-            .map(|chunk_offsets| -> VortexResult<usize> {
-                let base_offset = chunk_offsets
+            .map(|new_chunk_offsets| -> VortexResult<usize> {
+                let new_chunk_base = new_chunk_offsets
                     .scalar_at(0)?
                     .as_primitive()
                     .as_::<usize>()
                     .ok_or_else(|| vortex_err!("chunk offset does not fit in usize"))?;
-                Ok(slice_start_idx - base_offset)
+                let parent_chunk_base = self.chunk_offset_at(0)?;
+                let parent_within = self.offset_within_chunk.unwrap_or(0);
+                Ok(parent_chunk_base + parent_within + slice_start_idx - new_chunk_base)
             })
             .transpose()?;
 
@@ -683,7 +685,7 @@ impl Patches {
             offset: range.start + self.offset(),
             indices,
             values,
-            chunk_offsets,
+            chunk_offsets: new_chunk_offsets,
             offset_within_chunk,
         }))
     }
@@ -746,7 +748,7 @@ impl Patches {
         include_nulls: bool,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Self>> {
-        let take_indices_validity = take_indices.validity();
+        let take_indices_validity = take_indices.validity()?;
         let patch_indices = self.indices.clone().execute::<PrimitiveArray>(ctx)?;
         let chunk_offsets = self
             .chunk_offsets()
@@ -833,9 +835,9 @@ impl Patches {
             match_each_unsigned_integer_ptype!(indices.ptype(), |Indices| {
                 match_each_integer_ptype!(take_indices.ptype(), |TakeIndices| {
                     let take_validity = take_indices
-                        .validity()
+                        .validity()?
                         .execute_mask(take_indices.len(), ctx)?;
-                    let take_nullability = take_indices.validity().nullability();
+                    let take_nullability = take_indices.validity()?.nullability();
                     let take_slice = take_indices.as_slice::<TakeIndices>();
                     take_map::<_, TakeIndices>(
                         indices.as_slice::<Indices>(),
@@ -892,7 +894,9 @@ impl Patches {
             .clone()
             .execute::<PrimitiveArray>(ctx)
             .vortex_expect("patch values must be convertible to PrimitiveArray");
-        let patches_validity = patch_values.validity();
+        let patches_validity = patch_values
+            .validity()
+            .vortex_expect("patch values validity should be derivable");
 
         let patch_values_slice = patch_values.as_slice::<P>();
         match_each_unsigned_integer_ptype!(patch_indices.ptype(), |I| {
@@ -2146,6 +2150,20 @@ mod test {
             sliced2.search_index(150).unwrap(),
             SearchResult::NotFound(1)
         );
+    }
+
+    #[test]
+    fn test_nested_slice_with_dropped_first_chunk() {
+        // PATCH_CHUNK_SIZE = 1024, so the two patches land in different chunks.
+        let indices = buffer![0u64, 1024].into_array();
+        let values = buffer![1i32, 2].into_array();
+        let chunk_offsets = buffer![0u64, 1].into_array();
+        let patches = Patches::new(2048, 0, indices, values, Some(chunk_offsets)).unwrap();
+
+        // Drop chunk 0, then re-slice the result.
+        let dropped_first = patches.slice(1024..2048).unwrap().unwrap();
+        let resliced = dropped_first.slice(0..1024).unwrap().unwrap();
+        assert_eq!(resliced.num_patches(), 1);
     }
 
     #[test]

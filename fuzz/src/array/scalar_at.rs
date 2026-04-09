@@ -5,6 +5,11 @@ use std::sync::Arc;
 
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::varbin::varbin_scalar;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_decimal_value_type;

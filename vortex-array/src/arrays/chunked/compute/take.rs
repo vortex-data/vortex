@@ -12,6 +12,7 @@ use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::dict::TakeExecute;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -59,9 +60,10 @@ fn take_chunked(
     for chunk_idx in 0..nchunks {
         let chunk_start = chunk_offsets[chunk_idx];
         let chunk_end = chunk_offsets[chunk_idx + 1];
-        let chunk_len = usize::try_from(chunk_end - chunk_start)?;
+        let chunk_len = chunk_end - chunk_start;
+        let chunk_end_u64 = u64::try_from(chunk_end)?;
 
-        let range_end = cursor + pairs[cursor..].partition_point(|&(v, _)| v < chunk_end);
+        let range_end = cursor + pairs[cursor..].partition_point(|&(v, _)| v < chunk_end_u64);
         let chunk_pairs = &pairs[cursor..range_end];
 
         if !chunk_pairs.is_empty() {
@@ -70,7 +72,7 @@ fn take_chunked(
                 if cursor + i > 0 && val != pairs[cursor + i - 1].0 {
                     dedup_idx += 1;
                 }
-                let local = usize::try_from(val - chunk_start)?;
+                let local = usize::try_from(val)? - chunk_start;
                 if local_indices.last() != Some(&local) {
                     local_indices.push(local);
                 }
@@ -121,6 +123,7 @@ mod test {
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    use crate::arrays::chunked::ChunkedArrayExt;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::dtype::FieldNames;

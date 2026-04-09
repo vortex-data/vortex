@@ -12,8 +12,10 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnPluginRef;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::fns::first::First;
 use crate::aggregate_fn::fns::is_constant::IsConstant;
 use crate::aggregate_fn::fns::is_sorted::IsSorted;
+use crate::aggregate_fn::fns::last::Last;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::nan_count::NanCount;
 use crate::aggregate_fn::fns::sum::Sum;
@@ -50,8 +52,10 @@ impl Default for AggregateFnSession {
         };
 
         // Register the built-in aggregate functions
+        this.register(First);
         this.register(IsConstant);
         this.register(IsSorted);
+        this.register(Last);
         this.register(MinMax);
         this.register(NanCount);
         this.register(Sum);

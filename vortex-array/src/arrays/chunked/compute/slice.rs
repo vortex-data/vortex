@@ -12,6 +12,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
+use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::slice::SliceKernel;
 
 impl SliceKernel for Chunked {

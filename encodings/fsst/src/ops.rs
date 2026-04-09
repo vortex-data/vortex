@@ -11,6 +11,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::FSST;
+use crate::FSSTArrayExt;
 
 impl OperationsVTable<FSST> for FSST {
     fn scalar_at(

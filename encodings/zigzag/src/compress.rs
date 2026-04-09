@@ -7,15 +7,16 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 use zigzag::ZigZag as ExternalZigZag;
 
+use crate::ZigZag;
 use crate::ZigZagArray;
-use crate::ZigZagData;
 pub fn zigzag_encode(parray: PrimitiveArray) -> VortexResult<ZigZagArray> {
-    let validity = parray.validity();
+    let validity = parray.validity()?;
     let encoded = match parray.ptype() {
         PType::I8 => zigzag_encode_primitive::<i8>(parray.into_buffer_mut(), validity),
         PType::I16 => zigzag_encode_primitive::<i16>(parray.into_buffer_mut(), validity),
@@ -26,7 +27,7 @@ pub fn zigzag_encode(parray: PrimitiveArray) -> VortexResult<ZigZagArray> {
             parray.ptype()
         ),
     };
-    ZigZagArray::try_from_data(ZigZagData::try_new(encoded.into_array())?)
+    ZigZag::try_new(encoded.into_array())
 }
 
 fn zigzag_encode_primitive<T: ExternalZigZag + NativePType>(
@@ -43,7 +44,9 @@ where
 }
 
 pub fn zigzag_decode(parray: PrimitiveArray) -> PrimitiveArray {
-    let validity = parray.validity();
+    let validity = parray
+        .validity()
+        .vortex_expect("zigzag validity should be derivable");
     match parray.ptype() {
         PType::U8 => zigzag_decode_primitive::<i8>(parray.into_buffer_mut(), validity),
         PType::U16 => zigzag_decode_primitive::<i16>(parray.into_buffer_mut(), validity),

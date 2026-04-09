@@ -11,7 +11,7 @@ use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
-use crate::BitPackedData;
+use crate::bitpacking::array::BitPackedArrayExt;
 
 impl SliceReduce for BitPacked {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
@@ -24,13 +24,11 @@ impl SliceReduce for BitPacked {
         let encoded_start = (block_start / 8) * array.bit_width() as usize;
         let encoded_stop = (block_stop / 8) * array.bit_width() as usize;
 
-        // slice the buffer using the encoded start/stop values
-        // SAFETY: slicing packed values without decoding preserves invariants
-        Ok(Some(unsafe {
-            BitPackedData::new_unchecked(
+        Ok(Some(
+            BitPacked::try_new(
                 array.packed().slice(encoded_start..encoded_stop),
-                array.dtype().clone(),
-                array.validity().slice(range.clone())?,
+                array.dtype().as_ptype(),
+                array.validity()?.slice(range.clone())?,
                 array
                     .patches()
                     .map(|p| p.slice(range.clone()))
@@ -39,9 +37,9 @@ impl SliceReduce for BitPacked {
                 array.bit_width(),
                 range.len(),
                 offset as u16,
-            )
-            .into_array()
-        }))
+            )?
+            .into_array(),
+        ))
     }
 }
 
@@ -64,8 +62,7 @@ mod tests {
 
         let bitpacked_ref = bitpacked.into_array();
         let reduced = bitpacked_ref
-            .vtable()
-            .reduce_parent(&bitpacked_ref, &slice_array.into_array(), 0)?
+            .reduce_parent(&slice_array.into_array(), 0)?
             .expect("expected slice kernel to execute");
 
         assert!(reduced.is::<BitPacked>());

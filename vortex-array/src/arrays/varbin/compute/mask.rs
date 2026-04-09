@@ -8,6 +8,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
+use crate::arrays::varbin::VarBinArrayExt;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 
@@ -18,7 +19,7 @@ impl MaskReduce for VarBin {
                 array.offsets().clone(),
                 array.bytes().clone(),
                 array.dtype().as_nullable(),
-                array.validity().and(Validity::Array(mask.clone()))?,
+                array.validity()?.and(Validity::Array(mask.clone()))?,
             )?
             .into_array(),
         ))

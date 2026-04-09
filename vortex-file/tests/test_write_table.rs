@@ -15,6 +15,7 @@ use vortex_array::arrays::DictArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::FieldNames;
 use vortex_array::field_path;
 use vortex_array::scalar_fn::session::ScalarFnSession;

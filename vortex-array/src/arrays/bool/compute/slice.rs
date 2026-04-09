@@ -10,6 +10,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::slice::SliceReduce;
 
 impl SliceReduce for Bool {
@@ -17,7 +18,7 @@ impl SliceReduce for Bool {
         Ok(Some(
             BoolArray::new(
                 array.to_bit_buffer().slice(range.clone()),
-                array.validity().slice(range)?,
+                array.validity()?.slice(range)?,
             )
             .into_array(),
         ))

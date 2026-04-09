@@ -19,6 +19,8 @@
 //!   interact with null values.
 //! - **Edge Cases**: Tests empty arrays, single elements, and boundary conditions.
 
+use std::sync::Arc;
+
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
@@ -1227,7 +1229,7 @@ fn test_cast_slice_consistency(array: &ArrayRef) {
                 Nullability::NonNullable => Nullability::Nullable,
                 Nullability::Nullable => Nullability::NonNullable,
             };
-            vec![DType::List(element_type.clone(), opposite)]
+            vec![DType::List(Arc::clone(element_type), opposite)]
         }
         DType::FixedSizeList(element_type, list_size, nullability) => {
             let opposite = match nullability {
@@ -1235,7 +1237,7 @@ fn test_cast_slice_consistency(array: &ArrayRef) {
                 Nullability::Nullable => Nullability::NonNullable,
             };
             vec![DType::FixedSizeList(
-                element_type.clone(),
+                Arc::clone(element_type),
                 *list_size,
                 opposite,
             )]

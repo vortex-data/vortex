@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BitBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -36,7 +37,7 @@ impl BetweenKernel for Decimal {
 
         // NOTE: we know that have checked before that the lower and upper bounds are not all null.
         let nullability =
-            arr.dtype.nullability() | lower.dtype().nullability() | upper.dtype().nullability();
+            arr.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability();
 
         match_each_decimal_value_type!(arr.values_type(), |D| {
             between_unpack::<D>(arr, lower, upper, nullability, options)
@@ -106,7 +107,9 @@ fn between_impl<T: NativeDecimalType>(
             let value = buffer[idx];
             lower_op(lower, value) & upper_op(value, upper)
         }),
-        arr.validity().union_nullability(nullability),
+        arr.validity()
+            .vortex_expect("validity should be derivable")
+            .union_nullability(nullability),
     )
     .into_array()
 }

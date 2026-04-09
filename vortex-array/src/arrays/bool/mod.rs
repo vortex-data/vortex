@@ -4,8 +4,9 @@
 mod array;
 mod patch;
 
-pub use array::BoolArrayParts;
+pub use array::BoolArrayExt;
 pub use array::BoolData;
+pub use array::BoolDataParts;
 
 pub(crate) mod compute;
 

@@ -18,14 +18,14 @@ use futures::FutureExt;
 use futures::TryStreamExt;
 use futures::future::BoxFuture;
 use serde::Serialize;
-use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::dtype::DType;
-use vortex::array::serde::ArrayParts;
+use vortex::array::serde::SerializedArray;
+use vortex::array::session::ArraySessionExt;
 use vortex::array::stream::ArrayStream;
 use vortex::buffer::Alignment;
 use vortex::buffer::ByteBufferMut;
@@ -35,8 +35,6 @@ use vortex::file::VERSION;
 use vortex::file::VortexFile;
 use vortex::io::CoalesceConfig;
 use vortex::io::VortexReadAt;
-use vortex::io::runtime::wasm::WasmRuntime;
-use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::LayoutChildType;
 use vortex::layout::LayoutRef;
 use vortex::layout::layouts::flat::Flat;
@@ -45,6 +43,8 @@ use vortex::session::VortexSession;
 use vortex::session::registry::ReadContext;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
+
+use crate::SESSION;
 
 /// Initialize the WASM module (sets up panic hook for better error messages).
 #[wasm_bindgen(start)]
@@ -124,7 +124,6 @@ impl VortexReadAt for BlobReadAt {
 /// The `File` (a `Blob`) is read lazily — only the footer is read at open time.
 #[wasm_bindgen]
 pub async fn open_vortex_file(file: web_sys::File) -> Result<VortexFileHandle, JsValue> {
-    let session = VortexSession::default().with_handle(WasmRuntime::handle());
     let blob: &web_sys::Blob = file.as_ref();
     let file_size = blob.size() as usize;
     let reader = Arc::new(BlobReadAt {
@@ -132,7 +131,7 @@ pub async fn open_vortex_file(file: web_sys::File) -> Result<VortexFileHandle, J
         size: file_size as u64,
     });
 
-    let vxf = session
+    let vxf = SESSION
         .open_options()
         .open(reader)
         .await
@@ -143,7 +142,7 @@ pub async fn open_vortex_file(file: web_sys::File) -> Result<VortexFileHandle, J
 
     Ok(VortexFileHandle {
         vxf,
-        session,
+        session: SESSION.clone(),
         file_size,
         array_read_ctx,
     })
@@ -361,13 +360,14 @@ impl VortexFileHandle {
             .await
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-        let parts = ArrayParts::try_from(buf).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let parts =
+            SerializedArray::try_from(buf).map_err(|e| JsValue::from_str(&e.to_string()))?;
 
         let array = parts
             .decode(&dtype, row_count, ctx, &self.session)
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-        let tree = build_array_encoding_tree_from_array(&array);
+        let tree = build_array_encoding_tree_from_array(&array, &self.session);
         serde_json::to_string(&tree)
             .map_err(|e| JsValue::from_str(&format!("JSON serialization failed: {e}")))
     }
@@ -383,8 +383,6 @@ impl VortexFileHandle {
         array_path: Vec<String>,
         buffer_index: usize,
     ) -> Result<js_sys::Uint8Array, JsValue> {
-        use vortex::array::ArrayVisitor;
-
         let ctx = self
             .array_read_ctx
             .as_ref()
@@ -410,7 +408,8 @@ impl VortexFileHandle {
             .await
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-        let parts = ArrayParts::try_from(buf).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let parts =
+            SerializedArray::try_from(buf).map_err(|e| JsValue::from_str(&e.to_string()))?;
 
         let root_array = parts
             .decode(&dtype, row_count, ctx, &self.session)
@@ -451,8 +450,6 @@ impl VortexFileHandle {
         array_path: Vec<String>,
         row_limit: u32,
     ) -> Result<js_sys::Uint8Array, JsValue> {
-        use vortex::array::ArrayVisitor;
-
         let ctx = self
             .array_read_ctx
             .as_ref()
@@ -478,7 +475,8 @@ impl VortexFileHandle {
             .await
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-        let parts = ArrayParts::try_from(buf).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let parts =
+            SerializedArray::try_from(buf).map_err(|e| JsValue::from_str(&e.to_string()))?;
 
         let root_array = parts
             .decode(&dtype, row_count, ctx, &self.session)
@@ -583,7 +581,7 @@ fn build_layout_tree(
     let array_encoding_tree = layout.as_opt::<Flat>().and_then(|flat| {
         let tree_buf = flat.array_tree()?;
         let ctx = flat.array_ctx();
-        let parts = ArrayParts::from_array_tree(tree_buf.as_ref().to_vec()).ok()?;
+        let parts = SerializedArray::from_array_tree(tree_buf.as_ref().to_vec()).ok()?;
         Some(build_array_encoding_tree(&parts, ctx))
     });
 
@@ -612,7 +610,7 @@ fn sum_metadata_bytes(layout: &LayoutRef) -> VortexResult<u64> {
 
 /// Recursively build the array encoding tree from `ArrayParts` (used for inline trees
 /// where we don't have a fully decoded array).
-fn build_array_encoding_tree(parts: &ArrayParts, ctx: &ReadContext) -> ArrayEncodingNodeJson {
+fn build_array_encoding_tree(parts: &SerializedArray, ctx: &ReadContext) -> ArrayEncodingNodeJson {
     let encoding = ctx
         .resolve(parts.encoding_id())
         .map(|id| id.to_string())
@@ -637,16 +635,17 @@ fn build_array_encoding_tree(parts: &ArrayParts, ctx: &ReadContext) -> ArrayEnco
 
 /// Recursively build the array encoding tree from a fully decoded array,
 /// extracting dtype, child names, and buffer names from the encoding vtables.
-fn build_array_encoding_tree_from_array(array: &ArrayRef) -> ArrayEncodingNodeJson {
-    use vortex::array::ArrayVisitor;
-
+fn build_array_encoding_tree_from_array(
+    array: &ArrayRef,
+    session: &VortexSession,
+) -> ArrayEncodingNodeJson {
     let encoding = array.encoding_id().to_string();
     let dtype = array.dtype().to_string();
     let buffer_names = array.buffer_names();
     let buffer_handles = array.buffer_handles();
     let buffer_lengths: Vec<usize> = buffer_handles.iter().map(|b| b.len()).collect();
-    let metadata_bytes = array
-        .metadata()
+    let metadata_bytes = session
+        .array_serialize(array)
         .ok()
         .flatten()
         .map(|m| m.len())
@@ -659,7 +658,7 @@ fn build_array_encoding_tree_from_array(array: &ArrayRef) -> ArrayEncodingNodeJs
         .collect();
     let children: Vec<ArrayEncodingNodeJson> = named_children
         .iter()
-        .map(|(_, child)| build_array_encoding_tree_from_array(child))
+        .map(|(_, child)| build_array_encoding_tree_from_array(child, session))
         .collect();
 
     ArrayEncodingNodeJson {

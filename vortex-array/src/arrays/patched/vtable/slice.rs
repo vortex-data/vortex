@@ -9,40 +9,45 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Patched;
-use crate::arrays::PatchedArray;
+use crate::arrays::patched::PatchedArrayExt;
+use crate::arrays::patched::PatchedArraySlotsExt;
+use crate::arrays::patched::PatchedSlots;
 use crate::arrays::slice::SliceReduce;
-use crate::stats::ArrayStats;
 
 impl SliceReduce for Patched {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         // We **always** slice the patches at 1024-element chunk boundaries. We keep the offset + len
         // around so that when we execute we know how much to chop off.
-        let new_offset = (range.start + array.offset) % 1024;
-        let new_len = range.end - range.start;
-
-        let chunk_start = (range.start + array.offset) / 1024;
-        let chunk_stop = (range.end + array.offset).div_ceil(1024);
+        let new_offset = (range.start + array.offset()) % 1024;
+        let chunk_start = (range.start + array.offset()) / 1024;
+        let chunk_stop = (range.end + array.offset()).div_ceil(1024);
         let sliced_lane_offsets = array
             .lane_offsets()
-            .slice((chunk_start * array.n_lanes)..(chunk_stop * array.n_lanes) + 1)?;
+            .slice((chunk_start * array.n_lanes())..(chunk_stop * array.n_lanes()) + 1)?;
 
         // Unlike the patches, we slice the inner to the exact range. This is handled
         // at execution time by making sure to skip patch indices that are < offset
         // or >= len.
-        let inner = array.base_array().slice(range.start..range.end)?;
+        let inner = array.inner().slice(range.start..range.end)?;
+        let len = inner.len();
+
+        let slots = PatchedSlots {
+            inner,
+            lane_offsets: sliced_lane_offsets,
+            patch_indices: array.patch_indices().clone(),
+            patch_values: array.patch_values().clone(),
+        }
+        .into_slots();
 
         Ok(Some(
-            PatchedArray {
-                slots: vec![
-                    Some(inner),
-                    Some(sliced_lane_offsets),
-                    Some(array.patch_indices().clone()),
-                    Some(array.patch_values().clone()),
-                ],
-                n_lanes: array.n_lanes,
-                offset: new_offset,
-                len: new_len,
-                stats_set: ArrayStats::default(),
+            unsafe {
+                Patched::new_unchecked(
+                    array.dtype().clone(),
+                    len,
+                    slots,
+                    array.n_lanes(),
+                    new_offset,
+                )
             }
             .into_array(),
         ))
@@ -63,7 +68,7 @@ mod tests {
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    use crate::arrays::PatchedArray;
+    use crate::arrays::Patched;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::dtype::NativePType;
@@ -78,7 +83,7 @@ mod tests {
 
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
 
-        let patched_array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)?;
+        let patched_array = Patched::from_array_and_patches(values, &patches, &mut ctx)?;
 
         let sliced = patched_array.into_array().slice(1..10)?;
 
@@ -124,10 +129,9 @@ mod tests {
 
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
 
-        let patched_array =
-            PatchedArray::from_array_and_patches(inner.into_array(), &patches, &mut ctx)
-                .unwrap()
-                .into_array();
+        let patched_array = Patched::from_array_and_patches(inner.into_array(), &patches, &mut ctx)
+            .unwrap()
+            .into_array();
 
         // Verify that applying slice first yields same result as applying slice at end.
         let slice_first = patched_array
@@ -157,7 +161,7 @@ mod tests {
         let patches = Patches::new(10_000, 0, patched_indices, patched_values, None).unwrap();
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
 
-        let patched_array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+        let patched_array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
             .into_array();
 

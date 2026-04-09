@@ -56,6 +56,8 @@ public final class Expressions {
                 return Literal.parse(metadata, children);
             case "vortex.not":
                 return Not.parse(metadata, children);
+            case "vortex.is_null":
+                return IsNull.parse(metadata, children);
             default:
                 return new Unknown(expr.getId(), children, expr.getMetadata().toByteArray());
         }

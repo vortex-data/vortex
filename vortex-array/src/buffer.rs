@@ -95,14 +95,32 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
     /// Unlike [`slice`](DeviceBuffer::slice), this method allocates new memory and copies the
     /// selected ranges into a contiguous buffer.
     ///
-    /// Follow-up: introduce a lazy/composite device-buffer representation for deferred multi-range
-    /// gathers. That would let accelerators accumulate slice/filter plans and realize them later
-    /// with a device-native gather/compaction kernel instead of eagerly copying here.
+    /// # Errors
+    ///
+    /// Returns an error if the device cannot allocate memory or copy the data.
+    fn copy_ranges(&self, ranges: &[Range<usize>]) -> VortexResult<Arc<dyn DeviceBuffer>>;
+
+    /// Filter this buffer using a mask, where each element is `byte_width` bytes wide.
+    ///
+    /// Implementations can inspect the mask to decide whether to extract sparse ranges or
+    /// read the entire buffer. The default implementation extracts contiguous slices from
+    /// the mask and delegates to [`copy_ranges`](DeviceBuffer::copy_ranges).
     ///
     /// # Errors
     ///
     /// Returns an error if the device cannot allocate memory or copy the data.
-    fn filter(&self, ranges: &[Range<usize>]) -> VortexResult<Arc<dyn DeviceBuffer>>;
+    fn filter(&self, mask: &Mask, byte_width: usize) -> VortexResult<Arc<dyn DeviceBuffer>> {
+        let slices = match mask.slices() {
+            AllOr::Some(slices) => slices,
+            AllOr::All => return Ok(self.slice(0..self.len())),
+            AllOr::None => return self.copy_ranges(&[]),
+        };
+        let byte_ranges: Vec<Range<usize>> = slices
+            .iter()
+            .map(|&(s, e)| (s * byte_width)..(e * byte_width))
+            .collect();
+        self.copy_ranges(&byte_ranges)
+    }
 
     /// Return a buffer with the given alignment. Where possible, this will be zero-copy.
     ///
@@ -243,14 +261,14 @@ impl BufferHandle {
                 }
                 Ok(BufferHandle::new_host(result.freeze()))
             }
-            Inner::Device(device) => Ok(BufferHandle::new_device(device.filter(ranges)?)),
+            Inner::Device(device) => Ok(BufferHandle::new_device(device.copy_ranges(ranges)?)),
         }
     }
 
     /// Filter this buffer using a mask, where each element is `byte_width` bytes wide.
     ///
-    /// Extracts the contiguous runs of `true` values from the mask, scales them by `byte_width`,
-    /// and copies the selected byte ranges into a new buffer.
+    /// For device buffers, the mask is passed through to the device so it can decide
+    /// whether to extract sparse ranges or read the entire buffer.
     ///
     /// # Example
     ///
@@ -266,16 +284,30 @@ impl BufferHandle {
     /// assert_eq!(result, buffer![1, 2, 5, 6]);
     /// ```
     pub fn filter(&self, mask: &Mask, byte_width: usize) -> VortexResult<Self> {
-        let slices = match mask.slices() {
-            AllOr::Some(slices) => slices,
-            AllOr::All => return Ok(self.clone()),
-            AllOr::None => return self.copy_ranges(&[]),
-        };
-        let byte_ranges: Vec<Range<usize>> = slices
-            .iter()
-            .map(|&(s, e)| (s * byte_width)..(e * byte_width))
-            .collect();
-        self.copy_ranges(&byte_ranges)
+        match &self.0 {
+            Inner::Host(host) => {
+                let slices = match mask.slices() {
+                    AllOr::Some(slices) => slices,
+                    AllOr::All => return Ok(self.clone()),
+                    AllOr::None => {
+                        return Ok(BufferHandle::new_host(
+                            ByteBufferMut::with_capacity_aligned(0, host.alignment()).freeze(),
+                        ));
+                    }
+                };
+                let byte_ranges: Vec<Range<usize>> = slices
+                    .iter()
+                    .map(|&(s, e)| (s * byte_width)..(e * byte_width))
+                    .collect();
+                let total_len: usize = byte_ranges.iter().map(|r| r.len()).sum();
+                let mut result = ByteBufferMut::with_capacity_aligned(total_len, host.alignment());
+                for range in &byte_ranges {
+                    result.extend_from_slice(&host.as_slice()[range.start..range.end]);
+                }
+                Ok(BufferHandle::new_host(result.freeze()))
+            }
+            Inner::Device(device) => Ok(BufferHandle::new_device(device.filter(mask, byte_width)?)),
+        }
     }
 
     /// Reinterpret the pointee as a buffer of `T` and slice the provided element range.

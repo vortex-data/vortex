@@ -8,7 +8,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
-use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::array::Array;
@@ -20,7 +19,6 @@ use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable;
 mod kernel;
 mod operations;
 mod validity;
@@ -32,50 +30,34 @@ use vortex_session::VortexSession;
 
 use crate::Precision;
 use crate::array::ArrayId;
-use crate::arrays::primitive::array::NUM_SLOTS;
 use crate::arrays::primitive::array::SLOT_NAMES;
 use crate::arrays::primitive::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::stats::ArrayStats;
 
-vtable!(Primitive, Primitive, PrimitiveData);
+/// A [`Primitive`]-encoded Vortex array.
+pub type PrimitiveArray = Array<Primitive>;
+
+impl ArrayHash for PrimitiveData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        self.buffer.array_hash(state, precision);
+    }
+}
+
+impl ArrayEq for PrimitiveData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        self.buffer.array_eq(&other.buffer, precision)
+    }
+}
 
 impl VTable for Primitive {
     type ArrayData = PrimitiveData;
 
-    type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn vtable(_array: &Self::ArrayData) -> &Self {
-        &Primitive
-    }
-
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn len(array: &PrimitiveData) -> usize {
-        array.buffer_handle().len() / array.ptype().byte_width()
-    }
-
-    fn dtype(array: &PrimitiveData) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &PrimitiveData) -> &ArrayStats {
-        &array.stats_set
-    }
-
-    fn array_hash<H: Hasher>(array: &PrimitiveData, state: &mut H, precision: Precision) {
-        array.buffer.array_hash(state, precision);
-        array.validity().array_hash(state, precision);
-    }
-
-    fn array_eq(array: &PrimitiveData, other: &PrimitiveData, precision: Precision) -> bool {
-        array.buffer.array_eq(&other.buffer, precision)
-            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -96,31 +78,58 @@ impl VTable for Primitive {
         }
     }
 
-    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        _array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(
-        _bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn build(
+    fn validate(
+        &self,
+        data: &PrimitiveData,
         dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        let DType::Primitive(_, nullability) = dtype else {
+            vortex_bail!("Expected primitive dtype, got {dtype:?}");
+        };
+        vortex_ensure!(
+            data.len() == len,
+            "PrimitiveArray length {} does not match outer length {}",
+            data.len(),
+            len
+        );
+        let validity = crate::array::child_to_validity(&slots[0], *nullability);
+        if let Some(validity_len) = validity.maybe_len() {
+            vortex_ensure!(
+                validity_len == len,
+                "PrimitiveArray validity len {} does not match outer length {}",
+                validity_len,
+                len
+            );
+        }
+
+        Ok(())
+    }
+
+    fn deserialize(
+        &self,
+        dtype: &DType,
+        len: usize,
+        metadata: &[u8],
+
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<PrimitiveData> {
+        _session: &VortexSession,
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
+        if !metadata.is_empty() {
+            vortex_bail!(
+                "PrimitiveArray expects empty metadata, got {} bytes",
+                metadata.len()
+            );
+        }
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
@@ -160,31 +169,13 @@ impl VTable for Primitive {
         );
 
         // SAFETY: checked ahead of time
-        unsafe {
-            Ok(PrimitiveData::new_unchecked_from_handle(
-                buffer, ptype, validity,
-            ))
-        }
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        let slots = PrimitiveData::make_slots(&validity, len);
+        let data = unsafe { PrimitiveData::new_unchecked_from_handle(buffer, ptype, validity) };
+        Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "PrimitiveArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-
-        array.slots = slots;
-        Ok(())
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -227,8 +218,8 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
-    use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
+    use crate::serde::SerializedArray;
     use crate::validity::Validity;
 
     #[test]
@@ -244,14 +235,14 @@ mod tests {
         let serialized = array
             .clone()
             .into_array()
-            .serialize(&ctx, &SerializeOptions::default())
+            .serialize(&ctx, &LEGACY_SESSION, &SerializeOptions::default())
             .unwrap();
 
         let mut concat = ByteBufferMut::empty();
         for buf in serialized {
             concat.extend_from_slice(buf.as_ref());
         }
-        let parts = ArrayParts::try_from(concat.freeze()).unwrap();
+        let parts = SerializedArray::try_from(concat.freeze()).unwrap();
         let decoded = parts
             .decode(
                 &dtype,

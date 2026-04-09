@@ -1,29 +1,91 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::array::Array;
+use crate::array::ArrayParts;
+use crate::array::TypedArrayRef;
 use crate::arrays::ScalarFnVTable;
-use crate::dtype::DType;
 use crate::scalar_fn::ScalarFnRef;
-use crate::stats::ArrayStats;
 
 // ScalarFnArray has a variable number of slots (one per child)
 
 #[derive(Clone, Debug)]
 pub struct ScalarFnData {
-    pub(super) vtable: ScalarFnVTable,
-    pub(super) dtype: DType,
-    pub(super) len: usize,
-    pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) stats: ArrayStats,
+    pub(super) scalar_fn: ScalarFnRef,
+}
+
+impl Display for ScalarFnData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "scalar_fn: {}", self.scalar_fn)
+    }
 }
 
 impl ScalarFnData {
+    /// Create a new ScalarFnArray from a scalar function and its children.
+    pub fn build(
+        scalar_fn: ScalarFnRef,
+        children: Vec<ArrayRef>,
+        len: usize,
+    ) -> VortexResult<Self> {
+        vortex_ensure!(
+            children.iter().all(|c| c.len() == len),
+            "ScalarFnArray must have children equal to the array length"
+        );
+        Ok(Self { scalar_fn })
+    }
+
+    /// Get the scalar function bound to this array.
+    #[allow(clippy::same_name_method)]
+    #[inline(always)]
+    pub fn scalar_fn(&self) -> &ScalarFnRef {
+        &self.scalar_fn
+    }
+}
+
+pub trait ScalarFnArrayExt: TypedArrayRef<ScalarFnVTable> {
+    fn scalar_fn(&self) -> &ScalarFnRef {
+        &self.scalar_fn
+    }
+
+    fn child_at(&self, idx: usize) -> &ArrayRef {
+        self.as_ref().slots()[idx]
+            .as_ref()
+            .vortex_expect("ScalarFnArray child slot")
+    }
+
+    fn child_count(&self) -> usize {
+        self.as_ref().slots().len()
+    }
+
+    #[allow(clippy::same_name_method)]
+    fn nchildren(&self) -> usize {
+        self.child_count()
+    }
+
+    #[allow(clippy::same_name_method)]
+    fn get_child(&self, idx: usize) -> &ArrayRef {
+        self.child_at(idx)
+    }
+
+    fn iter_children(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
+        (0..self.child_count()).map(|idx| self.child_at(idx))
+    }
+
+    fn children(&self) -> Vec<ArrayRef> {
+        self.iter_children().cloned().collect()
+    }
+}
+impl<T: TypedArrayRef<ScalarFnVTable>> ScalarFnArrayExt for T {}
+
+impl Array<ScalarFnVTable> {
     /// Create a new ScalarFnArray from a scalar function and its children.
     pub fn try_new(
         scalar_fn: ScalarFnRef,
@@ -32,90 +94,13 @@ impl ScalarFnData {
     ) -> VortexResult<Self> {
         let arg_dtypes: Vec<_> = children.iter().map(|c| c.dtype().clone()).collect();
         let dtype = scalar_fn.return_dtype(&arg_dtypes)?;
-
-        vortex_ensure!(
-            children.iter().all(|c| c.len() == len),
-            "ScalarFnArray must have children equal to the array length"
-        );
-
-        let slots = children.into_iter().map(Some).collect();
-
-        Ok(Self {
-            vtable: ScalarFnVTable { scalar_fn },
-            dtype,
-            len,
-            slots,
-            stats: Default::default(),
+        let data = ScalarFnData::build(scalar_fn.clone(), children.clone(), len)?;
+        let vtable = ScalarFnVTable { scalar_fn };
+        Ok(unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(vtable, dtype, len, data)
+                    .with_slots(children.into_iter().map(Some).collect()),
+            )
         })
-    }
-
-    /// Returns the dtype of the array.
-    pub fn dtype(&self) -> &DType {
-        &self.dtype
-    }
-
-    /// Returns the length of the array.
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    /// Returns `true` if the array is empty.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Get the scalar function bound to this array.
-    #[allow(clippy::same_name_method)]
-    #[inline(always)]
-    pub fn scalar_fn(&self) -> &ScalarFnRef {
-        &self.vtable.scalar_fn
-    }
-
-    /// Get a child array by index.
-    pub fn get_child(&self, idx: usize) -> &ArrayRef {
-        self.slots[idx]
-            .as_ref()
-            .vortex_expect("ScalarFnArray child slot")
-    }
-
-    /// Get the number of children.
-    pub fn nchildren(&self) -> usize {
-        self.slots.len()
-    }
-
-    /// Iterate over the children arrays without allocation.
-    pub fn iter_children(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
-        self.slots
-            .iter()
-            .map(|s| s.as_ref().vortex_expect("ScalarFnArray child slot"))
-    }
-
-    /// Get the children arrays of this scalar function array.
-    pub fn children(&self) -> Vec<ArrayRef> {
-        self.iter_children().cloned().collect()
-    }
-}
-
-impl Array<ScalarFnVTable> {
-    /// Get the scalar function bound to this array.
-    #[allow(clippy::same_name_method)]
-    #[inline(always)]
-    pub fn scalar_fn(&self) -> &ScalarFnRef {
-        self.data().scalar_fn()
-    }
-
-    /// Get the children arrays of this scalar function array.
-    #[allow(clippy::same_name_method)]
-    pub fn children(&self) -> Vec<ArrayRef> {
-        self.data().children()
-    }
-
-    /// Create a new ScalarFnArray from a scalar function and its children.
-    pub fn try_new(
-        scalar_fn: ScalarFnRef,
-        children: Vec<ArrayRef>,
-        len: usize,
-    ) -> VortexResult<Self> {
-        Array::try_from_data(ScalarFnData::try_new(scalar_fn, children, len)?)
     }
 }

@@ -124,9 +124,9 @@ impl<A: 'static + Send> RepeatedScan<A> {
         let ctx = Arc::new(TaskContext {
             selection: self.selection.clone(),
             filter: self.filter.clone().map(|f| Arc::new(FilterExpr::new(f))),
-            reader: self.layout_reader.clone(),
+            reader: Arc::clone(&self.layout_reader),
             projection: self.projection.clone(),
-            mapper: self.map_fn.clone(),
+            mapper: Arc::clone(&self.map_fn),
         });
 
         let row_range = intersect_ranges(self.row_range.as_ref(), row_range);
@@ -176,7 +176,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
                 break;
             }
 
-            tasks.push(split_exec(ctx.clone(), range, limit.as_mut())?);
+            tasks.push(split_exec(Arc::clone(&ctx), range, limit.as_mut())?);
         }
 
         Ok(tasks)

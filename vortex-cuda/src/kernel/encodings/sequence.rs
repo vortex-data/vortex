@@ -15,7 +15,7 @@ use vortex::array::match_each_native_ptype;
 use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::encodings::sequence::Sequence;
-use vortex::encodings::sequence::SequenceArrayParts;
+use vortex::encodings::sequence::SequenceDataParts;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 
@@ -36,15 +36,16 @@ impl CudaExecute for SequenceExecutor {
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
         let array = array
-            .try_into::<Sequence>()
+            .try_downcast::<Sequence>()
             .map_err(|_| vortex_err!("SequenceExecutor can only accept SequenceArray"))?;
 
-        let SequenceArrayParts {
+        let len = array.len();
+        let nullability = array.dtype().nullability();
+
+        let SequenceDataParts {
             base,
             multiplier,
-            len,
             ptype,
-            nullability,
         } = array.into_data().into_parts();
 
         match_each_native_ptype!(ptype, |P| {

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::arrays::BoolArray;
+use crate::arrays::bool::BoolArrayExt;
 
 pub(super) fn check_bool_constant(array: &BoolArray) -> bool {
     let true_count = array.to_bit_buffer().true_count();

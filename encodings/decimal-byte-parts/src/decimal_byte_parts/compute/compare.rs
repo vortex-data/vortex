@@ -25,6 +25,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::DecimalByteParts;
+use crate::decimal_byte_parts::DecimalBytePartsArrayExt;
 use crate::decimal_byte_parts::compute::compare::Sign::Positive;
 
 impl CompareKernel for DecimalByteParts {
@@ -38,7 +39,7 @@ impl CompareKernel for DecimalByteParts {
             return Ok(None);
         };
 
-        let nullability = lhs.dtype.nullability() | rhs.dtype().nullability();
+        let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
         let scalar_type = lhs.msp().dtype().with_nullability(nullability);
 
         let rhs_decimal = rhs_const

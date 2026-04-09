@@ -99,6 +99,11 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             batch.dtype()
         );
 
+        // Allow the vtable to short-circuit on the raw array before decompression.
+        if self.vtable.try_accumulate(&mut self.partial, batch, ctx)? {
+            return Ok(());
+        }
+
         let session = ctx.session().clone();
         let kernels = &session.aggregate_fns().kernels;
 

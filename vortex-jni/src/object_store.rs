@@ -40,7 +40,7 @@ pub(crate) fn make_object_store(
 
     {
         if let Some(cached) = OBJECT_STORES.lock().get(&cache_key) {
-            return Ok((cached.clone(), scheme));
+            return Ok((Arc::clone(cached), scheme));
         }
         // guard dropped at close of scope
     }
@@ -129,7 +129,7 @@ pub(crate) fn make_object_store(
     };
 
     {
-        OBJECT_STORES.lock().insert(cache_key, store.clone());
+        OBJECT_STORES.lock().insert(cache_key, Arc::clone(&store));
         // Guard dropped at close of scope.
     }
 

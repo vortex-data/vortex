@@ -7,8 +7,9 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Masked;
+use crate::arrays::MaskedArray;
 use crate::arrays::dict::TakeReduce;
-use crate::arrays::masked::MaskedData;
+use crate::arrays::masked::MaskedArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
 
@@ -24,11 +25,11 @@ impl TakeReduce for Masked {
         };
 
         // Compute the new validity by taking from array's validity and merging with indices validity
-        let taken_validity = array.validity().take(indices)?;
+        let taken_validity = array.validity()?.take(indices)?;
 
         // Construct new MaskedArray
         Ok(Some(
-            MaskedData::try_new(taken_child, taken_validity)?.into_array(),
+            MaskedArray::try_new(taken_child, taken_validity)?.into_array(),
         ))
     }
 }

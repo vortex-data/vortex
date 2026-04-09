@@ -913,9 +913,11 @@ fn test_recursive_compact_list_of_lists() {
     assert_eq!(recursive_flat_elements.len(), 7);
 
     // Verify data integrity is preserved
+    let non_recursive_array = non_recursive.into_array();
+    let recursive_array = recursive.into_array();
     assert_eq!(
-        non_recursive.clone().into_array().scalar_at(0).unwrap(),
-        recursive.clone().into_array().scalar_at(0).unwrap()
+        non_recursive_array.scalar_at(0).unwrap(),
+        recursive_array.scalar_at(0).unwrap()
     );
 }
 

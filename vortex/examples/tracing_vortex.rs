@@ -39,6 +39,7 @@ use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::array::validity::Validity;
+use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::file::WriteStrategyBuilder;
@@ -197,7 +198,7 @@ impl VortexLayer {
         let handle = WriterHandle::spawn(session, rx, output_dir, batch_size);
         (
             Self {
-                sender: signal.clone(),
+                sender: Arc::clone(&signal),
             },
             handle,
             ShutdownSignal { inner: signal },
@@ -388,7 +389,7 @@ async fn write_batch_to_vortex(
     // Use compact encodings (Pco + Zstd) for the telemetry files.
     let write_opts = session.write_options().with_strategy(
         WriteStrategyBuilder::default()
-            .with_compact_encodings()
+            .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
             .build(),
     );
 

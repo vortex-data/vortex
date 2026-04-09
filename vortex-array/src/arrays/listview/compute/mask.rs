@@ -8,6 +8,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 
@@ -20,7 +21,7 @@ impl MaskReduce for ListView {
                     array.elements().clone(),
                     array.offsets().clone(),
                     array.sizes().clone(),
-                    array.validity().and(Validity::Array(mask.clone()))?,
+                    array.validity()?.and(Validity::Array(mask.clone()))?,
                 )
                 .with_zero_copy_to_list(array.is_zero_copy_to_list())
             }

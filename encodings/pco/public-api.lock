@@ -20,53 +20,37 @@ impl vortex_array::array::vtable::VTable for vortex_pco::Pco
 
 pub type vortex_pco::Pco::ArrayData = vortex_pco::PcoData
 
-pub type vortex_pco::Pco::Metadata = vortex_array::metadata::ProstMetadata<vortex_pco::PcoMetadata>
-
 pub type vortex_pco::Pco::OperationsVTable = vortex_pco::Pco
 
-pub type vortex_pco::Pco::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromValiditySliceHelper
-
-pub fn vortex_pco::Pco::array_eq(array: &vortex_pco::PcoData, other: &vortex_pco::PcoData, precision: vortex_array::hash::Precision) -> bool
-
-pub fn vortex_pco::Pco::array_hash<H: core::hash::Hasher>(array: &vortex_pco::PcoData, state: &mut H, precision: vortex_array::hash::Precision)
+pub type vortex_pco::Pco::ValidityVTable = vortex_pco::Pco
 
 pub fn vortex_pco::Pco::buffer(array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_pco::Pco::buffer_name(array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
 
-pub fn vortex_pco::Pco::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_pco::PcoData>
-
-pub fn vortex_pco::Pco::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
-
-pub fn vortex_pco::Pco::dtype(array: &vortex_pco::PcoData) -> &vortex_array::dtype::DType
+pub fn vortex_pco::Pco::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::typed::ArrayParts<Self>>
 
 pub fn vortex_pco::Pco::execute(array: vortex_array::array::typed::Array<Self>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
 pub fn vortex_pco::Pco::id(&self) -> vortex_array::array::ArrayId
 
-pub fn vortex_pco::Pco::len(array: &vortex_pco::PcoData) -> usize
-
-pub fn vortex_pco::Pco::metadata(array: vortex_array::array::view::ArrayView<'_, Self>) -> vortex_error::VortexResult<Self::Metadata>
-
 pub fn vortex_pco::Pco::nbuffers(array: vortex_array::array::view::ArrayView<'_, Self>) -> usize
 
 pub fn vortex_pco::Pco::reduce_parent(array: vortex_array::array::view::ArrayView<'_, Self>, parent: &vortex_array::array::erased::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub fn vortex_pco::Pco::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_pco::Pco::serialize(array: vortex_array::array::view::ArrayView<'_, Self>, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_pco::Pco::slot_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_pco::Pco::slots(array: vortex_array::array::view::ArrayView<'_, Self>) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
-
-pub fn vortex_pco::Pco::stats(array: &vortex_pco::PcoData) -> &vortex_array::stats::array::ArrayStats
-
-pub fn vortex_pco::Pco::vtable(_array: &Self::ArrayData) -> &Self
-
-pub fn vortex_pco::Pco::with_slots(array: &mut Self::ArrayData, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>) -> vortex_error::VortexResult<()>
+pub fn vortex_pco::Pco::validate(&self, data: &vortex_pco::PcoData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_pco::Pco> for vortex_pco::Pco
 
 pub fn vortex_pco::Pco::scalar_at(array: vortex_array::array::view::ArrayView<'_, vortex_pco::Pco>, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+impl vortex_array::array::vtable::validity::ValidityVTable<vortex_pco::Pco> for vortex_pco::Pco
+
+pub fn vortex_pco::Pco::validity(array: vortex_array::array::view::ArrayView<'_, vortex_pco::Pco>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
 impl vortex_array::arrays::slice::SliceReduce for vortex_pco::Pco
 
@@ -102,9 +86,7 @@ pub struct vortex_pco::PcoData
 
 impl vortex_pco::PcoData
 
-pub fn vortex_pco::PcoData::decompress(&self, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::primitive::vtable::PrimitiveArray>
-
-pub fn vortex_pco::PcoData::dtype(&self) -> &vortex_array::dtype::DType
+pub fn vortex_pco::PcoData::decompress(&self, unsliced_validity: &vortex_array::validity::Validity, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::primitive::vtable::PrimitiveArray>
 
 pub fn vortex_pco::PcoData::from_array(array: vortex_array::array::erased::ArrayRef, level: usize, nums_per_page: usize) -> vortex_error::VortexResult<Self>
 
@@ -114,27 +96,29 @@ pub fn vortex_pco::PcoData::is_empty(&self) -> bool
 
 pub fn vortex_pco::PcoData::len(&self) -> usize
 
-pub fn vortex_pco::PcoData::new(chunk_metas: alloc::vec::Vec<vortex_buffer::ByteBuffer>, pages: alloc::vec::Vec<vortex_buffer::ByteBuffer>, dtype: vortex_array::dtype::DType, metadata: vortex_pco::PcoMetadata, len: usize, validity: vortex_array::validity::Validity) -> Self
+pub fn vortex_pco::PcoData::new(chunk_metas: alloc::vec::Vec<vortex_buffer::ByteBuffer>, pages: alloc::vec::Vec<vortex_buffer::ByteBuffer>, ptype: vortex_array::dtype::ptype::PType, metadata: vortex_pco::PcoMetadata, len: usize) -> Self
+
+pub fn vortex_pco::PcoData::validate(&self, dtype: &vortex_array::dtype::DType, len: usize, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
 
 impl core::clone::Clone for vortex_pco::PcoData
 
 pub fn vortex_pco::PcoData::clone(&self) -> vortex_pco::PcoData
 
-impl core::convert::From<vortex_pco::PcoData> for vortex_array::array::erased::ArrayRef
-
-pub fn vortex_array::array::erased::ArrayRef::from(value: vortex_pco::PcoData) -> vortex_array::array::erased::ArrayRef
-
 impl core::fmt::Debug for vortex_pco::PcoData
 
 pub fn vortex_pco::PcoData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl vortex_array::array::IntoArray for vortex_pco::PcoData
+impl core::fmt::Display for vortex_pco::PcoData
 
-pub fn vortex_pco::PcoData::into_array(self) -> vortex_array::array::erased::ArrayRef
+pub fn vortex_pco::PcoData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl vortex_array::array::vtable::validity::ValiditySliceHelper for vortex_pco::PcoData
+impl vortex_array::hash::ArrayEq for vortex_pco::PcoData
 
-pub fn vortex_pco::PcoData::unsliced_validity_and_slice(&self) -> (&vortex_array::validity::Validity, usize, usize)
+pub fn vortex_pco::PcoData::array_eq(&self, other: &Self, precision: vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_pco::PcoData
+
+pub fn vortex_pco::PcoData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::hash::Precision)
 
 pub struct vortex_pco::PcoMetadata
 

@@ -25,6 +25,7 @@ use vortex_mask::MaskValues;
 use super::chunked_indices;
 use super::take::UNPACK_CHUNK_THRESHOLD;
 use crate::BitPacked;
+use crate::BitPackedArrayExt;
 use crate::BitPackedData;
 
 /// The threshold over which it is faster to fully unpack the entire [`BitPackedArray`] and then
@@ -58,30 +59,40 @@ impl FilterKernel for BitPacked {
 
         // If the density is high enough, then we would rather decompress the whole array and then apply
         // a filter over decompressing values one by one.
-        if values.density() > unpack_then_filter_threshold(array.ptype()) {
+        if values.density() > unpack_then_filter_threshold(array.dtype().as_ptype()) {
             return Ok(None);
         }
 
         // Filter and patch using the correct unsigned type for FastLanes, then cast to signed if needed.
-        let primitive = match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |U| {
-            let (buffer, validity) = filter_primitive_without_patches::<U>(&array, values)?;
-            // reinterpret_cast for signed types.
-            PrimitiveArray::new(buffer, validity).reinterpret_cast(array.ptype())
-        });
+        let primitive =
+            match_each_unsigned_integer_ptype!(array.dtype().as_ptype().to_unsigned(), |U| {
+                let (buffer, validity) = filter_primitive_without_patches::<U>(array, values)?;
+                // reinterpret_cast for signed types.
+                let primitive = PrimitiveArray::new(buffer, validity);
+                if array.dtype().as_ptype().is_signed_int() {
+                    PrimitiveArray::from_buffer_handle(
+                        primitive.buffer_handle().clone(),
+                        array.dtype().as_ptype(),
+                        primitive.validity()?,
+                    )
+                } else {
+                    primitive
+                }
+            });
 
         let patches = array
             .patches()
-            .map(|patches| patches.filter(&Mask::Values(values.clone()), ctx))
+            .map(|patches| patches.filter(&Mask::Values(Arc::clone(values)), ctx))
             .transpose()?
             .flatten();
 
         if let Some(patches) = patches {
-            let mut prim_array = PrimitiveArray::try_from_data(primitive)?;
+            let mut prim_array = primitive;
             prim_array = prim_array.patch(&patches, ctx)?;
             return Ok(Some(prim_array.into_array()));
         }
 
-        Ok(Some(PrimitiveArray::try_from_data(primitive)?.into_array()))
+        Ok(Some(primitive.into_array()))
     }
 }
 
@@ -97,11 +108,13 @@ impl FilterKernel for BitPacked {
 ///
 /// Returns a tuple of (values buffer, validity mask).
 fn filter_primitive_without_patches<U: UnsignedPType + BitPacking>(
-    array: &BitPackedData,
+    array: ArrayView<'_, BitPacked>,
     selection: &Arc<MaskValues>,
 ) -> VortexResult<(Buffer<U>, Validity)> {
-    let values = filter_with_indices(array, selection.indices());
-    let validity = array.validity().filter(&Mask::Values(selection.clone()))?;
+    let values = filter_with_indices(array.data(), selection.indices());
+    let validity = array
+        .validity()?
+        .filter(&Mask::Values(Arc::clone(selection)))?;
 
     Ok((values.freeze(), validity))
 }
@@ -175,6 +188,7 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::BitPackedData;
+    use crate::bitpacking::array::BitPackedArrayExt;
 
     #[test]
     fn take_indices() {

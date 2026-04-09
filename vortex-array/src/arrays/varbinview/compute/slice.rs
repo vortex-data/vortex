@@ -25,7 +25,7 @@ impl SliceReduce for VarBinView {
                     .slice_typed::<BinaryView>(range.clone()),
                 Arc::clone(array.data_buffers()),
                 array.dtype().clone(),
-                array.validity().slice(range)?,
+                array.validity()?.slice(range)?,
             )
             .into_array(),
         ))
@@ -39,7 +39,7 @@ impl FilterReduce for VarBinView {
                 array.views_handle().filter(mask, size_of::<BinaryView>())?,
                 Arc::clone(array.data_buffers()),
                 array.dtype().clone(),
-                array.validity().filter(mask)?,
+                array.validity()?.filter(mask)?,
             )
             .into_array(),
         ))

@@ -11,6 +11,8 @@ use vortex_array::arrays::slice::SliceKernel;
 use vortex_error::VortexResult;
 
 use crate::ALP;
+use crate::ALPArrayExt;
+use crate::ALPArraySlotsExt;
 
 impl SliceKernel for ALP {
     fn slice(

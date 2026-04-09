@@ -10,6 +10,7 @@ use std::sync::Arc;
 use datafusion_common::Result as DFResult;
 use datafusion_datasource::PartitionedFile;
 use object_store::ObjectStore;
+use vortex::array::memory::MemorySessionExt;
 use vortex::io::VortexReadAt;
 use vortex::io::object_store::ObjectStoreReadAt;
 use vortex::io::session::RuntimeSessionExt;
@@ -45,10 +46,11 @@ impl VortexReaderFactory for DefaultVortexReaderFactory {
         file: &PartitionedFile,
         session: &VortexSession,
     ) -> DFResult<Arc<dyn VortexReadAt>> {
-        Ok(Arc::new(ObjectStoreReadAt::new(
-            self.object_store.clone(),
+        Ok(Arc::new(ObjectStoreReadAt::new_with_allocator(
+            Arc::clone(&self.object_store),
             file.path().as_ref().into(),
             session.handle(),
+            session.allocator(),
         )) as _)
     }
 }

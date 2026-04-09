@@ -437,7 +437,7 @@ impl<'a> GnomADBuilder<'a> {
             });
 
         RecordBatch::try_new(
-            self.schema.clone(),
+            Arc::clone(&self.schema),
             variant_fields
                 .into_iter()
                 .chain(info_fields)

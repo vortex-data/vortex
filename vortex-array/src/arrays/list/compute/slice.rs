@@ -10,6 +10,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::List;
 use crate::arrays::ListArray;
+use crate::arrays::list::ListArrayExt;
 use crate::arrays::slice::SliceReduce;
 
 impl SliceReduce for List {
@@ -18,7 +19,7 @@ impl SliceReduce for List {
             ListArray::new(
                 array.elements().clone(),
                 array.offsets().slice(range.start..range.end + 1)?,
-                array.validity().slice(range)?,
+                array.validity()?.slice(range)?,
             )
             .into_array(),
         ))

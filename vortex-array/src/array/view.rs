@@ -5,12 +5,15 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::ops::Deref;
 
+use vortex_error::VortexResult;
+
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::VTable;
 use crate::dtype::DType;
 use crate::stats::StatsSetRef;
+use crate::validity::Validity;
 
 /// A lightweight, `Copy`-able typed view into an [`ArrayRef`].
 pub struct ArrayView<'a, V: VTable> {
@@ -42,6 +45,10 @@ impl<'a, V: VTable> ArrayView<'a, V> {
         self.data
     }
 
+    pub fn slots(&self) -> &'a [Option<ArrayRef>] {
+        self.array.slots()
+    }
+
     pub fn dtype(&self) -> &DType {
         self.array.dtype()
     }
@@ -62,20 +69,13 @@ impl<'a, V: VTable> ArrayView<'a, V> {
         self.array.statistics()
     }
 
+    pub fn validity(&self) -> VortexResult<Validity> {
+        self.array.validity()
+    }
+
     pub fn into_owned(self) -> Array<V> {
         // SAFETY: we are ourselves type checked as 'V'
         unsafe { Array::<V>::from_array_ref_unchecked(self.array.clone()) }
-    }
-}
-
-impl<'a, V: VTable> ArrayView<'a, V>
-where
-    V::ArrayData: crate::vtable::ValidityHelper,
-{
-    /// Returns a reference to the validity.
-    #[allow(clippy::same_name_method)]
-    pub fn validity(&self) -> &'a crate::validity::Validity {
-        crate::vtable::ValidityHelper::validity(self.data)
     }
 }
 

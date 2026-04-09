@@ -58,7 +58,7 @@ jobs:
       - name: Build binary
         shell: bash
         env:
-          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+          RUSTFLAGS: "-C target-cpu=native"
         run: |
           cargo build --package ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }}
 
@@ -141,7 +141,8 @@ jobs:
             "id": "clickbench-nvme",
             "subcommand": "clickbench",
             "name": "Clickbench on NVME",
-            "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
+            "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb",
+            "extra_data_formats": "vortex-compact"
           },
           {
             "id": "tpch-nvme",

@@ -13,6 +13,8 @@
 //! Every data type recognized by Vortex also has a canonical physical encoding format, which
 //! arrays can be [canonicalized](Canonical) into for ease of access in compute functions.
 
+extern crate self as vortex_array;
+
 use std::sync::LazyLock;
 
 pub use array::*;
@@ -22,6 +24,7 @@ pub use executor::*;
 pub use hash::*;
 pub use mask_future::*;
 pub use metadata::*;
+pub use vortex_array_macros::array_slots;
 use vortex_session::VortexSession;
 use vortex_session::registry::Context;
 
@@ -52,6 +55,7 @@ pub mod kernel;
 pub mod mask;
 mod mask_future;
 pub mod matcher;
+pub mod memory;
 mod metadata;
 pub mod normalize;
 pub mod optimizer;
@@ -80,4 +84,4 @@ pub mod flatbuffers {
 pub static LEGACY_SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
-pub type ArrayContext = Context<DynVTableRef>;
+pub type ArrayContext = Context<ArrayPluginRef>;

@@ -14,7 +14,7 @@ use vortex_error::VortexResult;
 
 use crate::FL_CHUNK_SIZE;
 use crate::RLE;
-use crate::RLEData;
+use crate::rle::RLEArrayExt;
 
 pub(crate) static PARENT_KERNELS: ParentKernelSet<RLE> =
     ParentKernelSet::new(&[ParentKernelSet::lift(&SliceExecuteAdaptor(RLE))]);
@@ -46,18 +46,16 @@ impl SliceKernel for RLE {
             .indices()
             .slice(chunk_start_idx * FL_CHUNK_SIZE..chunk_end_idx * FL_CHUNK_SIZE)?;
 
-        // SAFETY: Slicing preserves all invariants.
-        Ok(Some(unsafe {
-            RLEData::new_unchecked(
+        Ok(Some(
+            RLE::try_new(
                 sliced_values,
                 sliced_indices,
                 sliced_values_idx_offsets,
-                array.dtype().clone(),
                 // Keep the offset relative to the first chunk.
                 (array.offset() + range.start) % FL_CHUNK_SIZE,
                 range.len(),
-            )
-            .into_array()
-        }))
+            )?
+            .into_array(),
+        ))
     }
 }

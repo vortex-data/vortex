@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hasher;
 use std::mem::size_of;
 use std::sync::Arc;
 
@@ -14,7 +15,6 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
@@ -32,13 +32,12 @@ use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable;
 mod kernel;
 mod operations;
 mod validity;
-vtable!(VarBinView, VarBinView, VarBinViewData);
+/// A [`VarBinView`]-encoded Vortex array.
+pub type VarBinViewArray = Array<VarBinView>;
 
 #[derive(Clone, Debug)]
 pub struct VarBinView;
@@ -47,57 +46,64 @@ impl VarBinView {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.varbinview");
 }
 
+impl ArrayHash for VarBinViewData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        for buffer in self.buffers.iter() {
+            buffer.array_hash(state, precision);
+        }
+        self.views.array_hash(state, precision);
+    }
+}
+
+impl ArrayEq for VarBinViewData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        self.buffers.len() == other.buffers.len()
+            && self
+                .buffers
+                .iter()
+                .zip(other.buffers.iter())
+                .all(|(a, b)| a.array_eq(b, precision))
+            && self.views.array_eq(&other.views, precision)
+    }
+}
+
 impl VTable for VarBinView {
     type ArrayData = VarBinViewData;
 
-    type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn vtable(_array: &VarBinViewData) -> &Self {
-        &VarBinView
-    }
 
     fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &VarBinViewData) -> usize {
-        array.views_handle().len() / size_of::<BinaryView>()
-    }
-
-    fn dtype(array: &VarBinViewData) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &VarBinViewData) -> &ArrayStats {
-        &array.stats_set
-    }
-
-    fn array_hash<H: std::hash::Hasher>(
-        array: &VarBinViewData,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        for buffer in array.buffers.iter() {
-            buffer.array_hash(state, precision);
-        }
-        array.views.array_hash(state, precision);
-        array.validity().array_hash(state, precision);
-    }
-
-    fn array_eq(array: &VarBinViewData, other: &VarBinViewData, precision: Precision) -> bool {
-        array.buffers.len() == other.buffers.len()
-            && array
-                .buffers
-                .iter()
-                .zip(other.buffers.iter())
-                .all(|(a, b)| a.array_eq(b, precision))
-            && array.views.array_eq(&other.views, precision)
-            && array.validity().array_eq(&other.validity(), precision)
-    }
-
     fn nbuffers(array: ArrayView<'_, Self>) -> usize {
         array.data_buffers().len() + 1
+    }
+
+    fn validate(
+        &self,
+        data: &VarBinViewData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "VarBinViewArray expected {NUM_SLOTS} slots, found {}",
+            slots.len()
+        );
+        vortex_ensure!(
+            data.len() == len,
+            "VarBinViewArray length {} does not match outer length {}",
+            data.len(),
+            len
+        );
+        vortex_ensure!(
+            matches!(dtype, DType::Binary(_) | DType::Utf8(_)),
+            "VarBinViewArray dtype must be binary or utf8, got {dtype}"
+        );
+        Ok(())
     }
 
     fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
@@ -122,31 +128,29 @@ impl VTable for VarBinView {
         }
     }
 
-    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        _array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
     fn deserialize(
-        _bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        metadata: &[u8],
+
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<VarBinViewData> {
+        _session: &VortexSession,
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
+        if !metadata.is_empty() {
+            vortex_bail!(
+                "VarBinViewArray expects empty metadata, got {} bytes",
+                metadata.len()
+            );
+        }
         let Some((views_handle, data_handles)) = buffers.split_last() else {
             vortex_bail!("Expected at least 1 buffer, got 0");
         };
@@ -174,11 +178,16 @@ impl VTable for VarBinView {
 
         // If any buffer is on device, skip host validation and use try_new_handle.
         if buffers.iter().any(|b| b.is_on_device()) {
-            return VarBinViewData::try_new_handle(
+            let data = VarBinViewData::try_new_handle(
                 views_handle.clone(),
                 Arc::from(data_handles.to_vec()),
                 dtype.clone(),
-                validity,
+                validity.clone(),
+            )?;
+            let slots = VarBinViewData::make_slots(&validity, len);
+            return Ok(
+                crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data)
+                    .with_slots(slots),
             );
         }
 
@@ -188,26 +197,18 @@ impl VTable for VarBinView {
             .collect::<Vec<_>>();
         let views = Buffer::<BinaryView>::from_byte_buffer(views_handle.clone().as_host().clone());
 
-        VarBinViewData::try_new(views, Arc::from(data_buffers), dtype.clone(), validity)
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        let data = VarBinViewData::try_new(
+            views,
+            Arc::from(data_buffers),
+            dtype.clone(),
+            validity.clone(),
+        )?;
+        let slots = VarBinViewData::make_slots(&validity, len);
+        Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "VarBinViewArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
     }
 
     fn reduce_parent(
@@ -242,8 +243,8 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::assert_arrays_eq;
-    use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
+    use crate::serde::SerializedArray;
 
     #[test]
     fn test_nullable_varbinview_serde_roundtrip() {
@@ -261,14 +262,14 @@ mod tests {
         let serialized = array
             .clone()
             .into_array()
-            .serialize(&ctx, &SerializeOptions::default())
+            .serialize(&ctx, &LEGACY_SESSION, &SerializeOptions::default())
             .unwrap();
 
         let mut concat = ByteBufferMut::empty();
         for buf in serialized {
             concat.extend_from_slice(buf.as_ref());
         }
-        let parts = ArrayParts::try_from(concat.freeze()).unwrap();
+        let parts = SerializedArray::try_from(concat.freeze()).unwrap();
         let decoded = parts
             .decode(
                 &dtype,

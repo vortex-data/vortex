@@ -88,8 +88,8 @@ impl DType {
             Utf8(_) => Utf8(nullability),
             Binary(_) => Binary(nullability),
             Struct(sf, _) => Struct(sf.clone(), nullability),
-            List(edt, _) => List(edt.clone(), nullability),
-            FixedSizeList(edt, size, _) => FixedSizeList(edt.clone(), *size, nullability),
+            List(edt, _) => List(Arc::clone(edt), nullability),
+            FixedSizeList(edt, size, _) => FixedSizeList(Arc::clone(edt), *size, nullability),
             Extension(ext) => Extension(ext.with_nullability(nullability)),
             Variant(_) => Variant(nullability),
         }
@@ -539,7 +539,7 @@ mod tests {
     fn element_size_fixed_size_list() {
         let elem = Arc::new(DType::Primitive(PType::F64, NonNullable));
         assert_eq!(
-            DType::FixedSizeList(elem.clone(), 1000, NonNullable).element_size(),
+            DType::FixedSizeList(Arc::clone(&elem), 1000, NonNullable).element_size(),
             Some(8000)
         );
 

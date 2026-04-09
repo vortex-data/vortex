@@ -24,7 +24,7 @@ impl TakeExecute for Decimal {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
-        let validity = array.validity().take(&indices.clone().into_array())?;
+        let validity = array.validity()?.take(&indices.clone().into_array())?;
 
         // TODO(joe): if the true count of take indices validity is low, only take array values with
         // valid indices.

@@ -46,9 +46,9 @@
 //! // Default compressor with all schemes enabled.
 //! let compressor = BtrBlocksCompressor::default();
 //!
-//! // Configure with builder to exclude specific schemes.
+//! // Remove specific schemes using the builder.
 //! let compressor = BtrBlocksCompressorBuilder::default()
-//!     .exclude([IntDictScheme.id()])
+//!     .exclude_schemes([IntDictScheme.id()])
 //!     .build();
 //! ```
 //!
@@ -66,13 +66,11 @@ pub use builder::BtrBlocksCompressorBuilder;
 pub use canonical_compressor::BtrBlocksCompressor;
 pub use schemes::patches::compress_patches;
 pub use vortex_compressor::CascadingCompressor;
-pub use vortex_compressor::builtins::integer_dictionary_encode;
 pub use vortex_compressor::ctx::CompressorContext;
 pub use vortex_compressor::ctx::MAX_CASCADE;
 pub use vortex_compressor::scheme::Scheme;
 pub use vortex_compressor::scheme::SchemeExt;
 pub use vortex_compressor::scheme::SchemeId;
-pub use vortex_compressor::scheme::estimate_compression_ratio_with_sampling;
 pub use vortex_compressor::stats::ArrayAndStats;
 pub use vortex_compressor::stats::BoolStats;
 pub use vortex_compressor::stats::FloatStats;

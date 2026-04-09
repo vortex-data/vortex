@@ -15,6 +15,7 @@ use tokio::io::AsyncWriteExt;
 use vortex::array::ArrayRef;
 use vortex::array::arrow::FromArrowArray;
 use vortex::array::stream::ArrayStreamAdapter;
+use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexExpect;
@@ -91,11 +92,11 @@ pub async fn exec_convert(session: &VortexSession, flags: ConvertArgs) -> anyhow
             .boxed();
     }
 
-    let strategy = WriteStrategyBuilder::default();
-    let strategy = match flags.strategy {
-        Strategy::Btrblocks => strategy,
-        Strategy::Compact => strategy.with_compact_encodings(),
-    };
+    let mut strategy = WriteStrategyBuilder::default();
+    if matches!(flags.strategy, Strategy::Compact) {
+        strategy =
+            strategy.with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact());
+    }
 
     let mut file = File::create(output_path).await?;
     session

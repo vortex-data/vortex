@@ -12,6 +12,7 @@ use crate::array::ArrayView;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::slice::SliceReduce;
+use crate::arrays::struct_::StructArrayExt;
 
 impl SliceReduce for Struct {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
@@ -27,7 +28,7 @@ impl SliceReduce for Struct {
                     fields,
                     array.struct_fields().clone(),
                     range.len(),
-                    array.validity().slice(range)?,
+                    array.validity()?.slice(range)?,
                 )
             }
             .into_array(),

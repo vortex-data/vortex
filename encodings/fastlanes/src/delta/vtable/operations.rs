@@ -38,18 +38,15 @@ mod tests {
     use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
 
+    use crate::Delta;
     use crate::DeltaArray;
-    use crate::DeltaData;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     fn da(array: &PrimitiveArray) -> DeltaArray {
-        DeltaArray::try_from_data(
-            DeltaData::try_from_primitive_array(array, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-        )
-        .vortex_expect("DeltaData is always valid")
+        Delta::try_from_primitive_array(array, &mut SESSION.create_execution_ctx())
+            .vortex_expect("Delta array construction should succeed")
     }
 
     #[test]

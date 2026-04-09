@@ -9,12 +9,14 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::varbin::VarBinArrayExt;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar_fn::fns::like::LikeKernel;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
 use vortex_error::VortexResult;
 
 use crate::FSST;
+use crate::FSSTArrayExt;
 use crate::dfa::FsstMatcher;
 use crate::dfa::dfa_scan_to_bitbuf;
 
@@ -72,7 +74,7 @@ impl LikeKernel for FSST {
         // directly without cloning the entire FSSTArray into an ArrayRef.
         let validity = array
             .codes()
-            .validity()
+            .validity()?
             .union_nullability(pattern_scalar.dtype().nullability());
 
         Ok(Some(BoolArray::new(result, validity).into_array()))
@@ -89,7 +91,7 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::VarBinArray;
-    use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+    use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;

@@ -17,6 +17,7 @@ use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::varbin::VarBinArrayExt;
 use crate::arrow::byte_view::execute_varbinview_to_arrow;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;
@@ -67,7 +68,7 @@ where
 
     let data = array.bytes().clone().into_arrow_buffer();
 
-    let null_buffer = to_arrow_null_buffer(array.validity(), array.len(), ctx)?;
+    let null_buffer = to_arrow_null_buffer(array.validity()?, array.len(), ctx)?;
     Ok(Arc::new(unsafe {
         GenericByteArray::<T>::new_unchecked(offsets, data, null_buffer)
     }))

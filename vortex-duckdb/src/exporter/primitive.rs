@@ -29,7 +29,7 @@ pub fn new_exporter(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let validity = array
-        .validity()
+        .validity()?
         .to_array(array.len())
         .execute::<Mask>(ctx)?;
 

@@ -2,22 +2,25 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::hash::Hash;
+use std::hash::Hasher;
 
 use itertools::Itertools;
+use prost::Message;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
-use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
-use vortex_array::ProstMetadata;
-use vortex_array::SerializeMetadata;
+use vortex_array::TypedArrayRef;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
@@ -29,9 +32,7 @@ use vortex_array::patches::PatchesMetadata;
 use vortex_array::require_child;
 use vortex_array::require_patches;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
-use vortex_array::vtable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
@@ -48,7 +49,8 @@ use crate::alp_rd::kernel::PARENT_KERNELS;
 use crate::alp_rd::rules::RULES;
 use crate::alp_rd_decode;
 
-vtable!(ALPRD, ALPRD, ALPRDData);
+/// A [`ALPRD`]-encoded Vortex array.
+pub type ALPRDArray = Array<ALPRD>;
 
 #[derive(Clone, prost::Message)]
 pub struct ALPRDMetadata {
@@ -64,51 +66,55 @@ pub struct ALPRDMetadata {
     patches: Option<PatchesMetadata>,
 }
 
+impl ArrayHash for ALPRDData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        self.left_parts_dictionary.array_hash(state, precision);
+        self.right_bit_width.hash(state);
+        self.patch_offset.hash(state);
+        self.patch_offset_within_chunk.hash(state);
+    }
+}
+
+impl ArrayEq for ALPRDData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        self.left_parts_dictionary
+            .array_eq(&other.left_parts_dictionary, precision)
+            && self.right_bit_width == other.right_bit_width
+            && self.patch_offset == other.patch_offset
+            && self.patch_offset_within_chunk == other.patch_offset_within_chunk
+    }
+}
+
 impl VTable for ALPRD {
     type ArrayData = ALPRDData;
 
-    type Metadata = ProstMetadata<ALPRDMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
-
-    fn vtable(_array: &Self::ArrayData) -> &Self {
-        &ALPRD
-    }
 
     fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &ALPRDData) -> usize {
-        array.left_parts().len()
-    }
-
-    fn dtype(array: &ALPRDData) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &ALPRDData) -> &ArrayStats {
-        &array.stats_set
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &ALPRDData, state: &mut H, precision: Precision) {
-        array.left_parts().array_hash(state, precision);
-        array.left_parts_dictionary.array_hash(state, precision);
-        array.right_parts().array_hash(state, precision);
-        array.right_bit_width.hash(state);
-        array.left_parts_patches.array_hash(state, precision);
-    }
-
-    fn array_eq(array: &ALPRDData, other: &ALPRDData, precision: Precision) -> bool {
-        array.left_parts().array_eq(other.left_parts(), precision)
-            && array
-                .left_parts_dictionary
-                .array_eq(&other.left_parts_dictionary, precision)
-            && array.right_parts().array_eq(other.right_parts(), precision)
-            && array.right_bit_width == other.right_bit_width
-            && array
-                .left_parts_patches
-                .array_eq(&other.left_parts_patches, precision)
+    fn validate(
+        &self,
+        data: &ALPRDData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        validate_parts(
+            dtype,
+            len,
+            left_parts_from_slots(slots),
+            right_parts_from_slots(slots),
+            patches_from_slots(
+                slots,
+                data.patch_offset,
+                data.patch_offset_within_chunk,
+                len,
+            )
+            .as_ref(),
+        )
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -123,48 +129,41 @@ impl VTable for ALPRD {
         None
     }
 
-    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         let dict = array
             .left_parts_dictionary()
             .iter()
             .map(|&i| i as u32)
             .collect::<Vec<_>>();
 
-        Ok(ProstMetadata(ALPRDMetadata {
-            right_bit_width: array.right_bit_width() as u32,
-            dict_len: array.left_parts_dictionary().len() as u32,
-            dict,
-            left_parts_ptype: array.left_parts().dtype().as_ptype() as i32,
-            patches: array
-                .left_parts_patches()
-                .map(|p| p.to_metadata(array.len(), array.left_parts().dtype()))
-                .transpose()?,
-        }))
-    }
-
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
-    }
-
-    fn deserialize(
-        bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(
-            <ProstMetadata<ALPRDMetadata> as DeserializeMetadata>::deserialize(bytes)?,
+        Ok(Some(
+            ALPRDMetadata {
+                right_bit_width: array.right_bit_width() as u32,
+                dict_len: array.left_parts_dictionary().len() as u32,
+                dict,
+                left_parts_ptype: array.left_parts().dtype().as_ptype() as i32,
+                patches: array
+                    .left_parts_patches()
+                    .map(|p| p.to_metadata(array.len(), p.dtype()))
+                    .transpose()?,
+            }
+            .encode_to_vec(),
         ))
     }
 
-    fn build(
+    fn deserialize(
+        &self,
         dtype: &DType,
         len: usize,
-        metadata: &Self::Metadata,
+        metadata: &[u8],
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ALPRDData> {
+        _session: &VortexSession,
+    ) -> VortexResult<ArrayParts<Self>> {
+        let metadata = ALPRDMetadata::decode(metadata)?;
         if children.len() < 2 {
             vortex_bail!(
                 "Expected at least 2 children for ALPRD encoding, found {}",
@@ -172,10 +171,10 @@ impl VTable for ALPRD {
             );
         }
 
-        let left_parts_dtype = DType::Primitive(metadata.0.left_parts_ptype(), dtype.nullability());
+        let left_parts_dtype = DType::Primitive(metadata.left_parts_ptype(), dtype.nullability());
         let left_parts = children.get(0, &left_parts_dtype, len)?;
-        let left_parts_dictionary: Buffer<u16> = metadata.0.dict.as_slice()
-            [0..metadata.0.dict_len as usize]
+        let left_parts_dictionary: Buffer<u16> = metadata.dict.as_slice()
+            [0..metadata.dict_len as usize]
             .iter()
             .map(|&i| {
                 u16::try_from(i)
@@ -195,11 +194,10 @@ impl VTable for ALPRD {
         let right_parts = children.get(1, &right_parts_dtype, len)?;
 
         let left_parts_patches = metadata
-            .0
             .patches
             .map(|p| {
                 let indices = children.get(2, &p.indices_dtype()?, p.len()?)?;
-                let values = children.get(3, &left_parts_dtype, p.len()?)?;
+                let values = children.get(3, &left_parts_dtype.as_nonnullable(), p.len()?)?;
 
                 Patches::new(
                     len,
@@ -211,58 +209,23 @@ impl VTable for ALPRD {
                 )
             })
             .transpose()?;
-
-        ALPRDData::try_new(
-            dtype.clone(),
-            left_parts,
+        let left_parts_patches = ALPRDData::canonicalize_patches(&left_parts, left_parts_patches)?;
+        let slots = ALPRDData::make_slots(&left_parts, &right_parts, &left_parts_patches);
+        let data = ALPRDData::new(
             left_parts_dictionary,
-            right_parts,
-            u8::try_from(metadata.0.right_bit_width).map_err(|_| {
+            u8::try_from(metadata.right_bit_width).map_err(|_| {
                 vortex_err!(
                     "right_bit_width {} out of u8 range",
-                    metadata.0.right_bit_width
+                    metadata.right_bit_width
                 )
             })?,
             left_parts_patches,
-        )
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        );
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ALPRDArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-
-        // Reconstruct patches from slots + existing metadata
-        array.left_parts_patches =
-            match (&slots[LP_PATCH_INDICES_SLOT], &slots[LP_PATCH_VALUES_SLOT]) {
-                (Some(indices), Some(values)) => {
-                    let old = array
-                        .left_parts_patches
-                        .as_ref()
-                        .vortex_expect("ALPRDArray had patch slots but no patches metadata");
-                    Some(Patches::new(
-                        old.array_len(),
-                        old.offset(),
-                        indices.clone(),
-                        values.clone(),
-                        slots[LP_PATCH_CHUNK_OFFSETS_SLOT].clone(),
-                    )?)
-                }
-                _ => None,
-            };
-        array.slots = slots;
-        Ok(())
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -270,29 +233,27 @@ impl VTable for ALPRD {
         let array = require_child!(array, array.right_parts(), 1 => Primitive);
         require_patches!(
             array,
-            array.left_parts_patches(),
             LP_PATCH_INDICES_SLOT,
             LP_PATCH_VALUES_SLOT,
             LP_PATCH_CHUNK_OFFSETS_SLOT
         );
 
+        let dtype = array.dtype().clone();
         let right_bit_width = array.right_bit_width();
-        let ALPRDArrayParts {
+        let ALPRDDataParts {
             left_parts,
             right_parts,
             left_parts_dictionary,
             left_parts_patches,
-            dtype,
-            ..
-        } = array.into_data().into_parts();
+        } = ALPRDArrayOwnedExt::into_data_parts(array);
         let ptype = dtype.as_ptype();
 
         let left_parts = left_parts
-            .try_into::<Primitive>()
+            .try_downcast::<Primitive>()
             .ok()
             .vortex_expect("ALPRD execute: left_parts is primitive");
         let right_parts = right_parts
-            .try_into::<Primitive>()
+            .try_downcast::<Primitive>()
             .ok()
             .vortex_expect("ALPRD execute: right_parts is primitive");
 
@@ -368,17 +329,24 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = [
 
 #[derive(Clone, Debug)]
 pub struct ALPRDData {
-    dtype: DType,
-    slots: Vec<Option<ArrayRef>>,
-    left_parts_patches: Option<Patches>,
+    patch_offset: Option<usize>,
+    patch_offset_within_chunk: Option<usize>,
     left_parts_dictionary: Buffer<u16>,
     right_bit_width: u8,
-    stats_set: ArrayStats,
+}
+
+impl Display for ALPRDData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "right_bit_width: {}", self.right_bit_width)?;
+        if let Some(offset) = self.patch_offset {
+            write!(f, ", patch_offset: {offset}")?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug)]
-pub struct ALPRDArrayParts {
-    pub dtype: DType,
+pub struct ALPRDDataParts {
     pub left_parts: ArrayRef,
     pub left_parts_patches: Option<Patches>,
     pub left_parts_dictionary: Buffer<u16>,
@@ -399,18 +367,15 @@ impl ALPRD {
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
     ) -> VortexResult<ALPRDArray> {
-        Array::try_from_data(ALPRDData::try_new(
-            dtype,
-            left_parts,
-            left_parts_dictionary,
-            right_parts,
-            right_bit_width,
-            left_parts_patches,
-        )?)
+        let len = left_parts.len();
+        let left_parts_patches = ALPRDData::canonicalize_patches(&left_parts, left_parts_patches)?;
+        let slots = ALPRDData::make_slots(&left_parts, &right_parts, &left_parts_patches);
+        let data = ALPRDData::new(left_parts_dictionary, right_bit_width, left_parts_patches);
+        Array::try_from_parts(ArrayParts::new(ALPRD, dtype, len, data).with_slots(slots))
     }
 
     /// # Safety
-    /// See [`ALPRDData::try_new`] for preconditions.
+    /// See [`ALPRD::try_new`] for preconditions.
     pub unsafe fn new_unchecked(
         dtype: DType,
         left_parts: ArrayRef,
@@ -419,107 +384,65 @@ impl ALPRD {
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
     ) -> ALPRDArray {
-        Array::try_from_data(unsafe {
-            ALPRDData::new_unchecked(
-                dtype,
-                left_parts,
-                left_parts_dictionary,
-                right_parts,
-                right_bit_width,
-                left_parts_patches,
-            )
-        })
-        .vortex_expect("ALPRDData is always valid")
+        let len = left_parts.len();
+        let slots = ALPRDData::make_slots(&left_parts, &right_parts, &left_parts_patches);
+        let data = unsafe {
+            ALPRDData::new_unchecked(left_parts_dictionary, right_bit_width, left_parts_patches)
+        };
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(ALPRD, dtype, len, data).with_slots(slots))
+        }
     }
 }
 
 impl ALPRDData {
-    /// Build a new `ALPRDArray` from components.
-    pub fn try_new(
-        dtype: DType,
-        left_parts: ArrayRef,
-        left_parts_dictionary: Buffer<u16>,
-        right_parts: ArrayRef,
-        right_bit_width: u8,
+    fn canonicalize_patches(
+        left_parts: &ArrayRef,
         left_parts_patches: Option<Patches>,
-    ) -> VortexResult<Self> {
-        if !dtype.is_float() {
-            vortex_bail!("ALPRDArray given invalid DType ({dtype})");
-        }
-
-        let len = left_parts.len();
-        if right_parts.len() != len {
-            vortex_bail!(
-                "left_parts (len {}) and right_parts (len {}) must be of same length",
-                len,
-                right_parts.len()
-            );
-        }
-
-        if !left_parts.dtype().is_unsigned_int() {
-            vortex_bail!("left_parts dtype must be uint");
-        }
-        // we delegate array validity to the left_parts child
-        if dtype.is_nullable() != left_parts.dtype().is_nullable() {
-            vortex_bail!(
-                "ALPRDArray dtype nullability ({}) must match left_parts dtype nullability ({})",
-                dtype,
-                left_parts.dtype()
-            );
-        }
-
-        // we enforce right_parts to be non-nullable uint
-        if !right_parts.dtype().is_unsigned_int() || right_parts.dtype().is_nullable() {
-            vortex_bail!(MismatchedTypes: "non-nullable uint", right_parts.dtype());
-        }
-
-        let left_parts_patches = left_parts_patches
+    ) -> VortexResult<Option<Patches>> {
+        left_parts_patches
             .map(|patches| {
                 if !patches.values().all_valid()? {
                     vortex_bail!("patches must be all valid: {}", patches.values());
                 }
                 // TODO(ngates): assert the DType, don't cast it.
                 // TODO(joe): assert the DType, don't cast it in the next PR.
-                let mut patches = patches.cast_values(left_parts.dtype())?;
+                let mut patches = patches.cast_values(&left_parts.dtype().as_nonnullable())?;
                 // Force execution of the lazy cast so patch values are materialized
                 // before serialization.
                 *patches.values_mut() = patches.values().to_canonical()?.into_array();
                 Ok(patches)
             })
-            .transpose()?;
+            .transpose()
+    }
 
-        let slots = Self::make_slots(&left_parts, &right_parts, &left_parts_patches);
+    /// Build a new `ALPRDArray` from components.
+    pub fn new(
+        left_parts_dictionary: Buffer<u16>,
+        right_bit_width: u8,
+        left_parts_patches: Option<Patches>,
+    ) -> Self {
+        let (patch_offset, patch_offset_within_chunk) = match &left_parts_patches {
+            Some(patches) => (Some(patches.offset()), patches.offset_within_chunk()),
+            None => (None, None),
+        };
 
-        Ok(Self {
-            dtype,
-            slots,
+        Self {
+            patch_offset,
+            patch_offset_within_chunk,
             left_parts_dictionary,
             right_bit_width,
-            left_parts_patches,
-            stats_set: Default::default(),
-        })
+        }
     }
 
     /// Build a new `ALPRDArray` from components. This does not perform any validation, and instead
     /// it constructs it from parts.
     pub(crate) unsafe fn new_unchecked(
-        dtype: DType,
-        left_parts: ArrayRef,
         left_parts_dictionary: Buffer<u16>,
-        right_parts: ArrayRef,
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
     ) -> Self {
-        let slots = Self::make_slots(&left_parts, &right_parts, &left_parts_patches);
-
-        Self {
-            dtype,
-            slots,
-            left_parts_patches,
-            left_parts_dictionary,
-            right_bit_width,
-            stats_set: Default::default(),
-        }
+        Self::new(left_parts_dictionary, right_bit_width, left_parts_patches)
     }
 
     fn make_slots(
@@ -545,60 +468,13 @@ impl ALPRDData {
     }
 
     /// Return all the owned parts of the array
-    pub fn into_parts(mut self) -> ALPRDArrayParts {
-        let left_parts = self.slots[LEFT_PARTS_SLOT]
-            .take()
-            .vortex_expect("ALPRDArray left_parts slot");
-        let right_parts = self.slots[RIGHT_PARTS_SLOT]
-            .take()
-            .vortex_expect("ALPRDArray right_parts slot");
-        ALPRDArrayParts {
-            dtype: self.dtype,
+    pub fn into_parts(self, left_parts: ArrayRef, right_parts: ArrayRef) -> ALPRDDataParts {
+        ALPRDDataParts {
             left_parts,
-            left_parts_patches: self.left_parts_patches,
+            left_parts_patches: None,
             left_parts_dictionary: self.left_parts_dictionary,
             right_parts,
         }
-    }
-
-    /// Returns the number of elements in the array.
-    pub fn len(&self) -> usize {
-        self.left_parts().len()
-    }
-
-    /// Returns `true` if the array contains no elements.
-    pub fn is_empty(&self) -> bool {
-        self.left_parts().len() == 0
-    }
-
-    /// Returns the logical data type of the array.
-    pub fn dtype(&self) -> &DType {
-        &self.dtype
-    }
-
-    /// Returns true if logical type of the array values is f32.
-    ///
-    /// Returns false if the logical type of the array values is f64.
-    #[inline]
-    pub fn is_f32(&self) -> bool {
-        matches!(&self.dtype, DType::Primitive(PType::F32, _))
-    }
-
-    /// The leftmost (most significant) bits of the floating point values stored in the array.
-    ///
-    /// These are bit-packed and dictionary encoded, and cannot directly be interpreted without
-    /// the metadata of this array.
-    pub fn left_parts(&self) -> &ArrayRef {
-        self.slots[LEFT_PARTS_SLOT]
-            .as_ref()
-            .vortex_expect("ALPRDArray left_parts slot")
-    }
-
-    /// The rightmost (least significant) bits of the floating point values stored in the array.
-    pub fn right_parts(&self) -> &ArrayRef {
-        self.slots[RIGHT_PARTS_SLOT]
-            .as_ref()
-            .vortex_expect("ALPRDArray right_parts slot")
     }
 
     #[inline]
@@ -606,44 +482,174 @@ impl ALPRDData {
         self.right_bit_width
     }
 
-    /// Patches of left-most bits.
-    pub fn left_parts_patches(&self) -> Option<Patches> {
-        self.left_parts_patches.clone()
-    }
-
     /// The dictionary that maps the codes in `left_parts` into bit patterns.
     #[inline]
     pub fn left_parts_dictionary(&self) -> &Buffer<u16> {
         &self.left_parts_dictionary
     }
+}
 
-    pub fn replace_left_parts_patches(&mut self, patches: Option<Patches>) {
-        // Update both the patches and the corresponding slots to keep them in sync.
-        let (pi, pv, pco) = match &patches {
-            Some(p) => (
-                Some(p.indices().clone()),
-                Some(p.values().clone()),
-                p.chunk_offsets().clone(),
-            ),
-            None => (None, None, None),
+fn left_parts_from_slots(slots: &[Option<ArrayRef>]) -> &ArrayRef {
+    slots[LEFT_PARTS_SLOT]
+        .as_ref()
+        .vortex_expect("ALPRDArray left_parts slot")
+}
+
+fn right_parts_from_slots(slots: &[Option<ArrayRef>]) -> &ArrayRef {
+    slots[RIGHT_PARTS_SLOT]
+        .as_ref()
+        .vortex_expect("ALPRDArray right_parts slot")
+}
+
+fn patches_from_slots(
+    slots: &[Option<ArrayRef>],
+    patch_offset: Option<usize>,
+    patch_offset_within_chunk: Option<usize>,
+    len: usize,
+) -> Option<Patches> {
+    match (&slots[LP_PATCH_INDICES_SLOT], &slots[LP_PATCH_VALUES_SLOT]) {
+        (Some(indices), Some(values)) => {
+            let patch_offset = patch_offset.vortex_expect("ALPRDArray patch slots without offset");
+            Some(unsafe {
+                Patches::new_unchecked(
+                    len,
+                    patch_offset,
+                    indices.clone(),
+                    values.clone(),
+                    slots[LP_PATCH_CHUNK_OFFSETS_SLOT].clone(),
+                    patch_offset_within_chunk,
+                )
+            })
+        }
+        _ => None,
+    }
+}
+
+fn validate_parts(
+    dtype: &DType,
+    len: usize,
+    left_parts: &ArrayRef,
+    right_parts: &ArrayRef,
+    left_parts_patches: Option<&Patches>,
+) -> VortexResult<()> {
+    if !dtype.is_float() {
+        vortex_bail!("ALPRDArray given invalid DType ({dtype})");
+    }
+
+    vortex_ensure!(
+        left_parts.len() == len,
+        "left_parts len {} != outer len {len}",
+        left_parts.len(),
+    );
+    vortex_ensure!(
+        right_parts.len() == len,
+        "right_parts len {} != outer len {len}",
+        right_parts.len(),
+    );
+
+    if !left_parts.dtype().is_unsigned_int() {
+        vortex_bail!("left_parts dtype must be uint");
+    }
+    if dtype.is_nullable() != left_parts.dtype().is_nullable() {
+        vortex_bail!(
+            "ALPRDArray dtype nullability ({}) must match left_parts dtype nullability ({})",
+            dtype,
+            left_parts.dtype()
+        );
+    }
+
+    let expected_right_parts_dtype = match dtype {
+        DType::Primitive(PType::F32, _) => DType::Primitive(PType::U32, Nullability::NonNullable),
+        DType::Primitive(PType::F64, _) => DType::Primitive(PType::U64, Nullability::NonNullable),
+        _ => vortex_bail!("Expected f32 or f64 dtype, got {:?}", dtype),
+    };
+    vortex_ensure!(
+        right_parts.dtype() == &expected_right_parts_dtype,
+        "right_parts dtype {} does not match expected {}",
+        right_parts.dtype(),
+        expected_right_parts_dtype,
+    );
+
+    if let Some(patches) = left_parts_patches {
+        vortex_ensure!(
+            patches.array_len() == len,
+            "patches array_len {} != outer len {len}",
+            patches.array_len(),
+        );
+        vortex_ensure!(
+            patches.dtype().eq_ignore_nullability(left_parts.dtype()),
+            "patches dtype {} does not match left_parts dtype {}",
+            patches.dtype(),
+            left_parts.dtype(),
+        );
+        vortex_ensure!(
+            patches.values().all_valid()?,
+            "patches must be all valid: {}",
+            patches.values()
+        );
+    }
+
+    Ok(())
+}
+
+pub trait ALPRDArrayExt: TypedArrayRef<ALPRD> {
+    fn left_parts(&self) -> &ArrayRef {
+        left_parts_from_slots(self.as_ref().slots())
+    }
+
+    fn right_parts(&self) -> &ArrayRef {
+        right_parts_from_slots(self.as_ref().slots())
+    }
+
+    fn right_bit_width(&self) -> u8 {
+        ALPRDData::right_bit_width(self)
+    }
+
+    fn left_parts_patches(&self) -> Option<Patches> {
+        patches_from_slots(
+            self.as_ref().slots(),
+            self.patch_offset,
+            self.patch_offset_within_chunk,
+            self.as_ref().len(),
+        )
+    }
+
+    fn left_parts_dictionary(&self) -> &Buffer<u16> {
+        ALPRDData::left_parts_dictionary(self)
+    }
+}
+impl<T: TypedArrayRef<ALPRD>> ALPRDArrayExt for T {}
+
+pub trait ALPRDArrayOwnedExt {
+    fn into_data_parts(self) -> ALPRDDataParts;
+}
+
+impl ALPRDArrayOwnedExt for Array<ALPRD> {
+    fn into_data_parts(self) -> ALPRDDataParts {
+        let left_parts_patches = self.left_parts_patches();
+        let left_parts = self.left_parts().clone();
+        let right_parts = self.right_parts().clone();
+        let mut parts = ALPRDDataParts {
+            left_parts,
+            left_parts_patches: None,
+            left_parts_dictionary: self.left_parts_dictionary().clone(),
+            right_parts,
         };
-        self.slots[LP_PATCH_INDICES_SLOT] = pi;
-        self.slots[LP_PATCH_VALUES_SLOT] = pv;
-        self.slots[LP_PATCH_CHUNK_OFFSETS_SLOT] = pco;
-        self.left_parts_patches = patches;
+        parts.left_parts_patches = left_parts_patches;
+        parts
     }
 }
 
 impl ValidityChild<ALPRD> for ALPRD {
-    fn validity_child(array: &ALPRDData) -> &ArrayRef {
-        array.left_parts()
+    fn validity_child(array: ArrayView<'_, ALPRD>) -> ArrayRef {
+        array.left_parts().clone()
     }
 }
 
 #[cfg(test)]
 mod test {
+    use prost::Message;
     use rstest::rstest;
-    use vortex_array::ProstMetadata;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -687,7 +693,7 @@ mod test {
     fn test_alprd_metadata() {
         check_metadata(
             "alprd.metadata",
-            ProstMetadata(ALPRDMetadata {
+            &ALPRDMetadata {
                 right_bit_width: u32::MAX,
                 patches: Some(PatchesMetadata::new(
                     usize::MAX,
@@ -700,7 +706,8 @@ mod test {
                 dict: Vec::new(),
                 left_parts_ptype: PType::U64 as i32,
                 dict_len: 8,
-            }),
+            }
+            .encode_to_vec(),
         );
     }
 }

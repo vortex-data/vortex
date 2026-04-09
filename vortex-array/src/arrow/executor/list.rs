@@ -21,7 +21,10 @@ use crate::arrays::List;
 use crate::arrays::ListArray;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
-use crate::arrays::listview::ListViewArrayParts;
+use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::list::ListArrayExt;
+use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::listview::ListViewDataParts;
 use crate::arrays::listview::ListViewRebuildMode;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
@@ -53,7 +56,7 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
     }
 
     // If the Vortex array is a ListViewArray, rebuild to ZCTL if needed and convert.
-    let array = match array.try_into::<ListView>() {
+    let array = match array.try_downcast::<ListView>() {
         Ok(array) => {
             let zctl = if array.is_zero_copy_to_list() {
                 array
@@ -102,11 +105,11 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
         "Cannot convert to non-nullable Arrow array with null elements"
     );
 
-    let null_buffer = to_arrow_null_buffer(array.validity(), array.len(), ctx)?;
+    let null_buffer = to_arrow_null_buffer(array.validity()?, array.len(), ctx)?;
 
     // TODO(ngates): use new_unchecked when it is added to arrow-rs.
     Ok(Arc::new(GenericListArray::<O>::new(
-        elements_field.clone(),
+        Arc::clone(elements_field),
         offsets,
         elements,
         null_buffer,
@@ -126,20 +129,20 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
             .clone()
             .execute_arrow(Some(elements_field.data_type()), ctx)?;
         return Ok(Arc::new(GenericListArray::<O>::new(
-            elements_field.clone(),
+            Arc::clone(elements_field),
             OffsetBuffer::new_empty(),
             elements,
             None,
         )));
     }
 
-    let ListViewArrayParts {
+    let ListViewDataParts {
         elements,
         offsets,
         sizes,
         validity,
         ..
-    } = array.into_data().into_parts();
+    } = array.into_data_parts();
 
     // For ZCTL, we know that we only care about the final size.
     assert!(!sizes.is_empty());
@@ -182,7 +185,7 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
     let null_buffer = to_arrow_null_buffer(validity, sizes.len(), ctx)?;
 
     Ok(Arc::new(GenericListArray::<O>::new(
-        elements_field.clone(),
+        Arc::clone(elements_field),
         offsets.freeze().into_arrow_offset_buffer(),
         elements,
         null_buffer,

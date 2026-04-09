@@ -26,9 +26,7 @@ jobs:
       contents: write
     runs-on: ubuntu-latest
     steps:
-      - uses: release-drafter/release-drafter@v6.4.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: release-drafter/release-drafter@v7.1.1
         with:
           commitish: ${{ github.ref_name }}
           prerelease: ${{ github.event_name == 'workflow_dispatch' }}

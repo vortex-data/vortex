@@ -5,14 +5,22 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::filter::FilterReduce;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::DecimalByteParts;
+use crate::decimal_byte_parts::DecimalBytePartsArrayExt;
 impl FilterReduce for DecimalByteParts {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
-        DecimalByteParts::try_new(array.msp().filter(mask.clone())?, *array.decimal_dtype())
-            .map(|d| Some(d.into_array()))
+        DecimalByteParts::try_new(
+            array.msp().filter(mask.clone())?,
+            *array
+                .dtype()
+                .as_decimal_opt()
+                .vortex_expect("must be a decimal dtype"),
+        )
+        .map(|d| Some(d.into_array()))
     }
 }
 

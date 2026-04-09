@@ -8,6 +8,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
@@ -22,7 +23,7 @@ impl CastReduce for ListView {
         // Cast the elements to the target element type.
         let new_elements = array.elements().cast((**target_element_type).clone())?;
         let validity = array
-            .validity()
+            .validity()?
             .cast_nullability(dtype.nullability(), array.len())?;
 
         // SAFETY: Since `cast` is length-preserving, all of the invariants remain the same.

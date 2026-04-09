@@ -47,14 +47,7 @@ pub fn alp_encode(parray: &PrimitiveArray, exponents: Option<Exponents>) -> Vort
     };
 
     // SAFETY: alp_encode_components_typed must return well-formed components
-    unsafe {
-        Ok(ALP::new_unchecked(
-            encoded,
-            exponents,
-            patches,
-            parray.dtype().clone(),
-        ))
-    }
+    unsafe { Ok(ALP::new_unchecked(encoded, exponents, patches)) }
 }
 
 #[expect(
@@ -73,7 +66,7 @@ where
     let (exponents, encoded, exceptional_positions, exceptional_values, mut chunk_offsets) =
         T::encode(values_slice, exponents);
 
-    let encoded_array = PrimitiveArray::new(encoded, values.validity()).into_array();
+    let encoded_array = PrimitiveArray::new(encoded, values.validity()?).into_array();
 
     let validity = values.validity_mask()?;
     // exceptional_positions may contain exceptions at invalid positions (which contain garbage
@@ -141,6 +134,8 @@ mod tests {
     use vortex_buffer::buffer;
 
     use super::*;
+    use crate::alp::array::ALPArrayExt;
+    use crate::alp::array::ALPArraySlotsExt;
     use crate::decompress_into_array;
 
     #[test]
@@ -551,5 +546,45 @@ mod tests {
             decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
 
         assert_arrays_eq!(decoded, array);
+    }
+
+    /// Regression test for patch_chunk index-out-of-bounds when slicing a multi-chunk
+    /// ALP array mid-chunk with patches in the trailing chunk.
+    ///
+    /// The bug: chunk_offsets are sliced at chunk granularity (1024-row boundaries)
+    /// but patches indices/values are sliced at element granularity. When a slice ends
+    /// mid-chunk, patches_end_idx could exceed patches_indices.len(), causing OOB panic
+    /// during decompression.
+    #[test]
+    fn test_slice_mid_chunk_with_patches_in_trailing_chunk() {
+        // 3 chunks (3072 elements), patches scattered across all chunks.
+        let mut values = vec![1.0f64; 3072];
+        // Chunk 0 patches (indices 0..1024)
+        values[100] = PI;
+        values[500] = E;
+        // Chunk 1 patches (indices 1024..2048)
+        values[1100] = PI;
+        values[1500] = E;
+        values[1900] = PI;
+        // Chunk 2 patches (indices 2048..3072)
+        values[2100] = PI;
+        values[2500] = E;
+        values[2900] = PI;
+
+        let original = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
+        let encoded = alp_encode(&original, None).unwrap();
+        assert!(encoded.patches().is_some());
+
+        // Slice ending mid-chunk-2 (element 2500 is inside chunk 2 = 2048..3072).
+        // This creates a mismatch: chunk_offsets includes the full chunk 2 offset,
+        // but patches_indices only includes patches up to element 2500.
+        let sliced_alp = encoded.slice(0..2500).unwrap();
+        let expected = original.slice(0..2500).unwrap();
+        assert_arrays_eq!(sliced_alp, expected);
+
+        // Also test slicing that starts mid-chunk (both start and end mid-chunk).
+        let sliced_alp = encoded.slice(500..2500).unwrap();
+        let expected = original.slice(500..2500).unwrap();
+        assert_arrays_eq!(sliced_alp, expected);
     }
 }

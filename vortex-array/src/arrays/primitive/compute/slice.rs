@@ -22,7 +22,7 @@ impl SliceReduce for Primitive {
             PrimitiveArray::from_buffer_handle(
                 array.buffer_handle().slice_typed::<T>(range.clone()),
                 T::PTYPE,
-                array.validity().slice(range)?,
+                array.validity()?.slice(range)?,
             )
             .into_array()
         });
@@ -36,7 +36,7 @@ impl FilterReduce for Primitive {
             PrimitiveArray::from_buffer_handle(
                 array.buffer_handle().filter(mask, size_of::<T>())?,
                 T::PTYPE,
-                array.validity().filter(mask)?,
+                array.validity()?.filter(mask)?,
             )
             .into_array()
         });

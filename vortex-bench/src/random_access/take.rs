@@ -3,6 +3,7 @@
 
 use std::iter::once;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use arrow_array::PrimitiveArray;
 use arrow_array::types::Int64Type;
@@ -167,7 +168,7 @@ impl RandomAccessor for ParquetRandomAccessor {
             .with_batch_size(10_000_000)
             .build()?;
 
-        let schema = reader.schema().clone();
+        let schema = Arc::clone(reader.schema());
 
         let batches = reader
             .enumerate()
