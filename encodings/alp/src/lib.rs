@@ -21,8 +21,8 @@ pub use alp_rd::*;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+use vortex_array::arrays::patched::USE_EXPERIMENTAL_PATCHES;
 use vortex_array::session::ArraySessionExt;
-use vortex_fastlanes::USE_EXPERIMENTAL_PATCHES;
 use vortex_session::VortexSession;
 
 mod alp;

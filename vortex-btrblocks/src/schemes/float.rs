@@ -17,6 +17,7 @@ use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Patched;
+use vortex_array::arrays::patched::USE_EXPERIMENTAL_PATCHES;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::PType;
 use vortex_compressor::estimate::CompressionEstimate;
@@ -24,7 +25,6 @@ use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::DescendantExclusion;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use vortex_fastlanes::USE_EXPERIMENTAL_PATCHES;
 use vortex_sparse::Sparse;
 
 use super::integer::SparseScheme as IntSparseScheme;
