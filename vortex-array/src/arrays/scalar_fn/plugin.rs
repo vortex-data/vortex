@@ -79,8 +79,9 @@ impl<V: ScalarFnVTable + ScalarFnArrayVTable> ArrayPlugin for ScalarFnArrayPlugi
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        let parts =
-            <V as ScalarFnArrayVTable>::deserialize(&self.0, dtype, len, metadata, children, session)?;
+        let parts = <V as ScalarFnArrayVTable>::deserialize(
+            &self.0, dtype, len, metadata, children, session,
+        )?;
         Ok(ScalarFnArray::try_new(
             ScalarFn::new(self.0.clone(), parts.options).erased(),
             parts.children,

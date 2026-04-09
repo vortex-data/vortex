@@ -31,14 +31,14 @@ use crate::compress::zigzag_decode;
 pub struct ZigZag;
 
 impl ZigZag {
-    pub const ARRAY_ID: &str = "vortex.zigzag";
+    pub const ID: ScalarFnId = ScalarFnId::new_ref("vortex.zigzag");
 }
 
 impl ScalarFnVTable for ZigZag {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from(ZigZag::ARRAY_ID)
+        ZigZag::ID
     }
 
     fn serialize(&self, _options: &EmptyOptions) -> VortexResult<Option<Vec<u8>>> {
@@ -75,11 +75,7 @@ impl ScalarFnVTable for ZigZag {
         write!(f, ")")
     }
 
-    fn return_dtype(
-        &self,
-        _options: &EmptyOptions,
-        arg_dtypes: &[DType],
-    ) -> VortexResult<DType> {
+    fn return_dtype(&self, _options: &EmptyOptions, arg_dtypes: &[DType]) -> VortexResult<DType> {
         let encoded_dtype = &arg_dtypes[0];
         let ptype = PType::try_from(encoded_dtype)?;
         vortex_ensure!(

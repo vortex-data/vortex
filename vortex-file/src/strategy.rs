@@ -28,6 +28,7 @@ use vortex_array::arrays::Struct;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinView;
 use vortex_array::dtype::FieldPath;
+use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::schemes::integer::IntDictScheme;
@@ -60,7 +61,6 @@ use vortex_sparse::Sparse;
 use vortex_tensor::encodings::turboquant::TurboQuant;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
-use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_zigzag::ZigZag;
 #[cfg(feature = "zstd")]
 use vortex_zstd::Zstd;

@@ -110,13 +110,13 @@ pub use forever_constant::*;
 pub use open::*;
 pub use strategy::*;
 use vortex_array::arrays::Dict;
+use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
 use vortex_array::session::ArraySessionExt;
 use vortex_bytebool::ByteBool;
 use vortex_fsst::FSST;
 use vortex_pco::Pco;
 use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
-use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
 use vortex_zigzag::ZigZag;
 pub use writer::*;
 

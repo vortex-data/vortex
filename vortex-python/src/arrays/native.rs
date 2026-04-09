@@ -151,7 +151,6 @@ impl PyNativeArray {
             return Self::with_subclass(py, array, PyRunEndArray);
         }
 
-
         if array.is::<BitPacked>() {
             return Self::with_subclass(py, array, PyFastLanesBitPackedArray);
         }

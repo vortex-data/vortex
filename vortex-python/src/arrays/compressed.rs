@@ -83,7 +83,9 @@ pub(crate) struct PyZigZagArray;
 impl PyZigZagArray {
     #[staticmethod]
     pub fn encode(array: PyArrayRef) -> PyVortexResult<PyArrayRef> {
-        Ok(PyVortex(zigzag_encode(array.inner().clone().to_primitive())?))
+        Ok(PyVortex(zigzag_encode(
+            array.inner().clone().to_primitive(),
+        )?))
     }
 }
 

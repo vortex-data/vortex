@@ -96,7 +96,7 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
         };
     }
     id == FoR::ID
-        || id == ArrayId::new_ref(ZigZag::ARRAY_ID)
+        || id == ZigZag::ID
         || id == Primitive::ID
         || id == Slice::ID
         || id == Sequence::ID
@@ -417,7 +417,7 @@ impl FusedPlan {
             self.walk_bitpacked(array)
         } else if id == FoR::ID {
             self.walk_for(array, pending_subtrees)
-        } else if id == ArrayId::new_ref(ZigZag::ARRAY_ID) {
+        } else if id == ZigZag::ID {
             self.walk_zigzag(array, pending_subtrees)
         } else if id == ALP::ID {
             self.walk_alp(array, pending_subtrees)

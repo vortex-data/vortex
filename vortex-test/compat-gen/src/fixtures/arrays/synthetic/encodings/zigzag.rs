@@ -10,8 +10,8 @@ use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
 use vortex::encodings::zigzag::ZigZag;
 use vortex::encodings::zigzag::zigzag_encode;
-use vortex::scalar_fn::ScalarFnVTable;
 use vortex::error::VortexResult;
+use vortex::scalar_fn::ScalarFnVTable;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
