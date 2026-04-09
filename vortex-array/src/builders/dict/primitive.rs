@@ -157,7 +157,6 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::IntoArray as _;
-    use crate::arrays::dict::DictArrayExt;
     use crate::arrays::dict::DictArraySlotsExt;
     use crate::assert_arrays_eq;
     use crate::builders::dict::dict_encode;

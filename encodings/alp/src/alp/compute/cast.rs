@@ -73,7 +73,6 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::alp::array::ALPArrayExt;
-    use crate::alp::array::ALPArraySlotsExt;
     use crate::alp_encode;
 
     #[test]

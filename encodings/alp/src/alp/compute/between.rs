@@ -104,7 +104,6 @@ mod tests {
 
     use crate::ALPArray;
     use crate::alp::array::ALPArrayExt;
-    use crate::alp::array::ALPArraySlotsExt;
     use crate::alp::compute::between::between_impl;
     use crate::alp_encode;
 

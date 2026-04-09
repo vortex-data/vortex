@@ -67,7 +67,6 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::alp::array::ALPArrayExt;
-    use crate::alp::array::ALPArraySlotsExt;
     use crate::alp_encode;
 
     #[rstest]

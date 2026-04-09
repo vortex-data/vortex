@@ -56,7 +56,6 @@ mod tests {
     use crate::ToCanonical;
     use crate::arrays::Dict;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::dict::DictArrayExt;
     use crate::arrays::dict::DictArraySlotsExt;
     use crate::assert_arrays_eq;
     use crate::builders::dict::dict_encode;
