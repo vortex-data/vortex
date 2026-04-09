@@ -260,10 +260,6 @@ impl VTable for Patched {
 
         let len = array.len();
 
-        fn take_slot(slots: &mut [Option<ArrayRef>], idx: usize) -> ArrayRef {
-            slots[idx].take().vortex_expect("slot must be present")
-        }
-
         fn downcast_slot(slot: ArrayRef) -> PrimitiveArray {
             slot.try_downcast::<Primitive>()
                 .ok()
@@ -283,18 +279,16 @@ impl VTable for Patched {
             Err(array) => PatchedSlotsView::from_slots(array.slots()).to_owned(),
         };
 
-        let inner = downcast_slot(slots.inner);
-
         // TODO(joe): use iterative execution
         let PrimitiveDataParts {
             buffer,
             ptype,
             validity,
-        } = inner.into_data_parts();
+        } = slots.inner.downcast::<Primitive>().into_data_parts();
 
-        let values = downcast_slot(slots.patch_values);
-        let lane_offsets = downcast_slot(slots.lane_offsets);
-        let patch_indices = downcast_slot(slots.patch_indices);
+        let values = slots.patch_values.downcast::<Primitive>();
+        let lane_offsets = slots.lane_offsets.downcast::<Primitive>();
+        let patch_indices = slots.patch_indices.downcast::<Primitive>();
 
         let patched_values = match_each_native_ptype!(values.ptype(), |V| {
             let mut output = Buffer::<V>::from_byte_buffer(buffer.unwrap_host()).into_mut();
