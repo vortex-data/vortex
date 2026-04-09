@@ -102,10 +102,6 @@ impl VTable for Patched {
         ArrayId::new_ref("vortex.patched")
     }
 
-    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
-        0
-    }
-
     fn validate(
         &self,
         data: &PatchedData,
@@ -114,6 +110,10 @@ impl VTable for Patched {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         data.validate(dtype, len, &PatchedSlotsView::from_slots(slots))
+    }
+
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
+        0
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
@@ -250,10 +250,13 @@ impl VTable for Patched {
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let array = require_child!(array, array.base_array(), INNER_SLOT => Primitive);
-        let array = require_child!(array, array.lane_offsets(), LANE_OFFSETS_SLOT => Primitive);
-        let array = require_child!(array, array.patch_indices(), INDICES_SLOT => Primitive);
-        let array = require_child!(array, array.patch_values(), VALUES_SLOT => Primitive);
+        let array = require_child!(array, array.inner(), PatchedSlots::INNER => Primitive);
+        let array =
+            require_child!(array, array.lane_offsets(), PatchedSlots::LANE_OFFSETS => Primitive);
+        let array =
+            require_child!(array, array.patch_indices(), PatchedSlots::PATCH_INDICES => Primitive);
+        let array =
+            require_child!(array, array.patch_values(), PatchedSlots::PATCH_VALUES => Primitive);
 
         let len = array.len();
 
@@ -267,24 +270,20 @@ impl VTable for Patched {
                 .vortex_expect("slot must be primitive")
         }
 
-        let (n_lanes, offset, inner, lane_offsets, indices, values) = match array.try_into_parts() {
+        let n_lanes = array.n_lanes;
+        let offset = array.offset;
+        let slots = match array.try_into_parts() {
             Ok(mut parts) => {
-                let PatchedData { n_lanes, offset } = parts.data;
-                let inner = downcast_slot(take_slot(&mut parts.slots, INNER_SLOT));
-                let lane_offsets = downcast_slot(take_slot(&mut parts.slots, LANE_OFFSETS_SLOT));
-                let indices = downcast_slot(take_slot(&mut parts.slots, INDICES_SLOT));
-                let values = downcast_slot(take_slot(&mut parts.slots, VALUES_SLOT));
-                (n_lanes, offset, inner, lane_offsets, indices, values)
+                PatchedSlots::from_slots(parts.slots)
+                // let inner = downcast_slot(take_slot(&mut parts.slots, INNER_SLOT));
+                // let lane_offsets = downcast_slot(take_slot(&mut parts.slots, LANE_OFFSETS_SLOT));
+                // let indices = downcast_slot(take_slot(&mut parts.slots, INDICES_SLOT));
+                // let values = downcast_slot(take_slot(&mut parts.slots, VALUES_SLOT));
             }
-            Err(array) => {
-                let PatchedData { n_lanes, offset } = array.data().clone();
-                let inner = downcast_slot(array.base_array().clone());
-                let lane_offsets = downcast_slot(array.lane_offsets().clone());
-                let indices = downcast_slot(array.patch_indices().clone());
-                let values = downcast_slot(array.patch_values().clone());
-                (n_lanes, offset, inner, lane_offsets, indices, values)
-            }
+            Err(array) => PatchedSlotsView::from_slots(array.slots()).to_owned(),
         };
+
+        let inner = downcast_slot(slots.inner);
 
         // TODO(joe): use iterative execution
         let PrimitiveDataParts {
@@ -292,6 +291,10 @@ impl VTable for Patched {
             ptype,
             validity,
         } = inner.into_data_parts();
+
+        let values = downcast_slot(slots.patch_values);
+        let lane_offsets = downcast_slot(slots.lane_offsets);
+        let patch_indices = downcast_slot(slots.patch_indices);
 
         let patched_values = match_each_native_ptype!(values.ptype(), |V| {
             let mut output = Buffer::<V>::from_byte_buffer(buffer.unwrap_host()).into_mut();
@@ -302,7 +305,7 @@ impl VTable for Patched {
                 len,
                 n_lanes,
                 lane_offsets.as_slice::<u32>(),
-                indices.as_slice::<u16>(),
+                patch_indices.as_slice::<u16>(),
                 values.as_slice::<V>(),
             );
 

@@ -68,6 +68,7 @@ use syn::spanned::Spanned;
 ///
 /// impl<'a> PatchedSlotsView<'a> {
 ///     pub fn from_slots(slots: &'a [Option<ArrayRef>]) -> Self { ... }
+///     pub fn to_owned(&self) -> PatchedSlots { ... }
 /// }
 ///
 /// // --- Ext trait with per-field accessors + slots_view() ---
@@ -145,6 +146,7 @@ fn expand_array_slots(
     let idx_consts = field_specs.iter().map(SlotField::idx_const);
     let view_fields = field_specs.iter().map(SlotField::view_field);
     let view_from_slots = field_specs.iter().map(SlotField::view_from_slots);
+    let view_to_owned = field_specs.iter().map(SlotField::view_to_owned);
     let owned_from_slots = field_specs.iter().map(SlotField::owned_from_slots);
     let into_slots = field_specs.iter().map(SlotField::storage_slot);
     let ext_methods = field_specs.iter().map(SlotField::ext_method);
@@ -187,6 +189,13 @@ fn expand_array_slots(
             pub fn from_slots(slots: &'a [Option<::vortex_array::ArrayRef>]) -> Self {
                 Self {
                     #(#view_from_slots,)*
+                }
+            }
+
+            #[doc = "Clone all referenced slots into an owned slot struct."]
+            pub fn to_owned(&self) -> #struct_ident {
+                #struct_ident {
+                    #(#view_to_owned,)*
                 }
             }
         }
@@ -278,6 +287,19 @@ impl SlotField {
             },
             SlotFieldType::Optional => quote! {
                 #field_ident: slots[#struct_ident::#const_ident].as_ref()
+            },
+        }
+    }
+
+    fn view_to_owned(&self) -> proc_macro2::TokenStream {
+        let field_ident = &self.field_ident;
+
+        match self.slot_type {
+            SlotFieldType::Required => quote! {
+                #field_ident: ::std::clone::Clone::clone(self.#field_ident)
+            },
+            SlotFieldType::Optional => quote! {
+                #field_ident: self.#field_ident.cloned()
             },
         }
     }
