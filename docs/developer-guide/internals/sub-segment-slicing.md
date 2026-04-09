@@ -292,9 +292,14 @@ that is async, knows about `SegmentSource`, and runs the same reduce/execute loo
 can resolve Segment buffers on demand.
 
 The executor is the **decision-maker**: at each step it inspects the array, sees which
-buffers are Segment (unfetched) vs Host (resolved), and decides whether to resolve one,
-some, or all before continuing. It runs the same four-phase execution model
-(reduce -> reduce_parent -> execute_parent -> execute) but adds IO awareness.
+buffers are Segment (unfetched) vs Host (resolved), and chooses what to resolve.
+
+The key insight: **execute steps can refine Segment handles too**, not just reduce.
+A `SliceKernel` for ListView reads resolved offsets+sizes (Host) to compute the exact
+element range, then calls `.slice()` on the elements Segment handle. This narrows the
+Segment *during execute*, before any fetch. The executor must therefore try execute
+before eagerly resolving all Segments -- an execute step might shrink what needs
+fetching.
 
 ```rust
 /// An async executor that can load segment buffers on demand.
@@ -313,52 +318,50 @@ impl SegmentExecutor {
 
     /// Execute an array that may contain unfetched Segment buffer handles.
     ///
-    /// The loop mirrors `execute_until` but is async and can resolve buffers:
+    /// The loop:
+    /// 1. optimize (reduce to fixpoint) -- metadata-only, refines Segment ranges
+    /// 2. try an execute step -- may further refine Segments using resolved data
+    /// 3. if the execute step hit an unresolved Segment it needs, resolve and retry
     ///
-    /// 1. optimize (reduce to fixpoint) -- refines Segment byte ranges via SliceReduce
-    /// 2. if Segment handles remain, resolve them (the executor decides: one, some, or all)
-    /// 3. continue execution -- which may produce new arrays, loop back
-    ///
-    /// The executor guarantees: no more than one IO round-trip per segment. It collects
-    /// all Segment handles for a segment and coalesces them into a single fetch.
+    /// Execute steps can refine Segment handles (e.g. ListView reads resolved
+    /// offsets to narrow an elements Segment). So the executor tries execute BEFORE
+    /// resolving, to get maximum refinement before IO.
     pub async fn execute<M: Matcher>(&self, array: ArrayRef) -> VortexResult<ArrayRef> {
         let mut current = array;
 
         for _ in 0..*MAX_ITERATIONS {
-            // Run reduce to fixpoint. This is metadata-only: SliceReduce calls
-            // buffer.slice() on Segment handles, narrowing byte ranges.
-            // Any Host buffers (e.g. a filter mask already in memory) pass through
-            // unchanged.
+            // 1. Reduce to fixpoint. Metadata-only: SliceReduce calls buffer.slice()
+            //    on Segment handles, narrowing byte ranges. Host buffers (filter masks,
+            //    already-resolved offsets, constants) pass through unchanged.
             current = current.optimize()?;
 
             // Check if we're done.
             if M::matches(&current) {
                 return Ok(current);
             }
-
-            // Inspect the array tree for unresolved Segment handles.
-            let segments = Self::collect_segments(&current);
-            if !segments.is_empty() {
-                // Resolve them. The executor decides the policy:
-                // - resolve ALL remaining Segment handles (simple, one IO batch)
-                // - or resolve only the ones that the next execute step needs
-                //
-                // For now: resolve all. This guarantees one IO round-trip per segment.
-                self.resolve(segments).await?;
-
-                // After resolution, more reduce rules may apply (e.g. a SliceReduce
-                // that returned None because it needed buffer data can now succeed
-                // as a SliceKernel). Loop back.
-                continue;
+            if AnyCanonical::matches(&current) {
+                return Ok(current);
             }
 
-            // All buffers are resolved. Run one sync execution step.
+            // 2. Try an execute step. This runs the sync four-phase logic:
+            //    reduce (already done above), reduce_parent, execute_parent, execute.
+            //
+            //    Execute steps may:
+            //    - Succeed fully (all buffers they need are resolved)
+            //    - Refine Segment handles further (e.g. ListView computes element range
+            //      from resolved offsets, narrows elements Segment)
+            //    - Fail because they hit an unresolved Segment
             let mut ctx = self.session.create_execution_ctx();
-            match current.execute::<ArrayRef>(&mut ctx) {
-                Ok(executed) => {
-                    current = executed;
-                    // The execution step may have produced new arrays.
-                    // Loop back to check/optimize again.
+            match try_execute_step(&current, &mut ctx) {
+                Ok(stepped) => {
+                    current = stepped;
+                    continue; // loop back: more reduce/execute may apply
+                }
+                Err(e) if e.is_unresolved_segment() => {
+                    // Execute hit an unresolved Segment. Resolve and retry.
+                    let segments = Self::collect_segments(&current);
+                    self.resolve(segments).await?;
+                    continue;
                 }
                 Err(e) => return Err(e),
             }
@@ -378,26 +381,19 @@ impl SegmentExecutor {
     }
 
     /// Resolve a set of Segment handles by coalescing and fetching.
-    ///
-    /// Groups by segment_id, coalesces nearby byte ranges within the same segment
-    /// into minimal reads, fetches, and fills each handle's OnceLock.
     async fn resolve(&self, segments: Vec<SegmentBufferRef>) -> VortexResult<()> {
-        // Group by segment_id
         let mut by_segment: HashMap<SegmentId, Vec<SegmentBufferRef>> = HashMap::new();
         for seg in segments {
             by_segment.entry(seg.segment_id).or_default().push(seg);
         }
 
-        // For each segment, coalesce nearby ranges and fetch
         for (segment_id, refs) in by_segment {
             let ranges: Vec<Range<usize>> = refs.iter()
                 .map(|r| r.segment_byte_range())
                 .collect();
 
-            // Single IO per segment, coalesced
             let data = self.source.request_ranges(segment_id, &ranges).await?;
 
-            // Fill each handle's OnceLock
             for (seg_ref, buffer) in refs.iter().zip(data) {
                 seg_ref.resolved.set(buffer.unwrap_host())
                     .expect("buffer already resolved");
@@ -409,7 +405,7 @@ impl SegmentExecutor {
 }
 ```
 
-The executor loop has three possible states at each iteration:
+The executor loop:
 
 ```
                     +----------+
@@ -417,28 +413,29 @@ The executor loop has three possible states at each iteration:
                     +----+-----+
                          |
                   +------v-------+
-                  | M::matches?  |--yes--> return
+                  | done?        |--yes--> return
                   +------+-------+
                          | no
-                  +------v-------+
-                  | has Segments? |--yes--> resolve (async IO) --> loop back
-                  +------+-------+
-                         | no
-                  +------v-------+
-                  | execute step |  (sync, one step toward canonical)
-                  +------+-------+
+                  +------v--------+
+                  | execute step  |  (may refine Segments using resolved data)
+                  +------+--------+
+                         |
+                  +------v-----------+
+                  | hit unresolved   |--no---> loop back (made progress)
+                  | Segment?         |
+                  +------+-----------+
+                         | yes
+                  +------v--------+
+                  | resolve       |  (coalesced async IO)
+                  +------+--------+
                          |
                          +--> loop back
 ```
 
-This means:
-
-- **First iteration**: optimize pushes slices down (refining Segment handles), then
-  resolve fetches them. One IO round-trip.
-- **Second iteration**: optimize again (SliceKernel rules may now fire with real data),
-  then execute steps start decoding toward canonical. All buffers are Host now.
-- Execute steps never produce new Segment handles (they create computed Host buffers),
-  so the resolve step typically fires exactly once.
+The critical ordering: **execute before resolve**. An execute step may use
+already-resolved buffers to refine Segment handles (e.g., ListView reads Host
+offsets to narrow its elements Segment from 10MB to 10KB). Resolving eagerly
+before execute would fetch the full 10MB unnecessarily.
 
 ### Starting state: mixed resolved and unresolved
 
@@ -519,6 +516,47 @@ concepts. It operates purely on in-memory arrays. The async `SegmentExecutor` in
 The async executor delegates to the sync executor for the actual compute work.
 It just wraps it with the reduce-refine and IO materialization steps.
 
+### Example: ListView with pre-resolved offsets and sizes
+
+`ListView<u8>`, 1M rows, slice to rows 1000..2000.
+Offsets and sizes already Host (from a prior evaluation). Elements and validity Segment.
+
+```
+=== Iteration 1: optimize ===
+Slice(1000..2000, ListView(elements, offsets, sizes, validity))
+SliceReduce (metadata-only):
+  offsets:  Host .slice(1000..2000) -> zero-copy Host           ✓
+  sizes:    Host .slice(1000..2000) -> zero-copy Host           ✓
+  validity: Segment .slice(125..250) -> Segment narrowed        ✓
+  elements: Segment unchanged (0..10MB) -- can't refine in reduce
+
+=== Iteration 1: execute step ===
+ListView::execute():
+  require_child!(OFFSETS, Canonical)  -> already canonical Host  ✓
+  require_child!(SIZES, Canonical)    -> already canonical Host  ✓
+  Compute: min_start = offsets[0] = 5000
+           max_end = max(offsets[i] + sizes[i]) = 15000
+  elements.slice(5000..15000)  -> Segment narrowed to 10KB!     ✓
+  Return Done(ListView with narrowed elements)
+
+=== Iteration 2: optimize ===
+No further reductions.
+
+Hit unresolved Segments? yes (elements 5000..15000, validity 125..250)
+resolve():
+  coalesced fetch: elements [5000..15000] + validity [125..250]
+  total IO: ~10KB
+
+=== Iteration 3 ===
+All resolved. Execute to canonical.
+
+TOTAL IO: 10KB (instead of 10MB). One resolve round-trip.
+```
+
+The execute step used the already-resolved offsets+sizes to narrow the elements
+Segment from 10MB to 10KB *before* any IO happened for elements. This is why
+the executor tries execute before resolve.
+
 ## What Changes, What Doesn't
 
 ### Changes
@@ -558,15 +596,21 @@ correct conservative behavior.
 
 ### Per-encoding behavior (all automatic)
 
-| Encoding | What SliceReduce does to its buffers | Effect on Segment handles |
-|----------|--------------------------------------|---------------------------|
-| Primitive | `buf.slice_typed::<T>(range)` | Narrows to exact byte range |
-| Bool | `buf.slice(start/8..ceil(end/8))` | Narrows to bit-aligned bytes |
-| BitPacked | `packed.slice(chunk_start..chunk_stop)` | Narrows to chunk-aligned range |
-| List | elements unchanged, offsets sliced | Elements full, offsets narrowed |
-| Dict | codes sliced, values unchanged | Codes narrowed, values full |
-| Struct | recurses into children | Each field refined independently |
-| Masked | child + mask both sliced | Both narrowed |
+| Encoding | SliceReduce (metadata-only) | SliceKernel / execute (reads buffers) |
+|----------|----------------------------|---------------------------------------|
+| Primitive | `buf.slice_typed::<T>(range)` -- narrows Segment | N/A (already canonical shape) |
+| Bool | `buf.slice(start/8..ceil(end/8))` -- narrows Segment | N/A |
+| BitPacked | `packed.slice(chunk_start..chunk_stop)` -- narrows Segment | Decompresses packed to Primitive |
+| List | offsets+validity sliced, elements unchanged | Reads offsets to compute element range, narrows elements Segment |
+| ListView | offsets+sizes+validity sliced, elements unchanged | Reads offsets+sizes to compute element range, narrows elements Segment |
+| Dict | codes sliced, values unchanged | N/A |
+| Struct | recurses into children | N/A |
+| Masked | child + mask both sliced | N/A |
+
+List and ListView are the key examples where **execute refines Segment handles**.
+Their `SliceKernel` reads resolved (canonical) offsets to compute the exact element
+byte range, then calls `.slice()` on the elements Segment handle. The executor
+then fetches only the needed elements.
 
 ### Encodings without SliceReduce
 
