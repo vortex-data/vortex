@@ -27,6 +27,11 @@ on:
         required: false
         type: string
         default: ""
+      extra_env:
+        description: "Extra environment variables to set (space-separated KEY=VALUE pairs)"
+        required: false
+        type: string
+        default: ""
       jobs:
         description: "Number of parallel fuzzing jobs (libfuzzer -fork=N). Set to match available vCPUs."
         required: false
@@ -119,7 +124,7 @@ jobs:
           if [ "${{ inputs.jobs }}" -gt 1 ]; then
             FORK_FLAG="-fork=${{ inputs.jobs }}"
           fi
-          RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=1 \
+          ${{ inputs.extra_env }} RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=1 \
             cargo +$NIGHTLY_TOOLCHAIN fuzz run --release --debug-assertions \
             $FEATURES_FLAG \
             ${{ inputs.fuzz_target }} -- \

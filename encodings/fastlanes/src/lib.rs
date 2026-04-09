@@ -3,6 +3,9 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
+use std::env;
+use std::sync::LazyLock;
+
 pub use bitpacking::*;
 pub use delta::*;
 pub use r#for::*;
@@ -31,9 +34,25 @@ use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
+/// Flag indicating if experimental patched array support is enabled.
+///
+/// This is set using the environment variable `VORTEX_EXPERIMENTAL_PATCHED_ARRAY`.
+///
+/// When this is true, any BitPacked array with interior patches will be read as a `Patched`
+/// array, and the builtin compressor will use Patched array with BitPacked instead of
+/// BitPacked array with interior patches.
+pub static USE_EXPERIMENTAL_PATCHES: LazyLock<bool> =
+    LazyLock::new(|| env::var("VORTEX_EXPERIMENTAL_PATCHED_ARRAY").is_ok());
+
 /// Initialize fastlanes encodings in the given session.
 pub fn initialize(session: &VortexSession) {
-    session.arrays().register(BitPacked);
+    // If we're using the experimental Patched encoding, register a shim
+    // for BitPacked with interior patches decode as Patched array.
+    if *USE_EXPERIMENTAL_PATCHES {
+        session.arrays().register(BitPackedPatchedPlugin);
+    } else {
+        session.arrays().register(BitPacked);
+    }
     session.arrays().register(Delta);
     session.arrays().register(FoR);
     session.arrays().register(RLE);

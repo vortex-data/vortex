@@ -278,16 +278,16 @@ pub trait ArrayChildren {
     }
 }
 
-impl ArrayChildren for &[ArrayRef] {
+impl<T: AsRef<[ArrayRef]>> ArrayChildren for T {
     fn get(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
-        let array = self[index].clone();
+        let array = self.as_ref()[index].clone();
         assert_eq!(array.len(), len);
         assert_eq!(array.dtype(), dtype);
         Ok(array)
     }
 
     fn len(&self) -> usize {
-        <[_]>::len(self)
+        self.as_ref().len()
     }
 }
 
