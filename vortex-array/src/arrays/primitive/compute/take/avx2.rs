@@ -14,6 +14,7 @@ use std::arch::x86_64::_mm_setzero_si128;
 use std::arch::x86_64::_mm_shuffle_epi32;
 use std::arch::x86_64::_mm_storeu_si128;
 use std::arch::x86_64::_mm_unpacklo_epi64;
+use std::arch::x86_64::_mm256_andnot_si256;
 use std::arch::x86_64::_mm256_cmpgt_epi32;
 use std::arch::x86_64::_mm256_cmpgt_epi64;
 use std::arch::x86_64::_mm256_cvtepu8_epi32;
