@@ -56,6 +56,21 @@ public:
     inline void SetDataPtr(data_ptr_t ptr) {
         data = ptr;
     };
+
+    inline ValidityMask &GetValidity() {
+        return validity;
+    };
+};
+
+// Same hack for ValidityMask: access protected fields via inheritance.
+class ExternalValidityMask : public ValidityMask {
+public:
+    inline void SetExternal(validity_t *ptr, idx_t cap,
+                            buffer_ptr<ValidityBuffer> keeper) {
+        validity_mask = ptr;
+        capacity = cap;
+        validity_data = std::move(keeper);
+    };
 };
 
 } // namespace vortex
@@ -79,6 +94,26 @@ extern "C" void duckdb_vx_vector_set_data_ptr(duckdb_vector ffi_vector, void *pt
     auto vector = reinterpret_cast<Vector *>(ffi_vector);
     auto dvector = reinterpret_cast<vortex::DataVector *>(vector);
     dvector->SetDataPtr((data_ptr_t)ptr);
+}
+
+extern "C" void duckdb_vx_vector_set_validity_data(duckdb_vector ffi_vector,
+                                                    void *validity_ptr,
+                                                    idx_t capacity,
+                                                    duckdb_vx_vector_buffer buffer) {
+    auto dvector = reinterpret_cast<vortex::DataVector *>(ffi_vector);
+    auto &validity = dvector->GetValidity();
+    auto ext_validity = reinterpret_cast<vortex::ExternalValidityMask *>(&validity);
+
+    // Use the shared_ptr aliasing constructor: the control block ref-counts the
+    // ExternalVectorBuffer (preventing the Rust buffer from being freed),
+    // while the stored pointer satisfies ValidityMask's buffer_ptr<ValidityBuffer> type.
+    auto ext_buf = reinterpret_cast<shared_ptr<vortex::ExternalVectorBuffer> *>(buffer);
+    auto keeper = shared_ptr<TemplatedValidityData<validity_t>>(
+        *ext_buf, reinterpret_cast<TemplatedValidityData<validity_t> *>(ext_buf->get()));
+
+    // Set validity_mask, capacity, and validity_data (which keeps the buffer alive).
+    ext_validity->SetExternal(reinterpret_cast<validity_t *>(validity_ptr), capacity,
+                              std::move(keeper));
 }
 
 extern "C" duckdb_value duckdb_vx_vector_get_value(duckdb_vector ffi_vector, idx_t index) {

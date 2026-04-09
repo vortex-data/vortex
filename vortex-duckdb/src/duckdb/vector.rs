@@ -151,6 +151,29 @@ impl VectorRef {
         unsafe { cpp::duckdb_vx_vector_set_data_ptr(self.as_ptr(), ptr as *mut c_void) }
     }
 
+    /// Sets the validity pointer for the vector to external data, and stores the buffer in
+    /// auxiliary to keep it alive. This enables zero-copy export of validity masks.
+    ///
+    /// # Safety
+    ///
+    /// The `validity_ptr` must point to a valid `u64` array with at least
+    /// `capacity.div_ceil(64)` elements. The buffer must keep this memory alive.
+    pub unsafe fn set_validity_data(
+        &self,
+        validity_ptr: *mut u64,
+        capacity: usize,
+        buffer: &VectorBufferRef,
+    ) {
+        unsafe {
+            cpp::duckdb_vx_vector_set_validity_data(
+                self.as_ptr(),
+                validity_ptr as *mut c_void,
+                capacity as idx_t,
+                buffer.as_ptr(),
+            )
+        }
+    }
+
     /// Assigns the element at the specified index with a string value.
     /// FIXME(ngates): remove this.
     pub fn assign_string_element(&self, idx: usize, value: &CStr) {

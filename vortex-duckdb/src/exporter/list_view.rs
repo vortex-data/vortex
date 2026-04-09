@@ -131,7 +131,7 @@ impl<O: IntegerPType, S: IntegerPType> ColumnExporter for ListViewExporter<O, S>
         );
 
         // Set validity if necessary.
-        if unsafe { vector.set_validity(&self.validity, offset, len) } {
+        if unsafe { vector.set_validity(&self.validity, offset, len, None) } {
             // All values are null, so no point copying the data.
             return Ok(());
         }

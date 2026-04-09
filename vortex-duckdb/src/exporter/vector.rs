@@ -6,9 +6,17 @@ use vortex::mask::Mask;
 use crate::duckdb::Value;
 use crate::duckdb::VectorRef;
 use crate::exporter::copy_from_slice;
+use crate::exporter::validity::ZeroCopyValidity;
 
 impl VectorRef {
-    pub(super) unsafe fn set_validity(&mut self, mask: &Mask, offset: usize, len: usize) -> bool {
+    /// Returns true if all values are null (caller can skip data export).
+    pub(super) unsafe fn set_validity(
+        &mut self,
+        mask: &Mask,
+        offset: usize,
+        len: usize,
+        zero_copy: Option<&ZeroCopyValidity>,
+    ) -> bool {
         match mask {
             Mask::AllTrue(_) => {
                 // We only need to blank out validity if there is already a slice allocated.
@@ -27,7 +35,23 @@ impl VectorRef {
                     unsafe { self.set_all_true_validity(len) }
                 } else if true_count == 0 {
                     self.set_all_false_validity()
+                } else if let Some(zc) = zero_copy.filter(|_| offset.is_multiple_of(64)) {
+                    let u64_offset = offset / 64;
+                    // SAFETY: the underlying buffer is u64-aligned (checked in
+                    // can_zero_copy_validity) and we only read through this pointer.
+                    // The cast to *mut is an artifact of the DuckDB C API.
+                    let ptr = zc.buffer.as_slice().as_ptr().cast_mut().cast::<u64>();
+                    // SAFETY: we verified alignment in can_zero_copy_validity
+                    // and the VectorBuffer keeps the data alive.
+                    unsafe { self.set_validity_data(ptr.add(u64_offset), len, &zc.shared_buffer) };
                 } else {
+                    // If zero_copy is available and offset is aligned, we should
+                    // have taken the branch above. Assert this invariant.
+                    assert!(
+                        zero_copy.is_none() || !offset.is_multiple_of(64),
+                        "zero-copy validity available and offset {offset} is aligned \
+                         but copy path was taken"
+                    );
                     let source = arr.bit_buffer().inner().as_slice();
                     copy_from_slice(
                         unsafe { self.ensure_validity_slice(len) },
