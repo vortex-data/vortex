@@ -382,3 +382,15 @@ lto = false
 [profile.bench_assert]
 debug-assertions = true
 inherits = "bench"
+
+[profile.ci]
+inherits = "dev"
+debug = "line-tables-only"
+incremental = false
+
+# This rule only applies to all dependencies that are not members of the workspace.
+[profile.ci.package."*"]
+debug = false
+debug-assertions = false
+strip = "debuginfo"
+incremental = false
