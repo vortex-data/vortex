@@ -98,7 +98,10 @@ where
             .arg(&array_len_u64);
     })?;
 
-    // Check if there are any patches to decode here
+    // Check if there are any patches to decode here. Patch validity does not
+    // need to be scattered: the ALP encoder strips null positions from the
+    // exception list, so patches only exist at valid positions. execute_patches
+    // additionally guards against nullable patch values at runtime.
     let output_buf = if let Some(patches) = array.patches() {
         match_each_unsigned_integer_ptype!(patches.indices_ptype()?, |I| {
             execute_patches::<A, I>(patches.clone(), output_buf, ctx).await?
@@ -106,9 +109,6 @@ where
     } else {
         output_buf
     };
-
-    // TODO(aduffy): scatter patch values validity. There are several places we'll need to start
-    //  handling validity.
 
     let output_handle = BufferHandle::new_device(Arc::new(output_buf));
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
@@ -129,11 +129,13 @@ mod tests {
     use vortex::buffer::buffer;
     use vortex::encodings::alp::ALP;
     use vortex::encodings::alp::Exponents;
+    use vortex::encodings::alp::alp_encode;
     use vortex::error::VortexExpect;
     use vortex::session::VortexSession;
 
     use super::*;
     use crate::CanonicalCudaExt;
+    use crate::executor::CudaArrayExt;
     use crate::session::CudaSession;
 
     #[crate::test]
@@ -177,6 +179,72 @@ mod tests {
 
         assert_arrays_eq!(cpu_result, gpu_result);
 
+        Ok(())
+    }
+
+    /// ALP with nullable encoded data and patches — the encoder strips null
+    /// positions from the exception list, so patch validity doesn't need
+    /// scattering. This test verifies that the encoded child's validity is
+    /// preserved through the standalone ALP GPU executor.
+    #[crate::test]
+    async fn test_cuda_alp_nullable_with_patches() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        // Values that will produce ALP exceptions at non-null positions.
+        // Nulls at positions 1 and 3; the exception at position 4 (1.23456)
+        // can't be encoded losslessly by ALP.
+        let values: Vec<Option<f32>> = vec![
+            Some(1.0),
+            None,
+            Some(2.0),
+            None,
+            Some(1.23456),
+            Some(3.0),
+            Some(4.0),
+            Some(5.0),
+        ];
+        let prim = PrimitiveArray::from_option_iter(values);
+        let alp_array = alp_encode(&prim, None)?;
+
+        let cpu_result = alp_array.to_canonical()?.into_array();
+
+        let gpu_result = alp_array
+            .into_array()
+            .execute_cuda(&mut cuda_ctx)
+            .await?
+            .into_host()
+            .await?
+            .into_array();
+
+        assert_arrays_eq!(cpu_result, gpu_result);
+        Ok(())
+    }
+
+    /// ALP with all-valid nullable data — the dtype is nullable but no
+    /// elements are actually null.
+    #[crate::test]
+    async fn test_cuda_alp_all_valid_nullable() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let values = PrimitiveArray::new(
+            Buffer::from(vec![1.0f32, 2.0, 3.0, 4.0, 5.0]),
+            Validity::AllValid,
+        );
+        let alp_array = alp_encode(&values, None)?;
+
+        let cpu_result = alp_array.to_canonical()?.into_array();
+
+        let gpu_result = alp_array
+            .into_array()
+            .execute_cuda(&mut cuda_ctx)
+            .await?
+            .into_host()
+            .await?
+            .into_array();
+
+        assert_arrays_eq!(cpu_result, gpu_result);
         Ok(())
     }
 }

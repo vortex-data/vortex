@@ -135,6 +135,7 @@ impl BenchRunner {
             dispatch_plan,
             device_buffers,
             shared_mem_bytes,
+            ..
         } = plan.materialize(cuda_ctx).vortex_expect("materialize plan");
 
         let device_plan = Arc::new(

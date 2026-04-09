@@ -15,6 +15,7 @@ use vortex::array::arrays::Slice;
 use vortex::array::arrays::dict::DictArraySlotsExt;
 use vortex::array::arrays::slice::SliceArrayExt;
 use vortex::array::buffer::BufferHandle;
+use vortex::array::validity::Validity;
 use vortex::dtype::PType;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPArrayExt;
@@ -52,6 +53,8 @@ pub struct MaterializedPlan {
     pub device_buffers: Vec<BufferHandle>,
     /// Dynamic shared memory bytes needed to launch this plan.
     pub shared_mem_bytes: u32,
+    /// Validity of the root array, propagated to the output.
+    pub validity: Validity,
 }
 
 /// Checks whether the encoding of an array can be fused into a dynamic-dispatch plan.
@@ -72,6 +75,11 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
     }
     if id == Dict::ID {
         let arr = array.as_::<Dict>();
+        // Nullable codes could hold garbage values at null positions, causing
+        // out-of-bounds shared memory reads in the DICT gather scalar op.
+        if arr.codes().dtype().is_nullable() {
+            return false;
+        }
         // Dict codes and values may have different byte widths.
         // The kernel handles mixed widths via widening input stages,
         // but only when codes are no wider than values (the output type).
@@ -85,6 +93,12 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
     }
     if id == RunEnd::ID {
         let arr = array.as_::<RunEnd>();
+        // Nullable ends could hold garbage values at null positions, causing
+        // unpredictable binary search / forward-scan behavior in the RUNEND
+        // source op.
+        if arr.ends().dtype().is_nullable() {
+            return false;
+        }
         // RunEnd ends and values may have different byte widths.
         // The kernel handles mixed widths via widening input stages,
         // but only when ends are no wider than values (the output type).
@@ -213,6 +227,8 @@ pub struct FusedPlan {
     output_elem_bytes: u32,
     /// PType of the root (output) array, as a C ABI tag.
     output_ptype: PTypeTag,
+    /// Validity of the root array, propagated to the output.
+    validity: Validity,
 }
 
 impl DispatchPlan {
@@ -220,7 +236,9 @@ impl DispatchPlan {
     ///
     /// # Limitations
     ///
-    /// - Validity bitmaps are ignored; only `NonNullable`/`AllValid` is supported.
+    /// - Validity is propagated from the root array to the output. Nullable
+    ///   arrays are supported, but Dict with nullable codes and RunEnd with
+    ///   nullable ends are rejected to guard against out-of-bounds access.
     /// - `BitPackedArray` and `ALPArray` with patches are not supported.
     /// - Only f32 ALP is supported (kernel stores multipliers as `float`).
     pub fn new(array: &ArrayRef) -> VortexResult<Self> {
@@ -276,6 +294,7 @@ impl FusedPlan {
         }
         let output_elem_bytes = output_ptype_rust.byte_width() as u32;
         let output_ptype = ptype_to_tag(output_ptype_rust);
+        let validity = array.validity()?;
 
         let mut pending_subtrees: Vec<ArrayRef> = Vec::new();
         let mut plan = Self {
@@ -284,6 +303,7 @@ impl FusedPlan {
             source_buffers: Vec::new(),
             output_elem_bytes,
             output_ptype,
+            validity,
         };
 
         let len = array.len() as u32;
@@ -365,6 +385,7 @@ impl FusedPlan {
             dispatch_plan: CudaDispatchPlan::new(stages, self.output_ptype),
             device_buffers,
             shared_mem_bytes,
+            validity: self.validity,
         })
     }
 

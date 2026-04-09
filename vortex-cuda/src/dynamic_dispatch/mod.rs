@@ -24,14 +24,18 @@ use cudarc::driver::DevicePtr;
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
 use vortex::array::Canonical;
+use vortex::array::IntoArray;
+use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBufferExt;
 use vortex::array::match_each_unsigned_integer_ptype;
+use vortex::array::scalar::Scalar;
 use vortex::array::validity::Validity;
 use vortex::buffer::Alignment;
 use vortex::buffer::ByteBuffer;
 use vortex::buffer::ByteBufferMut;
+use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
@@ -408,6 +412,15 @@ impl ScalarOp {
 impl MaterializedPlan {
     pub fn execute(self, len: usize, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
         let output_ptype = self.dispatch_plan.output_ptype();
+
+        // All values are null — no need to touch the GPU.
+        if matches!(self.validity, Validity::AllInvalid) {
+            let dtype = DType::Primitive(output_ptype, Nullability::Nullable);
+            return ConstantArray::new(Scalar::null(dtype), len)
+                .into_array()
+                .to_canonical();
+        }
+
         // The CUDA kernels are instantiated for unsigned integer types only;
         // map signed/float ptypes to their same-width unsigned counterpart.
         let unsigned_ptype = match output_ptype {
@@ -431,9 +444,11 @@ impl MaterializedPlan {
     where
         T: cudarc::driver::DeviceRepr + vortex::dtype::NativePType,
     {
+        let nullability = self.validity.nullability();
+
         if len == 0 {
             return Ok(Canonical::Primitive(PrimitiveArray::empty::<T>(
-                Nullability::NonNullable,
+                nullability,
             )));
         }
 
@@ -467,7 +482,7 @@ impl MaterializedPlan {
         Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
             BufferHandle::new_device(output_buf.slice_typed::<T>(0..len)),
             output_ptype,
-            Validity::NonNullable,
+            self.validity,
         )))
     }
 }
@@ -485,6 +500,7 @@ mod tests {
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::scalar::Scalar;
+    use vortex::array::validity::Validity;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
     use vortex::dtype::PType;
@@ -509,6 +525,7 @@ mod tests {
     use crate::CudaBufferExt;
     use crate::CudaDeviceBuffer;
     use crate::CudaExecutionCtx;
+    use crate::executor::CudaArrayExt;
     use crate::hybrid_dispatch::try_gpu_dispatch;
     use crate::session::CudaSession;
 
@@ -1815,6 +1832,212 @@ mod tests {
         let expected: Vec<u32> = i16_values.iter().map(|&v| (v as i32) as u32).collect();
         assert_eq!(actual, expected);
 
+        Ok(())
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Validity propagation tests
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Nullable Primitive array — LOAD source with validity propagated.
+    #[crate::test]
+    async fn test_nullable_primitive() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+
+        let array = PrimitiveArray::from_option_iter(
+            (0..2048u32).map(|i| if i % 3 == 0 { None } else { Some(i) }),
+        );
+        let cpu = array.to_canonical()?.into_array();
+
+        let gpu = try_gpu_dispatch(&array.into_array(), &mut cuda_ctx)
+            .await?
+            .into_host()
+            .await?
+            .into_array();
+
+        vortex::array::assert_arrays_eq!(cpu, gpu);
+        Ok(())
+    }
+
+    /// Nullable FoR(BitPacked) — validity from the root propagated through
+    /// the fused plan. The standard encoding flow is: subtract FoR reference
+    /// to get residuals, then bitpack. BitPacked::encode preserves input
+    /// validity, so this produces a real nullable FoR(BitPacked) tree.
+    #[crate::test]
+    async fn test_nullable_for_bitpacked() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+
+        let len = 2048;
+        let reference = 1000u32;
+
+        // Original values in [reference, reference+63], every 5th null.
+        let values: Vec<Option<u32>> = (0..len)
+            .map(|i| {
+                if i % 5 == 0 {
+                    None
+                } else {
+                    Some((i as u32 % 64) + reference)
+                }
+            })
+            .collect();
+        let prim = PrimitiveArray::from_option_iter(values.iter().copied());
+        let cpu = prim.to_canonical()?.into_array();
+
+        // FoR encoding: subtract reference to get residuals [0..63].
+        // Null positions get 0 (from from_option_iter), which is fine —
+        // after subtracting reference it wraps, but validity masks it.
+        let residuals =
+            PrimitiveArray::from_option_iter(values.iter().map(|v| v.map(|x| x - reference)));
+
+        // BitPacked::encode preserves nullable validity from the input.
+        let bp = BitPacked::encode(&residuals.into_array(), 6)?;
+        let for_arr = FoR::try_new(bp.into_array(), reference.into())?;
+
+        // Verify the plan actually fuses (not just a LOAD).
+        assert!(
+            matches!(
+                DispatchPlan::new(&for_arr.clone().into_array())?,
+                DispatchPlan::Fused(_)
+            ),
+            "FoR(BitPacked) with nullable validity should produce a Fused plan"
+        );
+
+        let gpu = try_gpu_dispatch(&for_arr.into_array(), &mut cuda_ctx)
+            .await?
+            .into_host()
+            .await?
+            .into_array();
+
+        vortex::array::assert_arrays_eq!(cpu, gpu);
+        Ok(())
+    }
+
+    /// AllInvalid array — kernel should be skipped entirely.
+    #[crate::test]
+    async fn test_all_invalid_skips_kernel() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+
+        let array = PrimitiveArray::new(Buffer::from(vec![0u32; 2048]), Validity::AllInvalid);
+
+        let result = try_gpu_dispatch(&array.into_array(), &mut cuda_ctx)
+            .await?
+            .into_host()
+            .await?;
+
+        let prim = result.into_primitive();
+        assert_eq!(prim.len(), 2048);
+        assert!(matches!(prim.validity()?, Validity::AllInvalid));
+        Ok(())
+    }
+
+    /// AllValid nullable array — should fuse and produce AllValid output.
+    #[crate::test]
+    async fn test_all_valid_nullable() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+
+        let values: Vec<u32> = (0..2048).collect();
+        let array = PrimitiveArray::new(Buffer::from(values.clone()), Validity::AllValid);
+
+        let cpu = array.to_canonical()?.into_array();
+        let gpu = try_gpu_dispatch(&array.into_array(), &mut cuda_ctx)
+            .await?
+            .into_host()
+            .await?
+            .into_array();
+
+        vortex::array::assert_arrays_eq!(cpu, gpu);
+        Ok(())
+    }
+
+    /// Dict with nullable codes must fall back to Unfused (not fused).
+    #[crate::test]
+    fn test_dict_nullable_codes_rejected() -> VortexResult<()> {
+        use vortex::buffer::buffer;
+
+        let codes = PrimitiveArray::from_option_iter([Some(0u32), None, Some(1), None, Some(2)]);
+        let values = PrimitiveArray::new(buffer![10u32, 20, 30], NonNullable);
+        let dict = DictArray::try_new(codes.into_array(), values.into_array())?;
+
+        let plan = DispatchPlan::new(&dict.into_array())?;
+        assert!(
+            matches!(plan, DispatchPlan::Unfused),
+            "Dict with nullable codes should fall back to Unfused"
+        );
+        Ok(())
+    }
+
+    /// Dict with non-nullable codes but nullable values should still fuse.
+    #[crate::test]
+    async fn test_dict_nullable_values_fuses() -> VortexResult<()> {
+        use vortex::buffer::buffer;
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+
+        let codes = PrimitiveArray::new(buffer![0u32, 1, 2, 2, 1, 0], NonNullable);
+        let values = PrimitiveArray::from_option_iter([Some(10u32), None, Some(30)]);
+        let dict = DictArray::try_new(codes.into_array(), values.into_array())?;
+
+        let cpu = dict.to_canonical()?.into_array();
+        let gpu = dict
+            .into_array()
+            .execute_cuda(&mut cuda_ctx)
+            .await?
+            .into_host()
+            .await?
+            .into_array();
+
+        vortex::array::assert_arrays_eq!(cpu, gpu);
+        Ok(())
+    }
+
+    /// Nullable FoR(BitPacked) through CUB filter — the original bug scenario.
+    /// Validity must survive through fused dispatch and into the filter.
+    #[crate::test]
+    async fn test_nullable_fused_then_filter() -> VortexResult<()> {
+        use vortex::array::arrays::FilterArray;
+        use vortex::mask::Mask;
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+
+        let len = 2048usize;
+        let values: Vec<Option<u32>> = (0..len)
+            .map(|i| {
+                if i % 7 == 0 {
+                    None
+                } else {
+                    Some((i % 64) as u32)
+                }
+            })
+            .collect();
+        let prim = PrimitiveArray::from_option_iter(values.iter().copied());
+
+        // Keep every other element.
+        let mask = Mask::from_iter((0..len).map(|i| i % 2 == 0));
+        let filter_array = FilterArray::try_new(prim.into_array(), mask)?;
+
+        let cpu = filter_array.to_canonical()?.into_array();
+        let gpu = filter_array
+            .into_array()
+            .execute_cuda(&mut cuda_ctx)
+            .await?
+            .into_host()
+            .await?
+            .into_array();
+
+        vortex::array::assert_arrays_eq!(cpu, gpu);
+        Ok(())
+    }
+
+    /// Empty nullable array should preserve nullability.
+    #[crate::test]
+    async fn test_empty_nullable_array() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+
+        let array = PrimitiveArray::new(Buffer::<u32>::empty(), Validity::AllValid);
+        let result = try_gpu_dispatch(&array.into_array(), &mut cuda_ctx).await?;
+        let prim = result.into_primitive();
+        assert_eq!(prim.len(), 0);
+        assert_eq!(prim.validity()?.nullability(), Nullability::Nullable);
         Ok(())
     }
 }
