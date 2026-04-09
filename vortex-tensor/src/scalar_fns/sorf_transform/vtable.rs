@@ -34,11 +34,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_ensure_eq;
 
 use super::SorfOptions;
 use super::SorfTransform;
 use super::rotation::SorfMatrix;
+use super::validate_sorf_options;
 use crate::utils::cast_to_f32;
 use crate::vector::Vector;
 
@@ -74,21 +74,35 @@ impl ScalarFnVTable for SorfTransform {
     fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         let child_dtype = &arg_dtypes[0];
 
+        validate_sorf_options(options)?;
+
         let DType::FixedSizeList(elem_dtype, padded_dim, nullability) = child_dtype else {
-            vortex_bail!("SorfTransform child must be a FixedSizeList, got {child_dtype}");
+            vortex_bail!(
+                "SorfTransform child must be a FixedSizeList with logical float elements and \
+                 list_size {}, got {child_dtype}",
+                options.dimension.next_power_of_two()
+            );
         };
 
         let expected_padded = options.dimension.next_power_of_two();
-        vortex_ensure_eq!(
-            *padded_dim,
+        vortex_ensure!(
+            *padded_dim == expected_padded,
+            "SorfTransform child must have list_size {} (next power of two for dimension {}), \
+             got {}",
             expected_padded,
-            "SorfTransform child list_size was wrong"
+            options.dimension,
+            *padded_dim
         );
 
-        // The child elements can be any type that executes to f32 (e.g. Dict<u8, f32>).
         vortex_ensure!(
             !elem_dtype.is_extension(),
-            "SorfTransform child element dtype must not be an extension type, got {elem_dtype}"
+            "SorfTransform child element dtype must be a non-extension logical float type, got \
+             {elem_dtype}"
+        );
+        vortex_ensure!(
+            elem_dtype.is_float(),
+            "SorfTransform child element dtype must be logical float so it can execute to f32, \
+             got {elem_dtype}"
         );
 
         let output_elem_dtype = DType::Primitive(options.element_ptype, Nullability::NonNullable);
@@ -105,6 +119,7 @@ impl ScalarFnVTable for SorfTransform {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        validate_sorf_options(options)?;
         let dim = options.dimension as usize;
         let num_rows = args.row_count();
 
@@ -165,7 +180,7 @@ impl ScalarFnVTable for SorfTransform {
     }
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {
-        false
+        true
     }
 }
 

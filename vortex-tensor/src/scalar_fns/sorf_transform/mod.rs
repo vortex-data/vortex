@@ -30,6 +30,7 @@ use vortex_array::arrays::ScalarFnArray;
 use vortex_array::dtype::PType;
 use vortex_array::scalar_fn::ScalarFn;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 mod rotation;
 pub use rotation::SorfMatrix;
@@ -68,15 +69,32 @@ impl SorfTransform {
 
     /// Constructs a validated [`ScalarFnArray`] that lazily applies the inverse SORF transform.
     ///
-    /// The `child` must be a `FixedSizeList` (or array that executes to one) with
-    /// `list_size == padded_dim` (i.e. `dimension.next_power_of_two()`).
+    /// The `child` must be a `FixedSizeList` (or array that executes to one) with logical float
+    /// elements and `list_size == padded_dim` (i.e. `dimension.next_power_of_two()`).
     pub fn try_new_array(
         options: &SorfOptions,
         child: ArrayRef,
         len: usize,
     ) -> VortexResult<ScalarFnArray> {
+        validate_sorf_options(options)?;
+
         ScalarFnArray::try_new(SorfTransform::new(options).erased(), vec![child], len)
     }
+}
+
+/// Checks that the SORF configuration is valid.
+pub(crate) fn validate_sorf_options(options: &SorfOptions) -> VortexResult<()> {
+    vortex_ensure!(
+        options.num_rounds >= 1,
+        "SorfTransform num_rounds must be >= 1, got {}",
+        options.num_rounds
+    );
+    vortex_ensure!(
+        options.element_ptype.is_float(),
+        "SorfTransform element_ptype must be a float type, got {}",
+        options.element_ptype
+    );
+    Ok(())
 }
 
 impl fmt::Display for SorfOptions {

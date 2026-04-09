@@ -22,6 +22,7 @@ use vortex_array::expr::Expression;
 use vortex_array::match_each_float_ptype;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
+use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFn;
 use vortex_array::scalar_fn::ScalarFnId;
@@ -32,7 +33,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 
 use crate::matcher::AnyTensor;
-use crate::scalar_fns::ApproxOptions;
 use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::utils::extract_flat_elements;
 use crate::utils::validate_tensor_float_input;
@@ -43,14 +43,18 @@ use crate::utils::validate_tensor_float_input;
 ///
 /// The input must be a tensor-like extension array with a float element type. The output is a float
 /// column of the same float type.
+///
+/// When the input is wrapped in [`L2Denorm`], this operator treats the stored norms as
+/// authoritative. For lossy encodings such as TurboQuant, that means `L2Norm` may intentionally
+/// read the stored norms instead of re-deriving them from fully decoded coordinates. That behavior
+/// is part of the lossy storage contract, not a separate lossy-compute mode.
 #[derive(Clone)]
 pub struct L2Norm;
 
 impl L2Norm {
-    /// Creates a new [`ScalarFn`] wrapping the L2 norm operation with the given [`ApproxOptions`]
-    /// controlling approximation behavior.
-    pub fn new(options: &ApproxOptions) -> ScalarFn<L2Norm> {
-        ScalarFn::new(L2Norm, options.clone())
+    /// Creates a new [`ScalarFn`] wrapping the L2 norm operation.
+    pub fn new() -> ScalarFn<L2Norm> {
+        ScalarFn::new(L2Norm, EmptyOptions)
     }
 
     /// Constructs a [`ScalarFnArray`] that lazily computes the L2 norm over `child`.
@@ -59,17 +63,13 @@ impl L2Norm {
     ///
     /// Returns an error if the [`ScalarFnArray`] cannot be constructed (e.g. due to dtype
     /// mismatches).
-    pub fn try_new_array(
-        options: &ApproxOptions,
-        child: ArrayRef,
-        len: usize,
-    ) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(L2Norm::new(options).erased(), vec![child], len)
+    pub fn try_new_array(child: ArrayRef, len: usize) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(L2Norm::new().erased(), vec![child], len)
     }
 }
 
 impl ScalarFnVTable for L2Norm {
-    type Options = ApproxOptions;
+    type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
         ScalarFnId::from("vortex.tensor.l2_norm")
@@ -122,9 +122,9 @@ impl ScalarFnVTable for L2Norm {
         let tensor_flat_size = tensor_match.list_size();
         let element_ptype = tensor_match.element_ptype();
 
-        // L2Norm(L2Denorm(normalized, norms)) == norms, since normalized vectors have unit norm
-        // and L2 norms are non-negative. This avoids decompressing the TQ child just to recompute
-        // norms that are already stored.
+        // L2Norm(L2Denorm(normalized, norms)) is defined to read back the authoritative stored
+        // norms. Exact callers of lossy encodings like TurboQuant opt into that storage semantics
+        // instead of forcing a decode-and-recompute path here.
         if let Some(sfn) = input_ref.as_opt::<ScalarFnArrayVTable>()
             && sfn.scalar_fn().as_opt::<L2Denorm>().is_some()
         {
@@ -195,13 +195,11 @@ mod tests {
     use vortex_array::arrays::MaskedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::ScalarFnArray;
-    use vortex_array::scalar_fn::ScalarFn;
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::scalar_fns::ApproxOptions;
     use crate::scalar_fns::l2_norm::L2Norm;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::tensor_array;
@@ -212,7 +210,7 @@ mod tests {
 
     /// Evaluates L2 norm on a tensor/vector array and returns the result as `Vec<f64>`.
     fn eval_l2_norm(input: ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
-        let scalar_fn = ScalarFn::new(L2Norm, ApproxOptions::Exact).erased();
+        let scalar_fn = L2Norm::new().erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![input], len)?;
         let mut ctx = SESSION.create_execution_ctx();
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
@@ -267,7 +265,7 @@ mod tests {
         let arr = tensor_array(&[2], &[3.0, 4.0, 0.0, 0.0])?;
         let arr = MaskedArray::try_new(arr, Validity::from_iter([true, false]))?.into_array();
 
-        let scalar_fn = ScalarFn::new(L2Norm, ApproxOptions::Exact).erased();
+        let scalar_fn = L2Norm::new().erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![arr], 2)?;
         let mut ctx = SESSION.create_execution_ctx();
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;

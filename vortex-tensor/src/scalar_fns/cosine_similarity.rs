@@ -45,6 +45,11 @@ use crate::utils::validate_tensor_float_input;
 /// Both inputs must be tensor-like extension arrays ([`FixedShapeTensor`] or [`Vector`]) with the
 /// same dtype and a float element type. The output is a float column of the same float type.
 ///
+/// When either input is wrapped in [`L2Denorm`], this operator treats the stored norms and
+/// normalized children as authoritative. For lossy encodings such as TurboQuant, that means the
+/// optimized readthrough path may intentionally differ slightly from decoding both sides to dense
+/// coordinates and recomputing cosine from scratch.
+///
 /// [`FixedShapeTensor`]: crate::fixed_shape::FixedShapeTensor
 /// [`Vector`]: crate::vector::Vector
 #[derive(Clone)]
@@ -153,8 +158,8 @@ impl ScalarFnVTable for CosineSimilarity {
         let validity = lhs_ref.validity()?.and(rhs_ref.validity()?)?;
 
         // Compute inner product and norms as columnar operations, and propagate the options.
-        let norm_lhs_arr = L2Norm::try_new_array(options, lhs_ref.clone(), len)?;
-        let norm_rhs_arr = L2Norm::try_new_array(options, rhs_ref.clone(), len)?;
+        let norm_lhs_arr = L2Norm::try_new_array(lhs_ref.clone(), len)?;
+        let norm_rhs_arr = L2Norm::try_new_array(rhs_ref.clone(), len)?;
         let dot_arr = InnerProduct::try_new_array(options, lhs_ref, rhs_ref, len)?;
 
         // Execute to get the inner product and norms of the arrays. We only fully decompress
@@ -208,7 +213,8 @@ impl ScalarFnVTable for CosineSimilarity {
 }
 
 impl CosineSimilarity {
-    /// Both sides are `L2Denorm`: norms cancel, so `cosine_similarity = dot(n_l, n_r)`.
+    /// Both sides are `L2Denorm`: treat the normalized children as authoritative, so
+    /// `cosine_similarity = dot(n_l, n_r)`.
     fn execute_both_denorm(
         &self,
         options: &ApproxOptions,
@@ -222,7 +228,8 @@ impl CosineSimilarity {
         let (normalized_l, _) = extract_l2_denorm_children(lhs_ref);
         let (normalized_r, _) = extract_l2_denorm_children(rhs_ref);
 
-        // Dot product of already-normalized children IS the cosine similarity.
+        // `L2Denorm` makes the normalized children authoritative, so their dot product is the
+        // cosine similarity even for lossy storage wrappers.
         let dot =
             InnerProduct::try_new_array(options, normalized_l, normalized_r, len)?.into_array();
 
@@ -234,7 +241,8 @@ impl CosineSimilarity {
         }
     }
 
-    /// One side is `L2Denorm`: `cosine_similarity = dot(n, b) / ||b||`.
+    /// One side is `L2Denorm`: treat the normalized child as authoritative, so
+    /// `cosine_similarity = dot(n, b) / ||b||`.
     ///
     /// The caller must pass the denorm array as `denorm_ref` and the plain array as `plain_ref`.
     fn execute_one_denorm(
@@ -250,7 +258,7 @@ impl CosineSimilarity {
         let (normalized, _) = extract_l2_denorm_children(denorm_ref);
 
         let dot_arr = InnerProduct::try_new_array(options, normalized, plain_ref.clone(), len)?;
-        let norm_arr = L2Norm::try_new_array(options, plain_ref.clone(), len)?;
+        let norm_arr = L2Norm::try_new_array(plain_ref.clone(), len)?;
         let dot: PrimitiveArray = dot_arr.into_array().execute(ctx)?;
         let plain_norm: PrimitiveArray = norm_arr.into_array().execute(ctx)?;
 

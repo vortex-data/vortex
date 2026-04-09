@@ -354,9 +354,9 @@ pub struct vortex_tensor::scalar_fns::l2_norm::L2Norm
 
 impl vortex_tensor::scalar_fns::l2_norm::L2Norm
 
-pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::new(options: &vortex_tensor::scalar_fns::ApproxOptions) -> vortex_array::scalar_fn::typed::ScalarFn<vortex_tensor::scalar_fns::l2_norm::L2Norm>
+pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::new() -> vortex_array::scalar_fn::typed::ScalarFn<vortex_tensor::scalar_fns::l2_norm::L2Norm>
 
-pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::try_new_array(options: &vortex_tensor::scalar_fns::ApproxOptions, child: vortex_array::array::erased::ArrayRef, len: usize) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
+pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::try_new_array(child: vortex_array::array::erased::ArrayRef, len: usize) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
 
 impl core::clone::Clone for vortex_tensor::scalar_fns::l2_norm::L2Norm
 
@@ -364,7 +364,7 @@ pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::clone(&self) -> vortex_tensor
 
 impl vortex_array::scalar_fn::vtable::ScalarFnVTable for vortex_tensor::scalar_fns::l2_norm::L2Norm
 
-pub type vortex_tensor::scalar_fns::l2_norm::L2Norm::Options = vortex_tensor::scalar_fns::ApproxOptions
+pub type vortex_tensor::scalar_fns::l2_norm::L2Norm::Options = vortex_array::scalar_fn::vtable::EmptyOptions
 
 pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::arity(&self, _options: &Self::Options) -> vortex_array::scalar_fn::vtable::Arity
 

@@ -43,8 +43,8 @@ use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 
 /// TurboQuant compression scheme for [`Vector`] extension types.
 ///
-/// Applies lossy vector quantization to [`Vector`] extension arrays using the TurboQuant
-/// algorithm with MSE-optimal encoding.
+/// Applies lossy vector quantization to [`Vector`] extension arrays using the TurboQuant algorithm
+/// with MSE-optimal encoding.
 ///
 /// Register this scheme with the compressor builder via `with_scheme`:
 ///
@@ -85,13 +85,17 @@ impl Scheme for TurboQuantScheme {
         let vector_metadata =
             tq_validate_vector_dtype(dtype).vortex_expect("invalid dtype for TurboQuant");
         let element_ptype = vector_metadata.element_ptype();
-        let bit_width: u8 = element_ptype
+        let element_bit_width: u8 = element_ptype
             .bit_width()
             .try_into()
             .vortex_expect("invalid bit width for TurboQuant");
         let dimension = vector_metadata.dimensions();
 
-        CompressionEstimate::Ratio(estimate_compression_ratio(bit_width, dimension, len))
+        CompressionEstimate::Ratio(estimate_compression_ratio(
+            element_bit_width,
+            dimension,
+            len,
+        ))
     }
 
     fn compress(
@@ -133,13 +137,14 @@ impl Scheme for TurboQuantScheme {
 // TODO(connor): If we ever add scheme vtables with metadata, we would need to pass in the config as
 // a parameter here.
 /// Estimate the compression ratio for TurboQuant MSE encoding with the default config.
-fn estimate_compression_ratio(bits_per_element: u8, dimensions: u32, num_vectors: usize) -> f64 {
+fn estimate_compression_ratio(element_bit_width: u8, dimensions: u32, num_vectors: usize) -> f64 {
     let config = TurboQuantConfig::default();
     let padded_dim = dimensions.next_power_of_two() as usize;
 
-    // Per-vector: MSE codes per padded coordinate, plus one f32 norm.
-    let compressed_bits_per_vector = 32 // norm is always f32
-        + (config.bit_width as usize) * padded_dim; // MSE codes
+    // Per-vector: MSE codes per padded coordinate, plus one stored norm in the input element
+    // float width.
+    let compressed_bits_per_vector =
+        usize::from(element_bit_width) + usize::from(config.bit_width) * padded_dim;
 
     // Shared overhead: codebook centroids (2^bit_width f32 values).
     // Note: rotation signs are no longer stored — rotation is deterministic from seed.
@@ -149,7 +154,7 @@ fn estimate_compression_ratio(bits_per_element: u8, dimensions: u32, num_vectors
 
     let compressed_size_bits = compressed_bits_per_vector * num_vectors + overhead_bits;
 
-    let uncompressed_size_bits = bits_per_element as usize * dimensions as usize * num_vectors;
+    let uncompressed_size_bits = usize::from(element_bit_width) * dimensions as usize * num_vectors;
     uncompressed_size_bits as f64 / compressed_size_bits as f64
 }
 
@@ -171,17 +176,17 @@ mod tests {
     #[case::f64_768d(64, 768, 1000, 5.0, 9.0)]
     #[case::f16_768d(16, 768, 1000, 1.2, 2.5)]
     fn compression_ratio_in_expected_range(
-        #[case] bits_per_element: u8,
+        #[case] element_bit_width: u8,
         #[case] dim: u32,
         #[case] num_vectors: usize,
         #[case] min_ratio: f64,
         #[case] max_ratio: f64,
     ) {
-        let ratio = estimate_compression_ratio(bits_per_element, dim, num_vectors);
+        let ratio = estimate_compression_ratio(element_bit_width, dim, num_vectors);
         assert!(
             ratio > min_ratio && ratio < max_ratio,
             "ratio {ratio:.2} not in [{min_ratio}, {max_ratio}] for \
-             {bits_per_element}-bit elements, dim={dim}, n={num_vectors}"
+             {element_bit_width}-bit elements, dim={dim}, n={num_vectors}"
         );
     }
 
@@ -192,14 +197,38 @@ mod tests {
     #[case(32, 768, 10)]
     #[case(64, 256, 50)]
     fn ratio_always_greater_than_one(
-        #[case] bits_per_element: u8,
+        #[case] element_bit_width: u8,
         #[case] dim: u32,
         #[case] num_vectors: usize,
     ) {
-        let ratio = estimate_compression_ratio(bits_per_element, dim, num_vectors);
+        let ratio = estimate_compression_ratio(element_bit_width, dim, num_vectors);
         assert!(
             ratio > 1.0,
-            "ratio {ratio:.4} <= 1.0 for {bits_per_element}-bit, dim={dim}, n={num_vectors}"
+            "ratio {ratio:.4} <= 1.0 for {element_bit_width}-bit, dim={dim}, n={num_vectors}"
+        );
+    }
+
+    #[rstest]
+    #[case(16)]
+    #[case(32)]
+    #[case(64)]
+    fn ratio_accounts_for_norm_storage_width(#[case] element_bit_width: u8) {
+        let dim = 128u32;
+        let num_vectors = 1usize;
+        let padded_dim = dim.next_power_of_two() as usize;
+        let config = TurboQuantConfig::default();
+        let num_centroids = 1usize << config.bit_width;
+
+        let expected_compressed_bits = usize::from(element_bit_width)
+            + usize::from(config.bit_width) * padded_dim
+            + num_centroids * 32;
+        let expected_uncompressed_bits =
+            usize::from(element_bit_width) * dim as usize * num_vectors;
+        let expected = expected_uncompressed_bits as f64 / expected_compressed_bits as f64;
+
+        assert_eq!(
+            estimate_compression_ratio(element_bit_width, dim, num_vectors),
+            expected
         );
     }
 

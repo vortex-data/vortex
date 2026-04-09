@@ -5,20 +5,32 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
+use std::fmt;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::dict::DictArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::expr::Expression;
+use vortex_array::scalar_fn::Arity;
+use vortex_array::scalar_fn::ChildName;
+use vortex_array::scalar_fn::EmptyOptions;
+use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ScalarFn;
+use vortex_array::scalar_fn::ScalarFnId;
+use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
@@ -117,6 +129,53 @@ fn execute_sorf(
     let result_fsl: FixedSizeListArray = result.storage_array().clone().execute(&mut ctx)?;
     let result_prim: PrimitiveArray = result_fsl.elements().clone().execute(&mut ctx)?;
     Ok(result_prim.as_slice::<f32>().to_vec())
+}
+
+#[derive(Clone)]
+struct NonFloatMaterializedChild;
+
+impl ScalarFnVTable for NonFloatMaterializedChild {
+    type Options = EmptyOptions;
+
+    fn id(&self) -> ScalarFnId {
+        ScalarFnId::from("vortex.tensor.test.non_float_materialized_child")
+    }
+
+    fn arity(&self, _options: &Self::Options) -> Arity {
+        Arity::Exact(0)
+    }
+
+    fn child_name(&self, _options: &Self::Options, _child_idx: usize) -> ChildName {
+        unreachable!("NonFloatMaterializedChild has no children")
+    }
+
+    fn fmt_sql(
+        &self,
+        _options: &Self::Options,
+        _expr: &Expression,
+        f: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
+        write!(f, "non_float_materialized_child()")
+    }
+
+    fn return_dtype(&self, _options: &Self::Options, _arg_dtypes: &[DType]) -> VortexResult<DType> {
+        Ok(DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F32, Nullability::NonNullable)),
+            128,
+            Nullability::NonNullable,
+        ))
+    }
+
+    fn execute(
+        &self,
+        _options: &Self::Options,
+        _args: &dyn ExecutionArgs,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let elements = PrimitiveArray::from_iter([1u8; 128]).into_array();
+        let fsl = FixedSizeListArray::try_new(elements, 128, Validity::NonNullable, 1)?;
+        Ok(fsl.into_array())
+    }
 }
 
 #[test]
@@ -283,6 +342,75 @@ fn return_dtype_is_vector_extension() -> VortexResult<()> {
     };
     assert_eq!(*inner_dim, dim);
 
+    Ok(())
+}
+
+#[test]
+fn rejects_zero_rounds_at_construction() {
+    let options = SorfOptions {
+        seed: 42,
+        num_rounds: 0,
+        dimension: 128,
+        element_ptype: PType::F32,
+    };
+    let elements = PrimitiveArray::from_iter([0.0f32; 128]).into_array();
+    let child = FixedSizeListArray::try_new(elements, 128, Validity::NonNullable, 1)
+        .expect("test child should be valid");
+
+    let err = SorfTransform::try_new_array(&options, child.into_array(), 1)
+        .expect_err("zero rounds should be rejected at construction time");
+    assert!(err.to_string().contains("num_rounds"));
+}
+
+#[test]
+fn rejects_non_float_output_ptype_at_construction() {
+    let options = SorfOptions {
+        seed: 42,
+        num_rounds: 3,
+        dimension: 128,
+        element_ptype: PType::U8,
+    };
+    let elements = PrimitiveArray::from_iter([0.0f32; 128]).into_array();
+    let child = FixedSizeListArray::try_new(elements, 128, Validity::NonNullable, 1)
+        .expect("test child should be valid");
+
+    let err = SorfTransform::try_new_array(&options, child.into_array(), 1)
+        .expect_err("non-float output ptypes should be rejected at construction time");
+    assert!(err.to_string().contains("element_ptype"));
+}
+
+#[test]
+fn rejects_non_float_child_dtype_at_construction() {
+    let options = default_options(128, 42);
+    let elements = PrimitiveArray::from_iter([1u8; 128]).into_array();
+    let child = FixedSizeListArray::try_new(elements, 128, Validity::NonNullable, 1)
+        .expect("test child should be valid");
+
+    let err = SorfTransform::try_new_array(&options, child.into_array(), 1)
+        .expect_err("non-float child dtypes should be rejected at construction time");
+    assert!(err.to_string().contains("logical float"));
+}
+
+#[test]
+fn execute_errors_when_child_materializes_to_non_float_elements() -> VortexResult<()> {
+    let child = ScalarFnArray::try_new(
+        ScalarFn::new(NonFloatMaterializedChild, EmptyOptions).erased(),
+        vec![],
+        1,
+    )?
+    .into_array();
+    let sorf = SorfTransform::try_new_array(&default_options(128, 42), child, 1)?;
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let err = sorf
+        .into_array()
+        .execute::<ExtensionArray>(&mut ctx)
+        .expect_err("runtime child materialization mismatch should error");
+    let message = err.to_string();
+    assert!(
+        message.contains("float") || message.contains("U8") || message.contains("u8"),
+        "unexpected runtime error: {message}",
+    );
     Ok(())
 }
 

@@ -11,7 +11,6 @@ use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
 use super::*;
-use crate::scalar_fns::ApproxOptions;
 
 /// Encode a nullable Vector array and verify roundtrip preserves validity and non-null values.
 #[test]
@@ -121,7 +120,7 @@ fn nullable_l2_norm_readthrough() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
 
-    let norm_sfn = L2Norm::try_new_array(&ApproxOptions::Exact, encoded, 5)?;
+    let norm_sfn = L2Norm::try_new_array(encoded, 5)?;
     let norms: PrimitiveArray = norm_sfn.into_array().execute(&mut ctx)?;
 
     let orig_prim = fsl.elements().clone().execute::<PrimitiveArray>(&mut ctx)?;

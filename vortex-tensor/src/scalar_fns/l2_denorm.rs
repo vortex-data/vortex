@@ -38,12 +38,11 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
 use crate::matcher::AnyTensor;
-use crate::scalar_fns::ApproxOptions;
 use crate::scalar_fns::l2_norm::L2Norm;
 use crate::utils::extract_flat_elements;
 use crate::utils::validate_tensor_float_input;
 
-/// Re-applies L2 norms to a normalized tensor column.
+/// Re-applies authoritative L2 norms to a normalized tensor column.
 ///
 /// Computes `normalized * norm` on each row over the flat backing buffer of each tensor-like type.
 ///
@@ -52,6 +51,18 @@ use crate::utils::validate_tensor_float_input;
 ///
 /// The norms input must be a primitive float column with the same element type as the normalized
 /// tensor elements.
+///
+/// [`L2Denorm`] is the norm-splitting wrapper used throughout the tensor crate. Callers that build
+/// it through [`try_new_array`](Self::try_new_array) get an exact unit-norm invariant on the
+/// `normalized` child.
+///
+/// Advanced callers can also use [`new_array_unchecked`](Self::new_array_unchecked) to attach
+/// authoritative stored norms to a lossy approximation of that child, such as quantized normalized
+/// vectors.
+///
+/// Downstream readthrough rules intentionally treat the stored norms and normalized child as the
+/// encoding contract, even when that differs slightly from recomputing over fully decoded
+/// coordinates.
 #[derive(Clone)]
 pub struct L2Denorm;
 
@@ -98,8 +109,13 @@ impl L2Denorm {
     /// # Safety
     ///
     /// The caller must ensure the `normalized` child is semantically suitable for L2
-    /// denormalization, which typically means every valid row is unit-norm or zero. Violating this
-    /// invariant will not cause memory unsafety, but may produce incorrect results.
+    /// denormalization. For exact wrappers, that means every valid row is unit-norm or zero.
+    ///
+    /// Lossy encodings may deliberately relax that invariant while still treating the stored norms
+    /// as authoritative.
+    ///
+    /// Violating the intended contract will not cause memory unsafety, but may produce incorrect
+    /// results.
     pub unsafe fn new_array_unchecked(
         normalized: ArrayRef,
         norms: ArrayRef,
@@ -247,6 +263,9 @@ impl ScalarFnVTable for L2Denorm {
 /// [`L2Norm`]'s validity propagation. When the [`L2Denorm`] wrapper is executed, its validity is
 /// `and(normalized_validity, norms_validity)`, which correctly identifies originally-null rows
 /// since the normalized child is all-valid and the norms child carries the original nulls.
+///
+/// Because this helper computes exact norms first and then divides by those norms, the returned
+/// `normalized` child satisfies the strict unit-norm invariant required by [`L2Denorm`].
 pub fn normalize_as_l2_denorm(
     input: ArrayRef,
     ctx: &mut ExecutionCtx,
@@ -255,7 +274,7 @@ pub fn normalize_as_l2_denorm(
     let tensor_match = validate_tensor_float_input(input.dtype())?;
     let tensor_flat_size = tensor_match.list_size();
 
-    let norms_sfn = L2Norm::try_new_array(&ApproxOptions::Exact, input.clone(), row_count)?;
+    let norms_sfn = L2Norm::try_new_array(input.clone(), row_count)?;
     let norms_array: ArrayRef = norms_sfn.into_array().execute(ctx)?;
     let norms: PrimitiveArray = norms_array.clone().execute(ctx)?;
     let norms_validity = norms.validity()?;
@@ -295,8 +314,15 @@ pub fn normalize_as_l2_denorm(
         )
     })?;
 
-    // TODO(connor): Need to figure out a way to not run validation.
-    L2Denorm::try_new_array(normalized, norms_array, row_count, ctx)
+    // SAFETY:
+    // - `norms_array` was produced by `L2Norm(Exact, input)`, so every stored norm is
+    //   non-negative and null rows already carry null validity through that child.
+    // - For every valid row, we either emit all zeros when the norm is zero or divide every
+    //   element by the exact stored norm, so the normalized child is unit-norm (or zero) by
+    //   construction.
+    // - Null rows are zeroed out above to avoid propagating arbitrary physical storage values into
+    //   downstream lossy encodings.
+    unsafe { L2Denorm::new_array_unchecked(normalized, norms_array, row_count) }
 }
 
 /// Rebuilds a tensor-like extension array from flat primitive elements.
