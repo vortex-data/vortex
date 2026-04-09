@@ -16,9 +16,9 @@ actually needed** for a given row range or filter mask. The key constraint: we c
 A segment is a contiguous byte range in a file. Inside it, buffers are packed sequentially:
 
 ```
-┌─────────────────────── segment ────────────────────────┐
-│ [pad][buf 0][pad][buf 1][pad][buf 2]...[flatbuffer][u32]│
-└─────────────────────────────────────────────────────────┘
++-------------------------- segment ---------------------------+
+| [pad][buf 0][pad][buf 1][pad][buf 2]...[flatbuffer][u32 len] |
++--------------------------------------------------------------+
 ```
 
 The flatbuffer suffix (the "array tree") describes the encoding tree:
@@ -26,11 +26,11 @@ The flatbuffer suffix (the "array tree") describes the encoding tree:
 ```
 Array
   root: ArrayNode
-    encoding: u16          ← which encoding (Primitive, BitPacked, Dict, ...)
-    metadata: [u8]         ← encoding-specific (bit_width, offset, ptype, ...)
-    buffers:  [u16]        ← indices into the global Buffer descriptor list
-    children: [ArrayNode]  ← recursive
-  buffers: [Buffer]        ← global list: { padding, alignment_exponent, length }
+    encoding: u16          <- which encoding (Primitive, BitPacked, Dict, ...)
+    metadata: [u8]         <- encoding-specific (bit_width, offset, ptype, ...)
+    buffers:  [u16]        <- indices into the global Buffer descriptor list
+    children: [ArrayNode]  <- recursive
+  buffers: [Buffer]        <- global list: { padding, alignment_exponent, length }
 ```
 
 Each `ArrayNode.buffers[i]` is an index into `Array.buffers`. The padding and length fields
@@ -52,514 +52,464 @@ pub trait SliceReduce: VTable {
 }
 ```
 
-Encodings implement this to push slices down through their structure. Key examples:
+Encodings implement this to push slices down through their structure:
 
-- **Primitive**: `buffer.slice_typed::<T>(range)` — byte-range slice on the values buffer
-- **BitPacked**: compute chunk-aligned byte range from `bit_width` and `offset` metadata,
-  then `packed.slice(encoded_start..encoded_stop)`
-- **List**: keep elements unchanged, slice offsets to `[start..end+1]`, slice validity
+- **Primitive**: `buffer_handle().slice_typed::<T>(range)` -- byte-range slice on values buffer
+- **BitPacked**: compute chunk-aligned byte range from `bit_width`/`offset` metadata,
+  then `packed().slice(encoded_start..encoded_stop)`
+- **List**: keep elements unchanged, `offsets.slice(start..end+1)`, `validity.slice(range)`
 - **Struct**: recurse into each field with the same row range
 - **Dict**: slice codes, keep values unchanged
 
-The logic for *how a row range maps to buffer byte ranges* already exists per-encoding in
-`SliceReduce`. The problem is that `SliceReduce` operates on **live arrays with materialized
-buffers**. We need the same logic but operating on **serialized metadata before IO**.
+Critically, **these implementations only call `BufferHandle::slice()` and
+`BufferHandle::slice_typed::<T>()`**. Both are zero-copy today -- they adjust byte
+offsets without reading data. This property is the foundation of the design.
 
-## Design
+## Background: The Execution Loop
 
-### New method on `ArrayPlugin`
+The execution loop (`execute_until`) iteratively transforms arrays toward canonical form:
 
-Add a method to `ArrayPlugin` (the trait used by `SerializedArray::decode()` to dispatch
-deserialization per-encoding):
+```
+for each iteration:
+    1. Check if done (matches target or is canonical)
+    2. Try reduce / reduce_parent   -- metadata-only rewrites
+    3. Try execute_parent            -- child-driven fused execution
+    4. Try execute                   -- encoding's own decode step
+       -> ExecuteSlot(i): push stack, execute child first
+       -> Done: continue
+```
+
+Steps 2 are metadata-only (no buffer reads). Steps 3-4 may read buffer data. The loop runs
+synchronously; all IO must be complete before it starts.
+
+`SliceReduce` is triggered in step 2 via `reduce_parent`: when a `SliceArray` wraps a child
+that implements `SliceReduce`, the optimizer calls `SliceReduce::slice()` which pushes the
+row range down, calling `.slice()` on the child's buffers.
+
+## Design: Segment Variant on BufferHandle
+
+### Core Idea
+
+Add a third variant to `BufferHandle::Inner`:
 
 ```rust
-pub trait ArrayPlugin: 'static + Send + Sync {
-    fn id(&self) -> ArrayId;
-
-    fn deserialize(
-        &self, dtype: &DType, len: usize, metadata: &[u8],
-        buffers: &[BufferHandle], children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayRef>;
-
-    /// Compute a read plan for this encoding given a row range.
-    ///
-    /// Returns which byte ranges of this node's buffers are needed, and what
-    /// row ranges to propagate to each child. The default reads everything.
-    fn plan_read(
-        &self,
-        metadata: &[u8],
-        dtype: &DType,
-        len: usize,
-        row_range: Range<usize>,
-    ) -> VortexResult<ReadPlan> {
-        _ = (metadata, dtype, row_range);
-        Ok(ReadPlan::all(len))
-    }
+enum Inner {
+    Host(ByteBuffer),
+    Device(Arc<dyn DeviceBuffer>),
+    Segment(SegmentBufferRef),        // <- new: unfetched, refinable
 }
 ```
 
-The blanket impl `impl<V: VTable> ArrayPlugin for V` forwards to a new optional VTable method
-with the same default.
+A `SegmentBufferRef` represents a byte range within a segment that has **not been fetched**.
+When `BufferHandle::slice()` is called on a `Segment` handle, it narrows the byte range
+instead of slicing real data. **No encoding code changes.**
 
-### `ReadPlan`
-
-```rust
-/// Describes what an encoding needs from its buffers and children for a given row range.
-pub struct ReadPlan {
-    pub buffers: Vec<BufferSlice>,
-    pub children: Vec<ChildSlice>,
-}
-
-/// What byte range of one buffer is needed.
-pub enum BufferSlice {
-    /// Read only this byte range of the buffer.
-    Range(Range<usize>),
-    /// Read the entire buffer.
-    All,
-    /// This buffer is not needed.
-    Skip,
-}
-
-/// What row range to propagate to one child.
-pub enum ChildSlice {
-    /// Recurse into this child with the given row range and length.
-    Rows { row_range: Range<usize>, len: usize },
-    /// Read the full child.
-    All,
-    /// Skip this child entirely.
-    Skip,
-}
-```
-
-### `SegmentReadPlan` — the coordination point
+### `SegmentBufferRef`
 
 ```rust
-/// Tracks refined byte ranges for every buffer in a segment.
-/// This is the single place that sees all buffer needs and coordinates IO.
-pub struct SegmentReadPlan {
+pub struct SegmentBufferRef {
+    /// Which segment this buffer lives in.
     segment_id: SegmentId,
-    /// One entry per buffer in the segment's global buffer list.
-    entries: Vec<SegmentBufferEntry>,
-}
-
-struct SegmentBufferEntry {
-    /// Byte offset of this buffer within the segment (from cumulative padding + lengths).
+    /// Index of this buffer in the segment's global buffer list.
+    buffer_index: u32,
+    /// Byte offset of this buffer's start within the segment.
     segment_offset: usize,
-    /// Full byte length of this buffer.
-    full_length: usize,
-    /// Alignment requirement.
-    alignment: Alignment,
-    /// The byte range actually needed. Starts as 0..full_length.
+    /// The byte range within this buffer that is actually needed.
+    /// Starts as 0..full_length. Narrowed by slice() calls.
     needed: Range<usize>,
-}
-
-impl SegmentReadPlan {
-    /// Build from flatbuffer metadata. All buffers start fully needed.
-    pub fn from_array_tree(segment_id: SegmentId, fb: &fba::Array) -> Self;
-
-    /// Walk the encoding tree, calling plan_read per node, refining buffer ranges.
-    pub fn refine(
-        &mut self,
-        node: &fba::ArrayNode,
-        row_range: Range<usize>,
-        len: usize,
-        dtype: &DType,
-        ctx: &ReadContext,
-        session: &VortexSession,
-    );
-
-    /// Issue coalesced IO for all needed byte ranges. Single round-trip.
-    pub async fn fetch(self, source: &dyn SegmentSource) -> VortexResult<Vec<BufferHandle>>;
+    /// Alignment requirement from the flatbuffer descriptor.
+    alignment: Alignment,
+    /// Filled when materialized. Shared via Arc so cloned handles see the data.
+    resolved: Arc<OnceLock<ByteBuffer>>,
 }
 ```
 
-#### `refine` walks the tree recursively
-
-```
-refine(node, row_range, len, dtype):
-    encoding = session.resolve(node.encoding)
-    plan = encoding.plan_read(node.metadata, dtype, len, row_range)
-
-    for (i, buffer_slice) in plan.buffers:
-        global_idx = node.buffers[i]
-        match buffer_slice:
-            Range(r) => self.entries[global_idx].narrow(r)
-            Skip     => self.entries[global_idx].skip()
-            All      => /* leave as-is */
-
-    for (i, child_slice) in plan.children:
-        match child_slice:
-            Rows { row_range, len } =>
-                refine(node.children[i], row_range, len, child_dtype, ...)
-            Skip =>
-                skip all buffers in child subtree
-            All =>
-                /* leave child buffers as-is */
-```
-
-#### `fetch` coalesces and reads
-
-```
-fetch(source):
-    // Collect all needed byte ranges mapped to segment offsets
-    ranges = entries
-        .filter(|e| e.is_needed())
-        .map(|e| e.segment_offset + e.needed.start .. e.segment_offset + e.needed.end)
-
-    // Coalesce nearby ranges (reuse existing IoRequestStream logic)
-    coalesced = coalesce(ranges)
-
-    // Single IO: request_ranges on the segment
-    data = source.request_ranges(segment_id, coalesced).await
-
-    // Slice coalesced results back into individual buffer handles
-    entries.map(|e| slice_from_coalesced(data, e))
-```
-
-### Extended `SegmentSource`
+### How BufferHandle operations work on Segment
 
 ```rust
-pub trait SegmentSource: 'static + Send + Sync {
-    /// Existing: fetch an entire segment.
-    fn request(&self, id: SegmentId) -> SegmentFuture;
+impl BufferHandle {
+    pub fn slice(&self, range: Range<usize>) -> Self {
+        match &self.0 {
+            Inner::Host(host) => BufferHandle::new_host(host.slice(range)),
+            Inner::Device(device) => BufferHandle::new_device(device.slice(range)),
+            Inner::Segment(seg) => BufferHandle(Inner::Segment(seg.slice(range))),
+        }
+    }
 
-    /// New: fetch specific byte ranges within a segment, coalesced into minimal reads.
-    fn request_ranges(
-        &self,
-        id: SegmentId,
-        ranges: &[Range<usize>],
-    ) -> BoxFuture<'static, VortexResult<Vec<BufferHandle>>>;
-}
-```
+    pub fn len(&self) -> usize {
+        match &self.0 {
+            Inner::Host(b) => b.len(),
+            Inner::Device(d) => d.len(),
+            Inner::Segment(s) => s.needed.len(),
+        }
+    }
 
-`FileSegmentSource` implements `request_ranges` by translating sub-segment byte ranges to
-file-level byte ranges using `SegmentSpec.offset`, then feeding them through the existing
-`IoRequestStream` coalescing pipeline.
-
-## Per-Encoding `plan_read` Implementations
-
-### Primitive
-
-```rust
-fn plan_read(&self, metadata: &[u8], dtype: &DType, len: usize, row_range: Range<usize>)
-    -> VortexResult<ReadPlan>
-{
-    let byte_width = dtype.byte_width();
-    Ok(ReadPlan {
-        buffers: vec![
-            // Values buffer: exact byte range
-            BufferSlice::Range(row_range.start * byte_width..row_range.end * byte_width),
-        ],
-        children: vec![
-            // Validity child: propagate row range
-            ChildSlice::Rows { row_range: row_range.clone(), len },
-        ],
-    })
-}
-```
-
-### Bool
-
-```rust
-fn plan_read(&self, _metadata: &[u8], _dtype: &DType, len: usize, row_range: Range<usize>)
-    -> VortexResult<ReadPlan>
-{
-    Ok(ReadPlan {
-        buffers: vec![
-            BufferSlice::Range(row_range.start / 8..row_range.end.div_ceil(8)),
-        ],
-        children: vec![
-            ChildSlice::Rows { row_range: row_range.clone(), len },
-        ],
-    })
-}
-```
-
-### BitPacked
-
-```rust
-fn plan_read(&self, metadata: &[u8], _dtype: &DType, len: usize, row_range: Range<usize>)
-    -> VortexResult<ReadPlan>
-{
-    let meta = BitPackedMetadata::decode(metadata)?;
-    let bit_width = meta.bit_width as usize;
-    let offset = meta.offset as usize;
-
-    // Align to 1024-element chunk boundaries (same math as SliceReduce)
-    let offset_start = row_range.start + offset;
-    let offset_stop = row_range.end + offset;
-    let block_start = (offset_start / 1024) * 1024;
-    let block_stop = offset_stop.div_ceil(1024) * 1024;
-
-    let encoded_start = (block_start / 8) * bit_width;
-    let encoded_stop = (block_stop / 8) * bit_width;
-
-    Ok(ReadPlan {
-        buffers: vec![
-            BufferSlice::Range(encoded_start..encoded_stop),
-        ],
-        children: vec![
-            ChildSlice::All,   // patch_indices: can't refine without data
-            ChildSlice::All,   // patch_values
-            ChildSlice::All,   // patch_chunk_offsets
-            ChildSlice::Rows { row_range: row_range.clone(), len }, // validity
-        ],
-    })
-}
-```
-
-### List
-
-```rust
-fn plan_read(&self, metadata: &[u8], _dtype: &DType, len: usize, row_range: Range<usize>)
-    -> VortexResult<ReadPlan>
-{
-    Ok(ReadPlan {
-        buffers: vec![],  // List has no buffers of its own
-        children: vec![
-            // Elements: CANNOT refine without reading offsets first.
-            // Conservative: read all.
-            ChildSlice::All,
-            // Offsets: n+1 elements, slice to [start..end+1]
-            ChildSlice::Rows {
-                row_range: row_range.start..row_range.end + 1,
-                len: len + 1,
-            },
-            // Validity: slice to row range
-            ChildSlice::Rows { row_range: row_range.clone(), len },
-        ],
-    })
-}
-```
-
-List **cannot** refine its elements child in a single round-trip because the element byte
-range depends on offset *values*, not just metadata. This is an inherent limitation for
-variable-length encodings. The offsets and validity children still benefit.
-
-### Dict
-
-```rust
-fn plan_read(&self, _metadata: &[u8], _dtype: &DType, len: usize, row_range: Range<usize>)
-    -> VortexResult<ReadPlan>
-{
-    Ok(ReadPlan {
-        buffers: vec![],
-        children: vec![
-            ChildSlice::Rows { row_range: row_range.clone(), len }, // codes: slice
-            ChildSlice::All,  // values: need all dictionary entries
-        ],
-    })
-}
-```
-
-### Struct
-
-```rust
-fn plan_read(&self, metadata: &[u8], _dtype: &DType, len: usize, row_range: Range<usize>)
-    -> VortexResult<ReadPlan>
-{
-    let nfields = StructMetadata::decode(metadata)?.nfields;
-    Ok(ReadPlan {
-        buffers: vec![],
-        children: (0..nfields)
-            .map(|_| ChildSlice::Rows { row_range: row_range.clone(), len })
-            .chain(std::iter::once(
-                ChildSlice::Rows { row_range: row_range.clone(), len } // validity
-            ))
-            .collect(),
-    })
-}
-```
-
-### Masked (validity wrapper)
-
-```rust
-fn plan_read(&self, _metadata: &[u8], _dtype: &DType, len: usize, row_range: Range<usize>)
-    -> VortexResult<ReadPlan>
-{
-    Ok(ReadPlan {
-        buffers: vec![],
-        children: vec![
-            ChildSlice::Rows { row_range: row_range.clone(), len }, // inner array
-            ChildSlice::Rows { row_range: row_range.clone(), len }, // mask
-        ],
-    })
-}
-```
-
-### Default (any encoding without an override)
-
-```rust
-fn plan_read(&self, ...) -> VortexResult<ReadPlan> {
-    // Conservative: read all buffers, read all children fully.
-    Ok(ReadPlan::all(len))
-}
-```
-
-This means sub-segment slicing is **opt-in**. Encodings that don't implement `plan_read`
-still work — they just read everything, same as today.
-
-## Filter Refinement
-
-For filter masks, the conservative approach converts to a bounding row range:
-
-```rust
-impl SegmentReadPlan {
-    pub fn refine_filter(
-        &mut self,
-        mask: &Mask,
-        node: &fba::ArrayNode,
-        len: usize,
-        dtype: &DType,
-        ctx: &ReadContext,
-        session: &VortexSession,
-    ) {
-        if let Some(range) = mask.bounding_range() {
-            self.refine(node, range, len, dtype, ctx, session);
+    pub fn to_host_sync(&self) -> ByteBuffer {
+        match &self.0 {
+            Inner::Host(b) => b.clone(),
+            Inner::Device(d) => d.copy_to_host_sync(ALIGNMENT_TO_HOST_COPY),
+            Inner::Segment(s) => s.resolved.get()
+                .expect("Segment buffer not yet materialized")
+                .clone(),
         }
     }
 }
 ```
 
-This is effective when zone-map pruning produces clustered masks (common case). A future
-enhancement could handle very sparse masks by computing per-true-bit byte offsets for
-fixed-width types.
-
-## Integration with FlatReader
-
-`FlatReader` changes in `projection_evaluation` and `filter_evaluation`:
+And on `SegmentBufferRef`:
 
 ```rust
-// Before (today):
-fn projection_evaluation(&self, row_range, expr, mask) {
-    let array = self.array_future().await;     // fetch ENTIRE segment
-    let array = array.slice(row_range);         // logical slice (cheap but IO already done)
-    let array = array.filter(mask);
-    array.apply(expr)
-}
+impl SegmentBufferRef {
+    fn slice(&self, range: Range<usize>) -> Self {
+        SegmentBufferRef {
+            needed: (self.needed.start + range.start)..(self.needed.start + range.end),
+            // New OnceLock -- this narrowed handle gets its own resolution.
+            resolved: Arc::new(OnceLock::new()),
+            ..*self
+        }
+    }
 
-// After:
-fn projection_evaluation(&self, row_range, expr, mask) {
-    let fb = parse_flatbuffer(self.layout.array_tree());
-
-    // 1. Build plan — all buffers fully needed
-    let mut plan = SegmentReadPlan::from_array_tree(self.layout.segment_id(), &fb);
-
-    // 2. Refine with row range (metadata-only, no IO)
-    plan.refine(fb.root(), row_range, self.layout.row_count(), dtype, ctx, session);
-
-    // 3. Optionally refine with filter bounding range
-    plan.refine_filter(&mask, fb.root(), ...);
-
-    // 4. Single coordinated fetch
-    let buffers = plan.fetch(&self.segment_source).await?;
-
-    // 5. Decode from partial buffers
-    let parts = SerializedArray::from_flatbuffer_with_buffers(array_tree, buffers)?;
-    let array = parts.decode(dtype, row_range.len(), ctx, session)?;
-
-    // 6. Apply filter + projection as before
-    if !mask.all_true() { array = array.filter(mask)?; }
-    array.apply(expr)
+    /// The byte range to read from the segment.
+    fn segment_byte_range(&self) -> Range<usize> {
+        (self.segment_offset + self.needed.start)..(self.segment_offset + self.needed.end)
+    }
 }
 ```
 
-Steps 1-3 are pure metadata computation. Step 4 is one IO. Steps 5-6 are CPU-only
-with the execution loop running unchanged.
+### Why existing SliceReduce works unchanged
 
-## Interaction with the Execution Loop
+Trace through `Primitive::slice()`:
 
-The execution loop (`execute_until`) is **unchanged**. It still runs reduce → reduce_parent
-→ execute_parent → execute on arrays with materialized buffers. Sub-segment slicing happens
-**before** the execution loop, in the async FlatReader layer.
+```rust
+impl SliceReduce for Primitive {
+    fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        let result = match_each_native_ptype!(array.ptype(), |T| {
+            PrimitiveArray::from_buffer_handle(
+                array.buffer_handle().slice_typed::<T>(range.clone()),
+                //    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                //    If buffer_handle() returns Segment, slice_typed::<T>
+                //    narrows needed by (range.start * sizeof(T))..(range.end * sizeof(T))
+                //    Returns a new Segment handle. No data accessed.
+                T::PTYPE,
+                array.validity()?.slice(range)?,
+            )
+            .into_array()
+        });
+        Ok(Some(result))
+    }
+}
+```
 
-The two systems complement each other:
+Trace through `BitPacked::slice()`:
 
-| Layer | What it does | When it runs |
-|-------|-------------|-------------|
-| `plan_read` + `SegmentReadPlan` | Determines minimal byte ranges to fetch | Before IO, in FlatReader |
-| `SliceReduce` | Pushes slices through live arrays | After IO, in optimizer/executor |
-| Execution loop | Decodes encoded arrays to canonical | After IO, CPU-only |
+```rust
+impl SliceReduce for BitPacked {
+    fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        // ... chunk boundary math ...
+        let encoded_start = (block_start / 8) * array.bit_width() as usize;
+        let encoded_stop = (block_stop / 8) * array.bit_width() as usize;
 
-`plan_read` and `SliceReduce` encode **parallel knowledge** — they both know how a row range
-maps through an encoding's structure. The difference is the level they operate at:
+        Ok(Some(BitPacked::try_new(
+            array.packed().slice(encoded_start..encoded_stop),
+            //              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            //              packed() returns Segment handle.
+            //              .slice() narrows to chunk-aligned byte range.
+            // ...
+        )))
+    }
+}
+```
 
-- `SliceReduce` operates on **live `ArrayView`** with materialized buffers
-- `plan_read` operates on **serialized `&[u8]` metadata** without any buffer data
+Trace through `List::slice()`:
 
-For encodings where the mapping is simple arithmetic (Primitive, Bool, BitPacked), the two
-implementations are small and unlikely to diverge. For encodings where the mapping is
-data-dependent (List, RLE), `plan_read` is conservative (`All`) while `SliceReduce` can be
-precise because it has the data.
+```rust
+impl SliceReduce for List {
+    fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(ListArray::new(
+            array.elements().clone(),                      // unchanged -- Segment stays full range
+            array.offsets().slice(range.start..range.end + 1)?, // narrows offsets Segment
+            array.validity()?.slice(range)?,                    // narrows validity Segment
+        ).into_array()))
+    }
+}
+```
 
-## Concrete Savings Example
+**Every existing `SliceReduce` implementation becomes a buffer refinement planner for free.**
 
-Schema: `Struct { ts: Primitive<i64>, name: List<VarBin<u8>>, flags: BitPacked<u8, 3> }`
-1M rows, reading rows 1000..2000.
+### Deserialization with Segment handles
 
-| Buffer | Full segment | With plan_read | Savings |
-|--------|-------------|---------------|---------|
-| ts values (i64) | 8 MB | 8 KB | 99.9% |
-| ts validity | 125 KB | ~125 B | 99.9% |
-| name offsets (i32) | 4 MB | 4 KB | 99.9% |
-| name elements | 50 MB | 50 MB | 0% (data-dependent) |
-| name validity | 125 KB | ~125 B | 99.9% |
-| flags packed (3-bit) | 375 KB | ~384 B (1 chunk) | 99.9% |
-| flags validity | 125 KB | ~125 B | 99.9% |
-| **Total** | **~63 MB** | **~50 MB** | **~20%** |
+Add a new constructor to `SerializedArray`:
 
-The `name.elements` buffer dominates because List can't refine it. For schemas with mostly
-fixed-width columns (timestamps, IDs, metrics), savings are much larger:
+```rust
+impl SerializedArray {
+    /// Create a SerializedArray where buffers are lazy Segment references.
+    /// No IO is performed; buffers are SegmentBufferRefs that track byte ranges.
+    pub fn from_flatbuffer_with_segment_refs(
+        array_tree: ByteBuffer,
+        segment_id: SegmentId,
+    ) -> VortexResult<Self> {
+        let (fb_buffer, flatbuffer_loc) = Self::validate_array_tree(array_tree)?;
+        let fb_array = unsafe { fba::root_as_array_unchecked(fb_buffer.as_ref()) };
+
+        let mut offset = 0;
+        let buffers = fb_array
+            .buffers()
+            .unwrap_or_default()
+            .iter()
+            .enumerate()
+            .map(|(idx, fb_buf)| {
+                offset += fb_buf.padding() as usize;
+                let buffer_len = fb_buf.length() as usize;
+                let alignment = Alignment::from_exponent(fb_buf.alignment_exponent());
+
+                let handle = BufferHandle::new_segment(SegmentBufferRef {
+                    segment_id,
+                    buffer_index: idx as u32,
+                    segment_offset: offset,
+                    needed: 0..buffer_len,
+                    alignment,
+                    resolved: Arc::new(OnceLock::new()),
+                });
+
+                offset += buffer_len;
+                Ok(handle)
+            })
+            .collect::<VortexResult<Arc<[_]>>>()?;
+
+        Ok(SerializedArray { flatbuffer: fb_buffer, flatbuffer_loc, buffers })
+    }
+}
+```
+
+This mirrors `from_flatbuffer_and_segment` but creates `Segment` handles instead of
+slicing real data. The byte offset computation is identical.
+
+### Materialization
+
+After the optimizer refines all Segment handles, a `materialize` step collects them,
+issues one coalesced fetch, and fills the `OnceLock`s:
+
+```rust
+/// Collect all Segment buffer handles in the array tree, fetch their needed
+/// byte ranges in one coalesced IO, and resolve them to Host buffers.
+pub async fn materialize(
+    array: &ArrayRef,
+    source: &dyn SegmentSource,
+) -> VortexResult<()> {
+    // 1. Walk the array tree, collect all Segment handles
+    let segment_refs: Vec<SegmentBufferRef> = array
+        .depth_first_traversal()
+        .flat_map(|a| a.buffers())
+        .filter_map(|bh| bh.as_segment().cloned())
+        .collect();
+
+    if segment_refs.is_empty() {
+        return Ok(());
+    }
+
+    // 2. Group by segment_id, compute byte ranges
+    let mut by_segment: HashMap<SegmentId, Vec<&SegmentBufferRef>> = HashMap::new();
+    for seg in &segment_refs {
+        by_segment.entry(seg.segment_id).or_default().push(seg);
+    }
+
+    // 3. For each segment, coalesce and fetch
+    for (segment_id, refs) in by_segment {
+        let ranges: Vec<Range<usize>> = refs.iter()
+            .map(|r| r.segment_byte_range())
+            .collect();
+
+        let data = source.request_ranges(segment_id, &ranges).await?;
+
+        // 4. Resolve each handle
+        for (seg_ref, buffer) in refs.iter().zip(data) {
+            seg_ref.resolved.set(buffer.unwrap_host())
+                .expect("buffer already resolved");
+        }
+    }
+
+    Ok(())
+}
+```
+
+### Integration with FlatReader
+
+```rust
+// FlatReader::projection_evaluation (simplified):
+async fn projection_evaluation(&self, row_range, expr, mask) {
+    let array_tree = self.layout.array_tree().unwrap();
+
+    // 1. Deserialize with Segment handles (no IO)
+    let parts = SerializedArray::from_flatbuffer_with_segment_refs(
+        array_tree, self.layout.segment_id(),
+    )?;
+    let array = parts.decode(&dtype, row_count, &ctx, &session)?;
+
+    // 2. Wrap in slice -- triggers optimizer which runs SliceReduce
+    //    SliceReduce calls buffer.slice() -> refines Segment handles
+    let array = array.slice(row_range)?;
+
+    // 3. Materialize: collect all refined Segment handles, one coalesced fetch
+    materialize(&array, &self.segment_source).await?;
+
+    // 4. From here, all buffers are resolved Host data.
+    //    Filter, project, execute as before.
+    if !mask.all_true() {
+        array = array.filter(mask)?;
+    }
+    array = array.apply(&expr)?;
+
+    // 5. Execute to canonical (sync, all data in memory)
+    let mut ctx = session.create_execution_ctx();
+    array.execute_until::<Canonical>(&mut ctx)?
+}
+```
+
+Step 2 is the key: `array.slice(row_range)` internally creates a `SliceArray` and calls
+`.optimize()`, which runs reduce to fixpoint. `SliceReduce` for each encoding fires,
+calling `buffer.slice()` on Segment handles. After optimize, every Segment handle in
+the tree has its minimal needed byte range.
+
+Step 3 is the single coordination point: `materialize` sees all refined handles,
+coalesces nearby ranges within the same segment, fetches once.
+
+Steps 4-5 run on fully resolved data, unchanged from today.
+
+## What Changes, What Doesn't
+
+### Changes
+
+| Component | Change |
+|-----------|--------|
+| `BufferHandle` | Add `Inner::Segment(SegmentBufferRef)` variant |
+| `BufferHandle::slice()` | Handle Segment: narrow byte range |
+| `BufferHandle::len()` | Handle Segment: return needed range length |
+| `BufferHandle::to_host*()` | Handle Segment: read from OnceLock |
+| `SerializedArray` | Add `from_flatbuffer_with_segment_refs()` constructor |
+| `SegmentSource` | Add `request_ranges()` method |
+| `FlatReader` | Use segment refs + materialize instead of full segment fetch |
+
+### Unchanged
+
+| Component | Why unchanged |
+|-----------|---------------|
+| Every `SliceReduce` impl | Already calls `buffer.slice()` / `buffer.slice_typed()` |
+| The execution loop | Runs after materialization, sees only Host buffers |
+| `IoRequestStream` coalescing | Reused by `request_ranges` implementation |
+| Optimizer / reduce rules | Already runs SliceReduce via `SliceReduceAdaptor` |
+
+**No new VTable methods. No per-encoding `plan_read`. No logic duplication.**
+
+## How Encodings Participate
+
+Every encoding that already implements `SliceReduce` automatically participates in
+sub-segment slicing. The existing `slice()` calls on `BufferHandle` become refinement
+operations when the handle is a Segment variant.
+
+Encodings that only implement `SliceKernel` (which needs buffer data) will have their
+buffers fetched at full size -- the optimizer can't push slices past them. This is the
+correct conservative behavior.
+
+### Per-encoding behavior (all automatic)
+
+| Encoding | What SliceReduce does to its buffers | Effect on Segment handles |
+|----------|--------------------------------------|---------------------------|
+| Primitive | `buf.slice_typed::<T>(range)` | Narrows to exact byte range |
+| Bool | `buf.slice(start/8..ceil(end/8))` | Narrows to bit-aligned bytes |
+| BitPacked | `packed.slice(chunk_start..chunk_stop)` | Narrows to chunk-aligned range |
+| List | elements unchanged, offsets sliced | Elements full, offsets narrowed |
+| Dict | codes sliced, values unchanged | Codes narrowed, values full |
+| Struct | recurses into children | Each field refined independently |
+| Masked | child + mask both sliced | Both narrowed |
+
+### Encodings without SliceReduce
+
+Some encodings only have `SliceKernel` (needs buffer data to slice):
+- **Chunked**: needs offsets to determine chunk boundaries
+- **RLE**: needs run-ends to determine boundaries
+- **Sparse**: needs indices to determine which values
+
+For these, the `SliceArray` wrapper survives optimization. The buffers stay at full
+range. After materialization, the execution loop handles them as it does today.
+
+## Filter Refinement
+
+For filter masks, convert to a bounding row range before slicing:
+
+```rust
+let array = array.slice(row_range)?;
+// If we know the filter mask's bounding range, slice further:
+if let Some(bounding) = mask.bounding_range() {
+    array = array.slice(bounding)?;
+}
+materialize(&array, &segment_source).await?;
+```
+
+The second `slice()` composes with the first (Slice(Slice(x)) reduces to Slice(x)
+with combined range). Zone-map pruning often produces clustered masks where this
+is very effective.
+
+## Concrete Savings
 
 Schema: `Struct { ts: Primitive<i64>, id: Primitive<u64>, value: Primitive<f64> }`
 1M rows, reading rows 1000..2000.
 
-| Buffer | Full segment | With plan_read | Savings |
-|--------|-------------|---------------|---------|
-| ts values | 8 MB | 8 KB | 99.9% |
-| id values | 8 MB | 8 KB | 99.9% |
-| value values | 8 MB | 8 KB | 99.9% |
+| Buffer | Full segment | With sub-segment slicing | Savings |
+|--------|-------------|--------------------------|---------|
+| ts values (i64) | 8 MB | 8 KB | 99.9% |
+| id values (u64) | 8 MB | 8 KB | 99.9% |
+| value values (f64) | 8 MB | 8 KB | 99.9% |
 | 3x validity | 375 KB | ~375 B | 99.9% |
 | **Total** | **~24 MB** | **~24 KB** | **99.9%** |
 
+Schema with variable-length data:
+`Struct { ts: Primitive<i64>, name: List<VarBin<u8>>, flags: BitPacked<u8, 3> }`
+
+| Buffer | Full segment | With sub-segment slicing | Savings |
+|--------|-------------|--------------------------|---------|
+| ts values | 8 MB | 8 KB | 99.9% |
+| name offsets | 4 MB | 4 KB | 99.9% |
+| name elements | 50 MB | 50 MB | 0% (data-dependent) |
+| flags packed | 375 KB | ~384 B | 99.9% |
+| **Total** | **~63 MB** | **~50 MB** | **~20%** |
+
+Variable-length types (List) can't refine their data buffer without reading offsets first.
+Everything else collapses.
+
 ## Incremental Rollout
 
-1. **Phase 1**: Implement `ReadPlan`, `SegmentReadPlan`, `SegmentSource::request_ranges`.
-   Add `plan_read` to `ArrayPlugin` with the default (read-all) implementation.
-   FlatReader uses the new path; all encodings behave as today.
+1. **Phase 1**: Add `Inner::Segment` to `BufferHandle` with `SegmentBufferRef`. Implement
+   `slice()`, `len()`, `to_host*()` for the new variant.
 
-2. **Phase 2**: Implement `plan_read` for leaf encodings: Primitive, Bool.
-   These are trivial and cover the most common large buffers.
+2. **Phase 2**: Add `SerializedArray::from_flatbuffer_with_segment_refs()`.
+   Add `SegmentSource::request_ranges()` and implement in `FileSegmentSource`.
 
-3. **Phase 3**: Implement `plan_read` for compressed encodings: BitPacked, Delta, FoR, ALP.
-   These have chunk-aligned access patterns derivable from metadata.
+3. **Phase 3**: Implement `materialize()` and integrate into `FlatReader`.
+   At this point, sub-segment slicing works for every encoding that implements
+   `SliceReduce` -- no per-encoding work needed.
 
-4. **Phase 4**: Implement `plan_read` for structural encodings: Struct, Dict, Masked, List.
-   These mainly propagate row ranges to children (List conservatively).
+4. **Phase 4**: Measure. Profile real workloads. Tune the IO coalescing thresholds
+   for sub-segment ranges.
 
-5. **Phase 5**: Evaluate whether filter-aware refinement (beyond bounding-range) is worth
-   implementing for very sparse masks.
+5. **Phase 5**: Evaluate filter-aware refinement beyond bounding-range.
 
 ## Open Questions
 
-1. **Relationship between `plan_read` and `SliceReduce`**: Could we generate one from the
-   other, or share a common description? The risk of divergence is low for simple encodings
-   but worth watching.
+1. **Inline array tree**: Sub-segment slicing requires the flatbuffer metadata before IO.
+   `FLAT_LAYOUT_INLINE_ARRAY_NODE` provides this. Should inlining become the default?
 
-2. **Two-pass reads for List**: Could we support an optional second pass where, after reading
-   offsets, we refine the elements range and issue a targeted follow-up read? This would only
-   be beneficial when the elements buffer is very large relative to the offsets.
+2. **OnceLock vs re-creation**: The OnceLock approach allows interior mutability on the
+   existing array tree. An alternative is to re-deserialize from the flatbuffer with
+   fetched partial buffers (using `from_flatbuffer_and_segment_with_overrides`). The
+   OnceLock approach avoids double-deserialization but adds complexity to BufferHandle.
 
-3. **`request_ranges` design**: Should this be a new method on `SegmentSource`, or should the
-   existing `request` method accept optional byte ranges? The latter is simpler but changes
-   the trait's API for all implementors.
+3. **Segment handles in the execution loop**: Today, `materialize` runs before the
+   execution loop. If a future change needs the execution loop itself to trigger
+   materialization (e.g., an encoding discovers new buffer needs during execute),
+   the execution loop could return a new `ExecutionStep::NeedBuffers` signal and the
+   async caller would materialize and retry. This is not needed for the initial design
+   but the Segment variant on BufferHandle makes it straightforward to add later.
 
-4. **Inline array tree requirement**: Sub-segment slicing requires the flatbuffer metadata
-   to be available *before* IO. With `FLAT_LAYOUT_INLINE_ARRAY_NODE` this is already the case.
-   Without it, the metadata lives inside the segment itself, creating a chicken-and-egg
-   problem. Should inlining become the default?
-
-5. **Field mask integration**: FlatReader receives a `FieldMask` from projection pushdown.
-   `plan_read` for Struct could use this to `Skip` entire child subtrees for non-projected
-   fields, compounding the savings.
+4. **Field mask integration**: `FlatReader` receives a `FieldMask` from projection pushdown.
+   For Struct columns, non-projected fields could have their Segment handles skipped
+   entirely during deserialization, compounding savings.
