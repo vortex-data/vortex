@@ -20,6 +20,7 @@ use vortex_array::expr::and;
 use vortex_array::match_each_float_ptype;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
+use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFn;
 use vortex_array::scalar_fn::ScalarFnId;
@@ -29,7 +30,6 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
-use crate::scalar_fns::ApproxOptions;
 use crate::scalar_fns::inner_product::InnerProduct;
 use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::scalar_fns::l2_norm::L2Norm;
@@ -56,10 +56,9 @@ use crate::utils::validate_tensor_float_input;
 pub struct CosineSimilarity;
 
 impl CosineSimilarity {
-    /// Creates a new [`ScalarFn`] wrapping the cosine similarity operation with the given
-    /// [`ApproxOptions`] controlling approximation behavior.
-    pub fn new(options: &ApproxOptions) -> ScalarFn<CosineSimilarity> {
-        ScalarFn::new(CosineSimilarity, options.clone())
+    /// Creates a new [`ScalarFn`] wrapping the cosine similarity operation.
+    pub fn new() -> ScalarFn<CosineSimilarity> {
+        ScalarFn::new(CosineSimilarity, EmptyOptions)
     }
 
     /// Constructs a [`ScalarFnArray`] that lazily computes the cosine similarity between `lhs` and
@@ -69,18 +68,13 @@ impl CosineSimilarity {
     ///
     /// Returns an error if the [`ScalarFnArray`] cannot be constructed (e.g. due to dtype
     /// mismatches).
-    pub fn try_new_array(
-        options: &ApproxOptions,
-        lhs: ArrayRef,
-        rhs: ArrayRef,
-        len: usize,
-    ) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(CosineSimilarity::new(options).erased(), vec![lhs, rhs], len)
+    pub fn try_new_array(lhs: ArrayRef, rhs: ArrayRef, len: usize) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(CosineSimilarity::new().erased(), vec![lhs, rhs], len)
     }
 }
 
 impl ScalarFnVTable for CosineSimilarity {
-    type Options = ApproxOptions;
+    type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
         ScalarFnId::from("vortex.tensor.cosine_similarity")
@@ -131,7 +125,7 @@ impl ScalarFnVTable for CosineSimilarity {
 
     fn execute(
         &self,
-        options: &Self::Options,
+        _options: &Self::Options,
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -145,12 +139,12 @@ impl ScalarFnVTable for CosineSimilarity {
             let rhs_is_denorm = rhs_ref.is::<ExactScalarFn<L2Denorm>>();
 
             if lhs_is_denorm && rhs_is_denorm {
-                return self.execute_both_denorm(options, &lhs_ref, &rhs_ref, len, ctx);
+                return self.execute_both_denorm(&lhs_ref, &rhs_ref, len, ctx);
             } else if lhs_is_denorm || rhs_is_denorm {
                 if rhs_is_denorm {
                     (lhs_ref, rhs_ref) = (rhs_ref, lhs_ref);
                 }
-                return self.execute_one_denorm(options, &lhs_ref, &rhs_ref, len, ctx);
+                return self.execute_one_denorm(&lhs_ref, &rhs_ref, len, ctx);
             }
         }
 
@@ -160,7 +154,7 @@ impl ScalarFnVTable for CosineSimilarity {
         // Compute inner product and norms as columnar operations, and propagate the options.
         let norm_lhs_arr = L2Norm::try_new_array(lhs_ref.clone(), len)?;
         let norm_rhs_arr = L2Norm::try_new_array(rhs_ref.clone(), len)?;
-        let dot_arr = InnerProduct::try_new_array(options, lhs_ref, rhs_ref, len)?;
+        let dot_arr = InnerProduct::try_new_array(lhs_ref, rhs_ref, len)?;
 
         // Execute to get the inner product and norms of the arrays. We only fully decompress
         // because we need to perform special logic (guard against 0) during division.
@@ -217,7 +211,6 @@ impl CosineSimilarity {
     /// `cosine_similarity = dot(n_l, n_r)`.
     fn execute_both_denorm(
         &self,
-        options: &ApproxOptions,
         lhs_ref: &ArrayRef,
         rhs_ref: &ArrayRef,
         len: usize,
@@ -230,8 +223,7 @@ impl CosineSimilarity {
 
         // `L2Denorm` makes the normalized children authoritative, so their dot product is the
         // cosine similarity even for lossy storage wrappers.
-        let dot =
-            InnerProduct::try_new_array(options, normalized_l, normalized_r, len)?.into_array();
+        let dot = InnerProduct::try_new_array(normalized_l, normalized_r, len)?.into_array();
 
         if !matches!(validity, Validity::NonNullable) {
             // Masking always changes the nullability to nullable.
@@ -247,7 +239,6 @@ impl CosineSimilarity {
     /// The caller must pass the denorm array as `denorm_ref` and the plain array as `plain_ref`.
     fn execute_one_denorm(
         &self,
-        options: &ApproxOptions,
         denorm_ref: &ArrayRef,
         plain_ref: &ArrayRef,
         len: usize,
@@ -257,7 +248,7 @@ impl CosineSimilarity {
 
         let (normalized, _) = extract_l2_denorm_children(denorm_ref);
 
-        let dot_arr = InnerProduct::try_new_array(options, normalized, plain_ref.clone(), len)?;
+        let dot_arr = InnerProduct::try_new_array(normalized, plain_ref.clone(), len)?;
         let norm_arr = L2Norm::try_new_array(plain_ref.clone(), len)?;
         let dot: PrimitiveArray = dot_arr.into_array().execute(ctx)?;
         let plain_norm: PrimitiveArray = norm_arr.into_array().execute(ctx)?;
@@ -294,13 +285,11 @@ mod tests {
     use vortex_array::arrays::MaskedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::ScalarFnArray;
-    use vortex_array::scalar_fn::ScalarFn;
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::scalar_fns::ApproxOptions;
     use crate::scalar_fns::cosine_similarity::CosineSimilarity;
     use crate::scalar_fns::l2_denorm::L2Denorm;
     use crate::utils::test_helpers::assert_close;
@@ -314,7 +303,7 @@ mod tests {
 
     /// Evaluates cosine similarity between two tensor arrays and returns the result as `Vec<f64>`.
     fn eval_cosine_similarity(lhs: ArrayRef, rhs: ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
-        let scalar_fn = ScalarFn::new(CosineSimilarity, ApproxOptions::Exact).erased();
+        let scalar_fn = CosineSimilarity::new().erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], len)?;
         let mut ctx = SESSION.create_execution_ctx();
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
@@ -485,7 +474,7 @@ mod tests {
         let rhs = tensor_array(&[2], &[3.0, 4.0, 0.0, 1.0])?;
         let rhs = MaskedArray::try_new(rhs, Validity::from_iter([true, false]))?.into_array();
 
-        let scalar_fn = ScalarFn::new(CosineSimilarity, ApproxOptions::Exact).erased();
+        let scalar_fn = CosineSimilarity::new().erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 2)?;
         let mut ctx = SESSION.create_execution_ctx();
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
@@ -577,7 +566,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let rhs = L2Denorm::try_new_array(normalized_r, norms_r, 2, &mut ctx)?.into_array();
 
-        let scalar_fn = ScalarFn::new(CosineSimilarity, ApproxOptions::Exact).erased();
+        let scalar_fn = CosineSimilarity::new().erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 2)?;
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
 

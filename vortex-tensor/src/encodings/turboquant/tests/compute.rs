@@ -11,7 +11,6 @@ use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_error::VortexResult;
 
 use super::*;
-use crate::scalar_fns::ApproxOptions;
 use crate::scalar_fns::cosine_similarity::CosineSimilarity;
 use crate::scalar_fns::l2_norm::L2Norm;
 
@@ -29,7 +28,7 @@ fn execute_cosine_similarity(
     len: usize,
     ctx: &mut vortex_array::ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
-    CosineSimilarity::try_new_array(&ApproxOptions::Exact, lhs, rhs, len)?
+    CosineSimilarity::try_new_array(lhs, rhs, len)?
         .into_array()
         .execute(ctx)
 }
