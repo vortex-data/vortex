@@ -924,7 +924,7 @@ jobs:
         run: |
           cd vortex-ffi
           mkdir build
-          cmake -Bbuild
+          cmake -Bbuild -DRUST_BUILD_PROFILE=ci
           cmake --build build -j $(nproc)
           ctest --test-dir build -j $(nproc)
 
