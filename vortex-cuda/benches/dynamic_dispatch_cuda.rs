@@ -6,6 +6,7 @@
 #![allow(clippy::expect_used)]
 
 use std::mem::size_of;
+use std::ptr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -82,10 +83,18 @@ fn run_timed(
         .record(stream)
         .map_err(|e| vortex_err!("{e:?}"))?;
 
+    // Null GPUPatches — signals "no patches" to the kernel.
+    let null_patches = vortex_cuda::GPUPatches {
+        lane_offsets: ptr::null_mut(),
+        indices: ptr::null_mut(),
+        values: ptr::null_mut(),
+    };
+
     let mut launch_builder = cuda_ctx.stream().launch_builder(&cuda_function);
     launch_builder.arg(&output_ptr);
     launch_builder.arg(&array_len_u64);
     launch_builder.arg(&plan_ptr);
+    launch_builder.arg(&null_patches);
 
     let num_blocks = array_len.div_ceil(2048) as u32;
     let config = LaunchConfig {
@@ -126,7 +135,7 @@ struct BenchRunner {
 }
 
 impl BenchRunner {
-    fn new(array: &vortex::array::ArrayRef, len: usize, cuda_ctx: &CudaExecutionCtx) -> Self {
+    fn new(array: &vortex::array::ArrayRef, len: usize, cuda_ctx: &mut CudaExecutionCtx) -> Self {
         let plan = match DispatchPlan::new(array).vortex_expect("build_dyn_dispatch_plan") {
             DispatchPlan::Fused(plan) => plan,
             _ => unreachable!("encoding not fusable"),
@@ -137,6 +146,7 @@ impl BenchRunner {
             shared_mem_bytes,
             ..
         } = plan.materialize(cuda_ctx).vortex_expect("materialize plan");
+        // device_patches is unused in the benchmark (no patched BitPacked arrays)
 
         let device_plan = Arc::new(
             cuda_ctx
@@ -203,7 +213,7 @@ fn bench_for_bitpacked(c: &mut Criterion) {
                 let mut cuda_ctx =
                     CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
 
-                let bench_runner = BenchRunner::new(&array, n, &cuda_ctx);
+                let bench_runner = BenchRunner::new(&array, n, &mut cuda_ctx);
 
                 b.iter_custom(|iters| {
                     let mut total_time = Duration::ZERO;
@@ -248,7 +258,7 @@ fn bench_dict_bp_codes(c: &mut Criterion) {
                 let mut cuda_ctx =
                     CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
 
-                let bench_runner = BenchRunner::new(&array, n, &cuda_ctx);
+                let bench_runner = BenchRunner::new(&array, n, &mut cuda_ctx);
 
                 b.iter_custom(|iters| {
                     let mut total_time = Duration::ZERO;
@@ -292,7 +302,7 @@ fn bench_runend(c: &mut Criterion) {
                 let mut cuda_ctx =
                     CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
 
-                let bench_runner = BenchRunner::new(&array, n, &cuda_ctx);
+                let bench_runner = BenchRunner::new(&array, n, &mut cuda_ctx);
 
                 b.iter_custom(|iters| {
                     let mut total_time = Duration::ZERO;
@@ -346,7 +356,7 @@ fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
                 let mut cuda_ctx =
                     CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
 
-                let bench_runner = BenchRunner::new(&array, n, &cuda_ctx);
+                let bench_runner = BenchRunner::new(&array, n, &mut cuda_ctx);
 
                 b.iter_custom(|iters| {
                     let mut total_time = Duration::ZERO;
@@ -404,7 +414,7 @@ fn bench_alp_for_bitpacked(c: &mut Criterion) {
                 let mut cuda_ctx =
                     CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
 
-                let bench_runner = BenchRunner::new(&array, n, &cuda_ctx);
+                let bench_runner = BenchRunner::new(&array, n, &mut cuda_ctx);
 
                 b.iter_custom(|iters| {
                     let mut total_time = Duration::ZERO;

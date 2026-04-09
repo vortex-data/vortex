@@ -120,6 +120,22 @@ impl<V: Copy> HostPatches<V> {
             values: values_handle,
         })
     }
+
+    /// Synchronous variant of [`export_to_device`][Self::export_to_device].
+    ///
+    /// Copies lane_offsets, indices, and values to the device using
+    /// stream-ordered synchronous transfers.
+    pub fn export_to_device_sync(self, ctx: &CudaExecutionCtx) -> VortexResult<DevicePatches> {
+        let lane_offsets_handle = BufferHandle::new_host(self.lane_offsets.into_byte_buffer());
+        let indices_handle = BufferHandle::new_host(self.indices.into_byte_buffer());
+        let values_handle = BufferHandle::new_host(self.values.into_byte_buffer());
+
+        Ok(DevicePatches {
+            lane_offsets: ctx.ensure_on_device_sync(lane_offsets_handle)?,
+            indices: ctx.ensure_on_device_sync(indices_handle)?,
+            values: ctx.ensure_on_device_sync(values_handle)?,
+        })
+    }
 }
 
 /// Transpose a set of patches from the default sorted layout into the data parallel layout.
@@ -154,22 +170,84 @@ pub async fn transpose_patches(
             let indices: Buffer<I> = Buffer::from_byte_buffer(indices);
             let values: Buffer<V> = Buffer::from_byte_buffer(values);
 
-            let host_patches = transpose(indices.as_slice(), values.as_slice(), offset, array_len);
+            let host_patches =
+                transpose(indices.as_slice(), values.as_slice(), offset, array_len, 0);
 
             host_patches.export_to_device(ctx).await
         })
     })
 }
 
+/// Transpose patches using FL-aligned chunks for the dynamic dispatch fused kernel.
+///
+/// Unlike [`transpose_patches`] (which uses 0-based array chunks), this function
+/// aligns chunks to FastLanes chunk boundaries by adding `element_offset` to each
+/// patch index before computing the chunk and lane. This ensures that the kernel's
+/// FL chunk index (`(block_start + elem_idx + element_offset) / 1024`) matches the
+/// chunk index used during transposition.
+#[allow(clippy::cognitive_complexity)]
+pub fn transpose_patches_for_fused(
+    patches: &Patches,
+    element_offset: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<DevicePatches> {
+    let array_len = patches.array_len();
+    let offset = patches.offset();
+
+    let indices = patches
+        .indices()
+        .clone()
+        .execute::<Canonical>(ctx.execution_ctx())?
+        .into_primitive();
+
+    let values = patches
+        .values()
+        .clone()
+        .execute::<Canonical>(ctx.execution_ctx())?
+        .into_primitive();
+
+    let indices_ptype = indices.ptype();
+    let values_ptype = values.ptype();
+
+    let indices = indices.buffer_handle().to_host_sync();
+    let values = values.buffer_handle().to_host_sync();
+
+    match_each_unsigned_integer_ptype!(indices_ptype, |I| {
+        match_each_native_ptype!(values_ptype, |V| {
+            let indices: Buffer<I> = Buffer::from_byte_buffer(indices);
+            let values: Buffer<V> = Buffer::from_byte_buffer(values);
+
+            let host_patches = transpose(
+                indices.as_slice(),
+                values.as_slice(),
+                offset,
+                array_len,
+                element_offset,
+            );
+
+            host_patches.export_to_device_sync(ctx)
+        })
+    })
+}
+
+/// Transpose patches into the lane-wise layout.
+///
+/// `element_offset` shifts each index into FL-chunk space before computing the
+/// chunk and lane. Pass 0 for the standalone bit-unpack kernel (array chunks
+/// == FL chunks). Pass `bp.offset()` for the fused dynamic-dispatch kernel so
+/// that chunks align with the kernel's `first_block` calculation.
 #[allow(clippy::cast_possible_truncation)]
 fn transpose<I: IntegerPType, V: NativePType>(
     indices_in: &[I],
     values_in: &[V],
     offset: usize,
     array_len: usize,
+    element_offset: usize,
 ) -> HostPatches<V> {
     // Total number of slots is number of chunks times number of lanes.
-    let n_chunks = array_len.div_ceil(1024);
+    // When element_offset > 0, the first FL chunk starts before the array data,
+    // so we need more chunks to cover the full range.
+    let n_chunks = (array_len + element_offset).div_ceil(1024);
     assert!(
         n_chunks <= u32::MAX as usize,
         "Cannot transpose patches for array with >= 4 trillion elements"
@@ -184,11 +262,14 @@ fn transpose<I: IntegerPType, V: NativePType>(
     // number of patches in each chunk.
     let mut lane_offsets: BufferMut<u32> = BufferMut::zeroed(n_chunks * n_lanes + 1);
 
-    // Scan the index/values once to get chunk/lane counts
+    // Scan the index/values once to get chunk/lane counts.
+    // Each index is shifted by element_offset so that chunks align with FL
+    // chunk boundaries (relevant when the BitPacked array has a non-zero
+    // offset into its packed buffer).
     for index in indices_in {
-        let index = index.as_() - offset;
-        let chunk = index / 1024;
-        let lane = index % n_lanes;
+        let fl_pos = index.as_() - offset + element_offset;
+        let chunk = fl_pos / 1024;
+        let lane = fl_pos % n_lanes;
 
         lane_offsets[chunk * n_lanes + lane + 1] += 1;
     }
@@ -202,12 +283,12 @@ fn transpose<I: IntegerPType, V: NativePType>(
     let indices_out = indices_buffer.spare_capacity_mut();
     let values_out = values_buffer.spare_capacity_mut();
     for (index, &value) in std::iter::zip(indices_in, values_in) {
-        let index = index.as_() - offset;
-        let chunk = index / 1024;
-        let lane = index % n_lanes;
+        let fl_pos = index.as_() - offset + element_offset;
+        let chunk = fl_pos / 1024;
+        let lane = fl_pos % n_lanes;
 
         let position = &mut lane_offsets[chunk * n_lanes + lane];
-        indices_out[*position as usize].write((index % 1024) as u16);
+        indices_out[*position as usize].write((fl_pos % 1024) as u16);
         values_out[*position as usize].write(value);
         *position += 1;
     }
@@ -221,9 +302,9 @@ fn transpose<I: IntegerPType, V: NativePType>(
 
     // Now, pass over all the indices and values again and subtract out the position increments.
     for index in indices_in {
-        let index = index.as_() - offset;
-        let chunk = index / 1024;
-        let lane = index % n_lanes;
+        let fl_pos = index.as_() - offset + element_offset;
+        let chunk = fl_pos / 1024;
+        let lane = fl_pos % n_lanes;
 
         lane_offsets[chunk * n_lanes + lane] -= 1;
     }
@@ -277,6 +358,7 @@ mod tests {
             patch_values.as_slice(),
             0,
             1024 * 5,
+            0,
         );
 
         // Chunk 0 should have patches in lanes 0, 31
@@ -343,7 +425,7 @@ mod tests {
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
         let patched = array.patch(&patches, &mut ctx)?.into_array();
 
-        let transposed = transpose(patch_indices, patch_values, offset, len);
+        let transposed = transpose(patch_indices, patch_values, offset, len, 0);
         transposed.apply(&mut data);
 
         let patched_transposed = data.freeze().into_array();

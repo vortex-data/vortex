@@ -15,6 +15,7 @@ use vortex::array::arrays::Slice;
 use vortex::array::arrays::dict::DictArraySlotsExt;
 use vortex::array::arrays::slice::SliceArrayExt;
 use vortex::array::buffer::BufferHandle;
+use vortex::array::patches::Patches;
 use vortex::array::validity::Validity;
 use vortex::dtype::PType;
 use vortex::encodings::alp::ALP;
@@ -44,6 +45,8 @@ use super::ptype_to_tag;
 use super::tag_to_ptype;
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
+use crate::kernel::patches::types::DevicePatches;
+use crate::kernel::patches::types::transpose_patches_for_fused;
 
 /// A plan whose source buffers have been copied to the device, ready for kernel launch.
 pub struct MaterializedPlan {
@@ -55,6 +58,8 @@ pub struct MaterializedPlan {
     pub shared_mem_bytes: u32,
     /// Validity of the root array, propagated to the output.
     pub validity: Validity,
+    /// Device-resident patches for the output stage's BITUNPACK source, if any.
+    pub device_patches: Option<DevicePatches>,
 }
 
 /// Checks whether the encoding of an array can be fused into a dynamic-dispatch plan.
@@ -71,7 +76,12 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
         return arr.patches().is_none() && arr.dtype().as_ptype() == PType::F32;
     }
     if id == BitPacked::ID {
-        return array.as_::<BitPacked>().patches().is_none();
+        // Patches are handled by the fused kernel when the BitPacked node
+        // is on the output pipeline (allow_bp_patches=true in walk).
+        // For input stages (dict values, runend ends/values), patched
+        // BitPacked falls through to the !is_dyn_dispatch_compatible path
+        // in walk() and becomes a pending subtree.
+        return true;
     }
     if id == Dict::ID {
         let arr = array.as_::<Dict>();
@@ -229,6 +239,9 @@ pub struct FusedPlan {
     output_ptype: PTypeTag,
     /// Validity of the root array, propagated to the output.
     validity: Validity,
+    /// BitPacked patches for the output stage, if present.
+    /// Stored as `(patches, element_offset)` and transposed during materialization.
+    bitpacked_patches: Option<(Patches, u32)>,
 }
 
 impl DispatchPlan {
@@ -304,10 +317,11 @@ impl FusedPlan {
             output_elem_bytes,
             output_ptype,
             validity,
+            bitpacked_patches: None,
         };
 
         let len = array.len() as u32;
-        let output = plan.walk(array.clone(), &mut pending_subtrees)?;
+        let output = plan.walk(array.clone(), &mut pending_subtrees, true)?;
         plan.stages.push((output, plan.smem_byte_cursor, len));
 
         Ok((plan, pending_subtrees))
@@ -339,7 +353,7 @@ impl FusedPlan {
     }
 
     /// Copy source buffers to the device, producing a [`MaterializedPlan`].
-    pub fn materialize(self, ctx: &CudaExecutionCtx) -> VortexResult<MaterializedPlan> {
+    pub fn materialize(self, ctx: &mut CudaExecutionCtx) -> VortexResult<MaterializedPlan> {
         let shared_mem_bytes = self.dynamic_shared_mem_bytes();
 
         let mut device_buffers = Vec::new();
@@ -381,11 +395,25 @@ impl FusedPlan {
             })
             .collect();
 
+        // Transpose and upload BitPacked patches if present.
+        let device_patches = if let Some((patches, element_offset)) = &self.bitpacked_patches {
+            let dp = transpose_patches_for_fused(patches, *element_offset as usize, ctx)?;
+            // Keep device buffers alive alongside other source buffers so
+            // the kernel can safely read from the patch pointers.
+            device_buffers.push(dp.lane_offsets.clone());
+            device_buffers.push(dp.indices.clone());
+            device_buffers.push(dp.values.clone());
+            Some(dp)
+        } else {
+            None
+        };
+
         Ok(MaterializedPlan {
             dispatch_plan: CudaDispatchPlan::new(stages, self.output_ptype),
             device_buffers,
             shared_mem_bytes,
             validity: self.validity,
+            device_patches,
         })
     }
 
@@ -397,7 +425,7 @@ impl FusedPlan {
     pub fn materialize_with_subtrees(
         mut self,
         subtree_buffers: Vec<BufferHandle>,
-        ctx: &CudaExecutionCtx,
+        ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<MaterializedPlan> {
         for (slot, buf) in zip_eq(
             self.source_buffers.iter_mut().filter(|s| s.is_none()),
@@ -409,10 +437,15 @@ impl FusedPlan {
     }
 
     /// Walk the encoding tree, producing a [`Stage`] for the root.
+    ///
+    /// `allow_bp_patches` controls whether a BitPacked node with patches
+    /// is walked (output pipeline) or demoted to a pending subtree (input
+    /// pipeline). Only the output stage supports fused patch merging.
     fn walk(
         &mut self,
         array: ArrayRef,
         pending_subtrees: &mut Vec<ArrayRef>,
+        allow_bp_patches: bool,
     ) -> VortexResult<Stage> {
         if !is_dyn_dispatch_compatible(&array) {
             // Subtree can't be fused — record it as a deferred LOAD source.
@@ -433,24 +466,47 @@ impl FusedPlan {
             ));
         }
 
+        // BitPacked with patches: only fuse on the output pipeline.
+        // Input stages (dict values, runend ends/values) cannot use the
+        // fused patch merge, so they become pending subtrees.
+        if array.encoding_id() == BitPacked::ID
+            && array.as_::<BitPacked>().patches().is_some()
+            && !allow_bp_patches
+        {
+            let ptype = PType::try_from(array.dtype()).map_err(|_| {
+                vortex_err!(
+                    "unfusable subtree has non-primitive dtype {:?}, cannot partially fuse",
+                    array.dtype()
+                )
+            })?;
+            let buf_idx = self.source_buffers.len();
+            self.source_buffers.push(None);
+            pending_subtrees.push(array);
+            return Ok(Stage::new(
+                SourceOp::load(),
+                Some(buf_idx),
+                ptype_to_tag(ptype),
+            ));
+        }
+
         let id = array.encoding_id();
 
         if id == BitPacked::ID {
             self.walk_bitpacked(array)
         } else if id == FoR::ID {
-            self.walk_for(array, pending_subtrees)
+            self.walk_for(array, pending_subtrees, allow_bp_patches)
         } else if id == ZigZag::ID {
-            self.walk_zigzag(array, pending_subtrees)
+            self.walk_zigzag(array, pending_subtrees, allow_bp_patches)
         } else if id == ALP::ID {
-            self.walk_alp(array, pending_subtrees)
+            self.walk_alp(array, pending_subtrees, allow_bp_patches)
         } else if id == Dict::ID {
-            self.walk_dict(array, pending_subtrees)
+            self.walk_dict(array, pending_subtrees, allow_bp_patches)
         } else if id == RunEnd::ID {
             self.walk_runend(array, pending_subtrees)
         } else if id == Primitive::ID {
             self.walk_primitive(array)
         } else if id == Slice::ID {
-            self.walk_slice(array, pending_subtrees)
+            self.walk_slice(array, pending_subtrees, allow_bp_patches)
         } else if id == Sequence::ID {
             self.walk_sequence(array)
         } else {
@@ -469,12 +525,13 @@ impl FusedPlan {
         &mut self,
         array: ArrayRef,
         pending_subtrees: &mut Vec<ArrayRef>,
+        allow_bp_patches: bool,
     ) -> VortexResult<Stage> {
         let slice_arr = array.as_::<Slice>();
         let child = slice_arr.child().clone();
 
         if let Some(reduced) = child.reduce_parent(&array, 0)? {
-            return self.walk(reduced, pending_subtrees);
+            return self.walk(reduced, pending_subtrees, allow_bp_patches);
         }
 
         vortex_bail!(
@@ -496,9 +553,10 @@ impl FusedPlan {
 
     fn walk_bitpacked(&mut self, array: ArrayRef) -> VortexResult<Stage> {
         let bp = array.as_::<BitPacked>();
+        let element_offset = bp.offset() as u32;
 
-        if bp.patches().is_some() {
-            vortex_bail!("Dynamic dispatch does not support BitPackedArray with patches");
+        if let Some(patches) = bp.patches() {
+            self.bitpacked_patches = Some((patches, element_offset));
         }
 
         let source_ptype = ptype_to_tag(PType::try_from(bp.dtype()).map_err(|_| {
@@ -517,6 +575,7 @@ impl FusedPlan {
         &mut self,
         array: ArrayRef,
         pending_subtrees: &mut Vec<ArrayRef>,
+        allow_bp_patches: bool,
     ) -> VortexResult<Stage> {
         let for_arr = array.as_::<FoR>();
         let ref_pvalue = for_arr
@@ -530,7 +589,7 @@ impl FusedPlan {
                 vortex_err!("FoR must have primitive dtype, got {:?}", array.dtype())
             })?);
 
-        let mut pipeline = self.walk(encoded, pending_subtrees)?;
+        let mut pipeline = self.walk(encoded, pending_subtrees, allow_bp_patches)?;
         let ref_u64 = ref_pvalue
             .reinterpret_cast(ref_pvalue.ptype().to_unsigned())
             .cast::<u64>()?;
@@ -544,6 +603,7 @@ impl FusedPlan {
         &mut self,
         array: ArrayRef,
         pending_subtrees: &mut Vec<ArrayRef>,
+        allow_bp_patches: bool,
     ) -> VortexResult<Stage> {
         let zz = array.as_::<ZigZag>();
         let encoded = zz.encoded().clone();
@@ -551,7 +611,7 @@ impl FusedPlan {
             vortex_err!("ZigZag must have primitive dtype, got {:?}", array.dtype())
         })?);
 
-        let mut pipeline = self.walk(encoded, pending_subtrees)?;
+        let mut pipeline = self.walk(encoded, pending_subtrees, allow_bp_patches)?;
         pipeline.scalar_ops.push(ScalarOp::zigzag(output_ptype));
         Ok(pipeline)
     }
@@ -560,6 +620,7 @@ impl FusedPlan {
         &mut self,
         array: ArrayRef,
         pending_subtrees: &mut Vec<ArrayRef>,
+        allow_bp_patches: bool,
     ) -> VortexResult<Stage> {
         let alp = array.as_::<ALP>();
 
@@ -580,7 +641,7 @@ impl FusedPlan {
         let alp_e = <f32 as ALPFloat>::IF10[exponents.e as usize];
         let encoded = alp.encoded().clone();
 
-        let mut pipeline = self.walk(encoded, pending_subtrees)?;
+        let mut pipeline = self.walk(encoded, pending_subtrees, allow_bp_patches)?;
         pipeline.scalar_ops.push(ScalarOp::alp(alp_f, alp_e));
         Ok(pipeline)
     }
@@ -614,6 +675,7 @@ impl FusedPlan {
         &mut self,
         array: ArrayRef,
         pending_subtrees: &mut Vec<ArrayRef>,
+        allow_bp_patches: bool,
     ) -> VortexResult<Stage> {
         let dict = array.as_::<Dict>();
         let values = dict.values().clone();
@@ -629,18 +691,20 @@ impl FusedPlan {
         // are handled directly (just grab the buffer); other encodings
         // become pending subtrees executed by a separate kernel.
         let values_len = values.len() as u32;
+        // Values are decoded into shared memory (input stage) — patches
+        // are not supported there, so pass allow_bp_patches=false.
         let values_spec = if values_elem_bytes != self.output_elem_bytes {
             self.walk_mixed_width_child(values, pending_subtrees)?
         } else {
-            self.walk(values, pending_subtrees)?
+            self.walk(values, pending_subtrees, false)?
         };
         let values_smem_byte_offset = self.push_smem_stage(values_spec, values_len);
 
-        // Same for codes.
+        // Codes become the output pipeline — patches are allowed.
         let mut pipeline = if codes_elem_bytes != self.output_elem_bytes {
             self.walk_mixed_width_child(codes, pending_subtrees)?
         } else {
-            self.walk(codes, pending_subtrees)?
+            self.walk(codes, pending_subtrees, allow_bp_patches)?
         };
         // DICT scalar op: pass byte offset directly (C ABI uses byte offsets).
         // output_ptype is the values' ptype — DICT transforms codes → values.
@@ -681,17 +745,18 @@ impl FusedPlan {
         // If ends or values have a different width than the output type,
         // they can't be fused into the same kernel instantiation.
         // Primitives are handled directly; others become pending subtrees.
+        // Ends and values are input stages — no patch support.
         let ends_spec = if ends_elem_bytes != self.output_elem_bytes {
             self.walk_mixed_width_child(ends, pending_subtrees)?
         } else {
-            self.walk(ends, pending_subtrees)?
+            self.walk(ends, pending_subtrees, false)?
         };
         let ends_smem_byte_offset = self.push_smem_stage(ends_spec, num_runs);
 
         let values_spec = if values_elem_bytes != self.output_elem_bytes {
             self.walk_mixed_width_child(values, pending_subtrees)?
         } else {
-            self.walk(values, pending_subtrees)?
+            self.walk(values, pending_subtrees, false)?
         };
         let values_smem_byte_offset = self.push_smem_stage(values_spec, num_values);
 

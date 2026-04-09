@@ -24,7 +24,7 @@ use vortex::utils::aliases::dash_map::DashMap;
 mod arrays;
 mod encodings;
 mod filter;
-mod patches;
+pub(crate) mod patches;
 mod slice;
 
 pub(crate) use arrays::ConstantNumericExecutor;

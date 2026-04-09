@@ -52,6 +52,7 @@
 
 #include "bit_unpack.cuh"
 #include "dynamic_dispatch.h"
+#include "patches.cuh"
 #include "types.cuh"
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -273,12 +274,19 @@ __device__ inline uint32_t bitunpack_tile_len(const Stage &stage, uint32_t block
 /// Process the final / output stage: decode source → apply scalar ops →
 /// streaming-store to global memory. Handles the full block, tiling through
 /// smem scratch for BITUNPACK.
+///
+/// When the source op is BITUNPACK and `patches` has a non-NULL
+/// `lane_offsets`, patch values are merged into the smem scratch after
+/// bitunpack and before the tile loop reads from it. Patches are indexed
+/// by FL chunk and lane using the same layout produced by the Rust-side
+/// FL-aligned transposition (`transpose_patches_for_fused`).
 template <typename T>
 __device__ void execute_output_stage(T *__restrict output,
                                      const Stage &stage,
                                      char *__restrict smem,
                                      uint64_t block_start,
-                                     uint32_t block_len) {
+                                     uint32_t block_len,
+                                     const GPUPatches &patches) {
     constexpr uint32_t VALUES_PER_TILE = 32 / sizeof(T);
     const uint32_t tile_size = blockDim.x * VALUES_PER_TILE;
     const auto &src = stage.source;
@@ -313,10 +321,35 @@ __device__ void execute_output_stage(T *__restrict output,
                          chunk_len,
                          src);
             constexpr uint32_t FL_CHUNK = 1024; // FastLanes chunk size
-            const uint32_t align = (block_start + elem_idx + src.params.bitunpack.element_offset) % FL_CHUNK;
+            const uint32_t elem_off = src.params.bitunpack.element_offset;
+            const uint32_t align = (block_start + elem_idx + elem_off) % FL_CHUNK;
             smem_src = scratch + align;
             // Write barrier: all threads finished bitunpack, safe to read from scratch.
             __syncthreads();
+
+            // Merge patches into smem scratch. Patches are transposed into
+            // FL-aligned (chunk, lane) buckets by the host. Each thread
+            // handles one or more lanes, iterating through that lane's
+            // patches and writing replacement values directly into the
+            // scratch buffer at the within-chunk position.
+            //
+            // N_LANES matches patch_lanes::<V>() on the Rust side:
+            //   32 for types < 8 bytes (u8, u16, u32)
+            //   16 for 8-byte types (u64)
+            if (patches.lane_offsets != nullptr) {
+                constexpr uint32_t N_LANES = (sizeof(T) < 8) ? 32 : 16;
+                const uint32_t fl_chunk = static_cast<uint32_t>(
+                    (block_start + elem_idx + elem_off) / FL_CHUNK);
+                for (uint32_t lane = threadIdx.x; lane < N_LANES; lane += blockDim.x) {
+                    PatchesCursor<T> cursor(patches, fl_chunk, lane, N_LANES);
+                    auto p = cursor.next();
+                    while (p.index != 1024) {
+                        scratch[p.index] = p.value;
+                        p = cursor.next();
+                    }
+                }
+                __syncthreads(); // Patch merge barrier
+            }
         } else {
             chunk_len = block_len;
         }
@@ -440,9 +473,14 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
 
 /// Kernel entry point. Parses the packed plan, runs all input stages to
 /// populate shared memory, then runs the output stage to produce results.
+///
+/// `patches` carries device-resident lane-transposed patch data for the
+/// output stage's BITUNPACK source. A NULL `lane_offsets` pointer signals
+/// that no patches are present.
 template <typename T>
 __device__ void
-dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__restrict packed_plan) {
+dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__restrict packed_plan,
+                 const GPUPatches &patches) {
     extern __shared__ char smem[];
 
     const auto *hdr = reinterpret_cast<const struct PlanHeader *>(packed_plan);
@@ -461,7 +499,8 @@ dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__rest
                             output_stage,
                             smem,
                             block_start,
-                            static_cast<uint32_t>(block_end - block_start));
+                            static_cast<uint32_t>(block_end - block_start),
+                            patches);
 }
 
 // Kernels are instantiated only for unsigned integer types. Signed and
@@ -474,8 +513,9 @@ dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__rest
 #define GENERATE_KERNEL(suffix, Type)                                                                        \
     extern "C" __global__ void dynamic_dispatch_##suffix(Type *__restrict output,                            \
                                                          uint64_t array_len,                                 \
-                                                         const uint8_t *__restrict packed_plan) {            \
-        dynamic_dispatch<Type>(output, array_len, packed_plan);                                              \
+                                                         const uint8_t *__restrict packed_plan,              \
+                                                         GPUPatches patches) {                               \
+        dynamic_dispatch<Type>(output, array_len, packed_plan, patches);                                     \
     }
 
 FOR_EACH_UNSIGNED_INT(GENERATE_KERNEL)
