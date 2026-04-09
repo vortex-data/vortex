@@ -178,12 +178,14 @@ impl ScalarFnVTable for SorfTransform {
         let num_rows = args.row_count();
 
         if num_rows == 0 {
+            let child_nullability = args.get(0)?.dtype().nullability();
+            let validity = Validity::from(child_nullability);
             return match_each_float_ptype!(options.element_ptype, |T| {
                 let elements = PrimitiveArray::empty::<T>(Nullability::NonNullable);
                 let fsl = FixedSizeListArray::try_new(
                     elements.into_array(),
                     options.dimension,
-                    Validity::NonNullable,
+                    validity,
                     0,
                 )?;
                 let ext_dtype =
@@ -194,6 +196,7 @@ impl ScalarFnVTable for SorfTransform {
 
         // Execute the child to get the FSL of dequantized (or raw) f32 coordinates.
         let child_fsl: FixedSizeListArray = args.get(0)?.execute(ctx)?;
+        let child_validity = child_fsl.as_ref().validity()?;
         let padded_dim =
             usize::try_from(child_fsl.list_size()).vortex_expect("list_size fits usize");
 
@@ -206,7 +209,14 @@ impl ScalarFnVTable for SorfTransform {
 
         // Inverse rotate each row, truncate to original dimension, cast to target type.
         match_each_float_ptype!(options.element_ptype, |T| {
-            inverse_rotate_typed::<T>(&f32_elements, &rotation, dim, padded_dim, num_rows)
+            inverse_rotate_typed::<T>(
+                &f32_elements,
+                &rotation,
+                dim,
+                padded_dim,
+                num_rows,
+                child_validity,
+            )
         })
     }
 
@@ -261,6 +271,7 @@ fn inverse_rotate_typed<T: NativePType + Float + FromPrimitive>(
     dim: usize,
     padded_dim: usize,
     num_rows: usize,
+    validity: Validity,
 ) -> VortexResult<ArrayRef> {
     let dim_u32 = u32::try_from(dim).vortex_expect("dimension fits u32");
     let mut output = BufferMut::<T>::with_capacity(num_rows * dim);
@@ -277,12 +288,7 @@ fn inverse_rotate_typed<T: NativePType + Float + FromPrimitive>(
     }
 
     let elements = PrimitiveArray::new::<T>(output.freeze(), Validity::NonNullable);
-    let fsl = FixedSizeListArray::try_new(
-        elements.into_array(),
-        dim_u32,
-        Validity::NonNullable,
-        num_rows,
-    )?;
+    let fsl = FixedSizeListArray::try_new(elements.into_array(), dim_u32, validity, num_rows)?;
 
     let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
     Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
