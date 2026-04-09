@@ -165,7 +165,7 @@ mod tests {
 
         // Spot-check: patch index 4 (first in range) should be applied.
         assert_ne!(
-            decoded_values[patches_indices[4] as usize - PATCH_CHUNK_SIZE],
+            decoded_values[usize::try_from(patches_indices[4]).unwrap() - PATCH_CHUNK_SIZE],
             0.0
         );
     }
