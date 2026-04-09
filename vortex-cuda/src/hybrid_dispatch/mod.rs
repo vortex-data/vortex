@@ -45,15 +45,25 @@
 //!                 └── FilterExecutor (CUB DeviceSelect on full output)
 //! ```
 
+use std::sync::Arc;
+
 use tracing::trace;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::primitive::PrimitiveDataParts;
+use vortex::array::buffer::BufferHandle;
+use vortex::array::match_each_unsigned_integer_ptype;
+use vortex::array::patches::Patches;
+use vortex::encodings::alp::match_each_alp_float_ptype;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 
+use crate::CudaDeviceBuffer;
 use crate::dynamic_dispatch::plan_builder::DispatchPlan;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecutionCtx;
+use crate::kernel::patches::execute_patches;
 
 /// Try to execute `array` on the GPU, attempting three strategies in order:
 ///
@@ -74,10 +84,16 @@ pub async fn try_gpu_dispatch(
 
     match DispatchPlan::new(array)? {
         DispatchPlan::Fused(plan) => {
-            let materialized = plan.materialize(ctx)?;
+            let mut materialized = plan.materialize(ctx)?;
+            let alp_patches = materialized.alp_patches.take();
             let num_stages = materialized.dispatch_plan.num_stages();
             trace!(encoding = %array.encoding_id(), num_stages, "fully-fused dispatch");
-            materialized.execute(array.len(), ctx)
+            let canonical = materialized.execute(array.len(), ctx)?;
+            if let Some(patches) = alp_patches {
+                apply_alp_patches(canonical, patches, ctx).await
+            } else {
+                Ok(canonical)
+            }
         }
         DispatchPlan::PartiallyFused {
             plan,
@@ -93,10 +109,16 @@ pub async fn try_gpu_dispatch(
             }
 
             let num_subtrees = subtree_buffers.len();
-            let materialized = plan.materialize_with_subtrees(subtree_buffers, ctx)?;
+            let mut materialized = plan.materialize_with_subtrees(subtree_buffers, ctx)?;
+            let alp_patches = materialized.alp_patches.take();
             let num_stages = materialized.dispatch_plan.num_stages();
             trace!(encoding = %array.encoding_id(), num_stages, num_subtrees, "partially-fused dispatch");
-            materialized.execute(array.len(), ctx)
+            let canonical = materialized.execute(array.len(), ctx)?;
+            if let Some(patches) = alp_patches {
+                apply_alp_patches(canonical, patches, ctx).await
+            } else {
+                Ok(canonical)
+            }
         }
         DispatchPlan::Unfused => {
             // Unfused kernel dispatch fallback.
@@ -109,6 +131,45 @@ pub async fn try_gpu_dispatch(
                 .await
         }
     }
+}
+
+/// Apply ALP patches to a decoded output buffer via a separate scatter kernel.
+///
+/// ALP patches are final decoded float values that bypass the ALP encode/decode
+/// cycle. They are applied after the fused kernel produces decoded output,
+/// overwriting the ALP-decoded values at the patched positions.
+async fn apply_alp_patches(
+    canonical: Canonical,
+    patches: Patches,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<Canonical> {
+    let prim = canonical.into_primitive();
+    let ptype = prim.ptype();
+    let PrimitiveDataParts {
+        buffer, validity, ..
+    } = prim.into_data_parts();
+
+    // Extract the CudaDeviceBuffer from the BufferHandle so we can pass it
+    // to execute_patches, which writes patches in-place via a scatter kernel.
+    let device_buf = buffer
+        .as_device_opt()
+        .ok_or_else(|| vortex_err!("expected device buffer for ALP patch application"))?
+        .as_any()
+        .downcast_ref::<CudaDeviceBuffer>()
+        .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer for ALP patch application"))?
+        .clone();
+
+    let patched_buf = match_each_alp_float_ptype!(ptype, |A| {
+        match_each_unsigned_integer_ptype!(patches.indices_ptype()?, |I| {
+            execute_patches::<A, I>(patches, device_buf, ctx).await?
+        })
+    });
+
+    Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
+        BufferHandle::new_device(Arc::new(patched_buf)),
+        ptype,
+        validity,
+    )))
 }
 
 #[cfg(test)]
@@ -189,9 +250,9 @@ mod tests {
         Ok(())
     }
 
-    /// ALP with patches — plan builder rejects it, falls back to ALPExecutor.
+    /// ALP with patches — fused kernel decodes, then patches are scattered post-kernel.
     #[crate::test]
-    async fn test_fallback() -> VortexResult<()> {
+    async fn test_fused_alp_with_patches() -> VortexResult<()> {
         use vortex::array::patches::Patches;
         use vortex::array::validity::Validity::NonNullable as NN;
         use vortex::buffer::buffer;
@@ -217,6 +278,106 @@ mod tests {
 
         let cpu = arr.to_canonical()?.into_array();
         let gpu = arr
+            .into_array()
+            .execute_cuda(&mut ctx)
+            .await?
+            .into_host()
+            .await?
+            .into_array();
+        assert_arrays_eq!(cpu, gpu);
+        Ok(())
+    }
+
+    /// ALP(FoR(BitPacked)) with patches — full encoding tree fuses into a
+    /// single kernel, then ALP patches are scattered post-kernel. Verifies
+    /// that DispatchPlan picks the Fused variant (not Unfused fallback).
+    #[crate::test]
+    async fn test_fused_alp_for_bp_with_patches() -> VortexResult<()> {
+        use vortex::array::patches::Patches;
+        use vortex::array::validity::Validity::NonNullable as NN;
+        use vortex::buffer::buffer;
+        use vortex::encodings::alp::ALP;
+        use vortex::encodings::alp::Exponents;
+
+        use crate::dynamic_dispatch::plan_builder::DispatchPlan;
+
+        let len = 2048i32;
+        let exponents = Exponents { e: 2, f: 0 };
+        let encoded: Vec<i32> = (0..len).map(|i| 10 + (i % 64)).collect();
+        let float_prim =
+            PrimitiveArray::new(Buffer::from(encoded.clone()), NonNullable).into_array();
+
+        let for_arr = FoR::try_new(
+            BitPacked::encode(&float_prim, 7)
+                .vortex_expect("bp")
+                .into_array(),
+            10i32.into(),
+        )
+        .vortex_expect("for");
+
+        // Two patch positions with float values that bypass ALP decode.
+        let patches = Patches::new(
+            len as usize,
+            0,
+            PrimitiveArray::new(buffer![0u32, 1000u32], NN).into_array(),
+            PrimitiveArray::new(buffer![42.42f32, 99.99f32], NN).into_array(),
+            None,
+        )
+        .unwrap();
+
+        let alp = ALP::try_new(for_arr.into_array(), exponents, Some(patches))?;
+
+        // Verify the plan builder produces a Fused plan (not Unfused).
+        let plan = DispatchPlan::new(&alp.clone().into_array())?;
+        assert!(
+            matches!(plan, DispatchPlan::Fused(_)),
+            "ALP with patches should produce a Fused plan, got {:?}",
+            std::mem::discriminant(&plan)
+        );
+
+        let mut ctx =
+            CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+        let cpu = alp.to_canonical()?.into_array();
+        let gpu = alp
+            .into_array()
+            .execute_cuda(&mut ctx)
+            .await?
+            .into_host()
+            .await?
+            .into_array();
+        assert_arrays_eq!(cpu, gpu);
+        Ok(())
+    }
+
+    /// ALP with realistic patches produced by `alp_encode` — values that
+    /// can't be losslessly encoded by ALP become exceptions automatically.
+    #[crate::test]
+    async fn test_fused_alp_with_realistic_patches() -> VortexResult<()> {
+        use vortex::encodings::alp::ALPArrayExt;
+        use vortex::encodings::alp::alp_encode;
+
+        let mut ctx =
+            CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+
+        // Mix of ALP-friendly values and values that produce exceptions.
+        let mut values: Vec<f32> = (0..2048).map(|i| (i as f32) * 0.01).collect();
+        // Inject values that can't round-trip through ALP.
+        values[0] = 1.23456;
+        values[100] = std::f32::consts::PI;
+        values[1000] = std::f32::consts::E;
+        values[2047] = 999.999;
+
+        let prim = PrimitiveArray::new(Buffer::from(values), NonNullable);
+        let alp = alp_encode(&prim, None)?;
+
+        // Confirm that ALP encoding produced patches.
+        assert!(
+            alp.patches().is_some(),
+            "expected ALP to produce patches for non-round-trippable values"
+        );
+
+        let cpu = alp.to_canonical()?.into_array();
+        let gpu = alp
             .into_array()
             .execute_cuda(&mut ctx)
             .await?

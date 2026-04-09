@@ -214,8 +214,8 @@ pub fn transpose_patches_for_fused(
 
     match_each_unsigned_integer_ptype!(indices_ptype, |I| {
         match_each_native_ptype!(values_ptype, |V| {
-            let indices: Buffer<I> = Buffer::from_byte_buffer(indices);
-            let values: Buffer<V> = Buffer::from_byte_buffer(values);
+            let indices: buffer<i> = buffer::from_byte_buffer(indices);
+            let values: buffer<v> = buffer::from_byte_buffer(values);
 
             let host_patches = transpose(
                 indices.as_slice(),

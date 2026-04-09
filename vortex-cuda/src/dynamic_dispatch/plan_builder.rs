@@ -60,6 +60,10 @@ pub struct MaterializedPlan {
     pub validity: Validity,
     /// Device-resident patches for the output stage's BITUNPACK source, if any.
     pub device_patches: Option<DevicePatches>,
+    /// ALP patches to apply after the fused kernel via a separate scatter kernel.
+    /// ALP patches are final decoded floats that bypass the ALP encode/decode cycle,
+    /// so they must be merged AFTER the fused kernel produces decoded output.
+    pub alp_patches: Option<Patches>,
 }
 
 /// Checks whether the encoding of an array can be fused into a dynamic-dispatch plan.
@@ -73,7 +77,9 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
     let id = array.encoding_id();
     if id == ALP::ID {
         let arr = array.as_::<ALP>();
-        return arr.patches().is_none() && arr.dtype().as_ptype() == PType::F32;
+        // ALP patches are applied post-kernel via a separate scatter kernel,
+        // so patched ALP arrays are compatible with dynamic dispatch.
+        return arr.dtype().as_ptype() == PType::F32;
     }
     if id == BitPacked::ID {
         // Patches are handled by the fused kernel when the BitPacked node
@@ -242,6 +248,10 @@ pub struct FusedPlan {
     /// BitPacked patches for the output stage, if present.
     /// Stored as `(patches, element_offset)` and transposed during materialization.
     bitpacked_patches: Option<(Patches, u32)>,
+    /// ALP patches to apply after the fused kernel via a separate scatter kernel.
+    /// ALP patches are final decoded floats that bypass the ALP encode/decode cycle,
+    /// so they must be merged AFTER the ALP scalar op produces decoded output.
+    alp_patches: Option<Patches>,
 }
 
 impl DispatchPlan {
@@ -318,6 +328,7 @@ impl FusedPlan {
             output_ptype,
             validity,
             bitpacked_patches: None,
+            alp_patches: None,
         };
 
         let len = array.len() as u32;
@@ -414,6 +425,7 @@ impl FusedPlan {
             shared_mem_bytes,
             validity: self.validity,
             device_patches,
+            alp_patches: self.alp_patches,
         })
     }
 
@@ -624,16 +636,19 @@ impl FusedPlan {
     ) -> VortexResult<Stage> {
         let alp = array.as_::<ALP>();
 
-        if alp.patches().is_some() {
-            vortex_bail!("Dynamic dispatch does not support ALPArray with patches");
-        }
-
         let ptype = alp.dtype().as_ptype();
         if ptype != PType::F32 {
             vortex_bail!(
                 "Dynamic dispatch only supports f32 ALP, got {:?}",
                 alp.dtype()
             );
+        }
+
+        // Store ALP patches for post-kernel application via a separate scatter
+        // kernel. ALP patches are final decoded floats that must be merged
+        // AFTER the ALP scalar op, not before.
+        if let Some(patches) = alp.patches() {
+            self.alp_patches = Some(patches);
         }
 
         let exponents = alp.exponents();
