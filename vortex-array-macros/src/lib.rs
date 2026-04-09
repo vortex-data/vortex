@@ -16,20 +16,83 @@ use syn::Visibility;
 use syn::parse_macro_input;
 use syn::spanned::Spanned;
 
-/// Generate slot index helpers plus typed-array accessors for a slot struct.
+/// Generate slot index constants, a borrowed view struct, and a typed ext trait
+/// from a slot struct definition.
 ///
-/// The attribute argument is the typed array encoding, for example `Patched`:
+/// Fields must be `ArrayRef` (required slot) or `Option<ArrayRef>` (optional slot).
+/// Field declaration order determines slot indices.
+///
+/// # Example
 ///
 /// ```ignore
 /// #[array_slots(Patched)]
 /// pub struct PatchedSlots {
 ///     pub inner: ArrayRef,
 ///     pub lane_offsets: ArrayRef,
-///     pub values: Option<ArrayRef>,
+///     pub patch_indices: ArrayRef,
+///     pub patch_values: ArrayRef,
 /// }
 /// ```
 ///
-/// Today, fields may only be `ArrayRef` or `Option<ArrayRef>`.
+/// # Generated output
+///
+/// Given the above, the macro generates:
+///
+/// ```ignore
+/// // --- The original struct is preserved as-is ---
+/// pub struct PatchedSlots { ... }
+///
+/// // --- Slot index constants and conversion methods on the struct ---
+/// impl PatchedSlots {
+///     pub const INNER: usize = 0;
+///     pub const LANE_OFFSETS: usize = 1;
+///     pub const PATCH_INDICES: usize = 2;
+///     pub const PATCH_VALUES: usize = 3;
+///     pub const COUNT: usize = 4;
+///     pub const NAMES: [&'static str; 4] = ["inner", "lane_offsets", "patch_indices", "patch_values"];
+///
+///     /// Take ownership of slots from a `Vec<Option<ArrayRef>>`.
+///     pub fn from_slots(slots: Vec<Option<ArrayRef>>) -> Self { ... }
+///
+///     /// Convert back into storage order.
+///     pub fn into_slots(self) -> Vec<Option<ArrayRef>> { ... }
+/// }
+///
+/// // --- Borrowed view with &ArrayRef / Option<&ArrayRef> fields ---
+/// pub struct PatchedSlotsView<'a> {
+///     pub inner: &'a ArrayRef,
+///     pub lane_offsets: &'a ArrayRef,
+///     pub patch_indices: &'a ArrayRef,
+///     pub patch_values: &'a ArrayRef,
+/// }
+///
+/// impl<'a> PatchedSlotsView<'a> {
+///     pub fn from_slots(slots: &'a [Option<ArrayRef>]) -> Self { ... }
+/// }
+///
+/// // --- Ext trait with per-field accessors + slots_view() ---
+/// pub trait PatchedArraySlotsExt: TypedArrayRef<Patched> {
+///     fn inner(&self) -> &ArrayRef { ... }         // indexes slots directly
+///     fn lane_offsets(&self) -> &ArrayRef { ... }
+///     fn patch_indices(&self) -> &ArrayRef { ... }
+///     fn patch_values(&self) -> &ArrayRef { ... }
+///     fn slots_view(&self) -> PatchedSlotsView<'_> { ... }
+/// }
+///
+/// impl<T: TypedArrayRef<Patched>> PatchedArraySlotsExt for T {}
+/// ```
+///
+/// # Required vs optional slots
+///
+/// - `ArrayRef` — the slot must be present. `from_slots()` panics if `None`.
+///   The ext trait accessor returns `&ArrayRef`. The view field is `&'a ArrayRef`.
+///
+/// - `Option<ArrayRef>` — the slot may be absent. `from_slots()` preserves `None`.
+///   The ext trait accessor returns `Option<&ArrayRef>`. The view field is
+///   `Option<&'a ArrayRef>`.
+///
+/// The underlying storage is always `Vec<Option<ArrayRef>>` — the field type only
+/// controls whether the macro inserts a `.vortex_expect()` unwrap or not.
 #[proc_macro_attribute]
 pub fn array_slots(attr: TokenStream, item: TokenStream) -> TokenStream {
     let encoding = parse_macro_input!(attr as Path);
