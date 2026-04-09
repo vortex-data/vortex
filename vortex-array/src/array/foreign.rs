@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt;
+use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
@@ -37,6 +38,12 @@ pub struct ForeignArrayData {
 impl ForeignArrayData {
     pub fn new(metadata: Vec<u8>, buffers: Vec<BufferHandle>) -> Self {
         Self { metadata, buffers }
+    }
+}
+
+impl Display for ForeignArrayData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "ForeignArrayData({}B)", self.metadata.len())
     }
 }
 
@@ -112,12 +119,11 @@ impl VTable for ForeignArray {
         Some(format!("buffer[{idx}]"))
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(array.metadata.clone()))
-    }
-
-    fn fmt_metadata(array: ArrayView<'_, Self>, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "ForeignMetadata({}B)", array.metadata.len())
     }
 
     fn deserialize(

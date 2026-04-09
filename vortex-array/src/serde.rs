@@ -704,6 +704,8 @@ impl TryFrom<BufferHandle> for SerializedArray {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use flatbuffers::FlatBufferBuilder;
     use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
@@ -716,6 +718,8 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::flatbuffers as fba;
     use crate::session::ArraySession;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn unknown_array_encoding_allow_unknown() {
@@ -774,14 +778,23 @@ mod tests {
             decoded.nth_child(0).unwrap().encoding_id().as_ref(),
             "vortex.test.foreign_child"
         );
-        assert_eq!(decoded.metadata().unwrap().unwrap(), vec![1, 2, 3]);
+        assert_eq!(decoded.metadata(&SESSION).unwrap().unwrap(), vec![1, 2, 3]);
         assert_eq!(
-            decoded.nth_child(0).unwrap().metadata().unwrap().unwrap(),
+            decoded
+                .nth_child(0)
+                .unwrap()
+                .metadata(&SESSION)
+                .unwrap()
+                .unwrap(),
             vec![9]
         );
 
         let serialized = decoded
-            .serialize(&ArrayContext::default(), &SerializeOptions::default())
+            .serialize(
+                &ArrayContext::default(),
+                &SESSION,
+                &SerializeOptions::default(),
+            )
             .unwrap();
         assert!(!serialized.is_empty());
     }
