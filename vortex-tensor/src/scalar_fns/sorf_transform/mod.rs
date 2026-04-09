@@ -12,8 +12,9 @@
 //! transform at execution time, producing a [`Vector`] extension array with the original
 //! (pre-padding) dimensionality.
 //!
-//! The transform parameters are stored as a deterministic PRNG seed in [`SorfOptions`], so the
-//! [`SorfMatrix`] is reconstructed cheaply at decode time.
+//! The transform parameters are stored as a deterministic seed in [`SorfOptions`], so the
+//! [`SorfMatrix`] is reconstructed cheaply at decode time. Sign diagonals are defined by Vortex's
+//! frozen local SplitMix64 stream contract rather than by an external RNG crate.
 //!
 //! **All SORF computation happens in f32.** Input elements of other float types (f16, f64) are cast
 //! to f32 before the transform, and the result is cast back to the target type specified by
@@ -33,6 +34,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 mod rotation;
+mod splitmix64;
 pub use rotation::SorfMatrix;
 
 mod vtable;
@@ -51,7 +53,7 @@ pub struct SorfTransform;
 /// [`SorfMatrix`] at decode time.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SorfOptions {
-    /// PRNG seed used to generate the random sign diagonals.
+    /// Seed used to generate the structured sign diagonals via Vortex's frozen SplitMix64 stream.
     pub seed: u64,
     /// Number of sign-diagonal + WHT rounds in the structured orthogonal transform.
     pub num_rounds: u8,

@@ -12,6 +12,19 @@
 //! applies a random sign diagonal `D_i` and then the Hadamard matrix `H`, giving O(d log d) cost
 //! per matrix-vector product instead of the O(d^2) cost of a dense orthogonal matrix.
 //!
+//! Vortex defines those sign diagonals using a frozen local SplitMix64 stream rather than an
+//! external RNG crate. The contract is:
+//!
+//! - state is a single `u64` seed,
+//! - each `next_u64()` call uses the SplitMix64 reference algorithm with wrapping `u64`
+//!   arithmetic,
+//! - signs are generated in round-major, block-major order,
+//! - each generated `u64` contributes 64 signs in least-significant-bit-first order,
+//! - bit `1` means `+1` and bit `0` means `-1`.
+//!
+//! This makes SORF sign generation stable as a Vortex format contract even if external RNG
+//! implementations change.
+//!
 //! [sorf-paper]: https://proceedings.neurips.cc/paper_files/paper/2016/file/53adaf494dc89ef7196d73636eb2451b-Paper.pdf
 //!
 //! The FWHT exploits the Kronecker product structure of the Hadamard matrix (`H_n = H_2 (x) H_2
@@ -29,11 +42,10 @@
 //! floating-point multiply, which avoids FP dependency chains and auto-vectorizes into
 //! `vpxor`/`veor`.
 
-use rand::RngExt;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+
+use super::splitmix64::SplitMix64;
 
 /// IEEE 754 sign bit mask for f32.
 const F32_SIGN_BIT: u32 = 0x8000_0000;
@@ -58,17 +70,17 @@ pub struct SorfMatrix {
 }
 
 impl SorfMatrix {
-    /// Create a new structured Walsh-Hadamard-based orthogonal transform from a deterministic seed.
+    /// Create a new structured Walsh-Hadamard-based orthogonal transform from a deterministic
+    /// seed.
+    ///
+    /// The seed is expanded using Vortex's frozen local SplitMix64 stream. Signs are generated in
+    /// round-major, block-major order, with each `u64` contributing 64 sign bits in
+    /// least-significant-bit-first order.
     pub fn try_new(seed: u64, dimension: usize, num_rounds: usize) -> VortexResult<Self> {
         vortex_ensure!(num_rounds >= 1, "num_rounds must be >= 1, got {num_rounds}");
 
         let padded_dim = dimension.next_power_of_two();
-        let mut rng = StdRng::seed_from_u64(seed);
-
-        let mut sign_masks = Vec::with_capacity(num_rounds * padded_dim);
-        for _ in 0..num_rounds {
-            sign_masks.extend(gen_random_sign_masks(&mut rng, padded_dim));
-        }
+        let sign_masks = gen_sign_masks_from_seed(seed, padded_dim, num_rounds);
 
         // Compute in f64 for precision, then store as f32 since the WHT operates on f32 buffers.
         // The result is always in (0, 1] for any valid padded_dim >= 2 and num_rounds >= 1, so
@@ -221,17 +233,34 @@ impl SorfMatrix {
     }
 }
 
-/// Generate a vector of random XOR sign masks.
-fn gen_random_sign_masks(rng: &mut StdRng, len: usize) -> Vec<u32> {
-    (0..len)
-        .map(|_| {
-            if rng.random::<bool>() {
-                0u32 // +1: no-op
-            } else {
-                F32_SIGN_BIT // -1: flip sign bit
-            }
-        })
-        .collect()
+/// Generate XOR sign masks from the frozen local SplitMix64 stream.
+///
+/// Signs are produced in round-major, block-major order. For each block we call
+/// [`SplitMix64::next_u64`] exactly once and unpack its bits from least significant to most
+/// significant. Bit `1` means positive sign / `0x00000000`; bit `0` means negative sign /
+/// [`F32_SIGN_BIT`].
+fn gen_sign_masks_from_seed(seed: u64, padded_dim: usize, num_rounds: usize) -> Vec<u32> {
+    let mut rng = SplitMix64::new(seed);
+    let mut sign_masks = Vec::with_capacity(num_rounds * padded_dim);
+
+    for _round in 0..num_rounds {
+        for base_idx in (0..padded_dim).step_by(64) {
+            let word = rng.next_u64();
+            let bits_in_block = (padded_dim - base_idx).min(64);
+            sign_masks.extend((0..bits_in_block).map(|bit_idx| sign_mask_from_word(word, bit_idx)));
+        }
+    }
+
+    sign_masks
+}
+
+/// Convert one bit from a SplitMix64 output word into an XOR sign mask.
+fn sign_mask_from_word(word: u64, bit_idx: usize) -> u32 {
+    if ((word >> bit_idx) & 1) != 0 {
+        0u32
+    } else {
+        F32_SIGN_BIT
+    }
 }
 
 /// Apply sign masks via XOR on the IEEE 754 sign bit.
@@ -290,6 +319,13 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::*;
+    use crate::scalar_fns::sorf_transform::splitmix64::SplitMix64;
+
+    fn unpack_sign_bits(word: u64, count: usize) -> Vec<u8> {
+        (0..count)
+            .map(|bit_idx| u8::from(((word >> bit_idx) & 1) != 0))
+            .collect()
+    }
 
     #[test]
     fn deterministic_from_seed() -> VortexResult<()> {
@@ -309,6 +345,48 @@ mod tests {
 
         assert_eq!(out1, out2);
         Ok(())
+    }
+
+    #[test]
+    fn export_inverse_signs_matches_golden_words() -> VortexResult<()> {
+        let rot = SorfMatrix::try_new(42, 64, 2)?;
+        let actual = rot.export_inverse_signs_u8();
+        let mut rng = SplitMix64::new(42);
+        let round0_word = rng.next_u64();
+        let round1_word = rng.next_u64();
+
+        let mut expected = Vec::with_capacity(128);
+        expected.extend(unpack_sign_bits(round1_word, 64));
+        expected.extend(unpack_sign_bits(round0_word, 64));
+
+        assert_eq!(actual, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn one_word_generates_64_signs_lsb_first() {
+        let masks = gen_sign_masks_from_seed(42, 64, 1);
+        assert_eq!(masks.len(), 64);
+
+        let mut rng = SplitMix64::new(42);
+        let word = rng.next_u64();
+        let expected: Vec<_> = (0..64)
+            .map(|bit_idx| sign_mask_from_word(word, bit_idx))
+            .collect();
+        assert_eq!(masks, expected);
+    }
+
+    #[test]
+    fn tail_block_uses_only_required_bits() {
+        let masks = gen_sign_masks_from_seed(42, 32, 1);
+        assert_eq!(masks.len(), 32);
+
+        let mut rng = SplitMix64::new(42);
+        let word = rng.next_u64();
+        let expected: Vec<_> = (0..32)
+            .map(|bit_idx| sign_mask_from_word(word, bit_idx))
+            .collect();
+        assert_eq!(masks, expected);
     }
 
     /// Verify roundtrip is exact to f32 precision across many dimensions and round counts,

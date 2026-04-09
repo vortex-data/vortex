@@ -176,7 +176,6 @@ fn mean_between_centroids(lo: f64, hi: f64, exponent: HalfIntExponent) -> f64 {
 /// Uses `powi` + `sqrt` instead of `powf` for the half-integer exponents that arise from `(d-3)/2`.
 /// This is significantly faster than the general `powf` which goes through
 /// `exp(exponent * ln(base))`.
-#[inline]
 fn pdf_unnormalized(x_val: f64, exponent: HalfIntExponent) -> f64 {
     let base = (1.0 - x_val * x_val).max(0.0);
 
