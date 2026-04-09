@@ -139,7 +139,10 @@ class ResultStore:
             timestamp=datetime.now(),
             label=config.label,
             benchmark=config.benchmark.value,
-            dataset_config=config.options,
+            dataset_config={
+                **config.options,
+                "allocator_mode": config.allocator_mode,
+            },
             engines=[e.value for e in config.engines],
             formats=[f.value for f in config.formats],
             queries=config.queries or [],

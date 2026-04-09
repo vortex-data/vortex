@@ -38,10 +38,12 @@ const POOL_BUCKETS: &[(usize, usize)] = &[
     (64 * 1024, 64),
     (128 * 1024, 32),
     (256 * 1024, 16),
-    (512 * 1024, 8),
-    (1024 * 1024, 8),
-    (2 * 1024 * 1024, 4),
-    (4 * 1024 * 1024, 2),
+    (512 * 1024, 12),
+    (1024 * 1024, 12),
+    (2 * 1024 * 1024, 6),
+    (4 * 1024 * 1024, 3),
+    (8 * 1024 * 1024, 1),
+    (16 * 1024 * 1024, 1),
 ];
 
 static NEXT_POOLED_ALLOCATOR_ID: AtomicU64 = AtomicU64::new(1);
@@ -130,8 +132,13 @@ impl HostAllocator for PooledHostAllocator {
 
         let Some(bucket_idx) = bucket_index_for_len(len) else {
             self.metrics.bypass_size.add(1);
+            self.metrics.request_unbucketed_bytes.update(len as f64);
             return allocate_unpooled(len, requested_alignment);
         };
+
+        if let Some(bucket_metrics) = self.metrics.bucket(bucket_idx) {
+            bucket_metrics.requests.add(1);
+        }
 
         let (bucket_size, _) = POOL_BUCKETS[bucket_idx];
         if bucket_size > self.max_bytes_per_thread {
@@ -139,20 +146,54 @@ impl HostAllocator for PooledHostAllocator {
             return allocate_unpooled(len, requested_alignment);
         }
 
-        let (pooled, retained_bytes, retained_buffers) = with_allocator_pool(self.id, |pool| {
+        let (
+            pooled,
+            retained_bytes,
+            retained_buffers,
+            bucket_retained_bytes,
+            bucket_retained_buffers,
+        ) = with_allocator_pool(self.id, |pool| {
             let pooled = pool.take_buffer(bucket_idx);
-            (pooled, pool.retained_bytes, pool.buffer_count())
+            (
+                pooled,
+                pool.retained_bytes,
+                pool.buffer_count(),
+                pool.bucket_retained_bytes(bucket_idx),
+                pool.bucket_len(bucket_idx),
+            )
         });
 
         self.metrics.retained_bytes.set(retained_bytes as f64);
         self.metrics.retained_buffers.set(retained_buffers as f64);
+        self.metrics.set_bucket_retained(
+            bucket_idx,
+            bucket_retained_bytes,
+            bucket_retained_buffers,
+        );
         self.metrics.bucket_bytes.update(bucket_size as f64);
 
         let mut buffer = if let Some(buffer) = pooled {
-            self.metrics.hits.add(1);
-            buffer
+            if buffer.capacity() >= len {
+                self.metrics.hits.add(1);
+                if let Some(bucket_metrics) = self.metrics.bucket(bucket_idx) {
+                    bucket_metrics.hits.add(1);
+                }
+                buffer
+            } else {
+                self.metrics.drops.add(1);
+                self.metrics
+                    .add_bucket_drop(bucket_idx, DropReason::InvalidCapacity);
+                self.metrics.misses.add(1);
+                if let Some(bucket_metrics) = self.metrics.bucket(bucket_idx) {
+                    bucket_metrics.misses.add(1);
+                }
+                ByteBufferMut::with_capacity_aligned(bucket_size, pool_alignment)
+            }
         } else {
             self.metrics.misses.add(1);
+            if let Some(bucket_metrics) = self.metrics.bucket(bucket_idx) {
+                bucket_metrics.misses.add(1);
+            }
             ByteBufferMut::with_capacity_aligned(bucket_size, pool_alignment)
         };
 
@@ -185,13 +226,23 @@ struct PooledAllocatorMetrics {
     bypass_size: Counter,
     bypass_disabled: Counter,
     request_bytes: Histogram,
+    request_unbucketed_bytes: Histogram,
     bucket_bytes: Histogram,
     retained_bytes: Gauge,
     retained_buffers: Gauge,
+    bucket_metrics: Vec<PooledBucketMetrics>,
 }
 
 impl PooledAllocatorMetrics {
     fn new(metrics_registry: &dyn MetricsRegistry, labels: Vec<Label>) -> Self {
+        let bucket_metrics = POOL_BUCKETS
+            .iter()
+            .enumerate()
+            .map(|(bucket_idx, (bucket_size, _))| {
+                PooledBucketMetrics::new(metrics_registry, &labels, bucket_idx, *bucket_size)
+            })
+            .collect();
+
         Self {
             alloc_requests: MetricBuilder::new(metrics_registry)
                 .add_labels(labels.clone())
@@ -220,6 +271,9 @@ impl PooledAllocatorMetrics {
             request_bytes: MetricBuilder::new(metrics_registry)
                 .add_labels(labels.clone())
                 .histogram("memory.host_pool.request_bytes"),
+            request_unbucketed_bytes: MetricBuilder::new(metrics_registry)
+                .add_labels(labels.clone())
+                .histogram("memory.host_pool.request_unbucketed_bytes"),
             bucket_bytes: MetricBuilder::new(metrics_registry)
                 .add_labels(labels.clone())
                 .histogram("memory.host_pool.bucket_bytes"),
@@ -229,6 +283,139 @@ impl PooledAllocatorMetrics {
             retained_buffers: MetricBuilder::new(metrics_registry)
                 .add_labels(labels)
                 .gauge("memory.host_pool.retained_buffers"),
+            bucket_metrics,
+        }
+    }
+
+    fn bucket(&self, bucket_idx: usize) -> Option<&PooledBucketMetrics> {
+        self.bucket_metrics.get(bucket_idx)
+    }
+
+    fn set_bucket_retained(
+        &self,
+        bucket_idx: usize,
+        retained_bytes: usize,
+        retained_buffers: usize,
+    ) {
+        let Some(bucket_metrics) = self.bucket(bucket_idx) else {
+            return;
+        };
+        bucket_metrics.retained_bytes.set(retained_bytes as f64);
+        bucket_metrics.retained_buffers.set(retained_buffers as f64);
+    }
+
+    fn add_bucket_drop(&self, bucket_idx: usize, reason: DropReason) {
+        let Some(bucket_metrics) = self.bucket(bucket_idx) else {
+            return;
+        };
+        bucket_metrics.drops.counter(reason).add(1);
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum DropReason {
+    InvalidBucket,
+    EntryLimit,
+    BytesLimit,
+    InvalidCapacity,
+}
+
+impl DropReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::InvalidBucket => "invalid_bucket",
+            Self::EntryLimit => "entry_limit",
+            Self::BytesLimit => "bytes_limit",
+            Self::InvalidCapacity => "invalid_capacity",
+        }
+    }
+}
+
+#[derive(Debug)]
+struct BucketDropMetrics {
+    invalid_bucket: Counter,
+    entry_limit: Counter,
+    bytes_limit: Counter,
+    invalid_capacity: Counter,
+}
+
+impl BucketDropMetrics {
+    fn new(metrics_registry: &dyn MetricsRegistry, bucket_labels: &[Label]) -> Self {
+        Self {
+            invalid_bucket: MetricBuilder::new(metrics_registry)
+                .add_labels(bucket_labels.iter().cloned())
+                .add_label("reason", DropReason::InvalidBucket.as_str())
+                .counter("memory.host_pool.bucket.drops"),
+            entry_limit: MetricBuilder::new(metrics_registry)
+                .add_labels(bucket_labels.iter().cloned())
+                .add_label("reason", DropReason::EntryLimit.as_str())
+                .counter("memory.host_pool.bucket.drops"),
+            bytes_limit: MetricBuilder::new(metrics_registry)
+                .add_labels(bucket_labels.iter().cloned())
+                .add_label("reason", DropReason::BytesLimit.as_str())
+                .counter("memory.host_pool.bucket.drops"),
+            invalid_capacity: MetricBuilder::new(metrics_registry)
+                .add_labels(bucket_labels.iter().cloned())
+                .add_label("reason", DropReason::InvalidCapacity.as_str())
+                .counter("memory.host_pool.bucket.drops"),
+        }
+    }
+
+    fn counter(&self, reason: DropReason) -> &Counter {
+        match reason {
+            DropReason::InvalidBucket => &self.invalid_bucket,
+            DropReason::EntryLimit => &self.entry_limit,
+            DropReason::BytesLimit => &self.bytes_limit,
+            DropReason::InvalidCapacity => &self.invalid_capacity,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct PooledBucketMetrics {
+    requests: Counter,
+    hits: Counter,
+    misses: Counter,
+    puts: Counter,
+    drops: BucketDropMetrics,
+    retained_bytes: Gauge,
+    retained_buffers: Gauge,
+}
+
+impl PooledBucketMetrics {
+    fn new(
+        metrics_registry: &dyn MetricsRegistry,
+        base_labels: &[Label],
+        bucket_idx: usize,
+        bucket_size: usize,
+    ) -> Self {
+        let bucket_labels = {
+            let mut labels = base_labels.to_vec();
+            labels.push(Label::new("bucket", bucket_size.to_string()));
+            labels.push(Label::new("bucket_idx", bucket_idx.to_string()));
+            labels
+        };
+
+        Self {
+            requests: MetricBuilder::new(metrics_registry)
+                .add_labels(bucket_labels.iter().cloned())
+                .counter("memory.host_pool.bucket.requests"),
+            hits: MetricBuilder::new(metrics_registry)
+                .add_labels(bucket_labels.iter().cloned())
+                .counter("memory.host_pool.bucket.hits"),
+            misses: MetricBuilder::new(metrics_registry)
+                .add_labels(bucket_labels.iter().cloned())
+                .counter("memory.host_pool.bucket.misses"),
+            puts: MetricBuilder::new(metrics_registry)
+                .add_labels(bucket_labels.iter().cloned())
+                .counter("memory.host_pool.bucket.puts"),
+            drops: BucketDropMetrics::new(metrics_registry, &bucket_labels),
+            retained_bytes: MetricBuilder::new(metrics_registry)
+                .add_labels(bucket_labels.iter().cloned())
+                .gauge("memory.host_pool.bucket.retained_bytes"),
+            retained_buffers: MetricBuilder::new(metrics_registry)
+                .add_labels(bucket_labels.iter().cloned())
+                .gauge("memory.host_pool.bucket.retained_buffers"),
         }
     }
 }
@@ -245,6 +432,7 @@ struct PooledReturn {
 struct ThreadLocalAllocatorPool {
     retained_bytes: usize,
     buckets: Vec<Vec<ByteBufferMut>>,
+    bucket_retained_bytes: Vec<usize>,
 }
 
 impl ThreadLocalAllocatorPool {
@@ -252,12 +440,17 @@ impl ThreadLocalAllocatorPool {
         Self {
             retained_bytes: 0,
             buckets: (0..POOL_BUCKETS.len()).map(|_| Vec::new()).collect(),
+            bucket_retained_bytes: (0..POOL_BUCKETS.len()).map(|_| 0).collect(),
         }
     }
 
     fn take_buffer(&mut self, bucket_idx: usize) -> Option<ByteBufferMut> {
         let buffer = self.buckets.get_mut(bucket_idx)?.pop()?;
-        self.retained_bytes = self.retained_bytes.saturating_sub(buffer.capacity());
+        let capacity = buffer.capacity();
+        self.retained_bytes = self.retained_bytes.saturating_sub(capacity);
+        if let Some(bucket_bytes) = self.bucket_retained_bytes.get_mut(bucket_idx) {
+            *bucket_bytes = bucket_bytes.saturating_sub(capacity);
+        }
         Some(buffer)
     }
 
@@ -266,35 +459,50 @@ impl ThreadLocalAllocatorPool {
         bucket_idx: usize,
         mut buffer: ByteBufferMut,
         max_bytes_per_thread: usize,
-    ) -> bool {
+    ) -> PutBufferResult {
         if bucket_idx >= self.buckets.len() {
-            return false;
+            return PutBufferResult::Dropped(DropReason::InvalidBucket);
         }
 
         let (_, max_entries) = POOL_BUCKETS[bucket_idx];
         if self.buckets[bucket_idx].len() >= max_entries {
-            return false;
+            return PutBufferResult::Dropped(DropReason::EntryLimit);
         }
 
         let capacity = buffer.capacity();
         if self.retained_bytes.saturating_add(capacity) > max_bytes_per_thread {
-            return false;
+            return PutBufferResult::Dropped(DropReason::BytesLimit);
         }
 
         buffer.clear();
         self.retained_bytes = self.retained_bytes.saturating_add(capacity);
+        if let Some(bucket_bytes) = self.bucket_retained_bytes.get_mut(bucket_idx) {
+            *bucket_bytes = bucket_bytes.saturating_add(capacity);
+        }
         self.buckets[bucket_idx].push(buffer);
-        true
+        PutBufferResult::Stored
     }
 
     fn buffer_count(&self) -> usize {
         self.buckets.iter().map(Vec::len).sum()
     }
 
-    #[cfg(test)]
     fn bucket_len(&self, bucket_idx: usize) -> usize {
-        self.buckets[bucket_idx].len()
+        self.buckets.get(bucket_idx).map_or(0, Vec::len)
     }
+
+    fn bucket_retained_bytes(&self, bucket_idx: usize) -> usize {
+        self.bucket_retained_bytes
+            .get(bucket_idx)
+            .copied()
+            .unwrap_or(0)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum PutBufferResult {
+    Stored,
+    Dropped(DropReason),
 }
 
 fn with_allocator_pool<R>(
@@ -311,20 +519,38 @@ fn with_allocator_pool<R>(
 }
 
 fn return_buffer_to_pool(buffer: ByteBufferMut, pooled: PooledReturn) {
-    let (stored, retained_bytes, retained_buffers) =
+    let (result, retained_bytes, retained_buffers, bucket_retained_bytes, bucket_retained_buffers) =
         with_allocator_pool(pooled.allocator_id, |pool| {
-            let stored =
+            let result =
                 pool.try_put_buffer(pooled.bucket_idx, buffer, pooled.max_bytes_per_thread);
-            (stored, pool.retained_bytes, pool.buffer_count())
+            (
+                result,
+                pool.retained_bytes,
+                pool.buffer_count(),
+                pool.bucket_retained_bytes(pooled.bucket_idx),
+                pool.bucket_len(pooled.bucket_idx),
+            )
         });
 
     pooled.metrics.retained_bytes.set(retained_bytes as f64);
     pooled.metrics.retained_buffers.set(retained_buffers as f64);
+    pooled.metrics.set_bucket_retained(
+        pooled.bucket_idx,
+        bucket_retained_bytes,
+        bucket_retained_buffers,
+    );
 
-    if stored {
-        pooled.metrics.puts.add(1);
-    } else {
-        pooled.metrics.drops.add(1);
+    match result {
+        PutBufferResult::Stored => {
+            pooled.metrics.puts.add(1);
+            if let Some(bucket_metrics) = pooled.metrics.bucket(pooled.bucket_idx) {
+                bucket_metrics.puts.add(1);
+            }
+        }
+        PutBufferResult::Dropped(reason) => {
+            pooled.metrics.drops.add(1);
+            pooled.metrics.add_bucket_drop(pooled.bucket_idx, reason);
+        }
     }
 }
 

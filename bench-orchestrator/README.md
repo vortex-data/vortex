@@ -52,6 +52,7 @@ vx-bench run <benchmark> [options]
 - `--iterations, -i`: Iterations per query (default: 5)
 - `--label, -l`: Label for this run (useful for later reference)
 - `--track-memory`: Enable memory usage tracking
+- `--allocator`: Host allocator mode: `pooled`, `default`, or `ab` (run both in one run)
 - `--build/--no-build`: Build binaries before running (default: build)
 
 ### `compare` - Compare Results
@@ -71,9 +72,9 @@ vx-bench compare [options]
 - `--format`: Filter results to a specific format
 - `--threshold`: Significance threshold (default: 0.10 = 10%)
 
-**Within-run comparison** (`--run`): Compares different engine:format combinations within a single run. Output shows one row per query, with columns for each engine:format combo.
+**Within-run comparison** (`--run`): Compares different engine:format (or engine:format:allocator) combinations within a single run. Output shows one row per query, with columns for each combo.
 
-**Multi-run comparison** (`--runs`): Compares the same benchmarks across multiple runs. Output shows one row per (query, engine, format) combination, with columns for each run.
+**Multi-run comparison** (`--runs`): Compares the same benchmarks across multiple runs. Output shows one row per (query, engine, format[, allocator]) combination, with columns for each run.
 
 ### `list` - List Benchmark Runs
 

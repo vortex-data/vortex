@@ -6,6 +6,7 @@
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from typing import Literal
 
 
 class Engine(Enum):
@@ -78,6 +79,7 @@ class RunConfig:
     label: str | None = None
     options: dict[str, str] = field(default_factory=dict)
     track_memory: bool = False
+    allocator_mode: Literal["pooled", "default", "ab"] = "pooled"
 
     def validate(self) -> list[str]:
         """Validate the configuration and return any warnings."""

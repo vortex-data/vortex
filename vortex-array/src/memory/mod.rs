@@ -24,6 +24,8 @@ mod pool;
 pub use pool::PooledHostAllocator;
 pub use pool::default_pooled_allocator_metrics_snapshot;
 
+const VORTEX_HOST_ALLOCATOR_ENV: &str = "VORTEX_HOST_ALLOCATOR";
+
 /// Mutable host buffer contract used by [`WritableHostBuffer`].
 pub trait HostBufferMut: Send + 'static {
     /// Returns the logical byte length of the buffer.
@@ -200,7 +202,14 @@ impl MemorySession {
 
 impl Default for MemorySession {
     fn default() -> Self {
-        Self::new(Arc::new(PooledHostAllocator::default()))
+        Self::new(default_host_allocator())
+    }
+}
+
+fn default_host_allocator() -> HostAllocatorRef {
+    match std::env::var(VORTEX_HOST_ALLOCATOR_ENV).as_deref() {
+        Ok("default") => Arc::new(DefaultHostAllocator),
+        _ => Arc::new(PooledHostAllocator::default()),
     }
 }
 

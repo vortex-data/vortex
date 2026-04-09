@@ -10,6 +10,9 @@
   think you've finished work.
 * run `cargo xtask public-api` to re-generate the public API lock files. Please do this every time you reach a stopping
   point or think you've finished work.
+* exception: for trivial, isolated changes that cannot affect formatting or linting (for example constant-only edits
+  with no import/signature/control-flow changes), skip full-workspace `fmt`/`clippy`/`public-api` sweeps unless
+  explicitly requested; prefer targeted validation (for example crate-level `cargo check`/tests) only.
 * you can try running
   `cargo fix --lib --allow-dirty --allow-staged && cargo clippy --fix --lib --allow-dirty --allow-staged` to
   automatically many fix minor errors.

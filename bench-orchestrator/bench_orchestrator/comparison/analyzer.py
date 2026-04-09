@@ -61,6 +61,7 @@ def extract_target_fields(df: pd.DataFrame) -> pd.DataFrame:
         if isinstance(first_target, dict):
             df["engine"] = df["target"].apply(lambda t: t.get("engine", "") if isinstance(t, dict) else "")
             df["format"] = df["target"].apply(lambda t: t.get("format", "") if isinstance(t, dict) else "")
+            df["allocator"] = df["target"].apply(lambda t: t.get("allocator", "") if isinstance(t, dict) else "")
 
     # Extract query number from name if present
     if "name" in df.columns:
@@ -196,9 +197,15 @@ def compare_within_run(
     if filter_format is not None and "format" in df.columns:
         df = df[df["format"] == filter_format]
 
-    # Find unique engine:format combinations
-    combos_df = df.groupby(["engine", "format"]).size().reset_index()[["engine", "format"]]
-    columns = [f"{row['engine']}:{row['format']}" for _, row in combos_df.iterrows()]
+    has_allocator = "allocator" in df.columns and df["allocator"].nunique(dropna=True) > 1
+
+    # Find unique engine:format[:allocator] combinations.
+    combo_keys = ["engine", "format"] + (["allocator"] if has_allocator else [])
+    combos_df = df.groupby(combo_keys).size().reset_index()[combo_keys]
+    if has_allocator:
+        columns = [f"{row['engine']}:{row['format']}:{row['allocator']}" for _, row in combos_df.iterrows()]
+    else:
+        columns = [f"{row['engine']}:{row['format']}" for _, row in combos_df.iterrows()]
 
     if len(columns) < 2:
         raise ValueError("Need at least 2 engine:format combinations to compare")
@@ -208,10 +215,17 @@ def compare_within_run(
         baseline_engine = combos_df.iloc[0]["engine"]
         baseline_format = combos_df.iloc[0]["format"]
 
-    baseline_key = f"{baseline_engine}:{baseline_format}"
+    if has_allocator:
+        baseline_allocator = combos_df.iloc[0]["allocator"]
+        baseline_key = f"{baseline_engine}:{baseline_format}:{baseline_allocator}"
+    else:
+        baseline_key = f"{baseline_engine}:{baseline_format}"
 
-    # Create engine:format column
-    df["combo"] = df["engine"] + ":" + df["format"]
+    # Create combo column.
+    if has_allocator:
+        df["combo"] = df["engine"] + ":" + df["format"] + ":" + df["allocator"]
+    else:
+        df["combo"] = df["engine"] + ":" + df["format"]
 
     # Pivot to get queries as rows, combos as columns
     pivot = df.pivot_table(index="query", columns="combo", values="value", aggfunc="mean")
@@ -268,8 +282,11 @@ def compare_runs(
     # Combine all runs
     combined: pd.DataFrame = pd.concat(processed, ignore_index=True)
 
-    # Pivot to get (query, engine, format) as rows, runs as columns
-    pivot = combined.pivot_table(index=["query", "engine", "format"], columns="run", values="value", aggfunc="mean")
+    # Pivot to get (query, engine, format[, allocator]) as rows, runs as columns.
+    index = ["query", "engine", "format"]
+    if "allocator" in combined.columns and combined["allocator"].nunique(dropna=True) > 1:
+        index.append("allocator")
+    pivot = combined.pivot_table(index=index, columns="run", values="value", aggfunc="mean")
 
     # Deduplicate labels while preserving order (two runs can share a label).
     unique_labels = list(dict.fromkeys(labels))

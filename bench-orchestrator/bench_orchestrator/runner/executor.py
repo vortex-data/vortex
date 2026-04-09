@@ -3,10 +3,12 @@
 
 """Benchmark binary execution."""
 
+import json
+import os
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import final
+from typing import Literal, final
 
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -38,6 +40,7 @@ class BenchmarkExecutor:
         samply: bool = False,
         sample_rate: int | None = None,
         tracing: bool = False,
+        allocator_mode: Literal["pooled", "default"] = "pooled",
         on_result: Callable[[str], None] | None = None,
     ) -> list[str]:
         """
@@ -52,6 +55,7 @@ class BenchmarkExecutor:
             options: Additional options (e.g., scale_factor)
             track_memory: Enable memory tracking
             show_session_metrics: Print session metrics at the end of the benchmark process
+            allocator_mode: Host allocator mode ("pooled" or "default")
             on_result: Callback for each result line (for streaming)
 
         Returns:
@@ -87,7 +91,7 @@ class BenchmarkExecutor:
             cmd = ["--"] + cmd
             cmd_prefix = ["samply", "record"]
             if sample_rate:
-                cmd = cmd_prefix + ["--rate", sample_rate] + cmd
+                cmd = cmd_prefix + ["--rate", str(sample_rate)] + cmd
             else:
                 cmd = cmd_prefix + cmd
 
@@ -97,6 +101,9 @@ class BenchmarkExecutor:
 
         if self.verbose:
             console.print(f"[dim]$ {' '.join(cmd)}[/dim]")
+
+        env = os.environ.copy()
+        env["VORTEX_HOST_ALLOCATOR"] = allocator_mode
 
         results = []
 
@@ -112,11 +119,20 @@ class BenchmarkExecutor:
                 cmd,
                 stdout=subprocess.PIPE,
                 text=True,
+                env=env,
             )
 
             for line in iter(process.stdout.readline, ""):
                 line = line.strip()
                 if line:
+                    if line.startswith("{"):
+                        try:
+                            payload = json.loads(line)
+                            if isinstance(payload.get("target"), dict):
+                                payload["target"]["allocator"] = allocator_mode
+                            line = json.dumps(payload)
+                        except json.JSONDecodeError:
+                            pass
                     results.append(line)
                     if on_result:
                         on_result(line)

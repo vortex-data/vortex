@@ -4,7 +4,7 @@
 """CLI for benchmark orchestration."""
 
 from datetime import datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Literal
 
 import pandas as pd
 import typer
@@ -85,6 +85,13 @@ def run(
     build: Annotated[bool, typer.Option("--build/--no-build", help="Build binaries before running")] = True,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Log underlying commands")] = False,
     options: Annotated[list[str] | None, typer.Option("--opt", help="Engine or benchmark specific options")] = None,
+    allocator: Annotated[
+        str,
+        typer.Option(
+            "--allocator",
+            help="Host allocator mode: pooled, default, or ab (run both and compare)",
+        ),
+    ] = "pooled",
 ) -> None:
     """Run benchmarks with specified configuration."""
     engines = parse_engines(engine)
@@ -92,6 +99,25 @@ def run(
     query_list = parse_queries(queries)
     exclude_list = parse_queries(exclude_queries)
     bench_opts = {}
+    allocator_mode_value = allocator.strip().lower()
+    if allocator_mode_value not in {"pooled", "default", "ab"}:
+        console.print("[red]--allocator must be one of: pooled, default, ab[/red]")
+        raise typer.Exit(1)
+
+    allocator_mode: Literal["pooled", "default", "ab"]
+    if allocator_mode_value == "default":
+        allocator_mode = "default"
+    elif allocator_mode_value == "pooled":
+        allocator_mode = "pooled"
+    else:
+        allocator_mode = "ab"
+
+    allocator_variants: list[Literal["pooled", "default"]]
+    if allocator_mode == "ab":
+        allocator_variants = ["default", "pooled"]
+    else:
+        allocator_variants = [allocator_mode]
+
     # Build options dict
     if options:
         for opt in options:
@@ -111,6 +137,7 @@ def run(
         label=label,
         options=bench_opts,
         track_memory=track_memory,
+        allocator_mode=allocator_mode,
     )
 
     # Validate configuration
@@ -138,6 +165,7 @@ def run(
     console.print(f"  Engines: {', '.join(e.value for e in engines)}")
     console.print(f"  Formats: {', '.join(f.value for f in formats)}")
     console.print(f"  Iterations: {iterations}")
+    console.print(f"  Allocator: {allocator_mode}")
     if label:
         console.print(f"  Label: {label}")
     console.print()
@@ -156,21 +184,27 @@ def run(
             executor = BenchmarkExecutor(binary_paths[eng], eng, verbose=verbose)
 
             try:
-                results = executor.run(
-                    benchmark=benchmark,
-                    formats=engine_formats,
-                    queries=query_list,
-                    exclude_queries=exclude_list,
-                    iterations=iterations,
-                    options=bench_opts,
-                    track_memory=track_memory,
-                    show_session_metrics=show_session_metrics,
-                    samply=samply,
-                    sample_rate=sample_rate,
-                    tracing=tracing,
-                    on_result=ctx.write_raw_json,
-                )
-                console.print(f"[green]{eng.value}: {len(results)} results[/green]")
+                total_results = 0
+                for allocator_variant in allocator_variants:
+                    results = executor.run(
+                        benchmark=benchmark,
+                        formats=engine_formats,
+                        queries=query_list,
+                        exclude_queries=exclude_list,
+                        iterations=iterations,
+                        options=bench_opts,
+                        track_memory=track_memory,
+                        show_session_metrics=show_session_metrics,
+                        samply=samply,
+                        sample_rate=sample_rate,
+                        tracing=tracing,
+                        allocator_mode=allocator_variant,
+                        on_result=ctx.write_raw_json,
+                    )
+                    total_results += len(results)
+                    console.print(f"[green]{eng.value} ({allocator_variant}): {len(results)} results[/green]")
+                if allocator_mode == "ab":
+                    console.print(f"[green]{eng.value}: {total_results} total results[/green]")
             except RuntimeError as e:
                 console.print(f"[red]{eng.value} failed: {e}[/red]")
 
@@ -325,7 +359,10 @@ def compare(
             console.print(f"[red]{e}[/red]")
             raise typer.Exit(1)
 
-        table = pivot_comparison_table(pivot, threshold, row_keys=["query", "engine", "format"])
+        row_keys = ["query", "engine", "format"]
+        if "allocator" in pivot.df.columns:
+            row_keys.append("allocator")
+        table = pivot_comparison_table(pivot, threshold, row_keys=row_keys)
         console.print(table)
         return
 

@@ -86,7 +86,7 @@ impl FileSystem for ObjectStoreFileSystem {
             Arc::clone(&self.store),
             path.into(),
             self.handle.clone(),
-            self.allocator.clone(),
+            Arc::clone(&self.allocator),
         )))
     }
 }
