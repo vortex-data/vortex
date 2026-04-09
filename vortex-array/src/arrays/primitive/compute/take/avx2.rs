@@ -592,7 +592,7 @@ mod avx2_tests {
     #[test]
     fn test_avx2_take_last_valid_index_u16() {
         let values: Vec<i64> = (0..(65535 + 1)).collect();
-        let indices: Vec<u8> = vec![65535; 20];
+        let indices: Vec<u16> = vec![65535; 20];
 
         let result = unsafe { take_avx2(&values, &indices) };
         assert_eq!(&vec![65535; indices.len()], result.as_slice());
