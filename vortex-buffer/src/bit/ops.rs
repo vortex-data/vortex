@@ -98,6 +98,57 @@ pub(super) fn bitwise_unary_op_mut<F: FnMut(u64) -> u64>(buffer: &mut BitBufferM
     }
 }
 
+/// Apply a binary operation with an owned left operand, mutating in-place when possible.
+///
+/// Tries `try_into_mut` on the left operand. If the backing storage has exclusive access,
+/// the operation is performed in-place (zero allocation). Otherwise, falls back to
+/// [`bitwise_binary_op`] which allocates a new buffer.
+pub(super) fn bitwise_binary_op_lhs_owned<F: FnMut(u64, u64) -> u64>(
+    left: BitBuffer,
+    right: &BitBuffer,
+    mut op: F,
+) -> BitBuffer {
+    assert_eq!(left.len(), right.len());
+
+    match left.try_into_mut() {
+        Ok(mut buf) => {
+            let right_slice = right.inner().as_slice();
+            let left_slice = buf.as_mut_slice();
+
+            let u64_len = left_slice.len().min(right_slice.len()) / 8;
+            let remainder = left_slice.len().min(right_slice.len()) % 8;
+
+            let mut l_ptr = left_slice.as_mut_ptr() as *mut u64;
+            let mut r_ptr = right_slice.as_ptr() as *const u64;
+            for _ in 0..u64_len {
+                let lv = unsafe { l_ptr.read_unaligned() };
+                let rv = unsafe { r_ptr.read_unaligned() };
+                unsafe { l_ptr.write_unaligned(op(lv, rv)) };
+                l_ptr = unsafe { l_ptr.add(1) };
+                r_ptr = unsafe { r_ptr.add(1) };
+            }
+
+            if remainder > 0 {
+                let l_bytes = l_ptr as *mut u8;
+                let r_bytes = r_ptr as *const u8;
+                let mut l_u64 = 0u64;
+                let mut r_u64 = 0u64;
+                for i in 0..remainder {
+                    l_u64 |= (unsafe { l_bytes.add(i).read() } as u64) << (i * 8);
+                    r_u64 |= (unsafe { r_bytes.add(i).read() } as u64) << (i * 8);
+                }
+                let result = op(l_u64, r_u64);
+                for i in 0..remainder {
+                    unsafe { l_bytes.add(i).write(((result >> (i * 8)) & 0xFF) as u8) };
+                }
+            }
+
+            buf.freeze()
+        }
+        Err(left) => bitwise_binary_op(&left, right, op),
+    }
+}
+
 pub(super) fn bitwise_binary_op<F: FnMut(u64, u64) -> u64>(
     left: &BitBuffer,
     right: &BitBuffer,

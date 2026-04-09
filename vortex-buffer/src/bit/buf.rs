@@ -25,6 +25,7 @@ use crate::bit::collect_bool_word;
 use crate::bit::count_ones::count_ones;
 use crate::bit::get_bit_unchecked;
 use crate::bit::ops::bitwise_binary_op;
+use crate::bit::ops::bitwise_binary_op_lhs_owned;
 use crate::bit::ops::bitwise_unary_op;
 use crate::bit::ops::bitwise_unary_op_copy;
 use crate::bit::select::bit_select;
@@ -430,7 +431,7 @@ impl BitOr for BitBuffer {
 
     #[inline]
     fn bitor(self, rhs: Self) -> Self::Output {
-        BitOr::bitor(&self, &rhs)
+        bitwise_binary_op_lhs_owned(self, &rhs, |a, b| a | b)
     }
 }
 
@@ -448,7 +449,7 @@ impl BitOr<&BitBuffer> for BitBuffer {
 
     #[inline]
     fn bitor(self, rhs: &BitBuffer) -> Self::Output {
-        (&self).bitor(rhs)
+        bitwise_binary_op_lhs_owned(self, rhs, |a, b| a | b)
     }
 }
 
@@ -475,7 +476,7 @@ impl BitAnd<&BitBuffer> for BitBuffer {
 
     #[inline]
     fn bitand(self, rhs: &BitBuffer) -> Self::Output {
-        (&self).bitand(rhs)
+        bitwise_binary_op_lhs_owned(self, rhs, |a, b| a & b)
     }
 }
 
@@ -484,7 +485,7 @@ impl BitAnd<BitBuffer> for BitBuffer {
 
     #[inline]
     fn bitand(self, rhs: BitBuffer) -> Self::Output {
-        (&self).bitand(&rhs)
+        bitwise_binary_op_lhs_owned(self, &rhs, |a, b| a & b)
     }
 }
 
@@ -522,7 +523,7 @@ impl BitXor<&BitBuffer> for BitBuffer {
 
     #[inline]
     fn bitxor(self, rhs: &BitBuffer) -> Self::Output {
-        (&self).bitxor(rhs)
+        bitwise_binary_op_lhs_owned(self, rhs, |a, b| a ^ b)
     }
 }
 
@@ -533,6 +534,11 @@ impl BitBuffer {
     /// making two passes over the data.
     pub fn bitand_not(&self, rhs: &BitBuffer) -> BitBuffer {
         bitwise_binary_op(self, rhs, |a, b| a & !b)
+    }
+
+    /// Owned variant of [`bitand_not`](Self::bitand_not) that can mutate in-place when possible.
+    pub fn into_bitand_not(self, rhs: &BitBuffer) -> BitBuffer {
+        bitwise_binary_op_lhs_owned(self, rhs, |a, b| a & !b)
     }
 
     /// Iterate through bits in a buffer.

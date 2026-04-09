@@ -148,7 +148,8 @@ impl LayoutReader for FlatReader {
                 array = array.slice(row_range.clone())?;
             }
 
-            let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
+            let mask_density = mask.density();
+            let array_mask = if mask_density < EXPR_EVAL_THRESHOLD {
                 // We have the choice to apply the filter or the expression first, we apply the
                 // expression first so that it can try pushing down itself and then the filter
                 // after this.
@@ -171,7 +172,7 @@ impl LayoutReader for FlatReader {
                 "Flat mask evaluation {} - {} (mask = {}) => {}",
                 name,
                 expr,
-                mask.density(),
+                mask_density,
                 array_mask.density(),
             );
 

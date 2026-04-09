@@ -172,6 +172,7 @@ impl LayoutReader for ZonedReader {
             assert_eq!(stats_mask.len(), mask.len(), "Mask length mismatch");
 
             // Intersect the masks.
+            let mask_density = mask.density();
             let mut stats_mask = mask.bitand(&stats_mask);
 
             // Forward to data child for further pruning.
@@ -184,7 +185,7 @@ impl LayoutReader for ZonedReader {
                 "Stats evaluation approx {} - {} (mask = {}) => {}",
                 name,
                 expr,
-                mask.density(),
+                mask_density,
                 stats_mask.density(),
             );
 
