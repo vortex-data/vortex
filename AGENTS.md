@@ -8,7 +8,7 @@
   time you reach a stopping point or think you've finished work.
 * run `cargo +nightly fmt --all` to format Rust source files. Please do this every time you reach a stopping point or
   think you've finished work.
-* run `cargo xtask public-api` to re-generate the public API lock files. Please do this every time you reach a stopping
+* run `./scripts/public-api.sh` to re-generate the public API lock files. Please do this every time you reach a stopping
   point or think you've finished work.
 * you can try running
   `cargo fix --lib --allow-dirty --allow-staged && cargo clippy --fix --lib --allow-dirty --allow-staged` to
