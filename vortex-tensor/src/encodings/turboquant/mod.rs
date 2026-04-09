@@ -20,8 +20,8 @@
 //! The encoding is decomposed into independently swappable layers:
 //!
 //! - **Normalization**: [`L2Denorm`] stores per-vector norms and wraps the compressed child.
-//! - **Rotation**: [`SorfTransform`] records the structured random rotation (SORF) and applies
-//!   the inverse at decode time.
+//! - **Orthogonal transform**: [`SorfTransform`] records the SORF structured orthogonal
+//!   transform and applies the inverse at decode time.
 //! - **Quantization**: `DictArray(codes, centroids)` wrapped in `FixedSizeListArray` stores
 //!   the per-coordinate codebook indices.
 //!

@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Deterministic random rotation for TurboQuant.
+//! SORF (Structured Orthogonal Random Features) orthogonal transform.
 //!
-//! The TurboQuant paper analyzes a full random orthogonal rotation. The current implementation
-//! uses a cheaper structured Walsh-Hadamard-based surrogate instead of a dense d x d matrix.
+//! Implements the SORF construction from [Yu et al. 2016][sorf-paper]: a fast structured
+//! approximation to a random orthogonal matrix using random sign diagonals interleaved with the
+//! Fast Walsh-Hadamard Transform (FWHT).
 //!
-//! Concretely, this applies three rounds of random sign diagonals interleaved with the Fast
-//! Walsh-Hadamard Transform (FWHT): `D3 * H * D2 * H * D1 * H`, followed by normalization. This is
-//! a SORF-style structured approximation to a random orthogonal matrix, chosen for O(d log d)
-//! encode/decode cost and compact serialized parameters.
+//! For `k` rounds, the transform is `D_k * H * ... * D_1 * H`, followed by normalization. The
+//! number of rounds is configurable (typically 3). Each round applies a random sign diagonal `D_i`
+//! and the Hadamard matrix `H`, giving O(d log d) cost per matrix-vector product instead of O(d^2)
+//! for a dense orthogonal matrix.
+//!
+//! [sorf-paper]: https://proceedings.neurips.cc/paper_files/paper/2016/file/53adaf494dc89ef7196d73636eb2451b-Paper.pdf
 //!
 //! The FWHT exploits the Kronecker product structure of the Hadamard matrix (`H_n = H_2 (x) H_2
 //! (x) ... (x) H_2`, with `log2(n)` factors) to compute the matrix-vector product in O(n log n)
@@ -35,9 +38,14 @@ use vortex_error::vortex_ensure;
 /// IEEE 754 sign bit mask for f32.
 const F32_SIGN_BIT: u32 = 0x8000_0000;
 
-/// A Walsh-Hadamard-based structured surrogate for a random orthogonal rotation.
-pub struct RotationMatrix {
-    /// Flat XOR masks for all `num_rounds` diagonal matrices, total length `num_rounds * padded_dim`.
+/// A Walsh-Hadamard-based structured orthogonal transform matrix.
+///
+/// All computation is done in f32. The sign diagonals are stored as IEEE 754 XOR masks on
+/// f32 bit patterns, and the Walsh-Hadamard butterfly operates on `&mut [f32]` slices.
+pub struct SorfMatrix {
+    /// Flat XOR masks for all `num_rounds` diagonal matrices, total length
+    /// `num_rounds * padded_dim`.
+    ///
     /// Indexed as `round * padded_dim + i`. `0x00000000` = multiply by +1 (no-op), `0x80000000` =
     /// multiply by -1 (flip sign bit).
     sign_masks: Vec<u32>,
@@ -49,8 +57,8 @@ pub struct RotationMatrix {
     norm_factor: f32,
 }
 
-impl RotationMatrix {
-    /// Create a new structured Walsh-Hadamard-based rotation from a deterministic seed.
+impl SorfMatrix {
+    /// Create a new structured Walsh-Hadamard-based orthogonal transform from a deterministic seed.
     pub fn try_new(seed: u64, dimension: usize, num_rounds: usize) -> VortexResult<Self> {
         vortex_ensure!(num_rounds >= 1, "num_rounds must be >= 1, got {num_rounds}");
 
@@ -62,9 +70,12 @@ impl RotationMatrix {
             sign_masks.extend(gen_random_sign_masks(&mut rng, padded_dim));
         }
 
+        // Compute in f64 for precision, then store as f32 since the WHT operates on f32 buffers.
+        // The result is always in (0, 1] for any valid padded_dim >= 2 and num_rounds >= 1, so
+        // the f64 -> f32 cast is a precision loss only -- it cannot overflow to infinity.
         #[expect(
             clippy::cast_possible_truncation,
-            reason = "Intentional f64 -> f32 truncation for normalization factor."
+            reason = "the norm factor is in (0, 1] so the f64 -> f32 cast cannot overflow"
         )]
         let norm_factor = (padded_dim as f64).powf(-(num_rounds as f64) / 2.0) as f32;
 
@@ -76,7 +87,14 @@ impl RotationMatrix {
         })
     }
 
-    /// Apply forward rotation: `output = R(input)`.
+    /// Returns the padded dimension (next power of 2 >= dim).
+    ///
+    /// All `rotate`/`inverse_rotate` buffers must be this length.
+    pub fn padded_dim(&self) -> usize {
+        self.padded_dim
+    }
+
+    /// Apply the forward orthogonal transform: `output = R(input)`.
     ///
     /// Both `input` and `output` must have length [`padded_dim()`](Self::padded_dim). The caller is
     /// responsible for zero-padding input beyond `dim` positions.
@@ -88,7 +106,7 @@ impl RotationMatrix {
         self.apply_srht(output);
     }
 
-    /// Apply inverse rotation: `output = R⁻¹(input)`.
+    /// Apply the inverse orthogonal transform: `output = R⁻¹(input)`.
     ///
     /// Both `input` and `output` must have length `padded_dim()`.
     pub fn inverse_rotate(&self, input: &[f32], output: &mut [f32]) {
@@ -99,14 +117,7 @@ impl RotationMatrix {
         self.apply_inverse_srht(output);
     }
 
-    /// Returns the padded dimension (next power of 2 >= dim).
-    ///
-    /// All rotate/inverse_rotate buffers must be this length.
-    pub fn padded_dim(&self) -> usize {
-        self.padded_dim
-    }
-
-    /// Apply the structured rotation: `D_k · H · ... · D₁ · H · x`, with normalization.
+    /// Apply the forward structured transform: `D_k · H · ... · D₁ · H · x`, with normalization.
     fn apply_srht(&self, buf: &mut [f32]) {
         for round in 0..self.num_rounds {
             let offset = round * self.padded_dim;
@@ -118,7 +129,7 @@ impl RotationMatrix {
         buf.iter_mut().for_each(|val| *val *= norm);
     }
 
-    /// Apply the inverse structured rotation.
+    /// Apply the inverse structured transform.
     ///
     /// Forward is: `norm · H · D_k · H · ... · D₁ · H`.
     /// Inverse is: `norm · D₁ · H · ... · D_k · H`.
@@ -154,7 +165,7 @@ impl RotationMatrix {
         out
     }
 
-    /// Reconstruct a [`RotationMatrix`] from unpacked `u8` 0/1 values.
+    /// Reconstruct a [`SorfMatrix`] from unpacked `u8` 0/1 values.
     ///
     /// The input must have length `num_rounds * padded_dim` with signs in inverse application
     /// order `[D_k | ... | D₁]` (as produced by [`export_inverse_signs_u8`]). Convention:
@@ -193,9 +204,11 @@ impl RotationMatrix {
             }
         }
 
+        // Same norm factor computation as `try_new`. See the comment there for why this cast
+        // cannot overflow.
         #[expect(
             clippy::cast_possible_truncation,
-            reason = "Intentional f64 -> f32 truncation for normalization factor."
+            reason = "the norm factor is in (0, 1] so the f64 -> f32 cast cannot overflow"
         )]
         let norm_factor = (padded_dim as f64).powf(-(num_rounds as f64) / 2.0) as f32;
 
@@ -212,7 +225,7 @@ impl RotationMatrix {
 fn gen_random_sign_masks(rng: &mut StdRng, len: usize) -> Vec<u32> {
     (0..len)
         .map(|_| {
-            if rng.random_bool(0.5) {
+            if rng.random::<bool>() {
                 0u32 // +1: no-op
             } else {
                 F32_SIGN_BIT // -1: flip sign bit
@@ -225,7 +238,6 @@ fn gen_random_sign_masks(rng: &mut StdRng, len: usize) -> Vec<u32> {
 ///
 /// This is branchless and auto-vectorizes into `vpxor` (x86) / `veor` (ARM). Equivalent to
 /// multiplying each element by +/-1.0, but avoids FP dependency chains.
-#[inline]
 fn apply_signs_xor(buf: &mut [f32], masks: &[u32]) {
     for (val, &mask) in buf.iter_mut().zip(masks.iter()) {
         *val = f32::from_bits(val.to_bits() ^ mask);
@@ -262,7 +274,6 @@ fn walsh_hadamard_transform(buf: &mut [f32]) {
 /// This is multiplication by the 2x2 Hadamard kernel `H_2 = [[1, 1], [1, -1]]` on each element
 /// pair. Factored into a separate function so LLVM can see the slice lengths match and
 /// auto-vectorize.
-#[inline(always)]
 fn butterfly(lo: &mut [f32], hi: &mut [f32]) {
     debug_assert_eq!(lo.len(), hi.len());
     for (a, b) in lo.iter_mut().zip(hi.iter_mut()) {
@@ -282,8 +293,8 @@ mod tests {
 
     #[test]
     fn deterministic_from_seed() -> VortexResult<()> {
-        let r1 = RotationMatrix::try_new(42, 64, 3)?;
-        let r2 = RotationMatrix::try_new(42, 64, 3)?;
+        let r1 = SorfMatrix::try_new(42, 64, 3)?;
+        let r2 = SorfMatrix::try_new(42, 64, 3)?;
         let pd = r1.padded_dim();
 
         let mut input = vec![0.0f32; pd];
@@ -315,7 +326,7 @@ mod tests {
     #[case(768, 3)]
     #[case(1024, 3)]
     fn roundtrip_exact(#[case] dim: usize, #[case] num_rounds: usize) -> VortexResult<()> {
-        let rot = RotationMatrix::try_new(42, dim, num_rounds)?;
+        let rot = SorfMatrix::try_new(42, dim, num_rounds)?;
         let padded_dim = rot.padded_dim();
 
         let mut input = vec![0.0f32; padded_dim];
@@ -351,7 +362,7 @@ mod tests {
     #[case(128, 5)]
     #[case(768, 3)]
     fn preserves_norm(#[case] dim: usize, #[case] num_rounds: usize) -> VortexResult<()> {
-        let rot = RotationMatrix::try_new(7, dim, num_rounds)?;
+        let rot = SorfMatrix::try_new(7, dim, num_rounds)?;
         let padded_dim = rot.padded_dim();
 
         let mut input = vec![0.0f32; padded_dim];
@@ -374,7 +385,7 @@ mod tests {
         Ok(())
     }
 
-    /// Verify that export -> [`from_u8_slice`] produces identical rotation output.
+    /// Verify that export -> [`from_u8_slice`] produces identical transform output.
     #[rstest]
     #[case(64, 3)]
     #[case(128, 1)]
@@ -385,11 +396,11 @@ mod tests {
         #[case] dim: usize,
         #[case] num_rounds: usize,
     ) -> VortexResult<()> {
-        let rot = RotationMatrix::try_new(42, dim, num_rounds)?;
+        let rot = SorfMatrix::try_new(42, dim, num_rounds)?;
         let padded_dim = rot.padded_dim();
 
         let signs_u8 = rot.export_inverse_signs_u8();
-        let rot2 = RotationMatrix::from_u8_slice(&signs_u8, dim, num_rounds)?;
+        let rot2 = SorfMatrix::from_u8_slice(&signs_u8, dim, num_rounds)?;
 
         let mut input = vec![0.0f32; padded_dim];
         for i in 0..dim {
@@ -400,12 +411,12 @@ mod tests {
         let mut out2 = vec![0.0f32; padded_dim];
         rot.rotate(&input, &mut out1);
         rot2.rotate(&input, &mut out2);
-        assert_eq!(out1, out2, "Forward rotation mismatch after export/import");
+        assert_eq!(out1, out2, "Forward transform mismatch after export/import");
 
         rot.inverse_rotate(&out1, &mut out2);
         let mut out3 = vec![0.0f32; padded_dim];
         rot2.inverse_rotate(&out1, &mut out3);
-        assert_eq!(out2, out3, "Inverse rotation mismatch after export/import");
+        assert_eq!(out2, out3, "Inverse transform mismatch after export/import");
 
         Ok(())
     }

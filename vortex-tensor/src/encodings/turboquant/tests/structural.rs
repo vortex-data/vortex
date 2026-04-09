@@ -231,7 +231,7 @@ fn sorf_transform_roundtrip_isolation() -> VortexResult<()> {
     use crate::encodings::turboquant::centroids::compute_centroid_boundaries;
     use crate::encodings::turboquant::centroids::find_nearest_centroid;
     use crate::encodings::turboquant::centroids::get_centroids;
-    use crate::scalar_fns::sorf_transform::RotationMatrix;
+    use crate::scalar_fns::sorf_transform::SorfMatrix;
     use crate::scalar_fns::sorf_transform::SorfOptions;
     use crate::scalar_fns::sorf_transform::SorfTransform;
 
@@ -255,8 +255,8 @@ fn sorf_transform_roundtrip_isolation() -> VortexResult<()> {
         }
     }
 
-    // Forward rotate + quantize (mimicking what turboquant_quantize_core does).
-    let rotation = RotationMatrix::try_new(seed, dim, num_rounds as usize)?;
+    // Forward transform + quantize (mimicking what turboquant_quantize_core does).
+    let rotation = SorfMatrix::try_new(seed, dim, num_rounds as usize)?;
     let padded_dim = rotation.padded_dim();
     let centroids = get_centroids(padded_dim as u32, 8)?;
     let boundaries = compute_centroid_boundaries(&centroids);

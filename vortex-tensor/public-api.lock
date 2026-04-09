@@ -386,6 +386,18 @@ pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::validity(&self, _options: &Se
 
 pub mod vortex_tensor::scalar_fns::sorf_transform
 
+pub struct vortex_tensor::scalar_fns::sorf_transform::SorfMatrix
+
+impl vortex_tensor::scalar_fns::sorf_transform::SorfMatrix
+
+pub fn vortex_tensor::scalar_fns::sorf_transform::SorfMatrix::inverse_rotate(&self, input: &[f32], output: &mut [f32])
+
+pub fn vortex_tensor::scalar_fns::sorf_transform::SorfMatrix::padded_dim(&self) -> usize
+
+pub fn vortex_tensor::scalar_fns::sorf_transform::SorfMatrix::rotate(&self, input: &[f32], output: &mut [f32])
+
+pub fn vortex_tensor::scalar_fns::sorf_transform::SorfMatrix::try_new(seed: u64, dimension: usize, num_rounds: usize) -> vortex_error::VortexResult<Self>
+
 pub struct vortex_tensor::scalar_fns::sorf_transform::SorfOptions
 
 pub vortex_tensor::scalar_fns::sorf_transform::SorfOptions::dimension: u32

@@ -35,7 +35,7 @@ use crate::encodings::turboquant::centroids::compute_centroid_boundaries;
 use crate::encodings::turboquant::centroids::find_nearest_centroid;
 use crate::encodings::turboquant::centroids::get_centroids;
 use crate::scalar_fns::l2_denorm::validate_l2_normalized_rows;
-use crate::scalar_fns::sorf_transform::RotationMatrix;
+use crate::scalar_fns::sorf_transform::SorfMatrix;
 use crate::scalar_fns::sorf_transform::SorfOptions;
 use crate::scalar_fns::sorf_transform::SorfTransform;
 use crate::vector::AnyVector;
@@ -118,7 +118,7 @@ fn turboquant_quantize_core(
         usize::try_from(fsl.list_size()).vortex_expect("u32 FixedSizeList dimension fits in usize");
     let num_rows = fsl.len();
 
-    let rotation = RotationMatrix::try_new(seed, dimension, num_rounds as usize)?;
+    let rotation = SorfMatrix::try_new(seed, dimension, num_rounds as usize)?;
     let padded_dim = rotation.padded_dim();
     let padded_dim_u32 =
         u32::try_from(padded_dim).vortex_expect("padded_dim stays representable as u32");

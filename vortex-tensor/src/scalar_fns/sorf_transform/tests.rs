@@ -27,7 +27,7 @@ use vortex_session::VortexSession;
 
 use super::SorfOptions;
 use super::SorfTransform;
-use super::rotation::RotationMatrix;
+use super::rotation::SorfMatrix;
 use crate::encodings::turboquant::centroids::compute_centroid_boundaries;
 use crate::encodings::turboquant::centroids::find_nearest_centroid;
 use crate::encodings::turboquant::centroids::get_centroids;
@@ -35,7 +35,7 @@ use crate::encodings::turboquant::centroids::get_centroids;
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
-/// Build a unit-normalized input vector array and forward-rotate + quantize it, returning
+/// Build a unit-normalized input vector array and forward-transform + quantize it, returning
 /// `(input_f32, FSL(Dict(codes, centroids)), padded_dim)`.
 ///
 /// This mimics what the TurboQuant compression pipeline does, but directly, so we can test
@@ -62,7 +62,7 @@ fn forward_rotate_and_quantize(
         }
     }
 
-    let rotation = RotationMatrix::try_new(seed, dim, num_rounds)?;
+    let rotation = SorfMatrix::try_new(seed, dim, num_rounds)?;
     let padded_dim = rotation.padded_dim();
     let centroids = get_centroids(padded_dim as u32, bit_width)?;
     let boundaries = compute_centroid_boundaries(&centroids);

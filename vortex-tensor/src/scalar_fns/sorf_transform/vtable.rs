@@ -35,10 +35,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use super::SorfOptions;
 use super::SorfTransform;
-use super::rotation::RotationMatrix;
+use super::rotation::SorfMatrix;
 use crate::vector::Vector;
 
 impl ScalarFnVTable for SorfTransform {
@@ -78,9 +79,10 @@ impl ScalarFnVTable for SorfTransform {
         };
 
         let expected_padded = options.dimension.next_power_of_two();
-        vortex_ensure!(
-            *padded_dim == expected_padded,
-            "SorfTransform child list_size must be {expected_padded} (padded_dim), got {padded_dim}"
+        vortex_ensure_eq!(
+            *padded_dim,
+            expected_padded,
+            "SorfTransform child list_size was wrong"
         );
 
         // The child elements can be any type that executes to f32 (e.g. Dict<u8, f32>).
@@ -89,7 +91,6 @@ impl ScalarFnVTable for SorfTransform {
             "SorfTransform child element dtype must not be an extension type, got {elem_dtype}"
         );
 
-        // Build the output Vector extension dtype: Ext<Vector, FSL<element_ptype, dimension>>.
         let output_elem_dtype = DType::Primitive(options.element_ptype, Nullability::NonNullable);
         let storage_dtype =
             DType::FixedSizeList(Arc::new(output_elem_dtype), options.dimension, *nullability);
@@ -110,6 +111,7 @@ impl ScalarFnVTable for SorfTransform {
         if num_rows == 0 {
             let child_nullability = args.get(0)?.dtype().nullability();
             let validity = Validity::from(child_nullability);
+
             return match_each_float_ptype!(options.element_ptype, |T| {
                 let elements = PrimitiveArray::empty::<T>(Nullability::NonNullable);
                 let fsl = FixedSizeListArray::try_new(
@@ -124,7 +126,7 @@ impl ScalarFnVTable for SorfTransform {
             });
         }
 
-        // Execute the child to get the FSL of dequantized (or raw) f32 coordinates.
+        // Execute the child to get the FSL of dequantized (or raw) float coordinates.
         let child_fsl: FixedSizeListArray = args.get(0)?.execute(ctx)?;
         let child_validity = child_fsl.as_ref().validity()?;
         let padded_dim =
@@ -132,12 +134,12 @@ impl ScalarFnVTable for SorfTransform {
 
         // Get flat f32 elements from the executed FSL.
         let elements_prim: PrimitiveArray = child_fsl.elements().clone().execute(ctx)?;
-        let f32_elements = to_f32_slice(&elements_prim)?;
+        let f32_elements = sorf_to_f32_slice(&elements_prim)?;
 
-        // Reconstruct the rotation matrix from the seed.
-        let rotation = RotationMatrix::try_new(options.seed, dim, options.num_rounds as usize)?;
+        // Reconstruct the orthogonal transform matrix from the seed.
+        let rotation = SorfMatrix::try_new(options.seed, dim, options.num_rounds as usize)?;
 
-        // Inverse rotate each row, truncate to original dimension, cast to target type.
+        // Inverse transform each row, truncate to original dimension, cast to target type.
         match_each_float_ptype!(options.element_ptype, |T| {
             inverse_rotate_typed::<T>(
                 &f32_elements,
@@ -175,15 +177,22 @@ fn float_from_f32<T: Float + FromPrimitive>(v: f32) -> T {
     FromPrimitive::from_f32(v).vortex_expect("f32-to-float conversion is infallible")
 }
 
-/// Convert executed primitive elements to an owned `Vec<f32>`.
+/// Cast executed primitive elements to an owned `Vec<f32>` for the SORF transform.
 ///
-/// All rotation happens in f32. f16 is upcast; f64 is truncated to f32 precision.
-fn to_f32_slice(prim: &PrimitiveArray) -> VortexResult<Vec<f32>> {
+/// [`SorfMatrix`] operates exclusively on f32 buffers, so all input types must be cast to f32
+/// before the transform can be applied.
+///
+/// - f16: losslessly widened to f32.
+/// - f32: identity (zero-copy into a new vec).
+/// - f64: truncated to f32 precision. Values outside f32 range become +/- infinity. This is
+///   acceptable because the SORF transform is documented as f32-only; callers that supply f64
+///   input are opting in to the precision loss.
+fn sorf_to_f32_slice(prim: &PrimitiveArray) -> VortexResult<Vec<f32>> {
     match prim.ptype() {
         PType::F16 => Ok(prim
             .as_slice::<half::f16>()
             .iter()
-            .map(|&v| f32::from(v))
+            .map(|&v| f32::from(v)) // Upcast.
             .collect()),
         PType::F32 => Ok(prim.as_slice::<f32>().to_vec()),
         PType::F64 => Ok(prim
@@ -192,7 +201,8 @@ fn to_f32_slice(prim: &PrimitiveArray) -> VortexResult<Vec<f32>> {
             .map(|&v| {
                 #[expect(
                     clippy::cast_possible_truncation,
-                    reason = "intentional f64 -> f32 truncation for rotation"
+                    reason = "f64 values outside f32 range become infinity, which is acceptable \
+                              because the SORF transform operates in f32"
                 )]
                 let v = v as f32;
                 v
@@ -202,10 +212,11 @@ fn to_f32_slice(prim: &PrimitiveArray) -> VortexResult<Vec<f32>> {
     }
 }
 
-/// Inverse rotate + truncate + cast to T, then build the output Vector extension array.
+/// Apply the inverse SORF transform on f32 data, truncate to the original dimension, cast each
+/// element to `T`, and build the output [`Vector`] extension array.
 fn inverse_rotate_typed<T: NativePType + Float + FromPrimitive>(
     f32_elements: &[f32],
-    rotation: &RotationMatrix,
+    rotation: &SorfMatrix,
     dim: usize,
     padded_dim: usize,
     num_rows: usize,
@@ -221,7 +232,8 @@ fn inverse_rotate_typed<T: NativePType + Float + FromPrimitive>(
         rotation.inverse_rotate(row_data, &mut unrotated);
 
         for idx in 0..dim {
-            output.push(float_from_f32::<T>(unrotated[idx]));
+            // SAFETY: We allocated enough memory above.
+            unsafe { output.push_unchecked(float_from_f32::<T>(unrotated[idx])) };
         }
     }
 
