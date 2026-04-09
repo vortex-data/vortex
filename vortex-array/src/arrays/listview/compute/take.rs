@@ -30,7 +30,7 @@ const REBUILD_DENSITY_THRESHOLD: f32 = 0.1;
 /// We always take the `offsets` and `sizes` at the requested indices. Whether we also rebuild
 /// the `elements` buffer depends on the selection density:
 ///
-/// - **Dense selections** (above [`REBUILD_DENSITY_THRESHOLD`]): reuse the original `elements`
+/// - **Dense selections** (above `REBUILD_DENSITY_THRESHOLD`): reuse the original `elements`
 ///   buffer as-is. This is the cheap, read-optimized path. We may keep some unreferenced
 ///   elements in memory, but this is acceptable since we're not copying the data.
 /// - **Sparse selections**: rebuild via [`ListViewRebuildMode::MakeZeroCopyToList`] so the
