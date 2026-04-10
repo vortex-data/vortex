@@ -44,7 +44,7 @@ use crate::Pco;
 fn test_compress_decompress() {
     let data: Vec<i32> = (0..200).collect();
     let array = PrimitiveArray::from_iter(data.clone());
-    let compressed = Pco::from_primitive(&array, 3, 0).unwrap();
+    let compressed = Pco::from_primitive(array.as_view(), 3, 0).unwrap();
     // this data should be compressible
     assert!(compressed.pages.len() < array.into_array().nbytes() as usize);
 
@@ -71,7 +71,7 @@ fn test_compress_decompress() {
 #[test]
 fn test_compress_decompress_small() {
     let array = PrimitiveArray::from_option_iter([None, Some(1)]);
-    let compressed = Pco::from_primitive(&array, 3, 0).unwrap();
+    let compressed = Pco::from_primitive(array.as_view(), 3, 0).unwrap();
 
     let expected = array.into_array();
     assert_arrays_eq!(compressed, expected);
@@ -89,7 +89,7 @@ fn test_compress_decompress_small() {
 fn test_empty() {
     let data: Vec<i32> = vec![];
     let array = PrimitiveArray::from_iter(data.clone());
-    let compressed = Pco::from_primitive(&array, 3, 100).unwrap();
+    let compressed = Pco::from_primitive(array.as_view(), 3, 100).unwrap();
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let unsliced_validity = child_to_validity(
         &compressed.as_ref().slots()[0],
@@ -116,7 +116,7 @@ fn test_validity_and_multiple_chunks_and_pages() {
     let compressed = Pco::try_new(
         array.dtype().clone(),
         PcoData::from_primitive_with_values_per_chunk(
-            &array,
+            array.as_view(),
             compression_level,
             values_per_chunk,
             values_per_page,
@@ -163,7 +163,7 @@ fn test_validity_vtable() {
         Buffer::from(data),
         Validity::Array(BoolArray::from_iter(mask_bools.clone()).into_array()),
     );
-    let compressed = Pco::from_primitive(&array, 3, 0).unwrap();
+    let compressed = Pco::from_primitive(array.as_view(), 3, 0).unwrap();
     assert_eq!(
         compressed.as_array().validity_mask().unwrap(),
         Mask::from_iter(mask_bools)
@@ -177,7 +177,7 @@ fn test_validity_vtable() {
 #[test]
 fn test_serde() -> VortexResult<()> {
     let data: PrimitiveArray = (0i32..1_000_000).collect();
-    let pco = Pco::from_primitive(&data, 3, 100)?.into_array();
+    let pco = Pco::from_primitive(data.as_view(), 3, 100)?.into_array();
 
     let context = ArrayContext::empty();
 

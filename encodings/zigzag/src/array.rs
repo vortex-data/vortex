@@ -282,7 +282,7 @@ mod test {
         let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10]
             .into_array()
             .to_primitive();
-        let zigzag = zigzag_encode(array.clone())?;
+        let zigzag = zigzag_encode(array.as_view())?;
 
         assert_eq!(
             zigzag.statistics().compute_max::<i32>(),

@@ -3538,6 +3538,8 @@ pub fn vortex_array::arrays::patched::PatchedSlotsView<'a>::fmt(&self, f: &mut c
 
 impl<'a> core::marker::Copy for vortex_array::arrays::patched::PatchedSlotsView<'a>
 
+pub static vortex_array::arrays::patched::USE_EXPERIMENTAL_PATCHES: std::sync::lazy_lock::LazyLock<bool>
+
 pub trait vortex_array::arrays::patched::PatchedArrayExt: vortex_array::arrays::patched::PatchedArraySlotsExt
 
 pub fn vortex_array::arrays::patched::PatchedArrayExt::lane_range(&self, chunk: usize, lane: usize) -> vortex_error::VortexResult<core::ops::range::Range<usize>>
@@ -13573,8 +13575,6 @@ pub mod vortex_array::patches
 pub struct vortex_array::patches::Patches
 
 impl vortex_array::patches::Patches
-
-pub unsafe fn vortex_array::patches::Patches::apply_to_buffer<P: vortex_array::dtype::NativePType>(&self, buffer: &mut [P], validity: &mut vortex_mask::mask_mut::MaskMut, ctx: &mut vortex_array::ExecutionCtx)
 
 pub fn vortex_array::patches::Patches::array_len(&self) -> usize
 

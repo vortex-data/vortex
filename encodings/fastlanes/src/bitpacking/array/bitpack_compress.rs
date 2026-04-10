@@ -4,7 +4,9 @@
 use fastlanes::BitPacking;
 use itertools::Itertools;
 use num_traits::PrimInt;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::buffer::BufferHandle;
@@ -29,7 +31,7 @@ use crate::BitPackedArray;
 use crate::bitpack_decompress;
 
 pub fn bitpack_to_best_bit_width(array: &PrimitiveArray) -> VortexResult<BitPackedArray> {
-    let bit_width_freq = bit_width_histogram(array)?;
+    let bit_width_freq = bit_width_histogram(array.as_view())?;
     let best_bit_width = find_best_bit_width(array.ptype(), &bit_width_freq)?;
     bitpack_encode(array, best_bit_width, Some(&bit_width_freq))
 }
@@ -42,7 +44,7 @@ pub fn bitpack_encode(
 ) -> VortexResult<BitPackedArray> {
     let bit_width_freq = match bit_width_freq {
         Some(freq) => freq,
-        None => &bit_width_histogram(array)?,
+        None => &bit_width_histogram(array.as_view())?,
     };
 
     // Check array contains no negative values.
@@ -289,18 +291,18 @@ where
     }
 }
 
-pub fn bit_width_histogram(array: &PrimitiveArray) -> VortexResult<Vec<usize>> {
+pub fn bit_width_histogram(array: ArrayView<'_, Primitive>) -> VortexResult<Vec<usize>> {
     match_each_integer_ptype!(array.ptype(), |P| { bit_width_histogram_typed::<P>(array) })
 }
 
 fn bit_width_histogram_typed<T: NativePType + PrimInt>(
-    array: &PrimitiveArray,
+    array: ArrayView<'_, Primitive>,
 ) -> VortexResult<Vec<usize>> {
     let bit_width: fn(T) -> usize =
         |v: T| (8 * size_of::<T>()) - (PrimInt::leading_zeros(v) as usize);
 
     let mut bit_widths = vec![0usize; size_of::<T>() * 8 + 1];
-    match array.validity_mask()?.bit_buffer() {
+    match array.validity_mask().bit_buffer() {
         AllOr::All => {
             // All values are valid.
             for v in array.as_slice::<T>() {

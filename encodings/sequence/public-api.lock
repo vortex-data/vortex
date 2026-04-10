@@ -124,6 +124,6 @@ pub vortex_sequence::SequenceDataParts::ptype: vortex_array::dtype::ptype::PType
 
 pub fn vortex_sequence::initialize(session: &vortex_session::VortexSession)
 
-pub fn vortex_sequence::sequence_encode(primitive_array: &vortex_array::arrays::primitive::vtable::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+pub fn vortex_sequence::sequence_encode(primitive_array: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
 pub type vortex_sequence::SequenceArray = vortex_array::array::typed::Array<vortex_sequence::Sequence>
