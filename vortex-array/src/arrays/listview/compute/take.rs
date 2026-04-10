@@ -29,7 +29,7 @@ use crate::scalar::Scalar;
 // TODO(connor)[ListView]: Ideally, we would only rebuild after all `take`s and `filter`
 //  compute functions have run, at the "top" of the operator tree. However, we cannot do this
 //  right now, so we will just rebuild every time (similar to [`ListArray`]).
-pub const REBUILD_DENSITY_THRESHOLD: f32 = 0.1;
+pub(crate) const REBUILD_DENSITY_THRESHOLD: f32 = 0.1;
 
 /// Metadata-only take for [`ListViewArray`].
 impl TakeReduce for ListView {
