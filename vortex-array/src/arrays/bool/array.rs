@@ -97,7 +97,7 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
     }
 
     fn to_bit_buffer(&self) -> BitBuffer {
-        let buffer = self.bits.as_host().clone();
+        let buffer = self.bits.to_host_sync();
         BitBuffer::new_with_offset(buffer, self.as_ref().len(), self.offset)
     }
 
@@ -349,11 +349,19 @@ impl IntoArray for BitBufferMut {
 
 #[cfg(test)]
 mod tests {
+    use std::any::Any;
     use std::iter::once;
     use std::iter::repeat_n;
+    use std::ops::Range;
+    use std::sync::Arc;
 
+    use futures::FutureExt;
+    use futures::future::BoxFuture;
+    use vortex_buffer::Alignment;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::BitBufferMut;
+    use vortex_buffer::ByteBuffer;
+    use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
@@ -363,8 +371,56 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::bool::BoolArrayExt;
     use crate::assert_arrays_eq;
+    use crate::buffer::BufferHandle;
+    use crate::buffer::DeviceBuffer;
     use crate::patches::Patches;
     use crate::validity::Validity;
+    use crate::VortexResult;
+
+    #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+    struct TestDeviceBuffer(ByteBuffer);
+
+    impl DeviceBuffer for TestDeviceBuffer {
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+
+        fn len(&self) -> usize {
+            self.0.len()
+        }
+
+        fn alignment(&self) -> Alignment {
+            self.0.alignment()
+        }
+
+        fn copy_to_host_sync(&self, alignment: Alignment) -> VortexResult<ByteBuffer> {
+            Ok(self.0.clone().aligned(alignment))
+        }
+
+        fn copy_to_host(
+            &self,
+            alignment: Alignment,
+        ) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
+            let buffer = self.copy_to_host_sync(alignment)?;
+            Ok(async move { Ok(buffer) }.boxed())
+        }
+
+        fn slice(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer> {
+            Arc::new(Self(self.0.slice(range)))
+        }
+
+        fn copy_ranges(&self, ranges: &[Range<usize>]) -> VortexResult<Arc<dyn DeviceBuffer>> {
+            let mut buffer = ByteBufferMut::empty_aligned(self.0.alignment());
+            for range in ranges {
+                buffer.extend_from_slice(&self.0[range.clone()]);
+            }
+            Ok(Arc::new(Self(buffer.freeze())))
+        }
+
+        fn aligned(self: Arc<Self>, alignment: Alignment) -> VortexResult<Arc<dyn DeviceBuffer>> {
+            Ok(Arc::new(Self(self.0.clone().aligned(alignment))))
+        }
+    }
 
     #[test]
     fn bool_array() {
@@ -476,5 +532,20 @@ mod tests {
         let arr = BoolArray::from(BitBuffer::new_set(15));
         let sliced = arr.slice(4..15).unwrap();
         assert_arrays_eq!(sliced, BoolArray::from_iter([true; 11]));
+    }
+
+    #[test]
+    fn slice_device_backed_bool_array_materializes_bits() {
+        let (offset, len, bits) = BitBuffer::from_iter([true, false, true, false, true, true])
+            .into_inner();
+        let array = BoolArray::new_handle(
+            BufferHandle::new_device(Arc::new(TestDeviceBuffer(bits))),
+            offset,
+            len,
+            Validity::NonNullable,
+        );
+
+        let sliced = array.slice(1..5).unwrap();
+        assert_arrays_eq!(sliced, BoolArray::from_iter([false, true, false, true]));
     }
 }
