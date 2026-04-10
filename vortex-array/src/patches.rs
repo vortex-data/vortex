@@ -6,28 +6,23 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Range;
 
-use itertools::Itertools;
 use num_traits::NumCast;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
-use vortex_mask::MaskMut;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
-use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::bool::BoolArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -868,59 +863,6 @@ impl Patches {
         }))
     }
 
-    /// Apply patches to a mutable buffer and validity mask.
-    ///
-    /// This method applies the patch values to the given buffer at the positions specified by the
-    /// patch indices. For non-null patch values, it updates the buffer and marks the position as
-    /// valid. For null patch values, it marks the position as invalid.
-    ///
-    /// # Safety
-    ///
-    /// - All patch indices after offset adjustment must be valid indices into the buffer.
-    /// - The buffer and validity mask must have the same length.
-    pub unsafe fn apply_to_buffer<P: NativePType>(
-        &self,
-        buffer: &mut [P],
-        validity: &mut MaskMut,
-        ctx: &mut ExecutionCtx,
-    ) {
-        let patch_indices = self
-            .indices
-            .clone()
-            .execute::<PrimitiveArray>(ctx)
-            .vortex_expect("patch indices must be convertible to PrimitiveArray");
-        let patch_values = self
-            .values
-            .clone()
-            .execute::<PrimitiveArray>(ctx)
-            .vortex_expect("patch values must be convertible to PrimitiveArray");
-        let patches_validity = patch_values
-            .validity()
-            .vortex_expect("patch values validity should be derivable");
-
-        let patch_values_slice = patch_values.as_slice::<P>();
-        match_each_unsigned_integer_ptype!(patch_indices.ptype(), |I| {
-            let patch_indices_slice = patch_indices.as_slice::<I>();
-
-            // SAFETY:
-            // - `Patches` invariant guarantees indices are sorted and within array bounds.
-            // - `patch_indices` and `patch_values` have equal length (from `Patches` invariant).
-            // - `buffer` and `validity` have equal length (precondition).
-            // - All patch indices are valid after offset adjustment (precondition).
-            unsafe {
-                apply_patches_to_buffer_inner(
-                    buffer,
-                    validity,
-                    patch_indices_slice,
-                    self.offset,
-                    patch_values_slice,
-                    &patches_validity,
-                    ctx,
-                );
-            }
-        });
-    }
-
     pub fn map_values<F>(self, f: F) -> VortexResult<Self>
     where
         F: FnOnce(ArrayRef) -> VortexResult<ArrayRef>,
@@ -942,82 +884,6 @@ impl Patches {
             chunk_offsets: self.chunk_offsets,
             offset_within_chunk: self.offset_within_chunk,
         })
-    }
-}
-
-/// Helper function to apply patches to a buffer.
-///
-/// # Safety
-///
-/// - All indices in `patch_indices` after subtracting `patch_offset` must be valid indices
-///   into both `buffer` and `validity`.
-/// - `patch_indices` must be sorted in ascending order.
-/// - `patch_indices` and `patch_values` must have the same length.
-/// - `buffer` and `validity` must have the same length.
-unsafe fn apply_patches_to_buffer_inner<P, I>(
-    buffer: &mut [P],
-    validity: &mut MaskMut,
-    patch_indices: &[I],
-    patch_offset: usize,
-    patch_values: &[P],
-    patches_validity: &Validity,
-    ctx: &mut ExecutionCtx,
-) where
-    P: NativePType,
-    I: UnsignedPType,
-{
-    debug_assert!(!patch_indices.is_empty());
-    debug_assert_eq!(patch_indices.len(), patch_values.len());
-    debug_assert_eq!(buffer.len(), validity.len());
-
-    match patches_validity {
-        Validity::NonNullable | Validity::AllValid => {
-            // All patch values are valid, apply them all.
-            for (&i, &value) in patch_indices.iter().zip_eq(patch_values) {
-                let index = i.as_() - patch_offset;
-
-                // SAFETY: `index` is valid because caller guarantees all patch indices are within
-                // bounds after offset adjustment.
-                unsafe {
-                    validity.set_unchecked(index);
-                }
-                buffer[index] = value;
-            }
-        }
-        Validity::AllInvalid => {
-            // All patch values are null, just mark positions as invalid.
-            for &i in patch_indices {
-                let index = i.as_() - patch_offset;
-
-                // SAFETY: `index` is valid because caller guarantees all patch indices are within
-                // bounds after offset adjustment.
-                unsafe {
-                    validity.unset_unchecked(index);
-                }
-            }
-        }
-        Validity::Array(array) => {
-            // Some patch values may be null, check each one.
-            let bool_array = array
-                .clone()
-                .execute::<BoolArray>(ctx)
-                .vortex_expect("validity array must be convertible to BoolArray");
-            let mask = bool_array.to_bit_buffer();
-            for (patch_idx, (&i, &value)) in patch_indices.iter().zip_eq(patch_values).enumerate() {
-                let index = i.as_() - patch_offset;
-
-                // SAFETY: `index` and `patch_idx` are valid because caller guarantees all patch
-                // indices are within bounds after offset adjustment.
-                unsafe {
-                    if mask.value_unchecked(patch_idx) {
-                        buffer[index] = value;
-                        validity.set_unchecked(index);
-                    } else {
-                        validity.unset_unchecked(index);
-                    }
-                }
-            }
-        }
     }
 }
 
