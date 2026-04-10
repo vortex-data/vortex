@@ -28,43 +28,35 @@ use crate::v2::FileStatsLayoutReader;
 /// A builder that discovers multiple Vortex files from glob patterns and constructs a
 /// [`MultiLayoutDataSource`] to scan them as a single data source.
 ///
-/// The primary interface is [`Self::with_glob`], which accepts a glob
-/// pattern. For non-local filesystems (S3, GCS, etc.), callers must provide a
-/// [`FileSystemRef`] via [`Self::with_filesystem`] before calling [`Self::with_glob`].
-///
-/// Multiple globs can be added, each potentially using a different filesystem by calling
-/// [`Self::with_filesystem`] before each [`Self::with_glob`] call.
+/// The primary interface is [`Self::with_glob`], which accepts a glob pattern and an optional
+/// filesystem. For non-local filesystems (S3, GCS, etc.), callers must provide a [`FileSystemRef`].
+/// For local files, pass `None` and a local filesystem will be created automatically.
 ///
 /// # Examples
 ///
 /// ```ignore
 /// // Local files — filesystem is auto-created:
 /// let ds = MultiFileDataSource::new(session)
-///     .with_glob("/data/warehouse/*.vortex")
+///     .with_glob("/data/warehouse/*.vortex", None)
 ///     .build()
 ///     .await?;
 ///
 /// // S3 — caller provides the filesystem:
 /// let ds = MultiFileDataSource::new(session)
-///     .with_filesystem(s3_fs)
-///     .with_glob("prefix/*.vortex")
+///     .with_glob("prefix/*.vortex", Some(s3_fs))
 ///     .build()
 ///     .await?;
 ///
 /// // Mixed filesystems — multiple globs with different filesystems:
 /// let ds = MultiFileDataSource::new(session)
-///     .with_filesystem(s3_fs)
-///     .with_glob("bucket-a/*.vortex")
-///     .with_glob("bucket-b/*.vortex")
-///     .with_filesystem(gcs_fs)
-///     .with_glob("gcs-bucket/*.vortex")
+///     .with_glob("bucket-a/*.vortex", Some(s3_fs.clone()))
+///     .with_glob("bucket-b/*.vortex", Some(s3_fs))
+///     .with_glob("gcs-bucket/*.vortex", Some(gcs_fs))
 ///     .build()
 ///     .await?;
 /// ```
 pub struct MultiFileDataSource {
     session: VortexSession,
-    /// The current filesystem to use for subsequent globs.
-    current_fs: Option<FileSystemRef>,
     /// List of (glob, optional filesystem) pairs to resolve.
     /// When the filesystem is None, a local filesystem will be created in build().
     glob_sources: Vec<(String, Option<FileSystemRef>)>,
@@ -76,7 +68,6 @@ impl MultiFileDataSource {
     pub fn new(session: VortexSession) -> Self {
         Self {
             session,
-            current_fs: None,
             glob_sources: Vec::new(),
             open_options_fn: Arc::new(|opts| opts),
         }
@@ -84,22 +75,11 @@ impl MultiFileDataSource {
 
     /// Add a path glob for file discovery.
     ///
-    /// This path should be relative to the filesystem's base URL. If no filesystem has been
-    /// set via [`Self::with_filesystem`], a local filesystem will be created automatically
-    /// when [`Self::build`] is called.
-    pub fn with_glob(mut self, glob: impl Into<String>) -> Self {
+    /// The glob path should be relative to the filesystem's base URL. Pass `None` for the
+    /// filesystem to use the local filesystem (auto-created in [`Self::build`]).
+    pub fn with_glob(mut self, glob: impl Into<String>, fs: Option<FileSystemRef>) -> Self {
         let glob_str = glob.into().trim_start_matches('/').to_string();
-        self.glob_sources.push((glob_str, self.current_fs.clone()));
-        self
-    }
-
-    /// Set the filesystem to use for subsequent globs.
-    ///
-    /// This filesystem will be used for all globs added via [`Self::with_glob`] until
-    /// a new filesystem is set. For `file://` or bare path URLs, a local filesystem
-    /// is created automatically if none is provided.
-    pub fn with_filesystem(mut self, fs: FileSystemRef) -> Self {
-        self.current_fs = Some(fs);
+        self.glob_sources.push((glob_str, fs));
         self
     }
 

@@ -129,21 +129,12 @@ fn bind_multi_file_scan(
     RUNTIME.block_on(async {
         let mut builder = MultiFileDataSource::new(SESSION.clone());
 
-        // Track the current base URL to avoid redundant filesystem resolution.
-        let mut current_base_url: Option<Url> = None;
-
         for glob_url in &glob_urls {
             let mut base_url = glob_url.clone();
             base_url.set_path("");
 
-            // Only resolve a new filesystem if the base URL changed.
-            if current_base_url.as_ref() != Some(&base_url) {
-                let fs = resolve_filesystem(&base_url, ctx)?;
-                builder = builder.with_filesystem(fs);
-                current_base_url = Some(base_url);
-            }
-
-            builder = builder.with_glob(glob_url.path());
+            let fs = resolve_filesystem(&base_url, ctx)?;
+            builder = builder.with_glob(glob_url.path(), Some(fs));
         }
 
         let ds = builder.build().await?;
