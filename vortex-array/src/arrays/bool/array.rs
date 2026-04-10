@@ -375,7 +375,7 @@ mod tests {
     use crate::buffer::DeviceBuffer;
     use crate::patches::Patches;
     use crate::validity::Validity;
-    use crate::VortexResult;
+    use vortex_error::VortexResult;
 
     #[derive(Clone, Debug, PartialEq, Eq, Hash)]
     struct TestDeviceBuffer(ByteBuffer);
