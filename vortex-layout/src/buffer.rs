@@ -289,8 +289,10 @@ impl LazyBufferHandle {
     /// applied.
     pub async fn materialize(&self) -> VortexResult<BufferHandle> {
         if let Some(df) = &self.deferred_filter {
-            // Decision point: if the filter selects most rows, just read all.
-            if df.mask.true_count() == df.mask.len() {
+            // If the filter selects more than 60% of rows, just read the whole
+            // base selection — computing slices and issuing sparse reads is not
+            // worth it.
+            if df.mask.true_count() * 10 >= df.mask.len() * 6 {
                 return self.materialize_selection(&self.selection).await;
             }
             let resolved = self.resolve_filter();
