@@ -120,6 +120,8 @@ pub struct MaterializedStage {
     pub source: SourceOp,
     /// Chain of element-wise scalar operations applied after the source (e.g. frame-of-reference, zigzag, ALP).
     pub scalar_ops: Vec<ScalarOp>,
+    /// Device pointer to packed source patches (0 = no patches).
+    pub patches_ptr: u64,
 }
 
 impl MaterializedStage {
@@ -130,6 +132,7 @@ impl MaterializedStage {
         source_ptype: PTypeTag,
         source: SourceOp,
         scalar_ops: &[ScalarOp],
+        patches_ptr: u64,
     ) -> Self {
         Self {
             input_ptr,
@@ -138,6 +141,7 @@ impl MaterializedStage {
             source_ptype,
             source,
             scalar_ops: scalar_ops.to_vec(),
+            patches_ptr,
         }
     }
 }
@@ -154,6 +158,8 @@ pub struct ParsedStage {
     pub source: SourceOp,
     pub num_scalar_ops: u8,
     pub scalar_ops: Vec<ScalarOp>,
+    /// Device pointer to packed source patches (0 = no patches).
+    pub patches_ptr: u64,
 }
 
 /// A dispatch plan serialized as a packed byte buffer.
@@ -220,6 +226,7 @@ impl CudaDispatchPlan {
                 source: stage.source,
                 num_scalar_ops: stage.scalar_ops.len() as u8,
                 source_ptype: stage.source_ptype,
+                patches_ptr: stage.patches_ptr,
             };
             buffer.extend_from_slice(&as_bytes(&packed_stage));
             for op in &stage.scalar_ops {
@@ -291,6 +298,7 @@ impl CudaDispatchPlan {
             source: ps.source,
             num_scalar_ops: ps.num_scalar_ops,
             scalar_ops,
+            patches_ptr: ps.patches_ptr,
         }
     }
 }
@@ -580,6 +588,7 @@ mod tests {
                 PTypeTag_PTYPE_U32,
                 SourceOp::bitunpack(bit_width, 0),
                 &scalar_ops,
+                0,
             )],
             PTypeTag_PTYPE_U32,
         );
@@ -605,6 +614,7 @@ mod tests {
                     PTypeTag_PTYPE_U32,
                     SourceOp::bitunpack(4, 0),
                     &[ScalarOp::frame_of_ref(10, PTypeTag_PTYPE_U32)],
+                    0,
                 ),
                 MaterializedStage::new(
                     0xBBBB,
@@ -616,6 +626,7 @@ mod tests {
                         ScalarOp::frame_of_ref(42, PTypeTag_PTYPE_U32),
                         ScalarOp::dict(0, PTypeTag_PTYPE_U32),
                     ],
+                    0,
                 ),
             ],
             PTypeTag_PTYPE_U32,
@@ -688,6 +699,7 @@ mod tests {
                     ScalarOp::zigzag(PTypeTag_PTYPE_U32),
                     ScalarOp::alp(alp_f, alp_e),
                 ],
+                0,
             )],
             PTypeTag_PTYPE_U32,
         );
@@ -1792,6 +1804,7 @@ mod tests {
                 PTypeTag_PTYPE_I8,
                 SourceOp::load(),
                 &[],
+                0,
             )],
             PTypeTag_PTYPE_U32,
         );
@@ -1823,6 +1836,7 @@ mod tests {
                 PTypeTag_PTYPE_I16,
                 SourceOp::load(),
                 &[],
+                0,
             )],
             PTypeTag_PTYPE_U32,
         );

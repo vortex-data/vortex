@@ -52,6 +52,7 @@
 
 #include "bit_unpack.cuh"
 #include "dynamic_dispatch.h"
+#include "patches.cuh"
 #include "types.cuh"
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -181,6 +182,82 @@ __device__ inline void bitunpack(const T *__restrict packed,
             bit_unpack_lane<T>(src_chunk, chunk_dst, 0, lane, bw);
         }
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Source-patch helpers
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Reconstruct a GPUPatches struct from a packed device pointer.
+/// The packed layout is: [lane_offsets (uint32 × lo_count)] [indices (uint16 × num_patches)]
+/// [values (T × num_patches, aligned)].  Returns null pointers when patches_ptr == 0.
+template <typename T>
+__device__ inline GPUPatches unpack_source_patches(uint64_t patches_ptr,
+                                                    uint32_t stage_len,
+                                                    uint32_t element_offset) {
+    if (patches_ptr == 0) {
+        return { nullptr, nullptr, nullptr };
+    }
+    uint8_t *base = reinterpret_cast<uint8_t *>(patches_ptr);
+    constexpr uint32_t FL_CHUNK = 1024;
+    constexpr uint32_t N_LANES = (sizeof(T) < 8) ? 32 : 16;
+    const uint32_t n_chunks = (stage_len + (element_offset % FL_CHUNK) + FL_CHUNK - 1) / FL_CHUNK;
+    const uint32_t lo_count = n_chunks * N_LANES + 1;
+    uint32_t *lane_offsets = reinterpret_cast<uint32_t *>(base);
+    const uint32_t num_patches = lane_offsets[lo_count - 1];
+    const uint32_t indices_byte_start = lo_count * sizeof(uint32_t);
+    uint16_t *indices = reinterpret_cast<uint16_t *>(base + indices_byte_start);
+    uint32_t values_byte_start = indices_byte_start + num_patches * sizeof(uint16_t);
+    values_byte_start = (values_byte_start + sizeof(T) - 1) & ~(sizeof(T) - 1);
+    void *values = base + values_byte_start;
+    return { lane_offsets, indices, values };
+}
+
+/// Apply source patches for a single FL chunk (used in the output stage).
+/// Overwrites patched positions in `scratch` and issues __syncthreads().
+template <typename T>
+__device__ inline void apply_source_patches_chunk(uint64_t patches_ptr,
+                                                   T *__restrict scratch,
+                                                   uint32_t stage_len,
+                                                   uint32_t element_offset,
+                                                   uint32_t fl_chunk) {
+    const GPUPatches patches = unpack_source_patches<T>(patches_ptr, stage_len, element_offset);
+    constexpr uint32_t N_LANES = (sizeof(T) < 8) ? 32 : 16;
+    for (uint32_t lane = threadIdx.x; lane < N_LANES; lane += blockDim.x) {
+        PatchesCursor<T> cursor(patches, fl_chunk, lane, N_LANES);
+        auto p = cursor.next();
+        while (p.index != 1024) {
+            scratch[p.index] = p.value;
+            p = cursor.next();
+        }
+    }
+    __syncthreads();
+}
+
+/// Apply source patches for all FL chunks (used in the input stage).
+/// Overwrites patched positions in `smem_out` and issues __syncthreads().
+template <typename T>
+__device__ inline void apply_source_patches_all(uint64_t patches_ptr,
+                                                 T *__restrict smem_out,
+                                                 uint32_t stage_len,
+                                                 uint32_t element_offset) {
+    const GPUPatches patches = unpack_source_patches<T>(patches_ptr, stage_len, element_offset);
+    constexpr uint32_t FL_CHUNK = 1024;
+    constexpr uint32_t N_LANES = (sizeof(T) < 8) ? 32 : 16;
+    const uint32_t first_chunk = element_offset / FL_CHUNK;
+    const uint32_t n_chunks = (stage_len + (element_offset % FL_CHUNK) + FL_CHUNK - 1) / FL_CHUNK;
+    for (uint32_t c = 0; c < n_chunks; ++c) {
+        T *chunk_base = smem_out + c * FL_CHUNK;
+        for (uint32_t lane = threadIdx.x; lane < N_LANES; lane += blockDim.x) {
+            PatchesCursor<T> cursor(patches, first_chunk + c, lane, N_LANES);
+            auto p = cursor.next();
+            while (p.index != 1024) {
+                chunk_base[p.index] = p.value;
+                p = cursor.next();
+            }
+        }
+    }
+    __syncthreads();
 }
 
 /// Read N values from a source op into `out`.
@@ -317,6 +394,14 @@ __device__ void execute_output_stage(T *__restrict output,
             smem_src = scratch + align;
             // Write barrier: all threads finished bitunpack, safe to read from scratch.
             __syncthreads();
+
+            // Merge source patches for this FL chunk into smem scratch.
+            if (stage.patches_ptr != 0) {
+                const uint32_t fl_chunk = static_cast<uint32_t>(
+                    (block_start + elem_idx + src.params.bitunpack.element_offset) / 1024);
+                apply_source_patches_chunk<T>(stage.patches_ptr, scratch,
+                                              stage.len, src.params.bitunpack.element_offset, fl_chunk);
+            }
         } else {
             chunk_len = block_len;
         }
@@ -391,11 +476,20 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
     const auto &src = stage.source;
 
     if (src.op_code == SourceOp::BITUNPACK) {
+        T *raw_smem = smem_out;
         bitunpack<T>(reinterpret_cast<const T *>(stage.input_ptr), smem_out, 0, stage.len, src);
-        smem_out += src.params.bitunpack.element_offset % SMEM_TILE_SIZE;
         // Write barrier: cooperative bitunpack finished, safe to read
         // decoded elements in the scalar-op loop below.
         __syncthreads();
+
+        // Merge source patches into the decoded smem region.
+        if (stage.patches_ptr != 0) {
+            apply_source_patches_all<T>(stage.patches_ptr, raw_smem,
+                                        stage.len,
+                                        src.params.bitunpack.element_offset);
+        }
+
+        smem_out += src.params.bitunpack.element_offset % SMEM_TILE_SIZE;
 
         if (stage.num_scalar_ops > 0) {
             for (uint32_t i = threadIdx.x; i < stage.len; i += blockDim.x) {

@@ -5,17 +5,22 @@
 //! patching enables fully parallel GPU execution, as outlined by Hepkema et al. in
 //! "G-ALP: Rethinking Light-weight Encodings for GPUs" <https://doi.org/10.1145/3736227.3736242>
 
+use std::mem::size_of_val;
+
 use vortex::array::Canonical;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::dtype::IntegerPType;
 use vortex::array::dtype::NativePType;
+use vortex::buffer::Alignment;
 use vortex::buffer::Buffer;
 use vortex::buffer::BufferMut;
+use vortex::buffer::ByteBufferMut;
 use vortex_array::match_each_native_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_error::VortexResult;
 
+use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
 
 /// A set of device-resident patches that live in the GPU.
@@ -120,6 +125,83 @@ impl<V: Copy> HostPatches<V> {
             values: values_handle,
         })
     }
+}
+
+/// Pack transposed patches into a single contiguous device buffer.
+///
+/// Layout: `[lane_offsets (u32) | indices (u16) | padding | values (V)]`
+///
+/// Returns `(device_ptr, BufferHandle)` where the handle must be kept alive.
+#[allow(clippy::cognitive_complexity)]
+pub fn pack_patches_for_fused(
+    patches: &Patches,
+    element_offset: usize,
+    ctx: &CudaExecutionCtx,
+) -> VortexResult<(u64, BufferHandle)> {
+    let array_len = patches.array_len();
+    let offset = patches.offset();
+
+    let indices = patches.indices().to_canonical()?.into_primitive();
+    let values = patches.values().to_canonical()?.into_primitive();
+
+    let indices_ptype = indices.ptype();
+    let values_ptype = values.ptype();
+
+    let indices_host = indices.buffer_handle().to_host_sync();
+    let values_host = values.buffer_handle().to_host_sync();
+
+    match_each_unsigned_integer_ptype!(indices_ptype, |I| {
+        match_each_native_ptype!(values_ptype, |V| {
+            let idx_buf: Buffer<I> = Buffer::from_byte_buffer(indices_host);
+            let val_buf: Buffer<V> = Buffer::from_byte_buffer(values_host);
+
+            let host = transpose(
+                idx_buf.as_slice(),
+                val_buf.as_slice(),
+                offset + element_offset,
+                array_len,
+            );
+
+            // Pack [lane_offsets | indices | padding | values] into one contiguous buffer.
+            let lo_bytes = host.lane_offsets.as_slice();
+            let idx_bytes = host.indices.as_slice();
+            let val_bytes = host.values.as_slice();
+
+            let lo_byte_len = size_of_val(lo_bytes);
+            let idx_byte_len = size_of_val(idx_bytes);
+            let pre_pad = lo_byte_len + idx_byte_len;
+            let val_align = size_of::<V>().max(1);
+            let padded = pre_pad.next_multiple_of(val_align);
+            let pad_len = padded - pre_pad;
+            let val_byte_len = size_of_val(val_bytes);
+            let total = padded + val_byte_len;
+
+            let mut buf = ByteBufferMut::with_capacity_aligned(total, Alignment::of::<u32>());
+            // SAFETY: we are writing repr(C) numeric slices as raw bytes.
+            unsafe {
+                buf.extend_from_slice(std::slice::from_raw_parts(
+                    lo_bytes.as_ptr().cast::<u8>(),
+                    lo_byte_len,
+                ));
+                buf.extend_from_slice(std::slice::from_raw_parts(
+                    idx_bytes.as_ptr().cast::<u8>(),
+                    idx_byte_len,
+                ));
+            }
+            buf.extend_from_slice(&vec![0u8; pad_len]);
+            unsafe {
+                buf.extend_from_slice(std::slice::from_raw_parts(
+                    val_bytes.as_ptr().cast::<u8>(),
+                    val_byte_len,
+                ));
+            }
+
+            let handle = BufferHandle::new_host(buf.freeze());
+            let device_handle = ctx.ensure_on_device_sync(handle)?;
+            let ptr = device_handle.cuda_device_ptr()?;
+            Ok((ptr, device_handle))
+        })
+    })
 }
 
 /// Transpose a set of patches from the default sorted layout into the data parallel layout.

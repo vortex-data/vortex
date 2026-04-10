@@ -195,6 +195,7 @@ struct PackedStage {
     struct SourceOp source;
     uint8_t num_scalar_ops;
     enum PTypeTag source_ptype; // PType produced by the source op
+    uint64_t patches_ptr;       // device ptr to packed source patches (0 = none)
 };
 
 /// Header for the packed plan byte buffer.
@@ -227,6 +228,7 @@ struct Stage {
     struct SourceOp source;            // source decode op
     uint8_t num_scalar_ops;            // number of scalar ops
     const struct ScalarOp *scalar_ops; // scalar decode ops
+    uint64_t patches_ptr;              // device ptr to packed source patches (0 = none)
 };
 
 /// Parse a single stage from the packed plan byte buffer and advance the cursor.
@@ -249,6 +251,7 @@ __device__ inline Stage parse_stage(const uint8_t *&cursor) {
         .source = packed_stage->source,
         .num_scalar_ops = packed_stage->num_scalar_ops,
         .scalar_ops = ops,
+        .patches_ptr = packed_stage->patches_ptr,
     };
 }
 
