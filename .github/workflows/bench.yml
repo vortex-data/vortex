@@ -88,6 +88,7 @@ jobs:
         shell: bash
         env:
           RUST_BACKTRACE: full
+          FLAT_LAYOUT_INLINE_ARRAY_NODE: true
         run: |
           bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} --formats ${{ matrix.benchmark.formats }} -d gh-json -o results.json
 
