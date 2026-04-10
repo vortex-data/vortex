@@ -12,9 +12,10 @@
 ///
 /// Layout (contiguous bytes):
 ///   [PlanHeader]
-///   [PackedStage 0][ScalarOp × N0]
-///   [PackedStage 1][ScalarOp × N1]
+///   [PackedStage 0][ScalarOp × S0]
+///   [PackedStage 1][ScalarOp × S1]
 ///   ...
+///   [PatchDescriptor × num_patch_descs]
 ///
 /// ## Per-op type tracking
 ///
@@ -98,6 +99,9 @@ PTYPE_HOST_DEVICE constexpr PTypeTag ptype_to_unsigned(PTypeTag tag) {
 /// expressions involving other macros or sizeof).
 #define KERNEL_FIXED_SHARED_BYTES 512
 
+/// No patches for this op.
+#define PATCH_NONE 0xFF
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -135,6 +139,7 @@ union SourceParams {
 
 struct SourceOp {
     enum SourceOpCode { BITUNPACK, LOAD, RUNEND, SEQUENCE } op_code;
+    uint8_t patch_idx;          // index into PatchDescriptor table, PATCH_NONE = no patches
     union SourceParams params;
 };
 
@@ -176,7 +181,17 @@ struct ScalarOp {
     /// this equals the input PType. For type-changing ops (ALP, DICT) this
     /// is the new output PType.
     enum PTypeTag output_ptype;
+    uint8_t patch_idx;          // index into PatchDescriptor table, PATCH_NONE = no patches
     union ScalarParams params;
+};
+
+/// Descriptor for a set of patches stored in device memory.
+///
+/// Placed in a table at the end of the packed plan buffer. Source ops and
+/// scalar ops reference their patches by index into this table.
+struct PatchDescriptor {
+    uint64_t ptr;           // device pointer to packed patch data
+    uint32_t num_patches;   // number of patches
 };
 
 /// Packed stage header, followed by `num_scalar_ops` inline ScalarOps.
@@ -202,6 +217,7 @@ struct __attribute__((aligned(8))) PlanHeader {
     uint8_t num_stages;
     enum PTypeTag output_ptype; // PType of the final output array
     uint16_t plan_size_bytes;   // total size of the packed plan including this header
+    uint8_t num_patch_descs;    // number of PatchDescriptor entries at end of plan
 };
 
 #ifdef __cplusplus

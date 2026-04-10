@@ -45,25 +45,15 @@
 //!                 └── FilterExecutor (CUB DeviceSelect on full output)
 //! ```
 
-use std::sync::Arc;
-
 use tracing::trace;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::array::arrays::PrimitiveArray;
-use vortex::array::arrays::primitive::PrimitiveDataParts;
-use vortex::array::buffer::BufferHandle;
-use vortex::array::match_each_unsigned_integer_ptype;
-use vortex::array::patches::Patches;
-use vortex::encodings::alp::match_each_alp_float_ptype;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 
-use crate::CudaDeviceBuffer;
 use crate::dynamic_dispatch::plan_builder::DispatchPlan;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecutionCtx;
-use crate::kernel::patches::execute_patches;
 
 /// Try to execute `array` on the GPU, attempting three strategies in order:
 ///
@@ -84,16 +74,10 @@ pub async fn try_gpu_dispatch(
 
     match DispatchPlan::new(array)? {
         DispatchPlan::Fused(plan) => {
-            let mut materialized = plan.materialize(ctx)?;
-            let alp_patches = materialized.alp_patches.take();
+            let materialized = plan.materialize(ctx)?;
             let num_stages = materialized.dispatch_plan.num_stages();
             trace!(encoding = %array.encoding_id(), num_stages, "fully-fused dispatch");
-            let canonical = materialized.execute(array.len(), ctx)?;
-            if let Some(patches) = alp_patches {
-                apply_alp_patches(canonical, patches, ctx).await
-            } else {
-                Ok(canonical)
-            }
+            materialized.execute(array.len(), ctx)
         }
         DispatchPlan::PartiallyFused {
             plan,
@@ -109,16 +93,10 @@ pub async fn try_gpu_dispatch(
             }
 
             let num_subtrees = subtree_buffers.len();
-            let mut materialized = plan.materialize_with_subtrees(subtree_buffers, ctx)?;
-            let alp_patches = materialized.alp_patches.take();
+            let materialized = plan.materialize_with_subtrees(subtree_buffers, ctx)?;
             let num_stages = materialized.dispatch_plan.num_stages();
             trace!(encoding = %array.encoding_id(), num_stages, num_subtrees, "partially-fused dispatch");
-            let canonical = materialized.execute(array.len(), ctx)?;
-            if let Some(patches) = alp_patches {
-                apply_alp_patches(canonical, patches, ctx).await
-            } else {
-                Ok(canonical)
-            }
+            materialized.execute(array.len(), ctx)
         }
         DispatchPlan::Unfused => {
             // Unfused kernel dispatch fallback.
@@ -131,45 +109,6 @@ pub async fn try_gpu_dispatch(
                 .await
         }
     }
-}
-
-/// Apply ALP patches to a decoded output buffer via a separate scatter kernel.
-///
-/// ALP patches are final decoded float values that bypass the ALP encode/decode
-/// cycle. They are applied after the fused kernel produces decoded output,
-/// overwriting the ALP-decoded values at the patched positions.
-async fn apply_alp_patches(
-    canonical: Canonical,
-    patches: Patches,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<Canonical> {
-    let prim = canonical.into_primitive();
-    let ptype = prim.ptype();
-    let PrimitiveDataParts {
-        buffer, validity, ..
-    } = prim.into_data_parts();
-
-    // Extract the CudaDeviceBuffer from the BufferHandle so we can pass it
-    // to execute_patches, which writes patches in-place via a scatter kernel.
-    let device_buf = buffer
-        .as_device_opt()
-        .ok_or_else(|| vortex_err!("expected device buffer for ALP patch application"))?
-        .as_any()
-        .downcast_ref::<CudaDeviceBuffer>()
-        .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer for ALP patch application"))?
-        .clone();
-
-    let patched_buf = match_each_alp_float_ptype!(ptype, |A| {
-        match_each_unsigned_integer_ptype!(patches.indices_ptype()?, |I| {
-            execute_patches::<A, I>(patches, device_buf, ctx).await?
-        })
-    });
-
-    Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
-        BufferHandle::new_device(Arc::new(patched_buf)),
-        ptype,
-        validity,
-    )))
 }
 
 #[cfg(test)]

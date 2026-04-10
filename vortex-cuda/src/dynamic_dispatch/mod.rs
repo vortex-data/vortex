@@ -42,10 +42,8 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 
-use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecutionCtx;
-use crate::kernel::patches::gpu::GPUPatches;
 
 pub(crate) mod plan_builder;
 pub use plan_builder::DispatchPlan;
@@ -163,9 +161,9 @@ pub struct ParsedStage {
 /// Matching the C-side `PlanHeader` + `PackedStage` ABI in `dynamic_dispatch.h`:
 ///
 /// ```text
-/// [PlanHeader]                            — sizeof(PlanHeader) bytes
-/// [PackedStage 0][ScalarOp × N0]          — variable
-/// [PackedStage 1][ScalarOp × N1]          — variable
+/// [PlanHeader]                                          — sizeof(PlanHeader) bytes
+/// [PackedStage 0][ScalarOp × S0]                        — variable
+/// [PackedStage 1][ScalarOp × S1]                        — variable
 /// ...
 /// ```
 #[derive(Clone)]
@@ -181,7 +179,7 @@ impl CudaDispatchPlan {
     /// # Panics
     ///
     /// Panics if `stages` is empty or the serialized plan exceeds 65535 bytes.
-    pub fn new<I>(stages: I, output_ptype: PTypeTag) -> Self
+    pub fn new<I>(stages: I, output_ptype: PTypeTag, patch_descs: &[(u64, u32)]) -> Self
     where
         I: IntoIterator,
         I::Item: Borrow<MaterializedStage>,
@@ -193,6 +191,7 @@ impl CudaDispatchPlan {
         let header_size = size_of::<PlanHeader>();
         let stage_header_size = size_of::<PackedStage>();
         let scalar_op_size = size_of::<ScalarOp>();
+        let patch_desc_size = size_of::<PatchDescriptor>();
 
         // Calculate total size and validate.
         let mut total_size = header_size;
@@ -200,6 +199,7 @@ impl CudaDispatchPlan {
             total_size += stage_header_size;
             total_size += stage.scalar_ops.len() * scalar_op_size;
         }
+        total_size += patch_descs.len() * patch_desc_size;
         assert!(
             total_size <= u16::MAX as usize,
             "packed plan size {total_size} exceeds u16::MAX"
@@ -211,6 +211,7 @@ impl CudaDispatchPlan {
             num_stages: stages.len() as u8,
             output_ptype,
             plan_size_bytes: total_size as u16,
+            num_patch_descs: patch_descs.len() as u8,
         };
         buffer.extend_from_slice(&as_bytes(&header));
 
@@ -227,6 +228,11 @@ impl CudaDispatchPlan {
             for op in &stage.scalar_ops {
                 buffer.extend_from_slice(&as_bytes(op));
             }
+        }
+
+        for &(ptr, num_patches) in patch_descs {
+            let pd = PatchDescriptor { ptr, num_patches };
+            buffer.extend_from_slice(&as_bytes(&pd));
         }
 
         assert_eq!(buffer.len(), total_size);
@@ -307,6 +313,7 @@ impl SourceOp {
     pub fn bitunpack(bit_width: u8, element_offset: u16) -> Self {
         Self {
             op_code: SourceOp_SourceOpCode_BITUNPACK,
+            patch_idx: 0xFF,
             params: SourceParams {
                 bitunpack: SourceParams_BitunpackParams {
                     bit_width,
@@ -320,6 +327,7 @@ impl SourceOp {
     pub fn load() -> Self {
         Self {
             op_code: SourceOp_SourceOpCode_LOAD,
+            patch_idx: 0xFF,
             params: unsafe { std::mem::zeroed() },
         }
     }
@@ -340,6 +348,7 @@ impl SourceOp {
     ) -> Self {
         Self {
             op_code: SourceOp_SourceOpCode_RUNEND,
+            patch_idx: 0xFF,
             params: SourceParams {
                 runend: SourceParams_RunEndParams {
                     ends_smem_byte_offset,
@@ -356,6 +365,7 @@ impl SourceOp {
     pub fn sequence(base: i64, multiplier: i64) -> Self {
         Self {
             op_code: SourceOp_SourceOpCode_SEQUENCE,
+            patch_idx: 0xFF,
             params: SourceParams {
                 sequence: SourceParams_SequenceParams { base, multiplier },
             },
@@ -369,6 +379,7 @@ impl ScalarOp {
         Self {
             op_code: ScalarOp_ScalarOpCode_FOR,
             output_ptype,
+            patch_idx: 0xFF,
             params: ScalarParams {
                 frame_of_ref: ScalarParams_FoRParams { reference },
             },
@@ -381,6 +392,7 @@ impl ScalarOp {
         Self {
             op_code: ScalarOp_ScalarOpCode_ZIGZAG,
             output_ptype,
+            patch_idx: 0xFF,
             params: unsafe { std::mem::zeroed() },
         }
     }
@@ -390,6 +402,7 @@ impl ScalarOp {
         Self {
             op_code: ScalarOp_ScalarOpCode_ALP,
             output_ptype: PTypeTag_PTYPE_F32,
+            patch_idx: 0xFF,
             params: ScalarParams {
                 alp: ScalarParams_AlpParams { f, e },
             },
@@ -402,6 +415,7 @@ impl ScalarOp {
         Self {
             op_code: ScalarOp_ScalarOpCode_DICT,
             output_ptype,
+            patch_idx: 0xFF,
             params: ScalarParams {
                 dict: ScalarParams_DictParams {
                     values_smem_byte_offset,
@@ -475,26 +489,10 @@ impl MaterializedPlan {
         let plan_ptr = device_plan.device_ptr(ctx.stream()).0;
         let array_len_u64 = len as u64;
 
-        let patches_arg = if let Some(dp) = &self.device_patches {
-            GPUPatches {
-                lane_offsets: dp.lane_offsets.cuda_device_ptr()? as _,
-                indices: dp.indices.cuda_device_ptr()? as _,
-                values: dp.values.cuda_device_ptr()? as _,
-            }
-        } else {
-            // NULL lane_offsets signals no patches to the kernel.
-            GPUPatches {
-                lane_offsets: std::ptr::null_mut(),
-                indices: std::ptr::null_mut(),
-                values: std::ptr::null_mut(),
-            }
-        };
-
         ctx.launch_kernel_config(&cuda_function, config, len, |args| {
             args.arg(&output_ptr);
             args.arg(&array_len_u64);
             args.arg(&plan_ptr);
-            args.arg(&patches_arg);
         })?;
 
         Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
@@ -567,15 +565,6 @@ mod tests {
         }
     }
 
-    /// Build a null `GPUPatches` (no patches) for use in the low-level test helper.
-    fn null_gpu_patches() -> GPUPatches {
-        GPUPatches {
-            lane_offsets: std::ptr::null_mut(),
-            indices: std::ptr::null_mut(),
-            values: std::ptr::null_mut(),
-        }
-    }
-
     #[crate::test]
     fn test_max_scalar_ops() -> VortexResult<()> {
         let bit_width: u8 = 6;
@@ -609,6 +598,7 @@ mod tests {
                 &scalar_ops,
             )],
             PTypeTag_PTYPE_U32,
+            &[],
         );
         assert_eq!(plan.stage(0).num_scalar_ops, 4);
 
@@ -646,6 +636,7 @@ mod tests {
                 ),
             ],
             PTypeTag_PTYPE_U32,
+            &[],
         );
 
         assert_eq!(plan.num_stages(), 2);
@@ -717,6 +708,7 @@ mod tests {
                 ],
             )],
             PTypeTag_PTYPE_U32,
+            &[],
         );
 
         let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan, SMEM_TILE_SIZE * 4)?;
@@ -747,8 +739,6 @@ mod tests {
         );
         let (plan_ptr, record_plan) = device_plan.device_ptr(cuda_ctx.stream());
         let array_len_u64 = output_len as u64;
-        let patches_arg = null_gpu_patches();
-
         cuda_ctx.stream().synchronize().expect("sync");
 
         let cuda_function = cuda_ctx
@@ -758,7 +748,6 @@ mod tests {
         launch_builder.arg(&output_ptr);
         launch_builder.arg(&array_len_u64);
         launch_builder.arg(&plan_ptr);
-        launch_builder.arg(&patches_arg);
 
         let num_blocks = u32::try_from(output_len.div_ceil(ELEMENTS_PER_BLOCK as usize))?;
         let config = LaunchConfig {
@@ -1126,7 +1115,7 @@ mod tests {
         let array = dict.into_array();
 
         // Mixed-width Dict (u8 codes, u32 values): both are Primitive, so
-        // walk_mixed_width_child grabs the codes buffer directly as a LOAD
+        // walk_child grabs the codes buffer directly as a LOAD
         // source. No pending subtrees → Fused.
         let plan = DispatchPlan::new(&array)?;
         assert!(
@@ -1158,7 +1147,7 @@ mod tests {
         let array = dict.into_array();
 
         // Mixed-width Dict (u16 codes, u32 values): both are Primitive, so
-        // walk_mixed_width_child grabs the codes buffer directly as a LOAD
+        // walk_child grabs the codes buffer directly as a LOAD
         // source. No pending subtrees → Fused.
         let plan = DispatchPlan::new(&array)?;
         assert!(
@@ -1873,6 +1862,7 @@ mod tests {
                 &[],
             )],
             PTypeTag_PTYPE_U32,
+            &[],
         );
 
         let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan, SMEM_TILE_SIZE * 4)?;
@@ -1904,6 +1894,7 @@ mod tests {
                 &[],
             )],
             PTypeTag_PTYPE_U32,
+            &[],
         );
 
         let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan, SMEM_TILE_SIZE * 4)?;

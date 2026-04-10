@@ -18,6 +18,7 @@ use vortex_array::patches::Patches;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
 
 /// A set of device-resident patches that live in the GPU.
@@ -46,10 +47,10 @@ const fn patch_lanes<V: Sized>() -> usize {
 pub struct HostPatches<V> {
     n_chunks: usize,
     n_lanes: usize,
-    lane_offsets: Buffer<u32>,
-    indices: Buffer<u16>,
+    pub(crate) lane_offsets: Buffer<u32>,
+    pub(crate) indices: Buffer<u16>,
     /// Values. This is a buffer handle which might live on the new buffer type here
-    values: Buffer<V>,
+    pub(crate) values: Buffer<V>,
 }
 
 #[cfg(test)]
@@ -164,19 +165,26 @@ pub async fn transpose_patches(
     })
 }
 
-/// Transpose patches using FL-aligned chunks for the dynamic dispatch fused kernel.
+/// Transpose patches and pack into a single contiguous device buffer.
 ///
-/// Unlike [`transpose_patches`] (which uses 0-based array chunks), this function
-/// aligns chunks to FastLanes chunk boundaries by adding `element_offset` to each
-/// patch index before computing the chunk and lane. This ensures that the kernel's
-/// FL chunk index (`(block_start + elem_idx + element_offset) / 1024`) matches the
-/// chunk index used during transposition.
+/// The packed buffer layout is:
+///   `[lane_offsets: u32 × (n_chunks × n_lanes + 1)]`
+///   `[indices: u16 × num_patches]`
+///   `[padding for value type alignment]`
+///   `[values: V × num_patches]`
+///
+/// Returns `(device_ptr, buffer_handle)` where `device_ptr` is the device address
+/// of the packed buffer and `buffer_handle` must be kept alive while the kernel
+/// references the patches.
+///
+/// This produces a single buffer suitable for embedding a `patches_ptr` directly
+/// in the packed plan's [`PackedStage`].
 #[allow(clippy::cognitive_complexity)]
-pub fn transpose_patches_for_fused(
+pub fn pack_patches_for_fused(
     patches: &Patches,
     element_offset: usize,
     ctx: &CudaExecutionCtx,
-) -> VortexResult<DevicePatches> {
+) -> VortexResult<(u64, BufferHandle)> {
     let array_len = patches.array_len();
     let offset = patches.offset();
 
@@ -210,12 +218,48 @@ pub fn transpose_patches_for_fused(
                 element_offset,
             );
 
+            // Pack lane_offsets, indices, values into a single contiguous byte buffer.
+            let lo_slice = host_patches.lane_offsets.as_slice();
+            let idx_slice = host_patches.indices.as_slice();
+            let val_slice = host_patches.values.as_slice();
+
+            let lo_byte_len = size_of_val(lo_slice);
+            let idx_byte_len = size_of_val(idx_slice);
+            let val_align = size_of::<V>();
+            // Align values start to sizeof(V).
+            let val_byte_start = if val_align <= 1 {
+                lo_byte_len + idx_byte_len
+            } else {
+                (lo_byte_len + idx_byte_len + val_align - 1) & !(val_align - 1)
+            };
+            let val_byte_len = size_of_val(val_slice);
+            let total_bytes = val_byte_start + val_byte_len;
+
+            let mut packed = vec![0u8; total_bytes];
+
+            // SAFETY: copying typed slices into a byte buffer at computed offsets.
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    lo_slice.as_ptr().cast::<u8>(),
+                    packed.as_mut_ptr(),
+                    lo_byte_len,
+                );
+                std::ptr::copy_nonoverlapping(
+                    idx_slice.as_ptr().cast::<u8>(),
+                    packed.as_mut_ptr().add(lo_byte_len),
+                    idx_byte_len,
+                );
+                std::ptr::copy_nonoverlapping(
+                    val_slice.as_ptr().cast::<u8>(),
+                    packed.as_mut_ptr().add(val_byte_start),
+                    val_byte_len,
+                );
+            }
+
             let stream = ctx.stream();
-            Ok(DevicePatches {
-                lane_offsets: stream.copy_to_device_sync(host_patches.lane_offsets.as_slice())?,
-                indices: stream.copy_to_device_sync(host_patches.indices.as_slice())?,
-                values: stream.copy_to_device_sync(host_patches.values.as_slice())?,
-            })
+            let device_buf = stream.copy_to_device_sync(&packed)?;
+            let ptr = device_buf.cuda_device_ptr()?;
+            Ok((ptr, device_buf))
         })
     })
 }

@@ -184,6 +184,125 @@ __device__ inline void bitunpack(const T *__restrict packed,
     }
 }
 
+/// Reconstruct a GPUPatches struct from a source patch buffer pointer.
+///
+/// The packed buffer layout is:
+///   [lane_offsets: u32 × (n_chunks × n_lanes + 1)]
+///   [indices: u16 × num_patches]
+///   [padding for sizeof(T) alignment]
+///   [values: T × num_patches]
+///
+/// n_chunks and n_lanes are derived from the stage's BITUNPACK parameters.
+/// num_patches is read from the last lane_offsets entry (the prefix-sum total).
+template <typename T>
+__device__ inline GPUPatches unpack_source_patches(uint64_t patches_ptr,
+                                                        uint32_t stage_len,
+                                                        uint32_t element_offset) {
+    if (patches_ptr == 0) {
+        return { nullptr, nullptr, nullptr };
+    }
+
+    uint8_t *base = reinterpret_cast<uint8_t *>(patches_ptr);
+    constexpr uint32_t FL_CHUNK = 1024;
+    constexpr uint32_t N_LANES = (sizeof(T) < 8) ? 32 : 16;
+    const uint32_t n_chunks = (stage_len + (element_offset % FL_CHUNK) + FL_CHUNK - 1) / FL_CHUNK;
+    const uint32_t lo_count = n_chunks * N_LANES + 1;
+
+    uint32_t *lane_offsets = reinterpret_cast<uint32_t *>(base);
+    const uint32_t num_patches = lane_offsets[lo_count - 1];
+
+    const uint32_t indices_byte_start = lo_count * sizeof(uint32_t);
+    uint16_t *indices = reinterpret_cast<uint16_t *>(base + indices_byte_start);
+
+    uint32_t values_byte_start = indices_byte_start + num_patches * sizeof(uint16_t);
+    values_byte_start = (values_byte_start + sizeof(T) - 1) & ~(sizeof(T) - 1);
+    void *values = base + values_byte_start;
+
+    return { lane_offsets, indices, values };
+}
+
+/// Scatter source patches for a single FL chunk into a shared memory scratch buffer.
+///
+/// Used by the output stage, which tiles one FL chunk at a time through smem.
+/// `scratch` points to the start of the scratch buffer (before alignment adjustment).
+/// `fl_chunk` is the absolute FL chunk index for this tile.
+template <typename T>
+__device__ inline void apply_source_patches_chunk(uint64_t patches_ptr,
+                                                   T *__restrict scratch,
+                                                   uint32_t stage_len,
+                                                   uint32_t element_offset,
+                                                   uint32_t fl_chunk) {
+    const GPUPatches patches = unpack_source_patches<T>(patches_ptr, stage_len, element_offset);
+    constexpr uint32_t N_LANES = (sizeof(T) < 8) ? 32 : 16;
+
+    for (uint32_t lane = threadIdx.x; lane < N_LANES; lane += blockDim.x) {
+        PatchesCursor<T> cursor(patches, fl_chunk, lane, N_LANES);
+        auto p = cursor.next();
+        while (p.index != 1024) {
+            scratch[p.index] = p.value;
+            p = cursor.next();
+        }
+    }
+    __syncthreads();
+}
+
+/// Scatter source patches for all FL chunks into a shared memory region.
+///
+/// Used by input stages, which decode the entire array into smem at once.
+/// `smem_out` points to the raw bitunpack output (before element_offset adjustment).
+template <typename T>
+__device__ inline void apply_source_patches_all(uint64_t patches_ptr,
+                                                 T *__restrict smem_out,
+                                                 uint32_t stage_len,
+                                                 uint32_t element_offset) {
+    const GPUPatches patches = unpack_source_patches<T>(patches_ptr, stage_len, element_offset);
+    constexpr uint32_t FL_CHUNK = 1024;
+    constexpr uint32_t N_LANES = (sizeof(T) < 8) ? 32 : 16;
+    const uint32_t first_chunk = element_offset / FL_CHUNK;
+    const uint32_t n_chunks = (stage_len + (element_offset % FL_CHUNK) + FL_CHUNK - 1) / FL_CHUNK;
+
+    for (uint32_t c = 0; c < n_chunks; ++c) {
+        T *chunk_base = smem_out + c * FL_CHUNK;
+        for (uint32_t lane = threadIdx.x; lane < N_LANES; lane += blockDim.x) {
+            PatchesCursor<T> cursor(patches, first_chunk + c, lane, N_LANES);
+            auto p = cursor.next();
+            while (p.index != 1024) {
+                chunk_base[p.index] = p.value;
+                p = cursor.next();
+            }
+        }
+    }
+    __syncthreads();
+}
+
+/// Apply flat patches to register values after a scalar op.
+///
+/// For each of the N values held in registers, checks whether its global
+/// position matches a patch index via binary search. Patch indices are
+/// sorted u32, followed by T values at the same pointer.
+///
+/// Position layout matches the tile loop: for the batched path (N > 1),
+/// `global_base + j * blockDim.x + threadIdx.x`; for the remainder path
+/// (N == 1), `global_base` is the exact position.
+template <typename T, uint32_t N>
+__device__ inline void apply_scalar_patches(T *values,
+                                             const PatchDescriptor &pd,
+                                             uint64_t global_base) {
+    const uint32_t *indices = reinterpret_cast<const uint32_t *>(pd.ptr);
+    const T *patch_values = reinterpret_cast<const T *>(indices + pd.num_patches);
+
+#pragma unroll
+    for (uint32_t j = 0; j < N; ++j) {
+        const uint32_t gpos = static_cast<uint32_t>(
+            (N == 1) ? global_base : (global_base + j * blockDim.x + threadIdx.x));
+        // Binary search for this position in the sorted patch indices.
+        const auto it = thrust::lower_bound(thrust::seq, indices, indices + pd.num_patches, gpos);
+        if (it != indices + pd.num_patches && *it == gpos) {
+            values[j] = patch_values[it - indices];
+        }
+    }
+}
+
 /// Read N values from a source op into `out`.
 ///
 /// Dispatches on `src.op_code` to handle each encoding:
@@ -275,18 +394,18 @@ __device__ inline uint32_t bitunpack_tile_len(const Stage &stage, uint32_t block
 /// streaming-store to global memory. Handles the full block, tiling through
 /// smem scratch for BITUNPACK.
 ///
-/// When the source op is BITUNPACK and `patches` has a non-NULL
-/// `lane_offsets`, patch values are merged into the smem scratch after
-/// bitunpack and before the tile loop reads from it. Patches are indexed
-/// by FL chunk and lane using the same layout produced by the Rust-side
-/// FL-aligned transposition (`transpose_patches_for_fused`).
+/// Patches are resolved via per-op indices into the patch descriptor table:
+///   - `source.patch_idx`: source patches merged into smem scratch
+///     after bitunpack, before the tile loop reads from it.
+///   - `scalar_ops[i].patch_idx`: output patches scattered to global memory
+///     output after the main tile loop completes.
 template <typename T>
 __device__ void execute_output_stage(T *__restrict output,
                                      const Stage &stage,
                                      char *__restrict smem,
                                      uint64_t block_start,
                                      uint32_t block_len,
-                                     const GPUPatches &patches) {
+                                     const struct PatchDescriptor *patch_table) {
     constexpr uint32_t VALUES_PER_TILE = 32 / sizeof(T);
     const uint32_t tile_size = blockDim.x * VALUES_PER_TILE;
     const auto &src = stage.source;
@@ -327,28 +446,13 @@ __device__ void execute_output_stage(T *__restrict output,
             // Write barrier: all threads finished bitunpack, safe to read from scratch.
             __syncthreads();
 
-            // Merge patches into smem scratch. Patches are transposed into
-            // FL-aligned (chunk, lane) buckets by the host. Each thread
-            // handles one or more lanes, iterating through that lane's
-            // patches and writing replacement values directly into the
-            // scratch buffer at the within-chunk position.
-            //
-            // N_LANES matches patch_lanes::<V>() on the Rust side:
-            //   32 for types < 8 bytes (u8, u16, u32)
-            //   16 for 8-byte types (u64)
-            if (patches.lane_offsets != nullptr) {
-                constexpr uint32_t N_LANES = (sizeof(T) < 8) ? 32 : 16;
+            // Merge source patches for this FL chunk into smem scratch.
+            if (stage.source.patch_idx != PATCH_NONE) {
+                const auto &pd = patch_table[stage.source.patch_idx];
                 const uint32_t fl_chunk = static_cast<uint32_t>(
-                    (block_start + elem_idx + elem_off) / FL_CHUNK);
-                for (uint32_t lane = threadIdx.x; lane < N_LANES; lane += blockDim.x) {
-                    PatchesCursor<T> cursor(patches, fl_chunk, lane, N_LANES);
-                    auto p = cursor.next();
-                    while (p.index != 1024) {
-                        scratch[p.index] = p.value;
-                        p = cursor.next();
-                    }
-                }
-                __syncthreads(); // Patch merge barrier
+                    (block_start + elem_idx + elem_off) / 1024);
+                apply_source_patches_chunk<T>(pd.ptr, scratch,
+                                              stage.len, elem_off, fl_chunk);
             }
         } else {
             chunk_len = block_len;
@@ -370,6 +474,10 @@ __device__ void execute_output_stage(T *__restrict output,
 
             for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
                 scalar_op<T, VALUES_PER_TILE>(values, stage.scalar_ops[op], smem);
+                if (stage.scalar_ops[op].patch_idx != PATCH_NONE) {
+                    apply_scalar_patches<T, VALUES_PER_TILE>(
+                        values, patch_table[stage.scalar_ops[op].patch_idx], tile_start);
+                }
             }
 
 #pragma unroll
@@ -392,6 +500,9 @@ __device__ void execute_output_stage(T *__restrict output,
 
             for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
                 scalar_op<T, 1>(&val, stage.scalar_ops[op], smem);
+                if (stage.scalar_ops[op].patch_idx != PATCH_NONE) {
+                    apply_scalar_patches<T, 1>(&val, patch_table[stage.scalar_ops[op].patch_idx], gpos);
+                }
             }
             __stcs(&output[gpos], val);
         }
@@ -403,6 +514,7 @@ __device__ void execute_output_stage(T *__restrict output,
         }
         elem_idx += chunk_len;
     }
+
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -413,22 +525,35 @@ __device__ void execute_output_stage(T *__restrict output,
 /// shared memory region so the output stage can reference it later.
 /// Applies any scalar ops in-place before returning.
 ///
+/// Source ops carry a `patch_idx` into the patch descriptor table for
+/// source patches that are merged into the decoded smem region.
+///
 /// Unlike execute_output_stage, this does not tile — the entire stage is
 /// decoded in one pass. The output stage needs random access into these
 /// smem regions (e.g. DICT gathers by arbitrary code value), so the data
 /// must be fully resident. The smem limit check in the Rust plan builder
 /// ensures the stage fits; if it doesn't, the plan falls back to Unfused.
 template <typename T>
-__device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
+__device__ void execute_input_stage(const Stage &stage, char *__restrict smem,
+                                     const struct PatchDescriptor *patch_table) {
     T *smem_out = reinterpret_cast<T *>(smem + stage.smem_byte_offset);
     const auto &src = stage.source;
 
     if (src.op_code == SourceOp::BITUNPACK) {
+        T *raw_smem = smem_out;  // save pre-adjustment pointer for patches
         bitunpack<T>(reinterpret_cast<const T *>(stage.input_ptr), smem_out, 0, stage.len, src);
-        smem_out += src.params.bitunpack.element_offset % SMEM_TILE_SIZE;
-        // Write barrier: cooperative bitunpack finished, safe to read
-        // decoded elements in the scalar-op loop below.
+        // Write barrier: cooperative bitunpack finished, safe to read decoded elements.
         __syncthreads();
+
+        // Merge source patches into the decoded smem region.
+        if (stage.source.patch_idx != PATCH_NONE) {
+            const auto &pd = patch_table[stage.source.patch_idx];
+            apply_source_patches_all<T>(pd.ptr, raw_smem,
+                                        stage.len,
+                                        src.params.bitunpack.element_offset);
+        }
+
+        smem_out += src.params.bitunpack.element_offset % SMEM_TILE_SIZE;
 
         if (stage.num_scalar_ops > 0) {
             for (uint32_t i = threadIdx.x; i < stage.len; i += blockDim.x) {
@@ -474,22 +599,26 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
 /// Kernel entry point. Parses the packed plan, runs all input stages to
 /// populate shared memory, then runs the output stage to produce results.
 ///
-/// `patches` carries device-resident lane-transposed patch data for the
-/// output stage's BITUNPACK source. A NULL `lane_offsets` pointer signals
-/// that no patches are present.
+/// The patch descriptor table is located at the end of the packed plan
+/// buffer, computed from `plan_size_bytes` and `num_patch_descs` in the
+/// header. Source ops and scalar ops reference their patches by index
+/// into this table (PATCH_NONE = no patches for that op).
 template <typename T>
 __device__ void
-dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__restrict packed_plan,
-                 const GPUPatches &patches) {
+dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__restrict packed_plan) {
     extern __shared__ char smem[];
 
     const auto *hdr = reinterpret_cast<const struct PlanHeader *>(packed_plan);
     const uint8_t *cursor = packed_plan + sizeof(struct PlanHeader);
     const uint8_t last = hdr->num_stages - 1;
 
+    // Patch descriptor table is at the end of the plan buffer.
+    const struct PatchDescriptor *patch_table = reinterpret_cast<const struct PatchDescriptor *>(
+        packed_plan + hdr->plan_size_bytes - hdr->num_patch_descs * sizeof(struct PatchDescriptor));
+
     for (uint8_t i = 0; i < last; ++i) {
         Stage input_stage = parse_stage(cursor);
-        execute_input_stage<T>(input_stage, smem);
+        execute_input_stage<T>(input_stage, smem, patch_table);
     }
 
     Stage output_stage = parse_stage(cursor);
@@ -500,7 +629,7 @@ dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__rest
                             smem,
                             block_start,
                             static_cast<uint32_t>(block_end - block_start),
-                            patches);
+                            patch_table);
 }
 
 // Kernels are instantiated only for unsigned integer types. Signed and
@@ -513,9 +642,8 @@ dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__rest
 #define GENERATE_KERNEL(suffix, Type)                                                                        \
     extern "C" __global__ void dynamic_dispatch_##suffix(Type *__restrict output,                            \
                                                          uint64_t array_len,                                 \
-                                                         const uint8_t *__restrict packed_plan,              \
-                                                         GPUPatches patches) {                               \
-        dynamic_dispatch<Type>(output, array_len, packed_plan, patches);                                     \
+                                                         const uint8_t *__restrict packed_plan) {            \
+        dynamic_dispatch<Type>(output, array_len, packed_plan);                                              \
     }
 
 FOR_EACH_UNSIGNED_INT(GENERATE_KERNEL)

@@ -6,7 +6,6 @@
 #![allow(clippy::expect_used)]
 
 use std::mem::size_of;
-use std::ptr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -83,18 +82,10 @@ fn run_timed(
         .record(stream)
         .map_err(|e| vortex_err!("{e:?}"))?;
 
-    // Null GPUPatches — signals "no patches" to the kernel.
-    let null_patches = vortex_cuda::GPUPatches {
-        lane_offsets: ptr::null_mut(),
-        indices: ptr::null_mut(),
-        values: ptr::null_mut(),
-    };
-
     let mut launch_builder = cuda_ctx.stream().launch_builder(&cuda_function);
     launch_builder.arg(&output_ptr);
     launch_builder.arg(&array_len_u64);
     launch_builder.arg(&plan_ptr);
-    launch_builder.arg(&null_patches);
 
     let num_blocks = array_len.div_ceil(2048) as u32;
     let config = LaunchConfig {
@@ -146,8 +137,6 @@ impl BenchRunner {
             shared_mem_bytes,
             ..
         } = plan.materialize(cuda_ctx).vortex_expect("materialize plan");
-        // device_patches is unused in the benchmark (no patched BitPacked arrays)
-
         let device_plan = Arc::new(
             cuda_ctx
                 .stream()
