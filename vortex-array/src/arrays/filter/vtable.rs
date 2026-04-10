@@ -37,7 +37,6 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
-use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -154,14 +153,20 @@ impl VTable for Filter {
             _ => unreachable!("`execute_filter_fast_paths` handles AllTrue and AllFalse"),
         };
 
-        let array = require_child!(array, array.child(), CHILD_SLOT => AnyCanonical);
+        if array.child().is_canonical() {
+            // If the child is already canonical, apply the filter directly.
+            // TODO(joe): fix the ownership of AnyCanonical
+            let child = Canonical::from(array.child().as_::<AnyCanonical>());
+            return Ok(ExecutionResult::done(
+                execute_filter(child, &mask_values).into_array(),
+            ));
+        }
 
-        // We rely on the optimization pass that runs prior to this execution for filter pushdown,
-        // so now we can just execute the filter without worrying.
-        // TODO(joe): fix the ownership of AnyCanonical
-        let child = Canonical::from(array.child().as_::<AnyCanonical>());
+        // Execute one step and re-wrap rather than using require_child!(=> AnyCanonical),
+        // which would decode past intermediate encodings that have their own FilterKernels.
+        let child = array.child().clone().execute::<ArrayRef>(ctx)?;
         Ok(ExecutionResult::done(
-            execute_filter(child, &mask_values).into_array(),
+            child.filter(Mask::Values(mask_values))?,
         ))
     }
 
