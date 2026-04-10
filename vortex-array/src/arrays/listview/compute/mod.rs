@@ -6,3 +6,4 @@ mod mask;
 pub(crate) mod rules;
 mod slice;
 mod take;
+pub use take::REBUILD_DENSITY_THRESHOLD;

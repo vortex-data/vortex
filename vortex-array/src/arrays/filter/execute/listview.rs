@@ -6,11 +6,11 @@ use std::sync::Arc;
 use vortex_error::VortexExpect;
 use vortex_mask::MaskValues;
 
-use crate::arrays::ListViewArray;
 use crate::arrays::filter::execute::filter_validity;
 use crate::arrays::filter::execute::values_to_mask;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewRebuildMode;
+use crate::arrays::{ListViewArray, listview};
 
 /// [`ListViewArray`] filter implementation.
 ///
@@ -58,13 +58,14 @@ pub fn filter_listview(array: &ListViewArray, selection_mask: &Arc<MaskValues>) 
         ListViewArray::new_unchecked(elements.clone(), new_offsets, new_sizes, new_validity)
     };
 
-    // TODO(connor)[ListView]: Ideally, we would only rebuild after all `take`s and `filter`
-    // compute functions have run, at the "top" of the operator tree. However, we cannot do this
-    // right now, so we will just rebuild every time (similar to `ListArray`).
-
-    new_array
-        .rebuild(ListViewRebuildMode::MakeZeroCopyToList)
-        .vortex_expect("ListViewArray rebuild to zero-copy List should always succeed")
+    let kept_row_fraction = selection_mask.true_count() as f32 / array.sizes().len() as f32;
+    if kept_row_fraction < listview::compute::REBUILD_DENSITY_THRESHOLD {
+        new_array
+            .rebuild(ListViewRebuildMode::MakeZeroCopyToList)
+            .vortex_expect("ListViewArray rebuild to zero-copy List should always succeed")
+    } else {
+        new_array
+    }
 }
 
 #[cfg(test)]
