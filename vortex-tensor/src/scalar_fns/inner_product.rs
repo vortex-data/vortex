@@ -22,6 +22,7 @@ use vortex_array::expr::and;
 use vortex_array::match_each_float_ptype;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
+use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFn;
 use vortex_array::scalar_fn::ScalarFnId;
@@ -33,7 +34,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::matcher::AnyTensor;
-use crate::scalar_fns::ApproxOptions;
 use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::utils::extract_flat_elements;
 use crate::utils::extract_l2_denorm_children;
@@ -53,10 +53,9 @@ use crate::utils::extract_l2_denorm_children;
 pub struct InnerProduct;
 
 impl InnerProduct {
-    /// Creates a new [`ScalarFn`] wrapping the inner product operation with the given
-    /// [`ApproxOptions`] controlling approximation behavior.
-    pub fn new(options: &ApproxOptions) -> ScalarFn<InnerProduct> {
-        ScalarFn::new(InnerProduct, options.clone())
+    /// Creates a new [`ScalarFn`] wrapping the inner product operation.
+    pub fn new() -> ScalarFn<InnerProduct> {
+        ScalarFn::new(InnerProduct, EmptyOptions)
     }
 
     /// Constructs a [`ScalarFnArray`] that lazily computes the inner product between `lhs` and
@@ -66,18 +65,13 @@ impl InnerProduct {
     ///
     /// Returns an error if the [`ScalarFnArray`] cannot be constructed (e.g. due to dtype
     /// mismatches).
-    pub fn try_new_array(
-        options: &ApproxOptions,
-        lhs: ArrayRef,
-        rhs: ArrayRef,
-        len: usize,
-    ) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(InnerProduct::new(options).erased(), vec![lhs, rhs], len)
+    pub fn try_new_array(lhs: ArrayRef, rhs: ArrayRef, len: usize) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(InnerProduct::new().erased(), vec![lhs, rhs], len)
     }
 }
 
 impl ScalarFnVTable for InnerProduct {
-    type Options = ApproxOptions;
+    type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
         ScalarFnId::from("vortex.tensor.inner_product")
@@ -144,7 +138,7 @@ impl ScalarFnVTable for InnerProduct {
 
     fn execute(
         &self,
-        options: &Self::Options,
+        _options: &Self::Options,
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -158,12 +152,12 @@ impl ScalarFnVTable for InnerProduct {
             let rhs_is_denorm = rhs_ref.is::<ExactScalarFn<L2Denorm>>();
 
             if lhs_is_denorm && rhs_is_denorm {
-                return self.execute_both_denorm(options, &lhs_ref, &rhs_ref, len, ctx);
+                return self.execute_both_denorm(&lhs_ref, &rhs_ref, len, ctx);
             } else if lhs_is_denorm || rhs_is_denorm {
                 if rhs_is_denorm {
                     (lhs_ref, rhs_ref) = (rhs_ref, lhs_ref);
                 }
-                return self.execute_one_denorm(options, &lhs_ref, &rhs_ref, len, ctx);
+                return self.execute_one_denorm(&lhs_ref, &rhs_ref, len, ctx);
             }
         }
 
@@ -225,7 +219,6 @@ impl InnerProduct {
     /// Both sides are `L2Denorm`: `inner_product = s_l * s_r * dot(n_l, n_r)`.
     fn execute_both_denorm(
         &self,
-        options: &ApproxOptions,
         lhs_ref: &ArrayRef,
         rhs_ref: &ArrayRef,
         len: usize,
@@ -239,10 +232,9 @@ impl InnerProduct {
         let norms_l: PrimitiveArray = norms_l.execute(ctx)?;
         let norms_r: PrimitiveArray = norms_r.execute(ctx)?;
 
-        let dot: PrimitiveArray =
-            InnerProduct::try_new_array(options, normalized_l, normalized_r, len)?
-                .into_array()
-                .execute(ctx)?;
+        let dot: PrimitiveArray = InnerProduct::try_new_array(normalized_l, normalized_r, len)?
+            .into_array()
+            .execute(ctx)?;
 
         match_each_float_ptype!(dot.ptype(), |T| {
             let dots = dot.as_slice::<T>();
@@ -260,7 +252,6 @@ impl InnerProduct {
     /// The caller must pass the denorm array as `denorm_ref` and the plain array as `plain_ref`.
     fn execute_one_denorm(
         &self,
-        options: &ApproxOptions,
         denorm_ref: &ArrayRef,
         plain_ref: &ArrayRef,
         len: usize,
@@ -271,10 +262,9 @@ impl InnerProduct {
         let (normalized, norms) = extract_l2_denorm_children(denorm_ref);
         let denorm_norms: PrimitiveArray = norms.execute(ctx)?;
 
-        let dot: PrimitiveArray =
-            InnerProduct::try_new_array(options, normalized, plain_ref.clone(), len)?
-                .into_array()
-                .execute(ctx)?;
+        let dot: PrimitiveArray = InnerProduct::try_new_array(normalized, plain_ref.clone(), len)?
+            .into_array()
+            .execute(ctx)?;
 
         match_each_float_ptype!(dot.ptype(), |T| {
             let dots = dot.as_slice::<T>();
@@ -308,13 +298,11 @@ mod tests {
     use vortex_array::arrays::MaskedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::ScalarFnArray;
-    use vortex_array::scalar_fn::ScalarFn;
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::scalar_fns::ApproxOptions;
     use crate::scalar_fns::inner_product::InnerProduct;
     use crate::scalar_fns::l2_denorm::L2Denorm;
     use crate::utils::test_helpers::assert_close;
@@ -326,7 +314,7 @@ mod tests {
 
     /// Evaluates inner product between two tensor arrays and returns the result as `Vec<f64>`.
     fn eval_inner_product(lhs: ArrayRef, rhs: ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
-        let scalar_fn = ScalarFn::new(InnerProduct, ApproxOptions::Exact).erased();
+        let scalar_fn = InnerProduct::new().erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], len)?;
         let mut ctx = SESSION.create_execution_ctx();
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
@@ -404,7 +392,7 @@ mod tests {
         let rhs = tensor_array(&[2], &[7.0, 8.0, 9.0, 10.0, 11.0, 12.0])?;
         let lhs = MaskedArray::try_new(lhs, Validity::from_iter([true, false, true]))?.into_array();
 
-        let scalar_fn = ScalarFn::new(InnerProduct, ApproxOptions::Exact).erased();
+        let scalar_fn = InnerProduct::new().erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
         let mut ctx = SESSION.create_execution_ctx();
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
@@ -422,7 +410,7 @@ mod tests {
     fn rejects_non_extension_dtype() {
         let lhs = PrimitiveArray::from_iter([1.0_f64, 2.0]).into_array();
         let rhs = PrimitiveArray::from_iter([3.0_f64, 4.0]).into_array();
-        let result = InnerProduct::try_new_array(&ApproxOptions::Exact, lhs, rhs, 2);
+        let result = InnerProduct::try_new_array(lhs, rhs, 2);
         assert!(result.is_err());
     }
 
@@ -430,7 +418,7 @@ mod tests {
     fn rejects_mismatched_dtypes() -> VortexResult<()> {
         let lhs = tensor_array(&[2], &[1.0_f64, 2.0])?;
         let rhs = vector_array(2, &[3.0_f64, 4.0])?;
-        let result = InnerProduct::try_new_array(&ApproxOptions::Exact, lhs, rhs, 1);
+        let result = InnerProduct::try_new_array(lhs, rhs, 1);
         assert!(result.is_err());
         Ok(())
     }
@@ -447,10 +435,7 @@ mod tests {
         let normalized = tensor_array(shape, normalized_elements)?;
         let norms = PrimitiveArray::from_iter(norms.iter().copied()).into_array();
         let mut ctx = SESSION.create_execution_ctx();
-        Ok(
-            L2Denorm::try_new_array(&ApproxOptions::Exact, normalized, norms, len, &mut ctx)?
-                .into_array(),
-        )
+        Ok(L2Denorm::try_new_array(normalized, norms, len, &mut ctx)?.into_array())
     }
 
     #[test]
@@ -508,12 +493,10 @@ mod tests {
         let norms_l = PrimitiveArray::from_option_iter([Some(5.0f64), None]).into_array();
         let mut ctx = SESSION.create_execution_ctx();
 
-        let lhs =
-            L2Denorm::try_new_array(&ApproxOptions::Exact, normalized_l, norms_l, 2, &mut ctx)?
-                .into_array();
+        let lhs = L2Denorm::try_new_array(normalized_l, norms_l, 2, &mut ctx)?.into_array();
         let rhs = l2_denorm_array(&[2], &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0])?;
 
-        let scalar_fn = ScalarFn::new(InnerProduct, ApproxOptions::Exact).erased();
+        let scalar_fn = InnerProduct::new().erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 2)?;
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
 

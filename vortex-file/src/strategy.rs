@@ -56,8 +56,6 @@ use vortex_pco::Pco;
 use vortex_runend::RunEnd;
 use vortex_sequence::Sequence;
 use vortex_sparse::Sparse;
-#[cfg(feature = "unstable_encodings")]
-use vortex_tensor::encodings::turboquant::TurboQuant;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 use vortex_zigzag::ZigZag;
@@ -111,8 +109,6 @@ pub static ALLOWED_ENCODINGS: LazyLock<HashSet<ArrayId>> = LazyLock::new(|| {
     allowed.insert(RunEnd.id());
     allowed.insert(Sequence.id());
     allowed.insert(Sparse.id());
-    #[cfg(feature = "unstable_encodings")]
-    allowed.insert(TurboQuant.id());
     allowed.insert(ZigZag.id());
 
     #[cfg(feature = "zstd")]

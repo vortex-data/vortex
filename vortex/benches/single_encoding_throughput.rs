@@ -450,7 +450,6 @@ mod turboquant_benches {
     use vortex_buffer::BufferMut;
     use vortex_tensor::encodings::turboquant::TurboQuantConfig;
     use vortex_tensor::encodings::turboquant::turboquant_encode_unchecked;
-    use vortex_tensor::scalar_fns::ApproxOptions;
     use vortex_tensor::scalar_fns::l2_denorm::normalize_as_l2_denorm;
     use vortex_tensor::vector::Vector;
 
@@ -498,7 +497,7 @@ mod turboquant_benches {
     fn setup_normalized_vector_ext(dim: usize) -> ExtensionArray {
         let ext = setup_vector_ext(dim);
         let mut ctx = SESSION.create_execution_ctx();
-        let normalized = normalize_as_l2_denorm(&ApproxOptions::Exact, ext.into_array(), &mut ctx)
+        let normalized = normalize_as_l2_denorm(ext.into_array(), &mut ctx)
             .unwrap()
             .child_at(0)
             .clone();
