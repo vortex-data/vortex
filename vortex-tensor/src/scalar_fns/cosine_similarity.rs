@@ -5,27 +5,19 @@
 
 use std::fmt::Formatter;
 
-use num_traits::Float;
 use num_traits::Zero;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::Constant;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::Extension;
-use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFnArray;
-use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
 use vortex_array::match_each_float_ptype;
-use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
@@ -35,15 +27,13 @@ use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
-use crate::matcher::AnyTensor;
 use crate::scalar_fns::inner_product::InnerProduct;
 use crate::scalar_fns::l2_denorm::L2Denorm;
+use crate::scalar_fns::l2_denorm::try_build_constant_l2_denorm;
 use crate::scalar_fns::l2_norm::L2Norm;
-use crate::utils::extract_flat_elements;
 use crate::utils::extract_l2_denorm_children;
 use crate::utils::validate_tensor_float_input;
 
@@ -147,11 +137,15 @@ impl ScalarFnVTable for CosineSimilarity {
         // If either side is a constant tensor-like extension array, eagerly normalize the single
         // stored row and re-wrap it as an `L2Denorm` whose children are both [`ConstantArray`]s.
         // The L2Denorm fast path below then picks it up.
-        if let Some(wrapped) = try_wrap_constant_as_l2_denorm(&lhs_ref, len, ctx)? {
-            lhs_ref = wrapped;
+        if let Some(lhs_constant) =
+            try_build_constant_l2_denorm(&lhs_ref, len, ctx)?.map(|sfn| sfn.into_array())
+        {
+            lhs_ref = lhs_constant;
         }
-        if let Some(wrapped) = try_wrap_constant_as_l2_denorm(&rhs_ref, len, ctx)? {
-            rhs_ref = wrapped;
+        if let Some(rhs_constant) =
+            try_build_constant_l2_denorm(&rhs_ref, len, ctx)?.map(|sfn| sfn.into_array())
+        {
+            rhs_ref = rhs_constant;
         }
 
         // Check if any of our children have be already normalized.
@@ -294,90 +288,6 @@ impl CosineSimilarity {
             Ok(unsafe { PrimitiveArray::new_unchecked(buffer, validity) }.into_array())
         })
     }
-}
-
-/// If `input` is a tensor-like [`ExtensionArray`] whose storage is a [`ConstantArray`] with a
-/// non-null fixed-size-list scalar, eagerly normalize the single stored row and return an
-/// equivalent [`L2Denorm`]-wrapped constant array whose normalized and norms children are both
-/// [`ConstantArray`]s.
-///
-/// Returns `Ok(None)` when `input` is not an extension array, when its storage is not a
-/// [`ConstantArray`], or when the constant scalar is null. In those cases, the caller falls
-/// through to the standard cosine-similarity path.
-fn try_wrap_constant_as_l2_denorm(
-    input: &ArrayRef,
-    len: usize,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<ArrayRef>> {
-    // The input must be an extension array whose storage is a constant array with a non-null
-    // scalar value. Any other shape falls through so the standard path handles it.
-    let Some(ext) = input.as_opt::<Extension>() else {
-        return Ok(None);
-    };
-    let storage = ext.storage_array();
-    let Some(const_storage) = storage.as_opt::<Constant>() else {
-        return Ok(None);
-    };
-    if const_storage.scalar().is_null() {
-        return Ok(None);
-    }
-
-    // `return_dtype` has already validated this is an `AnyTensor` extension dtype.
-    let tensor_match = input
-        .dtype()
-        .as_extension()
-        .metadata_opt::<AnyTensor>()
-        .vortex_expect("return_dtype validated input has AnyTensor metadata");
-    let list_size = tensor_match.list_size();
-    let original_nullability = input.dtype().nullability();
-    let ext_dtype = input.dtype().as_extension().clone();
-    let storage_fsl_nullability = storage.dtype().nullability();
-
-    // `extract_flat_elements` already takes the stride-0 single-row path for `Constant` storage,
-    // so this is cheap and does not expand the constant to the full column length.
-    let flat = extract_flat_elements(storage, list_size, ctx)?;
-
-    // TODO(connor): This is ugly because we do not have `ScalarValue::Array` still.
-    let (normalized_fsl_scalar, norms_scalar) = match_each_float_ptype!(flat.ptype(), |T| {
-        let row = flat.row::<T>(0);
-
-        let mut sum_sq = T::zero();
-        for &x in row {
-            sum_sq += x * x;
-        }
-        let norm_t: T = sum_sq.sqrt();
-
-        // Zero-norm rows must be stored as all-zeros so [`L2Denorm`]'s unit-norm-or-zero
-        // invariant holds. This mirrors `normalize_as_l2_denorm` in `l2_denorm.rs`.
-        let element_dtype = DType::Primitive(T::PTYPE, Nullability::NonNullable);
-        let children: Vec<Scalar> = if norm_t == T::zero() {
-            (0..list_size)
-                .map(|_| Scalar::zero_value(&element_dtype))
-                .collect()
-        } else {
-            row.iter()
-                .map(|&v| Scalar::primitive(v / norm_t, Nullability::NonNullable))
-                .collect()
-        };
-
-        // The rebuilt FSL scalar preserves the original storage FSL's nullability so the
-        // resulting `ExtensionArray::new` call accepts the same extension dtype.
-        let fsl_scalar = Scalar::fixed_size_list(element_dtype, children, storage_fsl_nullability);
-        let norms_scalar = Scalar::primitive(norm_t, original_nullability);
-        (fsl_scalar, norms_scalar)
-    });
-
-    // Rebuild the normalized side as a constant-backed extension array with the original dtype.
-    let normalized_storage = ConstantArray::new(normalized_fsl_scalar, len).into_array();
-    let normalized_ext = ExtensionArray::new(ext_dtype, normalized_storage).into_array();
-
-    // Build the norms side as a constant primitive array.
-    let norms_array = ConstantArray::new(norms_scalar, len).into_array();
-
-    // SAFETY: Each row of `normalized_ext` is either `v / ||v||` (unit norm within floating point
-    // tolerance) or all zeros when `||v|| == 0`. Stored norms are non-negative by construction.
-    let wrapped = unsafe { L2Denorm::new_array_unchecked(normalized_ext, norms_array, len)? };
-    Ok(Some(wrapped.into_array()))
 }
 
 #[cfg(test)]
