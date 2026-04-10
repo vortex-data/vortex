@@ -231,7 +231,7 @@ impl<T: VortexReadAt + Clone> InstrumentedReadAt<T> {
 
 // We implement drop for `InnerMetrics` so this will be logged only when we eventually drop the final instance of `InstrumentedRead`
 impl Drop for InnerMetrics {
-    #[expect(clippy::cognitive_complexity)]
+    #[allow(clippy::cognitive_complexity)]
     fn drop(&mut self) {
         tracing::debug!("Reads: {}", self.sizes.count());
         if !self.sizes.is_empty() {
