@@ -59,6 +59,34 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// Returns the ID of the array.
     fn id(&self) -> ArrayId;
 
+    /// Returns the compile-time string ID for this VTable type.
+    ///
+    /// This is used to pre-compute dispatch hints at rule-registration time without
+    /// needing an instance. VTables with instance-dependent IDs (e.g., `ScalarFnVTable`,
+    /// which stores the scalar function's own ID) should NOT override this; instead they
+    /// should set appropriate `category_flags()`.
+    ///
+    /// The default implementation returns an empty string, which causes the dispatch
+    /// system to fall back to the `category_flags()` path (or no hint if both are zero).
+    fn static_id() -> &'static str
+    where
+        Self: Sized,
+    {
+        ""
+    }
+
+    /// Returns the category membership bitmask for this VTable type.
+    ///
+    /// Use the `CATEGORY_*` constants from [`crate::matcher`]. The default is `0`
+    /// (no special category). Override for canonical arrays, constant arrays, and
+    /// scalar-function arrays.
+    fn category_flags() -> u32
+    where
+        Self: Sized,
+    {
+        0
+    }
+
     /// Validates that externally supplied logical metadata matches the array data.
     fn validate(
         &self,

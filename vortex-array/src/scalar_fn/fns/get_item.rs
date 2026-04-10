@@ -43,7 +43,7 @@ pub struct GetItem;
 impl ScalarFnVTable for GetItem {
     type Options = FieldName;
 
-    fn id(&self) -> ScalarFnId {
+    fn static_id() -> ScalarFnId {
         ScalarFnId::from("vortex.get_item")
     }
 

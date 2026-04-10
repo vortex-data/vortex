@@ -50,7 +50,7 @@ pub struct Merge;
 impl ScalarFnVTable for Merge {
     type Options = DuplicateHandling;
 
-    fn id(&self) -> ScalarFnId {
+    fn static_id() -> ScalarFnId {
         ScalarFnId::from("vortex.merge")
     }
 

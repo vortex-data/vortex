@@ -72,6 +72,10 @@ impl VTable for List {
         Self::ID
     }
 
+    fn static_id() -> &'static str {
+        "vortex.list"
+    }
+
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }

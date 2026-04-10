@@ -70,6 +70,14 @@ impl VTable for Bool {
         Self::ID
     }
 
+    fn static_id() -> &'static str {
+        "vortex.bool"
+    }
+
+    fn category_flags() -> u32 {
+        crate::matcher::CATEGORY_CANONICAL
+    }
+
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         1
     }

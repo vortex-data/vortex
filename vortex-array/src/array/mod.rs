@@ -70,6 +70,12 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns the encoding ID of the array.
     fn encoding_id(&self) -> ArrayId;
 
+    /// Returns the interned encoding index for this array.
+    fn encoding_idx(&self) -> u32;
+
+    /// Returns the category flags for this array's encoding.
+    fn encoding_categories(&self) -> u32;
+
     /// Fetch the scalar at the given index.
     ///
     /// This method panics if the index is out of bounds for the array.
@@ -215,6 +221,14 @@ impl<V: VTable> DynArray for ArrayInner<V> {
 
     fn encoding_id(&self) -> ArrayId {
         self.vtable.id()
+    }
+
+    fn encoding_idx(&self) -> u32 {
+        self.encoding_idx
+    }
+
+    fn encoding_categories(&self) -> u32 {
+        self.encoding_categories
     }
 
     fn scalar_at(&self, this: &ArrayRef, index: usize) -> VortexResult<Scalar> {

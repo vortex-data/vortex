@@ -51,7 +51,7 @@ pub struct Binary;
 impl ScalarFnVTable for Binary {
     type Options = Operator;
 
-    fn id(&self) -> ScalarFnId {
+    fn static_id() -> ScalarFnId {
         ScalarFnId::from("vortex.binary")
     }
 

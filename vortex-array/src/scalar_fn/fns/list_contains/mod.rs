@@ -59,7 +59,7 @@ pub struct ListContains;
 impl ScalarFnVTable for ListContains {
     type Options = EmptyOptions;
 
-    fn id(&self) -> ScalarFnId {
+    fn static_id() -> ScalarFnId {
         ScalarFnId::from("vortex.list.contains")
     }
 

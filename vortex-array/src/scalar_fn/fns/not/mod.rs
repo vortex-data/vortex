@@ -35,7 +35,7 @@ pub struct Not;
 impl ScalarFnVTable for Not {
     type Options = EmptyOptions;
 
-    fn id(&self) -> ScalarFnId {
+    fn static_id() -> ScalarFnId {
         ScalarFnId::from("vortex.not")
     }
 

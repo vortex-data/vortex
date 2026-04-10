@@ -78,6 +78,14 @@ impl VTable for ListView {
         Self::ID
     }
 
+    fn static_id() -> &'static str {
+        "vortex.listview"
+    }
+
+    fn category_flags() -> u32 {
+        crate::matcher::CATEGORY_CANONICAL
+    }
+
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }

@@ -184,7 +184,7 @@ pub struct Between;
 impl ScalarFnVTable for Between {
     type Options = BetweenOptions;
 
-    fn id(&self) -> ScalarFnId {
+    fn static_id() -> ScalarFnId {
         ScalarFnId::from("vortex.between")
     }
 

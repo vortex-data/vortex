@@ -71,6 +71,10 @@ impl VTable for Slice {
         Slice::ID
     }
 
+    fn static_id() -> &'static str {
+        "vortex.slice"
+    }
+
     fn validate(
         &self,
         data: &Self::ArrayData,

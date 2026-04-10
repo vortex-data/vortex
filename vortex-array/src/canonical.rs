@@ -994,6 +994,12 @@ pub struct AnyCanonical;
 impl Matcher for AnyCanonical {
     type Match<'a> = CanonicalView<'a>;
 
+    fn dispatch_hint() -> Option<crate::matcher::MatcherHint> {
+        Some(crate::matcher::MatcherHint::Category(
+            crate::matcher::CATEGORY_CANONICAL,
+        ))
+    }
+
     fn matches(array: &ArrayRef) -> bool {
         array.is::<Null>()
             || array.is::<Bool>()

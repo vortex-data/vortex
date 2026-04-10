@@ -13,17 +13,23 @@
 //! registering them in a [`ParentKernelSet`]. Each kernel specifies which parent types it
 //! handles via a [`Matcher`].
 
+use std::any::Any;
 use std::any::type_name;
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::sync::OnceLock;
 
+use parking_lot::RwLock;
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::matcher::Matcher;
+use crate::matcher::MatcherHint;
 
 /// A collection of [`ExecuteParentKernel`]s registered for a specific child encoding.
 ///
@@ -32,6 +38,116 @@ use crate::matcher::Matcher;
 /// returns `Some` wins.
 pub struct ParentKernelSet<V: VTable> {
     kernels: &'static [&'static dyn DynParentKernel<V>],
+}
+
+fn trace_kernel_event<V: VTable>(
+    kernel: &dyn DynParentKernel<V>,
+    child: ArrayView<'_, V>,
+    parent: &ArrayRef,
+    child_idx: usize,
+    message: &'static str,
+    rewritten: Option<&ArrayRef>,
+) {
+    if !tracing::enabled!(tracing::Level::TRACE) {
+        return;
+    }
+
+    tracing::trace!(
+        kernel = ?kernel,
+        child = %child.array().encoding_id(),
+        parent = %parent.encoding_id(),
+        child_idx,
+        rewritten = rewritten.map(ArrayRef::encoding_id).as_deref(),
+        "{message}"
+    );
+}
+
+struct ParentKernelDispatch<V: VTable> {
+    exact: Vec<Vec<&'static dyn DynParentKernel<V>>>,
+    category: Vec<(u32, &'static dyn DynParentKernel<V>)>,
+    fallback: Vec<&'static dyn DynParentKernel<V>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct DispatchCacheKey {
+    ptr: usize,
+    len: usize,
+}
+
+impl DispatchCacheKey {
+    fn new<T: ?Sized>(entries: &'static [&'static T]) -> Self {
+        Self {
+            ptr: entries.as_ptr() as usize,
+            len: entries.len(),
+        }
+    }
+}
+
+fn kernel_dispatch_cache()
+-> &'static RwLock<HashMap<DispatchCacheKey, &'static (dyn Any + Send + Sync)>> {
+    static CACHE: OnceLock<RwLock<HashMap<DispatchCacheKey, &'static (dyn Any + Send + Sync)>>> =
+        OnceLock::new();
+    CACHE.get_or_init(|| RwLock::new(HashMap::default()))
+}
+
+fn build_kernel_dispatch<V: VTable>(
+    kernels: &'static [&'static dyn DynParentKernel<V>],
+) -> ParentKernelDispatch<V> {
+    let mut exact: Vec<Vec<&'static dyn DynParentKernel<V>>> = Vec::new();
+    let mut category: Vec<(u32, &'static dyn DynParentKernel<V>)> = Vec::new();
+    let mut fallback: Vec<&'static dyn DynParentKernel<V>> = Vec::new();
+
+    for kernel in kernels.iter().copied() {
+        match kernel.dispatch_hint() {
+            Some(MatcherHint::Exact(idx)) => {
+                let idx = idx as usize;
+                if idx >= exact.len() {
+                    exact.resize_with(idx + 1, Vec::new);
+                }
+                exact[idx].push(kernel);
+            }
+            Some(MatcherHint::Category(mask)) => {
+                category.push((mask, kernel));
+            }
+            None => {
+                fallback.push(kernel);
+            }
+        }
+    }
+
+    ParentKernelDispatch {
+        exact,
+        category,
+        fallback,
+    }
+}
+
+fn cached_kernel_dispatch<V: VTable>(
+    kernels: &'static [&'static dyn DynParentKernel<V>],
+) -> &'static ParentKernelDispatch<V> {
+    let key = DispatchCacheKey::new(kernels);
+
+    {
+        let cache = kernel_dispatch_cache().read();
+        if let Some(dispatch) = cache.get(&key) {
+            return match dispatch.downcast_ref::<ParentKernelDispatch<V>>() {
+                Some(dispatch) => dispatch,
+                None => vortex_panic!("kernel dispatch cache type mismatch"),
+            };
+        }
+    }
+
+    let mut cache = kernel_dispatch_cache().write();
+    if let Some(dispatch) = cache.get(&key) {
+        return match dispatch.downcast_ref::<ParentKernelDispatch<V>>() {
+            Some(dispatch) => dispatch,
+            None => vortex_panic!("kernel dispatch cache type mismatch"),
+        };
+    }
+
+    let dispatch = Box::leak(Box::new(build_kernel_dispatch(kernels)));
+    cache.insert(key, dispatch as &'static (dyn Any + Send + Sync));
+    dispatch
 }
 
 impl<V: VTable> ParentKernelSet<V> {
@@ -64,13 +180,163 @@ impl<V: VTable> ParentKernelSet<V> {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        for kernel in self.kernels.iter() {
-            if !kernel.matches(parent) {
+        let dispatch = cached_kernel_dispatch(self.kernels);
+        let encoding_idx = parent.encoding_idx() as usize;
+        let categories = parent.encoding_categories();
+
+        // Try exact-match kernels first (O(1) Vec index).
+        if let Some(kernels) = dispatch.exact.get(encoding_idx) {
+            for kernel in kernels {
+                trace_kernel_event(
+                    *kernel,
+                    child,
+                    parent,
+                    child_idx,
+                    "execute_parent: checking kernel",
+                    None,
+                );
+                if !kernel.matches(parent) {
+                    trace_kernel_event(
+                        *kernel,
+                        child,
+                        parent,
+                        child_idx,
+                        "execute_parent: parent mismatch",
+                        None,
+                    );
+                    continue;
+                }
+                trace_kernel_event(
+                    *kernel,
+                    child,
+                    parent,
+                    child_idx,
+                    "execute_parent: matched parent",
+                    None,
+                );
+                if let Some(reduced) = kernel.execute_parent(child, parent, child_idx, ctx)? {
+                    trace_kernel_event(
+                        *kernel,
+                        child,
+                        parent,
+                        child_idx,
+                        "execute_parent: rewrote parent",
+                        Some(&reduced),
+                    );
+                    return Ok(Some(reduced));
+                }
+                trace_kernel_event(
+                    *kernel,
+                    child,
+                    parent,
+                    child_idx,
+                    "execute_parent: declined after match",
+                    None,
+                );
+            }
+        }
+
+        // Try category kernels (small flat scan).
+        for (mask, kernel) in &dispatch.category {
+            if categories & mask == 0 {
                 continue;
             }
+            trace_kernel_event(
+                *kernel,
+                child,
+                parent,
+                child_idx,
+                "execute_parent: checking kernel",
+                None,
+            );
+            if !kernel.matches(parent) {
+                trace_kernel_event(
+                    *kernel,
+                    child,
+                    parent,
+                    child_idx,
+                    "execute_parent: parent mismatch",
+                    None,
+                );
+                continue;
+            }
+            trace_kernel_event(
+                *kernel,
+                child,
+                parent,
+                child_idx,
+                "execute_parent: matched parent",
+                None,
+            );
             if let Some(reduced) = kernel.execute_parent(child, parent, child_idx, ctx)? {
+                trace_kernel_event(
+                    *kernel,
+                    child,
+                    parent,
+                    child_idx,
+                    "execute_parent: rewrote parent",
+                    Some(&reduced),
+                );
                 return Ok(Some(reduced));
             }
+            trace_kernel_event(
+                *kernel,
+                child,
+                parent,
+                child_idx,
+                "execute_parent: declined after match",
+                None,
+            );
+        }
+
+        // Fallback (wildcards like AnyArray).
+        for kernel in dispatch.fallback.iter().copied() {
+            trace_kernel_event(
+                kernel,
+                child,
+                parent,
+                child_idx,
+                "execute_parent: checking kernel",
+                None,
+            );
+            if !kernel.matches(parent) {
+                trace_kernel_event(
+                    kernel,
+                    child,
+                    parent,
+                    child_idx,
+                    "execute_parent: parent mismatch",
+                    None,
+                );
+                continue;
+            }
+            trace_kernel_event(
+                kernel,
+                child,
+                parent,
+                child_idx,
+                "execute_parent: matched parent",
+                None,
+            );
+            if let Some(reduced) = kernel.execute_parent(child, parent, child_idx, ctx)? {
+                trace_kernel_event(
+                    kernel,
+                    child,
+                    parent,
+                    child_idx,
+                    "execute_parent: rewrote parent",
+                    Some(&reduced),
+                );
+                return Ok(Some(reduced));
+            }
+            trace_kernel_event(
+                kernel,
+                child,
+                parent,
+                child_idx,
+                "execute_parent: declined after match",
+                None,
+            );
         }
         Ok(None)
     }
@@ -102,7 +368,10 @@ pub trait ExecuteParentKernel<V: VTable>: Debug + Send + Sync + 'static {
 
 /// Type-erased version of [`ExecuteParentKernel`] used for dynamic dispatch within
 /// [`ParentKernelSet`].
-pub trait DynParentKernel<V: VTable>: Send + Sync {
+pub trait DynParentKernel<V: VTable>: Debug + Send + Sync {
+    /// Returns a precomputed hint for the outer parent array kind this kernel may accept.
+    fn dispatch_hint(&self) -> Option<MatcherHint>;
+
     /// Returns `true` if this kernel's parent [`Matcher`] matches the given parent array.
     fn matches(&self, parent: &ArrayRef) -> bool;
 
@@ -133,6 +402,10 @@ impl<V: VTable, K: ExecuteParentKernel<V>> Debug for ParentKernelAdapter<V, K> {
 }
 
 impl<V: VTable, K: ExecuteParentKernel<V>> DynParentKernel<V> for ParentKernelAdapter<V, K> {
+    fn dispatch_hint(&self) -> Option<MatcherHint> {
+        K::Parent::dispatch_hint()
+    }
+
     fn matches(&self, parent: &ArrayRef) -> bool {
         K::Parent::matches(parent)
     }

@@ -76,7 +76,7 @@ impl InnerProduct {
 impl ScalarFnVTable for InnerProduct {
     type Options = ApproxOptions;
 
-    fn id(&self) -> ScalarFnId {
+    fn static_id() -> ScalarFnId {
         ScalarFnId::from("vortex.tensor.inner_product")
     }
 

@@ -33,7 +33,7 @@ pub struct IsNull;
 impl ScalarFnVTable for IsNull {
     type Options = EmptyOptions;
 
-    fn id(&self) -> ScalarFnId {
+    fn static_id() -> ScalarFnId {
         ScalarFnId::from("vortex.is_null")
     }
 

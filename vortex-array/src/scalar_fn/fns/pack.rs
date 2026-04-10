@@ -54,7 +54,7 @@ impl Display for PackOptions {
 impl ScalarFnVTable for Pack {
     type Options = PackOptions;
 
-    fn id(&self) -> ScalarFnId {
+    fn static_id() -> ScalarFnId {
         ScalarFnId::from("vortex.pack")
     }
 

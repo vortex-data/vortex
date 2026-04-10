@@ -41,8 +41,18 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     /// Options for this expression.
     type Options: 'static + Send + Sync + Clone + Debug + Display + PartialEq + Eq + Hash;
 
+    /// Returns the compile-time string ID for this scalar function type.
+    ///
+    /// All scalar function implementations return a static string literal from this method.
+    /// The instance method [`id`](Self::id) delegates here by default.
+    fn static_id() -> ScalarFnId
+    where
+        Self: Sized;
+
     /// Returns the ID of the scalar function vtable.
-    fn id(&self) -> ScalarFnId;
+    fn id(&self) -> ScalarFnId {
+        Self::static_id()
+    }
 
     /// Serialize the options for this expression.
     ///

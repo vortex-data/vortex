@@ -18,16 +18,22 @@
 //! Rules are collected into [`ReduceRuleSet`] and [`ParentRuleSet`] respectively, and
 //! evaluated by the optimizer in a fixpoint loop until no more rules apply.
 
+use std::any::Any;
 use std::any::type_name;
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::sync::OnceLock;
 
+use parking_lot::RwLock;
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::matcher::Matcher;
+use crate::matcher::MatcherHint;
 
 /// A metadata-only rewrite rule that transforms an array based on its own structure (Layer 1).
 ///
@@ -69,6 +75,8 @@ pub trait ArrayParentReduceRule<V: VTable>: Debug + Send + Sync + 'static {
 /// Type-erased version of [`ArrayParentReduceRule`] used for dynamic dispatch within
 /// [`ParentRuleSet`].
 pub trait DynArrayParentReduceRule<V: VTable>: Debug + Send + Sync {
+    fn dispatch_hint(&self) -> Option<MatcherHint>;
+
     fn matches(&self, parent: &ArrayRef) -> bool;
 
     fn reduce_parent(
@@ -98,6 +106,10 @@ impl<V: VTable, R: ArrayParentReduceRule<V>> Debug for ParentReduceRuleAdapter<V
 impl<V: VTable, K: ArrayParentReduceRule<V>> DynArrayParentReduceRule<V>
     for ParentReduceRuleAdapter<V, K>
 {
+    fn dispatch_hint(&self) -> Option<MatcherHint> {
+        K::Parent::dispatch_hint()
+    }
+
     fn matches(&self, parent: &ArrayRef) -> bool {
         K::Parent::matches(parent)
     }
@@ -145,6 +157,116 @@ pub struct ParentRuleSet<V: VTable> {
     rules: &'static [&'static dyn DynArrayParentReduceRule<V>],
 }
 
+struct ParentRuleDispatch<V: VTable> {
+    exact: Vec<Vec<&'static dyn DynArrayParentReduceRule<V>>>,
+    category: Vec<(u32, &'static dyn DynArrayParentReduceRule<V>)>,
+    fallback: Vec<&'static dyn DynArrayParentReduceRule<V>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct DispatchCacheKey {
+    ptr: usize,
+    len: usize,
+}
+
+impl DispatchCacheKey {
+    fn new<T: ?Sized>(entries: &'static [&'static T]) -> Self {
+        Self {
+            ptr: entries.as_ptr() as usize,
+            len: entries.len(),
+        }
+    }
+}
+
+fn rule_dispatch_cache()
+-> &'static RwLock<HashMap<DispatchCacheKey, &'static (dyn Any + Send + Sync)>> {
+    static CACHE: OnceLock<RwLock<HashMap<DispatchCacheKey, &'static (dyn Any + Send + Sync)>>> =
+        OnceLock::new();
+    CACHE.get_or_init(|| RwLock::new(HashMap::default()))
+}
+
+fn build_rule_dispatch<V: VTable>(
+    rules: &'static [&'static dyn DynArrayParentReduceRule<V>],
+) -> ParentRuleDispatch<V> {
+    let mut exact: Vec<Vec<&'static dyn DynArrayParentReduceRule<V>>> = Vec::new();
+    let mut category: Vec<(u32, &'static dyn DynArrayParentReduceRule<V>)> = Vec::new();
+    let mut fallback: Vec<&'static dyn DynArrayParentReduceRule<V>> = Vec::new();
+
+    for rule in rules.iter().copied() {
+        match rule.dispatch_hint() {
+            Some(MatcherHint::Exact(idx)) => {
+                let idx = idx as usize;
+                if idx >= exact.len() {
+                    exact.resize_with(idx + 1, Vec::new);
+                }
+                exact[idx].push(rule);
+            }
+            Some(MatcherHint::Category(mask)) => {
+                category.push((mask, rule));
+            }
+            None => {
+                fallback.push(rule);
+            }
+        }
+    }
+
+    ParentRuleDispatch {
+        exact,
+        category,
+        fallback,
+    }
+}
+
+fn cached_rule_dispatch<V: VTable>(
+    rules: &'static [&'static dyn DynArrayParentReduceRule<V>],
+) -> &'static ParentRuleDispatch<V> {
+    let key = DispatchCacheKey::new(rules);
+
+    {
+        let cache = rule_dispatch_cache().read();
+        if let Some(dispatch) = cache.get(&key) {
+            return match dispatch.downcast_ref::<ParentRuleDispatch<V>>() {
+                Some(dispatch) => dispatch,
+                None => vortex_panic!("rule dispatch cache type mismatch"),
+            };
+        }
+    }
+
+    let mut cache = rule_dispatch_cache().write();
+    if let Some(dispatch) = cache.get(&key) {
+        return match dispatch.downcast_ref::<ParentRuleDispatch<V>>() {
+            Some(dispatch) => dispatch,
+            None => vortex_panic!("rule dispatch cache type mismatch"),
+        };
+    }
+
+    let dispatch = Box::leak(Box::new(build_rule_dispatch(rules)));
+    cache.insert(key, dispatch as &'static (dyn Any + Send + Sync));
+    dispatch
+}
+
+fn trace_rule_event<V: VTable>(
+    rule: &dyn DynArrayParentReduceRule<V>,
+    child: ArrayView<'_, V>,
+    parent: &ArrayRef,
+    child_idx: usize,
+    message: &'static str,
+    rewritten: Option<&ArrayRef>,
+) {
+    if !tracing::enabled!(tracing::Level::TRACE) {
+        return;
+    }
+
+    tracing::trace!(
+        rule = ?rule,
+        child = %child.array().encoding_id(),
+        parent = %parent.encoding_id(),
+        child_idx,
+        rewritten = rewritten.map(ArrayRef::encoding_id).as_deref(),
+        "{message}"
+    );
+}
+
 impl<V: VTable> ParentRuleSet<V> {
     /// Create a new parent rule set with the given rules.
     ///
@@ -174,11 +296,122 @@ impl<V: VTable> ParentRuleSet<V> {
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        for rule in self.rules.iter() {
-            if !rule.matches(parent) {
+        let dispatch = cached_rule_dispatch(self.rules);
+        let encoding_idx = parent.encoding_idx() as usize;
+        let categories = parent.encoding_categories();
+
+        // Try exact-match rules first (O(1) Vec index).
+        if let Some(rules) = dispatch.exact.get(encoding_idx) {
+            for rule in rules {
+                trace_rule_event(
+                    *rule,
+                    child,
+                    parent,
+                    child_idx,
+                    "reduce_parent: checking rule",
+                    None,
+                );
+                if !rule.matches(parent) {
+                    trace_rule_event(
+                        *rule,
+                        child,
+                        parent,
+                        child_idx,
+                        "reduce_parent: parent mismatch",
+                        None,
+                    );
+                    continue;
+                }
+                trace_rule_event(
+                    *rule,
+                    child,
+                    parent,
+                    child_idx,
+                    "reduce_parent: matched parent",
+                    None,
+                );
+                if let Some(reduced) = rule.reduce_parent(child, parent, child_idx)? {
+                    trace_rule_event(
+                        *rule,
+                        child,
+                        parent,
+                        child_idx,
+                        "reduce_parent: rewrote parent",
+                        Some(&reduced),
+                    );
+                    // Debug assertions because these checks are already run elsewhere.
+                    #[cfg(debug_assertions)]
+                    {
+                        vortex_error::vortex_ensure!(
+                            reduced.len() == parent.len(),
+                            "Reduced array length mismatch from {:?}\nFrom:\n{}\nTo:\n{}",
+                            rule,
+                            parent.encoding_id(),
+                            reduced.encoding_id()
+                        );
+                        vortex_error::vortex_ensure!(
+                            reduced.dtype() == parent.dtype(),
+                            "Reduced array dtype mismatch from {:?}\nFrom:\n{}\nTo:\n{}",
+                            rule,
+                            parent.encoding_id(),
+                            reduced.encoding_id()
+                        );
+                    }
+
+                    return Ok(Some(reduced));
+                }
+                trace_rule_event(
+                    *rule,
+                    child,
+                    parent,
+                    child_idx,
+                    "reduce_parent: declined after match",
+                    None,
+                );
+            }
+        }
+
+        // Try category rules (small flat scan).
+        for (mask, rule) in &dispatch.category {
+            if categories & mask == 0 {
                 continue;
             }
+            trace_rule_event(
+                *rule,
+                child,
+                parent,
+                child_idx,
+                "reduce_parent: checking rule",
+                None,
+            );
+            if !rule.matches(parent) {
+                trace_rule_event(
+                    *rule,
+                    child,
+                    parent,
+                    child_idx,
+                    "reduce_parent: parent mismatch",
+                    None,
+                );
+                continue;
+            }
+            trace_rule_event(
+                *rule,
+                child,
+                parent,
+                child_idx,
+                "reduce_parent: matched parent",
+                None,
+            );
             if let Some(reduced) = rule.reduce_parent(child, parent, child_idx)? {
+                trace_rule_event(
+                    *rule,
+                    child,
+                    parent,
+                    child_idx,
+                    "reduce_parent: rewrote parent",
+                    Some(&reduced),
+                );
                 // Debug assertions because these checks are already run elsewhere.
                 #[cfg(debug_assertions)]
                 {
@@ -200,6 +433,83 @@ impl<V: VTable> ParentRuleSet<V> {
 
                 return Ok(Some(reduced));
             }
+            trace_rule_event(
+                *rule,
+                child,
+                parent,
+                child_idx,
+                "reduce_parent: declined after match",
+                None,
+            );
+        }
+
+        // Fallback (wildcards like AnyArray).
+        for rule in dispatch.fallback.iter().copied() {
+            trace_rule_event(
+                rule,
+                child,
+                parent,
+                child_idx,
+                "reduce_parent: checking rule",
+                None,
+            );
+            if !rule.matches(parent) {
+                trace_rule_event(
+                    rule,
+                    child,
+                    parent,
+                    child_idx,
+                    "reduce_parent: parent mismatch",
+                    None,
+                );
+                continue;
+            }
+            trace_rule_event(
+                rule,
+                child,
+                parent,
+                child_idx,
+                "reduce_parent: matched parent",
+                None,
+            );
+            if let Some(reduced) = rule.reduce_parent(child, parent, child_idx)? {
+                trace_rule_event(
+                    rule,
+                    child,
+                    parent,
+                    child_idx,
+                    "reduce_parent: rewrote parent",
+                    Some(&reduced),
+                );
+                // Debug assertions because these checks are already run elsewhere.
+                #[cfg(debug_assertions)]
+                {
+                    vortex_error::vortex_ensure!(
+                        reduced.len() == parent.len(),
+                        "Reduced array length mismatch from {:?}\nFrom:\n{}\nTo:\n{}",
+                        rule,
+                        parent.encoding_id(),
+                        reduced.encoding_id()
+                    );
+                    vortex_error::vortex_ensure!(
+                        reduced.dtype() == parent.dtype(),
+                        "Reduced array dtype mismatch from {:?}\nFrom:\n{}\nTo:\n{}",
+                        rule,
+                        parent.encoding_id(),
+                        reduced.encoding_id()
+                    );
+                }
+
+                return Ok(Some(reduced));
+            }
+            trace_rule_event(
+                rule,
+                child,
+                parent,
+                child_idx,
+                "reduce_parent: declined after match",
+                None,
+            );
         }
         Ok(None)
     }

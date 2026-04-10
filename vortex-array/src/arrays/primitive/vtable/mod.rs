@@ -60,6 +60,14 @@ impl VTable for Primitive {
         Self::ID
     }
 
+    fn static_id() -> &'static str {
+        "vortex.primitive"
+    }
+
+    fn category_flags() -> u32 {
+        crate::matcher::CATEGORY_CANONICAL
+    }
+
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         1
     }

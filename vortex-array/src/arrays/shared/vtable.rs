@@ -60,6 +60,10 @@ impl VTable for Shared {
         Self::ID
     }
 
+    fn static_id() -> &'static str {
+        "vortex.shared"
+    }
+
     fn validate(
         &self,
         _data: &SharedData,

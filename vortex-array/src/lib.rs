@@ -47,6 +47,8 @@ pub mod expr;
 mod expression;
 pub mod extension;
 mod hash;
+mod intern;
+pub(crate) use intern::intern;
 pub mod iter;
 pub mod kernel;
 pub mod mask;

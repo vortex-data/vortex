@@ -61,7 +61,7 @@ pub struct Like;
 impl ScalarFnVTable for Like {
     type Options = LikeOptions;
 
-    fn id(&self) -> ScalarFnId {
+    fn static_id() -> ScalarFnId {
         ScalarFnId::from("vortex.like")
     }
 

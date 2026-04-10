@@ -56,6 +56,14 @@ impl VTable for Null {
         Self::ID
     }
 
+    fn static_id() -> &'static str {
+        "vortex.null"
+    }
+
+    fn category_flags() -> u32 {
+        crate::matcher::CATEGORY_CANONICAL
+    }
+
     fn validate(
         &self,
         _data: &NullData,

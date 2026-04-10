@@ -68,6 +68,14 @@ impl VTable for FixedSizeList {
         Self::ID
     }
 
+    fn static_id() -> &'static str {
+        "vortex.fixed_size_list"
+    }
+
+    fn category_flags() -> u32 {
+        crate::matcher::CATEGORY_CANONICAL
+    }
+
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }

@@ -78,6 +78,8 @@ impl<V: VTable> TypedArrayRef<V> for ArrayView<'_, V> {}
 #[doc(hidden)]
 pub(crate) struct ArrayInner<V: VTable> {
     pub(crate) vtable: V,
+    pub(crate) encoding_idx: u32,
+    pub(crate) encoding_categories: u32,
     pub(crate) dtype: DType,
     pub(crate) len: usize,
     pub(crate) data: V::ArrayData,
@@ -123,8 +125,12 @@ impl<V: VTable> ArrayInner<V> {
         slots: Vec<Option<ArrayRef>>,
         stats: ArrayStats,
     ) -> Self {
+        let encoding_idx = crate::intern(vtable.id().as_ref());
+        let encoding_categories = V::category_flags();
         Self {
             vtable,
+            encoding_idx,
+            encoding_categories,
             dtype,
             len,
             data,
@@ -151,6 +157,8 @@ impl<V: VTable> Clone for ArrayInner<V> {
     fn clone(&self) -> Self {
         Self {
             vtable: self.vtable.clone(),
+            encoding_idx: self.encoding_idx,
+            encoding_categories: self.encoding_categories,
             dtype: self.dtype.clone(),
             len: self.len,
             data: self.data.clone(),

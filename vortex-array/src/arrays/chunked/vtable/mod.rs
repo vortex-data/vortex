@@ -78,6 +78,10 @@ impl VTable for Chunked {
         Self::ID
     }
 
+    fn static_id() -> &'static str {
+        "vortex.chunked"
+    }
+
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }

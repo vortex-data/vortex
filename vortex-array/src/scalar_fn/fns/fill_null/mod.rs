@@ -38,7 +38,7 @@ pub struct FillNull;
 impl ScalarFnVTable for FillNull {
     type Options = EmptyOptions;
 
-    fn id(&self) -> ScalarFnId {
+    fn static_id() -> ScalarFnId {
         ScalarFnId::from("vortex.fill_null")
     }
 

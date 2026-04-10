@@ -57,6 +57,14 @@ impl VTable for Extension {
         Self::ID
     }
 
+    fn static_id() -> &'static str {
+        "vortex.ext"
+    }
+
+    fn category_flags() -> u32 {
+        crate::matcher::CATEGORY_CANONICAL
+    }
+
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }

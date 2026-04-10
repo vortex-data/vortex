@@ -36,6 +36,7 @@ use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 use crate::expr::Expression;
 use crate::matcher::Matcher;
+use crate::matcher::MatcherHint;
 use crate::scalar_fn;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -73,6 +74,10 @@ impl VTable for ScalarFnVTable {
 
     fn id(&self) -> ArrayId {
         self.scalar_fn.id()
+    }
+
+    fn category_flags() -> u32 {
+        crate::matcher::CATEGORY_SCALAR_FN
     }
 
     fn validate(
@@ -204,6 +209,10 @@ pub struct AnyScalarFn;
 impl Matcher for AnyScalarFn {
     type Match<'a> = ArrayView<'a, ScalarFnVTable>;
 
+    fn dispatch_hint() -> Option<MatcherHint> {
+        Some(MatcherHint::Category(crate::matcher::CATEGORY_SCALAR_FN))
+    }
+
     fn matches(array: &ArrayRef) -> bool {
         array.is::<ScalarFnVTable>()
     }
@@ -219,6 +228,10 @@ pub struct ExactScalarFn<F: scalar_fn::ScalarFnVTable>(PhantomData<F>);
 
 impl<F: scalar_fn::ScalarFnVTable> Matcher for ExactScalarFn<F> {
     type Match<'a> = ScalarFnArrayView<'a, F>;
+
+    fn dispatch_hint() -> Option<MatcherHint> {
+        Some(MatcherHint::Exact(crate::intern(F::static_id().as_ref())))
+    }
 
     fn matches(array: &ArrayRef) -> bool {
         if let Some(scalar_fn_array) = array.as_opt::<ScalarFnVTable>() {
@@ -282,7 +295,7 @@ impl Display for FakeEq<ArrayRef> {
 impl scalar_fn::ScalarFnVTable for ArrayExpr {
     type Options = FakeEq<ArrayRef>;
 
-    fn id(&self) -> ScalarFnId {
+    fn static_id() -> ScalarFnId {
         ScalarFnId::from("vortex.array")
     }
 

@@ -70,7 +70,7 @@ impl L2Norm {
 impl ScalarFnVTable for L2Norm {
     type Options = ApproxOptions;
 
-    fn id(&self) -> ScalarFnId {
+    fn static_id() -> ScalarFnId {
         ScalarFnId::from("vortex.tensor.l2_norm")
     }
 

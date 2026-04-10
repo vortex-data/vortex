@@ -78,7 +78,7 @@ pub struct CaseWhen;
 impl ScalarFnVTable for CaseWhen {
     type Options = CaseWhenOptions;
 
-    fn id(&self) -> ScalarFnId {
+    fn static_id() -> ScalarFnId {
         ScalarFnId::from("vortex.case_when")
     }
 

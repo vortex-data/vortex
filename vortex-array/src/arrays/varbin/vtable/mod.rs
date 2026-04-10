@@ -76,6 +76,10 @@ impl VTable for VarBin {
         Self::ID
     }
 
+    fn static_id() -> &'static str {
+        "vortex.varbin"
+    }
+
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         1
     }

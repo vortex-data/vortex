@@ -76,6 +76,10 @@ impl VTable for Dict {
         Self::ID
     }
 
+    fn static_id() -> &'static str {
+        "vortex.dict"
+    }
+
     fn validate(
         &self,
         data: &DictData,

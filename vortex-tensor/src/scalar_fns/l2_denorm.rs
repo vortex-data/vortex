@@ -82,7 +82,7 @@ impl L2Denorm {
 impl ScalarFnVTable for L2Denorm {
     type Options = ApproxOptions;
 
-    fn id(&self) -> ScalarFnId {
+    fn static_id() -> ScalarFnId {
         ScalarFnId::new_ref("vortex.tensor.l2_denorm")
     }
 

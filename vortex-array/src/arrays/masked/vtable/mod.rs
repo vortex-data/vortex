@@ -72,6 +72,10 @@ impl VTable for Masked {
         Self::ID
     }
 
+    fn static_id() -> &'static str {
+        "vortex.masked"
+    }
+
     fn validate(
         &self,
         _data: &MaskedData,

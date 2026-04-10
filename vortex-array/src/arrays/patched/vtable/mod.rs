@@ -104,6 +104,10 @@ impl VTable for Patched {
         ArrayId::new_ref("vortex.patched")
     }
 
+    fn static_id() -> &'static str {
+        "vortex.patched"
+    }
+
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }

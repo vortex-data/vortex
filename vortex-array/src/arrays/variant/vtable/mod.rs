@@ -58,6 +58,14 @@ impl VTable for Variant {
         Self::ID
     }
 
+    fn static_id() -> &'static str {
+        "vortex.variant"
+    }
+
+    fn category_flags() -> u32 {
+        crate::matcher::CATEGORY_CANONICAL
+    }
+
     fn validate(
         &self,
         _data: &Self::ArrayData,

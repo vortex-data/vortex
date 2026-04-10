@@ -50,6 +50,7 @@ use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
 use crate::matcher::Matcher;
+use crate::matcher::MatcherHint;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::stats::StatsSetRef;
@@ -149,6 +150,18 @@ impl ArrayRef {
     #[inline]
     pub fn encoding_id(&self) -> ArrayId {
         self.0.encoding_id()
+    }
+
+    /// Returns the interned encoding index of the array.
+    #[inline]
+    pub fn encoding_idx(&self) -> u32 {
+        self.0.encoding_idx()
+    }
+
+    /// Returns the category flags of the array's encoding.
+    #[inline]
+    pub fn encoding_categories(&self) -> u32 {
+        self.0.encoding_categories()
     }
 
     /// Performs a constant-time slice of the array.
@@ -401,6 +414,12 @@ impl ArrayRef {
     /// `DType` and `len` as the existing slot.
     ///
     /// Takes ownership to allow in-place mutation when the refcount is 1.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure `slot_idx` names an existing slot and `replacement` is a valid
+    /// physical substitute for that slot, meaning it preserves the slot's logical `DType` and
+    /// `len` as expected by the enclosing array encoding.
     pub unsafe fn with_slot_unchecked(
         mut self,
         slot_idx: usize,
@@ -633,6 +652,18 @@ impl IntoArray for ArrayRef {
 
 impl<V: VTable> Matcher for V {
     type Match<'a> = ArrayView<'a, V>;
+
+    fn dispatch_hint() -> Option<MatcherHint> {
+        let cats = V::category_flags();
+        if cats != 0 {
+            return Some(MatcherHint::Category(cats));
+        }
+        let s = V::static_id();
+        if s.is_empty() {
+            return None;
+        }
+        Some(MatcherHint::Exact(crate::intern(s)))
+    }
 
     fn matches(array: &ArrayRef) -> bool {
         array.0.as_any().is::<ArrayInner<V>>()

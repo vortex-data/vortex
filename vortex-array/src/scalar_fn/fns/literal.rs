@@ -37,7 +37,7 @@ pub struct Literal;
 impl ScalarFnVTable for Literal {
     type Options = Scalar;
 
-    fn id(&self) -> ScalarFnId {
+    fn static_id() -> ScalarFnId {
         ScalarFnId::from("vortex.literal")
     }
 

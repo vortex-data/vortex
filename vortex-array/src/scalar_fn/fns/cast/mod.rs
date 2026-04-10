@@ -52,7 +52,7 @@ pub struct Cast;
 impl ScalarFnVTable for Cast {
     type Options = DType;
 
-    fn id(&self) -> ScalarFnId {
+    fn static_id() -> ScalarFnId {
         ScalarFnId::from("vortex.cast")
     }
 

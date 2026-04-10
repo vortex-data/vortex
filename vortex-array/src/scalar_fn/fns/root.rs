@@ -29,7 +29,7 @@ pub struct Root;
 impl ScalarFnVTable for Root {
     type Options = EmptyOptions;
 
-    fn id(&self) -> ScalarFnId {
+    fn static_id() -> ScalarFnId {
         ScalarFnId::from("vortex.root")
     }
 

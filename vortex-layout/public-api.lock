@@ -610,9 +610,9 @@ pub fn vortex_layout::layouts::row_idx::RowIdx::execute(&self, _options: &Self::
 
 pub fn vortex_layout::layouts::row_idx::RowIdx::fmt_sql(&self, _options: &Self::Options, _expr: &vortex_array::expr::expression::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-pub fn vortex_layout::layouts::row_idx::RowIdx::id(&self) -> vortex_array::scalar_fn::ScalarFnId
-
 pub fn vortex_layout::layouts::row_idx::RowIdx::return_dtype(&self, _options: &Self::Options, _arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_layout::layouts::row_idx::RowIdx::static_id() -> vortex_array::scalar_fn::ScalarFnId
 
 pub struct vortex_layout::layouts::row_idx::RowIdxLayoutReader
 

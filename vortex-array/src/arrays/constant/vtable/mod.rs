@@ -77,6 +77,14 @@ impl VTable for Constant {
         Self::ID
     }
 
+    fn static_id() -> &'static str {
+        "vortex.constant"
+    }
+
+    fn category_flags() -> u32 {
+        crate::matcher::CATEGORY_CONSTANT
+    }
+
     fn validate(
         &self,
         data: &ConstantData,

@@ -24,7 +24,7 @@ pub struct RowIdx;
 impl ScalarFnVTable for RowIdx {
     type Options = EmptyOptions;
 
-    fn id(&self) -> ScalarFnId {
+    fn static_id() -> ScalarFnId {
         ScalarFnId::from("vortex.row_idx")
     }
 

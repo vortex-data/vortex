@@ -93,6 +93,12 @@ pub struct AnyColumnar;
 impl Matcher for AnyColumnar {
     type Match<'a> = ColumnarView<'a>;
 
+    fn dispatch_hint() -> Option<crate::matcher::MatcherHint> {
+        Some(crate::matcher::MatcherHint::Category(
+            crate::matcher::CATEGORY_CANONICAL | crate::matcher::CATEGORY_CONSTANT,
+        ))
+    }
+
     fn try_match<'a>(array: &'a ArrayRef) -> Option<Self::Match<'a>> {
         if let Some(constant) = array.as_opt::<Constant>() {
             Some(ColumnarView::Constant(constant))

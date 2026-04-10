@@ -47,7 +47,7 @@ pub struct Select;
 impl ScalarFnVTable for Select {
     type Options = FieldSelection;
 
-    fn id(&self) -> ScalarFnId {
+    fn static_id() -> ScalarFnId {
         ScalarFnId::from("vortex.select")
     }
 

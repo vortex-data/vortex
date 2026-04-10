@@ -77,6 +77,14 @@ impl VTable for VarBinView {
         Self::ID
     }
 
+    fn static_id() -> &'static str {
+        "vortex.varbinview"
+    }
+
+    fn category_flags() -> u32 {
+        crate::matcher::CATEGORY_CANONICAL
+    }
+
     fn nbuffers(array: ArrayView<'_, Self>) -> usize {
         array.data_buffers().len() + 1
     }

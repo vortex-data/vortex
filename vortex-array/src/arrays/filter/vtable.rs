@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hasher;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -70,6 +71,10 @@ impl VTable for Filter {
 
     fn id(&self) -> ArrayId {
         Self::ID
+    }
+
+    fn static_id() -> &'static str {
+        "vortex.filter"
     }
 
     fn validate(
@@ -146,7 +151,7 @@ impl VTable for Filter {
             return Ok(ExecutionResult::done(canonical));
         }
         let mask_values = match &array.mask {
-            Mask::Values(v) => v.clone(),
+            Mask::Values(v) => Arc::clone(v),
             _ => unreachable!("`execute_filter_fast_paths` handles AllTrue and AllFalse"),
         };
 

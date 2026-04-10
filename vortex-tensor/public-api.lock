@@ -376,13 +376,13 @@ pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::execute(&
 
 pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::expression::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::id(&self) -> vortex_array::scalar_fn::ScalarFnId
-
 pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::is_fallible(&self, _options: &Self::Options) -> bool
 
 pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::is_null_sensitive(&self, _options: &Self::Options) -> bool
 
 pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::return_dtype(&self, _options: &Self::Options, arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::static_id() -> vortex_array::scalar_fn::ScalarFnId
 
 pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::validity(&self, _options: &Self::Options, expression: &vortex_array::expr::expression::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::expression::Expression>>
 
@@ -412,13 +412,13 @@ pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::execute(&self, _o
 
 pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::expression::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::id(&self) -> vortex_array::scalar_fn::ScalarFnId
-
 pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::is_fallible(&self, _options: &Self::Options) -> bool
 
 pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::is_null_sensitive(&self, _options: &Self::Options) -> bool
 
 pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::return_dtype(&self, _options: &Self::Options, arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::static_id() -> vortex_array::scalar_fn::ScalarFnId
 
 pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::validity(&self, _options: &Self::Options, expression: &vortex_array::expr::expression::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::expression::Expression>>
 
@@ -448,13 +448,13 @@ pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::execute(&self, _options: 
 
 pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::expression::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::id(&self) -> vortex_array::scalar_fn::ScalarFnId
-
 pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::is_fallible(&self, _options: &Self::Options) -> bool
 
 pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::is_null_sensitive(&self, _options: &Self::Options) -> bool
 
 pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::return_dtype(&self, _options: &Self::Options, arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::static_id() -> vortex_array::scalar_fn::ScalarFnId
 
 pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::validity(&self, _options: &Self::Options, expression: &vortex_array::expr::expression::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::expression::Expression>>
 
@@ -484,13 +484,13 @@ pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::execute(&self, _options: &Sel
 
 pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::expression::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::id(&self) -> vortex_array::scalar_fn::ScalarFnId
-
 pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::is_fallible(&self, _options: &Self::Options) -> bool
 
 pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::is_null_sensitive(&self, _options: &Self::Options) -> bool
 
 pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::return_dtype(&self, _options: &Self::Options, arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::static_id() -> vortex_array::scalar_fn::ScalarFnId
 
 pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::validity(&self, _options: &Self::Options, expression: &vortex_array::expr::expression::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::expression::Expression>>
 

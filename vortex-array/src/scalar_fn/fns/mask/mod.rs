@@ -45,7 +45,7 @@ pub struct Mask;
 impl ScalarFnVTable for Mask {
     type Options = EmptyOptions;
 
-    fn id(&self) -> ScalarFnId {
+    fn static_id() -> ScalarFnId {
         ScalarFnId::from("vortex.mask")
     }
 
