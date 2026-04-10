@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::tests_outside_test_module)]
+#![expect(clippy::tests_outside_test_module)]
 
 use std::sync::Arc;
 use std::sync::LazyLock;

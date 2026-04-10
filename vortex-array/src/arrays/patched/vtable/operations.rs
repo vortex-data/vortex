@@ -9,6 +9,7 @@ use crate::array::OperationsVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::Patched;
 use crate::arrays::patched::PatchedArrayExt;
+use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 
@@ -47,7 +48,7 @@ impl OperationsVTable<Patched> for Patched {
         }
 
         // Otherwise, access the underlying value.
-        array.base_array().scalar_at(index)
+        array.inner().scalar_at(index)
     }
 }
 

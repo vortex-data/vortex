@@ -131,7 +131,7 @@ mod tests {
         DType::Primitive(PType::I32, Nullability::NonNullable)
     }
 
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     fn collect_pairs(
         left: &ChunkedArray,
         right: &ChunkedArray,

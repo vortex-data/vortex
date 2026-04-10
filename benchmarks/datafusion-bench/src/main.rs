@@ -156,7 +156,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Collect execution plans for metrics if show_metrics is enabled
     // Structure: (query_idx, format, execution_plan)
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     let collected_plans: Arc<Mutex<Vec<(usize, Format, Arc<dyn ExecutionPlan>)>>> =
         Arc::new(Mutex::new(Vec::new()));
     let show_metrics = args.show_metrics;

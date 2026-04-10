@@ -48,7 +48,7 @@ impl<V: ExtVTable + Default> ExtDType<V> {
     }
 }
 
-#[allow(clippy::same_name_method)]
+#[expect(clippy::same_name_method)]
 impl<V: ExtVTable> ExtDType<V> {
     /// Creates a new extension dtype with the given metadata and storage dtype.
     pub fn try_with_vtable(

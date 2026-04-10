@@ -10180,6 +10180,7 @@ dependencies = [
  "tracing",
  "uuid",
  "vortex-array",
+ "vortex-array-macros",
  "vortex-buffer",
  "vortex-error",
  "vortex-flatbuffers",
@@ -10187,6 +10188,15 @@ dependencies = [
  "vortex-proto",
  "vortex-session",
  "vortex-utils",
+]
+
+[[package]]
+name = "vortex-array-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]

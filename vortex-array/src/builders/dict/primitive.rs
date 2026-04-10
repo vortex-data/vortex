@@ -152,12 +152,12 @@ where
 
 #[cfg(test)]
 mod test {
-    #[allow(unused_imports)]
+    #[expect(unused_imports)]
     use itertools::Itertools;
     use vortex_buffer::buffer;
 
     use crate::IntoArray as _;
-    use crate::arrays::dict::DictArrayExt;
+    use crate::arrays::dict::DictArraySlotsExt;
     use crate::assert_arrays_eq;
     use crate::builders::dict::dict_encode;
     use crate::builders::dict::primitive::PrimitiveArray;

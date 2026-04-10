@@ -59,7 +59,6 @@ arc_wrapper!(
 
 /// Options supplied for opening a file.
 #[repr(C)]
-#[allow(non_camel_case_types)]
 // FIXME(ngates): we cannot have transparent structs in FFI since we cannot break them.
 pub struct vx_file_open_options {
     /// URI for opening the file.
@@ -76,7 +75,6 @@ pub struct vx_file_open_options {
 
 /// Scan options provided by an FFI client calling the `vx_file_scan` function.
 #[repr(C)]
-#[allow(non_camel_case_types)]
 // FIXME(ngates): we cannot have transparent structs in FFI since we cannot break them.
 pub struct vx_file_scan_options {
     /// Column names to project out in the scan. These must be null-terminated C strings.

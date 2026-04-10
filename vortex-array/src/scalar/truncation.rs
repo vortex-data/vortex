@@ -14,7 +14,7 @@ use crate::scalar::Scalar;
 use crate::scalar::StringLike;
 
 /// A trait for truncating [`Scalar`]s to a given length in bytes.
-#[allow(clippy::len_without_is_empty)]
+#[expect(clippy::len_without_is_empty)]
 pub trait ScalarTruncation: Send + Sized {
     /// Unwrap a Scalar into a ScalarTruncation object
     ///

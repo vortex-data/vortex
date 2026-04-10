@@ -92,7 +92,6 @@ impl DataSourceTableFunction for VortexMultiFileScan {
 
 #[cfg(test)]
 mod tests {
-    #[allow(clippy::wildcard_imports)]
     use rstest::rstest;
 
     use super::*;

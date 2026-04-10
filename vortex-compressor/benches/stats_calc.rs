@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::cast_possible_truncation, clippy::use_debug)]
-#![allow(unexpected_cfgs)]
-
 #[cfg(not(codspeed))]
 #[divan::bench_group(items_count = 64_000u32, bytes_count = 256_000u32)]
 mod benchmarks {

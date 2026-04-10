@@ -207,7 +207,11 @@ impl VectorRef {
     ///
     /// The provided capacity *must* be the actual capacity of this vector.
     pub unsafe fn validity_bitslice_mut(&mut self, capacity: usize) -> Option<&mut BitSlice<u64>> {
-        unsafe { self.validity_slice_mut(capacity) }.map(|slice| slice.view_bits_mut())
+        // capacity is always less than BitSlice<u64>::MAX_ELTS
+        unsafe {
+            self.validity_slice_mut(capacity)
+                .map(|slice| BitSlice::from_slice_unchecked_mut(slice))
+        }
     }
 
     pub fn validity_ref(&self, len: usize) -> ValidityRef<'_> {

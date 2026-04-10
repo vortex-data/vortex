@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod clickbench;
-#[allow(clippy::cast_possible_truncation)]
 mod tpch;
 
 use crate::fixtures::DatasetFixture;

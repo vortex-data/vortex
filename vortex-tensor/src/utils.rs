@@ -9,15 +9,18 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::matcher::AnyTensor;
 use crate::matcher::TensorMatch;
+use crate::scalar_fns::l2_denorm::L2Denorm;
 
 /// Validates that `input_dtype` is a float-valued tensor-like extension dtype.
 pub fn validate_tensor_float_input(input_dtype: &DType) -> VortexResult<TensorMatch<'_>> {
@@ -94,6 +97,20 @@ pub fn extract_flat_elements(
         stride: list_size,
         list_size,
     })
+}
+
+/// Extracts the `(normalized, norms)` children from an [`L2Denorm`] scalar function array.
+///
+/// [`L2Denorm`]: crate::scalar_fns::l2_denorm::L2Denorm
+pub fn extract_l2_denorm_children(array: &ArrayRef) -> (ArrayRef, ArrayRef) {
+    let sfn = array
+        .as_opt::<ExactScalarFn<L2Denorm>>()
+        .vortex_expect("expected ScalarFnArray wrapping L2Denorm");
+    (
+        sfn.nth_child(0)
+            .vortex_expect("L2Denorm missing normalized array"),
+        sfn.nth_child(1).vortex_expect("L2Denorm missing norms"),
+    )
 }
 
 #[cfg(test)]

@@ -481,7 +481,7 @@ async fn get_row_count(
     {
         use arrow_array::Int64Array;
         if let Some(arr) = batch.column(0).as_any().downcast_ref::<Int64Array>() {
-            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             return Ok(arr.value(0) as usize);
         }
     }
@@ -637,7 +637,7 @@ fn render_results_table(app: &mut AppState, area: Rect, buf: &mut Buffer) {
     let rows = get_all_rows(results, &app.query_state);
 
     // Calculate column widths
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     let widths: Vec<Constraint> = results
         .column_names
         .iter()

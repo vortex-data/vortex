@@ -179,7 +179,13 @@ where
             null_count: u32::try_from(array.len())?,
             value_count: 0,
             average_run_length: 0,
-            erased: TypedStats { distinct: None }.into(),
+            erased: TypedStats {
+                distinct: Some(DistinctInfo {
+                    distinct_values: HashSet::with_capacity_and_hasher(0, FxBuildHasher),
+                    distinct_count: 0,
+                }),
+            }
+            .into(),
         });
     }
 

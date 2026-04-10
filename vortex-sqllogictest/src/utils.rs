@@ -34,7 +34,7 @@ fn list_files_impl(file_paths: &mut Vec<PathBuf>, path: impl AsRef<Path>) -> any
     Ok(())
 }
 
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 pub fn pb_style() -> ProgressStyle {
     ProgressStyle::with_template("[{elapsed_precise}] {wide_bar} {pos:>7}/{len:7} {msg}")
         .unwrap()

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::cast_possible_truncation)]
+#![expect(clippy::cast_possible_truncation)]
 
 pub use bitpacking::*;
 pub use delta::*;
@@ -28,12 +28,19 @@ use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+use vortex_array::arrays::patched::USE_EXPERIMENTAL_PATCHES;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
 /// Initialize fastlanes encodings in the given session.
 pub fn initialize(session: &VortexSession) {
-    session.arrays().register(BitPacked);
+    // If we're using the experimental Patched encoding, register a shim
+    // for BitPacked with interior patches decode as Patched array.
+    if *USE_EXPERIMENTAL_PATCHES {
+        session.arrays().register(BitPackedPatchedPlugin);
+    } else {
+        session.arrays().register(BitPacked);
+    }
     session.arrays().register(Delta);
     session.arrays().register(FoR);
     session.arrays().register(RLE);

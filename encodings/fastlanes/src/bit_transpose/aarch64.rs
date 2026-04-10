@@ -113,7 +113,7 @@ static SCATTER_8X8_NEON: [[u8; 16]; 4] = [
 ];
 
 /// Perform 8x8 bit transpose on two u64s packed in a `uint64x2_t`.
-#[allow(unsafe_op_in_unsafe_fn)]
+#[expect(unsafe_op_in_unsafe_fn)]
 unsafe fn bit_transpose_8x8_neon(mut v: uint64x2_t) -> uint64x2_t {
     let mask1 = vdupq_n_u64(TRANSPOSE_2X2);
     let t = vandq_u64(veorq_u64(v, vshrq_n_u64::<7>(v)), mask1);
@@ -137,7 +137,7 @@ unsafe fn bit_transpose_8x8_neon(mut v: uint64x2_t) -> uint64x2_t {
 ///
 /// # Safety
 /// Requires `AArch64` with NEON (always available on `AArch64`).
-#[allow(unsafe_op_in_unsafe_fn)]
+#[expect(unsafe_op_in_unsafe_fn)]
 #[inline(never)]
 pub unsafe fn transpose_bits_neon(input: &[u8; 128], output: &mut [u8; 128]) {
     // Load all 128 input bytes into two uint8x16x4_t tables (64 bytes each)
@@ -197,7 +197,7 @@ pub unsafe fn transpose_bits_neon(input: &[u8; 128], output: &mut [u8; 128]) {
 ///
 /// # Safety
 /// Requires `AArch64` with NEON (always available on `AArch64`).
-#[allow(unsafe_op_in_unsafe_fn)]
+#[expect(unsafe_op_in_unsafe_fn)]
 #[inline(never)]
 pub unsafe fn untranspose_bits_neon(input: &[u8; 128], output: &mut [u8; 128]) {
     // Load scatter indices (SCATTER_8X8 is self-inverse, so same table un-scatters)

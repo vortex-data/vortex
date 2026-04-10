@@ -7,11 +7,14 @@
 //! external compatibility.
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::DictArrayExt;
+use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::half::f16;
 use vortex_array::validity::Validity;
@@ -181,7 +184,10 @@ macro_rules! typed_encode {
 /// # Errors
 ///
 /// Returns an error if unable to compute validity.
-pub fn dictionary_encode(array: PrimitiveArray, stats: &FloatStats) -> VortexResult<DictArray> {
+pub fn dictionary_encode(
+    array: ArrayView<'_, Primitive>,
+    stats: &FloatStats,
+) -> VortexResult<DictArray> {
     match stats.erased() {
         FloatErasedStats::F16(typed) => typed_encode!(array, stats, typed, f16),
         FloatErasedStats::F32(typed) => typed_encode!(array, stats, typed, f32),
@@ -204,7 +210,7 @@ macro_rules! impl_encode {
     ($typ:ty, $utyp:ty, $($ityp:ty),+) => {
         $(
         impl Encode<$typ, $ityp> for DictEncoder {
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_possible_truncation)]
             fn encode(distinct: &[$typ], values: &[$typ]) -> Buffer<$ityp> {
                 let mut codes =
                     vortex_utils::aliases::hash_map::HashMap::<$utyp, $ityp>::with_capacity(
@@ -237,7 +243,7 @@ mod tests {
     use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::dict::DictArrayExt;
+    use vortex_array::arrays::dict::DictArraySlotsExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
@@ -259,7 +265,7 @@ mod tests {
                 count_distinct_values: true,
             },
         );
-        let dict_array = dictionary_encode(array, &stats).unwrap();
+        let dict_array = dictionary_encode(array.as_view(), &stats).unwrap();
         assert_eq!(dict_array.values().len(), 2);
         assert_eq!(dict_array.codes().len(), 5);
 

@@ -28,8 +28,7 @@ use vortex::utils::aliases::hash_set::HashSet;
 
 use super::vcf_conversion::*;
 
-#[allow(dead_code)]
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub struct GnomADBuilder<'a> {
     /// The schema of the to-be-generated Parquet file.
     schema: SchemaRef,
@@ -240,7 +239,6 @@ impl InfoArrayBuilder {
 }
 
 impl<'a> GnomADBuilder<'a> {
-    #[allow(non_snake_case)]
     pub fn new(header: &'a Header, schema: SchemaRef) -> Self {
         let info_builder: HashMap<&'a str, InfoArrayBuilder> = header
             .infos()

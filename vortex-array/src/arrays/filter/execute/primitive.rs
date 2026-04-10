@@ -27,7 +27,7 @@ pub fn filter_primitive(array: &PrimitiveArray, mask: &Arc<MaskValues>) -> Primi
 }
 
 #[cfg(test)]
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 mod test {
     use itertools::Itertools;
     use rstest::rstest;

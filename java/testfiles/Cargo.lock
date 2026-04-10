@@ -2098,7 +2098,6 @@ dependencies = [
 name = "vortex-btrblocks"
 version = "0.1.0"
 dependencies = [
- "enum-iterator",
  "getrandom 0.4.2",
  "itertools 0.14.0",
  "num-traits",
@@ -2109,6 +2108,7 @@ dependencies = [
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",
+ "vortex-compressor",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-error",
@@ -2144,7 +2144,25 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
+ "vortex-mask",
  "vortex-session",
+]
+
+[[package]]
+name = "vortex-compressor"
+version = "0.1.0"
+dependencies = [
+ "itertools 0.14.0",
+ "num-traits",
+ "parking_lot",
+ "rand",
+ "rustc-hash",
+ "tracing",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-mask",
+ "vortex-utils",
 ]
 
 [[package]]
@@ -2187,7 +2205,6 @@ dependencies = [
 name = "vortex-fastlanes"
 version = "0.1.0"
 dependencies = [
- "arrayref",
  "fastlanes",
  "itertools 0.14.0",
  "lending-iterator",
