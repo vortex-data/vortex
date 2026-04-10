@@ -5,32 +5,22 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
-use std::fmt;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
-use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::dict::DictArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::expr::Expression;
-use vortex_array::scalar_fn::Arity;
-use vortex_array::scalar_fn::ChildName;
-use vortex_array::scalar_fn::EmptyOptions;
-use vortex_array::scalar_fn::ExecutionArgs;
-use vortex_array::scalar_fn::ScalarFn;
-use vortex_array::scalar_fn::ScalarFnId;
-use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::dtype::extension::ExtDType;
+use vortex_array::extension::EmptyMetadata;
 use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
@@ -43,12 +33,13 @@ use super::rotation::SorfMatrix;
 use crate::encodings::turboquant::centroids::compute_centroid_boundaries;
 use crate::encodings::turboquant::centroids::find_nearest_centroid;
 use crate::encodings::turboquant::centroids::get_centroids;
+use crate::vector::Vector;
 
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 /// Build a unit-normalized input vector array and forward-transform + quantize it, returning
-/// `(input_f32, FSL(Dict(codes, centroids)), padded_dim)`.
+/// `(input_f32, Vector<padded_dim>(FSL(Dict(codes, centroids))), padded_dim)`.
 ///
 /// This mimics what the TurboQuant compression pipeline does, but directly, so we can test
 /// `SorfTransform` in isolation.
@@ -58,7 +49,7 @@ fn forward_rotate_and_quantize(
     seed: u64,
     num_rounds: usize,
     bit_width: u8,
-) -> VortexResult<(Vec<f32>, FixedSizeListArray, usize)> {
+) -> VortexResult<(Vec<f32>, ExtensionArray, usize)> {
     // Build simple unit-normalized input vectors.
     let mut input_f32 = vec![0.0f32; num_rows * dim];
     for row in 0..num_rows {
@@ -103,8 +94,20 @@ fn forward_rotate_and_quantize(
         Validity::NonNullable,
         num_rows,
     )?;
+    let padded_vector = wrap_as_vector(fsl, Validity::NonNullable)?;
 
-    Ok((input_f32, fsl, padded_dim))
+    Ok((input_f32, padded_vector, padded_dim))
+}
+
+/// Wrap an FSL in a Vector extension, optionally re-tagging its validity. This is used by tests
+/// that need to adjust top-level nullability of a padded vector child.
+fn wrap_as_vector(fsl: FixedSizeListArray, validity: Validity) -> VortexResult<ExtensionArray> {
+    let list_size = fsl.list_size();
+    let num_rows = fsl.len();
+    let elements = fsl.elements().clone();
+    let fsl = FixedSizeListArray::try_new(elements, list_size, validity, num_rows)?;
+    let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
+    Ok(ExtensionArray::new(ext_dtype, fsl.into_array()))
 }
 
 /// Helper to build `SorfOptions` with common defaults.
@@ -120,7 +123,7 @@ fn default_options(dim: u32, seed: u64) -> SorfOptions {
 /// Execute a `SorfTransform` array and return the decoded flat f32 elements.
 fn execute_sorf(
     options: &SorfOptions,
-    child: FixedSizeListArray,
+    child: ExtensionArray,
     num_rows: usize,
 ) -> VortexResult<Vec<f32>> {
     let sorf = SorfTransform::try_new_array(options, child.into_array(), num_rows)?;
@@ -131,51 +134,12 @@ fn execute_sorf(
     Ok(result_prim.as_slice::<f32>().to_vec())
 }
 
-#[derive(Clone)]
-struct NonFloatMaterializedChild;
-
-impl ScalarFnVTable for NonFloatMaterializedChild {
-    type Options = EmptyOptions;
-
-    fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.tensor.test.non_float_materialized_child")
-    }
-
-    fn arity(&self, _options: &Self::Options) -> Arity {
-        Arity::Exact(0)
-    }
-
-    fn child_name(&self, _options: &Self::Options, _child_idx: usize) -> ChildName {
-        unreachable!("NonFloatMaterializedChild has no children")
-    }
-
-    fn fmt_sql(
-        &self,
-        _options: &Self::Options,
-        _expr: &Expression,
-        f: &mut fmt::Formatter<'_>,
-    ) -> fmt::Result {
-        write!(f, "non_float_materialized_child()")
-    }
-
-    fn return_dtype(&self, _options: &Self::Options, _arg_dtypes: &[DType]) -> VortexResult<DType> {
-        Ok(DType::FixedSizeList(
-            Arc::new(DType::Primitive(PType::F32, Nullability::NonNullable)),
-            128,
-            Nullability::NonNullable,
-        ))
-    }
-
-    fn execute(
-        &self,
-        _options: &Self::Options,
-        _args: &dyn ExecutionArgs,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        let elements = PrimitiveArray::from_iter([1u8; 128]).into_array();
-        let fsl = FixedSizeListArray::try_new(elements, 128, Validity::NonNullable, 1)?;
-        Ok(fsl.into_array())
-    }
+/// Build an empty `Vector<padded_dim>` extension array wrapping an empty FSL.
+fn empty_padded_vector(padded_dim: u32, validity: Validity) -> VortexResult<ExtensionArray> {
+    let elements = PrimitiveArray::empty::<f32>(Nullability::NonNullable);
+    let fsl = FixedSizeListArray::try_new(elements.into_array(), padded_dim, validity, 0)?;
+    let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
+    Ok(ExtensionArray::new(ext_dtype, fsl.into_array()))
 }
 
 #[test]
@@ -183,9 +147,9 @@ fn roundtrip_recovery() -> VortexResult<()> {
     let dim = 128;
     let num_rows = 10;
     let seed = 42u64;
-    let (input_f32, fsl, _) = forward_rotate_and_quantize(dim, num_rows, seed, 3, 8)?;
+    let (input_f32, padded_vector, _) = forward_rotate_and_quantize(dim, num_rows, seed, 3, 8)?;
     let options = default_options(dim as u32, seed);
-    let result = execute_sorf(&options, fsl, num_rows)?;
+    let result = execute_sorf(&options, padded_vector, num_rows)?;
 
     assert_eq!(result.len(), num_rows * dim);
 
@@ -214,12 +178,10 @@ fn empty_array_non_nullable() -> VortexResult<()> {
     let padded_dim = dim.next_power_of_two();
     let options = default_options(dim, 42);
 
-    // Build an empty FSL child.
-    let elements = PrimitiveArray::empty::<f32>(Nullability::NonNullable);
-    let fsl =
-        FixedSizeListArray::try_new(elements.into_array(), padded_dim, Validity::NonNullable, 0)?;
+    // Build an empty Vector<padded_dim> child.
+    let child = empty_padded_vector(padded_dim, Validity::NonNullable)?;
 
-    let sorf = SorfTransform::try_new_array(&options, fsl.into_array(), 0)?;
+    let sorf = SorfTransform::try_new_array(&options, child.into_array(), 0)?;
     let mut ctx = SESSION.create_execution_ctx();
     let result: ExtensionArray = sorf.into_array().execute(&mut ctx)?;
 
@@ -238,16 +200,10 @@ fn empty_array_nullable() -> VortexResult<()> {
     let padded_dim = dim.next_power_of_two();
     let options = default_options(dim, 42);
 
-    // Build an empty but nullable FSL child.
-    let elements = PrimitiveArray::empty::<f32>(Nullability::NonNullable);
-    let fsl = FixedSizeListArray::try_new(
-        elements.into_array(),
-        padded_dim,
-        Validity::from(Nullability::Nullable),
-        0,
-    )?;
+    // Build an empty but nullable Vector<padded_dim> child.
+    let child = empty_padded_vector(padded_dim, Validity::from(Nullability::Nullable))?;
 
-    let sorf = SorfTransform::try_new_array(&options, fsl.into_array(), 0)?;
+    let sorf = SorfTransform::try_new_array(&options, child.into_array(), 0)?;
     let mut ctx = SESSION.create_execution_ctx();
     let result: ExtensionArray = sorf.into_array().execute(&mut ctx)?;
 
@@ -265,19 +221,26 @@ fn nullable_validity_propagation() -> VortexResult<()> {
     let dim = 128;
     let num_rows = 4;
     let seed = 42u64;
-    let (_, fsl_non_nullable, padded_dim) = forward_rotate_and_quantize(dim, num_rows, seed, 3, 8)?;
+    let (_, non_nullable_vector, padded_dim) =
+        forward_rotate_and_quantize(dim, num_rows, seed, 3, 8)?;
 
-    // Re-wrap the FSL with a validity mask: rows 0 and 2 are valid, rows 1 and 3 are null.
+    // Re-wrap the underlying FSL with a validity mask: rows 0 and 2 are valid, rows 1 and 3
+    // are null.
     let validity = Validity::from_iter([true, false, true, false]);
+    let fsl_non_nullable: FixedSizeListArray = non_nullable_vector
+        .storage_array()
+        .clone()
+        .execute(&mut SESSION.create_execution_ctx())?;
     let fsl_nullable = FixedSizeListArray::try_new(
         fsl_non_nullable.elements().clone(),
         padded_dim as u32,
         validity.clone(),
         num_rows,
     )?;
+    let nullable_vector = wrap_as_vector(fsl_nullable, validity.clone())?;
 
     let options = default_options(dim as u32, seed);
-    let sorf = SorfTransform::try_new_array(&options, fsl_nullable.into_array(), num_rows)?;
+    let sorf = SorfTransform::try_new_array(&options, nullable_vector.into_array(), num_rows)?;
     let mut ctx = SESSION.create_execution_ctx();
     let result: ExtensionArray = sorf.into_array().execute(&mut ctx)?;
     let result_fsl: FixedSizeListArray = result.storage_array().clone().execute(&mut ctx)?;
@@ -301,12 +264,12 @@ fn dimension_truncation() -> VortexResult<()> {
     let dim = 200;
     let num_rows = 3;
     let seed = 42u64;
-    let (_, fsl, padded_dim) = forward_rotate_and_quantize(dim, num_rows, seed, 3, 8)?;
+    let (_, padded_vector, padded_dim) = forward_rotate_and_quantize(dim, num_rows, seed, 3, 8)?;
 
     assert_eq!(padded_dim, 256, "200 should pad to 256");
 
     let options = default_options(dim as u32, seed);
-    let result = execute_sorf(&options, fsl, num_rows)?;
+    let result = execute_sorf(&options, padded_vector, num_rows)?;
 
     // Output should have original dimension, not padded.
     assert_eq!(result.len(), num_rows * dim);
@@ -320,12 +283,15 @@ fn return_dtype_is_vector_extension() -> VortexResult<()> {
     let padded_dim = dim.next_power_of_two();
     let options = default_options(dim, 42);
 
+    // Input must be a Vector<padded_dim> extension dtype.
     let child_elem_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
-    let child_dtype = DType::FixedSizeList(
+    let child_storage_dtype = DType::FixedSizeList(
         Arc::new(child_elem_dtype),
         padded_dim,
         Nullability::NonNullable,
     );
+    let child_ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, child_storage_dtype)?.erased();
+    let child_dtype = DType::Extension(child_ext_dtype);
 
     use vortex_array::scalar_fn::ScalarFnVTable;
     let return_dtype = SorfTransform.return_dtype(&options, &[child_dtype])?;
@@ -380,38 +346,45 @@ fn rejects_non_float_output_ptype_at_construction() {
 }
 
 #[test]
-fn rejects_non_float_child_dtype_at_construction() {
+fn rejects_non_vector_extension_child_at_construction() {
     let options = default_options(128, 42);
-    let elements = PrimitiveArray::from_iter([1u8; 128]).into_array();
+    // A bare FSL child (not wrapped in a Vector extension) should be rejected.
+    let elements = PrimitiveArray::from_iter([0.0f32; 128]).into_array();
     let child = FixedSizeListArray::try_new(elements, 128, Validity::NonNullable, 1)
         .expect("test child should be valid");
 
     let err = SorfTransform::try_new_array(&options, child.into_array(), 1)
-        .expect_err("non-float child dtypes should be rejected at construction time");
-    assert!(err.to_string().contains("logical float"));
+        .expect_err("non-Vector-extension children should be rejected at construction time");
+    assert!(err.to_string().contains("Vector extension"));
 }
 
 #[test]
-fn execute_errors_when_child_materializes_to_non_float_elements() -> VortexResult<()> {
-    let child = ScalarFnArray::try_new(
-        ScalarFn::new(NonFloatMaterializedChild, EmptyOptions).erased(),
-        vec![],
-        1,
-    )?
-    .into_array();
-    let sorf = SorfTransform::try_new_array(&default_options(128, 42), child, 1)?;
-    let mut ctx = SESSION.create_execution_ctx();
+fn rejects_wrong_padded_dimension_at_construction() {
+    // Options say dimension=128 so padded_dim should be 128. Pass a Vector<256> instead.
+    let options = default_options(128, 42);
+    let elements = PrimitiveArray::from_iter([0.0f32; 256]).into_array();
+    let fsl = FixedSizeListArray::try_new(elements, 256, Validity::NonNullable, 1)
+        .expect("test child should be valid");
+    let child = wrap_as_vector(fsl, Validity::NonNullable).expect("wrap should succeed");
 
-    let err = sorf
-        .into_array()
-        .execute::<ExtensionArray>(&mut ctx)
-        .expect_err("runtime child materialization mismatch should error");
-    let message = err.to_string();
-    assert!(
-        message.contains("float") || message.contains("U8") || message.contains("u8"),
-        "unexpected runtime error: {message}",
-    );
-    Ok(())
+    let err = SorfTransform::try_new_array(&options, child.into_array(), 1)
+        .expect_err("mismatched padded dimension should be rejected at construction time");
+    assert!(err.to_string().contains("dimension"));
+}
+
+#[test]
+fn rejects_non_f32_child_storage_at_construction() {
+    // Options are valid and target f32 output. Pass a Vector<128> whose storage is f16 instead
+    // of f32 -- SorfTransform's f32-only input constraint should reject this.
+    let options = default_options(128, 42);
+    let elements = PrimitiveArray::from_iter([half::f16::from_f32(0.0); 128]).into_array();
+    let fsl = FixedSizeListArray::try_new(elements, 128, Validity::NonNullable, 1)
+        .expect("test child should be valid");
+    let child = wrap_as_vector(fsl, Validity::NonNullable).expect("wrap should succeed");
+
+    let err = SorfTransform::try_new_array(&options, child.into_array(), 1)
+        .expect_err("non-f32 Vector storage should be rejected at construction time");
+    assert!(err.to_string().contains("f32"));
 }
 
 #[test]
@@ -419,7 +392,7 @@ fn f16_output_type() -> VortexResult<()> {
     let dim = 128;
     let num_rows = 3;
     let seed = 42u64;
-    let (_, fsl, _) = forward_rotate_and_quantize(dim, num_rows, seed, 3, 8)?;
+    let (_, padded_vector, _) = forward_rotate_and_quantize(dim, num_rows, seed, 3, 8)?;
 
     let options = SorfOptions {
         seed,
@@ -427,7 +400,7 @@ fn f16_output_type() -> VortexResult<()> {
         dimension: dim as u32,
         element_ptype: PType::F16,
     };
-    let sorf = SorfTransform::try_new_array(&options, fsl.into_array(), num_rows)?;
+    let sorf = SorfTransform::try_new_array(&options, padded_vector.into_array(), num_rows)?;
     let mut ctx = SESSION.create_execution_ctx();
     let result: ExtensionArray = sorf.into_array().execute(&mut ctx)?;
     let result_fsl: FixedSizeListArray = result.storage_array().clone().execute(&mut ctx)?;
@@ -444,7 +417,7 @@ fn f64_output_type() -> VortexResult<()> {
     let dim = 128;
     let num_rows = 3;
     let seed = 42u64;
-    let (_, fsl, _) = forward_rotate_and_quantize(dim, num_rows, seed, 3, 8)?;
+    let (_, padded_vector, _) = forward_rotate_and_quantize(dim, num_rows, seed, 3, 8)?;
 
     let options = SorfOptions {
         seed,
@@ -452,7 +425,7 @@ fn f64_output_type() -> VortexResult<()> {
         dimension: dim as u32,
         element_ptype: PType::F64,
     };
-    let sorf = SorfTransform::try_new_array(&options, fsl.into_array(), num_rows)?;
+    let sorf = SorfTransform::try_new_array(&options, padded_vector.into_array(), num_rows)?;
     let mut ctx = SESSION.create_execution_ctx();
     let result: ExtensionArray = sorf.into_array().execute(&mut ctx)?;
     let result_fsl: FixedSizeListArray = result.storage_array().clone().execute(&mut ctx)?;

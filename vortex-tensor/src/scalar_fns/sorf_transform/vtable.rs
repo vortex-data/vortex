@@ -15,10 +15,12 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::expr::Expression;
 use vortex_array::extension::EmptyMetadata;
@@ -32,14 +34,14 @@ use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 
 use super::SorfOptions;
 use super::SorfTransform;
 use super::rotation::SorfMatrix;
 use super::validate_sorf_options;
-use crate::utils::cast_to_f32;
+use crate::vector::AnyVector;
 use crate::vector::Vector;
 
 impl ScalarFnVTable for SorfTransform {
@@ -72,42 +74,42 @@ impl ScalarFnVTable for SorfTransform {
     }
 
     fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
-        let child_dtype = &arg_dtypes[0];
-
         validate_sorf_options(options)?;
 
-        let DType::FixedSizeList(elem_dtype, padded_dim, nullability) = child_dtype else {
-            vortex_bail!(
-                "SorfTransform child must be a FixedSizeList with logical float elements and \
-                 list_size {}, got {child_dtype}",
-                options.dimension.next_power_of_two()
-            );
-        };
+        let child_dtype = &arg_dtypes[0];
+        let vector_metadata = child_dtype
+            .as_extension_opt()
+            .and_then(|ext| ext.metadata_opt::<AnyVector>())
+            .ok_or_else(|| {
+                vortex_err!("SorfTransform child must be a Vector extension, got {child_dtype}")
+            })?;
 
         let expected_padded = options.dimension.next_power_of_two();
-        vortex_ensure!(
-            *padded_dim == expected_padded,
-            "SorfTransform child must have list_size {} (next power of two for dimension {}), \
-             got {}",
+        vortex_ensure_eq!(
+            vector_metadata.dimensions(),
             expected_padded,
+            "SorfTransform child Vector must have dimension {expected_padded} (next power of two \
+             for dimension {})",
             options.dimension,
-            *padded_dim
         );
 
-        vortex_ensure!(
-            !elem_dtype.is_extension(),
-            "SorfTransform child element dtype must be a non-extension logical float type, got \
-             {elem_dtype}"
-        );
-        vortex_ensure!(
-            elem_dtype.is_float(),
-            "SorfTransform child element dtype must be logical float so it can execute to f32, \
-             got {elem_dtype}"
+        // For now, the child Vector storage must be f32. TurboQuant stores its centroids as f32,
+        // and the SORF transform itself operates in f32, so any other input type would require an
+        // implicit cast that we do not yet support. The output element type is independently
+        // specified via `options.element_ptype` and is built below.
+        vortex_ensure_eq!(
+            vector_metadata.element_ptype(),
+            PType::F32,
+            "SorfTransform child Vector storage must be f32 (for now), got {}",
+            vector_metadata.element_ptype(),
         );
 
         let output_elem_dtype = DType::Primitive(options.element_ptype, Nullability::NonNullable);
-        let storage_dtype =
-            DType::FixedSizeList(Arc::new(output_elem_dtype), options.dimension, *nullability);
+        let storage_dtype = DType::FixedSizeList(
+            Arc::new(output_elem_dtype),
+            options.dimension,
+            child_dtype.nullability(),
+        );
 
         let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, storage_dtype)?.erased();
         Ok(DType::Extension(ext_dtype))
@@ -141,15 +143,17 @@ impl ScalarFnVTable for SorfTransform {
             });
         }
 
-        // Execute the child to get the FSL of dequantized (or raw) float coordinates.
-        let child_fsl: FixedSizeListArray = args.get(0)?.execute(ctx)?;
-        let child_validity = child_fsl.as_ref().validity()?;
+        // Execute the child to get the Vector extension wrapping an FSL of f32 coordinates. The
+        // `return_dtype` check guarantees the child is a `Vector<padded_dim, f32>`, so the
+        // materialized FSL elements are always f32.
+        let child_ext: ExtensionArray = args.get(0)?.execute(ctx)?;
+        let child_validity = child_ext.as_ref().validity()?;
+        let child_fsl: FixedSizeListArray = child_ext.storage_array().clone().execute(ctx)?;
         let padded_dim =
             usize::try_from(child_fsl.list_size()).vortex_expect("list_size fits usize");
 
-        // Cast the executed elements to f32 for the SORF transform.
         let elements_prim: PrimitiveArray = child_fsl.elements().clone().execute(ctx)?;
-        let f32_elements = cast_to_f32(elements_prim)?;
+        let f32_elements = elements_prim.into_buffer::<f32>();
 
         // Reconstruct the orthogonal transform matrix from the seed.
         let rotation = SorfMatrix::try_new(options.seed, dim, options.num_rounds as usize)?;

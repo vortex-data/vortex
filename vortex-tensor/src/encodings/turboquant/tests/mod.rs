@@ -128,10 +128,11 @@ fn unwrap_codes_centroids_norms(
     ctx: &mut vortex_array::ExecutionCtx,
 ) -> VortexResult<(PrimitiveArray, PrimitiveArray, PrimitiveArray)> {
     let (sorf_child, norms_child) = unwrap_l2denorm(encoded);
-    let fsl_child = unwrap_sorf(&sorf_child);
+    let padded_vector_child = unwrap_sorf(&sorf_child);
 
-    // FSL(Dict(codes, centroids))
-    let fsl: FixedSizeListArray = fsl_child.execute(ctx)?;
+    // Vector<padded_dim> wrapping FSL(Dict(codes, centroids))
+    let padded_vector: ExtensionArray = padded_vector_child.execute(ctx)?;
+    let fsl: FixedSizeListArray = padded_vector.storage_array().clone().execute(ctx)?;
     let dict = fsl
         .elements()
         .as_opt::<Dict>()

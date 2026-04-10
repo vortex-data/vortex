@@ -225,6 +225,8 @@ fn dot_product_quantized_accuracy() -> VortexResult<()> {
 fn sorf_transform_roundtrip_isolation() -> VortexResult<()> {
     use vortex_array::IntoArray;
     use vortex_array::arrays::dict::DictArray;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::extension::EmptyMetadata;
     use vortex_array::validity::Validity;
     use vortex_buffer::BufferMut;
 
@@ -234,6 +236,7 @@ fn sorf_transform_roundtrip_isolation() -> VortexResult<()> {
     use crate::scalar_fns::sorf_transform::SorfMatrix;
     use crate::scalar_fns::sorf_transform::SorfOptions;
     use crate::scalar_fns::sorf_transform::SorfTransform;
+    use crate::vector::Vector;
 
     let dim = 128usize;
     let seed = 99u64;
@@ -287,6 +290,11 @@ fn sorf_transform_roundtrip_isolation() -> VortexResult<()> {
         num_rows,
     )?;
 
+    // Wrap the padded FSL in a Vector extension so it can be the SorfTransform child.
+    let padded_vector_dtype =
+        ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
+    let padded_vector = ExtensionArray::new(padded_vector_dtype, fsl.into_array());
+
     // Wrap in SorfTransform and execute.
     let sorf_options = SorfOptions {
         seed,
@@ -294,7 +302,8 @@ fn sorf_transform_roundtrip_isolation() -> VortexResult<()> {
         dimension: dim as u32,
         element_ptype: vortex_array::dtype::PType::F32,
     };
-    let sorf_array = SorfTransform::try_new_array(&sorf_options, fsl.into_array(), num_rows)?;
+    let sorf_array =
+        SorfTransform::try_new_array(&sorf_options, padded_vector.into_array(), num_rows)?;
 
     let mut ctx = SESSION.create_execution_ctx();
     let result: ExtensionArray = sorf_array.into_array().execute(&mut ctx)?;
