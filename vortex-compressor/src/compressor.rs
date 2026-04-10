@@ -55,6 +55,46 @@ const ROOT_SCHEME_ID: SchemeId = SchemeId {
     name: "vortex.compressor.root",
 };
 
+/// Tracing target for scheme selection events (eligibility, evaluation, winner, short-circuits).
+///
+/// See the crate-level `Observability` section of [`crate`] for the full target taxonomy.
+const TARGET_SELECT: &str = "vortex_compressor::select";
+
+/// Tracing target for per-scheme encoding events (the `scheme.compress` span and the
+/// `scheme.compress_result` event reporting estimated vs actual compression ratios).
+const TARGET_ENCODE: &str = "vortex_compressor::encode";
+
+/// Tracing target for cascade-tree events (top-level `compress` and `compress_child` spans,
+/// cascade-exhausted short-circuits).
+const TARGET_CASCADE: &str = "vortex_compressor::cascade";
+
+/// Emits a structured `scheme.evaluated` trace event on [`TARGET_SELECT`] for one scheme's
+/// initial estimation verdict.
+///
+/// For `Ratio(r)` the numeric estimate is recorded directly. For `Sample` and `Estimate`
+/// the ratio is not yet known at this point; a follow-up `scheme.evaluated.resolved` event
+/// is emitted by the caller after the deferred computation finishes.
+///
+/// Defined as a standalone helper (rather than inlined) because the `match` expression that
+/// extracts `kind` and the optional `ratio` field is the only repetition worth factoring out
+/// of [`CascadingCompressor::choose_best_scheme`].
+fn emit_scheme_evaluated(scheme: &'static dyn Scheme, estimate: &CompressionEstimate) {
+    let (kind, ratio): (&'static str, Option<f64>) = match estimate {
+        CompressionEstimate::Skip => ("Skip", None),
+        CompressionEstimate::AlwaysUse => ("AlwaysUse", None),
+        CompressionEstimate::Ratio(r) => ("Ratio", Some(*r)),
+        CompressionEstimate::Sample => ("Sample", None),
+        CompressionEstimate::Estimate(_) => ("Estimate", None),
+    };
+    tracing::trace!(
+        target: TARGET_SELECT,
+        scheme = %scheme.id(),
+        kind,
+        ratio = ?ratio,
+        "scheme.evaluated",
+    );
+}
+
 /// Child indices for the compressor's list/listview compression.
 mod root_list_children {
     /// List/ListView offsets child.
@@ -124,6 +164,17 @@ impl CascadingCompressor {
     /// # Errors
     ///
     /// Returns an error if canonicalization or compression fails.
+    #[tracing::instrument(
+        target = "vortex_compressor::cascade",
+        name = "CascadingCompressor::compress",
+        level = "trace",
+        skip_all,
+        fields(
+            len = array.len(),
+            nbytes = array.nbytes(),
+            dtype = %array.dtype(),
+        ),
+    )]
     pub fn compress(&self, array: &ArrayRef) -> VortexResult<ArrayRef> {
         let canonical = array
             .clone()
@@ -152,7 +203,24 @@ impl CascadingCompressor {
         parent_id: SchemeId,
         child_index: usize,
     ) -> VortexResult<ArrayRef> {
+        let _span = tracing::trace_span!(
+            target: TARGET_CASCADE,
+            "compress_child",
+            parent = %parent_id,
+            child_index,
+            cascade_depth = parent_ctx.cascade_history().len(),
+            len = child.len(),
+        )
+        .entered();
+
         if parent_ctx.finished_cascading() {
+            tracing::debug!(
+                target: TARGET_CASCADE,
+                reason = "cascade_exhausted",
+                parent = %parent_id,
+                child_index,
+                "short_circuit",
+            );
             return Ok(child.clone());
         }
 
@@ -276,6 +344,22 @@ impl CascadingCompressor {
         canonical: Canonical,
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
+        // Capture span-facing metadata before we move `canonical` into an `ArrayRef`.
+        let len = canonical.len();
+        let cascade_depth = ctx.cascade_history().len();
+
+        // `eligible_count` is recorded after filtering; pre-declare it so `Span::record`
+        // works.
+        let _span = tracing::trace_span!(
+            target: TARGET_SELECT,
+            "choose_and_compress",
+            dtype = %canonical.dtype(),
+            len,
+            cascade_depth,
+            eligible_count = tracing::field::Empty,
+        )
+        .entered();
+
         let eligible_schemes: Vec<&'static dyn Scheme> = self
             .schemes
             .iter()
@@ -283,18 +367,35 @@ impl CascadingCompressor {
             .filter(|s| s.matches(&canonical) && !self.is_excluded(*s, &ctx))
             .collect();
 
+        tracing::Span::current().record("eligible_count", eligible_schemes.len());
+
         let array: ArrayRef = canonical.into();
 
         // If there are no schemes that we can compress into, then just return it uncompressed.
         if eligible_schemes.is_empty() {
+            tracing::debug!(
+                target: TARGET_SELECT,
+                reason = "no_schemes",
+                "short_circuit",
+            );
             return Ok(array);
         }
 
         // Nothing to compress if empty or all-null.
         if array.is_empty() {
+            tracing::debug!(
+                target: TARGET_SELECT,
+                reason = "empty",
+                "short_circuit",
+            );
             return Ok(array);
         }
         if array.all_invalid()? {
+            tracing::debug!(
+                target: TARGET_SELECT,
+                reason = "all_null",
+                "short_circuit",
+            );
             return Ok(
                 ConstantArray::new(Scalar::null(array.dtype().clone()), array.len()).into_array(),
             );
@@ -311,23 +412,75 @@ impl CascadingCompressor {
 
         let mut data = ArrayAndStats::new(array, merged_opts);
 
-        if let Some((winner, _estimated_ratio)) =
+        let Some((winner, estimated_ratio)) =
             self.choose_best_scheme(&eligible_schemes, &mut data, ctx.clone())?
-        {
-            // TODO(connor): Add a tracing warning here if compression with the chosen scheme
-            // failed, since there was likely more we could have done while choosing schemes.
+        else {
+            // No scheme beat the canonical encoding.
+            tracing::debug!(
+                target: TARGET_SELECT,
+                reason = "fell_through",
+                candidate_count = eligible_schemes.len(),
+                "short_circuit",
+            );
+            return Ok(data.into_array());
+        };
 
-            // Sampling and estimation chose a scheme, so let's compress the whole array with it.
-            let compressed = winner.compress(self, &mut data, ctx)?;
+        tracing::debug!(
+            target: TARGET_SELECT,
+            scheme = %winner.id(),
+            estimated_ratio,
+            candidate_count = eligible_schemes.len(),
+            "scheme.winner",
+        );
 
-            // Only choose the compressed array if it is smaller than the canonical one.
-            if compressed.nbytes() < before_nbytes {
-                // TODO(connor): Add a tracing warning here too.
-                return Ok(compressed);
-            }
+        // Wrap the actual encode in its own span so tracing-perfetto /
+        // tracing-timing get a distinct timing frame per scheme compression.
+        let compressed = {
+            let _encode_span = tracing::trace_span!(
+                target: TARGET_ENCODE,
+                "scheme.compress",
+                scheme = %winner.id(),
+                before_nbytes,
+            )
+            .entered();
+            winner.compress(self, &mut data, ctx)?
+        };
+
+        let after_nbytes = compressed.nbytes();
+        // Guard against division by zero: a zero-byte output is legal (e.g. constant
+        // arrays) so we clamp to 1 for the display ratio rather than emit NaN/Inf.
+        let actual_ratio = before_nbytes as f64 / after_nbytes.max(1) as f64;
+        let accepted = after_nbytes < before_nbytes;
+
+        tracing::debug!(
+            target: TARGET_ENCODE,
+            scheme = %winner.id(),
+            before_nbytes,
+            after_nbytes,
+            estimated_ratio,
+            actual_ratio,
+            accepted,
+            "scheme.compress_result",
+        );
+
+        if accepted {
+            return Ok(compressed);
         }
 
-        // No scheme improved on the original.
+        // Winner was picked but its output was not smaller than the canonical input.
+        // This is silent in the old code and hides real compressor bugs (bad estimate,
+        // pathological data). Surface it explicitly.
+        tracing::debug!(
+            target: TARGET_SELECT,
+            reason = "larger_output",
+            scheme = %winner.id(),
+            before_nbytes,
+            after_nbytes,
+            estimated_ratio,
+            actual_ratio,
+            "short_circuit",
+        );
+
         Ok(data.into_array())
     }
 
@@ -354,6 +507,12 @@ impl CascadingCompressor {
         for &scheme in schemes {
             let estimate = scheme.expected_compression_ratio(data, ctx.clone());
 
+            // Emit the initial estimate verdict for every scheme the compressor looks at.
+            // For `Ratio` this carries the numeric estimate directly; for `Sample` and
+            // `Estimate` the ratio is unknown at this point and will be reported via a
+            // follow-up `scheme.evaluated.resolved` event once computed.
+            emit_scheme_evaluated(scheme, &estimate);
+
             match estimate {
                 CompressionEstimate::Skip => {}
                 CompressionEstimate::AlwaysUse => return Ok(Some((scheme, f64::INFINITY))),
@@ -370,6 +529,14 @@ impl CascadingCompressor {
                         ctx.clone(),
                     )?;
 
+                    tracing::trace!(
+                        target: TARGET_SELECT,
+                        scheme = %scheme.id(),
+                        kind = "Sample",
+                        ratio = sample_ratio,
+                        "scheme.evaluated.resolved",
+                    );
+
                     if is_better_ratio(sample_ratio, &best) {
                         best = Some((scheme, sample_ratio));
                     }
@@ -379,11 +546,27 @@ impl CascadingCompressor {
                     let estimate = estimate_callback(self, data, ctx.clone())?;
 
                     match estimate {
-                        CompressionEstimate::Skip => {}
+                        CompressionEstimate::Skip => {
+                            tracing::trace!(
+                                target: TARGET_SELECT,
+                                scheme = %scheme.id(),
+                                kind = "Estimate",
+                                resolved_kind = "Skip",
+                                "scheme.evaluated.resolved",
+                            );
+                        }
                         CompressionEstimate::AlwaysUse => {
                             return Ok(Some((scheme, f64::INFINITY)));
                         }
                         CompressionEstimate::Ratio(ratio) => {
+                            tracing::trace!(
+                                target: TARGET_SELECT,
+                                scheme = %scheme.id(),
+                                kind = "Estimate",
+                                resolved_kind = "Ratio",
+                                ratio,
+                                "scheme.evaluated.resolved",
+                            );
                             if is_better_ratio(ratio, &best) {
                                 best = Some((scheme, ratio));
                             }
@@ -396,8 +579,6 @@ impl CascadingCompressor {
                     }
                 }
             }
-
-            // tracing::debug!(scheme = %scheme.id(), estimate, "evaluated compression ratio");
         }
 
         Ok(best)

@@ -16,7 +16,17 @@ use crate::sample::SAMPLE_SIZE;
 use crate::sample::sample;
 use crate::sample::sample_count_approx_one_percent;
 use crate::scheme::Scheme;
+use crate::scheme::SchemeExt;
 use crate::stats::ArrayAndStats;
+
+/// Tracing target for sampling-based ratio estimation (sample sizing and sample compression
+/// results). See the crate-level `Observability` section of [`crate`] for the full taxonomy.
+const TARGET_ESTIMATE: &str = "vortex_compressor::estimate";
+
+/// Tracing target for the sub-span covering the sample compression itself. Shared with
+/// [`crate::compressor`] so that users filtering on `vortex_compressor::encode` see both the
+/// final encode and any sample encodes that fed into its selection.
+const TARGET_ENCODE: &str = "vortex_compressor::encode";
 
 /// Closure type for [`CompressionEstimate::Estimate`]. The compressor calls this with the same
 /// arguments it would pass to sampling.
@@ -97,16 +107,29 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     array: &ArrayRef,
     ctx: CompressorContext,
 ) -> VortexResult<f64> {
+    let _span = tracing::trace_span!(
+        target: TARGET_ESTIMATE,
+        "estimate.sample",
+        scheme = %scheme.id(),
+        source_len = array.len(),
+    )
+    .entered();
+
     let sample_array = if ctx.is_sample() {
         array.clone()
     } else {
         let source_len = array.len();
         let sample_count = sample_count_approx_one_percent(source_len);
+        let sampled_len = u64::from(SAMPLE_SIZE) * u64::from(sample_count);
 
         tracing::trace!(
-            "Sampling {} values out of {}",
-            SAMPLE_SIZE as u64 * sample_count as u64,
-            source_len
+            target: TARGET_ESTIMATE,
+            scheme = %scheme.id(),
+            sample_count,
+            sample_size = SAMPLE_SIZE,
+            sampled_len,
+            source_len = source_len as u64,
+            "sample.collected",
         );
 
         // `ArrayAndStats` expects a canonical array (so that it can easily compute lazy stats).
@@ -118,22 +141,37 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     let mut sample_data = ArrayAndStats::new(sample_array, scheme.stats_options());
     let sample_ctx = ctx.with_sampling();
 
-    let after = scheme
-        .compress(compressor, &mut sample_data, sample_ctx)?
-        .nbytes();
+    // Wrap the sample compression in its own encode span so that timing subscribers
+    // (tracing-perfetto / tracing-timing) can attribute sampling cost separately from the
+    // final full-array compression.
+    let after = {
+        let _sample_encode = tracing::trace_span!(
+            target: TARGET_ENCODE,
+            "sample.compress",
+            scheme = %scheme.id(),
+        )
+        .entered();
+        scheme.compress(compressor, &mut sample_data, sample_ctx)?
+    }
+    .nbytes();
+
     let before = sample_data.array().nbytes();
 
-    // TODO(connor): Issue https://github.com/vortex-data/vortex/issues/7268.
-    // if after == 0 {
-    //     tracing::warn!(
-    //         scheme = %scheme.id(),
-    //         "sample compressed to 0 bytes, which should only happen for constant arrays",
-    //     );
-    // }
+    // TODO(connor): Issue https://github.com/vortex-data/vortex/issues/7268. Sample compressing
+    // to 0 bytes should only happen for constant arrays; anything else is a scheme bug.
 
-    let ratio = before as f64 / after as f64;
+    // Guard against division by zero: zero-byte samples are legal (constant arrays). Clamp
+    // to 1 so the ratio remains finite rather than emitting `inf`/`nan`.
+    let ratio = before as f64 / after.max(1) as f64;
 
-    tracing::debug!("estimate_compression_ratio_with_sampling(compressor={scheme:#?}) = {ratio}",);
+    tracing::debug!(
+        target: TARGET_ESTIMATE,
+        scheme = %scheme.id(),
+        sampled_before = before,
+        sampled_after = after,
+        sampled_ratio = ratio,
+        "sample.result",
+    );
 
     Ok(ratio)
 }
