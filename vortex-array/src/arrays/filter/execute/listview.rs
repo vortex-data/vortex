@@ -6,11 +6,12 @@ use std::sync::Arc;
 use vortex_error::VortexExpect;
 use vortex_mask::MaskValues;
 
+use crate::arrays::ListViewArray;
 use crate::arrays::filter::execute::filter_validity;
 use crate::arrays::filter::execute::values_to_mask;
+use crate::arrays::listview;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewRebuildMode;
-use crate::arrays::{ListViewArray, listview};
 
 /// [`ListViewArray`] filter implementation.
 ///

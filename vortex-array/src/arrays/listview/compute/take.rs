@@ -48,8 +48,8 @@ impl TakeReduce for ListView {
 
 /// Execution-path take for [`ListViewArray`].
 ///
-/// This does the same metadata-only take as [`TakeReduce`], but also reuilds the array if the
-/// resulting array will be less dense than [`REBUILD_DENSITY_THRESHOLD`]
+/// This does the same metadata-only take as [`TakeReduce`], but also rebuilds the array if the
+/// resulting array will be less dense than `REBUILD_DENSITY_THRESHOLD`.
 impl TakeExecute for ListView {
     fn take(
         array: ArrayView<'_, ListView>,
