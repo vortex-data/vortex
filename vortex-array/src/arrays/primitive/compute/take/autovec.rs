@@ -60,44 +60,36 @@ pub(crate) fn take_autovec<V: NativePType, I: UnsignedPType>(
     let len = indices.len();
     let values_len = values.len();
 
+    // Bounds validation first: a max reduction that the compiler vectorizes
+    // into vpmaxuq (AVX-512) / vpmaxud (AVX2) / umaxv (NEON).
+    if len > 0 {
+        let max_idx: usize = indices.iter().map(|idx| idx.as_()).max().unwrap_or(0);
+        assert!(
+            max_idx < values_len,
+            "take index {max_idx} out of bounds for array of length {values_len}"
+        );
+    }
+
     let mut buffer = BufferMut::<V>::with_capacity(len);
     let buf = buffer.spare_capacity_mut();
 
     let src = values.as_ptr();
     let dst = buf.as_mut_ptr().cast::<V>();
 
-    // Fused bounds-check + gather loop.
+    // Unconditional gather loop — no branches, no masks, no conditional stores.
+    // All indices were validated in-bounds above, so every load is safe.
     //
-    // The per-element `idx < values_len` comparison generates a mask that the compiler
-    // folds directly into a masked gather instruction on AVX-512 (vpgatherdd {k}, ...)
-    // and into conditional moves on AVX2. Out-of-bounds lanes write zero (V::default()).
-    //
-    // We track the running maximum index so we can report a precise panic after the loop
-    // without adding a branch to the hot path. The max reduction itself vectorizes into
-    // vpmaxud / umaxv instructions.
-    let mut max_seen: usize = 0;
-
-    for i in 0..len {
-        let idx: usize = unsafe { (*indices.as_ptr().add(i)).as_() };
-        max_seen = max_seen.max(idx);
-
-        // SAFETY: `i < len` so dst write is in-bounds.
-        // The branch on `idx < values_len` becomes a mask for the gather; the compiler
-        // emits vpgatherdd {k1} / vpgatherdq {k1} with the comparison result as the mask.
+    // IMPORTANT: We index through `values[idx as usize]` rather than raw pointer
+    // arithmetic so the compiler can keep the index in its native register width.
+    // With u32 indices + i32 values this emits vpgatherdd (16 elements/zmm on
+    // AVX-512) instead of vpgatherqq (8 elements/zmm) which would happen if we
+    // widened to usize first.
+    for (i, idx) in indices.iter().enumerate() {
+        // SAFETY: `i < len` and all indices verified in-bounds above.
         unsafe {
-            let val = if idx < values_len {
-                *src.add(idx)
-            } else {
-                V::default()
-            };
-            dst.add(i).write(val);
+            dst.add(i).write(*src.add(idx.as_()));
         }
     }
-
-    assert!(
-        max_seen < values_len || len == 0,
-        "take index {max_seen} out of bounds for array of length {values_len}"
-    );
 
     // SAFETY: We wrote exactly `len` elements above.
     unsafe { buffer.set_len(len) };

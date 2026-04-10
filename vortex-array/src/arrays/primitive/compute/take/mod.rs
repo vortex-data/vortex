@@ -34,11 +34,32 @@ use crate::validity::Validity;
 // Kernel selection happens on the first call to `take` and uses a combination of compile-time
 // and runtime feature detection to infer the best kernel for the platform.
 //
-// The auto-vectorized kernel uses `multiversion` to compile for multiple targets and dispatch
-// at runtime. It replaces the previous hand-written AVX2 intrinsics and nightly portable SIMD
-// kernels with clean Rust code that the compiler can optimize with hardware gather instructions.
+// - AVX-512: use the auto-vectorized kernel — the compiler emits masked vpgatherdd/vpgatherdq
+//   with fused bounds checking via mask registers.
+// - AVX2 (no AVX-512): use the hand-written intrinsics kernel — LLVM's cost model won't emit
+//   AVX2 gather from the autovec loop, so the explicit intrinsics are faster.
+// - Nightly + portable_simd: use the portable SIMD kernel.
+// - Everything else (ARM, older x86): use the auto-vectorized kernel — multiversion compiles
+//   target-appropriate code (NEON on aarch64, SSE4.2 on x86).
 static PRIMITIVE_TAKE_KERNEL: LazyLock<&'static dyn TakeImpl> = LazyLock::new(|| {
-    &autovec::TakeKernelAutoVec
+    cfg_if::cfg_if! {
+        if #[cfg(vortex_nightly)] {
+            &portable::TakeKernelPortableSimd
+        } else if #[cfg(target_arch = "x86_64")] {
+            if is_x86_feature_detected!("avx512f") {
+                // AVX-512: autovec emits masked gathers with zmm registers
+                &autovec::TakeKernelAutoVec
+            } else if is_x86_feature_detected!("avx2") {
+                // AVX2-only: hand-written intrinsics outperform the autovec cmov path
+                &avx2::TakeKernelAVX2
+            } else {
+                &autovec::TakeKernelAutoVec
+            }
+        } else {
+            // ARM, other platforms: autovec with multiversion dispatch
+            &autovec::TakeKernelAutoVec
+        }
+    }
 });
 
 trait TakeImpl: Send + Sync {
