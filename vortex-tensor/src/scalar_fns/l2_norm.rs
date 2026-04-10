@@ -141,6 +141,8 @@ impl ScalarFnVTable for L2Norm {
         let validity = input.as_ref().validity()?;
 
         let storage = input.storage_array();
+        // TODO(connor): This is wrong, if the storage array is `Constant` then we can return a
+        // `ConstantArray` directly here.
         let flat = extract_flat_elements(storage, tensor_flat_size, ctx)?;
 
         match_each_float_ptype!(flat.ptype(), |T| {

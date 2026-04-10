@@ -103,6 +103,8 @@ impl FlatElements {
     }
 }
 
+// TODO(connor): Usage of this function is sometimes incorrect / not performant.
+// Make sure to fix them.
 /// Extracts the flat primitive elements from a tensor storage array (FixedSizeList).
 ///
 /// When the input is a [`ConstantArray`] (e.g., a literal query vector), only a single row is
