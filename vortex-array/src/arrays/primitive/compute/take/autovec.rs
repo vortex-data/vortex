@@ -53,7 +53,7 @@ impl TakeImpl for TakeKernelAutoVec {
     "x86_64+sse4.2",
     "aarch64+neon",
 ))]
-fn take_autovec<V: NativePType, I: UnsignedPType>(
+pub(crate) fn take_autovec<V: NativePType, I: UnsignedPType>(
     values: &[V],
     indices: &[I],
 ) -> Buffer<V> {

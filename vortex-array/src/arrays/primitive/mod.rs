@@ -11,6 +11,10 @@ pub use vtable::PrimitiveArray;
 
 pub(crate) mod compute;
 
+/// Raw take kernel functions for benchmarking.
+#[doc(hidden)]
+pub use compute::take::bench_kernels as take_kernels;
+
 mod vtable;
 pub use compute::rules::PrimitiveMaskedValidityRule;
 pub use vtable::Primitive;

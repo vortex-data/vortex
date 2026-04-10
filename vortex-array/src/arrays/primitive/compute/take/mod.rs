@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod autovec;
+pub(crate) mod autovec;
 
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 mod avx2;
@@ -125,6 +125,50 @@ fn take_primitive_scalar<T: NativePType, I: IntegerPType>(
     // SAFETY: We just wrote exactly `indices.len()` elements.
     unsafe { result.set_len(indices.len()) };
     result.freeze()
+}
+
+/// Exposes raw kernel functions for benchmarking.
+///
+/// Each function takes `(&[V], &[I])` slices and returns a `Buffer<V>`, bypassing the
+/// `TakeImpl` dispatch and `ArrayView` wrapping so benchmarks measure the kernel only.
+#[doc(hidden)]
+pub mod bench_kernels {
+    use vortex_buffer::Buffer;
+
+    use crate::dtype::NativePType;
+    use crate::dtype::UnsignedPType;
+
+    /// The auto-vectorized kernel (multiversion: AVX-512 / AVX2 / SSE4.2 / NEON).
+    pub fn autovec<V: NativePType, I: UnsignedPType>(
+        values: &[V],
+        indices: &[I],
+    ) -> Buffer<V> {
+        super::autovec::take_autovec(values, indices)
+    }
+
+    /// The hand-written AVX2 intrinsics kernel.
+    ///
+    /// Falls back to [`scalar`] when AVX2 is not detected at runtime.
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    pub fn avx2<V: NativePType, I: UnsignedPType>(
+        values: &[V],
+        indices: &[I],
+    ) -> Buffer<V> {
+        if is_x86_feature_detected!("avx2") {
+            // SAFETY: avx2 feature detected above.
+            unsafe { super::avx2::take_avx2(values, indices) }
+        } else {
+            scalar(values, indices)
+        }
+    }
+
+    /// Plain scalar gather (no SIMD).
+    pub fn scalar<V: NativePType, I: UnsignedPType>(
+        values: &[V],
+        indices: &[I],
+    ) -> Buffer<V> {
+        super::take_primitive_scalar(values, indices)
+    }
 }
 
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
