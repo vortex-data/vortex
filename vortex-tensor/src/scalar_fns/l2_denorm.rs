@@ -484,6 +484,9 @@ fn validate_l2_normalized_rows_impl(
 
     let normalized: ExtensionArray = normalized.clone().execute(ctx)?;
     let normalized_validity = normalized.as_ref().validity()?;
+
+    // TODO(connor): This is wrong, if we know that the normalized array is constant then we can
+    // just check that the scalar in normalized and then we are done.
     let flat = extract_flat_elements(normalized.storage_array(), tensor_flat_size, ctx)?;
     let norms = norms
         .map(|norms| norms.clone().execute::<PrimitiveArray>(ctx))

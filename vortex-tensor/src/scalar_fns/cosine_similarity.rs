@@ -250,6 +250,7 @@ impl CosineSimilarity {
 
         let dot_arr = InnerProduct::try_new_array(normalized, plain_ref.clone(), len)?;
         let norm_arr = L2Norm::try_new_array(plain_ref.clone(), len)?;
+
         let dot: PrimitiveArray = dot_arr.into_array().execute(ctx)?;
         let plain_norm: PrimitiveArray = norm_arr.into_array().execute(ctx)?;
 
