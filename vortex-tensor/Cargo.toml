@@ -31,6 +31,14 @@ num-traits = { workspace = true }
 prost = { workspace = true }
 
 [dev-dependencies]
+divan = { workspace = true }
+mimalloc = { workspace = true }
 rand = { workspace = true }
 rand_distr = { workspace = true }
 rstest = { workspace = true }
+vortex-btrblocks = { path = "../vortex-btrblocks" }
+
+[[bench]]
+name = "similarity_search"
+harness = false
+test = false

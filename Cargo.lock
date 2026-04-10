@@ -10974,14 +10974,17 @@ dependencies = [
 name = "vortex-tensor"
 version = "0.1.0"
 dependencies = [
+ "codspeed-divan-compat",
  "half",
  "itertools 0.14.0",
+ "mimalloc",
  "num-traits",
  "prost 0.14.3",
  "rand 0.10.0",
  "rand_distr 0.6.0",
  "rstest",
  "vortex-array",
+ "vortex-btrblocks",
  "vortex-buffer",
  "vortex-compressor",
  "vortex-error",
