@@ -530,7 +530,7 @@ mod avx2_tests {
                 $(
                     // Test "happy path" take, valid indices on valid array.
                     #[test]
-                    #[expect(clippy::cast_possible_truncation)]
+                    #[allow(clippy::cast_possible_truncation)]
                     fn [<test_avx2_take_simple_ $IDX _ $VAL>]() {
                         let values: Vec<$VAL> = (1..=127).map(|x| x as $VAL).collect();
                         let indices: Vec<$IDX> = (0..127).collect();
@@ -542,7 +542,7 @@ mod avx2_tests {
                     // Test take on empty array.
                     #[test]
                     #[should_panic]
-                    #[expect(clippy::cast_possible_truncation)]
+                    #[allow(clippy::cast_possible_truncation)]
                     fn [<test_avx2_take_empty_ $IDX _ $VAL>]() {
                         let values: Vec<$VAL> = vec![];
                         let indices: Vec<$IDX> = (0..127).collect();
@@ -553,7 +553,7 @@ mod avx2_tests {
                     // Test all invalid take indices mapping to zeros.
                     #[test]
                     #[should_panic]
-                    #[expect(clippy::cast_possible_truncation)]
+                    #[allow(clippy::cast_possible_truncation)]
                     fn [<test_avx2_take_invalid_ $IDX _ $VAL>]() {
                         let values: Vec<$VAL> = (1..=127).map(|x| x as $VAL).collect();
                         // All out of bounds indices.
