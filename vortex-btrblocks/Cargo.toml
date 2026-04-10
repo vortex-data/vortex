@@ -20,7 +20,7 @@ num-traits = { workspace = true }
 pco = { workspace = true, optional = true }
 rand = { workspace = true }
 rustc-hash = { workspace = true }
-tracing = { workspace = true }
+tracing = { workspace = true, features = ["std", "attributes"] }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }

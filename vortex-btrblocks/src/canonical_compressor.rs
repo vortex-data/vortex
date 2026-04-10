@@ -38,6 +38,24 @@ pub struct BtrBlocksCompressor(
 
 impl BtrBlocksCompressor {
     /// Compresses an array using BtrBlocks-inspired compression.
+    ///
+    /// This call is instrumented with a `vortex_compressor::cascade` span named
+    /// `BtrBlocksCompressor::compress` so that downstream tracing consumers
+    /// (e.g. `tracing-perfetto`) have a distinct entry frame to pivot on, nested
+    /// above the generic [`CascadingCompressor::compress`] span that actually
+    /// runs the pipeline. See the `Observability` section of the
+    /// [`vortex_compressor`] crate docs for the full tracing reference.
+    #[tracing::instrument(
+        target = "vortex_compressor::cascade",
+        name = "BtrBlocksCompressor::compress",
+        level = "trace",
+        skip_all,
+        fields(
+            len = array.len(),
+            nbytes = array.nbytes(),
+            dtype = %array.dtype(),
+        ),
+    )]
     pub fn compress(&self, array: &ArrayRef) -> VortexResult<ArrayRef> {
         self.0.compress(array)
     }

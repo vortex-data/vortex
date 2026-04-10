@@ -290,7 +290,9 @@ impl Scheme for ZigZagScheme {
 
         let compressed = compressor.compress_child(&encoded.into_array(), &ctx, self.id(), 0)?;
 
-        tracing::debug!("zigzag output: {}", compressed.encoding_id());
+        // NOTE: scheme-level compression results are emitted centrally as the
+        // `scheme.compress_result` event on the `vortex_compressor::encode`
+        // target. See the `Observability` section of the `vortex_compressor` crate docs.
 
         Ok(ZigZag::try_new(compressed)?.into_array())
     }
