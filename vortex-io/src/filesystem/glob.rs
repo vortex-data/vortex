@@ -18,18 +18,38 @@ impl dyn FileSystem + '_ {
     /// to narrow the [`list`](FileSystem::list) call. The full glob pattern is
     /// then applied as a filter over the listed entries.
     ///
-    /// Escaped glob characters (`\*`, `\?`, `\[`) are not supported.
+    /// Escaped glob characters (`\*`, `\?`, `\[`, `\,`) are not supported.
+    ///
+    /// If "," is encountered, splits paths by it. Using comma in conjunction with
+    /// glob characters is not supported.
     pub fn glob(&self, pattern: &str) -> VortexResult<BoxStream<'_, VortexResult<FileListing>>> {
         validate_glob(pattern)?;
 
-        // If there are no glob characters, the pattern is an exact file path.
+        // If there are no glob characters and no comma, the pattern is an exact file path.
         // Return it directly without listing the filesystem.
-        if !pattern.contains(['*', '?', '[']) {
+        let has_expansion = pattern.contains(['*', '?', '[']);
+        let has_comma = pattern.contains(',');
+        if !has_expansion && !has_comma {
             let listing = FileListing {
                 path: pattern.to_string(),
                 size: None,
             };
             return Ok(futures::stream::once(async { Ok(listing) }).boxed());
+        }
+        if has_comma && has_expansion {
+            vortex_bail!("Comma with glob expressions is not supported");
+        }
+        if has_comma {
+            let paths: Vec<_> = pattern
+                .split(',')
+                .map(|path| {
+                    Ok(FileListing {
+                        path: path.to_owned(),
+                        size: None,
+                    })
+                })
+                .collect();
+            return Ok(futures::stream::iter(paths).boxed());
         }
 
         let glob_pattern = glob::Pattern::new(pattern)
@@ -69,7 +89,7 @@ fn glob_list_prefix(pattern: &str) -> &str {
 
 /// Validates that a glob pattern does not contain escaped glob characters.
 fn validate_glob(pattern: &str) -> VortexResult<()> {
-    for escape_pattern in ["\\*", "\\?", "\\["] {
+    for escape_pattern in ["\\*", "\\?", "\\[", "\\,"] {
         if pattern.contains(escape_pattern) {
             vortex_bail!(
                 "Escaped glob characters are not allowed in patterns. Found '{}' in: {}",
