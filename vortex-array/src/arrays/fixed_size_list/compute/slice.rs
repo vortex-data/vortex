@@ -40,17 +40,20 @@ impl SliceReduce for FixedSizeList {
 
 impl FilterReduce for FixedSizeList {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+        // FixedSizeList filter requires mask expansion and slices computation,
+        // which is expensive. Only worth it for very selective filters.
+        if mask.true_count() * 20 > mask.len() {
+            return Ok(None);
+        }
         let list_size = array.list_size() as usize;
         let new_len = mask.true_count();
 
         let filtered_elements = if list_size == 0 {
-            // Degenerate case: elements array is empty regardless of filter.
             array.elements().clone()
         } else {
             let elements_len = array.elements().len();
             let slices = match mask.slices() {
                 AllOr::Some(slices) => slices,
-                // Precondition: FilterReduce only runs for non-trivial masks.
                 AllOr::All | AllOr::None => {
                     unreachable!("precondition violated: expected a Mask::Values slice list")
                 }

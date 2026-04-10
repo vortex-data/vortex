@@ -164,8 +164,8 @@ impl SegmentSource for SegmentCacheSourceAdapter {
     }
 
     fn request_ranges(&self, id: SegmentId, ranges: Vec<Range<usize>>) -> SegmentFuture {
-        let cache = self.cache.clone();
-        let source = self.source.clone();
+        let cache = Arc::clone(&self.cache);
+        let source = Arc::clone(&self.source);
 
         async move {
             if let Ok(Some(segment)) = cache.get(id).await {
@@ -229,9 +229,10 @@ mod tests {
     #[tokio::test]
     async fn cache_hit_skips_underlying_requests() {
         let source = Arc::new(CountingSource::default());
+        let source_for_adapter: Arc<dyn SegmentSource> = Arc::<CountingSource>::clone(&source);
         let adapter = SegmentCacheSourceAdapter::new(
             Arc::new(FixedCache(ByteBuffer::from(vec![1, 2, 3, 4]))),
-            source.clone(),
+            source_for_adapter,
         );
 
         let full = adapter.request(SegmentId::from(0)).await.unwrap();

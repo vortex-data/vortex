@@ -4,6 +4,7 @@
 use std::any::Any;
 use std::fmt::Debug;
 use std::fmt::Formatter;
+use std::future::Future;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Range;
@@ -18,6 +19,7 @@ use vortex_array::buffer::DeviceBuffer;
 use vortex_array::serde::SerializedArray;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
@@ -25,6 +27,18 @@ use vortex_mask::Mask;
 
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
+
+fn block_on_materialize<F>(future: F) -> F::Output
+where
+    F: Future,
+{
+    #[cfg(feature = "tokio")]
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        return tokio::task::block_in_place(|| handle.block_on(future));
+    }
+
+    futures::executor::block_on(future)
+}
 
 /// A lazy buffer handle that defers segment I/O until materialization.
 ///
@@ -293,23 +307,54 @@ impl LazyBufferHandle {
             // base selection — computing slices and issuing sparse reads is not
             // worth it.
             if df.mask.true_count() * 10 >= df.mask.len() * 6 {
+                tracing::debug!(
+                    segment_id = *self.segment_id,
+                    true_count = df.mask.true_count(),
+                    mask_len = df.mask.len(),
+                    selection = ?self.selection,
+                    "materialize: filter >= 60%, reading base selection"
+                );
                 return self.materialize_selection(&self.selection).await;
             }
             let resolved = self.resolve_filter();
+            tracing::debug!(
+                segment_id = *self.segment_id,
+                true_count = df.mask.true_count(),
+                mask_len = df.mask.len(),
+                resolved_selection = ?resolved.selection,
+                "materialize: filter < 60%, using sparse ranges"
+            );
             return resolved.materialize_selection(&resolved.selection).await;
         }
+        tracing::debug!(
+            segment_id = *self.segment_id,
+            selection = ?self.selection,
+            len = self.len,
+            "materialize: no deferred filter"
+        );
         self.materialize_selection(&self.selection).await
     }
 
+    #[allow(clippy::cognitive_complexity)]
     async fn materialize_selection(&self, selection: &Selection) -> VortexResult<BufferHandle> {
         match selection {
-            Selection::All => self.source.request(self.segment_id).await,
+            Selection::All => {
+                tracing::debug!(segment_id = *self.segment_id, "read: ALL");
+                self.source.request(self.segment_id).await
+            }
             Selection::Range(range) => {
+                tracing::debug!(segment_id = *self.segment_id, ?range, "read: single range");
                 self.source
                     .request_ranges(self.segment_id, vec![range.clone()])
                     .await
             }
             Selection::Ranges(ranges) => {
+                tracing::debug!(
+                    segment_id = *self.segment_id,
+                    num_ranges = ranges.len(),
+                    total_bytes = ranges.iter().map(|r| r.len()).sum::<usize>(),
+                    "read: multiple ranges"
+                );
                 self.source
                     .request_ranges(self.segment_id, ranges.iter().cloned().collect())
                     .await
@@ -365,7 +410,7 @@ impl DeviceBuffer for LazyBufferHandle {
     }
 
     fn copy_to_host_sync(&self, alignment: Alignment) -> VortexResult<ByteBuffer> {
-        futures::executor::block_on(async {
+        block_on_materialize(async {
             let handle = self.materialize().await?;
             Ok(handle.try_into_host_sync()?.aligned(alignment))
         })
@@ -558,7 +603,7 @@ fn rebuild_with_materialized(
             {
                 mat_iter
                     .next()
-                    .expect("materialized buffer count mismatch")
+                    .vortex_expect("materialized buffer count mismatch")
             } else {
                 h.clone()
             }
@@ -711,6 +756,25 @@ mod tests {
         )
     }
 
+    #[cfg(feature = "tokio")]
+    struct YieldingSegment(BufferHandle);
+
+    #[cfg(feature = "tokio")]
+    impl SegmentSource for YieldingSegment {
+        fn segment_len(&self, _id: SegmentId) -> Option<usize> {
+            Some(self.0.len())
+        }
+
+        fn request(&self, _id: SegmentId) -> SegmentFuture {
+            let handle = self.0.clone();
+            async move {
+                tokio::task::yield_now().await;
+                Ok(handle)
+            }
+            .boxed()
+        }
+    }
+
     #[test]
     fn materialize_all() -> VortexResult<()> {
         block_on(|_| async {
@@ -839,6 +903,33 @@ mod tests {
             );
             Ok(())
         })
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn copy_to_host_sync_inside_tokio_runtime_makes_progress() -> VortexResult<()> {
+        use std::time::Duration;
+
+        let lazy = LazyBufferHandle::new(
+            Arc::new(YieldingSegment(BufferHandle::new_host(
+                ByteBuffer::copy_from([1_u8, 2, 3, 4]),
+            ))),
+            SegmentId::from(0_u32),
+            4,
+            Alignment::none(),
+        )
+        .slice(1..4);
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            tokio::spawn(async move { lazy.copy_to_host_sync(Alignment::none()) }),
+        )
+        .await
+        .expect("copy_to_host_sync timed out")
+        .expect("copy_to_host_sync task panicked")?;
+
+        assert_eq!(result.as_slice(), &[2, 3, 4]);
+        Ok(())
     }
 
     #[test]

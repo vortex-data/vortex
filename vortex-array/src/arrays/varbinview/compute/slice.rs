@@ -34,6 +34,12 @@ impl SliceReduce for VarBinView {
 
 impl FilterReduce for VarBinView {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+        // For host buffers, only reduce if the filter is selective enough.
+        // VarBinView is more expensive to filter (views + data buffers) so use
+        // a lower threshold than Primitive.
+        if array.views_handle().is_on_host() && mask.true_count() * 3 > mask.len() {
+            return Ok(None);
+        }
         Ok(Some(
             VarBinViewArray::new_handle(
                 array.views_handle().filter(mask, size_of::<BinaryView>())?,

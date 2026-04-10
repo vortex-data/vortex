@@ -78,6 +78,9 @@ impl SliceReduce for Decimal {
 
 impl FilterReduce for Decimal {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+        if array.buffer_handle().is_on_host() && mask.true_count() * 2 > mask.len() {
+            return Ok(None);
+        }
         let result = match_each_decimal_value_type!(array.values_type(), |D| {
             // SAFETY: Filtering preserves all DecimalArray invariants — values within
             // precision bounds remain valid, and we correctly filter the validity.

@@ -32,6 +32,11 @@ impl SliceReduce for Primitive {
 
 impl FilterReduce for Primitive {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+        // For host buffers, only reduce if the filter is selective enough to be
+        // worth the copy. Otherwise let FilterKernel handle it during execution.
+        if array.buffer_handle().is_on_host() && mask.true_count() * 2 > mask.len() {
+            return Ok(None);
+        }
         let result = match_each_native_ptype!(array.ptype(), |T| {
             PrimitiveArray::from_buffer_handle(
                 array.buffer_handle().filter(mask, size_of::<T>())?,

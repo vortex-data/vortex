@@ -413,8 +413,9 @@ impl Patches {
                     // than all values in this array.
                     return Ok(SearchResult::NotFound(primitive.len()));
                 };
-                return primitive
-                    .as_slice::<T>()
+                let buffer = primitive.to_buffer::<T>();
+                return buffer
+                    .as_slice()
                     .search_sorted(&needle, SearchSortedSide::Left);
             });
         }
@@ -446,6 +447,36 @@ impl Patches {
         }
 
         let chunk_idx = (index + self.offset % PATCH_CHUNK_SIZE) / PATCH_CHUNK_SIZE;
+
+        if chunk_offsets.is_canonical() {
+            let primitive = chunk_offsets.to_primitive();
+            return match_each_unsigned_integer_ptype!(primitive.ptype(), |OffsetT| {
+                let chunk_offsets = primitive.to_buffer::<OffsetT>();
+                let chunk_offsets = chunk_offsets.as_slice();
+
+                let patches_start_idx =
+                    <usize as NumCast>::from(chunk_offsets[chunk_idx] - chunk_offsets[0])
+                        .ok_or_else(|| vortex_err!("patches_start_idx failed to convert to usize"))?
+                        .saturating_sub(offset_within_chunk);
+
+                let patches_end_idx = if chunk_idx < chunk_offsets.len() - 1 {
+                    <usize as NumCast>::from(chunk_offsets[chunk_idx + 1] - chunk_offsets[0])
+                        .ok_or_else(|| vortex_err!("patches_end_idx failed to convert to usize"))?
+                        .saturating_sub(offset_within_chunk)
+                        .min(self.indices.len())
+                } else {
+                    self.indices.len()
+                };
+
+                let chunk_indices = self.indices.slice(patches_start_idx..patches_end_idx)?;
+                let result = Self::search_index_binary_search(&chunk_indices, index + self.offset)?;
+
+                Ok(match result {
+                    SearchResult::Found(idx) => SearchResult::Found(patches_start_idx + idx),
+                    SearchResult::NotFound(idx) => SearchResult::NotFound(patches_start_idx + idx),
+                })
+            });
+        }
 
         // Patch index offsets are absolute and need to be offset by the first chunk of the current slice.
         let base_offset = self.chunk_offset_at(0)?;

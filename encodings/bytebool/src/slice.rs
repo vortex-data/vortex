@@ -27,6 +27,9 @@ impl SliceReduce for ByteBool {
 
 impl FilterReduce for ByteBool {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+        if array.buffer().is_on_host() && mask.true_count() * 2 > mask.len() {
+            return Ok(None);
+        }
         Ok(Some(
             ByteBool::new(
                 array.buffer().filter(mask, size_of::<u8>())?,

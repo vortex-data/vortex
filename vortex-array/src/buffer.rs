@@ -286,7 +286,6 @@ impl BufferHandle {
     pub fn filter(&self, mask: &Mask, byte_width: usize) -> VortexResult<Self> {
         match &self.0 {
             Inner::Host(_) => {
-                // Host buffers are already in memory — extract slices and copy.
                 let slices = match mask.slices() {
                     AllOr::Some(slices) => slices,
                     AllOr::All => return Ok(self.clone()),
