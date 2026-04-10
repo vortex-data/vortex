@@ -60,39 +60,44 @@ fn take_autovec<V: NativePType, I: UnsignedPType>(
     let len = indices.len();
     let values_len = values.len();
 
-    // Bounds check: verify all indices are within the values array.
-    // Computing the max index is a simple reduction that auto-vectorizes well,
-    // so this validation pass has minimal overhead.
-    if len > 0 {
-        let max_idx: usize = indices.iter().map(|idx| idx.as_()).max().unwrap_or(0);
-        assert!(
-            max_idx < values_len,
-            "take index {max_idx} out of bounds for array of length {values_len}"
-        );
-    }
-
     let mut buffer = BufferMut::<V>::with_capacity(len);
     let buf = buffer.spare_capacity_mut();
 
     let src = values.as_ptr();
     let dst = buf.as_mut_ptr().cast::<V>();
 
-    // The gather loop uses unchecked access because all indices were validated above.
-    // This is critical for auto-vectorization: per-element bounds checks introduce
-    // branches that prevent the compiler from emitting gather instructions.
+    // Fused bounds-check + gather loop.
     //
-    // The `multiversion` attribute ensures this compiles with target features
-    // (AVX-512, AVX2, etc.), allowing the compiler to:
-    // - Emit AVX-512 vpgatherdd/vpgatherdq (16 elements at a time) on capable CPUs
-    // - Unroll and use SIMD packing on AVX2
-    // - Fall back to well-optimized scalar code on other targets
+    // The per-element `idx < values_len` comparison generates a mask that the compiler
+    // folds directly into a masked gather instruction on AVX-512 (vpgatherdd {k}, ...)
+    // and into conditional moves on AVX2. Out-of-bounds lanes write zero (V::default()).
+    //
+    // We track the running maximum index so we can report a precise panic after the loop
+    // without adding a branch to the hot path. The max reduction itself vectorizes into
+    // vpmaxud / umaxv instructions.
+    let mut max_seen: usize = 0;
+
     for i in 0..len {
-        // SAFETY: `i` is in 0..len, and `idx < values_len` was asserted above.
+        let idx: usize = unsafe { (*indices.as_ptr().add(i)).as_() };
+        max_seen = max_seen.max(idx);
+
+        // SAFETY: `i < len` so dst write is in-bounds.
+        // The branch on `idx < values_len` becomes a mask for the gather; the compiler
+        // emits vpgatherdd {k1} / vpgatherdq {k1} with the comparison result as the mask.
         unsafe {
-            let idx: usize = (*indices.as_ptr().add(i)).as_();
-            dst.add(i).write(*src.add(idx));
+            let val = if idx < values_len {
+                *src.add(idx)
+            } else {
+                V::default()
+            };
+            dst.add(i).write(val);
         }
     }
+
+    assert!(
+        max_seen < values_len || len == 0,
+        "take index {max_seen} out of bounds for array of length {values_len}"
+    );
 
     // SAFETY: We wrote exactly `len` elements above.
     unsafe { buffer.set_len(len) };
