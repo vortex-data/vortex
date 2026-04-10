@@ -11,8 +11,10 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::file::multi::MultiFileDataSource;
+use vortex::io::filesystem::FileSystemRef;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::scan::DataSourceRef;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::RUNTIME;
 use crate::SESSION;
@@ -120,10 +122,20 @@ fn bind_multi_file_scan(
     };
 
     // Parse each glob URL and resolve its filesystem.
-    // Group globs by their base URL to avoid resolving the same filesystem multiple times.
     let mut glob_urls: Vec<Url> = Vec::with_capacity(glob_strings.len());
     for glob_str in &glob_strings {
         glob_urls.push(parse_glob_url(glob_str)?);
+    }
+
+    // Cache filesystems by base URL to avoid resolving the same filesystem multiple times.
+    let mut fs_cache: HashMap<Url, FileSystemRef> = HashMap::new();
+    for glob_url in &glob_urls {
+        let mut base_url = glob_url.clone();
+        base_url.set_path("");
+        if !fs_cache.contains_key(&base_url) {
+            let fs = resolve_filesystem(&base_url, ctx)?;
+            fs_cache.insert(base_url, fs);
+        }
     }
 
     RUNTIME.block_on(async {
@@ -132,8 +144,10 @@ fn bind_multi_file_scan(
         for glob_url in &glob_urls {
             let mut base_url = glob_url.clone();
             base_url.set_path("");
-
-            let fs = resolve_filesystem(&base_url, ctx)?;
+            let fs = fs_cache
+                .get(&base_url)
+                .map(Arc::clone)
+                .unwrap_or_else(|| unreachable!("fs should be cached for all base URLs"));
             builder = builder.with_glob(glob_url.path(), Some(fs));
         }
 
