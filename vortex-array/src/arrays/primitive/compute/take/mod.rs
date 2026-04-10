@@ -1,23 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
-mod avx2;
-
 #[cfg(target_arch = "x86_64")]
-mod avx512;
+mod x86;
 
-#[cfg(target_arch = "aarch64")]
-mod neon;
-
-#[cfg(vortex_nightly)]
-mod portable;
-
-use std::mem::align_of;
-use std::mem::size_of;
 use std::sync::LazyLock;
 
-use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
@@ -42,27 +30,14 @@ use crate::validity::Validity;
 // Kernel selection happens on the first call to `take` and uses a combination of compile-time
 // and runtime feature detection to infer the best kernel for the platform.
 static PRIMITIVE_TAKE_KERNEL: LazyLock<&'static dyn TakeImpl> = LazyLock::new(|| {
-    cfg_if::cfg_if! {
-        if #[cfg(vortex_nightly)] {
-            // nightly codepath: use portable_simd kernel
-            &portable::TakeKernelPortableSimd
-        } else if #[cfg(target_arch = "x86_64")] {
-            // stable x86_64 path: prefer the widest available gather kernel and fall back to
-            // scalar when the CPU lacks the required features.
-            if is_x86_feature_detected!("avx512f") {
-                &avx512::TakeKernelAVX512
-            } else if is_x86_feature_detected!("avx2") {
-                &avx2::TakeKernelAVX2
-            } else {
-                &TakeKernelScalar
-            }
-        } else if #[cfg(target_arch = "aarch64")] {
-            // stable AArch64 path: NEON is part of the baseline ISA, so use the NEON kernel.
-            &neon::TakeKernelNEON
-        } else {
-            // stable all other platforms: scalar kernel
-            &TakeKernelScalar
-        }
+    #[cfg(target_arch = "x86_64")]
+    {
+        x86::select_take_impl()
+    }
+
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        &TakeKernelScalar
     }
 });
 
@@ -187,68 +162,6 @@ fn take_primitive_scalar<T: NativePType, I: IntegerPType>(
     result.freeze()
 }
 
-/// # Safety
-///
-/// The caller must ensure that if the validity has a length, it is the same length as the
-/// indices.
-#[inline(always)]
-unsafe fn take_primitive_with_validity<V, I>(
-    values: &[V],
-    indices: &[I],
-    validity: Validity,
-    take: impl FnOnce(&[V], &[I]) -> Buffer<V>,
-) -> PrimitiveArray
-where
-    V: NativePType,
-    I: UnsignedPType,
-{
-    let buffer = take(values, indices);
-
-    debug_assert!(
-        validity
-            .maybe_len()
-            .is_none_or(|validity_len| validity_len == buffer.len())
-    );
-
-    unsafe { PrimitiveArray::new_unchecked(buffer, validity) }
-}
-
-#[inline(always)]
-fn new_simd_buffer<T>(len: usize, alignment: Alignment) -> BufferMut<T> {
-    BufferMut::with_capacity_aligned(len, alignment)
-}
-
-#[inline(always)]
-fn finish_simd_buffer<T>(mut buffer: BufferMut<T>, len: usize) -> Buffer<T> {
-    unsafe { buffer.set_len(len) };
-    buffer = buffer.aligned(Alignment::of::<T>());
-    buffer.freeze()
-}
-
-#[inline(always)]
-unsafe fn cast_slice<T, U>(slice: &[T]) -> &[U] {
-    debug_assert_eq!(size_of::<T>(), size_of::<U>());
-    debug_assert_eq!(align_of::<T>(), align_of::<U>());
-    unsafe { std::slice::from_raw_parts(slice.as_ptr().cast::<U>(), slice.len()) }
-}
-
-#[inline(always)]
-unsafe fn take_reinterpreted<V, I, U>(
-    values: &[V],
-    indices: &[I],
-    take: impl FnOnce(&[U], &[I]) -> Buffer<U>,
-) -> Buffer<V>
-where
-    V: NativePType,
-    I: UnsignedPType,
-    U: NativePType,
-{
-    let values = unsafe { cast_slice::<V, U>(values) };
-    let taken = take(values, indices);
-    unsafe { taken.transmute::<V>() }
-}
-
-#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 #[cfg(test)]
 mod test {
     use rstest::rstest;

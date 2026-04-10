@@ -34,13 +34,13 @@ use std::convert::identity;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 
+use super::cast_slice;
+use super::finish_simd_buffer;
+use super::new_simd_buffer;
+use super::take_primitive_with_validity;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::compute::take::TypedTakeImpl;
-use crate::arrays::primitive::compute::take::cast_slice;
-use crate::arrays::primitive::compute::take::finish_simd_buffer;
-use crate::arrays::primitive::compute::take::new_simd_buffer;
 use crate::arrays::primitive::compute::take::take_primitive_scalar;
-use crate::arrays::primitive::compute::take::take_primitive_with_validity;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
