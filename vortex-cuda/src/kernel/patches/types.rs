@@ -6,6 +6,7 @@
 //! "G-ALP: Rethinking Light-weight Encodings for GPUs" <https://doi.org/10.1145/3736227.3736242>
 
 use vortex::array::Canonical;
+use vortex::array::arrays::Primitive;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::dtype::IntegerPType;
 use vortex::array::dtype::NativePType;
@@ -15,6 +16,7 @@ use vortex_array::match_each_native_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::CudaExecutionCtx;
 
@@ -120,22 +122,6 @@ impl<V: Copy> HostPatches<V> {
             values: values_handle,
         })
     }
-
-    /// Synchronous variant of [`export_to_device`][Self::export_to_device].
-    ///
-    /// Copies lane_offsets, indices, and values to the device using
-    /// stream-ordered synchronous transfers.
-    pub fn export_to_device_sync(self, ctx: &CudaExecutionCtx) -> VortexResult<DevicePatches> {
-        let lane_offsets_handle = BufferHandle::new_host(self.lane_offsets.into_byte_buffer());
-        let indices_handle = BufferHandle::new_host(self.indices.into_byte_buffer());
-        let values_handle = BufferHandle::new_host(self.values.into_byte_buffer());
-
-        Ok(DevicePatches {
-            lane_offsets: ctx.ensure_on_device_sync(lane_offsets_handle)?,
-            indices: ctx.ensure_on_device_sync(indices_handle)?,
-            values: ctx.ensure_on_device_sync(values_handle)?,
-        })
-    }
 }
 
 /// Transpose a set of patches from the default sorted layout into the data parallel layout.
@@ -189,22 +175,21 @@ pub async fn transpose_patches(
 pub fn transpose_patches_for_fused(
     patches: &Patches,
     element_offset: usize,
-    ctx: &mut CudaExecutionCtx,
+    ctx: &CudaExecutionCtx,
 ) -> VortexResult<DevicePatches> {
     let array_len = patches.array_len();
     let offset = patches.offset();
 
+    // Patches are always flat primitives (created by gather_patches / alp_encode).
+    // Downcast directly — no canonicalization or &mut ExecutionCtx needed.
     let indices = patches
         .indices()
-        .clone()
-        .execute::<Canonical>(ctx.execution_ctx())?
-        .into_primitive();
-
+        .as_opt::<Primitive>()
+        .ok_or_else(|| vortex_err!("patch indices must be Primitive"))?;
     let values = patches
         .values()
-        .clone()
-        .execute::<Canonical>(ctx.execution_ctx())?
-        .into_primitive();
+        .as_opt::<Primitive>()
+        .ok_or_else(|| vortex_err!("patch values must be Primitive"))?;
 
     let indices_ptype = indices.ptype();
     let values_ptype = values.ptype();
@@ -214,8 +199,8 @@ pub fn transpose_patches_for_fused(
 
     match_each_unsigned_integer_ptype!(indices_ptype, |I| {
         match_each_native_ptype!(values_ptype, |V| {
-            let indices: buffer<i> = buffer::from_byte_buffer(indices);
-            let values: buffer<v> = buffer::from_byte_buffer(values);
+            let indices: Buffer<I> = Buffer::from_byte_buffer(indices);
+            let values: Buffer<V> = Buffer::from_byte_buffer(values);
 
             let host_patches = transpose(
                 indices.as_slice(),
@@ -225,7 +210,12 @@ pub fn transpose_patches_for_fused(
                 element_offset,
             );
 
-            host_patches.export_to_device_sync(ctx)
+            let stream = ctx.stream();
+            Ok(DevicePatches {
+                lane_offsets: stream.copy_to_device_sync(host_patches.lane_offsets.as_slice())?,
+                indices: stream.copy_to_device_sync(host_patches.indices.as_slice())?,
+                values: stream.copy_to_device_sync(host_patches.values.as_slice())?,
+            })
         })
     })
 }

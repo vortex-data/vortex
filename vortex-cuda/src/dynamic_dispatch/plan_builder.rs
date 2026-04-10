@@ -364,7 +364,7 @@ impl FusedPlan {
     }
 
     /// Copy source buffers to the device, producing a [`MaterializedPlan`].
-    pub fn materialize(self, ctx: &mut CudaExecutionCtx) -> VortexResult<MaterializedPlan> {
+    pub fn materialize(self, ctx: &CudaExecutionCtx) -> VortexResult<MaterializedPlan> {
         let shared_mem_bytes = self.dynamic_shared_mem_bytes();
 
         let mut device_buffers = Vec::new();
@@ -437,7 +437,7 @@ impl FusedPlan {
     pub fn materialize_with_subtrees(
         mut self,
         subtree_buffers: Vec<BufferHandle>,
-        ctx: &mut CudaExecutionCtx,
+        ctx: &CudaExecutionCtx,
     ) -> VortexResult<MaterializedPlan> {
         for (slot, buf) in zip_eq(
             self.source_buffers.iter_mut().filter(|s| s.is_none()),
