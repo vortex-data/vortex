@@ -311,7 +311,9 @@ impl CascadingCompressor {
 
         let mut data = ArrayAndStats::new(array, merged_opts);
 
-        if let Some(winner) = self.choose_best_scheme(&eligible_schemes, &mut data, ctx.clone())? {
+        if let Some((winner, _estimated_ratio)) =
+            self.choose_best_scheme(&eligible_schemes, &mut data, ctx.clone())?
+        {
             // TODO(connor): Add a tracing warning here if compression with the chosen scheme
             // failed, since there was likely more we could have done while choosing schemes.
 
@@ -330,8 +332,13 @@ impl CascadingCompressor {
     }
 
     /// Calls [`expected_compression_ratio`] on each candidate and returns the scheme with the
-    /// highest ratio, or `None` if no scheme exceeds 1.0. Ties are broken by registration order
-    /// (earlier in the list wins).
+    /// highest estimated compression ratio, or `None` if no scheme exceeds 1.0. Ties are broken
+    /// by registration order (earlier in the list wins).
+    ///
+    /// The returned `f64` is the scheme's estimated compression ratio. Schemes that returned
+    /// [`CompressionEstimate::AlwaysUse`] do not provide a numeric estimate; we use
+    /// [`f64::INFINITY`] as a "perfect ratio" sentinel for them so the caller can still
+    /// short-circuit and so observability events can emit a single consistent field.
     ///
     /// [`expected_compression_ratio`]: Scheme::expected_compression_ratio
     fn choose_best_scheme(
@@ -339,7 +346,7 @@ impl CascadingCompressor {
         schemes: &[&'static dyn Scheme],
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
-    ) -> VortexResult<Option<&'static dyn Scheme>> {
+    ) -> VortexResult<Option<(&'static dyn Scheme, f64)>> {
         let mut best: Option<(&'static dyn Scheme, f64)> = None;
 
         // TODO(connor): Might want to use an `im` data structure inside of `ctx` if the clones here
@@ -349,7 +356,7 @@ impl CascadingCompressor {
 
             match estimate {
                 CompressionEstimate::Skip => {}
-                CompressionEstimate::AlwaysUse => return Ok(Some(scheme)),
+                CompressionEstimate::AlwaysUse => return Ok(Some((scheme, f64::INFINITY))),
                 CompressionEstimate::Ratio(ratio) => {
                     if is_better_ratio(ratio, &best) {
                         best = Some((scheme, ratio));
@@ -373,7 +380,9 @@ impl CascadingCompressor {
 
                     match estimate {
                         CompressionEstimate::Skip => {}
-                        CompressionEstimate::AlwaysUse => return Ok(Some(scheme)),
+                        CompressionEstimate::AlwaysUse => {
+                            return Ok(Some((scheme, f64::INFINITY)));
+                        }
                         CompressionEstimate::Ratio(ratio) => {
                             if is_better_ratio(ratio, &best) {
                                 best = Some((scheme, ratio));
@@ -391,7 +400,7 @@ impl CascadingCompressor {
             // tracing::debug!(scheme = %scheme.id(), estimate, "evaluated compression ratio");
         }
 
-        Ok(best.map(|(s, _)| s))
+        Ok(best)
     }
 
     // TODO(connor): Lots of room for optimization here.
