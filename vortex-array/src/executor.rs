@@ -21,6 +21,7 @@ use std::env::VarError;
 use std::fmt;
 use std::fmt::Display;
 use std::sync::LazyLock;
+#[cfg(debug_assertions)]
 use std::sync::atomic::AtomicUsize;
 
 use vortex_error::VortexExpect;
@@ -83,10 +84,18 @@ impl ArrayRef {
     /// Iteratively execute this array until the [`Matcher`] matches, using an explicit work
     /// stack.
     ///
-    /// The scheduler repeatedly:
-    /// 1. Checks if the current array matches `M` — if so, pops the stack or returns.
-    /// 2. Runs `execute_parent` on each child for child-driven optimizations.
-    /// 3. Calls `execute` which returns an [`ExecutionStep`].
+    /// Each iteration proceeds through three steps in order:
+    ///
+    /// 1. **Done / canonical check** — if `current` satisfies the active done predicate or is
+    ///    canonical, splice it back into the stacked parent (if any) and continue, or return.
+    /// 2. **`execute_parent` on children** — try each child's `execute_parent` against `current`
+    ///    as the parent (e.g. `Filter(RunEnd)` → `FilterExecuteAdaptor` fires from RunEnd).
+    ///    If there is a stacked parent frame, the rewritten child is spliced back into it so
+    ///    that optimize and further `execute_parent` can fire on the reconstructed parent
+    ///    (e.g. `Slice(RunEnd)` → `RunEnd` spliced into stacked `Filter` → `Filter(RunEnd)`
+    ///    whose `FilterExecuteAdaptor` fires on the next iteration).
+    /// 3. **`execute`** — call the encoding's own execute step, which either returns `Done` or
+    ///    `ExecuteSlot(i)` to push a child onto the stack for focused execution.
     ///
     /// Note: the returned array may not match `M`. If execution converges to a canonical form
     /// that does not match `M`, the canonical array is returned since no further execution
@@ -95,67 +104,46 @@ impl ArrayRef {
     /// For safety, we will error when the number of execution iterations reaches a configurable
     /// maximum (default 128, override with `VORTEX_MAX_ITERATIONS`).
     pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        static MAX_ITERATIONS: LazyLock<usize> =
-            LazyLock::new(|| match std::env::var("VORTEX_MAX_ITERATIONS") {
-                Ok(val) => val.parse::<usize>().unwrap_or_else(|e| {
-                    vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid usize: {e}")
-                }),
-                Err(VarError::NotPresent) => 128,
-                Err(VarError::NotUnicode(_)) => {
-                    vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid unicode string")
-                }
-            });
-
         let mut current = self.optimize()?;
         // Stack frames: (parent, slot_idx, done_predicate_for_slot)
         let mut stack: Vec<(ArrayRef, usize, DonePredicate)> = Vec::new();
 
         for _ in 0..*MAX_ITERATIONS {
-            // Check for termination: use the stack frame's done predicate, or the root matcher.
+            // Step 1: done / canonical — splice back into stacked parent or return.
             let is_done = stack
                 .last()
                 .map_or(M::matches as DonePredicate, |frame| frame.2);
-            if is_done(&current) {
+            if is_done(&current) || AnyCanonical::matches(&current) {
                 match stack.pop() {
                     None => {
                         ctx.log(format_args!("-> {}", current));
                         return Ok(current);
                     }
                     Some((parent, slot_idx, _)) => {
-                        current = parent.with_slot(slot_idx, current)?;
-                        current = current.optimize()?;
+                        current = parent.with_slot(slot_idx, current)?.optimize()?;
                         continue;
                     }
                 }
             }
 
-            // If we've reached canonical form, we can't execute any further regardless
-            // of whether the matcher matched.
-            if AnyCanonical::matches(&current) {
-                match stack.pop() {
-                    None => {
-                        ctx.log(format_args!("-> canonical (unmatched) {}", current));
-                        return Ok(current);
-                    }
-                    Some((parent, slot_idx, _)) => {
-                        current = parent.with_slot(slot_idx, current)?;
-                        current = current.optimize()?;
-                        continue;
-                    }
-                }
-            }
-
-            // Try execute_parent (child-driven optimized execution)
+            // Step 2: execute_parent on children (current is the parent).
+            // If there is a stacked parent frame, splice the rewritten child back into it
+            // so that optimize and execute_parent can fire naturally on the reconstructed parent
+            // (e.g. Slice(RunEnd) -RunEndSliceKernel-> RunEnd, spliced back into Filter gives
+            // Filter(RunEnd), whose FilterExecuteAdaptor fires on the next iteration).
             if let Some(rewritten) = try_execute_parent(&current, ctx)? {
                 ctx.log(format_args!(
                     "execute_parent rewrote {} -> {}",
                     current, rewritten
                 ));
                 current = rewritten.optimize()?;
+                if let Some((parent, slot_idx, _)) = stack.pop() {
+                    current = parent.with_slot(slot_idx, current)?.optimize()?;
+                }
                 continue;
             }
 
-            // Execute the array itself.
+            // Step 4: execute the encoding's own step.
             let result = execute_step(current, ctx)?;
             let (array, step) = result.into_parts();
             match step {
@@ -186,23 +174,30 @@ impl ArrayRef {
 
 /// Execution context for batch CPU compute.
 ///
-/// Accumulates a trace of execution steps. Individual steps are logged at TRACE level for
-/// real-time following, and the full trace is dumped at DEBUG level when the context is dropped.
+/// In debug builds, accumulates a trace of execution steps: individual steps are logged at TRACE
+/// level for real-time following, and the full trace is dumped at DEBUG level on drop.
+/// In release builds the tracing fields are compiled out entirely — `log` is a zero-overhead
+/// no-op and the struct holds only the session.
 #[derive(Debug, Clone)]
 pub struct ExecutionCtx {
-    id: usize,
     session: VortexSession,
+    #[cfg(debug_assertions)]
+    id: usize,
+    #[cfg(debug_assertions)]
     ops: Vec<String>,
 }
 
 impl ExecutionCtx {
     /// Create a new execution context with the given session.
     pub fn new(session: VortexSession) -> Self {
-        static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
-        let id = EXEC_CTX_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Self {
-            id,
             session,
+            #[cfg(debug_assertions)]
+            id: {
+                static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
+                EXEC_CTX_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            },
+            #[cfg(debug_assertions)]
             ops: Vec::new(),
         }
     }
@@ -217,15 +212,17 @@ impl ExecutionCtx {
         self.session.allocator()
     }
 
-    /// Log an execution step at the current depth.
+    /// Log an execution step.
     ///
-    /// Steps are accumulated and dumped as a single trace on Drop at DEBUG level.
-    /// Individual steps are also logged at TRACE level for real-time following.
+    /// Compiled out entirely in release builds. In debug builds, steps are accumulated and
+    /// dumped as a single trace on drop at DEBUG level, and logged individually at TRACE level.
     ///
     /// Use the [`format_args!`] macro to create the `msg` argument.
-    pub fn log(&mut self, msg: fmt::Arguments<'_>) {
+    #[inline]
+    pub fn log(&mut self, _msg: fmt::Arguments<'_>) {
+        #[cfg(debug_assertions)]
         if tracing::enabled!(tracing::Level::DEBUG) {
-            let formatted = format!(" - {msg}");
+            let formatted = format!(" - {_msg}");
             tracing::trace!("exec[{}]: {formatted}", self.id);
             self.ops.push(formatted);
         }
@@ -234,12 +231,16 @@ impl ExecutionCtx {
 
 impl Display for ExecutionCtx {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "exec[{}]", self.id)
+        #[cfg(debug_assertions)]
+        return write!(f, "exec[{}]", self.id);
+        #[cfg(not(debug_assertions))]
+        write!(f, "exec")
     }
 }
 
 impl Drop for ExecutionCtx {
     fn drop(&mut self) {
+        #[cfg(debug_assertions)]
         if !self.ops.is_empty() && tracing::enabled!(tracing::Level::DEBUG) {
             // Unlike itertools `.format()` (panics in 0.14 on second format)
             struct FmtOps<'a>(&'a [String]);
