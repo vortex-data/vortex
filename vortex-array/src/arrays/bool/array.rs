@@ -536,8 +536,8 @@ mod tests {
 
     #[test]
     fn slice_device_backed_bool_array_materializes_bits() {
-        let (offset, len, bits) = BitBuffer::from_iter([true, false, true, false, true, true])
-            .into_inner();
+        let (offset, len, bits) =
+            BitBuffer::from_iter([true, false, true, false, true, true]).into_inner();
         let array = BoolArray::new_handle(
             BufferHandle::new_device(Arc::new(TestDeviceBuffer(bits))),
             offset,

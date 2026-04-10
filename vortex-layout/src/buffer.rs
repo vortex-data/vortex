@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::borrow::Cow;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::future::Future;
@@ -144,10 +145,9 @@ impl LazyBufferHandle {
     /// those bounds are known).
     pub fn slice(&self, range: Range<usize>) -> Self {
         validate_slice_range(&range, self.len);
-        // If there's a deferred filter, resolve it into byte ranges first.
-        let resolved = self.resolve_filter();
         let new_len = range.len();
-        let selection = match &resolved.selection {
+        let effective = self.effective_selection();
+        let selection = match effective.as_ref() {
             Selection::All => Selection::Range(range),
             Selection::Range(base) => {
                 let start = base.start + range.start;
@@ -184,41 +184,8 @@ impl LazyBufferHandle {
     /// those bounds are known).
     pub fn select_ranges(&self, ranges: &[Range<usize>]) -> Self {
         validate_filter_ranges(ranges, self.len);
-        // If there's a deferred filter, resolve it into byte ranges first.
-        let resolved = self.resolve_filter();
-        let selection = match &resolved.selection {
-            Selection::All => Selection::Ranges(Arc::from(ranges)),
-            Selection::Range(base) => {
-                let absolute: Arc<[Range<usize>]> = ranges
-                    .iter()
-                    .map(|r| {
-                        let abs = (base.start + r.start)..(base.start + r.end);
-                        assert!(
-                            abs.end <= base.end,
-                            "filter range {}..{} exceeds current selection 0..{}",
-                            r.start,
-                            r.end,
-                            base.len(),
-                        );
-                        abs
-                    })
-                    .collect();
-                Selection::Ranges(absolute)
-            }
-            Selection::Ranges(existing) => {
-                // Each input range is relative to the concatenated output of
-                // the existing ranges. Map them back to absolute segment offsets.
-                let mut result = Vec::new();
-                for r in ranges {
-                    match slice_into_ranges(existing, r.clone()) {
-                        Selection::All => unreachable!(),
-                        Selection::Range(abs) => result.push(abs),
-                        Selection::Ranges(abs) => result.extend_from_slice(&abs),
-                    }
-                }
-                Selection::Ranges(result.into())
-            }
-        };
+        let effective = self.effective_selection();
+        let selection = apply_ranges_to_selection(effective.as_ref(), ranges);
         Self {
             source: Arc::clone(&self.source),
             segment_id: self.segment_id,
@@ -229,66 +196,31 @@ impl LazyBufferHandle {
         }
     }
 
-    /// Resolve a deferred filter into concrete byte ranges (or `All` if the filter
-    /// selects enough of the data that a full read is cheaper).
+    /// Returns the effective selection after resolving any deferred filter.
     ///
-    /// If no deferred filter is present, returns a clone of `self` unchanged.
-    fn resolve_filter(&self) -> Self {
+    /// Returns a borrowed reference when no filter is present (zero-cost common
+    /// case). When a filter is pending, computes byte ranges and returns an owned
+    /// selection.
+    fn effective_selection(&self) -> Cow<'_, Selection> {
         let Some(df) = &self.deferred_filter else {
-            return self.clone();
+            return Cow::Borrowed(&self.selection);
         };
-        // Decide: if the filter selects everything, just read all.
+        // Filter selects everything → keep the base selection.
         if df.mask.true_count() == df.mask.len() {
-            return Self {
-                source: Arc::clone(&self.source),
-                segment_id: self.segment_id,
-                selection: self.selection.clone(),
-                deferred_filter: None,
-                len: self.len,
-                alignment: self.alignment,
-            };
+            return Cow::Borrowed(&self.selection);
         }
         // Compute byte ranges from mask slices.
         let slices = match df.mask.slices() {
             AllOr::Some(slices) => slices,
-            AllOr::All => {
-                return Self {
-                    source: Arc::clone(&self.source),
-                    segment_id: self.segment_id,
-                    selection: self.selection.clone(),
-                    deferred_filter: None,
-                    len: self.len,
-                    alignment: self.alignment,
-                };
-            }
-            AllOr::None => {
-                return Self {
-                    source: Arc::clone(&self.source),
-                    segment_id: self.segment_id,
-                    selection: self.selection.clone(),
-                    deferred_filter: None,
-                    len: 0,
-                    alignment: self.alignment,
-                };
-            }
+            AllOr::All => return Cow::Borrowed(&self.selection),
+            AllOr::None => return Cow::Owned(Selection::Ranges(Arc::from([]))),
         };
         let byte_ranges: Vec<Range<usize>> = slices
             .iter()
             .map(|&(s, e)| (s * df.byte_width)..(e * df.byte_width))
             .collect();
-        let new_len: usize = byte_ranges.iter().map(Range::len).sum();
         // Apply the byte ranges on top of the existing selection.
-        let mut resolved = Self {
-            source: Arc::clone(&self.source),
-            segment_id: self.segment_id,
-            selection: self.selection.clone(),
-            deferred_filter: None,
-            len: self.len,
-            alignment: self.alignment,
-        };
-        resolved = resolved.select_ranges(&byte_ranges);
-        resolved.len = new_len;
-        resolved
+        Cow::Owned(apply_ranges_to_selection(&self.selection, &byte_ranges))
     }
 
     /// Materialize the lazy buffer by performing I/O and applying the selection.
@@ -307,7 +239,7 @@ impl LazyBufferHandle {
             // base selection — computing slices and issuing sparse reads is not
             // worth it.
             if df.mask.true_count() * 10 >= df.mask.len() * 6 {
-                tracing::debug!(
+                tracing::trace!(
                     segment_id = *self.segment_id,
                     true_count = df.mask.true_count(),
                     mask_len = df.mask.len(),
@@ -316,17 +248,35 @@ impl LazyBufferHandle {
                 );
                 return self.materialize_selection(&self.selection).await;
             }
-            let resolved = self.resolve_filter();
-            tracing::debug!(
+            let resolved = self.effective_selection();
+
+            // If the resolved selection has too many disjoint ranges, fall back
+            // to reading the base selection. The I/O cost of many small reads
+            // (especially on remote storage) outweighs the savings from skipping
+            // unneeded bytes.
+            const MAX_SPARSE_RANGES: usize = 32;
+            let too_many_ranges = match resolved.as_ref() {
+                Selection::Ranges(r) => r.len() > MAX_SPARSE_RANGES,
+                _ => false,
+            };
+            if too_many_ranges {
+                tracing::trace!(
+                    segment_id = *self.segment_id,
+                    "materialize: too many sparse ranges, reading base selection"
+                );
+                return self.materialize_selection(&self.selection).await;
+            }
+
+            tracing::trace!(
                 segment_id = *self.segment_id,
                 true_count = df.mask.true_count(),
                 mask_len = df.mask.len(),
-                resolved_selection = ?resolved.selection,
+                resolved_selection = ?*resolved,
                 "materialize: filter < 60%, using sparse ranges"
             );
-            return resolved.materialize_selection(&resolved.selection).await;
+            return self.materialize_selection(&resolved).await;
         }
-        tracing::debug!(
+        tracing::trace!(
             segment_id = *self.segment_id,
             selection = ?self.selection,
             len = self.len,
@@ -339,17 +289,23 @@ impl LazyBufferHandle {
     async fn materialize_selection(&self, selection: &Selection) -> VortexResult<BufferHandle> {
         match selection {
             Selection::All => {
-                tracing::debug!(segment_id = *self.segment_id, "read: ALL");
+                tracing::trace!(segment_id = *self.segment_id, "read: ALL");
                 self.source.request(self.segment_id).await
             }
             Selection::Range(range) => {
-                tracing::debug!(segment_id = *self.segment_id, ?range, "read: single range");
-                self.source
-                    .request_ranges(self.segment_id, vec![range.clone()])
-                    .await
+                // Read the full segment via request() which benefits from caching
+                // and deduplication when multiple buffers share the same segment,
+                // then slice locally (typically zero-copy for aligned offsets).
+                tracing::trace!(
+                    segment_id = *self.segment_id,
+                    ?range,
+                    "read: single range via full segment"
+                );
+                let full = self.source.request(self.segment_id).await?;
+                crate::segments::apply_ranges(full, std::slice::from_ref(range))
             }
             Selection::Ranges(ranges) => {
-                tracing::debug!(
+                tracing::trace!(
                     segment_id = *self.segment_id,
                     num_ranges = ranges.len(),
                     total_bytes = ranges.iter().map(|r| r.len()).sum::<usize>(),
@@ -612,6 +568,44 @@ fn rebuild_with_materialized(
     current.with_buffers(new_handles)
 }
 
+/// Apply a set of relative ranges to an existing selection, producing a new selection
+/// with absolute segment offsets.
+fn apply_ranges_to_selection(selection: &Selection, ranges: &[Range<usize>]) -> Selection {
+    match selection {
+        Selection::All => Selection::Ranges(Arc::from(ranges)),
+        Selection::Range(base) => {
+            let absolute: Arc<[Range<usize>]> = ranges
+                .iter()
+                .map(|r| {
+                    let abs = (base.start + r.start)..(base.start + r.end);
+                    assert!(
+                        abs.end <= base.end,
+                        "filter range {}..{} exceeds current selection 0..{}",
+                        r.start,
+                        r.end,
+                        base.len(),
+                    );
+                    abs
+                })
+                .collect();
+            Selection::Ranges(absolute)
+        }
+        Selection::Ranges(existing) => {
+            // Each input range is relative to the concatenated output of
+            // the existing ranges. Map them back to absolute segment offsets.
+            let mut result = Vec::new();
+            for r in ranges {
+                match slice_into_ranges(existing, r.clone()) {
+                    Selection::All => unreachable!(),
+                    Selection::Range(abs) => result.push(abs),
+                    Selection::Ranges(abs) => result.extend_from_slice(&abs),
+                }
+            }
+            Selection::Ranges(result.into())
+        }
+    }
+}
+
 /// Map a logical byte range into the given set of existing absolute ranges.
 ///
 /// The `range` is interpreted as an offset into the concatenated output of
@@ -690,7 +684,6 @@ fn validate_filter_ranges(ranges: &[Range<usize>], len: usize) {
 
 #[cfg(test)]
 mod tests {
-    use std::iter;
     use std::ops::Range;
     use std::sync::Arc;
 
@@ -891,16 +884,30 @@ mod tests {
     }
 
     #[test]
-    fn materialize_uses_request_ranges_for_sliced_buffer() -> VortexResult<()> {
+    fn materialize_sliced_buffer_reads_full_segment() -> VortexResult<()> {
         block_on(|_| async {
             let (lazy, ranged_requests) = lazy_with_requests(&[1, 2, 3, 4, 5, 6]);
             let handle = lazy.slice(1..5).materialize().await?;
-            let expected_ranges: RangeRequest = iter::once(1..5).collect();
+            // Data is still correctly sliced.
             assert_eq!(handle.unwrap_host().as_slice(), &[2, 3, 4, 5]);
-            assert_eq!(
-                ranged_requests.lock().as_slice(),
-                std::slice::from_ref(&expected_ranges)
+            // Single-range selections use request() + local slice for caching/dedup,
+            // so request_ranges should NOT be called.
+            assert!(
+                ranged_requests.lock().is_empty(),
+                "expected no ranged requests for single-range selection"
             );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn materialize_multi_range_uses_request_ranges() -> VortexResult<()> {
+        block_on(|_| async {
+            let (lazy, ranged_requests) = lazy_with_requests(&[1, 2, 3, 4, 5, 6]);
+            let handle = lazy.select_ranges(&[0..2, 4..6]).materialize().await?;
+            assert_eq!(handle.unwrap_host().as_slice(), &[1, 2, 5, 6]);
+            // Multi-range selections DO use request_ranges.
+            assert_eq!(ranged_requests.lock().len(), 1);
             Ok(())
         })
     }
