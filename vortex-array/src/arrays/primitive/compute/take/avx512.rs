@@ -34,21 +34,18 @@ use std::arch::x86_64::_mm512_storeu_si512;
 
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
-use vortex_error::VortexResult;
 
-use crate::ArrayRef;
-use crate::IntoArray;
-use crate::array::ArrayView;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::primitive::compute::take::TakeImpl;
+use crate::arrays::primitive::compute::take::TypedTakeImpl;
+use crate::arrays::primitive::compute::take::cast_slice;
+use crate::arrays::primitive::compute::take::finish_simd_buffer;
+use crate::arrays::primitive::compute::take::new_simd_buffer;
 use crate::arrays::primitive::compute::take::take_primitive_scalar;
-use crate::arrays::primitive::vtable::Primitive;
+use crate::arrays::primitive::compute::take::take_primitive_with_validity;
+use crate::arrays::primitive::compute::take::take_reinterpreted;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
-use crate::match_each_native_ptype;
-use crate::match_each_unsigned_integer_ptype;
 use crate::validity::Validity;
 
 const GATHER32_LANES: usize = 16;
@@ -57,51 +54,25 @@ const GATHER64_LANES: usize = 8;
 #[allow(unused)]
 pub(super) struct TakeKernelAVX512;
 
-impl TakeImpl for TakeKernelAVX512 {
+impl TypedTakeImpl for TakeKernelAVX512 {
     #[inline(always)]
-    fn take(
+    unsafe fn take_typed<V, I>(
         &self,
-        values: ArrayView<'_, Primitive>,
-        indices: ArrayView<'_, Primitive>,
+        values: &[V],
+        indices: &[I],
         validity: Validity,
-    ) -> VortexResult<ArrayRef> {
-        assert!(indices.ptype().is_unsigned_int());
-
-        Ok(match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
-            match_each_native_ptype!(values.ptype(), |V| {
+    ) -> PrimitiveArray
+    where
+        V: NativePType,
+        I: UnsignedPType,
+    {
+        unsafe {
+            take_primitive_with_validity(values, indices, validity, |values, indices| {
                 // SAFETY: This kernel is only selected when avx512f cpu-feature is detected.
-                unsafe {
-                    take_primitive_avx512(values.as_slice::<V>(), indices.as_slice::<I>(), validity)
-                }
+                unsafe { take_avx512(values, indices) }
             })
-        })
-        .into_array())
+        }
     }
-}
-
-/// # Safety
-///
-/// The caller must ensure that if the validity has a length, it is the same length as the
-/// indices, and that the `avx512f` feature is enabled.
-#[target_feature(enable = "avx512f")]
-unsafe fn take_primitive_avx512<V, I>(
-    values: &[V],
-    indices: &[I],
-    validity: Validity,
-) -> PrimitiveArray
-where
-    V: NativePType,
-    I: UnsignedPType,
-{
-    let buffer = unsafe { take_avx512(values, indices) };
-
-    debug_assert!(
-        validity
-            .maybe_len()
-            .is_none_or(|validity_len| validity_len == buffer.len())
-    );
-
-    unsafe { PrimitiveArray::new_unchecked(buffer, validity) }
 }
 
 /// # Safety
@@ -109,17 +80,13 @@ where
 /// The caller must ensure the `avx512f` feature is enabled.
 #[target_feature(enable = "avx512f")]
 unsafe fn take_avx512<V: NativePType, I: UnsignedPType>(values: &[V], indices: &[I]) -> Buffer<V> {
-    macro_rules! take_reinterpreted {
-        ($cast:ty, $kernel:ident) => {{
-            let values = unsafe { cast_slice::<V, $cast>(values) };
-            let taken = $kernel::<I>(values, indices);
-            unsafe { taken.transmute::<V>() }
-        }};
-    }
-
     match V::PTYPE {
-        PType::U32 | PType::I32 | PType::F32 => take_reinterpreted!(u32, take_avx512_u32),
-        PType::U64 | PType::I64 | PType::F64 => take_reinterpreted!(u64, take_avx512_u64),
+        PType::U32 | PType::I32 | PType::F32 => unsafe {
+            take_reinterpreted(values, indices, take_avx512_u32::<I>)
+        },
+        PType::U64 | PType::I64 | PType::F64 => unsafe {
+            take_reinterpreted(values, indices, take_avx512_u64::<I>)
+        },
         _ => {
             tracing::trace!(
                 "take AVX-512 kernel missing for indices {} values {}, falling back to scalar",
@@ -152,30 +119,13 @@ fn take_avx512_u64<I: UnsignedPType>(values: &[u64], indices: &[I]) -> Buffer<u6
     }
 }
 
-#[inline(always)]
-unsafe fn cast_slice<T, U>(slice: &[T]) -> &[U] {
-    unsafe { std::slice::from_raw_parts(slice.as_ptr().cast::<U>(), slice.len()) }
-}
-
-#[inline(always)]
-fn new_buffer<T>(len: usize) -> BufferMut<T> {
-    BufferMut::with_capacity_aligned(len, Alignment::of::<__m512i>())
-}
-
-#[inline(always)]
-fn finish_buffer<T>(mut buffer: BufferMut<T>, len: usize) -> Buffer<T> {
-    unsafe { buffer.set_len(len) };
-    buffer = buffer.aligned(Alignment::of::<T>());
-    buffer.freeze()
-}
-
 #[target_feature(enable = "avx512f")]
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn take_avx512_u32_u8(values: &[u32], indices: &[u8]) -> Buffer<u32> {
     let len = indices.len();
     let max_index = u32::try_from(values.len()).unwrap_or(u32::MAX);
     let max_index_vec = _mm512_set1_epi32(max_index as i32);
-    let mut buffer = new_buffer::<u32>(len);
+    let mut buffer = new_simd_buffer::<u32>(len, Alignment::of::<__m512i>());
     let out = buffer.spare_capacity_mut().as_mut_ptr().cast::<u32>();
 
     let mut offset = 0;
@@ -198,7 +148,7 @@ unsafe fn take_avx512_u32_u8(values: &[u32], indices: &[u8]) -> Buffer<u32> {
         offset += 1;
     }
 
-    finish_buffer(buffer, len)
+    finish_simd_buffer(buffer, len)
 }
 
 #[target_feature(enable = "avx512f")]
@@ -207,7 +157,7 @@ unsafe fn take_avx512_u32_u16(values: &[u32], indices: &[u16]) -> Buffer<u32> {
     let len = indices.len();
     let max_index = u32::try_from(values.len()).unwrap_or(u32::MAX);
     let max_index_vec = _mm512_set1_epi32(max_index as i32);
-    let mut buffer = new_buffer::<u32>(len);
+    let mut buffer = new_simd_buffer::<u32>(len, Alignment::of::<__m512i>());
     let out = buffer.spare_capacity_mut().as_mut_ptr().cast::<u32>();
 
     let mut offset = 0;
@@ -231,7 +181,7 @@ unsafe fn take_avx512_u32_u16(values: &[u32], indices: &[u16]) -> Buffer<u32> {
         offset += 1;
     }
 
-    finish_buffer(buffer, len)
+    finish_simd_buffer(buffer, len)
 }
 
 #[target_feature(enable = "avx512f")]
@@ -240,7 +190,7 @@ unsafe fn take_avx512_u32_u32(values: &[u32], indices: &[u32]) -> Buffer<u32> {
     let len = indices.len();
     let max_index = u32::try_from(values.len()).unwrap_or(u32::MAX);
     let max_index_vec = _mm512_set1_epi32(max_index as i32);
-    let mut buffer = new_buffer::<u32>(len);
+    let mut buffer = new_simd_buffer::<u32>(len, Alignment::of::<__m512i>());
     let out = buffer.spare_capacity_mut().as_mut_ptr().cast::<u32>();
 
     let mut offset = 0;
@@ -263,7 +213,7 @@ unsafe fn take_avx512_u32_u32(values: &[u32], indices: &[u32]) -> Buffer<u32> {
         offset += 1;
     }
 
-    finish_buffer(buffer, len)
+    finish_simd_buffer(buffer, len)
 }
 
 #[target_feature(enable = "avx512f")]
@@ -272,7 +222,7 @@ unsafe fn take_avx512_u32_u64(values: &[u32], indices: &[u64]) -> Buffer<u32> {
     let len = indices.len();
     let max_index = values.len() as u64;
     let max_index_vec = _mm512_set1_epi64(max_index as i64);
-    let mut buffer = new_buffer::<u32>(len);
+    let mut buffer = new_simd_buffer::<u32>(len, Alignment::of::<__m512i>());
     let out = buffer.spare_capacity_mut().as_mut_ptr().cast::<u32>();
 
     let mut offset = 0;
@@ -295,7 +245,7 @@ unsafe fn take_avx512_u32_u64(values: &[u32], indices: &[u64]) -> Buffer<u32> {
         offset += 1;
     }
 
-    finish_buffer(buffer, len)
+    finish_simd_buffer(buffer, len)
 }
 
 #[target_feature(enable = "avx512f")]
@@ -304,7 +254,7 @@ unsafe fn take_avx512_u64_u8(values: &[u64], indices: &[u8]) -> Buffer<u64> {
     let len = indices.len();
     let max_index = values.len() as u64;
     let max_index_vec = _mm512_set1_epi64(max_index as i64);
-    let mut buffer = new_buffer::<u64>(len);
+    let mut buffer = new_simd_buffer::<u64>(len, Alignment::of::<__m512i>());
     let out = buffer.spare_capacity_mut().as_mut_ptr().cast::<u64>();
 
     let mut offset = 0;
@@ -327,7 +277,7 @@ unsafe fn take_avx512_u64_u8(values: &[u64], indices: &[u8]) -> Buffer<u64> {
         offset += 1;
     }
 
-    finish_buffer(buffer, len)
+    finish_simd_buffer(buffer, len)
 }
 
 #[target_feature(enable = "avx512f")]
@@ -336,7 +286,7 @@ unsafe fn take_avx512_u64_u16(values: &[u64], indices: &[u16]) -> Buffer<u64> {
     let len = indices.len();
     let max_index = values.len() as u64;
     let max_index_vec = _mm512_set1_epi64(max_index as i64);
-    let mut buffer = new_buffer::<u64>(len);
+    let mut buffer = new_simd_buffer::<u64>(len, Alignment::of::<__m512i>());
     let out = buffer.spare_capacity_mut().as_mut_ptr().cast::<u64>();
 
     let mut offset = 0;
@@ -359,7 +309,7 @@ unsafe fn take_avx512_u64_u16(values: &[u64], indices: &[u16]) -> Buffer<u64> {
         offset += 1;
     }
 
-    finish_buffer(buffer, len)
+    finish_simd_buffer(buffer, len)
 }
 
 #[target_feature(enable = "avx512f")]
@@ -368,7 +318,7 @@ unsafe fn take_avx512_u64_u32(values: &[u64], indices: &[u32]) -> Buffer<u64> {
     let len = indices.len();
     let max_index = values.len() as u64;
     let max_index_vec = _mm512_set1_epi64(max_index as i64);
-    let mut buffer = new_buffer::<u64>(len);
+    let mut buffer = new_simd_buffer::<u64>(len, Alignment::of::<__m512i>());
     let out = buffer.spare_capacity_mut().as_mut_ptr().cast::<u64>();
 
     let mut offset = 0;
@@ -392,7 +342,7 @@ unsafe fn take_avx512_u64_u32(values: &[u64], indices: &[u32]) -> Buffer<u64> {
         offset += 1;
     }
 
-    finish_buffer(buffer, len)
+    finish_simd_buffer(buffer, len)
 }
 
 #[target_feature(enable = "avx512f")]
@@ -401,7 +351,7 @@ unsafe fn take_avx512_u64_u64(values: &[u64], indices: &[u64]) -> Buffer<u64> {
     let len = indices.len();
     let max_index = values.len() as u64;
     let max_index_vec = _mm512_set1_epi64(max_index as i64);
-    let mut buffer = new_buffer::<u64>(len);
+    let mut buffer = new_simd_buffer::<u64>(len, Alignment::of::<__m512i>());
     let out = buffer.spare_capacity_mut().as_mut_ptr().cast::<u64>();
 
     let mut offset = 0;
@@ -424,7 +374,7 @@ unsafe fn take_avx512_u64_u64(values: &[u64], indices: &[u64]) -> Buffer<u64> {
         offset += 1;
     }
 
-    finish_buffer(buffer, len)
+    finish_simd_buffer(buffer, len)
 }
 
 #[cfg(test)]

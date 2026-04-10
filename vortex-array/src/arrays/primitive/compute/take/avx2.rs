@@ -33,75 +33,41 @@ use std::convert::identity;
 
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
-use vortex_error::VortexResult;
 
-use crate::ArrayRef;
-use crate::IntoArray;
-use crate::array::ArrayView;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::primitive::compute::take::TakeImpl;
+use crate::arrays::primitive::compute::take::TypedTakeImpl;
+use crate::arrays::primitive::compute::take::cast_slice;
+use crate::arrays::primitive::compute::take::finish_simd_buffer;
+use crate::arrays::primitive::compute::take::new_simd_buffer;
 use crate::arrays::primitive::compute::take::take_primitive_scalar;
-use crate::arrays::primitive::vtable::Primitive;
+use crate::arrays::primitive::compute::take::take_primitive_with_validity;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
-use crate::match_each_native_ptype;
-use crate::match_each_unsigned_integer_ptype;
 use crate::validity::Validity;
 
 #[allow(unused)]
 pub(super) struct TakeKernelAVX2;
 
-impl TakeImpl for TakeKernelAVX2 {
+impl TypedTakeImpl for TakeKernelAVX2 {
     #[inline(always)]
-    fn take(
+    unsafe fn take_typed<V, I>(
         &self,
-        values: ArrayView<'_, Primitive>,
-        indices: ArrayView<'_, Primitive>,
+        values: &[V],
+        indices: &[I],
         validity: Validity,
-    ) -> VortexResult<ArrayRef> {
-        assert!(indices.ptype().is_unsigned_int());
-
-        Ok(match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
-            match_each_native_ptype!(values.ptype(), |V| {
+    ) -> PrimitiveArray
+    where
+        V: NativePType,
+        I: UnsignedPType,
+    {
+        unsafe {
+            take_primitive_with_validity(values, indices, validity, |values, indices| {
                 // SAFETY: This kernel is only selected when avx2 cpu-feature is detected.
-                unsafe {
-                    take_primitive_avx2(values.as_slice::<V>(), indices.as_slice::<I>(), validity)
-                }
+                unsafe { take_avx2(values, indices) }
             })
-        })
-        .into_array())
+        }
     }
-}
-
-/// # Safety
-///
-/// The caller must ensure that if the validity has a length, it is the same length as the indices,
-/// and that the `avx2` feature is enabled.
-#[target_feature(enable = "avx2")]
-#[allow(unused)]
-unsafe fn take_primitive_avx2<V, I>(
-    values: &[V],
-    indices: &[I],
-    validity: Validity,
-) -> PrimitiveArray
-where
-    V: NativePType,
-    I: UnsignedPType,
-{
-    // SAFETY: The caller guarantees that the `avx2` feature is enabled.
-    let buffer = unsafe { take_avx2(values, indices) };
-
-    debug_assert!(
-        validity
-            .maybe_len()
-            .is_none_or(|validity_len| validity_len == buffer.len())
-    );
-
-    // SAFETY: The caller ensures that the validity and indices have the same length, so the taken
-    // buffer and the validity must have the same length.
-    unsafe { PrimitiveArray::new_unchecked(buffer, validity) }
 }
 
 // ---------------------------------------------------------------------------
@@ -125,8 +91,8 @@ unsafe fn take_avx2<V: NativePType, I: UnsignedPType>(buffer: &[V], indices: &[I
             { let result = dispatch_avx2!($indices, $values, cast: $values); result }
         };
         ($indices:ty, $values:ty, cast: $cast:ty) => {{
-            let indices = unsafe { std::mem::transmute::<&[I], &[$indices]>(indices) };
-            let values = unsafe { std::mem::transmute::<&[V], &[$cast]>(buffer) };
+            let indices = unsafe { cast_slice::<I, $indices>(indices) };
+            let values = unsafe { cast_slice::<V, $cast>(buffer) };
 
             let result = exec_take::<$cast, $indices, AVX2Gather>(values, indices);
             unsafe { result.transmute::<V>() }
@@ -472,8 +438,7 @@ where
 {
     let indices_len = indices.len();
     let max_index = Idx::from(values.len()).unwrap_or_else(|| Idx::max_value());
-    let mut buffer =
-        BufferMut::<Value>::with_capacity_aligned(indices_len, Alignment::of::<__m256i>());
+    let mut buffer = new_simd_buffer::<Value>(indices_len, Alignment::of::<__m256i>());
     let buf_uninit = buffer.spare_capacity_mut();
 
     let mut offset = 0;
@@ -504,16 +469,11 @@ where
 
     assert_eq!(offset, indices_len);
 
-    // SAFETY: All elements have been initialized.
-    unsafe { buffer.set_len(indices_len) };
-
     // Reset the buffer alignment to the Value type.
     // NOTE: if we don't do this, we pass back a Buffer which is over-aligned to the SIMD
     // register width. The caller expects that this memory should be aligned to the value type
     // so that we can slice it at value boundaries.
-    buffer = buffer.aligned(Alignment::of::<Value>());
-
-    buffer.freeze()
+    finish_simd_buffer(buffer, indices_len)
 }
 
 #[cfg(test)]

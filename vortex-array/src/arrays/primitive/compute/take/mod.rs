@@ -13,8 +13,11 @@ mod neon;
 #[cfg(vortex_nightly)]
 mod portable;
 
+use std::mem::align_of;
+use std::mem::size_of;
 use std::sync::LazyLock;
 
+use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
@@ -30,9 +33,10 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
+use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
-use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
+use crate::match_each_unsigned_integer_ptype;
 use crate::validity::Validity;
 
 // Kernel selection happens on the first call to `take` and uses a combination of compile-time
@@ -71,22 +75,57 @@ trait TakeImpl: Send + Sync {
     ) -> VortexResult<ArrayRef>;
 }
 
-#[allow(unused)]
-struct TakeKernelScalar;
+trait TypedTakeImpl {
+    unsafe fn take_typed<V, I>(
+        &self,
+        values: &[V],
+        indices: &[I],
+        validity: Validity,
+    ) -> PrimitiveArray
+    where
+        V: NativePType,
+        I: UnsignedPType;
+}
 
-impl TakeImpl for TakeKernelScalar {
+impl<T> TakeImpl for T
+where
+    T: TypedTakeImpl + Send + Sync,
+{
     fn take(
         &self,
-        array: ArrayView<'_, Primitive>,
+        values: ArrayView<'_, Primitive>,
         indices: ArrayView<'_, Primitive>,
         validity: Validity,
     ) -> VortexResult<ArrayRef> {
-        match_each_native_ptype!(array.ptype(), |T| {
-            match_each_integer_ptype!(indices.ptype(), |I| {
-                let values = take_primitive_scalar(array.as_slice::<T>(), indices.as_slice::<I>());
-                Ok(PrimitiveArray::new(values, validity).into_array())
+        assert!(indices.ptype().is_unsigned_int());
+
+        Ok(match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
+            match_each_native_ptype!(values.ptype(), |V| {
+                unsafe {
+                    self.take_typed(values.as_slice::<V>(), indices.as_slice::<I>(), validity)
+                }
             })
         })
+        .into_array())
+    }
+}
+
+#[allow(unused)]
+struct TakeKernelScalar;
+
+impl TypedTakeImpl for TakeKernelScalar {
+    #[inline(always)]
+    unsafe fn take_typed<V, I>(
+        &self,
+        values: &[V],
+        indices: &[I],
+        validity: Validity,
+    ) -> PrimitiveArray
+    where
+        V: NativePType,
+        I: UnsignedPType,
+    {
+        PrimitiveArray::new(take_primitive_scalar(values, indices), validity)
     }
 }
 
@@ -146,6 +185,67 @@ fn take_primitive_scalar<T: NativePType, I: IntegerPType>(
     // SAFETY: We just wrote exactly `indices.len()` elements.
     unsafe { result.set_len(indices.len()) };
     result.freeze()
+}
+
+/// # Safety
+///
+/// The caller must ensure that if the validity has a length, it is the same length as the
+/// indices.
+#[inline(always)]
+unsafe fn take_primitive_with_validity<V, I>(
+    values: &[V],
+    indices: &[I],
+    validity: Validity,
+    take: impl FnOnce(&[V], &[I]) -> Buffer<V>,
+) -> PrimitiveArray
+where
+    V: NativePType,
+    I: UnsignedPType,
+{
+    let buffer = take(values, indices);
+
+    debug_assert!(
+        validity
+            .maybe_len()
+            .is_none_or(|validity_len| validity_len == buffer.len())
+    );
+
+    unsafe { PrimitiveArray::new_unchecked(buffer, validity) }
+}
+
+#[inline(always)]
+fn new_simd_buffer<T>(len: usize, alignment: Alignment) -> BufferMut<T> {
+    BufferMut::with_capacity_aligned(len, alignment)
+}
+
+#[inline(always)]
+fn finish_simd_buffer<T>(mut buffer: BufferMut<T>, len: usize) -> Buffer<T> {
+    unsafe { buffer.set_len(len) };
+    buffer = buffer.aligned(Alignment::of::<T>());
+    buffer.freeze()
+}
+
+#[inline(always)]
+unsafe fn cast_slice<T, U>(slice: &[T]) -> &[U] {
+    debug_assert_eq!(size_of::<T>(), size_of::<U>());
+    debug_assert_eq!(align_of::<T>(), align_of::<U>());
+    unsafe { std::slice::from_raw_parts(slice.as_ptr().cast::<U>(), slice.len()) }
+}
+
+#[inline(always)]
+unsafe fn take_reinterpreted<V, I, U>(
+    values: &[V],
+    indices: &[I],
+    take: impl FnOnce(&[U], &[I]) -> Buffer<U>,
+) -> Buffer<V>
+where
+    V: NativePType,
+    I: UnsignedPType,
+    U: NativePType,
+{
+    let values = unsafe { cast_slice::<V, U>(values) };
+    let taken = take(values, indices);
+    unsafe { taken.transmute::<V>() }
 }
 
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]

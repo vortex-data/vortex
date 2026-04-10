@@ -15,21 +15,17 @@ use core::arch::aarch64::vst1q_u64;
 
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
-use vortex_error::VortexResult;
 
-use crate::ArrayRef;
-use crate::IntoArray;
-use crate::array::ArrayView;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::primitive::compute::take::TakeImpl;
+use crate::arrays::primitive::compute::take::TypedTakeImpl;
+use crate::arrays::primitive::compute::take::finish_simd_buffer;
+use crate::arrays::primitive::compute::take::new_simd_buffer;
 use crate::arrays::primitive::compute::take::take_primitive_scalar;
-use crate::arrays::primitive::vtable::Primitive;
+use crate::arrays::primitive::compute::take::take_primitive_with_validity;
+use crate::arrays::primitive::compute::take::take_reinterpreted;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
-use crate::match_each_native_ptype;
-use crate::match_each_unsigned_integer_ptype;
 use crate::validity::Validity;
 
 const NEON32_LANES: usize = 4;
@@ -38,63 +34,30 @@ const NEON64_LANES: usize = 2;
 #[allow(unused)]
 pub(super) struct TakeKernelNEON;
 
-impl TakeImpl for TakeKernelNEON {
+impl TypedTakeImpl for TakeKernelNEON {
     #[inline(always)]
-    fn take(
+    unsafe fn take_typed<V, I>(
         &self,
-        values: ArrayView<'_, Primitive>,
-        indices: ArrayView<'_, Primitive>,
+        values: &[V],
+        indices: &[I],
         validity: Validity,
-    ) -> VortexResult<ArrayRef> {
-        assert!(indices.ptype().is_unsigned_int());
-
-        Ok(match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
-            match_each_native_ptype!(values.ptype(), |V| {
-                unsafe {
-                    take_primitive_neon(values.as_slice::<V>(), indices.as_slice::<I>(), validity)
-                }
-            })
-        })
-        .into_array())
+    ) -> PrimitiveArray
+    where
+        V: NativePType,
+        I: UnsignedPType,
+    {
+        unsafe { take_primitive_with_validity(values, indices, validity, take_neon) }
     }
-}
-
-/// # Safety
-///
-/// The caller must ensure that if the validity has a length, it is the same length as the
-/// indices.
-unsafe fn take_primitive_neon<V, I>(
-    values: &[V],
-    indices: &[I],
-    validity: Validity,
-) -> PrimitiveArray
-where
-    V: NativePType,
-    I: UnsignedPType,
-{
-    let buffer = take_neon(values, indices);
-
-    debug_assert!(
-        validity
-            .maybe_len()
-            .is_none_or(|validity_len| validity_len == buffer.len())
-    );
-
-    unsafe { PrimitiveArray::new_unchecked(buffer, validity) }
 }
 
 fn take_neon<V: NativePType, I: UnsignedPType>(values: &[V], indices: &[I]) -> Buffer<V> {
-    macro_rules! take_reinterpreted {
-        ($cast:ty, $kernel:ident) => {{
-            let values = unsafe { cast_slice::<V, $cast>(values) };
-            let taken = $kernel(values, indices);
-            unsafe { taken.transmute::<V>() }
-        }};
-    }
-
     match V::PTYPE {
-        PType::U32 | PType::I32 | PType::F32 => take_reinterpreted!(u32, take_neon_u32),
-        PType::U64 | PType::I64 | PType::F64 => take_reinterpreted!(u64, take_neon_u64),
+        PType::U32 | PType::I32 | PType::F32 => unsafe {
+            take_reinterpreted(values, indices, take_neon_u32::<I>)
+        },
+        PType::U64 | PType::I64 | PType::F64 => unsafe {
+            take_reinterpreted(values, indices, take_neon_u64::<I>)
+        },
         _ => {
             tracing::trace!(
                 "take NEON kernel missing for indices {} values {}, falling back to scalar",
@@ -107,21 +70,9 @@ fn take_neon<V: NativePType, I: UnsignedPType>(values: &[V], indices: &[I]) -> B
     }
 }
 
-#[inline(always)]
-unsafe fn cast_slice<T, U>(slice: &[T]) -> &[U] {
-    unsafe { std::slice::from_raw_parts(slice.as_ptr().cast::<U>(), slice.len()) }
-}
-
-#[inline(always)]
-fn finish_buffer<T>(mut buffer: BufferMut<T>, len: usize) -> Buffer<T> {
-    unsafe { buffer.set_len(len) };
-    buffer = buffer.aligned(Alignment::of::<T>());
-    buffer.freeze()
-}
-
 fn take_neon_u32<I: UnsignedPType>(values: &[u32], indices: &[I]) -> Buffer<u32> {
     let len = indices.len();
-    let mut buffer = BufferMut::<u32>::with_capacity_aligned(len, Alignment::of::<uint32x4_t>());
+    let mut buffer = new_simd_buffer::<u32>(len, Alignment::of::<uint32x4_t>());
     let out = buffer.spare_capacity_mut().as_mut_ptr().cast::<u32>();
 
     let mut offset = 0;
@@ -147,12 +98,12 @@ fn take_neon_u32<I: UnsignedPType>(values: &[u32], indices: &[I]) -> Buffer<u32>
         offset += 1;
     }
 
-    finish_buffer(buffer, len)
+    finish_simd_buffer(buffer, len)
 }
 
 fn take_neon_u64<I: UnsignedPType>(values: &[u64], indices: &[I]) -> Buffer<u64> {
     let len = indices.len();
-    let mut buffer = BufferMut::<u64>::with_capacity_aligned(len, Alignment::of::<uint64x2_t>());
+    let mut buffer = new_simd_buffer::<u64>(len, Alignment::of::<uint64x2_t>());
     let out = buffer.spare_capacity_mut().as_mut_ptr().cast::<u64>();
 
     let mut offset = 0;
@@ -178,7 +129,7 @@ fn take_neon_u64<I: UnsignedPType>(values: &[u64], indices: &[I]) -> Buffer<u64>
         offset += 1;
     }
 
-    finish_buffer(buffer, len)
+    finish_simd_buffer(buffer, len)
 }
 
 #[cfg(test)]
