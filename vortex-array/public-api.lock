@@ -3588,6 +3588,8 @@ pub type vortex_array::arrays::patched::PatchedArray = vortex_array::Array<vorte
 
 pub mod vortex_array::arrays::primitive
 
+pub use vortex_array::arrays::primitive::PrimitiveMaskedValidityRule
+
 #[repr(transparent)] pub struct vortex_array::arrays::primitive::NativeValue<T>(pub T)
 
 impl core::hash::Hash for vortex_array::arrays::primitive::NativeValue<f32>
@@ -3724,12 +3726,6 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::Primitiv
 
 pub fn vortex_array::arrays::Primitive::slice(array: vortex_array::ArrayView<'_, Self>, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Primitive> for vortex_array::arrays::primitive::PrimitiveMaskedValidityRule
-
-pub type vortex_array::arrays::primitive::PrimitiveMaskedValidityRule::Parent = vortex_array::arrays::Masked
-
-pub fn vortex_array::arrays::primitive::PrimitiveMaskedValidityRule::reduce_parent(&self, array: vortex_array::ArrayView<'_, vortex_array::arrays::Primitive>, parent: vortex_array::ArrayView<'_, vortex_array::arrays::Masked>, _child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
 impl vortex_array::scalar_fn::fns::between::BetweenKernel for vortex_array::arrays::Primitive
 
 pub fn vortex_array::arrays::Primitive::between(arr: vortex_array::ArrayView<'_, vortex_array::arrays::Primitive>, lower: &vortex_array::ArrayRef, upper: &vortex_array::ArrayRef, options: &vortex_array::scalar_fn::fns::between::BetweenOptions, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -3817,22 +3813,6 @@ pub vortex_array::arrays::primitive::PrimitiveDataParts::buffer: vortex_array::b
 pub vortex_array::arrays::primitive::PrimitiveDataParts::ptype: vortex_array::dtype::PType
 
 pub vortex_array::arrays::primitive::PrimitiveDataParts::validity: vortex_array::validity::Validity
-
-pub struct vortex_array::arrays::primitive::PrimitiveMaskedValidityRule
-
-impl core::default::Default for vortex_array::arrays::primitive::PrimitiveMaskedValidityRule
-
-pub fn vortex_array::arrays::primitive::PrimitiveMaskedValidityRule::default() -> vortex_array::arrays::primitive::PrimitiveMaskedValidityRule
-
-impl core::fmt::Debug for vortex_array::arrays::primitive::PrimitiveMaskedValidityRule
-
-pub fn vortex_array::arrays::primitive::PrimitiveMaskedValidityRule::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Primitive> for vortex_array::arrays::primitive::PrimitiveMaskedValidityRule
-
-pub type vortex_array::arrays::primitive::PrimitiveMaskedValidityRule::Parent = vortex_array::arrays::Masked
-
-pub fn vortex_array::arrays::primitive::PrimitiveMaskedValidityRule::reduce_parent(&self, array: vortex_array::ArrayView<'_, vortex_array::arrays::Primitive>, parent: vortex_array::ArrayView<'_, vortex_array::arrays::Masked>, _child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub trait vortex_array::arrays::primitive::PrimitiveArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::Primitive>
 
@@ -6361,12 +6341,6 @@ pub fn vortex_array::arrays::Primitive::take(array: vortex_array::ArrayView<'_, 
 impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::Primitive
 
 pub fn vortex_array::arrays::Primitive::slice(array: vortex_array::ArrayView<'_, Self>, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Primitive> for vortex_array::arrays::primitive::PrimitiveMaskedValidityRule
-
-pub type vortex_array::arrays::primitive::PrimitiveMaskedValidityRule::Parent = vortex_array::arrays::Masked
-
-pub fn vortex_array::arrays::primitive::PrimitiveMaskedValidityRule::reduce_parent(&self, array: vortex_array::ArrayView<'_, vortex_array::arrays::Primitive>, parent: vortex_array::ArrayView<'_, vortex_array::arrays::Masked>, _child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::between::BetweenKernel for vortex_array::arrays::Primitive
 
@@ -13469,12 +13443,6 @@ impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays:
 pub type vortex_array::arrays::decimal::DecimalMaskedValidityRule::Parent = vortex_array::arrays::Masked
 
 pub fn vortex_array::arrays::decimal::DecimalMaskedValidityRule::reduce_parent(&self, array: vortex_array::ArrayView<'_, vortex_array::arrays::Decimal>, parent: vortex_array::ArrayView<'_, vortex_array::arrays::Masked>, _child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::Primitive> for vortex_array::arrays::primitive::PrimitiveMaskedValidityRule
-
-pub type vortex_array::arrays::primitive::PrimitiveMaskedValidityRule::Parent = vortex_array::arrays::Masked
-
-pub fn vortex_array::arrays::primitive::PrimitiveMaskedValidityRule::reduce_parent(&self, array: vortex_array::ArrayView<'_, vortex_array::arrays::Primitive>, parent: vortex_array::ArrayView<'_, vortex_array::arrays::Masked>, _child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_array::arrays::dict::TakeReduceAdaptor<V> where V: vortex_array::arrays::dict::TakeReduce
 

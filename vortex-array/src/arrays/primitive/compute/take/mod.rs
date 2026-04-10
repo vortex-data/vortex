@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod autovec;
+
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 mod avx2;
 
@@ -31,24 +33,12 @@ use crate::validity::Validity;
 
 // Kernel selection happens on the first call to `take` and uses a combination of compile-time
 // and runtime feature detection to infer the best kernel for the platform.
+//
+// The auto-vectorized kernel uses `multiversion` to compile for multiple targets and dispatch
+// at runtime. It replaces the previous hand-written AVX2 intrinsics and nightly portable SIMD
+// kernels with clean Rust code that the compiler can optimize with hardware gather instructions.
 static PRIMITIVE_TAKE_KERNEL: LazyLock<&'static dyn TakeImpl> = LazyLock::new(|| {
-    cfg_if::cfg_if! {
-        if #[cfg(vortex_nightly)] {
-            // nightly codepath: use portable_simd kernel
-            &portable::TakeKernelPortableSimd
-        } else if #[cfg(target_arch = "x86_64")] {
-            // stable x86_64 path: use the optimized AVX2 kernel when available, falling
-            // back to scalar when not.
-            if is_x86_feature_detected!("avx2") {
-                &avx2::TakeKernelAVX2
-            } else {
-                &TakeKernelScalar
-            }
-        } else {
-            // stable all other platforms: scalar kernel
-            &TakeKernelScalar
-        }
-    }
+    &autovec::TakeKernelAutoVec
 });
 
 trait TakeImpl: Send + Sync {
