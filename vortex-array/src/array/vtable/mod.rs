@@ -172,10 +172,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// Replaces the buffers in `array` with `buffers`.
     ///
     /// This is the path used when lazy device buffers are materialized into host buffers.
-    fn with_buffers(
-        _array: &mut Self::ArrayData,
-        _buffers: Vec<BufferHandle>,
-    ) -> VortexResult<()> {
+    fn with_buffers(_array: &mut Self::ArrayData, _buffers: Vec<BufferHandle>) -> VortexResult<()> {
         Ok(())
     }
 

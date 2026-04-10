@@ -12,7 +12,6 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ByteBool;
-use crate::ByteBoolData;
 
 impl SliceReduce for ByteBool {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

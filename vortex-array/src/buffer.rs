@@ -285,26 +285,18 @@ impl BufferHandle {
     /// ```
     pub fn filter(&self, mask: &Mask, byte_width: usize) -> VortexResult<Self> {
         match &self.0 {
-            Inner::Host(host) => {
+            Inner::Host(_) => {
+                // Host buffers are already in memory — extract slices and copy.
                 let slices = match mask.slices() {
                     AllOr::Some(slices) => slices,
                     AllOr::All => return Ok(self.clone()),
-                    AllOr::None => {
-                        return Ok(BufferHandle::new_host(
-                            ByteBufferMut::with_capacity_aligned(0, host.alignment()).freeze(),
-                        ));
-                    }
+                    AllOr::None => return self.copy_ranges(&[]),
                 };
                 let byte_ranges: Vec<Range<usize>> = slices
                     .iter()
                     .map(|&(s, e)| (s * byte_width)..(e * byte_width))
                     .collect();
-                let total_len: usize = byte_ranges.iter().map(|r| r.len()).sum();
-                let mut result = ByteBufferMut::with_capacity_aligned(total_len, host.alignment());
-                for range in &byte_ranges {
-                    result.extend_from_slice(&host.as_slice()[range.start..range.end]);
-                }
-                Ok(BufferHandle::new_host(result.freeze()))
+                self.copy_ranges(&byte_ranges)
             }
             Inner::Device(device) => Ok(BufferHandle::new_device(device.filter(mask, byte_width)?)),
         }

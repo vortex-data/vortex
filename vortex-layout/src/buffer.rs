@@ -474,15 +474,58 @@ pub fn create_lazy_array_parts(
 /// Recursively walk the array tree and materialize any [`LazyBufferHandle`]
 /// device buffers by performing I/O, returning a new tree with host-resident
 /// buffers.
+///
+/// All lazy buffers across the entire tree are collected first and materialized
+/// in a single batch so the I/O layer can coalesce reads across all buffers.
 pub async fn materialize_recursive(array: &ArrayRef) -> VortexResult<ArrayRef> {
-    // 1. Recursively materialize children.
+    // 1. Collect all lazy buffers from the entire tree.
+    let mut lazy_handles: Vec<LazyBufferHandle> = Vec::new();
+    collect_lazy_buffers(array, &mut lazy_handles);
+
+    if lazy_handles.is_empty() {
+        return Ok(array.clone());
+    }
+
+    // 2. Materialize all lazy buffers at once.
+    let materialized: Vec<BufferHandle> =
+        try_join_all(lazy_handles.iter().map(|lazy| async move {
+            let buf = lazy.materialize().await?;
+            buf.ensure_aligned(lazy.alignment())
+        }))
+        .await?;
+
+    // 3. Rebuild the tree, replacing lazy buffers with materialized ones.
+    let mut mat_iter = materialized.into_iter();
+    rebuild_with_materialized(array, &mut mat_iter)
+}
+
+/// Collect all [`LazyBufferHandle`]s from the array tree in depth-first order.
+fn collect_lazy_buffers(array: &ArrayRef, out: &mut Vec<LazyBufferHandle>) {
+    for child in array.children() {
+        collect_lazy_buffers(&child, out);
+    }
+    for handle in array.buffer_handles() {
+        if let Some(lazy) = handle
+            .as_device_opt()
+            .and_then(|d| d.as_any().downcast_ref::<LazyBufferHandle>())
+        {
+            out.push(lazy.clone());
+        }
+    }
+}
+
+/// Rebuild the array tree, consuming materialized buffers in the same
+/// depth-first order that [`collect_lazy_buffers`] produced them.
+fn rebuild_with_materialized(
+    array: &ArrayRef,
+    mat_iter: &mut impl Iterator<Item = BufferHandle>,
+) -> VortexResult<ArrayRef> {
+    // Rebuild children first (same depth-first order as collect).
     let children = array.children();
-    let new_children = try_join_all(
-        children
-            .iter()
-            .map(|child| Box::pin(materialize_recursive(child))),
-    )
-    .await?;
+    let new_children: Vec<ArrayRef> = children
+        .iter()
+        .map(|child| rebuild_with_materialized(child, mat_iter))
+        .collect::<VortexResult<_>>()?;
     let any_child_changed = children
         .iter()
         .zip(new_children.iter())
@@ -493,7 +536,7 @@ pub async fn materialize_recursive(array: &ArrayRef) -> VortexResult<ArrayRef> {
         array.clone()
     };
 
-    // 2. Check for lazy device buffers.
+    // Replace lazy buffers with materialized ones.
     let handles = current.buffer_handles();
     let any_lazy = handles.iter().any(|h| {
         h.as_device_opt()
@@ -504,21 +547,22 @@ pub async fn materialize_recursive(array: &ArrayRef) -> VortexResult<ArrayRef> {
         return Ok(current);
     }
 
-    // 3. Materialize lazy buffers, ensuring proper alignment.
-    let materialized = try_join_all(handles.iter().map(|handle| async move {
-        if let Some(lazy) = handle
-            .as_device_opt()
-            .and_then(|d| d.as_any().downcast_ref::<LazyBufferHandle>())
-            .cloned()
-        {
-            let buf = lazy.materialize().await?;
-            buf.ensure_aligned(lazy.alignment())
-        } else {
-            Ok(handle.clone())
-        }
-    }))
-    .await?;
-    current.with_buffers(materialized)
+    let new_handles: Vec<BufferHandle> = handles
+        .iter()
+        .map(|h| {
+            if h.as_device_opt()
+                .and_then(|d| d.as_any().downcast_ref::<LazyBufferHandle>())
+                .is_some()
+            {
+                mat_iter
+                    .next()
+                    .expect("materialized buffer count mismatch")
+            } else {
+                h.clone()
+            }
+        })
+        .collect();
+    current.with_buffers(new_handles)
 }
 
 /// Map a logical byte range into the given set of existing absolute ranges.
@@ -655,7 +699,7 @@ mod tests {
             LazyBufferHandle::new(
                 Arc::new(SingleSegment {
                     buffer: buf,
-                    ranged_requests: ranged_requests.clone(),
+                    ranged_requests: Arc::clone(&ranged_requests),
                 }),
                 SegmentId::from(0u32),
                 data.len(),
