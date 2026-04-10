@@ -6,7 +6,7 @@
 //!
 //! This is only enabled on non-x86_64 platforms and when using the nightly compiler for builds.
 
-#![expect(unused)]
+#![allow(unused)]
 
 use std::mem::MaybeUninit;
 use std::mem::size_of;

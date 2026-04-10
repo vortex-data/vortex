@@ -46,7 +46,6 @@ pub fn has_vbmi() -> bool {
 #[target_feature(enable = "bmi2")]
 #[inline(never)]
 #[expect(clippy::too_many_lines)]
-#[expect(unsafe_op_in_unsafe_fn)]
 pub unsafe fn transpose_bits_bmi2(input: &[u8; 128], output: &mut [u8; 128]) {
     // Helper to gather 8 bytes at stride 16 into a u64
     fn gather(input: &[u8; 128], base: usize) -> u64 {
@@ -234,7 +233,6 @@ pub unsafe fn transpose_bits_bmi2(input: &[u8; 128], output: &mut [u8; 128]) {
 #[target_feature(enable = "bmi2")]
 #[inline(never)]
 #[expect(clippy::too_many_lines)]
-#[expect(unsafe_op_in_unsafe_fn)]
 pub unsafe fn untranspose_bits_bmi2(input: &[u8; 128], output: &mut [u8; 128]) {
     // Helper: scatter a u64 to 8 output bytes at stride 16
     fn scatter(output: &mut [u8; 128], base: usize, val: u64) {

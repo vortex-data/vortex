@@ -52,7 +52,7 @@ use crate::match_each_native_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::validity::Validity;
 
-#[expect(unused)]
+#[allow(unused)]
 pub(super) struct TakeKernelAVX2;
 
 impl TakeImpl for TakeKernelAVX2 {
@@ -82,7 +82,7 @@ impl TakeImpl for TakeKernelAVX2 {
 /// The caller must ensure that if the validity has a length, it is the same length as the indices,
 /// and that the `avx2` feature is enabled.
 #[target_feature(enable = "avx2")]
-#[expect(unused)]
+#[allow(unused)]
 unsafe fn take_primitive_avx2<V, I>(
     values: &[V],
     indices: &[I],
@@ -211,7 +211,7 @@ macro_rules! impl_gather {
                 const WIDTH: usize = $WIDTH;
                 const STRIDE: usize = $STRIDE;
 
-                #[expect(unused_unsafe, clippy::cast_possible_truncation)]
+                #[allow(unused_unsafe, clippy::cast_possible_truncation)]
                 #[inline(always)]
                 unsafe fn gather(indices: *const $idx, max_idx: $idx, src: *const $value, dst: *mut $value) {
                     const {
