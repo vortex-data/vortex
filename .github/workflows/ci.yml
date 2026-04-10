@@ -409,7 +409,7 @@ jobs:
       VORTEX_SKIP_SLOW_TESTS: "1"
       # -Cunsafe-allow-abi-mismatch=sanitizer: libraries like compiler_builtins
       # unset -Zsanitizer flag and we should allow that.
-      RUSTFLAGS: "-A warnings -Cunsafe-allow-abi-mismatch=sanitizer --cfg disable_loom --cfg vortex_nightly -C debuginfo=2 -C opt-level=0 -C strip=none"
+      RUSTFLAGS: "-A warnings -Cunsafe-allow-abi-mismatch=sanitizer -C debuginfo=2 -C opt-level=0 -C strip=none"
     steps:
       - uses: runs-on/action@v2
         if: github.repository == 'vortex-data/vortex'
@@ -492,8 +492,7 @@ jobs:
         run: |
           # TODO(myrrc): remove --no-default-features
           RUSTFLAGS="-A warnings -Cunsafe-allow-abi-mismatch=sanitizer \
-                --cfg disable_loom --cfg vortex_nightly -C debuginfo=2 \
-                -C opt-level=0 -C strip=none -Zexternal-clangrt \
+                -C debuginfo=2 -C opt-level=0 -C strip=none -Zexternal-clangrt \
                 ${{ matrix.sanitizer_flags }}" \
           cargo +$NIGHTLY_TOOLCHAIN build --locked --no-default-features \
             --target x86_64-unknown-linux-gnu -Zbuild-std \
@@ -850,7 +849,7 @@ jobs:
     timeout-minutes: 40
     env:
       MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation -Zmiri-env-forward=RUST_BACKTRACE
-      RUSTFLAGS: "-A warnings --cfg vortex_nightly"
+      RUSTFLAGS: "-A warnings"
       RUST_BACKTRACE: full
     steps:
       - uses: runs-on/action@v2
