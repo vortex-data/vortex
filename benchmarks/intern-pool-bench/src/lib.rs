@@ -8,9 +8,10 @@
 
 #![expect(clippy::cast_possible_truncation)]
 #![allow(clippy::disallowed_types)]
+// Hash functions conventionally use single-char names (a, b, h, etc.)
+#![allow(clippy::many_single_char_names)]
 
 use std::collections::HashMap;
-use std::hash::BuildHasher;
 
 use rustc_hash::FxHashMap;
 
@@ -53,28 +54,125 @@ pub fn lookup_binary_search(table: &[(&str, u64)], key: &str) -> Option<u64> {
         .map(|i| table[i].1)
 }
 
-// ─── StringId: pre-computed hash handle ──────────────────────────────────────
+// ─── Const-evaluable hash function ──────────────────────────────────────────
+//
+// Uses wyhash-style widening multiply for high-quality mixing.
+// Handles all string lengths but optimized for short keys (< 16 bytes).
+
+/// Widening multiply + xor-fold. Core mixing function from wyhash/foldhash.
+#[inline(always)]
+const fn wymix(a: u64, b: u64) -> u64 {
+    let r = (a as u128).wrapping_mul(b as u128);
+    (r as u64) ^ ((r >> 64) as u64)
+}
+
+#[inline(always)]
+const fn read_u32_le(bytes: &[u8], offset: usize) -> u32 {
+    u32::from_le_bytes([
+        bytes[offset],
+        bytes[offset + 1],
+        bytes[offset + 2],
+        bytes[offset + 3],
+    ])
+}
+
+#[inline(always)]
+const fn read_u64_le(bytes: &[u8], offset: usize) -> u64 {
+    u64::from_le_bytes([
+        bytes[offset],
+        bytes[offset + 1],
+        bytes[offset + 2],
+        bytes[offset + 3],
+        bytes[offset + 4],
+        bytes[offset + 5],
+        bytes[offset + 6],
+        bytes[offset + 7],
+    ])
+}
+
+/// Const-evaluable hash function for string keys.
+///
+/// Deterministic (no runtime seed). Uses wyhash-style mixing for quality.
+/// Produces the same hash at compile time and runtime.
+#[inline(always)]
+const fn const_hash(s: &str) -> u64 {
+    const SEED_A: u64 = 0x9E37_79B9_7F4A_7C15; // golden ratio
+    const SEED_B: u64 = 0x517C_C1B7_2722_0A95;
+
+    let bytes = s.as_bytes();
+    let len = bytes.len();
+
+    let (a, b) = if len == 0 {
+        (0u64, 0u64)
+    } else if len <= 3 {
+        // 1-3 bytes: read first, middle, last
+        let x = bytes[0] as u64;
+        let y = bytes[len >> 1] as u64;
+        let z = bytes[len - 1] as u64;
+        (x | (y << 8) | (z << 16), len as u64)
+    } else if len <= 8 {
+        // 4-8 bytes: read first 4 + last 4 (may overlap)
+        let lo = read_u32_le(bytes, 0) as u64;
+        let hi = read_u32_le(bytes, len - 4) as u64;
+        (lo | (hi << 32), len as u64)
+    } else if len <= 16 {
+        // 8-16 bytes: read first 8 + last 8 (may overlap)
+        (read_u64_le(bytes, 0), read_u64_le(bytes, len - 8))
+    } else {
+        // 16+ bytes: chain through the input
+        let mut h = SEED_A;
+        let mut i = 0;
+        while i + 16 <= len {
+            let va = read_u64_le(bytes, i);
+            let vb = read_u64_le(bytes, i + 8);
+            h = wymix(h ^ va, SEED_B ^ vb);
+            i += 16;
+        }
+        let va = read_u64_le(bytes, len - 16);
+        let vb = read_u64_le(bytes, len - 8);
+        (h ^ va, vb)
+    };
+
+    wymix(a ^ SEED_A, b ^ SEED_B ^ (len as u64))
+}
+
+/// Const-evaluable hash, with 0 remapped to 1 (0 is the empty sentinel).
+#[inline(always)]
+const fn const_hash_nonzero(s: &str) -> u64 {
+    let h = const_hash(s);
+    if h == 0 { 1 } else { h }
+}
+
+// ─── StringId: compile-time pre-computed hash handle ─────────────────────────
 
 /// A pre-computed hash of a string key, for O(1) lookup without re-hashing.
 ///
-/// Created via [`CompactPool::id`] at init time. Subsequent lookups via
-/// [`CompactPool::resolve`] skip hashing entirely — just a single array
-/// probe (~2ns).
+/// Can be created at **compile time** via [`StringId::of`], making the hot-path
+/// lookup (`pool.resolve(id)`) a single array probe with zero hashing.
 ///
 /// ```
-/// # use intern_pool_bench::CompactPool;
+/// # use intern_pool_bench::{CompactPool, StringId};
+/// // Compute at compile time:
+/// const BOOL_ID: StringId = StringId::of("bool");
+/// const PRIM_ID: StringId = StringId::of("primitive");
+///
 /// let pool = CompactPool::new([("bool", 0), ("primitive", 1)]);
 ///
-/// // Pre-compute once (at startup or first encounter):
-/// let bool_id = pool.id("bool");
-/// let prim_id = pool.id("primitive");
-///
-/// // Resolve many times (hot path, zero hashing):
-/// assert_eq!(pool.resolve(bool_id), Some(0));
-/// assert_eq!(pool.resolve(prim_id), Some(1));
+/// // Resolve on hot path — zero cost:
+/// assert_eq!(pool.resolve(BOOL_ID), Some(0));
+/// assert_eq!(pool.resolve(PRIM_ID), Some(1));
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct StringId(u64);
+
+impl StringId {
+    /// Compute the hash of a string key at compile time.
+    ///
+    /// The returned `StringId` can be used with [`CompactPool::resolve`].
+    pub const fn of(s: &str) -> Self {
+        Self(const_hash_nonzero(s))
+    }
+}
 
 // ─── CompactPool: hash-only lookup, no key comparison ────────────────────────
 
@@ -88,7 +186,6 @@ pub struct StringId(u64);
 pub struct CompactPool {
     table: Box<[(u64, u64)]>,
     mask: usize,
-    build_hasher: foldhash::fast::FixedState,
 }
 
 impl CompactPool {
@@ -100,11 +197,10 @@ impl CompactPool {
         // 4x overallocation → ~25% load factor → almost always 1 probe
         let capacity = (entries.len() * 4).next_power_of_two();
         let mask = capacity - 1;
-        let build_hasher = foldhash::fast::FixedState::with_seed(0);
         let mut table = vec![(0u64, 0u64); capacity];
 
         for (key, value) in &entries {
-            let hash = Self::hash_str(&build_hasher, key);
+            let hash = const_hash_nonzero(key);
             let mut idx = hash as usize & mask;
             loop {
                 let slot = &mut table[idx];
@@ -120,16 +216,14 @@ impl CompactPool {
         Self {
             table: table.into_boxed_slice(),
             mask,
-            build_hasher,
         }
     }
 
-    /// Pre-compute a [`StringId`] for a key. Call this once per string at init time.
+    /// Pre-compute a [`StringId`] for a key at runtime.
     ///
-    /// The returned `StringId` can be used with [`resolve`](Self::resolve) for
-    /// zero-hashing lookups on the hot path.
+    /// Prefer [`StringId::of`] when the key is a string literal (compiles to a constant).
     pub fn id(&self, key: &str) -> StringId {
-        StringId(Self::hash_str(&self.build_hasher, key))
+        StringId::of(key)
     }
 
     /// Resolve a pre-computed [`StringId`] to its value. **No hashing, no key comparison.**
@@ -141,14 +235,13 @@ impl CompactPool {
     }
 
     /// Lookup by string key. Hashes the key, then probes with hash-only comparison.
-    #[inline(never)]
+    #[inline]
     pub fn get(&self, key: &str) -> Option<u64> {
-        let hash = Self::hash_str(&self.build_hasher, key);
-        self.get_by_hash(hash)
+        self.get_by_hash(const_hash_nonzero(key))
     }
 
     /// Lookup by raw pre-computed hash.
-    #[inline(never)]
+    #[inline]
     pub fn get_by_hash(&self, hash: u64) -> Option<u64> {
         let mut idx = hash as usize & self.mask;
         loop {
@@ -162,16 +255,5 @@ impl CompactPool {
             }
             idx = (idx + 1) & self.mask;
         }
-    }
-
-    /// Pre-compute the raw hash for a key.
-    pub fn hash_key(&self, key: &str) -> u64 {
-        Self::hash_str(&self.build_hasher, key)
-    }
-
-    fn hash_str(build_hasher: &foldhash::fast::FixedState, key: &str) -> u64 {
-        let hash = build_hasher.hash_one(key);
-        // Reserve 0 as the empty sentinel.
-        if hash == 0 { 1 } else { hash }
     }
 }

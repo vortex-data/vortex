@@ -256,13 +256,13 @@ mod algo {
         bencher.bench(|| black_box(pool.get(key)));
     }
 
-    /// CompactPool with pre-computed StringId: skips both hashing AND key comparison.
+    /// CompactPool with compile-time StringId: zero hashing at runtime.
     #[divan::bench]
     fn compact_pool_prehashed(bencher: Bencher) {
         let pool = super::compact_pool();
-        let key = test_strings()[NUM_STRINGS / 2];
-        let id = pool.id(key);
-        bencher.bench(|| black_box(pool.resolve(id)));
+        // Hash computed at compile time — this is a constant in the binary.
+        const ID: StringId = StringId::of("vortex.enc.100");
+        bencher.bench(|| black_box(pool.resolve(ID)));
     }
 
     #[divan::bench]
