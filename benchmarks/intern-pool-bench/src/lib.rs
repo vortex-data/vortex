@@ -14,6 +14,7 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicU16;
+use std::sync::atomic::AtomicU32;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
@@ -85,60 +86,186 @@ pub fn read_oncelock(arr: &[OnceLock<u64>], idx: usize) -> u64 {
     arr[idx].get().copied().unwrap_or(0)
 }
 
-// ─── Head-to-head: AtomicU16+sentinel vs OnceLock for cached ID ──────────────
+// ─── OnceRacy: lock-free racy initialization cell ────────────────────────────
 //
-// The claim: AtomicU16 Relaxed + sentinel check beats OnceLock because:
-// 1. Relaxed = plain mov on x86 (no acquire fence)
-// 2. Sentinel check = cmp+cmov (no branch misprediction after first call)
-// 3. 2 bytes vs 16+ bytes (cache density)
+// Like OnceLock, but without locks or Acquire fences. Racing initializers are
+// harmless because init is idempotent — all threads compute the same value.
+//
+// Hot path: single Relaxed load (1 instruction on x86, plain `ldr` on ARM).
+// Size: just the value + sentinel, no state byte, no padding.
 
-/// Cached ID using AtomicU16 + sentinel. The proposed approach.
-pub struct CachedIdAtomic(AtomicU16);
+/// A lock-free, racy initialization cell for small Copy types.
+///
+/// Designed for values where initialization is idempotent — multiple threads
+/// may race to initialize, but they all compute the same value, so racing
+/// stores are harmless. No mutex, no acquire fence, no parking lot.
+///
+/// ## Hot path ASM (x86-64)
+/// ```text
+/// movzx eax, word ptr [rdi]    ; one instruction. done.
+/// ```
+///
+/// ## Size
+/// `OnceRacy<u16>` = 2 bytes. `OnceLock<u16>` = 8 bytes.
+pub struct OnceRacy<T: RacyValue>(T::Atomic);
 
-impl CachedIdAtomic {
-    pub const fn new() -> Self {
-        Self(AtomicU16::new(u16::MAX))
+/// Trait for values that can be stored in a `OnceRacy`.
+/// Provides the atomic type and sentinel value.
+pub trait RacyValue: Copy + Eq {
+    /// The atomic type that can store this value.
+    type Atomic;
+
+    /// A sentinel value that means "uninitialized". Must not be a valid ID.
+    const SENTINEL: Self;
+
+    /// Create a new atomic initialized to the sentinel.
+    fn new_atomic() -> Self::Atomic;
+
+    /// Relaxed load from the atomic.
+    fn load(atomic: &Self::Atomic) -> Self;
+
+    /// Relaxed store into the atomic.
+    fn store(atomic: &Self::Atomic, val: Self);
+}
+
+impl RacyValue for u16 {
+    type Atomic = AtomicU16;
+    const SENTINEL: u16 = u16::MAX;
+
+    fn new_atomic() -> AtomicU16 {
+        AtomicU16::new(Self::SENTINEL)
     }
 
-    /// Hot path: Relaxed load + sentinel compare.
     #[inline(always)]
-    pub fn get_or_init(&self, f: impl FnOnce() -> u16) -> u16 {
-        let v = self.0.load(Ordering::Relaxed);
-        if v != u16::MAX {
+    fn load(atomic: &AtomicU16) -> u16 {
+        atomic.load(Ordering::Relaxed)
+    }
+
+    #[inline(always)]
+    fn store(atomic: &AtomicU16, val: u16) {
+        atomic.store(val, Ordering::Relaxed);
+    }
+}
+
+impl RacyValue for u32 {
+    type Atomic = AtomicU32;
+    const SENTINEL: u32 = u32::MAX;
+
+    fn new_atomic() -> AtomicU32 {
+        AtomicU32::new(Self::SENTINEL)
+    }
+
+    #[inline(always)]
+    fn load(atomic: &AtomicU32) -> u32 {
+        atomic.load(Ordering::Relaxed)
+    }
+
+    #[inline(always)]
+    fn store(atomic: &AtomicU32, val: u32) {
+        atomic.store(val, Ordering::Relaxed);
+    }
+}
+
+impl RacyValue for u64 {
+    type Atomic = AtomicU64;
+    const SENTINEL: u64 = u64::MAX;
+
+    fn new_atomic() -> AtomicU64 {
+        AtomicU64::new(Self::SENTINEL)
+    }
+
+    #[inline(always)]
+    fn load(atomic: &AtomicU64) -> u64 {
+        atomic.load(Ordering::Relaxed)
+    }
+
+    #[inline(always)]
+    fn store(atomic: &AtomicU64, val: u64) {
+        atomic.store(val, Ordering::Relaxed);
+    }
+}
+
+impl<T: RacyValue> OnceRacy<T> {
+    /// Read the value. Returns `None` if not yet initialized.
+    #[inline(always)]
+    pub fn get(&self) -> Option<T> {
+        let v = T::load(&self.0);
+        if v == T::SENTINEL { None } else { Some(v) }
+    }
+
+    /// Read the value, assuming it was initialized.
+    #[inline(always)]
+    pub fn get_unchecked(&self) -> T {
+        T::load(&self.0)
+    }
+
+    /// Initialize or return the existing value. Races are fine —
+    /// all callers must provide the same value for correctness.
+    #[inline(always)]
+    pub fn get_or_init(&self, f: impl FnOnce() -> T) -> T {
+        let v = T::load(&self.0);
+        if v != T::SENTINEL {
             return v;
         }
         let val = f();
-        self.0.store(val, Ordering::Relaxed);
+        T::store(&self.0, val);
         val
     }
 
-    /// Hot path after init: just the Relaxed load.
-    #[inline(always)]
-    pub fn get(&self) -> u16 {
-        self.0.load(Ordering::Relaxed)
+    /// Explicitly set the value (for eager init).
+    pub fn set(&self, val: T) {
+        T::store(&self.0, val);
     }
 }
 
-// SAFETY: AtomicU16 is Sync by construction.
-unsafe impl Sync for CachedIdAtomic {}
+// SAFETY: The inner type is an atomic, which is Sync by construction.
+unsafe impl<T: RacyValue> Sync for OnceRacy<T> {}
 
-/// For ASM inspection: read a single CachedIdAtomic.
+/// For ASM inspection.
 #[inline(never)]
-pub fn read_cached_atomic(id: &CachedIdAtomic) -> u16 {
+pub fn read_once_racy_u16(id: &OnceRacy<u16>) -> Option<u16> {
     id.get()
 }
 
-/// For ASM inspection: read a single OnceLock<u16>.
 #[inline(never)]
-pub fn read_cached_oncelock(id: &OnceLock<u16>) -> u16 {
-    id.get().copied().unwrap_or(u16::MAX)
+pub fn read_once_racy_u16_unchecked(id: &OnceRacy<u16>) -> u16 {
+    id.get_unchecked()
 }
 
-/// Size assertions at compile time.
+/// Size assertions.
 const _: () = {
-    assert!(size_of::<CachedIdAtomic>() == 2);
-    // OnceLock<u16> is much larger due to state + padding
+    assert!(size_of::<OnceRacy<u16>>() == 2);
+    assert!(size_of::<OnceRacy<u32>>() == 4);
+    assert!(size_of::<OnceRacy<u64>>() == 8);
+    // OnceLock<u16> = 8 bytes (4x larger)
+    // OnceLock<u64> = 16 bytes (2x larger)
 };
+
+// Concrete const constructors (can't use trait methods in const context).
+
+impl OnceRacy<u16> {
+    /// Create an uninitialized `OnceRacy<u16>`.
+    pub const fn new() -> Self {
+        Self(AtomicU16::new(u16::MAX))
+    }
+}
+
+impl OnceRacy<u32> {
+    /// Create an uninitialized `OnceRacy<u32>`.
+    pub const fn new() -> Self {
+        Self(AtomicU32::new(u32::MAX))
+    }
+}
+
+impl OnceRacy<u64> {
+    /// Create an uninitialized `OnceRacy<u64>`.
+    pub const fn new() -> Self {
+        Self(AtomicU64::new(u64::MAX))
+    }
+}
+
+// Keep CachedIdAtomic as an alias for backward compat with existing benchmarks.
+pub type CachedIdAtomic = OnceRacy<u16>;
 
 // ─── Const-evaluable hash function ──────────────────────────────────────────
 //
