@@ -6,8 +6,10 @@
 //! access to `assets.zilliz.com`, and for sandbox / CI environments that block outbound
 //! HTTPS.
 //!
-//! The generated file is bit-identical across runs for a given `(num_rows, dim, seed)`
-//! triple so that downstream benchmark output is reproducible.
+//! The generated file is deterministic for a given `(num_rows, dim, seed)` triple, so
+//! downstream benchmark output is reproducible across runs on the same machine. Exact
+//! bit-for-bit equality across different machines is not guaranteed because the PRNG
+//! mixes in `f32::sin()`, whose last few ULPs are libm/CPU-dependent.
 //!
 //! Example:
 //!
@@ -81,17 +83,31 @@ fn main() -> Result<()> {
     let mut offsets = Int32BufferBuilder::new(args.num_rows + 1);
     offsets.append(0i32);
 
+    // Generate per-element values as (random noise in `[-0.5, 0.5)`) + (position-based
+    // sinusoid of amplitude 0.25). The xorshift gives the random component; the sine
+    // mixes the row and column index so that vectors at different positions are distinct
+    // even at low bit widths after quantization.
+    //
+    // The sinusoid frequency constants below are deliberately small and coprime so that
+    // (row, col) → sine values don't repeat across the 100K-row × 1536-col domain any
+    // faster than ~100K rows. They don't have any particular mathematical meaning — they
+    // just need to be "slow enough to avoid short-period aliasing, fast enough that
+    // different rows look different".
+    const POS_FREQ_ROW: f32 = 0.00013;
+    const POS_FREQ_COL: f32 = 0.00007;
+    const POS_AMPLITUDE: f32 = 0.25;
+    const RAND_SCALE: f32 = 1.0 / 32768.0;
+
     let mut state = args.seed.wrapping_add(1);
     for row in 0..args.num_rows {
         for i in 0..dim_usize {
-            // Deterministic xorshift mixed with position so every vector is distinct.
             state ^= state << 13;
             state ^= state >> 7;
             state ^= state << 17;
-            let scale = 1.0f32 / 32768.0;
-            let v = ((state & 0xFFFF) as f32 * scale - 0.5)
-                + ((row as f32 * 0.00013) + (i as f32 * 0.00007)).sin() * 0.25;
-            float_values.append_value(v);
+            let rand_component = (state & 0xFFFF) as f32 * RAND_SCALE - 0.5;
+            let pos_component =
+                ((row as f32 * POS_FREQ_ROW) + (i as f32 * POS_FREQ_COL)).sin() * POS_AMPLITUDE;
+            float_values.append_value(rand_component + pos_component);
         }
         let written = i32::try_from((row + 1) * dim_usize)
             .context("offset overflows i32 — reduce num_rows or dim")?;
