@@ -20,6 +20,7 @@
 //! [`handrolled_baseline`](vector_search_bench::handrolled_baseline) for details.
 
 use std::borrow::Cow;
+use std::io::Write;
 use std::path::PathBuf;
 
 use anyhow::Context;
@@ -175,7 +176,10 @@ async fn main() -> Result<()> {
         .filter_map(|f| f.into_variant())
         .collect();
 
-    let total_work = datasets.len() * args.formats.len();
+    // `args.formats.len()` counts both the handrolled baseline and the Vortex variants,
+    // so it matches the number of `progress.inc(1)` calls we'll make below (one per
+    // Vortex variant plus one per dataset for the handrolled path when it's enabled).
+    let total_work = datasets.len() * (variants.len() + usize::from(run_handrolled_baseline));
     let progress = ProgressBar::new(total_work as u64);
 
     let mut timings: Vec<CompressionTimingMeasurement> = Vec::new();
@@ -287,6 +291,8 @@ async fn main() -> Result<()> {
                 format: Format::Parquet,
                 time: baseline_timings.filter,
             });
+
+            progress.inc(1);
         }
 
         for &variant in &variants {
@@ -422,5 +428,3 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
-
-use std::io::Write;

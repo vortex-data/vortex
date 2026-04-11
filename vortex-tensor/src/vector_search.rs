@@ -57,7 +57,6 @@ use vortex_array::dtype::extension::ExtDType;
 use vortex_array::extension::EmptyMetadata;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -159,9 +158,7 @@ pub fn build_similarity_search_tree(
     let num_rows = data.len();
     let query_vec = build_constant_query_vector(query, num_rows)?;
 
-    let cosine = CosineSimilarity::try_new_array(data, query_vec, num_rows)
-        .vortex_expect("cosine similarity accepts two matching Vector extension arrays")
-        .into_array();
+    let cosine = CosineSimilarity::try_new_array(data, query_vec, num_rows)?.into_array();
 
     let threshold_scalar = Scalar::primitive(threshold, Nullability::NonNullable);
     let threshold_array = ConstantArray::new(threshold_scalar, num_rows).into_array();

@@ -103,11 +103,14 @@ Use it to populate the dataset cache so the benchmark's idempotent
 download step skips the HTTP fetch:
 
 ```bash
-cargo run -p vector-search-bench --bin gen_synthetic_dataset --release -- \
+cargo run -p vector-search-bench --release --bin gen_synthetic_dataset -- \
     --num-rows 5000 \
     --dim 768 \
     --out vortex-bench/data/cohere-small/cohere-small.parquet
 ```
+
+(Cargo's default bin name is the filename minus extension, so underscores,
+not hyphens.)
 
 ## CI note: dataset mirror
 

@@ -46,7 +46,6 @@ use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::PrimitiveArray;
-use vortex::error::VortexExpect;
 use vortex::session::VortexSession;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
@@ -237,35 +236,44 @@ fn extract_emb_column(struct_array: &ArrayRef) -> Result<ArrayRef> {
 }
 
 /// Pull a single row out of a `Vector<dim, f32>` extension array as a plain `Vec<f32>`.
-fn extract_query_row(vector_ext: &ArrayRef, row: usize) -> Result<Vec<f32>> {
+///
+/// Only `f32`-typed `Vector` arrays are supported today — the benchmark deliberately
+/// restricts itself to `f32` vectors, so we assert the element type rather than
+/// quietly returning a mis-cast slice.
+pub(crate) fn extract_query_row(vector_ext: &ArrayRef, row: usize) -> Result<Vec<f32>> {
     use vortex::array::arrays::Extension;
     use vortex::array::arrays::extension::ExtensionArrayExt;
     use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
+    use vortex::dtype::PType;
 
-    let mut ctx = SESSION.create_execution_ctx();
-
-    let ext_view = vector_ext
-        .as_opt::<Extension>()
-        .context("prepared dataset must be a Vector extension array")?;
-
-    // Execute storage array to its canonical FSL form.
-    let fsl: FixedSizeListArray = ext_view.storage_array().clone().execute(&mut ctx)?;
-
-    let dim_usize = {
-        let vortex::dtype::DType::FixedSizeList(_, d, _) = fsl.dtype() else {
-            bail!("storage dtype must be FixedSizeList");
-        };
-        *d as usize
-    };
-
-    if row * dim_usize + dim_usize > vector_ext.len() * dim_usize {
+    if row >= vector_ext.len() {
         bail!(
             "query row {row} out of bounds for dataset of length {}",
             vector_ext.len()
         );
     }
 
+    let ext_view = vector_ext
+        .as_opt::<Extension>()
+        .context("prepared dataset must be a Vector extension array")?;
+
+    let mut ctx = SESSION.create_execution_ctx();
+
+    // Execute storage array to its canonical FSL form.
+    let fsl: FixedSizeListArray = ext_view.storage_array().clone().execute(&mut ctx)?;
+
+    let dim_usize = match fsl.dtype() {
+        vortex::dtype::DType::FixedSizeList(_, d, _) => *d as usize,
+        other => bail!("storage dtype must be FixedSizeList, got {other}"),
+    };
+
     let elements: PrimitiveArray = fsl.elements().clone().execute(&mut ctx)?;
+    if elements.ptype() != PType::F32 {
+        bail!(
+            "extract_query_row currently only supports f32 Vector columns, got {:?}",
+            elements.ptype()
+        );
+    }
     let slice = elements.as_slice::<f32>();
     let start = row * dim_usize;
     Ok(slice[start..start + dim_usize].to_vec())
@@ -440,6 +448,12 @@ pub fn decompress_full_scan(
 /// Execute `CosineSimilarity(data, broadcast(query))` to a materialized `f32`
 /// [`PrimitiveArray`]. Shared between the timing loop and the correctness-verification
 /// path so both exercise the exact same expression tree.
+///
+/// # Errors
+///
+/// Returns an error if `data` is not a [`vortex_tensor::vector::Vector`] extension array,
+/// if `query`'s length doesn't match the database vector dimension, or if the execution
+/// context rejects the expression.
 pub fn execute_cosine(
     data: &ArrayRef,
     query: &[f32],
@@ -450,9 +464,7 @@ pub fn execute_cosine(
 
     let num_rows = data.len();
     let query_vec = build_constant_query_vector(query, num_rows)?;
-    let cosine = CosineSimilarity::try_new_array(data.clone(), query_vec, num_rows)
-        .vortex_expect("cosine similarity accepts matching Vector inputs")
-        .into_array();
+    let cosine = CosineSimilarity::try_new_array(data.clone(), query_vec, num_rows)?.into_array();
     Ok(cosine.execute(ctx)?)
 }
 
