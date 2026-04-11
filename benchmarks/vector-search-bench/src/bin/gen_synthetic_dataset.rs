@@ -12,14 +12,15 @@
 //! Example:
 //!
 //! ```bash
-//! cargo run -p vector-search-bench --bin gen-synthetic-dataset --release -- \
+//! cargo run -p vector-search-bench --bin gen_synthetic_dataset --release -- \
 //!     --num-rows 5000 \
 //!     --dim 768 \
 //!     --out vortex-bench/data/cohere-small/cohere-small.parquet
 //! ```
 //!
 //! After running this, `vector-search-bench --datasets cohere-small` will find the
-//! cached parquet file and skip the HTTP download via `idempotent_async`.
+//! cached parquet file and skip the HTTP download via `idempotent_async`. (Cargo's
+//! default bin name is the filename minus extension — underscores, not hyphens.)
 
 use std::fs::File;
 use std::path::PathBuf;
