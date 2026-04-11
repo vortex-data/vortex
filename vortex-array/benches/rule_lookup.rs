@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Microbenchmark: current linear-scan matches() vs HashMap (parent_id, child_id) lookup.
+//! Benchmark: full child-iteration loop with N children.
 //!
-//! What we measure precisely:
-//! - "current": the real child.reduce_parent(parent, idx) call, which does
-//!   virtual dispatch → iterate rules → rule.matches(parent) via as_any().is::<T>()
-//! - "proposed": HashMap::get with (parent_encoding_id, child_encoding_id) key
+//! Scenario: Cast(Chunked(N chunks of Primitive))
+//! The executor iterates N+1 slots (chunk_offsets + N chunks), calling
+//! reduce_parent and execute_parent on each. Most calls are wasted
+//! because the chunk children (Primitive) don't have rules that match
+//! the Cast parent's encoding_id for reduce, and only CastExecuteAdaptor
+//! matches for execute.
 //!
-//! We do NOT measure rule execution (reduce_parent body). Only the matching/lookup.
+//! We compare:
+//! 1. CURRENT: for each slot, virtual dispatch → linear scan of rules → matches()
+//! 2. PROPOSED: for each slot, HashMap<(parent_id, child_id)> lookup
 
 #![expect(clippy::unwrap_used)]
 
@@ -17,14 +21,15 @@ use std::hint::black_box;
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::cast::Cast;
-use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 
@@ -32,187 +37,185 @@ fn main() {
     divan::main();
 }
 
-fn make_binary_expr() -> ArrayRef {
-    let a = PrimitiveArray::new(Buffer::from(vec![1i32; 1024]), Validity::NonNullable).into_array();
-    let b = PrimitiveArray::new(Buffer::from(vec![2i32; 1024]), Validity::NonNullable).into_array();
-    Binary
-        .try_new_array(1024, Operator::Lt, [a, b])
-        .unwrap()
-}
+/// Build Cast(Chunked(N chunks of Primitive i32))
+fn make_cast_of_chunked(nchunks: usize) -> ArrayRef {
+    let chunks: Vec<ArrayRef> = (0..nchunks)
+        .map(|i| {
+            PrimitiveArray::new(Buffer::from(vec![i as i32; 100]), Validity::NonNullable)
+                .into_array()
+        })
+        .collect();
+    let len = nchunks * 100;
+    let chunked = unsafe {
+        ChunkedArray::new_unchecked(
+            chunks,
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+        )
+    }
+    .into_array();
 
-fn make_cast_expr() -> ArrayRef {
-    let a = PrimitiveArray::new(Buffer::from(vec![1i32; 1024]), Validity::NonNullable).into_array();
     Cast.try_new_array(
-        1024,
+        len,
         DType::Primitive(PType::I64, Nullability::NonNullable),
-        [a],
+        [chunked],
     )
     .unwrap()
 }
 
-fn make_leaf() -> ArrayRef {
-    PrimitiveArray::new(Buffer::from(vec![1i32; 1024]), Validity::NonNullable).into_array()
+/// Pre-built registry: (parent_encoding_id, child_encoding_id) -> has_rules
+/// Uses &str keys (no allocation in lookup path).
+struct FlatRegistry {
+    map: HashMap<(&'static str, &'static str), bool>,
 }
 
-fn build_registry() -> HashMap<(String, String), bool> {
-    let mut map = HashMap::new();
-    let child_ids = [
-        "vortex.primitive", "vortex.bool", "vortex.dict", "vortex.chunked",
-        "vortex.constant", "vortex.varbin", "vortex.varbinview", "vortex.struct",
-        "vortex.extension", "vortex.null", "vortex.masked", "vortex.list",
-        "vortex.listview", "vortex.fixed_size_list", "vortex.decimal",
-    ];
-    let parent_ids = [
-        "vortex.cast", "vortex.binary", "vortex.between", "vortex.mask",
-        "vortex.fill_null", "vortex.not", "vortex.like", "vortex.filter",
-        "vortex.slice", "vortex.masked",
-    ];
-    for p in &parent_ids {
-        for c in &child_ids {
-            map.insert((p.to_string(), c.to_string()), true);
+impl FlatRegistry {
+    fn new() -> Self {
+        let mut map = HashMap::new();
+        // Realistic entries: which (parent, child) pairs have reduce or execute rules
+        let pairs: &[(&str, &str)] = &[
+            // Chunked child has reduce rules for these parents:
+            ("vortex.cast", "vortex.chunked"),
+            ("vortex.fill_null", "vortex.chunked"),
+            // Chunked child has execute kernels for these parents:
+            ("vortex.filter", "vortex.chunked"),
+            ("vortex.mask", "vortex.chunked"),
+            ("vortex.slice", "vortex.chunked"),
+            ("vortex.take", "vortex.chunked"),
+            ("vortex.zip", "vortex.chunked"),
+            // Primitive child rules:
+            ("vortex.masked", "vortex.primitive"),
+            ("vortex.mask", "vortex.primitive"),
+            ("vortex.slice", "vortex.primitive"),
+            ("vortex.cast", "vortex.primitive"),
+            ("vortex.between", "vortex.primitive"),
+            ("vortex.fill_null", "vortex.primitive"),
+            ("vortex.take", "vortex.primitive"),
+            ("vortex.binary", "vortex.primitive"),
+            // chunk_offsets (also Primitive) — same entries apply
+        ];
+        for (p, c) in pairs {
+            map.insert((*p, *c), true);
         }
+        Self { map }
     }
-    map
+
+    #[inline]
+    fn has_rules(&self, parent_id: &str, child_id: &str) -> bool {
+        self.map.contains_key(&(parent_id, child_id))
+    }
 }
 
-fn build_two_level() -> HashMap<String, HashMap<String, bool>> {
-    let mut map: HashMap<String, HashMap<String, bool>> = HashMap::new();
-    let child_ids = [
-        "vortex.primitive", "vortex.bool", "vortex.dict", "vortex.chunked", "vortex.constant",
-    ];
-    let parent_ids = [
-        "vortex.cast", "vortex.binary", "vortex.between", "vortex.mask",
-        "vortex.filter", "vortex.slice", "vortex.masked",
-    ];
-    for p in &parent_ids {
-        let inner = map.entry(p.to_string()).or_default();
-        for c in &child_ids {
-            inner.insert(c.to_string(), true);
-        }
-    }
-    map
+/// Two-level registry: parent_id -> { child_id -> has_rules }
+struct TwoLevelRegistry {
+    map: HashMap<&'static str, HashMap<&'static str, bool>>,
 }
+
+impl TwoLevelRegistry {
+    fn new() -> Self {
+        let mut map: HashMap<&'static str, HashMap<&'static str, bool>> = HashMap::new();
+        let entries: &[(&str, &str)] = &[
+            ("vortex.cast", "vortex.chunked"),
+            ("vortex.cast", "vortex.primitive"),
+            ("vortex.fill_null", "vortex.chunked"),
+            ("vortex.fill_null", "vortex.primitive"),
+            ("vortex.filter", "vortex.chunked"),
+            ("vortex.mask", "vortex.chunked"),
+            ("vortex.mask", "vortex.primitive"),
+            ("vortex.slice", "vortex.chunked"),
+            ("vortex.slice", "vortex.primitive"),
+            ("vortex.take", "vortex.chunked"),
+            ("vortex.take", "vortex.primitive"),
+            ("vortex.zip", "vortex.chunked"),
+            ("vortex.masked", "vortex.primitive"),
+            ("vortex.between", "vortex.primitive"),
+            ("vortex.binary", "vortex.primitive"),
+        ];
+        for (p, c) in entries {
+            map.entry(p).or_default().insert(c, true);
+        }
+        Self { map }
+    }
+}
+
+const NCHUNKS: &[usize] = &[10, 100];
 
 // ============================================================================
-// CURRENT: real reduce_parent dispatch (virtual dispatch + linear matches())
+// CURRENT: the real reduce_parent + execute_parent child loop
 // ============================================================================
 
-/// Leaf parent (Primitive). Child is Primitive with ~5 rules, all miss.
-/// This is the common case: parent is not interesting.
-#[divan::bench]
-fn current_leaf_parent_one_child(bencher: divan::Bencher) {
-    let parent = make_leaf();
-    let child = make_leaf();
+/// Current approach: iterate all slots, call reduce_parent on each.
+/// This does virtual dispatch → ParentRuleSet linear scan → matches() per rule.
+#[divan::bench(args = NCHUNKS)]
+fn current_reduce_parent_loop(bencher: divan::Bencher, nchunks: usize) {
+    let parent = make_cast_of_chunked(nchunks);
     bencher.bench(|| {
-        black_box(child.reduce_parent(black_box(&parent), 0)).unwrap()
-    });
-}
-
-/// Cast parent. Child is Primitive — CastReduceAdaptor matches.
-#[divan::bench]
-fn current_cast_parent_one_child(bencher: divan::Bencher) {
-    let parent = make_cast_expr();
-    let child = make_leaf();
-    bencher.bench(|| {
-        black_box(child.reduce_parent(black_box(&parent), 0)).unwrap()
-    });
-}
-
-/// Binary parent. Iterate both Primitive children.
-#[divan::bench]
-fn current_binary_parent_two_children(bencher: divan::Bencher) {
-    let parent = make_binary_expr();
-    bencher.bench(|| {
-        for (i, slot) in black_box(&parent).slots().iter().enumerate() {
+        let parent = black_box(&parent);
+        for (slot_idx, slot) in parent.slots().iter().enumerate() {
             if let Some(child) = slot {
-                black_box(child.reduce_parent(&parent, i)).unwrap();
+                black_box(child.reduce_parent(parent, slot_idx)).unwrap();
+            }
+        }
+    });
+}
+
+/// Current approach: iterate all slots, call execute_parent on each.
+#[divan::bench(args = NCHUNKS)]
+fn current_execute_parent_loop(bencher: divan::Bencher, nchunks: usize) {
+    let parent = make_cast_of_chunked(nchunks);
+    bencher.bench(|| {
+        let parent = black_box(&parent);
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        for (slot_idx, slot) in parent.slots().iter().enumerate() {
+            if let Some(child) = slot {
+                black_box(child.execute_parent(parent, slot_idx, &mut ctx)).unwrap();
             }
         }
     });
 }
 
 // ============================================================================
-// PROPOSED: single HashMap<(parent_id, child_id), _> lookup
+// PROPOSED: HashMap lookup, no virtual dispatch for matching
 // ============================================================================
 
-/// Leaf parent — HashMap miss.
-#[divan::bench]
-fn proposed_flat_leaf_parent_one_child(bencher: divan::Bencher) {
-    let registry = build_registry();
-    let parent = make_leaf();
-    let child = make_leaf();
-    // Pre-extract the IDs (this is what we'd cache on the array)
-    let pid = parent.encoding_id().to_string();
-    let cid = child.encoding_id().to_string();
+/// Proposed: two-level HashMap lookup for reduce_parent.
+/// Outer lookup by parent_id (one miss = skip everything).
+/// Inner lookup by child_id per slot.
+#[divan::bench(args = NCHUNKS)]
+fn proposed_reduce_parent_loop(bencher: divan::Bencher, nchunks: usize) {
+    let parent = make_cast_of_chunked(nchunks);
+    let registry = TwoLevelRegistry::new();
     bencher.bench(|| {
-        black_box(registry.get(&(black_box(&pid).clone(), black_box(&cid).clone())))
-    });
-}
-
-/// Cast parent — HashMap hit.
-#[divan::bench]
-fn proposed_flat_cast_parent_one_child(bencher: divan::Bencher) {
-    let registry = build_registry();
-    let parent = make_cast_expr();
-    let child = make_leaf();
-    let pid = parent.encoding_id().to_string();
-    let cid = child.encoding_id().to_string();
-    bencher.bench(|| {
-        black_box(registry.get(&(black_box(&pid).clone(), black_box(&cid).clone())))
-    });
-}
-
-/// Binary parent — two lookups.
-#[divan::bench]
-fn proposed_flat_binary_parent_two_children(bencher: divan::Bencher) {
-    let registry = build_registry();
-    let parent = make_binary_expr();
-    let children: Vec<_> = parent
-        .slots()
-        .iter()
-        .filter_map(|s| s.as_ref())
-        .map(|c| c.encoding_id().to_string())
-        .collect();
-    let pid = parent.encoding_id().to_string();
-    bencher.bench(|| {
-        let pid = black_box(&pid);
-        for cid in black_box(&children) {
-            black_box(registry.get(&(pid.clone(), cid.clone())));
+        let parent = black_box(&parent);
+        let parent_id_owned = parent.encoding_id();
+        let parent_id: &str = parent_id_owned.as_ref();
+        if let Some(child_map) = registry.map.get(parent_id) {
+            for slot in parent.slots().iter() {
+                if let Some(child) = slot {
+                    let child_id_owned = child.encoding_id();
+                    let child_id: &str = child_id_owned.as_ref();
+                    black_box(child_map.get(child_id));
+                }
+            }
         }
     });
 }
 
-// ============================================================================
-// PROPOSED: two-level HashMap<parent_id, HashMap<child_id, _>>
-// ============================================================================
-
-/// Leaf parent — outer miss, no inner lookup.
-#[divan::bench]
-fn proposed_two_level_leaf_parent(bencher: divan::Bencher) {
-    let registry = build_two_level();
-    let parent = make_leaf();
-    let pid = parent.encoding_id().to_string();
+/// Proposed: two-level HashMap lookup for execute_parent.
+#[divan::bench(args = NCHUNKS)]
+fn proposed_execute_parent_loop(bencher: divan::Bencher, nchunks: usize) {
+    let parent = make_cast_of_chunked(nchunks);
+    let registry = TwoLevelRegistry::new();
     bencher.bench(|| {
-        black_box(registry.get(black_box(&pid)))
-    });
-}
-
-/// Binary parent — outer hit + two inner lookups.
-#[divan::bench]
-fn proposed_two_level_binary_parent_two_children(bencher: divan::Bencher) {
-    let registry = build_two_level();
-    let parent = make_binary_expr();
-    let children: Vec<_> = parent
-        .slots()
-        .iter()
-        .filter_map(|s| s.as_ref())
-        .map(|c| c.encoding_id().to_string())
-        .collect();
-    let pid = parent.encoding_id().to_string();
-    bencher.bench(|| {
-        if let Some(child_map) = registry.get(black_box(&pid)) {
-            for cid in black_box(&children) {
-                black_box(child_map.get(cid));
+        let parent = black_box(&parent);
+        let parent_id_owned = parent.encoding_id();
+        let parent_id: &str = parent_id_owned.as_ref();
+        if let Some(child_map) = registry.map.get(parent_id) {
+            for slot in parent.slots().iter() {
+                if let Some(child) = slot {
+                    let child_id_owned = child.encoding_id();
+                    let child_id: &str = child_id_owned.as_ref();
+                    black_box(child_map.get(child_id));
+                }
             }
         }
     });
