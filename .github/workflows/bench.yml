@@ -48,6 +48,10 @@ jobs:
             name: Compression
             build_args: "--features lance"
             formats: "parquet,lance,vortex"
+          - id: vector-search-bench
+            name: Vector Similarity Search
+            build_args: ""
+            formats: "parquet,vortex-uncompressed,vortex-default,vortex-turboquant"
     steps:
       - uses: runs-on/action@v2
         if: github.repository == 'vortex-data/vortex'
