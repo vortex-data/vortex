@@ -599,7 +599,91 @@ mod id_read_cost {
     }
 }
 
-// ─── Bench E: Global InternedRegistry (auto-assigned ordinals) ───────────────
+// ─── Bench E: AtomicU16+sentinel vs OnceLock head-to-head ────────────────────
+//
+// 200 IDs, pre-initialized. 1M Zipfian reads.
+// Measures the PURE read cost of each caching strategy.
+
+mod atomic_vs_oncelock {
+    use intern_pool_bench::CachedIdAtomic;
+
+    use super::*;
+
+    // 200 CachedIdAtomic statics
+    static ATOMIC_IDS: [CachedIdAtomic; NUM_STRINGS] =
+        [const { CachedIdAtomic::new() }; NUM_STRINGS];
+
+    fn init_atomic_ids() {
+        static INIT: std::sync::Once = std::sync::Once::new();
+        INIT.call_once(|| {
+            for (i, id) in ATOMIC_IDS.iter().enumerate() {
+                id.get_or_init(|| i as u16);
+            }
+        });
+    }
+
+    // 200 OnceLock<u16> statics
+    static ONCELOCK_IDS: [OnceLock<u16>; NUM_STRINGS] = [const { OnceLock::new() }; NUM_STRINGS];
+
+    fn init_oncelock_ids() {
+        static INIT: std::sync::Once = std::sync::Once::new();
+        INIT.call_once(|| {
+            for (i, id) in ONCELOCK_IDS.iter().enumerate() {
+                id.get_or_init(|| i as u16);
+            }
+        });
+    }
+
+    /// AtomicU16 Relaxed load — plain `mov` on x86, `ldr` on ARM.
+    #[divan::bench(threads = [1, 2, 4])]
+    fn atomic_u16_relaxed(bencher: Bencher) {
+        init_atomic_ids();
+        let indices = zipf_indices();
+        bencher.counter(ItemsCount::new(indices.len())).bench(|| {
+            for &i in indices {
+                black_box(ATOMIC_IDS[i].get());
+            }
+        });
+    }
+
+    /// OnceLock<u16>::get() — Acquire load + initialized check.
+    #[divan::bench(threads = [1, 2, 4])]
+    fn oncelock_u16_get(bencher: Bencher) {
+        init_oncelock_ids();
+        let indices = zipf_indices();
+        bencher.counter(ItemsCount::new(indices.len())).bench(|| {
+            for &i in indices {
+                black_box(ONCELOCK_IDS[i].get().copied());
+            }
+        });
+    }
+
+    /// AtomicU16 get_or_init (steady state — already initialized).
+    #[divan::bench(threads = [1, 2, 4])]
+    fn atomic_u16_get_or_init(bencher: Bencher) {
+        init_atomic_ids();
+        let indices = zipf_indices();
+        bencher.counter(ItemsCount::new(indices.len())).bench(|| {
+            for &i in indices {
+                black_box(ATOMIC_IDS[i].get_or_init(|| i as u16));
+            }
+        });
+    }
+
+    /// OnceLock<u16>::get_or_init (steady state — already initialized).
+    #[divan::bench(threads = [1, 2, 4])]
+    fn oncelock_u16_get_or_init(bencher: Bencher) {
+        init_oncelock_ids();
+        let indices = zipf_indices();
+        bencher.counter(ItemsCount::new(indices.len())).bench(|| {
+            for &i in indices {
+                black_box(ONCELOCK_IDS[i].get_or_init(|| i as u16));
+            }
+        });
+    }
+}
+
+// ─── Bench F: Global InternedRegistry (auto-assigned ordinals) ───────────────
 //
 // Simulates the proposed design: each encoding declares a `static EncodingId`,
 // ordinals are auto-assigned at init, reads are a plain array index.

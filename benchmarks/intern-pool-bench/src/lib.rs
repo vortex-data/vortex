@@ -59,16 +59,14 @@ pub fn lookup_binary_search(table: &[(&str, u64)], key: &str) -> Option<u64> {
 }
 
 // ─── ID read hot-path inspection ─────────────────────────────────────────────
-// Each function reads a single pre-resolved u64 from a different container.
-// Use `cargo asm` to inspect the generated code and count cycles.
 
-/// Read from a plain slice by index. Baseline — just an array load.
+/// Read from a plain slice by index.
 #[inline(never)]
 pub fn read_vec(slice: &[u64], idx: usize) -> u64 {
     slice[idx]
 }
 
-/// Read from a slice with unchecked indexing. No bounds check.
+/// Read from a slice with unchecked indexing.
 #[inline(never)]
 pub fn read_vec_unchecked(slice: &[u64], idx: usize) -> u64 {
     // SAFETY: caller must ensure idx < slice.len()
@@ -86,6 +84,61 @@ pub fn read_atomic_relaxed(arr: &[AtomicU64], idx: usize) -> u64 {
 pub fn read_oncelock(arr: &[OnceLock<u64>], idx: usize) -> u64 {
     arr[idx].get().copied().unwrap_or(0)
 }
+
+// ─── Head-to-head: AtomicU16+sentinel vs OnceLock for cached ID ──────────────
+//
+// The claim: AtomicU16 Relaxed + sentinel check beats OnceLock because:
+// 1. Relaxed = plain mov on x86 (no acquire fence)
+// 2. Sentinel check = cmp+cmov (no branch misprediction after first call)
+// 3. 2 bytes vs 16+ bytes (cache density)
+
+/// Cached ID using AtomicU16 + sentinel. The proposed approach.
+pub struct CachedIdAtomic(AtomicU16);
+
+impl CachedIdAtomic {
+    pub const fn new() -> Self {
+        Self(AtomicU16::new(u16::MAX))
+    }
+
+    /// Hot path: Relaxed load + sentinel compare.
+    #[inline(always)]
+    pub fn get_or_init(&self, f: impl FnOnce() -> u16) -> u16 {
+        let v = self.0.load(Ordering::Relaxed);
+        if v != u16::MAX {
+            return v;
+        }
+        let val = f();
+        self.0.store(val, Ordering::Relaxed);
+        val
+    }
+
+    /// Hot path after init: just the Relaxed load.
+    #[inline(always)]
+    pub fn get(&self) -> u16 {
+        self.0.load(Ordering::Relaxed)
+    }
+}
+
+// SAFETY: AtomicU16 is Sync by construction.
+unsafe impl Sync for CachedIdAtomic {}
+
+/// For ASM inspection: read a single CachedIdAtomic.
+#[inline(never)]
+pub fn read_cached_atomic(id: &CachedIdAtomic) -> u16 {
+    id.get()
+}
+
+/// For ASM inspection: read a single OnceLock<u16>.
+#[inline(never)]
+pub fn read_cached_oncelock(id: &OnceLock<u16>) -> u16 {
+    id.get().copied().unwrap_or(u16::MAX)
+}
+
+/// Size assertions at compile time.
+const _: () = {
+    assert!(size_of::<CachedIdAtomic>() == 2);
+    // OnceLock<u16> is much larger due to state + padding
+};
 
 // ─── Const-evaluable hash function ──────────────────────────────────────────
 //
