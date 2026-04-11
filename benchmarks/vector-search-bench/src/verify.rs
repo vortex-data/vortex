@@ -41,11 +41,6 @@ pub const LOSSLESS_TOLERANCE: f32 = 1e-4;
 /// that catches regressions without flaking on distribution-specific noise.
 pub const LOSSY_TOLERANCE: f32 = 0.2;
 
-/// Row index used to pick the verification query. Row 0 is also what
-/// [`crate::DEFAULT_QUERY_ROW`] selects, so the verification and timing paths exercise
-/// identical inputs.
-pub const VERIFICATION_QUERY_ROW: usize = 0;
-
 /// How lossy a variant is allowed to be when its scores are compared to the
 /// uncompressed baseline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

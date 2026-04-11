@@ -372,8 +372,6 @@ mod tests {
     use vortex::array::validity::Validity;
     use vortex::buffer::BufferMut;
     use vortex::dtype::DType;
-    use vortex::dtype::Nullability;
-    use vortex::dtype::PType;
 
     use super::list_to_vector_ext;
 
@@ -463,9 +461,5 @@ mod tests {
             err.contains("element type must be float"),
             "unexpected error: {err}",
         );
-
-        // The unused Nullability / PType imports exist to make the intent clear; suppress
-        // the dead-code warning by referencing them in a no-op expression.
-        let _ = (Nullability::NonNullable, PType::I32);
     }
 }

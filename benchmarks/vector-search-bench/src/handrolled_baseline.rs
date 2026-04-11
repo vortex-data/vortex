@@ -69,11 +69,10 @@ use crate::VariantTimings;
 pub fn read_parquet_embedding_column(parquet_path: &Path) -> Result<HandrolledBaselineData> {
     let file = File::open(parquet_path)
         .with_context(|| format!("open parquet file {}", parquet_path.display()))?;
-    let file_size = file.metadata()?.len();
     let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
 
     // Locate the `emb` column and sanity-check its type.
-    let (emb_idx, emb_field) = builder
+    let (_, emb_field) = builder
         .schema()
         .column_with_name("emb")
         .context("parquet schema missing `emb` column")?;
@@ -93,7 +92,6 @@ pub fn read_parquet_embedding_column(parquet_path: &Path) -> Result<HandrolledBa
             element_dtype
         );
     }
-    let _ = emb_idx;
 
     let reader = builder.build()?;
     let batches: Vec<RecordBatch> = reader.collect::<Result<Vec<_>, _>>()?;
@@ -114,7 +112,6 @@ pub fn read_parquet_embedding_column(parquet_path: &Path) -> Result<HandrolledBa
         elements: data,
         dim,
         num_rows,
-        file_size,
     })
 }
 
@@ -175,6 +172,12 @@ fn maybe_set_dim(inferred_dim: &mut Option<usize>, new_dim: usize) -> Result<()>
 /// The flattened representation of an embedding column, suitable for a hand-rolled
 /// distance loop. Intentionally decoupled from any format — the compute side doesn't
 /// care how the data got into this `Vec<f32>`.
+///
+/// The benchmark's "size" measurement for the handrolled baseline comes from
+/// [`crate::PreparedDataset::parquet_bytes`] (which is populated once in
+/// [`crate::prepare_dataset`]), not from this struct. We deliberately don't carry
+/// the file size in here — doing so would duplicate state between two places that
+/// can go out of sync.
 pub struct HandrolledBaselineData {
     /// All rows concatenated: `elements.len() == num_rows * dim`.
     pub elements: Vec<f32>,
@@ -182,11 +185,6 @@ pub struct HandrolledBaselineData {
     pub dim: usize,
     /// Number of rows.
     pub num_rows: usize,
-    /// On-disk size of the parquet file in bytes. Reported as the "handrolled size"
-    /// measurement because parquet is the only format this benchmark serializes to
-    /// on disk today — a future v2 could report additional storage formats (raw f32
-    /// blob, Arrow IPC, etc.) alongside it.
-    pub file_size: u64,
 }
 
 /// Run the decompress / cosine / filter microbenchmarks for the hand-rolled baseline
