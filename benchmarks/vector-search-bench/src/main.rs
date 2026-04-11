@@ -29,8 +29,6 @@ use clap::Parser;
 use indicatif::ProgressBar;
 use vector_search_bench::DEFAULT_THRESHOLD;
 use vector_search_bench::Variant;
-use vector_search_bench::handrolled_baseline::cosine_loop;
-use vector_search_bench::handrolled_baseline::read_parquet_embedding_column;
 use vector_search_bench::handrolled_baseline::run_handrolled_baseline_timings;
 use vector_search_bench::prepare_dataset;
 use vector_search_bench::prepare_variant;
@@ -42,7 +40,6 @@ use vector_search_bench::verify::compute_cosine_scores;
 use vector_search_bench::verify::verify_and_report_scores;
 use vector_search_bench::verify::verify_variant;
 use vortex_bench::Format;
-use vortex_bench::SESSION;
 use vortex_bench::create_output_writer;
 use vortex_bench::datasets::Dataset;
 use vortex_bench::display::DisplayFormat;
@@ -202,9 +199,8 @@ async fn main() -> Result<()> {
         // Ground-truth cosine scores for the verification query — the scores produced by
         // the uncompressed Vortex scan. Every other variant (including the hand-rolled
         // baseline) will be compared against this.
-        let baseline_scores =
-            compute_cosine_scores(&prepared.uncompressed, &prepared.query, &SESSION)
-                .context("compute ground-truth cosine scores for verification")?;
+        let baseline_scores = compute_cosine_scores(&prepared.uncompressed, &prepared.query)
+            .context("compute ground-truth cosine scores for verification")?;
         tracing::info!(
             "computed {} ground-truth cosine scores for {}",
             baseline_scores.len(),
@@ -222,26 +218,30 @@ async fn main() -> Result<()> {
         // parquet on disk — only the *compute* is hand-rolled. The metric `name` field
         // carries the `handrolled` label so human readers can tell the compute apart
         // from, say, a DuckDB `list_cosine_similarity` baseline on the same parquet.
+        //
+        // Timing runs first and returns the cosine scores from its final iteration;
+        // verification then reuses those scores rather than re-reading the parquet
+        // file. `cosine_loop` is deterministic, so the last-iteration scores equal
+        // what a separate pre-timing verification pass would produce — we just save
+        // one parquet read per dataset. If the scores drift from the Vortex baseline,
+        // `verify_and_report_scores` bails here (after the timing already ran, which
+        // is acceptable because the handrolled loop is cheap and we'd rather run it
+        // twice than skip correctness).
         if run_handrolled_baseline {
             let parquet_path = dataset.to_parquet_path().await?;
             let label = "handrolled";
             let bench_name = format!("{label}/{}", prepared.name);
 
-            // Verify the handrolled cosine scores against the Vortex baseline before
-            // any timing starts. `verify_and_report_scores` is the same helper the
-            // Vortex-variant loop ends up calling through `verify_variant`, so the
-            // two paths share all their pass/fail / log / bail logic.
-            let baseline_data = read_parquet_embedding_column(&parquet_path)
-                .context("read parquet emb column for verification")?;
-            let handrolled_scores = cosine_loop(
-                &baseline_data.elements,
-                baseline_data.num_rows,
-                baseline_data.dim,
+            let baseline_result = run_handrolled_baseline_timings(
+                &parquet_path,
                 &prepared.query,
-            );
+                DEFAULT_THRESHOLD,
+                args.iterations,
+            )?;
+
             let handrolled_report = verify_and_report_scores(
                 &bench_name,
-                &handrolled_scores,
+                &baseline_result.last_scores,
                 &baseline_scores,
                 VerificationKind::Lossless,
             )?;
@@ -258,13 +258,6 @@ async fn main() -> Result<()> {
                 value: handrolled_report.max_abs_diff,
             });
 
-            let baseline_timings = run_handrolled_baseline_timings(
-                &parquet_path,
-                &prepared.query,
-                DEFAULT_THRESHOLD,
-                args.iterations,
-            )?;
-
             sizes.push(CustomUnitMeasurement {
                 name: format!("{label} size/{}", prepared.name),
                 format: Format::Parquet,
@@ -274,24 +267,24 @@ async fn main() -> Result<()> {
             timings.push(CompressionTimingMeasurement {
                 name: format!("decompress time/{bench_name}"),
                 format: Format::Parquet,
-                time: baseline_timings.decompress,
+                time: baseline_result.timings.decompress,
             });
             timings.push(CompressionTimingMeasurement {
                 name: format!("cosine-similarity time/{bench_name}"),
                 format: Format::Parquet,
-                time: baseline_timings.cosine,
+                time: baseline_result.timings.cosine,
             });
             timings.push(CompressionTimingMeasurement {
                 name: format!("cosine-filter time/{bench_name}"),
                 format: Format::Parquet,
-                time: baseline_timings.filter,
+                time: baseline_result.timings.filter,
             });
 
             progress.inc(1);
         }
 
         for &variant in &variants {
-            let prep = prepare_variant(&prepared, variant, &SESSION)?;
+            let prep = prepare_variant(&prepared, variant)?;
 
             let variant_label = variant.label();
             let bench_name = format!("{variant_label}/{}", prepared.name);
@@ -311,7 +304,6 @@ async fn main() -> Result<()> {
                 &prepared.query,
                 &baseline_scores,
                 kind,
-                &SESSION,
             )?;
             tracing::info!(
                 "{} verification ({:?}): max_abs_diff={:.2e}, mean_abs_diff={:.2e}",
@@ -345,8 +337,7 @@ async fn main() -> Result<()> {
                 time: prep.compress_duration,
             });
 
-            let variant_timings =
-                run_timings(&prep.array, &prepared.query, args.iterations, &SESSION)?;
+            let variant_timings = run_timings(&prep.array, &prepared.query, args.iterations)?;
 
             timings.push(CompressionTimingMeasurement {
                 name: format!("decompress time/{bench_name}"),
@@ -373,7 +364,6 @@ async fn main() -> Result<()> {
                     &prep.array,
                     args.recall_queries,
                     args.recall_k,
-                    &SESSION,
                 )?;
                 tracing::info!("Recall@{} for {}: {:.4}", args.recall_k, bench_name, recall);
                 recalls.push(CustomUnitMeasurement {

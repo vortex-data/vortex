@@ -16,7 +16,6 @@
 
 use anyhow::Result;
 use vortex::array::ArrayRef;
-use vortex::session::VortexSession;
 use vortex::utils::aliases::hash_set::HashSet;
 
 use crate::extract_query_row;
@@ -26,7 +25,8 @@ use crate::verify::compute_cosine_scores;
 pub const DEFAULT_TOP_K: usize = 10;
 
 /// Compute recall@K for the lossy `compressed` variant against the `uncompressed`
-/// ground-truth variant, averaged over `num_queries` sampled query rows.
+/// ground-truth variant, averaged over `num_queries` sampled query rows. Uses the
+/// global [`vortex_bench::SESSION`] for all executions.
 ///
 /// Query selection is deterministic: rows are picked uniformly across the dataset at
 /// `step = uncompressed.len() / num_queries` intervals. This keeps the result stable
@@ -36,7 +36,6 @@ pub fn measure_recall_at_k(
     compressed: &ArrayRef,
     num_queries: usize,
     top_k: usize,
-    session: &VortexSession,
 ) -> Result<f64> {
     assert!(
         num_queries > 0,
@@ -60,10 +59,10 @@ pub fn measure_recall_at_k(
         let row = (q * step).min(num_rows - 1);
         let query = extract_query_row(uncompressed, row)?;
 
-        let gt_scores = compute_cosine_scores(uncompressed, &query, session)?;
+        let gt_scores = compute_cosine_scores(uncompressed, &query)?;
         let truth = top_k_indices(&gt_scores, top_k);
 
-        let lossy_scores = compute_cosine_scores(compressed, &query, session)?;
+        let lossy_scores = compute_cosine_scores(compressed, &query)?;
         let lossy = top_k_indices(&lossy_scores, top_k);
 
         let truth_set: HashSet<usize> = truth.iter().copied().collect();
@@ -90,8 +89,6 @@ fn top_k_indices(scores: &[f32], top_k: usize) -> Vec<usize> {
 
 #[cfg(test)]
 mod tests {
-    use vortex_bench::SESSION;
-
     use super::*;
     use crate::Variant;
     use crate::extract_query_row;
@@ -128,7 +125,7 @@ mod tests {
         let num_rows = 64usize;
         let uncompressed = synthetic_vector(dim, num_rows, 0xC0FFEE);
 
-        let recall = measure_recall_at_k(&uncompressed, &uncompressed, 4, 10, &SESSION).unwrap();
+        let recall = measure_recall_at_k(&uncompressed, &uncompressed, 4, 10).unwrap();
         assert!(
             (recall - 1.0).abs() < 1e-9,
             "self-recall must be 1.0, got {recall}"
@@ -151,12 +148,12 @@ mod tests {
             parquet_bytes: 0,
         };
 
-        let tq_prep = prepare_variant(&prepared, Variant::VortexTurboQuant, &SESSION).unwrap();
+        let tq_prep = prepare_variant(&prepared, Variant::VortexTurboQuant).unwrap();
 
         // With only 64 random rows, recall@10 won't be 1.0 but it should be well
         // above chance (10/64 ≈ 0.156). The test asserts a loose lower bound to catch
         // total regressions without being flaky on distribution noise.
-        let recall = measure_recall_at_k(&uncompressed, &tq_prep.array, 4, 10, &SESSION).unwrap();
+        let recall = measure_recall_at_k(&uncompressed, &tq_prep.array, 4, 10).unwrap();
         assert!(
             recall >= 0.3,
             "TurboQuant recall@10 on 64×128 synthetic data should be ≥0.3, got {recall}",

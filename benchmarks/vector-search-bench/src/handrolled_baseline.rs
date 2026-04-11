@@ -187,20 +187,51 @@ pub struct HandrolledBaselineData {
     pub num_rows: usize,
 }
 
+/// Result of running the hand-rolled baseline timing loop.
+///
+/// Carries both the best-of-N timing numbers **and** the cosine scores from the final
+/// iteration. The scores are exposed so the caller can feed them into
+/// [`crate::verify::verify_and_report_scores`] for the correctness check without
+/// re-reading the parquet file. Because `cosine_loop` is deterministic, the scores
+/// from any iteration equal the scores from every other iteration; using the last
+/// one is simply the most convenient snapshot.
+pub struct HandrolledBaselineResult {
+    /// Best-of-N wall times for decompress / cosine / filter.
+    pub timings: VariantTimings,
+    /// Cosine-similarity scores from the final iteration. Length equals the dataset
+    /// row count.
+    pub last_scores: Vec<f32>,
+}
+
 /// Run the decompress / cosine / filter microbenchmarks for the hand-rolled baseline
-/// and return the best-of-N wall times. The decompress phase re-reads the parquet file
-/// from disk on each iteration (matches how the Vortex variants re-execute their tree
-/// from scratch each iteration), and the compute phase runs [`cosine_loop`] and
-/// [`filter_loop`] over the flat `Vec<f32>` the decompress phase produced.
+/// and return the best-of-N wall times along with the last iteration's cosine scores.
+///
+/// The decompress phase re-reads the parquet file from disk on each iteration (matches
+/// how the Vortex variants re-execute their tree from scratch each iteration), and the
+/// compute phase runs [`cosine_loop`] and [`filter_loop`] over the flat `Vec<f32>` the
+/// decompress phase produced. Returning the last iteration's scores lets the caller
+/// perform correctness verification against the Vortex baseline without a redundant
+/// parquet read.
+///
+/// # Panics
+///
+/// Panics if `iterations == 0`. The benchmark CLI defaults to 5 and the lowest
+/// meaningful value is 1 (single-shot best-of-1).
 pub fn run_handrolled_baseline_timings(
     parquet_path: &Path,
     query: &[f32],
     threshold: f32,
     iterations: usize,
-) -> Result<VariantTimings> {
+) -> Result<HandrolledBaselineResult> {
+    assert!(
+        iterations > 0,
+        "run_handrolled_baseline_timings requires iterations >= 1"
+    );
+
     let mut decompress = Duration::MAX;
     let mut cosine = Duration::MAX;
     let mut filter = Duration::MAX;
+    let mut last_scores: Vec<f32> = Vec::new();
 
     for _ in 0..iterations {
         let start = Instant::now();
@@ -216,12 +247,17 @@ pub fn run_handrolled_baseline_timings(
         let matches = filter_loop(&scores, threshold);
         filter = filter.min(start.elapsed());
         debug_assert_eq!(matches.len(), data.num_rows);
+
+        last_scores = scores;
     }
 
-    Ok(VariantTimings {
-        decompress,
-        cosine,
-        filter,
+    Ok(HandrolledBaselineResult {
+        timings: VariantTimings {
+            decompress,
+            cosine,
+            filter,
+        },
+        last_scores,
     })
 }
 
@@ -329,5 +365,37 @@ mod tests {
 
         let mask = filter_loop(&scores, 0.5);
         assert_eq!(mask, vec![true, false, true]);
+    }
+
+    #[test]
+    fn run_handrolled_baseline_timings_returns_last_iteration_scores() {
+        // Verifies the new `last_scores` contract: the timing loop returns the
+        // cosine scores from the final iteration, and those scores match what we'd
+        // get from a one-shot `cosine_loop` on the same data. Callers of
+        // `run_handrolled_baseline_timings` rely on this for verification (so they
+        // don't need a second parquet read to compute ground-truth scores).
+        let file =
+            write_tiny_fsl_parquet(3, &[&[1.0, 0.0, 0.0], &[0.0, 1.0, 0.0], &[1.0, 0.0, 0.0]])
+                .unwrap();
+        let query = [1.0f32, 0.0, 0.0];
+
+        let result = run_handrolled_baseline_timings(file.path(), &query, 0.5, 3).unwrap();
+
+        // Deterministic expected scores: rows 0 and 2 match the query exactly,
+        // row 1 is orthogonal.
+        assert_eq!(result.last_scores, vec![1.0, 0.0, 1.0]);
+        assert!(result.timings.decompress > Duration::ZERO);
+        assert!(result.timings.cosine > Duration::ZERO);
+        assert!(result.timings.filter > Duration::ZERO);
+    }
+
+    #[test]
+    #[should_panic(expected = "iterations >= 1")]
+    fn run_handrolled_baseline_timings_panics_on_zero_iterations() {
+        let file =
+            write_tiny_fsl_parquet(3, &[&[1.0, 0.0, 0.0], &[0.0, 1.0, 0.0], &[1.0, 0.0, 0.0]])
+                .unwrap();
+        let query = [1.0f32, 0.0, 0.0];
+        let _result = run_handrolled_baseline_timings(file.path(), &query, 0.5, 0);
     }
 }
