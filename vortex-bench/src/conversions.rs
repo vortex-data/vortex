@@ -503,6 +503,31 @@ mod tests {
     }
 
     #[test]
+    fn all_invalid_list_validity_is_rejected() {
+        // A list with `Validity::AllInvalid` means every row is null. The Vector
+        // extension type requires non-nullable elements at the FSL level, so we
+        // must reject this input rather than silently dropping the validity mask.
+        let elements = PrimitiveArray::new::<f32>(
+            BufferMut::<f32>::from_iter([1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0]).freeze(),
+            Validity::NonNullable,
+        )
+        .into_array();
+        let offsets = PrimitiveArray::new::<i32>(
+            BufferMut::<i32>::from_iter([0i32, 3, 6]).freeze(),
+            Validity::NonNullable,
+        )
+        .into_array();
+        let list =
+            vortex::array::Array::<List>::new(elements, offsets, Validity::AllInvalid).into_array();
+
+        let err = list_to_vector_ext(list).unwrap_err().to_string();
+        assert!(
+            err.contains("list rows must be non-nullable"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
     fn non_float_element_type_is_rejected() {
         // Build a List<i32>.
         let elements = PrimitiveArray::new::<i32>(

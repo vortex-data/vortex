@@ -24,6 +24,7 @@ use anyhow::Result;
 use anyhow::bail;
 use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
+use vortex::dtype::PType;
 use vortex::session::VortexSession;
 
 use crate::execute_cosine;
@@ -78,9 +79,17 @@ impl VerificationReport {
 }
 
 /// Compute cosine-similarity scores for a single query row on `data` and return them
-/// as a plain `Vec<f32>`. This is just a convenience wrapper around
+/// as a plain `Vec<f32>`. This is a convenience wrapper around
 /// [`crate::execute_cosine`] that pulls the f32 slice out of the resulting
 /// `PrimitiveArray`.
+///
+/// # Errors
+///
+/// Returns an error if [`execute_cosine`] fails (bad input shape or dispatch error),
+/// or if the cosine expression produces a non-`f32` primitive array. The latter can't
+/// happen today because the benchmark only wires `f32` `Vector` columns, but the
+/// explicit ptype check keeps the function sound if the scalar-fn output type ever
+/// widens (e.g. to `f64`) without the caller noticing.
 pub fn compute_cosine_scores(
     data: &ArrayRef,
     query: &[f32],
@@ -88,6 +97,12 @@ pub fn compute_cosine_scores(
 ) -> Result<Vec<f32>> {
     let mut ctx = session.create_execution_ctx();
     let scores = execute_cosine(data, query, &mut ctx)?;
+    if scores.ptype() != PType::F32 {
+        bail!(
+            "compute_cosine_scores: cosine output must be f32, got {:?}",
+            scores.ptype()
+        );
+    }
     Ok(scores.as_slice::<f32>().to_vec())
 }
 
@@ -207,33 +222,24 @@ mod tests {
 
     use super::*;
     use crate::Variant;
+    use crate::extract_query_row;
     use crate::prepare_variant;
     use crate::test_utils::synthetic_vector;
 
+    /// Build a `PreparedDataset` whose `query` is row 0 of the dataset. Using
+    /// `extract_query_row` here (rather than a test-local f32 extraction helper) also
+    /// keeps the test surface covered by the same ptype-assertion path the benchmark
+    /// hot path uses.
     fn make_prepared(dim: u32, num_rows: usize, seed: u64) -> crate::PreparedDataset {
         let uncompressed = synthetic_vector(dim, num_rows, seed);
+        let query = extract_query_row(&uncompressed, 0).unwrap();
+        assert_eq!(query.len(), dim as usize);
         crate::PreparedDataset {
             name: "synthetic".to_string(),
             uncompressed,
-            // Filled in below from row 0.
-            query: vec![],
+            query,
             parquet_bytes: 0,
         }
-    }
-
-    fn extract_row_zero(uncompressed: &ArrayRef, dim: u32) -> Vec<f32> {
-        use vortex::array::VortexSessionExecute;
-        use vortex::array::arrays::Extension;
-        use vortex::array::arrays::FixedSizeListArray;
-        use vortex::array::arrays::PrimitiveArray;
-        use vortex::array::arrays::extension::ExtensionArrayExt;
-        use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
-
-        let mut ctx = SESSION.create_execution_ctx();
-        let ext = uncompressed.as_opt::<Extension>().unwrap();
-        let fsl: FixedSizeListArray = ext.storage_array().clone().execute(&mut ctx).unwrap();
-        let elements: PrimitiveArray = fsl.elements().clone().execute(&mut ctx).unwrap();
-        elements.as_slice::<f32>()[..dim as usize].to_vec()
     }
 
     #[test]
@@ -306,11 +312,59 @@ mod tests {
     }
 
     #[test]
+    fn verify_scores_fails_on_nan_in_baseline() {
+        // Symmetric case: NaN on the baseline side should also fail, not just variant.
+        let base = [0.5f32, f32::NAN];
+        let other = [0.5f32, 0.5];
+        let report = verify_scores(&base, &other, VerificationKind::Lossless);
+        assert!(!report.passed);
+        assert!(report.max_abs_diff.is_infinite());
+    }
+
+    #[test]
+    fn verify_and_report_scores_is_ok_for_identical_inputs() {
+        let base = [0.5f32; 10];
+        let report =
+            verify_and_report_scores("self", &base, &base, VerificationKind::Lossless).unwrap();
+        assert!(report.passed);
+        assert_eq!(report.max_abs_diff, 0.0);
+    }
+
+    #[test]
+    fn verify_and_report_scores_bails_for_lossless_mismatch() {
+        let base = [0.5f32; 10];
+        let mut other = [0.5f32; 10];
+        other[3] = 0.6;
+        let err =
+            verify_and_report_scores("broken-variant", &other, &base, VerificationKind::Lossless)
+                .unwrap_err()
+                .to_string();
+        assert!(
+            err.contains("broken-variant correctness check failed"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn verify_and_report_scores_warns_for_lossy_mismatch_without_bailing() {
+        // A lossy variant outside its tolerance should NOT bail — it logs a warning
+        // and returns the failing report so the caller can still emit the
+        // measurement and show recall alongside it.
+        let base = [0.9f32; 10];
+        let mut other = [0.9f32; 10];
+        other[0] = 1.5; // diff of 0.6, above the 0.2 lossy tolerance
+        let report =
+            verify_and_report_scores("too-lossy-variant", &other, &base, VerificationKind::Lossy)
+                .expect("lossy failures should not bail");
+        assert!(!report.passed);
+        assert!(report.max_abs_diff > f64::from(LOSSY_TOLERANCE));
+    }
+
+    #[test]
     fn vortex_default_matches_uncompressed_end_to_end() {
         let dim = 128u32;
         let num_rows = 64usize;
-        let mut prepared = make_prepared(dim, num_rows, 0xC0FFEE);
-        prepared.query = extract_row_zero(&prepared.uncompressed, dim);
+        let prepared = make_prepared(dim, num_rows, 0xC0FFEE);
 
         let baseline_scores =
             compute_cosine_scores(&prepared.uncompressed, &prepared.query, &SESSION).unwrap();
@@ -332,8 +386,7 @@ mod tests {
     fn vortex_turboquant_stays_within_lossy_tolerance() {
         let dim = 128u32;
         let num_rows = 64usize;
-        let mut prepared = make_prepared(dim, num_rows, 0xDEADBEEF);
-        prepared.query = extract_row_zero(&prepared.uncompressed, dim);
+        let prepared = make_prepared(dim, num_rows, 0xDEADBEEF);
 
         let baseline_scores =
             compute_cosine_scores(&prepared.uncompressed, &prepared.query, &SESSION).unwrap();

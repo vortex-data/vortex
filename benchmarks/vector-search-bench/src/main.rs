@@ -179,9 +179,9 @@ async fn main() -> Result<()> {
         .filter_map(|f| f.into_variant())
         .collect();
 
-    // `args.formats.len()` counts both the handrolled baseline and the Vortex variants,
-    // so it matches the number of `progress.inc(1)` calls we'll make below (one per
-    // Vortex variant plus one per dataset for the handrolled path when it's enabled).
+    // One progress unit per inner-loop body: each Vortex variant plus the handrolled
+    // path (when it's enabled) gets exactly one `progress.inc(1)` below. Keep this
+    // count in sync with the number of `progress.inc` sites.
     let total_work = datasets.len() * (variants.len() + usize::from(run_handrolled_baseline));
     let progress = ProgressBar::new(total_work as u64);
 
