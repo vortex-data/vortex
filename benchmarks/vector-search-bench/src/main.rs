@@ -1,0 +1,173 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! `vector-search-bench` — brute-force cosine-similarity benchmark over public VectorDBBench
+//! embedding corpora.
+//!
+//! Usage:
+//!
+//! ```bash
+//! cargo run -p vector-search-bench --release -- \
+//!     --datasets cohere-small \
+//!     --variants vortex-uncompressed,vortex-default,vortex-turboquant \
+//!     --iterations 5 \
+//!     -d table
+//! ```
+
+use std::borrow::Cow;
+use std::path::PathBuf;
+
+use anyhow::Result;
+use clap::Parser;
+use indicatif::ProgressBar;
+use vector_search_bench::Variant;
+use vector_search_bench::prepare_dataset;
+use vector_search_bench::prepare_variant;
+use vector_search_bench::run_timings;
+use vortex_bench::SESSION;
+use vortex_bench::create_output_writer;
+use vortex_bench::display::DisplayFormat;
+use vortex_bench::display::print_measurements_json;
+use vortex_bench::measurements::CompressionTimingMeasurement;
+use vortex_bench::measurements::CustomUnitMeasurement;
+use vortex_bench::setup_logging_and_tracing;
+use vortex_bench::vector_dataset::VectorDataset;
+
+const BENCHMARK_ID: &str = "vector-search";
+
+/// Command-line arguments for `vector-search-bench`.
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Number of timed iterations per measurement. The reported time is the minimum across
+    /// iterations (matches compress-bench convention).
+    #[arg(short, long, default_value_t = 5)]
+    iterations: usize,
+
+    /// Subset of datasets to run. Defaults to Cohere-small.
+    #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![SelectableDataset::CohereSmall])]
+    datasets: Vec<SelectableDataset>,
+
+    /// Subset of variants to exercise. Defaults to all three Vortex variants.
+    #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![Variant::VortexUncompressed, Variant::VortexDefault, Variant::VortexTurboQuant])]
+    variants: Vec<Variant>,
+
+    /// Output display format (`table` for humans, `gh-json` for CI ingestion).
+    #[arg(short, long, default_value_t, value_enum)]
+    display_format: DisplayFormat,
+
+    /// If set, write output to this file instead of stdout.
+    #[arg(short, long)]
+    output_path: Option<PathBuf>,
+
+    /// Verbose logging.
+    #[arg(short, long)]
+    verbose: bool,
+
+    /// Enable perfetto tracing output.
+    #[arg(long)]
+    tracing: bool,
+}
+
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+enum SelectableDataset {
+    #[clap(name = "cohere-small")]
+    CohereSmall,
+}
+
+impl SelectableDataset {
+    fn into_dataset(self) -> VectorDataset {
+        match self {
+            SelectableDataset::CohereSmall => VectorDataset::CohereSmall,
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let args = Args::parse();
+    setup_logging_and_tracing(args.verbose, args.tracing)?;
+
+    let datasets: Vec<VectorDataset> = args
+        .datasets
+        .iter()
+        .copied()
+        .map(SelectableDataset::into_dataset)
+        .collect();
+
+    let total_work = datasets.len() * args.variants.len();
+    let progress = ProgressBar::new(total_work as u64);
+
+    let mut timings: Vec<CompressionTimingMeasurement> = Vec::new();
+    let mut sizes: Vec<CustomUnitMeasurement> = Vec::new();
+
+    for dataset in &datasets {
+        let prepared = prepare_dataset(dataset).await?;
+        tracing::info!(
+            "prepared {}: dim={}, num_rows={}",
+            prepared.name,
+            prepared.dim(),
+            prepared.num_rows()
+        );
+
+        for &variant in &args.variants {
+            let (variant_array, size_bytes) = prepare_variant(&prepared, variant, &SESSION).await?;
+
+            let variant_label = variant.label();
+            let bench_name = format!("{variant_label}/{}", prepared.name);
+
+            sizes.push(CustomUnitMeasurement {
+                name: format!("{variant_label} size/{}", prepared.name),
+                format: variant.as_format(),
+                unit: Cow::from("bytes"),
+                value: size_bytes as f64,
+            });
+
+            let variant_timings =
+                run_timings(&variant_array, &prepared.query, args.iterations, &SESSION)?;
+
+            timings.push(CompressionTimingMeasurement {
+                name: format!("decode time/{bench_name}"),
+                format: variant.as_format(),
+                time: variant_timings.decode,
+            });
+            timings.push(CompressionTimingMeasurement {
+                name: format!("cosine-similarity time/{bench_name}"),
+                format: variant.as_format(),
+                time: variant_timings.cosine,
+            });
+            timings.push(CompressionTimingMeasurement {
+                name: format!("cosine-filter time/{bench_name}"),
+                format: variant.as_format(),
+                time: variant_timings.filter,
+            });
+
+            progress.inc(1);
+        }
+    }
+    progress.finish();
+
+    let mut writer = create_output_writer(&args.display_format, args.output_path, BENCHMARK_ID)?;
+    match args.display_format {
+        DisplayFormat::Table => {
+            // Our variants span multiple `Format` values *and* multiple labels that share a
+            // single `Format`, so the existing `render_table` helper (which groups by
+            // `Target`) would collapse them. Emit one line per measurement instead; this is
+            // only used for developer inspection — CI consumes `gh-json` via the arm below.
+            for timing in &timings {
+                writeln!(writer, "{} {} ns", timing.name, timing.time.as_nanos())?;
+            }
+            for size in &sizes {
+                writeln!(writer, "{} {} {}", size.name, size.value, size.unit)?;
+            }
+        }
+        DisplayFormat::GhJson => {
+            print_measurements_json(&mut writer, timings)?;
+            print_measurements_json(&mut writer, sizes)?;
+        }
+    }
+
+    Ok(())
+}
+
+use std::io::Write;
