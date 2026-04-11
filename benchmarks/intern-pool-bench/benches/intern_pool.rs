@@ -688,6 +688,61 @@ mod atomic_vs_oncelock {
 // Simulates the proposed design: each encoding declares a `static EncodingId`,
 // ordinals are auto-assigned at init, reads are a plain array index.
 
+// ─── Bench G: EncodingId2 — the real proposed API ────────────────────────────
+//
+// Each encoding declares `const ID: EncodingId2 = EncodingId2::new("vortex.primitive")`
+// Ordinals auto-assigned at registration. Hot path: id.ordinal() + registry[ord].
+
+mod encoding_id2 {
+    use intern_pool_bench::EncodingId2;
+    use intern_pool_bench::EncodingRegistry2;
+
+    use super::*;
+
+    // 200 encoding IDs — one per encoding, const-initialized with string names.
+    static ENCODING_IDS2: [EncodingId2; NUM_STRINGS] =
+        [const { EncodingId2::new("placeholder") }; NUM_STRINGS];
+
+    // In real code each encoding has its own const. We simulate with an array
+    // but override names at init time (ordinal assignment is what matters).
+
+    fn registry2() -> &'static EncodingRegistry2<u64> {
+        static REG: OnceLock<EncodingRegistry2<u64>> = OnceLock::new();
+        REG.get_or_init(|| {
+            EncodingRegistry2::build(|builder| {
+                for (i, id) in ENCODING_IDS2.iter().enumerate() {
+                    builder.register(id, i as u64);
+                }
+            })
+        })
+    }
+
+    /// Full hot path: EncodingId2.ordinal() → registry[ord].
+    /// This is how production code would look.
+    #[divan::bench(threads = [1, 2, 4])]
+    fn encoding_id2_lookup(bencher: Bencher) {
+        let reg = registry2();
+        let indices = zipf_indices();
+        bencher.counter(ItemsCount::new(indices.len())).bench(|| {
+            for &i in indices {
+                black_box(reg.get(&ENCODING_IDS2[i]));
+            }
+        });
+    }
+
+    /// Compare: DashMap string lookup (what vortex does today).
+    #[divan::bench(threads = [1, 2, 4])]
+    fn dashmap_str_baseline(bencher: Bencher) {
+        let map = dashmap_pool();
+        let keys = zipf_keys();
+        bencher.counter(ItemsCount::new(keys.len())).bench(|| {
+            for key in keys {
+                black_box(map.get(key).map(|v| *v));
+            }
+        });
+    }
+}
+
 mod global_registry {
     use intern_pool_bench::InternedRegistry;
 

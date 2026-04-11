@@ -267,6 +267,151 @@ impl OnceRacy<u64> {
 // Keep CachedIdAtomic as an alias for backward compat with existing benchmarks.
 pub type CachedIdAtomic = OnceRacy<u16>;
 
+// ─── EncodingId: string name with hidden cached ordinal ──────────────────────
+//
+// Looks like a string ID on the outside (for debug, serialization, display).
+// Internally caches a u16 ordinal for zero-cost lookups on the hot path.
+// The ordinal is auto-assigned at registration time via OnceRacy.
+
+/// An encoding identifier. Wraps a `&'static str` name with a hidden
+/// cached ordinal for O(1) lookup.
+///
+/// Declaration is identical to the current `ArrayId` pattern:
+/// ```
+/// # use intern_pool_bench::EncodingId2;
+/// struct Primitive;
+/// impl Primitive {
+///     const ID: EncodingId2 = EncodingId2::new("vortex.primitive");
+/// }
+///
+/// struct Bool;
+/// impl Bool {
+///     const ID: EncodingId2 = EncodingId2::new("vortex.bool");
+/// }
+/// ```
+///
+/// The ordinal is hidden — callers see a string-like ID, the registry
+/// handles ordinal assignment internally.
+pub struct EncodingId2 {
+    name: &'static str,
+    ordinal: OnceRacy<u16>,
+}
+
+impl EncodingId2 {
+    /// Create a new encoding ID. The ordinal is unset until registration.
+    pub const fn new(name: &'static str) -> Self {
+        Self {
+            name,
+            ordinal: OnceRacy::<u16>::new(),
+        }
+    }
+
+    /// The human-readable name (for debug, serialization, display).
+    #[inline(always)]
+    pub fn name(&self) -> &'static str {
+        self.name
+    }
+
+    /// The dense ordinal — assigned at registration, used for hot-path lookups.
+    /// Returns `None` if not yet registered.
+    #[inline(always)]
+    pub fn ordinal(&self) -> Option<u16> {
+        self.ordinal.get()
+    }
+
+    /// The dense ordinal, assuming registration has happened.
+    /// In release builds, returns the raw value without checking.
+    #[inline(always)]
+    pub fn ordinal_unchecked(&self) -> u16 {
+        self.ordinal.get_unchecked()
+    }
+}
+
+impl std::fmt::Debug for EncodingId2 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}(#{})", self.name, self.ordinal.get_unchecked())
+    }
+}
+
+impl std::fmt::Display for EncodingId2 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name)
+    }
+}
+
+impl PartialEq for EncodingId2 {
+    /// Compare by ordinal on the hot path — single integer compare.
+    /// Falls back to string compare if either side is unregistered.
+    #[inline(always)]
+    fn eq(&self, other: &Self) -> bool {
+        match (self.ordinal.get(), other.ordinal.get()) {
+            (Some(a), Some(b)) => a == b,
+            _ => self.name == other.name,
+        }
+    }
+}
+
+impl Eq for EncodingId2 {}
+
+// SAFETY: name is &'static str (Sync), ordinal is OnceRacy (Sync).
+unsafe impl Sync for EncodingId2 {}
+
+/// Registry that assigns ordinals to `EncodingId2` values and stores payloads.
+pub struct EncodingRegistry2<T> {
+    values: Vec<T>,
+}
+
+impl<T> EncodingRegistry2<T> {
+    /// Create an empty registry and register encodings.
+    ///
+    /// Each call to `register` assigns the next sequential ordinal.
+    pub fn build(init: impl FnOnce(&mut EncodingRegistryBuilder2<T>)) -> Self {
+        let mut builder = EncodingRegistryBuilder2 { values: Vec::new() };
+        init(&mut builder);
+        Self {
+            values: builder.values,
+        }
+    }
+
+    /// Lookup by encoding ID — the hot path. Just an array index.
+    #[inline(always)]
+    pub fn get(&self, id: &EncodingId2) -> &T {
+        let ord = id.ordinal_unchecked();
+        // SAFETY: ordinals are assigned by us and are in range.
+        unsafe { self.values.get_unchecked(ord as usize) }
+    }
+
+    /// Number of registered encodings.
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    /// Whether the registry is empty.
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+}
+
+/// Builder for `EncodingRegistry2`. Passed to the init closure.
+pub struct EncodingRegistryBuilder2<T> {
+    values: Vec<T>,
+}
+
+impl<T> EncodingRegistryBuilder2<T> {
+    /// Register an encoding. Auto-assigns the next ordinal.
+    pub fn register(&mut self, id: &EncodingId2, value: T) {
+        let ord = self.values.len() as u16;
+        id.ordinal.set(ord);
+        self.values.push(value);
+    }
+}
+
+/// For ASM inspection: the full hot path (read ordinal + index registry).
+#[inline(never)]
+pub fn read_encoding2<'a, T>(id: &EncodingId2, registry: &'a EncodingRegistry2<T>) -> &'a T {
+    registry.get(id)
+}
+
 // ─── Const-evaluable hash function ──────────────────────────────────────────
 //
 // Uses wyhash-style widening multiply for high-quality mixing.
