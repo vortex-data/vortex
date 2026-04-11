@@ -10053,6 +10053,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
+name = "vector-search-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "clap",
+ "indicatif",
+ "itertools 0.14.0",
+ "tokio",
+ "tracing",
+ "vortex",
+ "vortex-bench",
+ "vortex-btrblocks",
+ "vortex-tensor",
+]
+
+[[package]]
 name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
