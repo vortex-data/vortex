@@ -28,6 +28,7 @@ use arc_swap::cache::Cache as ArcSwapCache;
 use dashmap::DashMap;
 use divan::Bencher;
 use divan::counter::ItemsCount;
+use intern_pool_bench::CompactPool;
 use parking_lot::RwLock;
 use rand::prelude::*;
 use rand_distr::Zipf;
@@ -191,6 +192,27 @@ fn dashmap_pool() -> &'static DashMap<&'static str, u64, FxBuildHasher> {
     })
 }
 
+fn compact_pool() -> &'static CompactPool {
+    static POOL: OnceLock<CompactPool> = OnceLock::new();
+    POOL.get_or_init(|| {
+        CompactPool::new(
+            test_strings()
+                .iter()
+                .enumerate()
+                .map(|(i, s)| (*s, i as u64)),
+        )
+    })
+}
+
+/// Pre-computed hashes for the Zipfian key set (for pre-hashed lookup benchmarks).
+fn zipf_hashes() -> &'static [u64] {
+    static HASHES: OnceLock<Vec<u64>> = OnceLock::new();
+    HASHES.get_or_init(|| {
+        let pool = compact_pool();
+        zipf_keys().iter().map(|k| pool.hash_key(k)).collect()
+    })
+}
+
 // ─── Bench A: Algorithm Comparison (single-threaded, no sync overhead) ───────
 
 mod algo {
@@ -222,6 +244,23 @@ mod algo {
         let map = super::ahash_hashmap();
         let key = test_strings()[NUM_STRINGS / 2];
         bencher.bench(|| black_box(map.get(key)));
+    }
+
+    /// CompactPool: hash-only comparison, no `bcmp` key compare call.
+    #[divan::bench]
+    fn compact_pool(bencher: Bencher) {
+        let pool = super::compact_pool();
+        let key = test_strings()[NUM_STRINGS / 2];
+        bencher.bench(|| black_box(pool.get(key)));
+    }
+
+    /// CompactPool with pre-computed hash: skips both hashing AND key comparison.
+    #[divan::bench]
+    fn compact_pool_prehashed(bencher: Bencher) {
+        let pool = super::compact_pool();
+        let key = test_strings()[NUM_STRINGS / 2];
+        let hash = pool.hash_key(key);
+        bencher.bench(|| black_box(pool.get_by_hash(hash)));
     }
 
     #[divan::bench]
@@ -369,6 +408,31 @@ mod zipf_throughput {
     }
 
     // ─── Hash algorithm comparison (all use OnceLock / no sync) ──────────
+
+    /// CompactPool: hash-only lookup (no key comparison). Uses foldhash internally.
+    #[divan::bench(threads = [1, 2, 4])]
+    fn compact_pool(bencher: Bencher) {
+        let pool = super::compact_pool();
+        let keys = zipf_keys();
+        bencher.counter(ItemsCount::new(keys.len())).bench(|| {
+            for key in keys {
+                black_box(pool.get(key));
+            }
+        });
+    }
+
+    /// CompactPool with pre-computed hashes: zero hashing, zero key comparison.
+    /// This is the theoretical speed-of-light for this workload.
+    #[divan::bench(threads = [1, 2, 4])]
+    fn compact_pool_prehashed(bencher: Bencher) {
+        let pool = super::compact_pool();
+        let hashes = zipf_hashes();
+        bencher.counter(ItemsCount::new(hashes.len())).bench(|| {
+            for &hash in hashes {
+                black_box(pool.get_by_hash(hash));
+            }
+        });
+    }
 
     #[divan::bench(threads = [1, 2, 4])]
     fn foldhash(bencher: Bencher) {

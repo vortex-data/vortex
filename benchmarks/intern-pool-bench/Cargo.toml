@@ -14,16 +14,19 @@ rust-version.workspace = true
 version.workspace = true
 publish = false
 
-[dev-dependencies]
+[dependencies]
 ahash = "0.8"
 arc-swap = { workspace = true }
+foldhash = "0.2"
+hashbrown = { workspace = true }
+rustc-hash = { workspace = true }
+
+[dev-dependencies]
 dashmap = { workspace = true }
 divan = { workspace = true }
-hashbrown = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
 rand_distr = { workspace = true }
-rustc-hash = { workspace = true }
 
 [lints]
 workspace = true

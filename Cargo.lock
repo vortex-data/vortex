@@ -4897,6 +4897,7 @@ dependencies = [
  "arc-swap",
  "codspeed-divan-compat",
  "dashmap",
+ "foldhash 0.2.0",
  "hashbrown 0.16.1",
  "parking_lot",
  "rand 0.10.0",
