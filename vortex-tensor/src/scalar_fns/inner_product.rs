@@ -184,8 +184,9 @@ impl ScalarFnVTable for InnerProduct {
             return Ok(rewritten);
         }
 
-        // Reduction case 2: `InnerProduct(Vector[FSL(Dict(u8, f32<=256))], const)` is
-        // computed by precomputing a product table and gather-summing over the codes.
+        // Reduction case 2: `InnerProduct(Vector[FSL(Dict(u8, f32))], const)` is computed by
+        // gather-summing `q[j] * values[codes[j] as usize]` per row, reading the codebook
+        // directly instead of decoding the column into dense vectors.
         if let Some(result) = self.try_execute_dict_constant(&lhs_ref, &rhs_ref, len, ctx)? {
             return Ok(result);
         }
@@ -330,17 +331,14 @@ impl InnerProduct {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // Identify which side is the SorfTransform, if any.
-        let (sorf_ref, const_ref) = if lhs_ref.is::<ExactScalarFn<SorfTransform>>() {
-            (lhs_ref, rhs_ref)
-        } else if rhs_ref.is::<ExactScalarFn<SorfTransform>>() {
-            (rhs_ref, lhs_ref)
-        } else {
-            return Ok(None);
-        };
-
-        let sorf_view = sorf_ref
-            .as_opt::<ExactScalarFn<SorfTransform>>()
-            .vortex_expect("just checked via `is`");
+        let (sorf_view, const_ref) =
+            if let Some(view) = lhs_ref.as_opt::<ExactScalarFn<SorfTransform>>() {
+                (view, rhs_ref)
+            } else if let Some(view) = rhs_ref.as_opt::<ExactScalarFn<SorfTransform>>() {
+                (view, lhs_ref)
+            } else {
+                return Ok(None);
+            };
 
         // TODO(connor): pull-through is only sound for F32 because SorfTransform applies an
         // `f32 -> element_ptype` cast at the end of its execute. For F16/F64 the rewrite
@@ -443,17 +441,38 @@ impl InnerProduct {
         len: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Identify which side is `Extension[FSL[Dict]]`, with a non-canonicalizing peek.
-        let (dict_ref, const_ref) = if is_dict_fsl_extension(lhs_ref) {
-            (lhs_ref, rhs_ref)
-        } else if is_dict_fsl_extension(rhs_ref) {
-            (rhs_ref, lhs_ref)
-        } else {
+        // Try each orientation. The oriented helper navigates each side exactly once, so
+        // the only redundant work here is the failed navigation of the first side when the
+        // dict happens to be on the right.
+        if let Some(result) = self.try_execute_dict_constant_oriented(lhs_ref, rhs_ref, len, ctx)? {
+            return Ok(Some(result));
+        }
+        self.try_execute_dict_constant_oriented(rhs_ref, lhs_ref, len, ctx)
+    }
+
+    /// Orientation-specific helper for [`Self::try_execute_dict_constant`]. `dict_candidate`
+    /// is tried as `Extension[FSL[Dict]]`; `const_candidate` is tried as a constant-backed
+    /// tensor extension. Returns `Ok(None)` if either navigation fails or any gate rejects.
+    fn try_execute_dict_constant_oriented(
+        &self,
+        dict_candidate: &ArrayRef,
+        const_candidate: &ArrayRef,
+        len: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        // Navigate the dict side.
+        let Some(dict_ext) = dict_candidate.as_opt::<Extension>() else {
+            return Ok(None);
+        };
+        let Some(fsl) = dict_ext.storage_array().as_opt::<FixedSizeList>() else {
+            return Ok(None);
+        };
+        let Some(dict) = fsl.elements().as_opt::<Dict>() else {
             return Ok(None);
         };
 
-        // Detect the constant-backed extension on the other side.
-        let Some(const_ext) = const_ref.as_opt::<Extension>() else {
+        // Navigate the constant side and require its scalar be non-null.
+        let Some(const_ext) = const_candidate.as_opt::<Extension>() else {
             return Ok(None);
         };
         let const_storage = const_ext.storage_array();
@@ -464,21 +483,8 @@ impl InnerProduct {
             return Ok(None);
         }
 
-        // Navigate into the dict side. We already verified the shape via the peek.
-        let dict_ext = dict_ref
-            .as_opt::<Extension>()
-            .vortex_expect("peek guaranteed Extension");
-        let fsl = dict_ext
-            .storage_array()
-            .as_opt::<FixedSizeList>()
-            .vortex_expect("peek guaranteed FixedSizeList");
-        let dict = fsl
-            .elements()
-            .as_opt::<Dict>()
-            .vortex_expect("peek guaranteed Dict");
-
         // Canonicalize codes and values. Codes may be e.g. BitPacked; executing is cheaper
-        // than falling through to the naive path (which would also canonicalize).
+        // than falling through to the standard path (which would also canonicalize).
         let codes_prim: PrimitiveArray = dict.codes().clone().execute(ctx)?;
         let values_prim: PrimitiveArray = dict.values().clone().execute(ctx)?;
 
@@ -505,9 +511,11 @@ impl InnerProduct {
 
         // Combine the input validities up front; the per-row arithmetic may write garbage
         // into null rows but the validity mask hides it (matching the standard path).
-        let validity = dict_ref.validity()?.and(const_ref.validity()?)?;
+        let validity = dict_candidate
+            .validity()?
+            .and(const_candidate.validity()?)?;
 
-        // Fast path for the empty case: skip the product-table allocation entirely.
+        // Fast path for the empty case: skip allocating and touching the codes buffer.
         if len == 0 {
             let empty = PrimitiveArray::empty::<f32>(validity.nullability());
             return Ok(Some(empty.into_array()));
@@ -519,8 +527,8 @@ impl InnerProduct {
         let values: &[f32] = values_prim.as_slice::<f32>();
         debug_assert_eq!(codes.len(), len * padded_dim);
 
-        // Direct codebook lookup: `acc += q[j] * values[codes[j]]`. See the benchmark
-        // comment below for why this beats an explicit product table here.
+        // Direct codebook lookup in the hot loop. See the function doc comment for why this
+        // beats an explicit product table here.
         let mut out = BufferMut::<f32>::with_capacity(len);
         for row in 0..len {
             let row_codes = &codes[row * padded_dim..(row + 1) * padded_dim];
@@ -536,19 +544,6 @@ impl InnerProduct {
         let result = unsafe { PrimitiveArray::new_unchecked(out.freeze(), validity) }.into_array();
         Ok(Some(result))
     }
-}
-
-/// Non-canonicalizing shape peek: returns `true` iff `arr` is an `Extension` whose storage
-/// is a `FixedSizeList` whose elements are a `Dict`. Used to pick the dict side of an
-/// `InnerProduct` without doing any execution work.
-fn is_dict_fsl_extension(arr: &ArrayRef) -> bool {
-    let Some(ext) = arr.as_opt::<Extension>() else {
-        return false;
-    };
-    let Some(fsl) = ext.storage_array().as_opt::<FixedSizeList>() else {
-        return false;
-    };
-    fsl.elements().as_opt::<Dict>().is_some()
 }
 
 /// Computes the inner product (dot product) of two equal-length float slices.
@@ -781,13 +776,13 @@ mod tests {
         Ok(())
     }
 
-    // ---- Case 1 (SorfTransform + Constant) and Case 2 (Dict + Constant) tests ----
+    // ---- Tests for the `SorfTransform + constant` and `Dict + constant` fast paths ----
 
     #[allow(
         clippy::cast_possible_truncation,
         reason = "tests build small fixtures with deterministic in-range indices"
     )]
-    mod case_1_and_2 {
+    mod constant_query_optimizations {
         use std::sync::LazyLock;
 
         use rstest::rstest;
@@ -809,7 +804,6 @@ mod tests {
         use vortex_array::session::ArraySession;
         use vortex_array::validity::Validity;
         use vortex_buffer::Buffer;
-        use vortex_buffer::BufferMut;
         use vortex_error::VortexResult;
         use vortex_session::VortexSession;
 
@@ -852,16 +846,12 @@ mod tests {
         /// TurboQuant produces as the SorfTransform child.
         fn dict_vector_f32(list_size: u32, codes: &[u8], values: &[f32]) -> VortexResult<ArrayRef> {
             let num_rows = codes.len() / list_size as usize;
-            let codes_arr = {
-                let mut buf = BufferMut::<u8>::with_capacity(codes.len());
-                buf.extend_from_slice(codes);
-                PrimitiveArray::new::<u8>(buf.freeze(), Validity::NonNullable).into_array()
-            };
-            let values_arr = {
-                let mut buf = BufferMut::<f32>::with_capacity(values.len());
-                buf.extend_from_slice(values);
-                PrimitiveArray::new::<f32>(buf.freeze(), Validity::NonNullable).into_array()
-            };
+            let codes_arr =
+                PrimitiveArray::new::<u8>(Buffer::copy_from(codes), Validity::NonNullable)
+                    .into_array();
+            let values_arr =
+                PrimitiveArray::new::<f32>(Buffer::copy_from(values), Validity::NonNullable)
+                    .into_array();
             let dict = DictArray::try_new(codes_arr, values_arr)?;
             let fsl = FixedSizeListArray::try_new(
                 dict.into_array(),
@@ -896,7 +886,7 @@ mod tests {
 
         /// Build a SorfTransform ScalarFnArray whose child is a `Vector<padded_dim, f32>`
         /// wrapping `FSL(Dict(codes, values))`. Returns `(sorf_array, codes, values,
-        /// padded_dim, dim)`.
+        /// padded_dim)`.
         fn build_sorf_with_dict_child(
             dim: u32,
             num_rows: usize,
@@ -955,19 +945,16 @@ mod tests {
 
         // ---- Case 1: SorfTransform + Constant pull-through ----
 
-        /// Case 1: SorfTransform on LHS, constant query on RHS, `dim < padded_dim`.
+        /// Case 1: SorfTransform on LHS, constant query on RHS, with `dim < padded_dim`
+        /// so the zero-padding branch is exercised.
         #[test]
         fn case1_sorf_lhs_constant_rhs_padded_gt_dim() -> VortexResult<()> {
-            let dim: u32 = 128;
-            let padded_dim = (dim as usize).next_power_of_two();
-            assert_eq!(padded_dim, 128); // degenerate case for this dim, handled by next test
-            // Bump dim to exercise padding explicitly.
             let dim: u32 = 100;
-            let padded_dim = (dim as usize).next_power_of_two();
-            assert!(padded_dim > dim as usize);
             let num_rows = 7usize;
             let seed = 42u64;
             let num_rounds = 3u8;
+            let padded_dim = (dim as usize).next_power_of_two();
+            assert!(padded_dim > dim as usize, "test must exercise padding");
 
             let (sorf_lhs, codes, values, padded_dim_computed) =
                 build_sorf_with_dict_child(dim, num_rows, seed, num_rounds)?;
@@ -1095,7 +1082,7 @@ mod tests {
             Ok(())
         }
 
-        // ---- Case 2: Dict + Constant product-table path ----
+        // ---- Case 2: Dict + Constant direct-lookup path ----
 
         /// Case 2: Vector[FSL[Dict(u8, f32)]] on LHS, constant query on RHS.
         #[test]
@@ -1169,18 +1156,16 @@ mod tests {
             let num_values = 300usize;
             let values: Vec<f32> = (0..num_values).map(|i| i as f32 * 0.01).collect();
             // Codes must be u16 because 300 > 255. dict_vector_f32 only supports u8 so we
-            // need a u16-coded dict here.
-            let mut codes_u16_buf = BufferMut::<u16>::with_capacity(num_rows * 4);
-            for i in 0..(num_rows * 4) {
-                codes_u16_buf.push((i % num_values) as u16);
-            }
+            // build the dict by hand here.
+            let codes_u16: Vec<u16> = (0..(num_rows * 4))
+                .map(|i| (i % num_values) as u16)
+                .collect();
             let codes_arr =
-                PrimitiveArray::new::<u16>(codes_u16_buf.freeze(), Validity::NonNullable)
+                PrimitiveArray::new::<u16>(Buffer::copy_from(codes_u16), Validity::NonNullable)
                     .into_array();
-            let mut values_buf = BufferMut::<f32>::with_capacity(values.len());
-            values_buf.extend_from_slice(&values);
             let values_arr =
-                PrimitiveArray::new::<f32>(values_buf.freeze(), Validity::NonNullable).into_array();
+                PrimitiveArray::new::<f32>(Buffer::copy_from(&values), Validity::NonNullable)
+                    .into_array();
             let dict = DictArray::try_new(codes_arr, values_arr)?;
             let fsl = FixedSizeListArray::try_new(
                 dict.into_array(),
@@ -1241,7 +1226,7 @@ mod tests {
         }
 
         /// Case 2: empty `len == 0` fast path returns an empty primitive array without
-        /// allocating a product table.
+        /// touching the codes buffer.
         #[test]
         fn case2_empty_len_zero() -> VortexResult<()> {
             let list_size: u32 = 4;
