@@ -16,12 +16,10 @@
 
 use anyhow::Result;
 use vortex::array::ArrayRef;
-use vortex::array::VortexSessionExecute;
-use vortex::array::arrays::PrimitiveArray;
-use vortex::array::arrays::extension::ExtensionArrayExt;
 use vortex::session::VortexSession;
 use vortex::utils::aliases::hash_set::HashSet;
 
+use crate::extract_query_row;
 use crate::verify::compute_cosine_scores;
 
 /// Size of the neighbour set we compare. 10 is the standard VectorDBBench default.
@@ -60,7 +58,7 @@ pub fn measure_recall_at_k(
 
     for q in 0..num_queries {
         let row = (q * step).min(num_rows - 1);
-        let query = extract_query_row(uncompressed, row, session)?;
+        let query = extract_query_row(uncompressed, row)?;
 
         let gt_scores = compute_cosine_scores(uncompressed, &query, session)?;
         let truth = top_k_indices(&gt_scores, top_k);
@@ -74,33 +72,6 @@ pub fn measure_recall_at_k(
     }
 
     Ok(total_hits as f64 / total_checked as f64)
-}
-
-fn extract_query_row(
-    vector_ext: &ArrayRef,
-    row: usize,
-    session: &VortexSession,
-) -> Result<Vec<f32>> {
-    use anyhow::Context;
-    use vortex::array::arrays::Extension;
-    use vortex::array::arrays::FixedSizeListArray;
-    use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
-
-    let mut ctx = session.create_execution_ctx();
-    let ext = vector_ext
-        .as_opt::<Extension>()
-        .context("extract_query_row expects an Extension<Vector> array")?;
-    let fsl: FixedSizeListArray = ext.storage_array().clone().execute(&mut ctx)?;
-
-    let dim_usize = match fsl.dtype() {
-        vortex::dtype::DType::FixedSizeList(_, dim, _) => *dim as usize,
-        other => anyhow::bail!("expected FixedSizeList storage, got {other}"),
-    };
-
-    let elements: PrimitiveArray = fsl.elements().clone().execute(&mut ctx)?;
-    let slice = elements.as_slice::<f32>();
-    let start = row * dim_usize;
-    Ok(slice[start..start + dim_usize].to_vec())
 }
 
 /// Return the indices of the top-K highest scores, stable-sorted descending.

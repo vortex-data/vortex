@@ -116,12 +116,14 @@ impl Variant {
 pub struct PreparedDataset {
     /// Name used in metric strings — usually the dataset's `Dataset::name()`.
     pub name: String,
-    /// Uncompressed `Vector<dim, f32>` array (canonical form). This is reused as the
-    /// ground-truth basis for TurboQuant recall checks in future commits.
+    /// Uncompressed `Vector<dim, f32>` array (canonical form). Doubles as the
+    /// ground-truth basis for the correctness-verification pass and for TurboQuant's
+    /// Recall@K quality measurement.
     pub uncompressed: ArrayRef,
     /// The query vector to use (a single row pulled from the dataset).
     pub query: Vec<f32>,
-    /// Parquet file size on disk in bytes — produced by the dataset download step.
+    /// Parquet file size on disk in bytes — produced by the dataset download step
+    /// and reused as the "handrolled size" measurement in main.rs.
     pub parquet_bytes: u64,
 }
 

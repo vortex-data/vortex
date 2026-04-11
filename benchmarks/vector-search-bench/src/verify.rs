@@ -146,21 +146,23 @@ pub fn verify_scores(
     }
 }
 
-/// End-to-end variant verification: executes cosine on `variant_array` against the
-/// same query used for the baseline and returns a [`VerificationReport`]. Returns
-/// `Err` if `kind` is [`VerificationKind::Lossless`] and the scores disagree beyond
-/// [`LOSSLESS_TOLERANCE`] — that indicates a real correctness bug, not a quality
-/// tradeoff.
-pub fn verify_variant(
+/// Verify pre-computed scores against a baseline and enforce the tolerance band.
+///
+/// Takes already-materialized `variant_scores` (as a `&[f32]`) rather than an
+/// `ArrayRef`, so both the Vortex-variant path (which computes scores via
+/// [`execute_cosine`](crate::execute_cosine)) and the hand-rolled baseline path (which
+/// runs a plain Rust loop over a flat `Vec<f32>`) share the same error-handling,
+/// logging, and hard-fail logic without duplicating it in `main.rs`.
+///
+/// Lossless mismatches bail the run with an error; lossy mismatches log a warning
+/// but let the run continue so the recall measurement is still reported.
+pub fn verify_and_report_scores(
     variant_name: &str,
-    variant_array: &ArrayRef,
-    query: &[f32],
+    variant_scores: &[f32],
     baseline_scores: &[f32],
     kind: VerificationKind,
-    session: &VortexSession,
 ) -> Result<VerificationReport> {
-    let scores = compute_cosine_scores(variant_array, query, session)?;
-    let report = verify_scores(baseline_scores, &scores, kind);
+    let report = verify_scores(baseline_scores, variant_scores, kind);
 
     if !report.passed {
         let message = format!(
@@ -180,6 +182,23 @@ pub fn verify_variant(
     }
 
     Ok(report)
+}
+
+/// End-to-end variant verification: executes cosine on `variant_array` against the
+/// same query used for the baseline and returns a [`VerificationReport`]. Returns
+/// `Err` if `kind` is [`VerificationKind::Lossless`] and the scores disagree beyond
+/// [`LOSSLESS_TOLERANCE`] — that indicates a real correctness bug, not a quality
+/// tradeoff.
+pub fn verify_variant(
+    variant_name: &str,
+    variant_array: &ArrayRef,
+    query: &[f32],
+    baseline_scores: &[f32],
+    kind: VerificationKind,
+    session: &VortexSession,
+) -> Result<VerificationReport> {
+    let scores = compute_cosine_scores(variant_array, query, session)?;
+    verify_and_report_scores(variant_name, &scores, baseline_scores, kind)
 }
 
 #[cfg(test)]
