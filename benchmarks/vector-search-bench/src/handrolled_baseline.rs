@@ -258,7 +258,11 @@ pub fn cosine_loop(elements: &[f32], num_rows: usize, dim: usize, query: &[f32])
     out
 }
 
-/// Build the `cosine > threshold` boolean mask.
+/// Build the `cosine > threshold` boolean mask — **strict greater-than**, matching the
+/// Vortex-side path which uses `Operator::Gt` in
+/// [`vortex_tensor::vector_search::build_similarity_search_tree`]. Keep these two in
+/// sync: if one changes the comparison semantics, the correctness-verification pass will
+/// start reporting a mismatch for the lossless variants.
 pub fn filter_loop(scores: &[f32], threshold: f32) -> Vec<bool> {
     scores.iter().map(|&s| s > threshold).collect()
 }

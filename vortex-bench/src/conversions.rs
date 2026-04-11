@@ -278,7 +278,7 @@ pub fn list_to_vector_ext(input: ArrayRef) -> VortexResult<ArrayRef> {
 
     let Some(list) = input.as_opt::<List>() else {
         vortex_bail!(
-            "list_to_vector_ext expects a List array, got dtype {}",
+            "list_to_vector_ext: expected a List array, got dtype {}",
             input.dtype()
         );
     };
@@ -433,7 +433,7 @@ mod tests {
         .into_array();
         let err = list_to_vector_ext(primitive).unwrap_err().to_string();
         assert!(
-            err.contains("expects a List array"),
+            err.contains("expected a List array"),
             "unexpected error: {err}"
         );
     }
