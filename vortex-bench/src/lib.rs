@@ -138,6 +138,13 @@ pub enum Format {
     #[clap(name = "vortex-compact")]
     #[serde(rename = "vortex-compact")]
     VortexCompact,
+    /// Vortex file with the TurboQuant lossy vector-quantization encoding applied to
+    /// [`vortex_tensor::vector::Vector`] columns. Used by the vector-search benchmark to
+    /// distinguish TurboQuant-encoded results from the generic BtrBlocks-compressed
+    /// [`Format::OnDiskVortex`] layout in downstream dashboards.
+    #[clap(name = "vortex-turboquant")]
+    #[serde(rename = "vortex-turboquant")]
+    VortexTurboQuant,
     #[clap(name = "duckdb")]
     #[serde(rename = "duckdb")]
     OnDiskDuckDB,
@@ -177,6 +184,7 @@ impl Format {
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex-file-compressed",
             Format::VortexCompact => "vortex-compact",
+            Format::VortexTurboQuant => "vortex-turboquant",
             Format::OnDiskDuckDB => "duckdb",
             Format::Lance => "lance",
         }
@@ -189,6 +197,7 @@ impl Format {
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex",
             Format::VortexCompact => "vortex",
+            Format::VortexTurboQuant => "vortex",
             Format::OnDiskDuckDB => "duckdb",
             Format::Lance => "lance",
         }

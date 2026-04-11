@@ -63,3 +63,4 @@ vortex = { workspace = true, features = [
     "tokio",
     "zstd",
 ] }
+vortex-tensor = { workspace = true }

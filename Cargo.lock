@@ -10241,6 +10241,7 @@ dependencies = [
  "url",
  "uuid",
  "vortex",
+ "vortex-tensor",
 ]
 
 [[package]]
