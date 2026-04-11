@@ -152,6 +152,8 @@ impl PreparedDataset {
 /// Prepare a dataset by downloading its parquet file, converting the `emb` column to a
 /// `Vector<dim, f32>` extension array, and extracting a single-row query vector.
 pub async fn prepare_dataset(dataset: &VectorDataset) -> Result<PreparedDataset> {
+    use vortex::array::arrays::ExtensionArray;
+
     let parquet_path = dataset
         .to_parquet_path()
         .await
@@ -171,7 +173,14 @@ pub async fn prepare_dataset(dataset: &VectorDataset) -> Result<PreparedDataset>
 
     let struct_array = chunked.into_array();
     let emb_column = extract_emb_column(&struct_array)?;
-    let uncompressed = list_to_vector_ext(emb_column)?;
+    let wrapped = list_to_vector_ext(emb_column)?;
+
+    // `list_to_vector_ext` may return a chunked `Extension<Vector>` when the source was
+    // a `ChunkedArray` of list columns (the usual shape after `parquet_to_vortex_chunks`).
+    // Materialize it into a single non-chunked `ExtensionArray` so downstream code can
+    // treat it uniformly.
+    let mut ctx = SESSION.create_execution_ctx();
+    let uncompressed = wrapped.execute::<ExtensionArray>(&mut ctx)?.into_array();
 
     let query = extract_query_row(&uncompressed, DEFAULT_QUERY_ROW)?;
 

@@ -10058,6 +10058,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arrow-array 58.0.0",
+ "arrow-buffer 58.0.0",
  "arrow-schema 58.0.0",
  "async-trait",
  "clap",
