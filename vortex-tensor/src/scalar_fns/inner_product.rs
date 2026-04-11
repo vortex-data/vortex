@@ -4,22 +4,34 @@
 //! Inner product expression for tensor-like types.
 
 use std::fmt::Formatter;
+use std::sync::Arc;
 
 use num_traits::Float;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Constant;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Dict;
+use vortex_array::arrays::Extension;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::FixedSizeList;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFnArray;
+use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::dtype::extension::ExtDType;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
+use vortex_array::extension::EmptyMetadata;
 use vortex_array::match_each_float_ptype;
+use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
@@ -28,15 +40,20 @@ use vortex_array::scalar_fn::ScalarFn;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
+use crate::encodings::turboquant::MAX_CENTROIDS;
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_denorm::L2Denorm;
+use crate::scalar_fns::sorf_transform::SorfMatrix;
+use crate::scalar_fns::sorf_transform::SorfTransform;
 use crate::utils::extract_flat_elements;
 use crate::utils::extract_l2_denorm_children;
+use crate::vector::Vector;
 
 /// Inner product (dot product) between two columns.
 ///
@@ -161,6 +178,19 @@ impl ScalarFnVTable for InnerProduct {
             }
         }
 
+        // Reduction case 1: `InnerProduct(SorfTransform(x), const)` rewrites to
+        // `InnerProduct(x, forward_rotate(zero_pad(const)))`. Re-executes recursively so
+        // case 2 can fire on the rewritten tree.
+        if let Some(rewritten) = self.try_execute_sorf_constant(&lhs_ref, &rhs_ref, len, ctx)? {
+            return Ok(rewritten);
+        }
+
+        // Reduction case 2: `InnerProduct(Vector[FSL(Dict(u8, f32<=256))], const)` is
+        // computed by precomputing a product table and gather-summing over the codes.
+        if let Some(result) = self.try_execute_dict_constant(&lhs_ref, &rhs_ref, len, ctx)? {
+            return Ok(result);
+        }
+
         // Compute combined validity.
         let validity = lhs_ref.validity()?.and(rhs_ref.validity()?)?;
 
@@ -275,6 +305,256 @@ impl InnerProduct {
             Ok(unsafe { PrimitiveArray::new_unchecked(buffer, validity) }.into_array())
         })
     }
+
+    /// Fast path when one side is `ExactScalarFn<SorfTransform>` and the other side is a
+    /// constant-backed tensor-like extension. Rewrites to
+    /// `InnerProduct(sorf_child, forward_rotate(zero_pad(const_query)))` because SORF is
+    /// orthogonal, so `<T(R^{-1} x), c> = <x, R · zero_pad(c)>` where `T` is the truncation
+    /// from `padded_dim` to `dim` applied by `SorfTransform` and `R` is the SORF forward
+    /// matrix. See the proof in the crate-level docs and in the plan file.
+    ///
+    /// Returns `Ok(None)` if neither side matches or when `element_ptype` is not `F32`. The
+    /// caller is expected to fall through to the standard path in that case.
+    ///
+    /// # TODO(connor):
+    ///
+    /// This rewrite is only sound for `PType::F32` because `SorfTransform` applies an
+    /// `f32 -> element_ptype` cast at the end of its execute (see `sorf_transform/vtable.rs`
+    /// line ~218). For F16/F64 the cast changes the inner product's rounding and would
+    /// change the semantics of the rewrite. Until we push the cast through `InnerProduct`,
+    /// this path only fires for F32.
+    fn try_execute_sorf_constant(
+        &self,
+        lhs_ref: &ArrayRef,
+        rhs_ref: &ArrayRef,
+        len: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        // Identify which side is the SorfTransform, if any.
+        let (sorf_ref, const_ref) = if lhs_ref.is::<ExactScalarFn<SorfTransform>>() {
+            (lhs_ref, rhs_ref)
+        } else if rhs_ref.is::<ExactScalarFn<SorfTransform>>() {
+            (rhs_ref, lhs_ref)
+        } else {
+            return Ok(None);
+        };
+
+        let sorf_view = sorf_ref
+            .as_opt::<ExactScalarFn<SorfTransform>>()
+            .vortex_expect("just checked via `is`");
+
+        // TODO(connor): pull-through is only sound for F32 because SorfTransform applies an
+        // `f32 -> element_ptype` cast at the end of its execute. For F16/F64 the rewrite
+        // would change the inner product's rounding semantics. Fall through so the standard
+        // path (which does the cast before inner product) handles it.
+        if sorf_view.options.element_ptype != PType::F32 {
+            return Ok(None);
+        }
+
+        // The other side must be a constant-backed tensor-like extension whose scalar is
+        // non-null.
+        let Some(const_ext) = const_ref.as_opt::<Extension>() else {
+            return Ok(None);
+        };
+        let const_storage = const_ext.storage_array();
+        let Some(const_backing) = const_storage.as_opt::<Constant>() else {
+            return Ok(None);
+        };
+        if const_backing.scalar().is_null() {
+            return Ok(None);
+        }
+
+        let dim = sorf_view.options.dimension as usize;
+        let num_rounds = sorf_view.options.num_rounds as usize;
+        let seed = sorf_view.options.seed;
+        let padded_dim = dim.next_power_of_two();
+
+        // Extract the single stored row of the constant via the stride-0 short-circuit.
+        let flat = extract_flat_elements(const_storage, dim, ctx)?;
+        if flat.ptype() != PType::F32 {
+            // TODO(connor): as above, f16/f64 are not supported by this rewrite yet. The
+            // standard path handles them correctly.
+            return Ok(None);
+        }
+
+        // Zero-pad the query from `dim` to `padded_dim` and forward-rotate.
+        let mut padded_query = vec![0.0f32; padded_dim];
+        padded_query[..dim].copy_from_slice(flat.row::<f32>(0));
+
+        let rotation = SorfMatrix::try_new(seed, dim, num_rounds)?;
+        let mut rotated_query = vec![0.0f32; padded_dim];
+        rotation.rotate(&padded_query, &mut rotated_query);
+
+        // Build the rewritten constant as a `Vector<padded_dim, f32>` extension wrapping a
+        // `ConstantArray` of length `len`. We reuse the original storage FSL nullability so
+        // the new extension dtype stays consistent with whatever the original tree expected.
+        let storage_fsl_nullability = const_storage.dtype().nullability();
+        let element_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
+        let children: Vec<Scalar> = rotated_query
+            .into_iter()
+            .map(|v| Scalar::primitive(v, Nullability::NonNullable))
+            .collect();
+        let fsl_scalar =
+            Scalar::fixed_size_list(element_dtype.clone(), children, storage_fsl_nullability);
+        let new_storage = ConstantArray::new(fsl_scalar, len).into_array();
+
+        // Build a fresh `Vector<padded_dim, f32>` extension dtype. We cannot reuse the
+        // original extension dtype because that one has `dim`, not `padded_dim`.
+        let padded_dim_u32 = u32::try_from(padded_dim).vortex_expect("padded_dim fits u32");
+        let new_fsl_dtype = DType::FixedSizeList(
+            Arc::new(element_dtype),
+            padded_dim_u32,
+            storage_fsl_nullability,
+        );
+        let new_ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, new_fsl_dtype)?.erased();
+        let new_constant = ExtensionArray::new(new_ext_dtype, new_storage).into_array();
+
+        // Extract the SorfTransform child (the already-padded Vector<padded_dim, f32>).
+        let sorf_child = sorf_view
+            .nth_child(0)
+            .vortex_expect("SorfTransform must have exactly one child");
+
+        // Recursively execute the rewritten inner product. This allows case 2 to fire on
+        // the rewritten tree if the sorf child is `Vector[FSL(Dict)]`. Termination is
+        // guaranteed because the rewrite strictly removes a `SorfTransform` scalar-fn node
+        // from the tree and SORFs cannot be nested.
+        let rewritten = InnerProduct::try_new_array(sorf_child, new_constant, len)?
+            .into_array()
+            .execute(ctx)?;
+        Ok(Some(rewritten))
+    }
+
+    /// Fast path when one side is an extension whose storage is `FSL(Dict(u8, f32))` with
+    /// at most `MAX_CENTROIDS` values, and the other side is a constant-backed tensor
+    /// extension with an F32 element ptype.
+    ///
+    /// Computes each row's inner product as
+    ///   `out[i] = sum_{j in 0..padded_dim} q[j] * values[codes[i * padded_dim + j] as usize]`
+    /// using a direct codebook lookup in the hot loop. An explicit product table
+    /// `P[j, k] = q[j] * values[k]` (size `padded_dim * num_centroids * 4B`, ~1 MiB for the
+    /// common 1024/256 case) was tried and measured ~10% *slower* on the
+    /// `similarity_search` bench because the 1 KiB `values` table stays in L1 across all
+    /// rows, while the 1 MiB product table does not. See the plan file for the math
+    /// justifying both forms.
+    ///
+    /// Returns `Ok(None)` when the pattern doesn't match; the caller should fall through to
+    /// the standard path.
+    fn try_execute_dict_constant(
+        &self,
+        lhs_ref: &ArrayRef,
+        rhs_ref: &ArrayRef,
+        len: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        // Identify which side is `Extension[FSL[Dict]]`, with a non-canonicalizing peek.
+        let (dict_ref, const_ref) = if is_dict_fsl_extension(lhs_ref) {
+            (lhs_ref, rhs_ref)
+        } else if is_dict_fsl_extension(rhs_ref) {
+            (rhs_ref, lhs_ref)
+        } else {
+            return Ok(None);
+        };
+
+        // Detect the constant-backed extension on the other side.
+        let Some(const_ext) = const_ref.as_opt::<Extension>() else {
+            return Ok(None);
+        };
+        let const_storage = const_ext.storage_array();
+        let Some(const_backing) = const_storage.as_opt::<Constant>() else {
+            return Ok(None);
+        };
+        if const_backing.scalar().is_null() {
+            return Ok(None);
+        }
+
+        // Navigate into the dict side. We already verified the shape via the peek.
+        let dict_ext = dict_ref
+            .as_opt::<Extension>()
+            .vortex_expect("peek guaranteed Extension");
+        let fsl = dict_ext
+            .storage_array()
+            .as_opt::<FixedSizeList>()
+            .vortex_expect("peek guaranteed FixedSizeList");
+        let dict = fsl
+            .elements()
+            .as_opt::<Dict>()
+            .vortex_expect("peek guaranteed Dict");
+
+        // Canonicalize codes and values. Codes may be e.g. BitPacked; executing is cheaper
+        // than falling through to the naive path (which would also canonicalize).
+        let codes_prim: PrimitiveArray = dict.codes().clone().execute(ctx)?;
+        let values_prim: PrimitiveArray = dict.values().clone().execute(ctx)?;
+
+        // Gate: u8 codes, f32 centroids, and at most 256 centroids.
+        if codes_prim.ptype() != PType::U8 {
+            // TODO(connor): support wider code widths (u16, u32). TurboQuant only emits u8
+            // codes today, so this is the only path we need for now.
+            return Ok(None);
+        }
+        if values_prim.ptype() != PType::F32 {
+            // TODO(connor): the product-table path only supports f32 centroids. SorfTransform
+            // forces f32 anyway, so this is the only shape we need for now.
+            return Ok(None);
+        }
+        if values_prim.len() > MAX_CENTROIDS {
+            return Ok(None);
+        }
+
+        let padded_dim = usize::try_from(fsl.list_size()).vortex_expect("fsl list_size fits usize");
+
+        let flat = extract_flat_elements(const_storage, padded_dim, ctx)?;
+        if flat.ptype() != PType::F32 {
+            // TODO(connor): case 2 is f32-only. For f16/f64 we fall through to the standard
+            // path, which computes the inner product with the correct element type.
+            return Ok(None);
+        }
+
+        // Combine the input validities up front; the per-row arithmetic may write garbage
+        // into null rows but the validity mask hides it (matching the standard path).
+        let validity = dict_ref.validity()?.and(const_ref.validity()?)?;
+
+        // Fast path for the empty case: skip the product-table allocation entirely.
+        if len == 0 {
+            let empty = PrimitiveArray::empty::<f32>(validity.nullability());
+            return Ok(Some(empty.into_array()));
+        }
+
+        let q: &[f32] = flat.row::<f32>(0);
+        debug_assert_eq!(q.len(), padded_dim);
+        let codes: &[u8] = codes_prim.as_slice::<u8>();
+        let values: &[f32] = values_prim.as_slice::<f32>();
+        debug_assert_eq!(codes.len(), len * padded_dim);
+
+        // Direct codebook lookup: `acc += q[j] * values[codes[j]]`. See the benchmark
+        // comment below for why this beats an explicit product table here.
+        let mut out = BufferMut::<f32>::with_capacity(len);
+        for row in 0..len {
+            let row_codes = &codes[row * padded_dim..(row + 1) * padded_dim];
+            let mut acc = 0.0f32;
+            for j in 0..padded_dim {
+                acc += q[j] * values[row_codes[j] as usize];
+            }
+            // SAFETY: we reserved `len` slots above and push exactly once per row.
+            unsafe { out.push_unchecked(acc) };
+        }
+
+        // SAFETY: the buffer length equals `len`, which matches the validity length.
+        let result = unsafe { PrimitiveArray::new_unchecked(out.freeze(), validity) }.into_array();
+        Ok(Some(result))
+    }
+}
+
+/// Non-canonicalizing shape peek: returns `true` iff `arr` is an `Extension` whose storage
+/// is a `FixedSizeList` whose elements are a `Dict`. Used to pick the dict side of an
+/// `InnerProduct` without doing any execution work.
+fn is_dict_fsl_extension(arr: &ArrayRef) -> bool {
+    let Some(ext) = arr.as_opt::<Extension>() else {
+        return false;
+    };
+    let Some(fsl) = ext.storage_array().as_opt::<FixedSizeList>() else {
+        return false;
+    };
+    fsl.elements().as_opt::<Dict>().is_some()
 }
 
 /// Computes the inner product (dot product) of two equal-length float slices.
@@ -505,5 +785,520 @@ mod tests {
         assert!(!prim.is_valid(1)?);
         assert_close(&[prim.as_slice::<f64>()[0]], &[25.0]);
         Ok(())
+    }
+
+    // ---- Case 1 (SorfTransform + Constant) and Case 2 (Dict + Constant) tests ----
+
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "tests build small fixtures with deterministic in-range indices"
+    )]
+    mod case_1_and_2 {
+        use std::sync::LazyLock;
+
+        use vortex_array::ArrayRef;
+        use vortex_array::IntoArray;
+        use vortex_array::VortexSessionExecute;
+        use vortex_array::arrays::ConstantArray;
+        use vortex_array::arrays::ExtensionArray;
+        use vortex_array::arrays::FixedSizeListArray;
+        use vortex_array::arrays::PrimitiveArray;
+        use vortex_array::arrays::ScalarFnArray;
+        use vortex_array::arrays::dict::DictArray;
+        use vortex_array::dtype::DType;
+        use vortex_array::dtype::Nullability;
+        use vortex_array::dtype::PType;
+        use vortex_array::dtype::extension::ExtDType;
+        use vortex_array::extension::EmptyMetadata;
+        use vortex_array::scalar::Scalar;
+        use vortex_array::session::ArraySession;
+        use vortex_array::validity::Validity;
+        use vortex_buffer::Buffer;
+        use vortex_buffer::BufferMut;
+        use vortex_error::VortexResult;
+        use vortex_session::VortexSession;
+
+        use crate::scalar_fns::inner_product::InnerProduct;
+        use crate::scalar_fns::sorf_transform::SorfMatrix;
+        use crate::scalar_fns::sorf_transform::SorfOptions;
+        use crate::scalar_fns::sorf_transform::SorfTransform;
+        use crate::vector::Vector;
+
+        static SESSION: LazyLock<VortexSession> =
+            LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
+        /// Compact f32 Vector<dim> extension over a column-major `elements` slice.
+        fn vector_f32(dim: u32, elements: &[f32]) -> VortexResult<ArrayRef> {
+            let row_count = elements.len() / dim as usize;
+            let elems: ArrayRef = Buffer::copy_from(elements).into_array();
+            let fsl = FixedSizeListArray::new(elems, dim, Validity::NonNullable, row_count);
+            let ext_dtype =
+                ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
+            Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
+        }
+
+        /// Compact constant-backed f32 Vector<dim> extension with a single stored row.
+        fn constant_vector_f32(elements: &[f32], len: usize) -> VortexResult<ArrayRef> {
+            let element_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
+            let children: Vec<Scalar> = elements
+                .iter()
+                .map(|&v| Scalar::primitive(v, Nullability::NonNullable))
+                .collect();
+            let storage_scalar =
+                Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
+            let storage = ConstantArray::new(storage_scalar, len).into_array();
+            let ext_dtype =
+                ExtDType::<Vector>::try_new(EmptyMetadata, storage.dtype().clone())?.erased();
+            Ok(ExtensionArray::new(ext_dtype, storage).into_array())
+        }
+
+        /// Build an `ExtensionArray<Vector<list_size, f32>>` whose storage is
+        /// `FSL(DictArray(codes: u8, values: f32))`. This mirrors the shape that
+        /// TurboQuant produces as the SorfTransform child.
+        fn dict_vector_f32(list_size: u32, codes: &[u8], values: &[f32]) -> VortexResult<ArrayRef> {
+            let num_rows = codes.len() / list_size as usize;
+            let codes_arr = {
+                let mut buf = BufferMut::<u8>::with_capacity(codes.len());
+                buf.extend_from_slice(codes);
+                PrimitiveArray::new::<u8>(buf.freeze(), Validity::NonNullable).into_array()
+            };
+            let values_arr = {
+                let mut buf = BufferMut::<f32>::with_capacity(values.len());
+                buf.extend_from_slice(values);
+                PrimitiveArray::new::<f32>(buf.freeze(), Validity::NonNullable).into_array()
+            };
+            let dict = DictArray::try_new(codes_arr, values_arr)?;
+            let fsl = FixedSizeListArray::try_new(
+                dict.into_array(),
+                list_size,
+                Validity::NonNullable,
+                num_rows,
+            )?;
+            let ext_dtype =
+                ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
+            Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
+        }
+
+        /// Execute an inner product and return the flat `f32` results.
+        fn eval_ip_f32(lhs: ArrayRef, rhs: ArrayRef, len: usize) -> VortexResult<Vec<f32>> {
+            let scalar_fn = InnerProduct::new().erased();
+            let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], len)?;
+            let mut ctx = SESSION.create_execution_ctx();
+            let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
+            Ok(prim.as_slice::<f32>().to_vec())
+        }
+
+        fn assert_close_f32(actual: &[f32], expected: &[f32], tol: f32) {
+            assert_eq!(actual.len(), expected.len(), "length mismatch");
+            for (i, (a, e)) in actual.iter().zip(expected).enumerate() {
+                assert!(
+                    (a - e).abs() < tol,
+                    "row {i}: got {a}, expected {e} (diff = {})",
+                    (a - e).abs()
+                );
+            }
+        }
+
+        /// Build a SorfTransform ScalarFnArray whose child is a `Vector<padded_dim, f32>`
+        /// wrapping `FSL(Dict(codes, values))`. Returns `(sorf_array, codes, values,
+        /// padded_dim, dim)`.
+        fn build_sorf_with_dict_child(
+            dim: u32,
+            num_rows: usize,
+            seed: u64,
+            num_rounds: u8,
+        ) -> VortexResult<(ArrayRef, Vec<u8>, Vec<f32>, usize)> {
+            let padded_dim = (dim as usize).next_power_of_two();
+            // Small hand-picked codebook of 8 f32 centroids.
+            let values: Vec<f32> = vec![-1.5, -1.0, -0.5, -0.1, 0.1, 0.5, 1.0, 1.5];
+            // Deterministic codes in 0..values.len() covering every position.
+            let codes: Vec<u8> = (0..num_rows * padded_dim)
+                .map(|i| (i as u8) % (values.len() as u8))
+                .collect();
+
+            let padded_vector = dict_vector_f32(padded_dim as u32, &codes, &values)?;
+            let sorf_options = SorfOptions {
+                seed,
+                num_rounds,
+                dimension: dim,
+                element_ptype: PType::F32,
+            };
+            let sorf =
+                SorfTransform::try_new_array(&sorf_options, padded_vector, num_rows)?.into_array();
+            Ok((sorf, codes, values, padded_dim))
+        }
+
+        /// Decode a SorfTransform-wrapped dict-vector to a flat `Vec<f32>` of `num_rows *
+        /// dim` post-rotation, post-truncation values. This is the ground truth against
+        /// which we compare the fast-path result.
+        fn decode_sorf_dict(
+            codes: &[u8],
+            values: &[f32],
+            padded_dim: usize,
+            dim: usize,
+            num_rows: usize,
+            seed: u64,
+            num_rounds: u8,
+        ) -> VortexResult<Vec<f32>> {
+            let rotation = SorfMatrix::try_new(seed, dim, num_rounds as usize)?;
+            let mut padded = vec![0.0f32; padded_dim];
+            let mut rotated = vec![0.0f32; padded_dim];
+            let mut out = Vec::with_capacity(num_rows * dim);
+            for row in 0..num_rows {
+                for j in 0..padded_dim {
+                    padded[j] = values[codes[row * padded_dim + j] as usize];
+                }
+                rotation.inverse_rotate(&padded, &mut rotated);
+                out.extend_from_slice(&rotated[..dim]);
+            }
+            Ok(out)
+        }
+
+        fn naive_dot(a: &[f32], b: &[f32]) -> f32 {
+            a.iter().zip(b.iter()).map(|(&x, &y)| x * y).sum()
+        }
+
+        // ---- Case 1: SorfTransform + Constant pull-through ----
+
+        /// Case 1: SorfTransform on LHS, constant query on RHS, `dim < padded_dim`.
+        #[test]
+        fn case1_sorf_lhs_constant_rhs_padded_gt_dim() -> VortexResult<()> {
+            let dim: u32 = 128;
+            let padded_dim = (dim as usize).next_power_of_two();
+            assert_eq!(padded_dim, 128); // degenerate case for this dim, handled by next test
+            // Bump dim to exercise padding explicitly.
+            let dim: u32 = 100;
+            let padded_dim = (dim as usize).next_power_of_two();
+            assert!(padded_dim > dim as usize);
+            let num_rows = 7usize;
+            let seed = 42u64;
+            let num_rounds = 3u8;
+
+            let (sorf_lhs, codes, values, padded_dim_computed) =
+                build_sorf_with_dict_child(dim, num_rows, seed, num_rounds)?;
+            assert_eq!(padded_dim_computed, padded_dim);
+
+            // Query has `dim` elements.
+            let query_elems: Vec<f32> = (0..dim).map(|i| (i as f32 * 0.1).sin()).collect();
+            let const_rhs = constant_vector_f32(&query_elems, num_rows)?;
+
+            // Ground truth: decode LHS to plain f32 vectors, dot each with the query.
+            let decoded = decode_sorf_dict(
+                &codes,
+                &values,
+                padded_dim,
+                dim as usize,
+                num_rows,
+                seed,
+                num_rounds,
+            )?;
+            let expected: Vec<f32> = (0..num_rows)
+                .map(|i| {
+                    naive_dot(
+                        &decoded[i * dim as usize..(i + 1) * dim as usize],
+                        &query_elems,
+                    )
+                })
+                .collect();
+
+            let actual = eval_ip_f32(sorf_lhs, const_rhs, num_rows)?;
+            assert_close_f32(&actual, &expected, 1e-3);
+            Ok(())
+        }
+
+        /// Case 1: SorfTransform on RHS, constant query on LHS (mirrored).
+        #[test]
+        fn case1_constant_lhs_sorf_rhs_mirrored() -> VortexResult<()> {
+            let dim: u32 = 100;
+            let num_rows = 5usize;
+            let seed = 7u64;
+            let num_rounds = 3u8;
+
+            let (sorf, codes, values, padded_dim) =
+                build_sorf_with_dict_child(dim, num_rows, seed, num_rounds)?;
+
+            let query_elems: Vec<f32> = (0..dim).map(|i| (i as f32 * 0.2).cos()).collect();
+            let const_lhs = constant_vector_f32(&query_elems, num_rows)?;
+
+            let decoded = decode_sorf_dict(
+                &codes,
+                &values,
+                padded_dim,
+                dim as usize,
+                num_rows,
+                seed,
+                num_rounds,
+            )?;
+            let expected: Vec<f32> = (0..num_rows)
+                .map(|i| {
+                    naive_dot(
+                        &decoded[i * dim as usize..(i + 1) * dim as usize],
+                        &query_elems,
+                    )
+                })
+                .collect();
+
+            let actual = eval_ip_f32(const_lhs, sorf, num_rows)?;
+            assert_close_f32(&actual, &expected, 1e-3);
+            Ok(())
+        }
+
+        /// Case 1: `dim == padded_dim` (power-of-two, no zero padding).
+        #[test]
+        fn case1_padded_equals_dim() -> VortexResult<()> {
+            let dim: u32 = 128;
+            let num_rows = 4usize;
+            let seed = 11u64;
+            let num_rounds = 3u8;
+
+            let (sorf, codes, values, padded_dim) =
+                build_sorf_with_dict_child(dim, num_rows, seed, num_rounds)?;
+            assert_eq!(padded_dim, dim as usize);
+
+            let query_elems: Vec<f32> = (0..dim).map(|i| i as f32 * 0.01 - 0.5).collect();
+            let const_rhs = constant_vector_f32(&query_elems, num_rows)?;
+
+            let decoded = decode_sorf_dict(
+                &codes,
+                &values,
+                padded_dim,
+                dim as usize,
+                num_rows,
+                seed,
+                num_rounds,
+            )?;
+            let expected: Vec<f32> = (0..num_rows)
+                .map(|i| {
+                    naive_dot(
+                        &decoded[i * dim as usize..(i + 1) * dim as usize],
+                        &query_elems,
+                    )
+                })
+                .collect();
+
+            let actual = eval_ip_f32(sorf, const_rhs, num_rows)?;
+            assert_close_f32(&actual, &expected, 1e-3);
+            Ok(())
+        }
+
+        /// Case 1: empty `len == 0`. The fast path should handle this without exploding.
+        #[test]
+        fn case1_empty_len_zero() -> VortexResult<()> {
+            let dim: u32 = 100;
+            let num_rows = 0usize;
+            let seed = 42u64;
+            let num_rounds = 3u8;
+
+            let (sorf, _codes, _values, _padded_dim) =
+                build_sorf_with_dict_child(dim, num_rows, seed, num_rounds)?;
+
+            let query_elems: Vec<f32> = vec![0.0; dim as usize];
+            let const_rhs = constant_vector_f32(&query_elems, num_rows)?;
+
+            let actual = eval_ip_f32(sorf, const_rhs, num_rows)?;
+            assert_eq!(actual.len(), 0);
+            Ok(())
+        }
+
+        // ---- Case 2: Dict + Constant product-table path ----
+
+        /// Case 2: Vector[FSL[Dict(u8, f32)]] on LHS, constant query on RHS.
+        #[test]
+        fn case2_dict_lhs_constant_rhs_matches_naive() -> VortexResult<()> {
+            let list_size: u32 = 8;
+            let num_rows = 10usize;
+            // 8 centroids, tiny table.
+            let values: Vec<f32> = vec![-1.0, -0.5, -0.25, -0.1, 0.1, 0.25, 0.5, 1.0];
+            // Deterministic codes.
+            let codes: Vec<u8> = (0..num_rows * list_size as usize)
+                .map(|i| (i as u8) % (values.len() as u8))
+                .collect();
+            let dict_lhs = dict_vector_f32(list_size, &codes, &values)?;
+
+            let query: Vec<f32> = (0..list_size).map(|i| (i as f32 + 1.0) * 0.3).collect();
+            let const_rhs = constant_vector_f32(&query, num_rows)?;
+
+            let expected: Vec<f32> = (0..num_rows)
+                .map(|row| {
+                    let mut acc = 0.0f32;
+                    for j in 0..list_size as usize {
+                        let k = codes[row * list_size as usize + j] as usize;
+                        acc += query[j] * values[k];
+                    }
+                    acc
+                })
+                .collect();
+
+            let actual = eval_ip_f32(dict_lhs, const_rhs, num_rows)?;
+            assert_close_f32(&actual, &expected, 1e-5);
+            Ok(())
+        }
+
+        /// Case 2: constant query on LHS, dict column on RHS (mirrored).
+        #[test]
+        fn case2_constant_lhs_dict_rhs_mirrored() -> VortexResult<()> {
+            let list_size: u32 = 4;
+            let num_rows = 6usize;
+            let values: Vec<f32> = vec![0.1, 0.4, 0.7, 1.0];
+            let codes: Vec<u8> = (0..num_rows * list_size as usize)
+                .map(|i| ((i * 3) as u8) % (values.len() as u8))
+                .collect();
+            let dict_rhs = dict_vector_f32(list_size, &codes, &values)?;
+
+            let query: Vec<f32> = vec![0.5, -1.0, 2.5, -0.25];
+            let const_lhs = constant_vector_f32(&query, num_rows)?;
+
+            let expected: Vec<f32> = (0..num_rows)
+                .map(|row| {
+                    let mut acc = 0.0f32;
+                    for j in 0..list_size as usize {
+                        let k = codes[row * list_size as usize + j] as usize;
+                        acc += query[j] * values[k];
+                    }
+                    acc
+                })
+                .collect();
+
+            let actual = eval_ip_f32(const_lhs, dict_rhs, num_rows)?;
+            assert_close_f32(&actual, &expected, 1e-5);
+            Ok(())
+        }
+
+        /// Case 2: dict with more than 256 values falls through to the standard path but
+        /// still produces the correct result.
+        #[test]
+        fn case2_more_than_256_values_falls_through() -> VortexResult<()> {
+            let list_size: u32 = 4;
+            let num_rows = 3usize;
+            let num_values = 300usize;
+            let values: Vec<f32> = (0..num_values).map(|i| i as f32 * 0.01).collect();
+            // Codes must be u16 because 300 > 255. dict_vector_f32 only supports u8 so we
+            // need a u16-coded dict here.
+            let mut codes_u16_buf = BufferMut::<u16>::with_capacity(num_rows * 4);
+            for i in 0..(num_rows * 4) {
+                codes_u16_buf.push((i % num_values) as u16);
+            }
+            let codes_arr =
+                PrimitiveArray::new::<u16>(codes_u16_buf.freeze(), Validity::NonNullable)
+                    .into_array();
+            let mut values_buf = BufferMut::<f32>::with_capacity(values.len());
+            values_buf.extend_from_slice(&values);
+            let values_arr =
+                PrimitiveArray::new::<f32>(values_buf.freeze(), Validity::NonNullable).into_array();
+            let dict = DictArray::try_new(codes_arr, values_arr)?;
+            let fsl = FixedSizeListArray::try_new(
+                dict.into_array(),
+                list_size,
+                Validity::NonNullable,
+                num_rows,
+            )?;
+            let ext_dtype =
+                ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
+            let dict_lhs = ExtensionArray::new(ext_dtype, fsl.into_array()).into_array();
+
+            let query: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
+            let const_rhs = constant_vector_f32(&query, num_rows)?;
+
+            // Build expected by decoding by hand.
+            let expected: Vec<f32> = (0..num_rows)
+                .map(|row| {
+                    let mut acc = 0.0f32;
+                    for j in 0..4 {
+                        let code = (row * 4 + j) % num_values;
+                        acc += query[j] * values[code];
+                    }
+                    acc
+                })
+                .collect();
+
+            let actual = eval_ip_f32(dict_lhs, const_rhs, num_rows)?;
+            assert_close_f32(&actual, &expected, 1e-5);
+            Ok(())
+        }
+
+        /// Case 2: plain (non-dict) FSL with a constant RHS falls through to the standard
+        /// path and produces the correct result.
+        #[test]
+        fn case2_plain_fsl_falls_through() -> VortexResult<()> {
+            let dim: u32 = 4;
+            let num_rows = 3usize;
+            let lhs_elems: Vec<f32> = (0..num_rows * dim as usize)
+                .map(|i| i as f32 * 0.25)
+                .collect();
+            let plain_lhs = vector_f32(dim, &lhs_elems)?;
+
+            let query: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
+            let const_rhs = constant_vector_f32(&query, num_rows)?;
+
+            let expected: Vec<f32> = (0..num_rows)
+                .map(|row| {
+                    naive_dot(
+                        &lhs_elems[row * dim as usize..(row + 1) * dim as usize],
+                        &query,
+                    )
+                })
+                .collect();
+
+            let actual = eval_ip_f32(plain_lhs, const_rhs, num_rows)?;
+            assert_close_f32(&actual, &expected, 1e-5);
+            Ok(())
+        }
+
+        /// Case 2: empty `len == 0` fast path returns an empty primitive array without
+        /// allocating a product table.
+        #[test]
+        fn case2_empty_len_zero() -> VortexResult<()> {
+            let list_size: u32 = 4;
+            let num_rows = 0usize;
+            let values: Vec<f32> = vec![0.0, 1.0, 2.0, 3.0];
+            let codes: Vec<u8> = Vec::new();
+            let dict_lhs = dict_vector_f32(list_size, &codes, &values)?;
+
+            let query: Vec<f32> = vec![0.0; 4];
+            let const_rhs = constant_vector_f32(&query, num_rows)?;
+
+            let actual = eval_ip_f32(dict_lhs, const_rhs, num_rows)?;
+            assert_eq!(actual.len(), 0);
+            Ok(())
+        }
+
+        /// Case 1 + Case 2 end-to-end: the SorfTransform-wrapped dict column hits Case 1
+        /// then Case 2 via recursive execution.
+        #[test]
+        fn end_to_end_sorf_plus_dict_cosine_path() -> VortexResult<()> {
+            let dim: u32 = 100;
+            let num_rows = 9usize;
+            let seed = 99u64;
+            let num_rounds = 3u8;
+
+            let (sorf, codes, values, padded_dim) =
+                build_sorf_with_dict_child(dim, num_rows, seed, num_rounds)?;
+
+            let query_elems: Vec<f32> = (0..dim).map(|i| ((i as f32) * 0.15).sin() * 0.4).collect();
+            let const_rhs = constant_vector_f32(&query_elems, num_rows)?;
+
+            // Ground truth via full decode + naive dot.
+            let decoded = decode_sorf_dict(
+                &codes,
+                &values,
+                padded_dim,
+                dim as usize,
+                num_rows,
+                seed,
+                num_rounds,
+            )?;
+            let expected: Vec<f32> = (0..num_rows)
+                .map(|i| {
+                    naive_dot(
+                        &decoded[i * dim as usize..(i + 1) * dim as usize],
+                        &query_elems,
+                    )
+                })
+                .collect();
+
+            let actual = eval_ip_f32(sorf, const_rhs, num_rows)?;
+            assert_close_f32(&actual, &expected, 1e-3);
+            Ok(())
+        }
     }
 }
