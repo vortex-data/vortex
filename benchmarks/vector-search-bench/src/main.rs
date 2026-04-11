@@ -20,12 +20,18 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::Parser;
 use indicatif::ProgressBar;
+use vector_search_bench::DEFAULT_THRESHOLD;
 use vector_search_bench::Variant;
+use vector_search_bench::parquet_baseline::run_parquet_baseline_timings;
 use vector_search_bench::prepare_dataset;
 use vector_search_bench::prepare_variant;
+use vector_search_bench::recall::DEFAULT_TOP_K;
+use vector_search_bench::recall::measure_recall_at_k;
 use vector_search_bench::run_timings;
+use vortex_bench::Format;
 use vortex_bench::SESSION;
 use vortex_bench::create_output_writer;
+use vortex_bench::datasets::Dataset;
 use vortex_bench::display::DisplayFormat;
 use vortex_bench::display::print_measurements_json;
 use vortex_bench::measurements::CompressionTimingMeasurement;
@@ -51,6 +57,20 @@ struct Args {
     /// Subset of variants to exercise. Defaults to all three Vortex variants.
     #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![Variant::VortexUncompressed, Variant::VortexDefault, Variant::VortexTurboQuant])]
     variants: Vec<Variant>,
+
+    /// Also run the Parquet-Arrow hand-rolled cosine baseline as an additional variant.
+    /// Default `true` — disable only when you intentionally want a Vortex-only comparison.
+    #[arg(long, default_value_t = true)]
+    parquet_baseline: bool,
+
+    /// Number of query rows sampled when computing Recall@K for TurboQuant. 0 disables
+    /// the quality measurement entirely (useful for smoke tests).
+    #[arg(long, default_value_t = 100)]
+    recall_queries: usize,
+
+    /// K in Recall@K. Defaults to 10, matching VectorDBBench conventions.
+    #[arg(long, default_value_t = DEFAULT_TOP_K)]
+    recall_k: usize,
 
     /// Output display format (`table` for humans, `gh-json` for CI ingestion).
     #[arg(short, long, default_value_t, value_enum)]
@@ -101,6 +121,8 @@ async fn main() -> Result<()> {
     let mut timings: Vec<CompressionTimingMeasurement> = Vec::new();
     let mut sizes: Vec<CustomUnitMeasurement> = Vec::new();
 
+    let mut recalls: Vec<CustomUnitMeasurement> = Vec::new();
+
     for dataset in &datasets {
         let prepared = prepare_dataset(dataset).await?;
         tracing::info!(
@@ -109,6 +131,44 @@ async fn main() -> Result<()> {
             prepared.dim(),
             prepared.num_rows()
         );
+
+        // Parquet-Arrow baseline. Emitted as a separate pseudo-variant with label
+        // `parquet` / Format::Parquet so it shows up in dashboards next to the Vortex
+        // variants.
+        if args.parquet_baseline {
+            let parquet_path = dataset.to_parquet_path().await?;
+            let baseline_timings = run_parquet_baseline_timings(
+                &parquet_path,
+                &prepared.query,
+                DEFAULT_THRESHOLD,
+                args.iterations,
+            )?;
+
+            let label = "parquet";
+            let bench_name = format!("{label}/{}", prepared.name);
+
+            sizes.push(CustomUnitMeasurement {
+                name: format!("{label} size/{}", prepared.name),
+                format: Format::Parquet,
+                unit: Cow::from("bytes"),
+                value: prepared.parquet_bytes as f64,
+            });
+            timings.push(CompressionTimingMeasurement {
+                name: format!("decode time/{bench_name}"),
+                format: Format::Parquet,
+                time: baseline_timings.decode,
+            });
+            timings.push(CompressionTimingMeasurement {
+                name: format!("cosine-similarity time/{bench_name}"),
+                format: Format::Parquet,
+                time: baseline_timings.cosine,
+            });
+            timings.push(CompressionTimingMeasurement {
+                name: format!("cosine-filter time/{bench_name}"),
+                format: Format::Parquet,
+                time: baseline_timings.filter,
+            });
+        }
 
         for &variant in &args.variants {
             let (variant_array, size_bytes) = prepare_variant(&prepared, variant, &SESSION).await?;
@@ -142,6 +202,26 @@ async fn main() -> Result<()> {
                 time: variant_timings.filter,
             });
 
+            // Recall@K quality measurement for lossy variants only. The lossless
+            // variants (uncompressed + BtrBlocks default) are trivially 1.0 against
+            // the uncompressed ground truth, so we skip them to avoid noise.
+            if args.recall_queries > 0 && variant == Variant::VortexTurboQuant {
+                let recall = measure_recall_at_k(
+                    &prepared.uncompressed,
+                    &variant_array,
+                    args.recall_queries,
+                    args.recall_k,
+                    &SESSION,
+                )?;
+                tracing::info!("Recall@{} for {}: {:.4}", args.recall_k, bench_name, recall);
+                recalls.push(CustomUnitMeasurement {
+                    name: format!("recall@{}/{bench_name}", args.recall_k),
+                    format: variant.as_format(),
+                    unit: Cow::from("recall"),
+                    value: recall,
+                });
+            }
+
             progress.inc(1);
         }
     }
@@ -160,10 +240,18 @@ async fn main() -> Result<()> {
             for size in &sizes {
                 writeln!(writer, "{} {} {}", size.name, size.value, size.unit)?;
             }
+            for recall in &recalls {
+                writeln!(
+                    writer,
+                    "{} {:.4} {}",
+                    recall.name, recall.value, recall.unit
+                )?;
+            }
         }
         DisplayFormat::GhJson => {
             print_measurements_json(&mut writer, timings)?;
             print_measurements_json(&mut writer, sizes)?;
+            print_measurements_json(&mut writer, recalls)?;
         }
     }
 

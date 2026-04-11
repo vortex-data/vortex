@@ -10057,10 +10057,14 @@ name = "vector-search-bench"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arrow-array 58.0.0",
+ "arrow-schema 58.0.0",
  "async-trait",
  "clap",
  "indicatif",
  "itertools 0.14.0",
+ "parquet 58.0.0",
+ "tempfile",
  "tokio",
  "tracing",
  "vortex",

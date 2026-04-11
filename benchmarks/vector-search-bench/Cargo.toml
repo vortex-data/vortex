@@ -16,16 +16,22 @@ publish = false
 
 [dependencies]
 anyhow = { workspace = true }
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
 async-trait = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 indicatif = { workspace = true }
 itertools = { workspace = true }
+parquet = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 vortex = { workspace = true }
 vortex-bench = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-tensor = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
 
 [lints]
 workspace = true
