@@ -22,6 +22,9 @@
 use std::time::Duration;
 use std::time::Instant;
 
+pub mod parquet_baseline;
+pub mod recall;
+
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
@@ -407,28 +410,27 @@ fn execute_filter(
     Ok(tree.execute(ctx)?)
 }
 
+/// Test-only helpers shared between the unit tests in this crate's submodules.
 #[cfg(test)]
-mod tests {
+pub(crate) mod test_utils {
+    use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
     use vortex::array::arrays::ExtensionArray;
     use vortex::array::arrays::FixedSizeListArray;
     use vortex::array::arrays::PrimitiveArray;
-    use vortex::array::arrays::extension::ExtensionArrayExt;
-    use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
     use vortex::array::extension::EmptyMetadata;
     use vortex::array::validity::Validity;
     use vortex::buffer::BufferMut;
     use vortex::dtype::extension::ExtDType;
-    use vortex_bench::SESSION;
     use vortex_tensor::vector::Vector;
 
-    use super::*;
-
-    fn synthetic_vector(dim: u32, num_rows: usize, seed: u64) -> ArrayRef {
+    /// Build a deterministic `Vector<dim, f32>` extension array of `num_rows` rows for
+    /// tests. The PRNG is a trivial xorshift keyed by `seed`; we don't care about the
+    /// distribution beyond "not all zeros".
+    pub fn synthetic_vector(dim: u32, num_rows: usize, seed: u64) -> ArrayRef {
         let mut buf = BufferMut::<f32>::with_capacity(num_rows * dim as usize);
         let mut state = seed;
         for _ in 0..(num_rows * dim as usize) {
-            // Simple xorshift — deterministic, distribution not important for this test.
             state ^= state << 13;
             state ^= state >> 7;
             state ^= state << 17;
@@ -443,6 +445,18 @@ mod tests {
             .erased();
         ExtensionArray::new(ext_dtype, fsl.into_array()).into_array()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex::array::arrays::FixedSizeListArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::extension::ExtensionArrayExt;
+    use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
+    use vortex_bench::SESSION;
+
+    use super::test_utils::synthetic_vector;
+    use super::*;
 
     #[test]
     fn prepare_variant_produces_non_empty_array_for_all_variants() {
