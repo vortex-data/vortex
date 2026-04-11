@@ -30,22 +30,14 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Extension;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
-use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
-use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::extension::EmptyMetadata;
-use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressor;
@@ -54,12 +46,9 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
-use vortex_tensor::encodings::turboquant::TurboQuantConfig;
-use vortex_tensor::encodings::turboquant::turboquant_encode_unchecked;
-use vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity;
-use vortex_tensor::scalar_fns::l2_denorm::L2Denorm;
-use vortex_tensor::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 use vortex_tensor::vector::Vector;
+use vortex_tensor::vector_search::build_similarity_search_tree as public_build_similarity_search_tree;
+use vortex_tensor::vector_search::compress_turboquant as public_compress_turboquant;
 
 /// A shared [`VortexSession`] pre-loaded with the builtin [`ArraySession`] so both bench and
 /// example can create execution contexts cheaply.
@@ -146,25 +135,6 @@ pub fn extract_row_as_query(vectors: &ArrayRef, row: usize, dim: u32) -> Vec<f32
     slice[start..start + dim_usize].to_vec()
 }
 
-/// Build a `Vector<dim, f32>` extension array whose storage is a [`ConstantArray`] broadcasting a
-/// single query vector across `num_rows` rows. This is how we hand a single query vector to
-/// `CosineSimilarity` on the `rhs` side -- `ScalarFnArray` requires both children to have the
-/// same length, so we broadcast the query instead of hand-rolling a 1-row input.
-fn build_constant_query_vector(query: &[f32], num_rows: usize) -> VortexResult<ArrayRef> {
-    let element_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
-
-    let children: Vec<Scalar> = query
-        .iter()
-        .map(|&v| Scalar::primitive(v, Nullability::NonNullable))
-        .collect();
-    let storage_scalar = Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
-
-    let storage = ConstantArray::new(storage_scalar, num_rows).into_array();
-
-    let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, storage.dtype().clone())?.erased();
-    Ok(ExtensionArray::new(ext_dtype, storage).into_array())
-}
-
 /// Compresses a raw `Vector<dim, f32>` array with the default BtrBlocks pipeline.
 ///
 /// [`BtrBlocksCompressor`] walks into the extension array and recursively compresses the
@@ -175,36 +145,11 @@ pub fn compress_default(data: ArrayRef) -> VortexResult<ArrayRef> {
     BtrBlocksCompressor::default().compress(&data)
 }
 
-/// Compresses a raw `Vector<dim, f32>` array with the TurboQuant pipeline by hand, producing the
-/// same tree shape that
-/// [`vortex_tensor::encodings::turboquant::TurboQuantScheme`] would:
-///
-/// ```text
-/// L2Denorm(SorfTransform(FSL(Dict(codes, centroids))), norms)
-/// ```
-///
-/// Calling the encode helpers directly (instead of going through
-/// `BtrBlocksCompressorBuilder::with_turboquant()`) lets this example avoid depending on the
-/// `unstable_encodings` feature flag.
-///
-/// See `vortex-tensor/src/encodings/turboquant/tests/mod.rs::normalize_and_encode` for the same
-/// canonical recipe.
+/// Compresses a raw `Vector<dim, f32>` array with the TurboQuant pipeline. This is a thin
+/// wrapper around [`vortex_tensor::vector_search::compress_turboquant`] preserved for bench
+/// call-site compatibility.
 pub fn compress_turboquant(data: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-    let l2_denorm = normalize_as_l2_denorm(data, ctx)?;
-    let normalized = l2_denorm.child_at(0).clone();
-    let norms = l2_denorm.child_at(1).clone();
-    let num_rows = l2_denorm.len();
-
-    let normalized_ext = normalized
-        .as_opt::<Extension>()
-        .vortex_expect("normalized child should be an Extension array");
-
-    let config = TurboQuantConfig::default();
-    // SAFETY: `normalize_as_l2_denorm` guarantees every row is unit-norm (or zero), which is the
-    // invariant `turboquant_encode_unchecked` expects.
-    let tq = unsafe { turboquant_encode_unchecked(normalized_ext, &config, ctx) }?;
-
-    Ok(unsafe { L2Denorm::new_array_unchecked(tq, norms, num_rows) }?.into_array())
+    public_compress_turboquant(data, ctx)
 }
 
 /// Dispatch helper that builds the data array for the requested [`Variant`], starting from a
@@ -226,31 +171,13 @@ pub fn build_variant(
 }
 
 /// Build the lazy similarity-search array tree for a prepared data array and a single query
-/// vector. The returned tree is a boolean array of length `data.len()` where position `i` is
-/// `true` iff `cosine_similarity(data[i], query) > threshold`.
-///
-/// The tree shape is:
-///
-/// ```text
-/// Binary(Gt, [
-///     CosineSimilarity([data, ConstantArray(query_vec, n)]),
-///     ConstantArray(threshold, n),
-/// ])
-/// ```
-///
-/// This function does no execution; it is safe to call inside a benchmark setup closure.
+/// vector. Thin wrapper around
+/// [`vortex_tensor::vector_search::build_similarity_search_tree`] preserved for bench
+/// call-site compatibility.
 pub fn build_similarity_search_tree(
     data: ArrayRef,
     query: &[f32],
     threshold: f32,
 ) -> VortexResult<ArrayRef> {
-    let num_rows = data.len();
-    let query_vec = build_constant_query_vector(query, num_rows)?;
-
-    let cosine = CosineSimilarity::try_new_array(data, query_vec, num_rows)?.into_array();
-
-    let threshold_scalar = Scalar::primitive(threshold, Nullability::NonNullable);
-    let threshold_array = ConstantArray::new(threshold_scalar, num_rows).into_array();
-
-    cosine.binary(threshold_array, Operator::Gt)
+    public_build_similarity_search_tree(data, query, threshold)
 }
