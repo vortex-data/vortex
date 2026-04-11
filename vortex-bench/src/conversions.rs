@@ -26,8 +26,10 @@ use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrays::ExtensionArray;
 use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::List;
+use vortex::array::arrays::ListView;
 use vortex::array::arrays::chunked::ChunkedArrayExt;
 use vortex::array::arrays::list::ListArrayExt;
+use vortex::array::arrays::listview::recursive_list_from_list_view;
 use vortex::array::arrow::FromArrowArray;
 use vortex::array::builders::builder_with_capacity;
 use vortex::array::extension::EmptyMetadata;
@@ -265,6 +267,13 @@ pub fn list_to_vector_ext(input: ArrayRef) -> VortexResult<ArrayRef> {
             vortex_bail!("list_to_vector_ext: chunked input has no chunks");
         }
         return Ok(ChunkedArray::from_iter(converted).into_array());
+    }
+
+    // `parquet_to_vortex_chunks` produces `ListView` arrays for list columns by default;
+    // materialize them into a flat `List` representation before we validate offsets.
+    if input.as_opt::<ListView>().is_some() {
+        let flat = recursive_list_from_list_view(input)?;
+        return list_to_vector_ext(flat);
     }
 
     let Some(list) = input.as_opt::<List>() else {
