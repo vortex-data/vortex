@@ -7,10 +7,40 @@
 //! Optimization runs between execution steps, which is what enables cross-step optimizations:
 //! after a child is decoded, new `reduce_parent` rules may match that were previously blocked.
 
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
+
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
+
+/// Counters for the optimizer outer loop.
+pub mod optimizer_counters {
+    use super::*;
+
+    /// Total calls to try_optimize
+    pub static OPTIMIZE_CALLS: AtomicU64 = AtomicU64::new(0);
+    /// Total child slots iterated for reduce_parent
+    pub static CHILD_SLOTS_CHECKED: AtomicU64 = AtomicU64::new(0);
+    /// Total child.reduce_parent() virtual dispatches
+    pub static REDUCE_PARENT_DISPATCHES: AtomicU64 = AtomicU64::new(0);
+
+    pub fn reset() {
+        OPTIMIZE_CALLS.store(0, Ordering::Relaxed);
+        CHILD_SLOTS_CHECKED.store(0, Ordering::Relaxed);
+        REDUCE_PARENT_DISPATCHES.store(0, Ordering::Relaxed);
+    }
+
+    pub fn report(label: &str) {
+        let opt = OPTIMIZE_CALLS.load(Ordering::Relaxed);
+        let slots = CHILD_SLOTS_CHECKED.load(Ordering::Relaxed);
+        let dispatches = REDUCE_PARENT_DISPATCHES.load(Ordering::Relaxed);
+        eprintln!(
+            "[Optimizer {label}] optimize_calls={opt} child_slots_checked={slots} reduce_parent_dispatches={dispatches}"
+        );
+    }
+}
 
 pub mod rules;
 
@@ -34,6 +64,7 @@ impl ArrayOptimizer for ArrayRef {
 }
 
 fn try_optimize(array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    optimizer_counters::OPTIMIZE_CALLS.fetch_add(1, Ordering::Relaxed);
     let mut current_array = array.clone();
     let mut any_optimizations = false;
 
@@ -54,7 +85,9 @@ fn try_optimize(array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // Apply parent reduction rules to each slot in the context of the current array.
         // Its important to take all slots here, as `current_array` can change inside the loop.
         for (slot_idx, slot) in current_array.slots().iter().enumerate() {
+            optimizer_counters::CHILD_SLOTS_CHECKED.fetch_add(1, Ordering::Relaxed);
             let Some(child) = slot else { continue };
+            optimizer_counters::REDUCE_PARENT_DISPATCHES.fetch_add(1, Ordering::Relaxed);
             if let Some(new_array) = child.reduce_parent(&current_array, slot_idx)? {
                 // If the parent was replaced, then we attempt to reduce it again.
                 current_array = new_array;

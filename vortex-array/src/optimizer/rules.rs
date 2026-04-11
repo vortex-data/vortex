@@ -21,6 +21,8 @@
 use std::any::type_name;
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use vortex_error::VortexResult;
 
@@ -28,6 +30,43 @@ use crate::ArrayRef;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::matcher::Matcher;
+
+/// Counters for measuring parent rule lookup overhead.
+pub mod parent_rule_counters {
+    use super::*;
+
+    /// Total calls to ParentRuleSet::evaluate
+    pub static EVALUATE_CALLS: AtomicU64 = AtomicU64::new(0);
+    /// Total rule.matches() checks performed
+    pub static MATCHES_CHECKS: AtomicU64 = AtomicU64::new(0);
+    /// Total matches() that returned true
+    pub static MATCHES_HITS: AtomicU64 = AtomicU64::new(0);
+    /// Total reduce_parent() calls (only when matches() was true)
+    pub static REDUCE_PARENT_CALLS: AtomicU64 = AtomicU64::new(0);
+    /// Total reduce_parent() calls that returned Some (actually fired)
+    pub static REDUCE_PARENT_HITS: AtomicU64 = AtomicU64::new(0);
+
+    /// Reset all counters to zero.
+    pub fn reset() {
+        EVALUATE_CALLS.store(0, Ordering::Relaxed);
+        MATCHES_CHECKS.store(0, Ordering::Relaxed);
+        MATCHES_HITS.store(0, Ordering::Relaxed);
+        REDUCE_PARENT_CALLS.store(0, Ordering::Relaxed);
+        REDUCE_PARENT_HITS.store(0, Ordering::Relaxed);
+    }
+
+    /// Print current counter values to stderr.
+    pub fn report(label: &str) {
+        let evaluate = EVALUATE_CALLS.load(Ordering::Relaxed);
+        let checks = MATCHES_CHECKS.load(Ordering::Relaxed);
+        let hits = MATCHES_HITS.load(Ordering::Relaxed);
+        let reduce_calls = REDUCE_PARENT_CALLS.load(Ordering::Relaxed);
+        let reduce_hits = REDUCE_PARENT_HITS.load(Ordering::Relaxed);
+        eprintln!(
+            "[ParentRuleSet {label}] evaluate={evaluate} matches_checks={checks} matches_hits={hits} reduce_parent_calls={reduce_calls} reduce_parent_hits={reduce_hits}"
+        );
+    }
+}
 
 /// A metadata-only rewrite rule that transforms an array based on its own structure (Layer 1).
 ///
@@ -174,11 +213,16 @@ impl<V: VTable> ParentRuleSet<V> {
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
+        parent_rule_counters::EVALUATE_CALLS.fetch_add(1, Ordering::Relaxed);
         for rule in self.rules.iter() {
+            parent_rule_counters::MATCHES_CHECKS.fetch_add(1, Ordering::Relaxed);
             if !rule.matches(parent) {
                 continue;
             }
+            parent_rule_counters::MATCHES_HITS.fetch_add(1, Ordering::Relaxed);
+            parent_rule_counters::REDUCE_PARENT_CALLS.fetch_add(1, Ordering::Relaxed);
             if let Some(reduced) = rule.reduce_parent(child, parent, child_idx)? {
+                parent_rule_counters::REDUCE_PARENT_HITS.fetch_add(1, Ordering::Relaxed);
                 // Debug assertions because these checks are already run elsewhere.
                 #[cfg(debug_assertions)]
                 {

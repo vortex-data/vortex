@@ -16,6 +16,8 @@
 use std::any::type_name;
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use vortex_error::VortexResult;
 
@@ -24,6 +26,36 @@ use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::matcher::Matcher;
+
+/// Counters for measuring parent kernel lookup overhead.
+pub mod parent_kernel_counters {
+    use super::*;
+
+    pub static EXECUTE_CALLS: AtomicU64 = AtomicU64::new(0);
+    pub static MATCHES_CHECKS: AtomicU64 = AtomicU64::new(0);
+    pub static MATCHES_HITS: AtomicU64 = AtomicU64::new(0);
+    pub static EXECUTE_PARENT_CALLS: AtomicU64 = AtomicU64::new(0);
+    pub static EXECUTE_PARENT_HITS: AtomicU64 = AtomicU64::new(0);
+
+    pub fn reset() {
+        EXECUTE_CALLS.store(0, Ordering::Relaxed);
+        MATCHES_CHECKS.store(0, Ordering::Relaxed);
+        MATCHES_HITS.store(0, Ordering::Relaxed);
+        EXECUTE_PARENT_CALLS.store(0, Ordering::Relaxed);
+        EXECUTE_PARENT_HITS.store(0, Ordering::Relaxed);
+    }
+
+    pub fn report(label: &str) {
+        let execute = EXECUTE_CALLS.load(Ordering::Relaxed);
+        let checks = MATCHES_CHECKS.load(Ordering::Relaxed);
+        let hits = MATCHES_HITS.load(Ordering::Relaxed);
+        let exec_calls = EXECUTE_PARENT_CALLS.load(Ordering::Relaxed);
+        let exec_hits = EXECUTE_PARENT_HITS.load(Ordering::Relaxed);
+        eprintln!(
+            "[ParentKernelSet {label}] execute={execute} matches_checks={checks} matches_hits={hits} execute_parent_calls={exec_calls} execute_parent_hits={exec_hits}"
+        );
+    }
+}
 
 /// A collection of [`ExecuteParentKernel`]s registered for a specific child encoding.
 ///
@@ -64,11 +96,16 @@ impl<V: VTable> ParentKernelSet<V> {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        parent_kernel_counters::EXECUTE_CALLS.fetch_add(1, Ordering::Relaxed);
         for kernel in self.kernels.iter() {
+            parent_kernel_counters::MATCHES_CHECKS.fetch_add(1, Ordering::Relaxed);
             if !kernel.matches(parent) {
                 continue;
             }
+            parent_kernel_counters::MATCHES_HITS.fetch_add(1, Ordering::Relaxed);
+            parent_kernel_counters::EXECUTE_PARENT_CALLS.fetch_add(1, Ordering::Relaxed);
             if let Some(reduced) = kernel.execute_parent(child, parent, child_idx, ctx)? {
+                parent_kernel_counters::EXECUTE_PARENT_HITS.fetch_add(1, Ordering::Relaxed);
                 return Ok(Some(reduced));
             }
         }
