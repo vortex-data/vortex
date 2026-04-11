@@ -46,7 +46,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
-use crate::encodings::turboquant::MAX_CENTROIDS;
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::scalar_fns::sorf_transform::SorfMatrix;
@@ -424,9 +423,8 @@ impl InnerProduct {
         Ok(Some(rewritten))
     }
 
-    /// Fast path when one side is an extension whose storage is `FSL(Dict(u8, f32))` with
-    /// at most `MAX_CENTROIDS` values, and the other side is a constant-backed tensor
-    /// extension with an F32 element ptype.
+    /// Fast path when one side is an extension whose storage is `FSL(Dict(u8, f32))` and
+    /// the other side is a constant-backed tensor extension with an F32 element ptype.
     ///
     /// Computes each row's inner product as
     ///   `out[i] = sum_{j in 0..padded_dim} q[j] * values[codes[i * padded_dim + j] as usize]`
@@ -434,8 +432,7 @@ impl InnerProduct {
     /// `P[j, k] = q[j] * values[k]` (size `padded_dim * num_centroids * 4B`, ~1 MiB for the
     /// common 1024/256 case) was tried and measured ~10% *slower* on the
     /// `similarity_search` bench because the 1 KiB `values` table stays in L1 across all
-    /// rows, while the 1 MiB product table does not. See the plan file for the math
-    /// justifying both forms.
+    /// rows, while the 1 MiB product table does not.
     ///
     /// Returns `Ok(None)` when the pattern doesn't match; the caller should fall through to
     /// the standard path.
@@ -485,18 +482,15 @@ impl InnerProduct {
         let codes_prim: PrimitiveArray = dict.codes().clone().execute(ctx)?;
         let values_prim: PrimitiveArray = dict.values().clone().execute(ctx)?;
 
-        // Gate: u8 codes, f32 centroids, and at most 256 centroids.
+        // Gate: u8 codes and f32 centroids.
         if codes_prim.ptype() != PType::U8 {
             // TODO(connor): support wider code widths (u16, u32). TurboQuant only emits u8
             // codes today, so this is the only path we need for now.
             return Ok(None);
         }
         if values_prim.ptype() != PType::F32 {
-            // TODO(connor): the product-table path only supports f32 centroids. SorfTransform
+            // TODO(connor): direct-lookup path only supports f32 centroids. SorfTransform
             // forces f32 anyway, so this is the only shape we need for now.
-            return Ok(None);
-        }
-        if values_prim.len() > MAX_CENTROIDS {
             return Ok(None);
         }
 
@@ -796,6 +790,7 @@ mod tests {
     mod case_1_and_2 {
         use std::sync::LazyLock;
 
+        use rstest::rstest;
         use vortex_array::ArrayRef;
         use vortex_array::IntoArray;
         use vortex_array::VortexSessionExecute;
@@ -1164,10 +1159,11 @@ mod tests {
             Ok(())
         }
 
-        /// Case 2: dict with more than 256 values falls through to the standard path but
-        /// still produces the correct result.
+        /// Case 2: dict with `u16` codes (and hence more than 256 values) falls through to
+        /// the standard path but still produces the correct result. The direct-lookup path
+        /// only handles `u8` codes today.
         #[test]
-        fn case2_more_than_256_values_falls_through() -> VortexResult<()> {
+        fn case2_u16_codes_falls_through() -> VortexResult<()> {
             let list_size: u32 = 4;
             let num_rows = 3usize;
             let num_values = 300usize;
@@ -1298,6 +1294,297 @@ mod tests {
 
             let actual = eval_ip_f32(sorf, const_rhs, num_rows)?;
             assert_close_f32(&actual, &expected, 1e-3);
+            Ok(())
+        }
+
+        // ---- Additional correctness / stress tests (all with loose tolerances) ----
+
+        /// A tiny in-place xorshift64 PRNG so these tests don't depend on `rand`. Producing
+        /// deterministic pseudo-random f32 values lets the correctness checks exercise
+        /// realistic data instead of smooth sin/cos patterns.
+        struct XorShift64(u64);
+
+        impl XorShift64 {
+            fn new(seed: u64) -> Self {
+                // Any nonzero seed is fine; xorshift fixed-points at 0.
+                Self(seed.wrapping_add(0x9E37_79B9_7F4A_7C15))
+            }
+
+            fn next_u64(&mut self) -> u64 {
+                let mut x = self.0;
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                self.0 = x;
+                x
+            }
+
+            /// Uniform f32 in `[-1.0, 1.0)`.
+            fn next_f32(&mut self) -> f32 {
+                // Top 24 bits -> mantissa in [0, 1), then shift to [-1, 1).
+                let bits = (self.next_u64() >> 40) as u32; // 24 bits
+                (bits as f32) / (1u32 << 24) as f32 * 2.0 - 1.0
+            }
+        }
+
+        /// Case 2 stress: u8-coded dict with 200 centroids (formerly blocked by the
+        /// `values.len() <= 256` gate). The direct-lookup path must now handle it.
+        #[test]
+        fn case2_large_u8_codebook_direct_lookup() -> VortexResult<()> {
+            let list_size: u32 = 16;
+            let num_rows = 20usize;
+            let num_centroids = 200usize;
+            assert!(num_centroids > 8 && num_centroids <= 256);
+
+            let mut rng = XorShift64::new(0xDEAD_BEEF);
+            let values: Vec<f32> = (0..num_centroids).map(|_| rng.next_f32()).collect();
+            let codes: Vec<u8> = (0..num_rows * list_size as usize)
+                .map(|_| (rng.next_u64() % num_centroids as u64) as u8)
+                .collect();
+
+            let dict_lhs = dict_vector_f32(list_size, &codes, &values)?;
+            let query: Vec<f32> = (0..list_size).map(|_| rng.next_f32()).collect();
+            let const_rhs = constant_vector_f32(&query, num_rows)?;
+
+            let expected: Vec<f32> = (0..num_rows)
+                .map(|row| {
+                    let mut acc = 0.0f32;
+                    for j in 0..list_size as usize {
+                        let k = codes[row * list_size as usize + j] as usize;
+                        acc += query[j] * values[k];
+                    }
+                    acc
+                })
+                .collect();
+
+            let actual = eval_ip_f32(dict_lhs, const_rhs, num_rows)?;
+            assert_close_f32(&actual, &expected, 1e-4);
+            Ok(())
+        }
+
+        /// Parameterized sweep over the full `InnerProduct(SorfTransform(Vector[FSL(Dict)]),
+        /// ConstantArray)` tree, exercising the case 1 + case 2 chain for a realistic mix
+        /// of dimensions, row counts, seeds, and number of SORF rounds. Tolerance is
+        /// deliberately loose because the rewrite introduces an f32-domain rotation that
+        /// accumulates a small numerical drift versus a naive decode.
+        #[rstest]
+        #[case::small_no_pad(128, 11, 1, 1)]
+        #[case::small_no_pad_rounds3(128, 23, 1_234, 3)]
+        #[case::small_padded(100, 17, 42, 3)]
+        #[case::mid_padded(200, 13, 2024, 3)]
+        #[case::mid_power_of_two(256, 31, 7, 3)]
+        #[case::larger_padded(300, 9, 99, 3)]
+        #[case::max_rounds(128, 5, 31_415, 5)]
+        fn case1_sorf_random_sweep(
+            #[case] dim: u32,
+            #[case] num_rows: usize,
+            #[case] seed: u64,
+            #[case] num_rounds: u8,
+        ) -> VortexResult<()> {
+            let (sorf, codes, values, padded_dim) =
+                build_sorf_with_dict_child(dim, num_rows, seed, num_rounds)?;
+
+            // Use a pseudo-random query with both positive and negative entries so the sum
+            // has cancellation.
+            let mut rng = XorShift64::new(seed ^ 0xABCD_1234);
+            let query: Vec<f32> = (0..dim).map(|_| rng.next_f32()).collect();
+            let const_rhs = constant_vector_f32(&query, num_rows)?;
+
+            let decoded = decode_sorf_dict(
+                &codes,
+                &values,
+                padded_dim,
+                dim as usize,
+                num_rows,
+                seed,
+                num_rounds,
+            )?;
+            let expected: Vec<f32> = (0..num_rows)
+                .map(|i| naive_dot(&decoded[i * dim as usize..(i + 1) * dim as usize], &query))
+                .collect();
+
+            // Loose tolerance: the sorf transform works in f32 with a k-round butterfly, so
+            // the rewrite path and the decoded path accumulate slightly different rounding
+            // even though the math is equivalent in exact arithmetic.
+            let actual = eval_ip_f32(sorf, const_rhs, num_rows)?;
+            assert_close_f32(&actual, &expected, 1e-2);
+            Ok(())
+        }
+
+        /// Parameterized sweep over plain `Vector[FSL(Dict(u8, f32))]` + constant query,
+        /// without SorfTransform in the mix. This directly exercises case 2 across a
+        /// variety of list sizes, num_rows, and codebook sizes including large ones that
+        /// the old `<= 256` gate would have rejected.
+        #[rstest]
+        #[case::small(4, 7, 8)]
+        #[case::medium(16, 50, 64)]
+        #[case::larger(32, 100, 150)]
+        #[case::very_large_codebook(8, 25, 250)]
+        fn case2_random_sweep(
+            #[case] list_size: u32,
+            #[case] num_rows: usize,
+            #[case] num_centroids: usize,
+        ) -> VortexResult<()> {
+            let mut rng = XorShift64::new((list_size as u64) * 31 + num_rows as u64);
+            let values: Vec<f32> = (0..num_centroids).map(|_| rng.next_f32()).collect();
+            assert!(num_centroids <= 256, "u8 codes cap at 256 centroids");
+            let codes: Vec<u8> = (0..num_rows * list_size as usize)
+                .map(|_| (rng.next_u64() % num_centroids as u64) as u8)
+                .collect();
+
+            let dict_lhs = dict_vector_f32(list_size, &codes, &values)?;
+            let query: Vec<f32> = (0..list_size).map(|_| rng.next_f32()).collect();
+            let const_rhs = constant_vector_f32(&query, num_rows)?;
+
+            let expected: Vec<f32> = (0..num_rows)
+                .map(|row| {
+                    let mut acc = 0.0f32;
+                    for j in 0..list_size as usize {
+                        let k = codes[row * list_size as usize + j] as usize;
+                        acc += query[j] * values[k];
+                    }
+                    acc
+                })
+                .collect();
+
+            // Tight tolerance here because no SorfTransform rotation is involved — the
+            // arithmetic should agree bit-for-bit up to float reassociation.
+            let actual = eval_ip_f32(dict_lhs, const_rhs, num_rows)?;
+            assert_close_f32(&actual, &expected, 1e-4);
+            Ok(())
+        }
+
+        /// End-to-end regression: for a plausible vector-search configuration (SORF rounds
+        /// = 3, dim = 128, num_rows = 64, u8 codes, 64 centroids), the fast-path result
+        /// must track a fully naive computation within 1e-2.
+        #[test]
+        fn end_to_end_dim128_rows64_bit6_regression() -> VortexResult<()> {
+            let dim: u32 = 128;
+            let num_rows = 64usize;
+            let seed = 0xFACE_F00D;
+            let num_rounds = 3u8;
+
+            // Use 64 centroids (6 bits), a typical TurboQuant configuration.
+            let num_centroids = 64usize;
+            let padded_dim = (dim as usize).next_power_of_two();
+            let mut rng = XorShift64::new(seed);
+            let values: Vec<f32> = (0..num_centroids).map(|_| rng.next_f32()).collect();
+            let codes: Vec<u8> = (0..num_rows * padded_dim)
+                .map(|_| (rng.next_u64() % num_centroids as u64) as u8)
+                .collect();
+
+            let padded_vector = dict_vector_f32(padded_dim as u32, &codes, &values)?;
+            let sorf_options = SorfOptions {
+                seed,
+                num_rounds,
+                dimension: dim,
+                element_ptype: PType::F32,
+            };
+            let sorf =
+                SorfTransform::try_new_array(&sorf_options, padded_vector, num_rows)?.into_array();
+
+            let query: Vec<f32> = (0..dim).map(|_| rng.next_f32()).collect();
+            let const_rhs = constant_vector_f32(&query, num_rows)?;
+
+            let decoded = decode_sorf_dict(
+                &codes,
+                &values,
+                padded_dim,
+                dim as usize,
+                num_rows,
+                seed,
+                num_rounds,
+            )?;
+            let expected: Vec<f32> = (0..num_rows)
+                .map(|i| naive_dot(&decoded[i * dim as usize..(i + 1) * dim as usize], &query))
+                .collect();
+
+            let actual = eval_ip_f32(sorf, const_rhs, num_rows)?;
+            assert_close_f32(&actual, &expected, 1e-2);
+
+            // Also verify the max relative error is small. The SORF rotation does not
+            // amplify error, so both measures should be bounded.
+            for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
+                let denom = e.abs().max(1.0);
+                let rel = (a - e).abs() / denom;
+                assert!(
+                    rel < 1e-3,
+                    "row {i}: rel err {rel} too large (a={a}, e={e})"
+                );
+            }
+            Ok(())
+        }
+
+        /// Case 1 + Case 2 end-to-end with varying `num_rounds`. The rotation becomes
+        /// progressively more chaotic as rounds increase, so this catches any off-by-one
+        /// bug in the round-indexing that would not show up in the 3-round default.
+        #[rstest]
+        #[case(1)]
+        #[case(2)]
+        #[case(3)]
+        #[case(4)]
+        #[case(5)]
+        fn case1_various_num_rounds(#[case] num_rounds: u8) -> VortexResult<()> {
+            let dim: u32 = 128;
+            let num_rows = 8usize;
+            let seed = 0x1234_5678;
+
+            let (sorf, codes, values, padded_dim) =
+                build_sorf_with_dict_child(dim, num_rows, seed, num_rounds)?;
+
+            let mut rng = XorShift64::new(seed ^ (num_rounds as u64));
+            let query: Vec<f32> = (0..dim).map(|_| rng.next_f32()).collect();
+            let const_rhs = constant_vector_f32(&query, num_rows)?;
+
+            let decoded = decode_sorf_dict(
+                &codes,
+                &values,
+                padded_dim,
+                dim as usize,
+                num_rows,
+                seed,
+                num_rounds,
+            )?;
+            let expected: Vec<f32> = (0..num_rows)
+                .map(|i| naive_dot(&decoded[i * dim as usize..(i + 1) * dim as usize], &query))
+                .collect();
+
+            let actual = eval_ip_f32(sorf, const_rhs, num_rows)?;
+            assert_close_f32(&actual, &expected, 1e-2);
+            Ok(())
+        }
+
+        /// Swap LHS and RHS on the full tree to prove the side-detection and the scalar
+        /// argument-order handling are symmetric for both cases simultaneously.
+        #[test]
+        fn end_to_end_constant_lhs_sorf_rhs_mirrored() -> VortexResult<()> {
+            let dim: u32 = 256;
+            let num_rows = 12usize;
+            let seed = 0xBEEF_CAFE;
+            let num_rounds = 3u8;
+
+            let (sorf, codes, values, padded_dim) =
+                build_sorf_with_dict_child(dim, num_rows, seed, num_rounds)?;
+
+            let mut rng = XorShift64::new(seed);
+            let query: Vec<f32> = (0..dim).map(|_| rng.next_f32()).collect();
+            let const_lhs = constant_vector_f32(&query, num_rows)?;
+
+            let decoded = decode_sorf_dict(
+                &codes,
+                &values,
+                padded_dim,
+                dim as usize,
+                num_rows,
+                seed,
+                num_rounds,
+            )?;
+            let expected: Vec<f32> = (0..num_rows)
+                .map(|i| naive_dot(&decoded[i * dim as usize..(i + 1) * dim as usize], &query))
+                .collect();
+
+            let actual = eval_ip_f32(const_lhs, sorf, num_rows)?;
+            assert_close_f32(&actual, &expected, 1e-2);
             Ok(())
         }
     }

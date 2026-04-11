@@ -33,7 +33,7 @@ use common::generate_random_vectors;
 static GLOBAL: MiMalloc = MiMalloc;
 
 /// Number of vectors in the benchmark dataset.
-const NUM_ROWS: usize = 10_000;
+const NUM_ROWS: usize = 100_000;
 
 /// Dimensionality of each vector. Must be `>= vortex_tensor::encodings::turboquant::MIN_DIMENSION`
 /// (128) for the TurboQuant variant to work.
