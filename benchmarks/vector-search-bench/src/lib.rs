@@ -352,6 +352,18 @@ pub fn prepare_variant(
 
 /// Run the decompress / cosine / filter microbenchmarks against a prepared variant
 /// array and return the best-of-`iterations` wall times for each measurement.
+///
+/// The three stages are **interleaved** inside a single outer loop rather than run
+/// as three separate back-to-back loops. Interleaving keeps each stage's cache /
+/// branch-predictor / allocator state symmetric across iterations — a pathology of
+/// the back-to-back shape is that iteration `N+1` of the cosine stage runs on
+/// warmed caches left behind by iteration `N` of the cosine stage, while iteration
+/// `N+1` of the filter stage runs on caches left behind by the *cosine* stage. The
+/// interleaved form makes each stage see roughly the same cache state every
+/// iteration.
+///
+/// Each stage still gets a fresh `ExecutionCtx`, so no cached scalar-fn state leaks
+/// between stages within a single iteration.
 pub fn run_timings(
     variant_array: &ArrayRef,
     query: &[f32],
@@ -363,27 +375,28 @@ pub fn run_timings(
     let mut filter = Duration::MAX;
 
     for _ in 0..iterations {
-        let mut ctx = session.create_execution_ctx();
-        let start = Instant::now();
-        let decoded: FixedSizeListArray = decompress_full_scan(variant_array, &mut ctx)?;
-        decompress = decompress.min(start.elapsed());
-        drop(decoded);
-    }
-
-    for _ in 0..iterations {
-        let mut ctx = session.create_execution_ctx();
-        let start = Instant::now();
-        let scores: PrimitiveArray = execute_cosine(variant_array, query, &mut ctx)?;
-        cosine = cosine.min(start.elapsed());
-        drop(scores);
-    }
-
-    for _ in 0..iterations {
-        let mut ctx = session.create_execution_ctx();
-        let start = Instant::now();
-        let matches: BoolArray = execute_filter(variant_array, query, DEFAULT_THRESHOLD, &mut ctx)?;
-        filter = filter.min(start.elapsed());
-        drop(matches);
+        {
+            let mut ctx = session.create_execution_ctx();
+            let start = Instant::now();
+            let decoded: FixedSizeListArray = decompress_full_scan(variant_array, &mut ctx)?;
+            decompress = decompress.min(start.elapsed());
+            drop(decoded);
+        }
+        {
+            let mut ctx = session.create_execution_ctx();
+            let start = Instant::now();
+            let scores: PrimitiveArray = execute_cosine(variant_array, query, &mut ctx)?;
+            cosine = cosine.min(start.elapsed());
+            drop(scores);
+        }
+        {
+            let mut ctx = session.create_execution_ctx();
+            let start = Instant::now();
+            let matches: BoolArray =
+                execute_filter(variant_array, query, DEFAULT_THRESHOLD, &mut ctx)?;
+            filter = filter.min(start.elapsed());
+            drop(matches);
+        }
     }
 
     Ok(VariantTimings {
