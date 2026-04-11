@@ -374,6 +374,7 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::Extension;
     use vortex::array::arrays::List;
+    use vortex::array::arrays::ListViewArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::extension::ExtensionArrayExt;
     use vortex::array::validity::Validity;
@@ -445,6 +446,60 @@ mod tests {
             err.contains("cannot infer vector dimension from empty input"),
             "unexpected error: {err}",
         );
+    }
+
+    /// Build a `ListView<f32>` whose every row is a length-`dim` slice of the flattened
+    /// `values` buffer. This shape matches what `parquet_to_vortex_chunks` produces for
+    /// embedding columns after arrow-rs' canonicalization, and exercises the
+    /// `list_to_vector_ext` fast-path that collapses `ListView` → `List` before
+    /// validating offsets.
+    fn list_view_f32(dim: usize, rows: &[&[f32]]) -> vortex::array::ArrayRef {
+        let mut values = BufferMut::<f32>::with_capacity(rows.len() * dim);
+        for row in rows {
+            assert_eq!(row.len(), dim);
+            for &v in row.iter() {
+                values.push(v);
+            }
+        }
+        let elements =
+            PrimitiveArray::new::<f32>(values.freeze(), Validity::NonNullable).into_array();
+
+        let dim_i32 = i32::try_from(dim).unwrap();
+        let num_rows = rows.len();
+
+        let mut offsets_buf = BufferMut::<i32>::with_capacity(num_rows);
+        for i in 0..num_rows {
+            offsets_buf.push(i32::try_from(i).unwrap() * dim_i32);
+        }
+        let offsets =
+            PrimitiveArray::new::<i32>(offsets_buf.freeze(), Validity::NonNullable).into_array();
+
+        let mut sizes_buf = BufferMut::<i32>::with_capacity(num_rows);
+        for _ in 0..num_rows {
+            sizes_buf.push(dim_i32);
+        }
+        let sizes =
+            PrimitiveArray::new::<i32>(sizes_buf.freeze(), Validity::NonNullable).into_array();
+
+        ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable)
+            .unwrap()
+            .into_array()
+    }
+
+    #[test]
+    fn list_view_input_is_rewrapped_as_vector_extension() {
+        // Simulates the post-parquet-ingest shape: the `emb` column arrives as a
+        // ListView, not a List. `list_to_vector_ext` must materialize it via
+        // `recursive_list_from_list_view` and then validate offsets on the flattened
+        // `List` form.
+        let list_view = list_view_f32(3, &[&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0]]);
+        let wrapped = list_to_vector_ext(list_view).unwrap();
+        assert_eq!(wrapped.len(), 2);
+        let ext = wrapped.as_opt::<Extension>().expect("returns Extension");
+        assert!(matches!(
+            ext.storage_array().dtype(),
+            DType::FixedSizeList(_, 3, _)
+        ));
     }
 
     #[test]
