@@ -25,7 +25,7 @@ use anyhow::bail;
 use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
 use vortex::dtype::PType;
-use vortex::session::VortexSession;
+use vortex_bench::SESSION;
 
 use crate::execute_cosine;
 
@@ -81,7 +81,7 @@ impl VerificationReport {
 /// Compute cosine-similarity scores for a single query row on `data` and return them
 /// as a plain `Vec<f32>`. This is a convenience wrapper around
 /// [`crate::execute_cosine`] that pulls the f32 slice out of the resulting
-/// `PrimitiveArray`.
+/// `PrimitiveArray`. Uses the global [`vortex_bench::SESSION`].
 ///
 /// # Errors
 ///
@@ -90,12 +90,8 @@ impl VerificationReport {
 /// happen today because the benchmark only wires `f32` `Vector` columns, but the
 /// explicit ptype check keeps the function sound if the scalar-fn output type ever
 /// widens (e.g. to `f64`) without the caller noticing.
-pub fn compute_cosine_scores(
-    data: &ArrayRef,
-    query: &[f32],
-    session: &VortexSession,
-) -> Result<Vec<f32>> {
-    let mut ctx = session.create_execution_ctx();
+pub fn compute_cosine_scores(data: &ArrayRef, query: &[f32]) -> Result<Vec<f32>> {
+    let mut ctx = SESSION.create_execution_ctx();
     let scores = execute_cosine(data, query, &mut ctx)?;
     if scores.ptype() != PType::F32 {
         bail!(
@@ -203,23 +199,20 @@ pub fn verify_and_report_scores(
 /// same query used for the baseline and returns a [`VerificationReport`]. Returns
 /// `Err` if `kind` is [`VerificationKind::Lossless`] and the scores disagree beyond
 /// [`LOSSLESS_TOLERANCE`] — that indicates a real correctness bug, not a quality
-/// tradeoff.
+/// tradeoff. Uses the global [`vortex_bench::SESSION`].
 pub fn verify_variant(
     variant_name: &str,
     variant_array: &ArrayRef,
     query: &[f32],
     baseline_scores: &[f32],
     kind: VerificationKind,
-    session: &VortexSession,
 ) -> Result<VerificationReport> {
-    let scores = compute_cosine_scores(variant_array, query, session)?;
+    let scores = compute_cosine_scores(variant_array, query)?;
     verify_and_report_scores(variant_name, &scores, baseline_scores, kind)
 }
 
 #[cfg(test)]
 mod tests {
-    use vortex_bench::SESSION;
-
     use super::*;
     use crate::Variant;
     use crate::extract_query_row;
@@ -367,16 +360,15 @@ mod tests {
         let prepared = make_prepared(dim, num_rows, 0xC0FFEE);
 
         let baseline_scores =
-            compute_cosine_scores(&prepared.uncompressed, &prepared.query, &SESSION).unwrap();
+            compute_cosine_scores(&prepared.uncompressed, &prepared.query).unwrap();
 
-        let default_prep = prepare_variant(&prepared, Variant::VortexDefault, &SESSION).unwrap();
+        let default_prep = prepare_variant(&prepared, Variant::VortexDefault).unwrap();
         let report = verify_variant(
             "vortex-default",
             &default_prep.array,
             &prepared.query,
             &baseline_scores,
             VerificationKind::Lossless,
-            &SESSION,
         )
         .expect("vortex-default must be lossless against the uncompressed baseline");
         assert!(report.passed);
@@ -389,16 +381,15 @@ mod tests {
         let prepared = make_prepared(dim, num_rows, 0xDEADBEEF);
 
         let baseline_scores =
-            compute_cosine_scores(&prepared.uncompressed, &prepared.query, &SESSION).unwrap();
+            compute_cosine_scores(&prepared.uncompressed, &prepared.query).unwrap();
 
-        let tq_prep = prepare_variant(&prepared, Variant::VortexTurboQuant, &SESSION).unwrap();
+        let tq_prep = prepare_variant(&prepared, Variant::VortexTurboQuant).unwrap();
         let report = verify_variant(
             "vortex-turboquant",
             &tq_prep.array,
             &prepared.query,
             &baseline_scores,
             VerificationKind::Lossy,
-            &SESSION,
         )
         .expect("TurboQuant verification should not error");
         assert!(

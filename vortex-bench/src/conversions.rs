@@ -549,4 +549,33 @@ mod tests {
             "unexpected error: {err}",
         );
     }
+
+    #[test]
+    fn nullable_element_dtype_is_rejected() {
+        // Build a `List<f32?>` — a list whose elements have nullable dtype (even
+        // if every value happens to be present). The `Vector` extension type at the
+        // FSL level requires non-nullable elements, so this must be rejected.
+        //
+        // Passing `Validity::AllValid` to `PrimitiveArray::new` sets the ptype's
+        // nullability to `Nullable`, which is what triggers the rejection path even
+        // though every value is technically valid.
+        let elements = PrimitiveArray::new::<f32>(
+            BufferMut::<f32>::from_iter([1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0]).freeze(),
+            Validity::AllValid,
+        )
+        .into_array();
+        let offsets = PrimitiveArray::new::<i32>(
+            BufferMut::<i32>::from_iter([0i32, 3, 6]).freeze(),
+            Validity::NonNullable,
+        )
+        .into_array();
+        let list = vortex::array::Array::<List>::new(elements, offsets, Validity::NonNullable)
+            .into_array();
+
+        let err = list_to_vector_ext(list).unwrap_err().to_string();
+        assert!(
+            err.contains("element type must be non-nullable"),
+            "unexpected error: {err}"
+        );
+    }
 }

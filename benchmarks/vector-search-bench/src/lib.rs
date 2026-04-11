@@ -58,7 +58,7 @@ use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex::array::arrays::struct_::StructArrayExt as _;
 use vortex::dtype::DType;
 use vortex::dtype::PType;
-use vortex::session::VortexSession;
+use vortex::error::vortex_panic;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
 use vortex_bench::conversions::list_to_vector_ext;
@@ -126,7 +126,8 @@ impl Variant {
     }
 }
 
-/// A materialized Vortex array and its associated execution session / context.
+/// The ingested form of a dataset, ready to be fed to [`prepare_variant`] and the
+/// timing/verification pipeline.
 pub struct PreparedDataset {
     /// Name used in metric strings — usually the dataset's `Dataset::name()`.
     pub name: String,
@@ -152,11 +153,11 @@ impl PreparedDataset {
     pub fn dim(&self) -> u32 {
         let fsl_dtype = match self.uncompressed.dtype() {
             DType::Extension(ext) => ext.storage_dtype(),
-            other => vortex::error::vortex_panic!("expected Extension<Vector>, got {other}"),
+            other => vortex_panic!("expected Extension<Vector>, got {other}"),
         };
         match fsl_dtype {
             DType::FixedSizeList(_, dim, _) => *dim,
-            other => vortex::error::vortex_panic!("expected FixedSizeList storage, got {other}"),
+            other => vortex_panic!("expected FixedSizeList storage, got {other}"),
         }
     }
 
@@ -292,7 +293,8 @@ pub struct PreparedVariant {
 
 /// Apply a `Variant`'s preparation strategy to the materialized uncompressed source and
 /// return the resulting tree together with its reported in-memory size and construction
-/// time.
+/// time. Uses the global [`vortex_bench::SESSION`] for any execution-context work; the
+/// benchmark has no reason to support multiple concurrent sessions.
 ///
 /// **Why nbytes instead of on-disk size?** The Vortex file writer applies BtrBlocks
 /// compression as part of its default write strategy regardless of the in-memory tree
@@ -301,11 +303,7 @@ pub struct PreparedVariant {
 /// compressed tree — the disk-size comparison collapses two conceptually different
 /// things into one number. Reporting `nbytes()` of the in-memory tree keeps the size
 /// measurement consistent with what the *compute* measurements operate on.
-pub fn prepare_variant(
-    prepared: &PreparedDataset,
-    variant: Variant,
-    session: &VortexSession,
-) -> Result<PreparedVariant> {
+pub fn prepare_variant(prepared: &PreparedDataset, variant: Variant) -> Result<PreparedVariant> {
     match variant {
         Variant::VortexUncompressed => {
             // Identity: the uncompressed Extension<Vector> is already materialized. Still
@@ -333,7 +331,7 @@ pub fn prepare_variant(
             })
         }
         Variant::VortexTurboQuant => {
-            let mut ctx = session.create_execution_ctx();
+            let mut ctx = SESSION.create_execution_ctx();
             let start = Instant::now();
             let array = compress_turboquant(prepared.uncompressed.clone(), &mut ctx)?;
             let compress_duration = start.elapsed();
@@ -359,13 +357,13 @@ pub fn prepare_variant(
 /// interleaved form makes each stage see roughly the same cache state every
 /// iteration.
 ///
-/// Each stage still gets a fresh `ExecutionCtx`, so no cached scalar-fn state leaks
-/// between stages within a single iteration.
+/// Each stage still gets a fresh `ExecutionCtx` (from the global
+/// [`vortex_bench::SESSION`]), so no cached scalar-fn state leaks between stages
+/// within a single iteration.
 pub fn run_timings(
     variant_array: &ArrayRef,
     query: &[f32],
     iterations: usize,
-    session: &VortexSession,
 ) -> Result<VariantTimings> {
     let mut decompress = Duration::MAX;
     let mut cosine = Duration::MAX;
@@ -373,21 +371,21 @@ pub fn run_timings(
 
     for _ in 0..iterations {
         {
-            let mut ctx = session.create_execution_ctx();
+            let mut ctx = SESSION.create_execution_ctx();
             let start = Instant::now();
             let decoded: FixedSizeListArray = decompress_full_scan(variant_array, &mut ctx)?;
             decompress = decompress.min(start.elapsed());
             drop(decoded);
         }
         {
-            let mut ctx = session.create_execution_ctx();
+            let mut ctx = SESSION.create_execution_ctx();
             let start = Instant::now();
             let scores: PrimitiveArray = execute_cosine(variant_array, query, &mut ctx)?;
             cosine = cosine.min(start.elapsed());
             drop(scores);
         }
         {
-            let mut ctx = session.create_execution_ctx();
+            let mut ctx = SESSION.create_execution_ctx();
             let start = Instant::now();
             let matches: BoolArray =
                 execute_filter(variant_array, query, DEFAULT_THRESHOLD, &mut ctx)?;
@@ -515,8 +513,6 @@ pub(crate) mod test_utils {
 
 #[cfg(test)]
 mod tests {
-    use vortex_bench::SESSION;
-
     use super::test_utils::synthetic_vector;
     use super::*;
 
@@ -577,7 +573,7 @@ mod tests {
             Variant::VortexDefault,
             Variant::VortexTurboQuant,
         ] {
-            let prep = prepare_variant(&prepared, variant, &SESSION).unwrap();
+            let prep = prepare_variant(&prepared, variant).unwrap();
             assert_eq!(
                 prep.array.len(),
                 num_rows,
@@ -585,7 +581,7 @@ mod tests {
             );
             assert!(prep.nbytes > 0, "variant {variant:?} reported zero size");
 
-            let timings = run_timings(&prep.array, &prepared.query, 2, &SESSION).unwrap();
+            let timings = run_timings(&prep.array, &prepared.query, 2).unwrap();
             // TurboQuant + default must do real work; uncompressed's decompress is a
             // no-op and can plausibly time as zero.
             assert!(timings.cosine > Duration::ZERO);
@@ -603,14 +599,11 @@ mod tests {
         let num_rows = 256usize;
         let prepared = test_prepared(dim, num_rows, 0xDEADBEEF);
 
-        let uncompressed_prep =
-            prepare_variant(&prepared, Variant::VortexUncompressed, &SESSION).unwrap();
-        let turboquant_prep =
-            prepare_variant(&prepared, Variant::VortexTurboQuant, &SESSION).unwrap();
+        let uncompressed_prep = prepare_variant(&prepared, Variant::VortexUncompressed).unwrap();
+        let turboquant_prep = prepare_variant(&prepared, Variant::VortexTurboQuant).unwrap();
 
-        let unc_timings =
-            run_timings(&uncompressed_prep.array, &prepared.query, 3, &SESSION).unwrap();
-        let tq_timings = run_timings(&turboquant_prep.array, &prepared.query, 3, &SESSION).unwrap();
+        let unc_timings = run_timings(&uncompressed_prep.array, &prepared.query, 3).unwrap();
+        let tq_timings = run_timings(&turboquant_prep.array, &prepared.query, 3).unwrap();
 
         // The uncompressed decompress should be at least an order of magnitude faster
         // than TurboQuant's (usually many orders of magnitude). 5x is a loose lower
@@ -644,7 +637,7 @@ mod tests {
             Variant::VortexDefault,
             Variant::VortexTurboQuant,
         ] {
-            let prep = prepare_variant(&prepared, variant, &SESSION).unwrap();
+            let prep = prepare_variant(&prepared, variant).unwrap();
             println!("=== {variant:?} ===");
             println!("  len              : {}", prep.array.len());
             println!("  nbytes           : {}", prep.nbytes);
