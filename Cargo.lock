@@ -4890,6 +4890,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8bb03732005da905c88227371639bf1ad885cc712789c011c31c5fb3ab3ccf02"
 
 [[package]]
+name = "intern-pool-bench"
+version = "0.1.0"
+dependencies = [
+ "ahash 0.8.12",
+ "arc-swap",
+ "codspeed-divan-compat",
+ "dashmap",
+ "hashbrown 0.16.1",
+ "parking_lot",
+ "rand 0.10.0",
+ "rand_distr 0.6.0",
+ "rustc-hash",
+]
+
+[[package]]
 name = "inventory"
 version = "0.3.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"

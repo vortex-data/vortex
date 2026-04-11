@@ -1,0 +1,33 @@
+[package]
+name = "intern-pool-bench"
+description = "Benchmarks for intern pool implementations (str → u64)"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+include.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
+
+[dev-dependencies]
+ahash = "0.8"
+arc-swap = { workspace = true }
+dashmap = { workspace = true }
+divan = { workspace = true }
+hashbrown = { workspace = true }
+parking_lot = { workspace = true }
+rand = { workspace = true }
+rand_distr = { workspace = true }
+rustc-hash = { workspace = true }
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "intern_pool"
+harness = false
