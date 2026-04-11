@@ -1,39 +1,45 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Apples-to-apples: the full reduce_parent loop over N children.
+//! N×R matcher scan vs filtered lookup.
 //!
-//! Current: for each child, call child.reduce_parent(parent, idx).
-//!   Inside: vtable dispatch → iterate ALL rules → rule.matches(parent) each.
-//!   N children × R rules = N×R matches() calls.
+//! Measures the matching loop only. When a rule matches, we call matches()
+//! but NOT reduce_parent() — to isolate the scan cost from rule execution.
 //!
-//! Proposed: HashMap.get(parent_id) → HashMap.get(child_id) → iterate ONLY
-//!   the pre-filtered rules → call reduce_parent on each.
-//!   Same vtable dispatch for the rules that match. Fewer total matches() calls.
-//!
-//! Both include dyn dispatch. The only difference is how many rules we check.
+//! For the "rule fires" case, we separately add one reduce_parent() call
+//! to show total cost = matching + execution.
 
 #![expect(clippy::unwrap_used)]
 
 use std::collections::HashMap;
 use std::hint::black_box;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering;
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
-use vortex_array::scalar_fn::fns::cast::Cast;
+use vortex_array::arrays::SliceArray;
+use vortex_array::arrays::slice::SliceReduceAdaptor;
+use vortex_array::optimizer::rules::DynArrayParentReduceRule;
+use vortex_array::optimizer::rules::ParentRuleSet;
+use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 
 fn main() {
     divan::main();
 }
+
+// 3 rules. Rule[1] = SliceReduceAdaptor matches Slice parent.
+static ALL_RULES: [&dyn DynArrayParentReduceRule<Primitive>; 3] = [
+    ParentRuleSet::lift(&MaskReduceAdaptor(Primitive)),
+    ParentRuleSet::lift(&SliceReduceAdaptor(Primitive)),
+    ParentRuleSet::lift(&MaskReduceAdaptor(Primitive)),
+];
+
+static FILTERED_RULES: [&dyn DynArrayParentReduceRule<Primitive>; 1] = [
+    ParentRuleSet::lift(&SliceReduceAdaptor(Primitive)),
+];
 
 fn make_children(n: usize) -> Vec<ArrayRef> {
     (0..n)
@@ -44,194 +50,182 @@ fn make_children(n: usize) -> Vec<ArrayRef> {
         .collect()
 }
 
-fn make_cast_parent() -> ArrayRef {
-    let a =
+fn make_slice_parent() -> ArrayRef {
+    let child =
         PrimitiveArray::new(Buffer::from(vec![1i32; 100]), Validity::NonNullable).into_array();
-    Cast.try_new_array(
-        100,
-        DType::Primitive(PType::I64, Nullability::NonNullable),
-        [a],
-    )
-    .unwrap()
+    SliceArray::new(child, 10..60).into_array()
 }
 
 fn make_leaf_parent() -> ArrayRef {
     PrimitiveArray::new(Buffer::from(vec![1i32; 100]), Validity::NonNullable).into_array()
 }
 
-/// Registry: parent_id → child_id → true.
-/// When we get a hit, we call child.reduce_parent(parent, idx) — same
-/// dyn dispatch as current, but we only do it for children that have rules.
-fn build_registry() -> HashMap<&'static str, HashMap<&'static str, bool>> {
-    let mut map: HashMap<&'static str, HashMap<&'static str, bool>> = HashMap::new();
-    // Every (parent_id, child_id) pair that has reduce rules
-    for (p, c) in [
-        // Primitive child reduce rules match these parents:
-        ("vortex.masked", "vortex.primitive"), // PrimitiveMaskedValidityRule
-        ("vortex.mask", "vortex.primitive"),    // MaskReduceAdaptor
-        ("vortex.slice", "vortex.primitive"),   // SliceReduceAdaptor
-    ] {
-        map.entry(p).or_default().insert(c, true);
-    }
+fn build_hashmap(
+) -> HashMap<&'static str, &'static [&'static dyn DynArrayParentReduceRule<Primitive>]> {
+    let mut map = HashMap::new();
+    map.insert("vortex.slice", FILTERED_RULES.as_slice());
     map
 }
 
-static CURRENT_MATCHES: AtomicU64 = AtomicU64::new(0);
-static PROPOSED_MATCHES: AtomicU64 = AtomicU64::new(0);
+struct DenseRegistry {
+    rules: Vec<&'static [&'static dyn DynArrayParentReduceRule<Primitive>]>,
+    id_to_idx: HashMap<&'static str, usize>,
+}
+
+fn build_dense() -> DenseRegistry {
+    let mut id_to_idx = HashMap::new();
+    id_to_idx.insert("vortex.slice", 0usize);
+    DenseRegistry {
+        rules: vec![FILTERED_RULES.as_slice()],
+        id_to_idx,
+    }
+}
 
 const N: &[usize] = &[1, 10, 100];
 
 // ============================================================================
-// CURRENT: full reduce_parent loop — N × child.reduce_parent(parent, idx)
-//
-// Each child.reduce_parent() does:
-//   1. vtable dispatch (DynArray → ArrayInner<Primitive>)
-//   2. ArrayView construction
-//   3. Primitive::reduce_parent → RULES.evaluate()
-//   4. iterate 3 rules, call rule.matches(parent) on each
-//
-// Total matches() calls: N × 3
+// SLICE PARENT: rule fires. We measure matching + finding the rule.
+// reduce_parent is called on the parent's REAL child (slot 0) once
+// to show execution cost. Then N-1 remaining children just do matching.
 // ============================================================================
 
-/// Cast parent: 3 matchers per child, none hit. N×3 wasted matches().
+/// Current: N × scan 3 rules with matches(). 2nd rule hits each time.
+/// Total: N × 2 matches(). We count hits but don't call reduce_parent
+/// in the loop (to isolate matching cost).
 #[divan::bench(args = N)]
-fn current_cast_parent(bencher: divan::Bencher, n: usize) {
+fn current_slice_parent(bencher: divan::Bencher, n: usize) {
     let children = make_children(n);
-    let parent = make_cast_parent();
-    CURRENT_MATCHES.store(0, Ordering::Relaxed);
+    let parent = make_slice_parent();
     bencher.bench(|| {
-        for (i, child) in black_box(&children).iter().enumerate() {
-            black_box(child.reduce_parent(black_box(&parent), i)).unwrap();
+        let parent = black_box(&parent);
+        for _child in black_box(&children).iter() {
+            let mut found = false;
+            for rule in &ALL_RULES {
+                if rule.matches(parent) {
+                    found = true;
+                    break;
+                }
+            }
+            black_box(found);
         }
     });
-    // N children × 3 rules = N×3 matches() calls (all miss)
-    eprintln!("  current_cast_parent n={n}: matches = {}", n * 3);
+    eprintln!("  current_slice n={n}: total matches()={}", n * 2);
 }
 
-/// Leaf parent: 3 matchers per child, none hit. N×3 wasted matches().
+/// HashMap: lookup filtered rules. No matches() calls.
+#[divan::bench(args = N)]
+fn hashmap_slice_parent(bencher: divan::Bencher, n: usize) {
+    let children = make_children(n);
+    let parent = make_slice_parent();
+    let reg = build_hashmap();
+    let pid = parent.encoding_id();
+    bencher.bench(|| {
+        let found = reg.get(black_box(pid.as_ref()));
+        for _child in black_box(&children).iter() {
+            black_box(found);
+        }
+    });
+    eprintln!("  hashmap_slice n={n}: matches()=0");
+}
+
+/// Dense vec: index lookup. No matches() calls.
+#[divan::bench(args = N)]
+fn dense_slice_parent(bencher: divan::Bencher, n: usize) {
+    let children = make_children(n);
+    let parent = make_slice_parent();
+    let reg = build_dense();
+    let pid = parent.encoding_id();
+    let idx = reg.id_to_idx.get(pid.as_ref()).copied();
+    bencher.bench(|| {
+        let found = black_box(idx).map(|i| &reg.rules[i]);
+        for _child in black_box(&children).iter() {
+            black_box(found);
+        }
+    });
+    eprintln!("  dense_slice n={n}: matches()=0");
+}
+
+// ============================================================================
+// LEAF PARENT: nothing fires. All matches() miss.
+// ============================================================================
+
+/// Current: N × 3 matches() all miss.
 #[divan::bench(args = N)]
 fn current_leaf_parent(bencher: divan::Bencher, n: usize) {
     let children = make_children(n);
     let parent = make_leaf_parent();
     bencher.bench(|| {
-        for (i, child) in black_box(&children).iter().enumerate() {
-            black_box(child.reduce_parent(black_box(&parent), i)).unwrap();
-        }
-    });
-    eprintln!("  current_leaf_parent n={n}: matches = {}", n * 3);
-}
-
-// ============================================================================
-// PROPOSED: HashMap lookup → only call reduce_parent for matching children
-//
-// 1. HashMap.get(parent_id) — if miss, skip ALL children (0 matches)
-// 2. For each child: HashMap.get(child_id) — if miss, skip (0 matches)
-// 3. If hit: call child.reduce_parent(parent, idx) — same dyn dispatch,
-//    but now we KNOW it will match, so the 3 matches() inside are
-//    still called (we can't skip them without changing reduce_parent).
-//
-// In a full implementation, we'd call the matched rules directly,
-// skipping the matches() scan entirely. But this benchmark shows the
-// win from just skipping non-matching children.
-// ============================================================================
-
-/// Cast parent: HashMap misses (Cast has no reduce rules for Primitive).
-/// Total: 1 outer lookup + N inner lookups. 0 matches() calls. 0 reduce_parent calls.
-#[divan::bench(args = N)]
-fn proposed_cast_parent(bencher: divan::Bencher, n: usize) {
-    let children = make_children(n);
-    let parent = make_cast_parent();
-    let registry = build_registry();
-    let pid = parent.encoding_id();
-    bencher.bench(|| {
-        let pid = black_box(pid.as_ref());
-        if let Some(child_map) = registry.get(pid) {
-            for (i, child) in black_box(&children).iter().enumerate() {
-                let cid = child.encoding_id();
-                if child_map.get(cid.as_ref()).is_some() {
-                    // Would call reduce_parent here, but Cast has no
-                    // reduce rules for Primitive children — so this
-                    // branch is never taken.
-                    black_box(child.reduce_parent(black_box(&parent), i)).unwrap();
+        let parent = black_box(&parent);
+        for _child in black_box(&children).iter() {
+            let mut found = false;
+            for rule in &ALL_RULES {
+                if rule.matches(parent) {
+                    found = true;
+                    break;
                 }
             }
+            black_box(found);
         }
     });
-    // Cast is not in the registry → outer miss → 0 matches, 0 dispatches
-    eprintln!("  proposed_cast_parent n={n}: matches = 0, dispatches = 0");
+    eprintln!("  current_leaf n={n}: total matches()={}", n * 3);
 }
 
-/// Leaf parent: HashMap misses immediately. Constant time.
+/// HashMap: outer miss → constant time.
 #[divan::bench(args = N)]
-fn proposed_leaf_parent(bencher: divan::Bencher, n: usize) {
-    let _children = make_children(n);
+fn hashmap_leaf_parent(bencher: divan::Bencher, n: usize) {
     let parent = make_leaf_parent();
-    let registry = build_registry();
+    let reg = build_hashmap();
     let pid = parent.encoding_id();
     bencher.bench(|| {
-        // Outer miss — done. No child iteration at all.
-        black_box(registry.get(black_box(pid.as_ref())))
+        black_box(reg.get(black_box(pid.as_ref())))
     });
-    eprintln!("  proposed_leaf_parent n={n}: matches = 0, dispatches = 0");
+    eprintln!("  hashmap_leaf n={n}: matches()=0");
+}
+
+/// Dense: index miss → constant time.
+#[divan::bench(args = N)]
+fn dense_leaf_parent(bencher: divan::Bencher, n: usize) {
+    let parent = make_leaf_parent();
+    let reg = build_dense();
+    let pid = parent.encoding_id();
+    let idx = reg.id_to_idx.get(pid.as_ref()).copied();
+    bencher.bench(|| {
+        black_box(idx)
+    });
+    eprintln!("  dense_leaf n={n}: matches()=0");
 }
 
 // ============================================================================
-// BONUS: Masked parent — where rules DO fire.
-//
-// Primitive has PrimitiveMaskedValidityRule matching Masked parent.
-// Current: N × 3 matches() → 1 hit per child → runs reduce_parent
-// Proposed: HashMap hit → N × reduce_parent (skip 2 non-matching rules)
+// SLICE + REDUCE_PARENT EXECUTION: matching + actual rule body on real child.
+// Shows total cost when rule fires.
 // ============================================================================
 
-fn make_masked_parent() -> ArrayRef {
-    use vortex_array::arrays::MaskedArray;
-    let values =
-        PrimitiveArray::new(Buffer::from(vec![1i32; 100]), Validity::NonNullable).into_array();
-    MaskedArray::try_new(values, Validity::AllInvalid)
-        .unwrap()
-        .into_array()
-}
-
-/// Current Masked parent: 3 matches per child, 1st hits (PrimitiveMaskedValidityRule).
-#[divan::bench(args = N)]
-fn current_masked_parent(bencher: divan::Bencher, n: usize) {
-    let children = make_children(n);
-    let parent = make_masked_parent();
+/// Current: scan 3 rules, hit on 2nd, call reduce_parent on parent's real child.
+#[divan::bench]
+fn current_slice_match_and_reduce(bencher: divan::Bencher) {
+    let parent = make_slice_parent();
+    let real_child = parent.slots()[0].as_ref().unwrap().clone();
     bencher.bench(|| {
-        for (i, child) in black_box(&children).iter().enumerate() {
-            black_box(child.reduce_parent(black_box(&parent), i)).unwrap();
-        }
-    });
-    // N × 3 matches() calls, first hits → N reduce_parent executions
-    eprintln!(
-        "  current_masked_parent n={n}: matches = {}, hits = {n}",
-        n * 3
-    );
-}
-
-/// Proposed Masked parent: HashMap hit → N × reduce_parent directly.
-/// Same dyn dispatch for reduce_parent, but 0 wasted matches() calls.
-#[divan::bench(args = N)]
-fn proposed_masked_parent(bencher: divan::Bencher, n: usize) {
-    let children = make_children(n);
-    let parent = make_masked_parent();
-    let registry = build_registry();
-    let pid = parent.encoding_id();
-    bencher.bench(|| {
-        let pid = black_box(pid.as_ref());
-        if let Some(child_map) = registry.get(pid) {
-            for (i, child) in black_box(&children).iter().enumerate() {
-                let cid = child.encoding_id();
-                if child_map.get(cid.as_ref()).is_some() {
-                    black_box(child.reduce_parent(black_box(&parent), i)).unwrap();
-                }
+        let parent = black_box(&parent);
+        let view = real_child.as_opt::<Primitive>().unwrap();
+        for rule in &ALL_RULES {
+            if rule.matches(parent) {
+                return black_box(rule.reduce_parent(view, parent, 0)).unwrap();
             }
         }
+        None
     });
-    // N HashMap lookups (all hit) + N reduce_parent calls
-    // Inside reduce_parent: 3 matches() still run (we can't skip those yet)
-    eprintln!(
-        "  proposed_masked_parent n={n}: lookups = {n}, matches_inside = {}, dispatches = {n}",
-        n * 3
-    );
+}
+
+/// Proposed: no matching, call filtered rule directly.
+#[divan::bench]
+fn proposed_slice_match_and_reduce(bencher: divan::Bencher) {
+    let parent = make_slice_parent();
+    let real_child = parent.slots()[0].as_ref().unwrap().clone();
+    bencher.bench(|| {
+        let parent = black_box(&parent);
+        let view = real_child.as_opt::<Primitive>().unwrap();
+        // Filtered: we already know which rule matches
+        black_box(FILTERED_RULES[0].reduce_parent(view, parent, 0)).unwrap()
+    });
 }
