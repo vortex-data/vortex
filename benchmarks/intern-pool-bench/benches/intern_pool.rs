@@ -29,6 +29,7 @@ use dashmap::DashMap;
 use divan::Bencher;
 use divan::counter::ItemsCount;
 use intern_pool_bench::CompactPool;
+use intern_pool_bench::StringId;
 use parking_lot::RwLock;
 use rand::prelude::*;
 use rand_distr::Zipf;
@@ -204,12 +205,13 @@ fn compact_pool() -> &'static CompactPool {
     })
 }
 
-/// Pre-computed hashes for the Zipfian key set (for pre-hashed lookup benchmarks).
-fn zipf_hashes() -> &'static [u64] {
-    static HASHES: OnceLock<Vec<u64>> = OnceLock::new();
-    HASHES.get_or_init(|| {
+/// Pre-computed `StringId`s for the Zipfian key set.
+/// Simulates the real use case: hash each encoding name once at init, then resolve by ID.
+fn zipf_ids() -> &'static [StringId] {
+    static IDS: OnceLock<Vec<StringId>> = OnceLock::new();
+    IDS.get_or_init(|| {
         let pool = compact_pool();
-        zipf_keys().iter().map(|k| pool.hash_key(k)).collect()
+        zipf_keys().iter().map(|k| pool.id(k)).collect()
     })
 }
 
@@ -254,13 +256,13 @@ mod algo {
         bencher.bench(|| black_box(pool.get(key)));
     }
 
-    /// CompactPool with pre-computed hash: skips both hashing AND key comparison.
+    /// CompactPool with pre-computed StringId: skips both hashing AND key comparison.
     #[divan::bench]
     fn compact_pool_prehashed(bencher: Bencher) {
         let pool = super::compact_pool();
         let key = test_strings()[NUM_STRINGS / 2];
-        let hash = pool.hash_key(key);
-        bencher.bench(|| black_box(pool.get_by_hash(hash)));
+        let id = pool.id(key);
+        bencher.bench(|| black_box(pool.resolve(id)));
     }
 
     #[divan::bench]
@@ -421,15 +423,15 @@ mod zipf_throughput {
         });
     }
 
-    /// CompactPool with pre-computed hashes: zero hashing, zero key comparison.
+    /// CompactPool with pre-computed StringIds: zero hashing, zero key comparison.
     /// This is the theoretical speed-of-light for this workload.
     #[divan::bench(threads = [1, 2, 4])]
     fn compact_pool_prehashed(bencher: Bencher) {
         let pool = super::compact_pool();
-        let hashes = zipf_hashes();
-        bencher.counter(ItemsCount::new(hashes.len())).bench(|| {
-            for &hash in hashes {
-                black_box(pool.get_by_hash(hash));
+        let ids = zipf_ids();
+        bencher.counter(ItemsCount::new(ids.len())).bench(|| {
+            for &id in ids {
+                black_box(pool.resolve(id));
             }
         });
     }

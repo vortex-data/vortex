@@ -4,7 +4,7 @@
 //! Intern pool lookup functions and optimized data structures.
 //!
 //! Contains `#[inline(never)]` wrappers for ASM inspection via `cargo asm`,
-//! plus a `CompactPool` that eliminates key comparison for maximum lookup speed.
+//! plus a [`CompactPool`] that eliminates key comparison for maximum lookup speed.
 
 #![expect(clippy::cast_possible_truncation)]
 #![allow(clippy::disallowed_types)]
@@ -53,18 +53,38 @@ pub fn lookup_binary_search(table: &[(&str, u64)], key: &str) -> Option<u64> {
         .map(|i| table[i].1)
 }
 
+// ─── StringId: pre-computed hash handle ──────────────────────────────────────
+
+/// A pre-computed hash of a string key, for O(1) lookup without re-hashing.
+///
+/// Created via [`CompactPool::id`] at init time. Subsequent lookups via
+/// [`CompactPool::resolve`] skip hashing entirely — just a single array
+/// probe (~2ns).
+///
+/// ```
+/// # use intern_pool_bench::CompactPool;
+/// let pool = CompactPool::new([("bool", 0), ("primitive", 1)]);
+///
+/// // Pre-compute once (at startup or first encounter):
+/// let bool_id = pool.id("bool");
+/// let prim_id = pool.id("primitive");
+///
+/// // Resolve many times (hot path, zero hashing):
+/// assert_eq!(pool.resolve(bool_id), Some(0));
+/// assert_eq!(pool.resolve(prim_id), Some(1));
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct StringId(u64);
+
 // ─── CompactPool: hash-only lookup, no key comparison ────────────────────────
-//
-// For ~200 entries with 64-bit hashes, hash collisions have probability ~10^-14.
-// We can safely compare hashes only, eliminating the `bcmp` call from the hot path.
-//
-// Layout: flat array of (hash, value) pairs with open addressing.
-// Empty slots marked by hash=0.
 
 /// A minimal hash table optimized for small, static string pools.
 ///
-/// Trades correctness guarantees for speed: compares hashes only, never compares keys.
-/// Safe when the number of entries is small (< 10K) and hash function is 64-bit.
+/// Uses hash-only comparison (no `bcmp` key compare), which is safe when
+/// the entry count is small (< 10K) and the hash function is 64-bit
+/// (collision probability ~10^-14 for 200 entries).
+///
+/// Layout: flat `(hash, value)` array with open addressing and ~25% load factor.
 pub struct CompactPool {
     table: Box<[(u64, u64)]>,
     mask: usize,
@@ -74,7 +94,7 @@ pub struct CompactPool {
 impl CompactPool {
     /// Build from an iterator of (key, value) pairs.
     ///
-    /// Panics if two keys produce the same hash (astronomically unlikely for < 10K entries).
+    /// Panics if two keys produce the same 64-bit hash.
     pub fn new(entries: impl IntoIterator<Item = (&'static str, u64)>) -> Self {
         let entries: Vec<_> = entries.into_iter().collect();
         // 4x overallocation → ~25% load factor → almost always 1 probe
@@ -104,14 +124,30 @@ impl CompactPool {
         }
     }
 
-    /// Lookup by string key. Hashes the key and compares hash only.
+    /// Pre-compute a [`StringId`] for a key. Call this once per string at init time.
+    ///
+    /// The returned `StringId` can be used with [`resolve`](Self::resolve) for
+    /// zero-hashing lookups on the hot path.
+    pub fn id(&self, key: &str) -> StringId {
+        StringId(Self::hash_str(&self.build_hasher, key))
+    }
+
+    /// Resolve a pre-computed [`StringId`] to its value. **No hashing, no key comparison.**
+    ///
+    /// This is the fastest possible lookup — a single array probe (~2ns).
+    #[inline]
+    pub fn resolve(&self, id: StringId) -> Option<u64> {
+        self.get_by_hash(id.0)
+    }
+
+    /// Lookup by string key. Hashes the key, then probes with hash-only comparison.
     #[inline(never)]
     pub fn get(&self, key: &str) -> Option<u64> {
         let hash = Self::hash_str(&self.build_hasher, key);
         self.get_by_hash(hash)
     }
 
-    /// Lookup by pre-computed hash. Skips hashing entirely.
+    /// Lookup by raw pre-computed hash.
     #[inline(never)]
     pub fn get_by_hash(&self, hash: u64) -> Option<u64> {
         let mut idx = hash as usize & self.mask;
@@ -128,7 +164,7 @@ impl CompactPool {
         }
     }
 
-    /// Pre-compute the hash for a key (for batched pre-hashed lookups).
+    /// Pre-compute the raw hash for a key.
     pub fn hash_key(&self, key: &str) -> u64 {
         Self::hash_str(&self.build_hasher, key)
     }
