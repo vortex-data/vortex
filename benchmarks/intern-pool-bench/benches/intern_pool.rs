@@ -22,6 +22,8 @@ use std::collections::HashMap;
 use std::hint::black_box;
 use std::sync::Arc;
 use std::sync::OnceLock;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use arc_swap::ArcSwap;
 use arc_swap::cache::Cache as ArcSwapCache;
@@ -206,13 +208,65 @@ fn compact_pool() -> &'static CompactPool {
 }
 
 /// Pre-computed `StringId`s for the Zipfian key set.
-/// Simulates the real use case: hash each encoding name once at init, then resolve by ID.
 fn zipf_ids() -> &'static [StringId] {
     static IDS: OnceLock<Vec<StringId>> = OnceLock::new();
     IDS.get_or_init(|| {
         let pool = compact_pool();
         zipf_keys().iter().map(|k| pool.id(k)).collect()
     })
+}
+
+/// 1M Zipfian indices (0..199) for the pre-resolved ID benchmarks.
+fn zipf_indices() -> &'static [usize] {
+    static INDICES: OnceLock<Vec<usize>> = OnceLock::new();
+    INDICES.get_or_init(|| {
+        let mut rng = StdRng::seed_from_u64(42);
+        let zipf = Zipf::new(NUM_STRINGS as f64, ZIPF_EXPONENT).unwrap();
+        (0..ZIPF_NUM_LOOKUPS)
+            .map(|_| {
+                let idx: f64 = rng.sample(zipf);
+                (idx as usize).saturating_sub(1).min(NUM_STRINGS - 1)
+            })
+            .collect()
+    })
+}
+
+// ─── Pre-resolved ID storage mechanisms ──────────────────────────────────────
+
+/// Approach 1: Eager Vec<u64> — resolve all at init, read by index.
+fn eager_vec() -> &'static [u64] {
+    static VEC: OnceLock<Vec<u64>> = OnceLock::new();
+    VEC.get_or_init(|| {
+        let pool = compact_pool();
+        test_strings()
+            .iter()
+            .map(|s| pool.get(s).unwrap())
+            .collect()
+    })
+}
+
+/// Approach 2: AtomicU64 array — resolve once, read with Relaxed load.
+fn atomic_array() -> &'static [AtomicU64] {
+    static ARRAY: OnceLock<Vec<AtomicU64>> = OnceLock::new();
+    ARRAY.get_or_init(|| {
+        let pool = compact_pool();
+        test_strings()
+            .iter()
+            .map(|s| AtomicU64::new(pool.get(s).unwrap()))
+            .collect()
+    })
+}
+
+/// Approach 3: OnceLock<u64> array — lazy init per ID on first access.
+fn oncelock_array() -> &'static [OnceLock<u64>] {
+    static ARRAY: OnceLock<Vec<OnceLock<u64>>> = OnceLock::new();
+    let arr = ARRAY.get_or_init(|| (0..NUM_STRINGS).map(|_| OnceLock::new()).collect());
+    // Eagerly initialize all entries so we measure steady-state read cost.
+    let pool = compact_pool();
+    for (i, cell) in arr.iter().enumerate() {
+        cell.get_or_init(|| pool.get(test_strings()[i]).unwrap());
+    }
+    arr
 }
 
 // ─── Bench A: Algorithm Comparison (single-threaded, no sync overhead) ───────
@@ -450,6 +504,78 @@ mod zipf_throughput {
     #[divan::bench(threads = [1, 2, 4])]
     fn ahash(bencher: Bencher) {
         let map = ahash_hashmap();
+        let keys = zipf_keys();
+        bencher.counter(ItemsCount::new(keys.len())).bench(|| {
+            for key in keys {
+                black_box(map.get(key));
+            }
+        });
+    }
+}
+
+// ─── Bench D: Pre-resolved ID read cost (1M reads, reports reads/sec) ───────
+//
+// The ID u64 was resolved ONCE from the pool at startup.
+// Now we just read it from different storage mechanisms.
+// This measures the pure read overhead of each container.
+
+mod id_read_cost {
+    use super::*;
+
+    /// Baseline: plain Vec<u64> indexed directly. Zero overhead.
+    /// This is what you get with an eagerly-initialized struct.
+    #[divan::bench(threads = [1, 2, 4])]
+    fn eager_vec_index(bencher: Bencher) {
+        let vec = eager_vec();
+        let indices = zipf_indices();
+        bencher.counter(ItemsCount::new(indices.len())).bench(|| {
+            for &i in indices {
+                black_box(vec[i]);
+            }
+        });
+    }
+
+    /// AtomicU64 with Relaxed load. On x86 this is a plain `mov`.
+    #[divan::bench(threads = [1, 2, 4])]
+    fn atomic_u64_relaxed(bencher: Bencher) {
+        let arr = atomic_array();
+        let indices = zipf_indices();
+        bencher.counter(ItemsCount::new(indices.len())).bench(|| {
+            for &i in indices {
+                black_box(arr[i].load(Ordering::Relaxed));
+            }
+        });
+    }
+
+    /// OnceLock<u64>::get() — Acquire load + is-initialized check on every read.
+    #[divan::bench(threads = [1, 2, 4])]
+    fn oncelock_get(bencher: Bencher) {
+        let arr = oncelock_array();
+        let indices = zipf_indices();
+        bencher.counter(ItemsCount::new(indices.len())).bench(|| {
+            for &i in indices {
+                black_box(arr[i].get().copied());
+            }
+        });
+    }
+
+    /// CompactPool::resolve(StringId) — pre-hashed, probes flat array.
+    #[divan::bench(threads = [1, 2, 4])]
+    fn compact_pool_resolve(bencher: Bencher) {
+        let pool = compact_pool();
+        let ids = zipf_ids();
+        bencher.counter(ItemsCount::new(ids.len())).bench(|| {
+            for &id in ids {
+                black_box(pool.resolve(id));
+            }
+        });
+    }
+
+    /// FxHashMap::get(&str) — full hash + key comparison every time.
+    /// This is the "no pre-resolution" baseline.
+    #[divan::bench(threads = [1, 2, 4])]
+    fn fxhashmap_str_lookup(bencher: Bencher) {
+        let map = fx_hashmap();
         let keys = zipf_keys();
         bencher.counter(ItemsCount::new(keys.len())).bench(|| {
             for key in keys {
