@@ -317,19 +317,25 @@ pub fn list_to_vector_ext(input: ArrayRef) -> VortexResult<ArrayRef> {
         vortex_bail!("list_to_vector_ext: cannot infer vector dimension from empty input");
     }
 
-    let first_start = list.offset_at(0)?;
+    // Walk the offsets array once, reusing the previous iteration's `end` as the
+    // next iteration's `start`. Each `offset_at` call goes through
+    // `ListArrayExt::offset_at`, which has a fast path when the offsets child is a
+    // `Primitive` array (direct slice index). That's the common case after
+    // `parquet_to_vortex_chunks`, so for a 100K-row column we do ~100K primitive
+    // slice indexes rather than 200K. The loop body is O(1) either way.
+    let mut prev_end = list.offset_at(0)?;
     let first_end = list.offset_at(1)?;
-    let dim = first_end.checked_sub(first_start).ok_or_else(|| {
+    let dim = first_end.checked_sub(prev_end).ok_or_else(|| {
         vortex_err!("list_to_vector_ext: offsets are not monotonically increasing")
     })?;
     if dim == 0 {
         vortex_bail!("list_to_vector_ext: first row has zero elements");
     }
+    prev_end = first_end;
 
     for i in 1..num_rows {
-        let start = list.offset_at(i)?;
         let end = list.offset_at(i + 1)?;
-        let row_len = end.checked_sub(start).ok_or_else(|| {
+        let row_len = end.checked_sub(prev_end).ok_or_else(|| {
             vortex_err!("list_to_vector_ext: offsets are not monotonically increasing")
         })?;
         if row_len != dim {
@@ -340,6 +346,7 @@ pub fn list_to_vector_ext(input: ArrayRef) -> VortexResult<ArrayRef> {
                 dim
             );
         }
+        prev_end = end;
     }
 
     let elements = list.sliced_elements()?;
