@@ -47,8 +47,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_tensor::vector::Vector;
-use vortex_tensor::vector_search::build_similarity_search_tree as public_build_similarity_search_tree;
-use vortex_tensor::vector_search::compress_turboquant as public_compress_turboquant;
+pub use vortex_tensor::vector_search::build_similarity_search_tree;
+pub use vortex_tensor::vector_search::compress_turboquant;
 
 /// A shared [`VortexSession`] pre-loaded with the builtin [`ArraySession`] so both bench and
 /// example can create execution contexts cheaply.
@@ -141,15 +141,12 @@ pub fn extract_row_as_query(vectors: &ArrayRef, row: usize, dim: u32) -> Vec<f32
 /// underlying FSL storage child. TurboQuant is *not* exercised by this path -- it is not
 /// registered in the default scheme set -- so this measures "generic" lossless compression
 /// applied to float vectors.
+///
+/// Stays in this bench-only module because `BtrBlocksCompressor` is a dev-dependency of
+/// `vortex-tensor`, so promoting it to the public `vector_search` module would drag the
+/// `vortex-btrblocks` dep into `vortex-tensor`'s main dependency list.
 pub fn compress_default(data: ArrayRef) -> VortexResult<ArrayRef> {
     BtrBlocksCompressor::default().compress(&data)
-}
-
-/// Compresses a raw `Vector<dim, f32>` array with the TurboQuant pipeline. This is a thin
-/// wrapper around [`vortex_tensor::vector_search::compress_turboquant`] preserved for bench
-/// call-site compatibility.
-pub fn compress_turboquant(data: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-    public_compress_turboquant(data, ctx)
 }
 
 /// Dispatch helper that builds the data array for the requested [`Variant`], starting from a
@@ -168,16 +165,4 @@ pub fn build_variant(
         Variant::DefaultCompression => compress_default(raw),
         Variant::TurboQuant => compress_turboquant(raw, ctx),
     }
-}
-
-/// Build the lazy similarity-search array tree for a prepared data array and a single query
-/// vector. Thin wrapper around
-/// [`vortex_tensor::vector_search::build_similarity_search_tree`] preserved for bench
-/// call-site compatibility.
-pub fn build_similarity_search_tree(
-    data: ArrayRef,
-    query: &[f32],
-    threshold: f32,
-) -> VortexResult<ArrayRef> {
-    public_build_similarity_search_tree(data, query, threshold)
 }
