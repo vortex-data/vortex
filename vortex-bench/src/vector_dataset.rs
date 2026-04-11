@@ -18,20 +18,13 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
+use anyhow::bail;
 use async_trait::async_trait;
-use tokio::fs::File;
 use vortex::array::ArrayRef;
-use vortex::array::IntoArray;
-use vortex::array::stream::ArrayStreamExt;
-use vortex::file::OpenOptionsSessionExt;
-use vortex::file::WriteOptionsSessionExt;
 
 use crate::IdempotentPath;
-use crate::SESSION;
-use crate::conversions::parquet_to_vortex_chunks;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::download_data;
-use crate::idempotent_async;
 
 /// A public embedding-vector dataset used by the vector-search benchmark.
 ///
@@ -171,35 +164,28 @@ impl Dataset for VectorDataset {
         Ok(parquet)
     }
 
+    /// **Not supported.** `VectorDataset` can't return a straight Vortex array via
+    /// [`Dataset::to_vortex_array`] because:
+    ///
+    /// - The struct-shaped array the other datasets return would arrive as
+    ///   `{ id: int64, emb: list<float> }` — with `emb` as a *list*, not the
+    ///   `Extension<Vector>(FixedSizeList<...>)` shape the vector-search benchmark
+    ///   actually operates on.
+    /// - The benchmark therefore bypasses this method entirely: it calls
+    ///   [`Dataset::to_parquet_path`] and then runs
+    ///   [`crate::conversions::parquet_to_vortex_chunks`] +
+    ///   [`crate::conversions::list_to_vector_ext`] itself, which produces the
+    ///   correct `Extension<Vector>` shape.
+    ///
+    /// Returning the raw struct here would be a trap for future callers who expect
+    /// the same semantic shape the benchmark measures. Bailing explicitly makes the
+    /// contract unambiguous.
     async fn to_vortex_array(&self) -> Result<ArrayRef> {
-        let parquet = self.to_parquet_path().await?;
-        let dir = format!("{}/", self.name()).to_data_path();
-        let vortex = dir.join(format!("{}.vortex", self.name()));
-
-        let data = parquet_to_vortex_chunks(parquet).await?;
-        idempotent_async(&vortex, async |path| -> Result<()> {
-            SESSION
-                .write_options()
-                .write(
-                    &mut File::create(path)
-                        .await
-                        .map_err(|e| anyhow::anyhow!("Failed to create file: {}", e))?,
-                    data.into_array().to_array_stream(),
-                )
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to write vortex file: {}", e))?;
-            Ok(())
-        })
-        .await?;
-
-        Ok(SESSION
-            .open_options()
-            .open_path(vortex.as_path())
-            .await?
-            .scan()?
-            .into_array_stream()?
-            .read_all()
-            .await?)
+        bail!(
+            "VectorDataset::to_vortex_array is not supported; use `to_parquet_path` + \
+             `parquet_to_vortex_chunks` + `list_to_vector_ext` to build the \
+             Extension<Vector> shape the benchmark needs"
+        );
     }
 }
 
