@@ -41,11 +41,23 @@ use anyhow::Result;
 use anyhow::bail;
 use clap::ValueEnum;
 use vortex::array::ArrayRef;
+use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::BoolArray;
+use vortex::array::arrays::Chunked;
+use vortex::array::arrays::ChunkedArray;
+use vortex::array::arrays::Extension;
+use vortex::array::arrays::ExtensionArray;
 use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::Struct;
+use vortex::array::arrays::chunked::ChunkedArrayExt;
+use vortex::array::arrays::extension::ExtensionArrayExt;
+use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex::array::arrays::struct_::StructArrayExt as _;
+use vortex::dtype::DType;
+use vortex::dtype::PType;
 use vortex::session::VortexSession;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
@@ -54,6 +66,8 @@ use vortex_bench::conversions::parquet_to_vortex_chunks;
 use vortex_bench::datasets::Dataset;
 use vortex_bench::vector_dataset::VectorDataset;
 use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity;
+use vortex_tensor::vector_search::build_constant_query_vector;
 use vortex_tensor::vector_search::build_similarity_search_tree;
 use vortex_tensor::vector_search::compress_turboquant;
 
@@ -137,16 +151,12 @@ impl PreparedDataset {
     /// and it guarantees this shape.
     pub fn dim(&self) -> u32 {
         let fsl_dtype = match self.uncompressed.dtype() {
-            vortex::dtype::DType::Extension(ext) => ext.storage_dtype(),
-            other => {
-                vortex::error::vortex_panic!("expected Extension<Vector>, got {other}")
-            }
+            DType::Extension(ext) => ext.storage_dtype(),
+            other => vortex::error::vortex_panic!("expected Extension<Vector>, got {other}"),
         };
         match fsl_dtype {
-            vortex::dtype::DType::FixedSizeList(_, dim, _) => *dim,
-            other => {
-                vortex::error::vortex_panic!("expected FixedSizeList storage, got {other}")
-            }
+            DType::FixedSizeList(_, dim, _) => *dim,
+            other => vortex::error::vortex_panic!("expected FixedSizeList storage, got {other}"),
         }
     }
 
@@ -159,8 +169,6 @@ impl PreparedDataset {
 /// Prepare a dataset by downloading its parquet file, converting the `emb` column to a
 /// `Vector<dim, f32>` extension array, and extracting a single-row query vector.
 pub async fn prepare_dataset(dataset: &VectorDataset) -> Result<PreparedDataset> {
-    use vortex::array::arrays::ExtensionArray;
-
     let parquet_path = dataset
         .to_parquet_path()
         .await
@@ -202,12 +210,6 @@ pub async fn prepare_dataset(dataset: &VectorDataset) -> Result<PreparedDataset>
 /// Project the `emb` column out of a chunked struct array. This rebuilds a chunked list
 /// array with just that one column.
 fn extract_emb_column(struct_array: &ArrayRef) -> Result<ArrayRef> {
-    use vortex::array::arrays::Chunked;
-    use vortex::array::arrays::ChunkedArray;
-    use vortex::array::arrays::Struct;
-    use vortex::array::arrays::chunked::ChunkedArrayExt;
-    use vortex::array::arrays::struct_::StructArrayExt as _;
-
     if let Some(chunked) = struct_array.as_opt::<Chunked>() {
         let mut emb_chunks: Vec<ArrayRef> = Vec::with_capacity(chunked.nchunks());
         for chunk in chunked.iter_chunks() {
@@ -238,11 +240,6 @@ fn extract_emb_column(struct_array: &ArrayRef) -> Result<ArrayRef> {
 /// restricts itself to `f32` vectors, so we assert the element type rather than
 /// quietly returning a mis-cast slice.
 pub(crate) fn extract_query_row(vector_ext: &ArrayRef, row: usize) -> Result<Vec<f32>> {
-    use vortex::array::arrays::Extension;
-    use vortex::array::arrays::extension::ExtensionArrayExt;
-    use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
-    use vortex::dtype::PType;
-
     if row >= vector_ext.len() {
         bail!(
             "query row {row} out of bounds for dataset of length {}",
@@ -260,7 +257,7 @@ pub(crate) fn extract_query_row(vector_ext: &ArrayRef, row: usize) -> Result<Vec
     let fsl: FixedSizeListArray = ext_view.storage_array().clone().execute(&mut ctx)?;
 
     let dim_usize = match fsl.dtype() {
-        vortex::dtype::DType::FixedSizeList(_, d, _) => *d as usize,
+        DType::FixedSizeList(_, d, _) => *d as usize,
         other => bail!("storage dtype must be FixedSizeList, got {other}"),
     };
 
@@ -437,12 +434,8 @@ pub struct VariantTimings {
 /// pipeline.
 pub fn decompress_full_scan(
     array: &ArrayRef,
-    ctx: &mut vortex::array::ExecutionCtx,
+    ctx: &mut ExecutionCtx,
 ) -> Result<FixedSizeListArray> {
-    use vortex::array::arrays::ExtensionArray;
-    use vortex::array::arrays::extension::ExtensionArrayExt;
-    use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
-
     let ext: ExtensionArray = array.clone().execute(ctx)?;
     let fsl: FixedSizeListArray = ext.storage_array().clone().execute(ctx)?;
     // Force the element buffer all the way down to a canonical PrimitiveArray so the
@@ -465,11 +458,8 @@ pub fn decompress_full_scan(
 pub fn execute_cosine(
     data: &ArrayRef,
     query: &[f32],
-    ctx: &mut vortex::array::ExecutionCtx,
+    ctx: &mut ExecutionCtx,
 ) -> Result<PrimitiveArray> {
-    use vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity;
-    use vortex_tensor::vector_search::build_constant_query_vector;
-
     let num_rows = data.len();
     let query_vec = build_constant_query_vector(query, num_rows)?;
     let cosine = CosineSimilarity::try_new_array(data.clone(), query_vec, num_rows)?.into_array();
@@ -480,7 +470,7 @@ fn execute_filter(
     data: &ArrayRef,
     query: &[f32],
     threshold: f32,
-    ctx: &mut vortex::array::ExecutionCtx,
+    ctx: &mut ExecutionCtx,
 ) -> Result<BoolArray> {
     let tree = build_similarity_search_tree(data.clone(), query, threshold)?;
     Ok(tree.execute(ctx)?)
@@ -525,36 +515,62 @@ pub(crate) mod test_utils {
 
 #[cfg(test)]
 mod tests {
-    use vortex::array::arrays::FixedSizeListArray;
-    use vortex::array::arrays::PrimitiveArray;
-    use vortex::array::arrays::extension::ExtensionArrayExt;
-    use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
     use vortex_bench::SESSION;
 
     use super::test_utils::synthetic_vector;
     use super::*;
 
+    /// Build a test `PreparedDataset` from synthetic data, pulling the query from
+    /// row 0 via the shared `extract_query_row` helper so all tests exercise the
+    /// ptype-assertion path the benchmark hot path uses.
+    fn test_prepared(dim: u32, num_rows: usize, seed: u64) -> PreparedDataset {
+        let uncompressed = synthetic_vector(dim, num_rows, seed);
+        let query = extract_query_row(&uncompressed, 0).unwrap();
+        PreparedDataset {
+            name: "synthetic".to_string(),
+            uncompressed,
+            query,
+            parquet_bytes: 0,
+        }
+    }
+
+    #[test]
+    fn extract_query_row_returns_the_right_slice() {
+        let dim = 8u32;
+        let num_rows = 4usize;
+        let prepared = test_prepared(dim, num_rows, 0xDEADBEEF);
+
+        // Row 0 extraction was already used to populate `prepared.query`; check it
+        // agrees with a second extraction for row 0, and that row 3 (last) is
+        // different (as it should be for distinct synthetic vectors).
+        let row0 = extract_query_row(&prepared.uncompressed, 0).unwrap();
+        let row3 = extract_query_row(&prepared.uncompressed, 3).unwrap();
+        assert_eq!(row0, prepared.query);
+        assert_eq!(row0.len(), dim as usize);
+        assert_eq!(row3.len(), dim as usize);
+        assert_ne!(row0, row3, "different rows must differ for this seed");
+    }
+
+    #[test]
+    fn extract_query_row_rejects_out_of_bounds_row() {
+        let dim = 8u32;
+        let num_rows = 4usize;
+        let prepared = test_prepared(dim, num_rows, 0xC0FFEE);
+
+        let err = extract_query_row(&prepared.uncompressed, 4)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("query row 4 out of bounds"),
+            "unexpected error: {err}"
+        );
+    }
+
     #[test]
     fn prepare_variant_produces_non_empty_array_for_all_variants() {
         let dim = 128u32;
         let num_rows = 64usize;
-        let uncompressed = synthetic_vector(dim, num_rows, 0xC0FFEE);
-
-        let ext = uncompressed
-            .as_opt::<vortex::array::arrays::Extension>()
-            .unwrap();
-        let mut ctx = SESSION.create_execution_ctx();
-        let fsl: FixedSizeListArray = ext.storage_array().clone().execute(&mut ctx).unwrap();
-        let elements: PrimitiveArray = fsl.elements().clone().execute(&mut ctx).unwrap();
-        let slice = elements.as_slice::<f32>();
-        let query = slice[..dim as usize].to_vec();
-
-        let prepared = PreparedDataset {
-            name: "synthetic".to_string(),
-            uncompressed: uncompressed.clone(),
-            query,
-            parquet_bytes: 0,
-        };
+        let prepared = test_prepared(dim, num_rows, 0xC0FFEE);
 
         for variant in [
             Variant::VortexUncompressed,
@@ -585,14 +601,7 @@ mod tests {
     fn uncompressed_decompress_is_fast() {
         let dim = 128u32;
         let num_rows = 256usize;
-        let uncompressed = synthetic_vector(dim, num_rows, 0xDEADBEEF);
-
-        let prepared = PreparedDataset {
-            name: "synthetic".to_string(),
-            uncompressed,
-            query: vec![0.1f32; dim as usize],
-            parquet_bytes: 0,
-        };
+        let prepared = test_prepared(dim, num_rows, 0xDEADBEEF);
 
         let uncompressed_prep =
             prepare_variant(&prepared, Variant::VortexUncompressed, &SESSION).unwrap();
@@ -628,14 +637,7 @@ mod tests {
     fn print_variant_trees() {
         let dim = 768u32;
         let num_rows = 500usize;
-        let uncompressed = synthetic_vector(dim, num_rows, 0xC0FFEE);
-
-        let prepared = PreparedDataset {
-            name: "synthetic".to_string(),
-            uncompressed,
-            query: vec![0.1f32; dim as usize],
-            parquet_bytes: 0,
-        };
+        let prepared = test_prepared(dim, num_rows, 0xC0FFEE);
 
         for variant in [
             Variant::VortexUncompressed,

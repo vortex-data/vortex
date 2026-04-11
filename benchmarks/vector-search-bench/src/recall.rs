@@ -75,13 +75,15 @@ pub fn measure_recall_at_k(
 }
 
 /// Return the indices of the top-K highest scores, stable-sorted descending.
+///
+/// Uses `f32::total_cmp` for a NaN-safe total order — `partial_cmp` would panic on
+/// NaN, and `partial_cmp(...).unwrap_or(Ordering::Equal)` would put NaNs at
+/// arbitrary positions. `total_cmp` gives NaNs a well-defined (but meaningless) sort
+/// slot, which lets the function be robust against accidental NaN inputs without
+/// silently hiding them.
 fn top_k_indices(scores: &[f32], top_k: usize) -> Vec<usize> {
     let mut idx: Vec<usize> = (0..scores.len()).collect();
-    idx.sort_by(|&a, &b| {
-        scores[b]
-            .partial_cmp(&scores[a])
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    idx.sort_by(|&a, &b| scores[b].total_cmp(&scores[a]));
     idx.truncate(top_k);
     idx
 }
@@ -92,8 +94,33 @@ mod tests {
 
     use super::*;
     use crate::Variant;
+    use crate::extract_query_row;
     use crate::prepare_variant;
     use crate::test_utils::synthetic_vector;
+
+    #[test]
+    fn top_k_indices_handles_nan_without_panicking() {
+        // `partial_cmp` panics on NaN (well, returns None, which was silently swallowed
+        // before). `total_cmp` gives NaN a well-defined slot, so the sort doesn't
+        // panic and doesn't produce arbitrary orderings for non-NaN elements.
+        let scores = [0.9f32, f32::NAN, 0.7, 0.5, f32::NAN];
+        let top = top_k_indices(&scores, 3);
+        assert_eq!(top.len(), 3);
+        // The finite values 0.9, 0.7, 0.5 should still rank in the right order
+        // relative to each other — NaNs sort somewhere, but the finite ordering is
+        // preserved because `total_cmp` is a total order.
+        let finite_positions: Vec<usize> = top
+            .iter()
+            .copied()
+            .filter(|&i| !scores[i].is_nan())
+            .collect();
+        assert!(
+            finite_positions
+                .windows(2)
+                .all(|w| scores[w[0]] >= scores[w[1]]),
+            "finite scores should still be in descending order"
+        );
+    }
 
     #[test]
     fn uncompressed_has_perfect_self_recall() {
@@ -114,10 +141,13 @@ mod tests {
         let num_rows = 64usize;
         let uncompressed = synthetic_vector(dim, num_rows, 0xC0FFEE);
 
+        // `measure_recall_at_k` doesn't need the PreparedDataset's `query` field —
+        // it derives queries internally via `extract_query_row` on `uncompressed`.
+        // Construct just enough of a `PreparedDataset` to pass to `prepare_variant`.
         let prepared = crate::PreparedDataset {
             name: "synthetic".to_string(),
             uncompressed: uncompressed.clone(),
-            query: vec![],
+            query: extract_query_row(&uncompressed, 0).unwrap(),
             parquet_bytes: 0,
         };
 
