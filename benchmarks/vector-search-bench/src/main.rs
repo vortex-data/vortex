@@ -92,12 +92,27 @@ struct Args {
 enum SelectableDataset {
     #[clap(name = "cohere-small")]
     CohereSmall,
+    #[clap(name = "cohere-medium")]
+    CohereMedium,
+    #[clap(name = "openai-small")]
+    OpenAiSmall,
+    #[clap(name = "openai-medium")]
+    OpenAiMedium,
+    #[clap(name = "bioasq-medium")]
+    BioasqMedium,
+    #[clap(name = "glove-medium")]
+    GloveMedium,
 }
 
 impl SelectableDataset {
     fn into_dataset(self) -> VectorDataset {
         match self {
             SelectableDataset::CohereSmall => VectorDataset::CohereSmall,
+            SelectableDataset::CohereMedium => VectorDataset::CohereMedium,
+            SelectableDataset::OpenAiSmall => VectorDataset::OpenAiSmall,
+            SelectableDataset::OpenAiMedium => VectorDataset::OpenAiMedium,
+            SelectableDataset::BioasqMedium => VectorDataset::BioasqMedium,
+            SelectableDataset::GloveMedium => VectorDataset::GloveMedium,
         }
     }
 }
