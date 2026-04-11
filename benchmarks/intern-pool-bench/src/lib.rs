@@ -12,6 +12,9 @@
 #![allow(clippy::many_single_char_names)]
 
 use std::collections::HashMap;
+use std::sync::OnceLock;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use rustc_hash::FxHashMap;
 
@@ -52,6 +55,35 @@ pub fn lookup_binary_search(table: &[(&str, u64)], key: &str) -> Option<u64> {
         .binary_search_by_key(&key, |(k, _)| *k)
         .ok()
         .map(|i| table[i].1)
+}
+
+// ─── ID read hot-path inspection ─────────────────────────────────────────────
+// Each function reads a single pre-resolved u64 from a different container.
+// Use `cargo asm` to inspect the generated code and count cycles.
+
+/// Read from a plain slice by index. Baseline — just an array load.
+#[inline(never)]
+pub fn read_vec(slice: &[u64], idx: usize) -> u64 {
+    slice[idx]
+}
+
+/// Read from a slice with unchecked indexing. No bounds check.
+#[inline(never)]
+pub fn read_vec_unchecked(slice: &[u64], idx: usize) -> u64 {
+    // SAFETY: caller must ensure idx < slice.len()
+    unsafe { *slice.get_unchecked(idx) }
+}
+
+/// Read from AtomicU64 with Relaxed ordering. On x86 = plain mov.
+#[inline(never)]
+pub fn read_atomic_relaxed(arr: &[AtomicU64], idx: usize) -> u64 {
+    arr[idx].load(Ordering::Relaxed)
+}
+
+/// Read from OnceLock<u64>. Acquire load + is-initialized branch.
+#[inline(never)]
+pub fn read_oncelock(arr: &[OnceLock<u64>], idx: usize) -> u64 {
+    arr[idx].get().copied().unwrap_or(0)
 }
 
 // ─── Const-evaluable hash function ──────────────────────────────────────────

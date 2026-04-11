@@ -522,8 +522,7 @@ mod zipf_throughput {
 mod id_read_cost {
     use super::*;
 
-    /// Baseline: plain Vec<u64> indexed directly. Zero overhead.
-    /// This is what you get with an eagerly-initialized struct.
+    /// Plain Vec<u64> indexed with bounds check.
     #[divan::bench(threads = [1, 2, 4])]
     fn eager_vec_index(bencher: Bencher) {
         let vec = eager_vec();
@@ -531,6 +530,19 @@ mod id_read_cost {
         bencher.counter(ItemsCount::new(indices.len())).bench(|| {
             for &i in indices {
                 black_box(vec[i]);
+            }
+        });
+    }
+
+    /// Vec<u64> with unchecked indexing — absolute minimum: one `mov` instruction.
+    #[divan::bench(threads = [1, 2, 4])]
+    fn eager_vec_unchecked(bencher: Bencher) {
+        let vec = eager_vec();
+        let indices = zipf_indices();
+        bencher.counter(ItemsCount::new(indices.len())).bench(|| {
+            for &i in indices {
+                // SAFETY: zipf_indices generates values in 0..NUM_STRINGS, vec has NUM_STRINGS entries.
+                black_box(unsafe { *vec.get_unchecked(i) });
             }
         });
     }
