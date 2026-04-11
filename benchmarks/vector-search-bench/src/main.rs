@@ -9,10 +9,15 @@
 //! ```bash
 //! cargo run -p vector-search-bench --release -- \
 //!     --datasets cohere-small \
-//!     --variants vortex-uncompressed,vortex-default,vortex-turboquant \
+//!     --formats handrolled,vortex-uncompressed,vortex-default,vortex-turboquant \
 //!     --iterations 5 \
 //!     -d table
 //! ```
+//!
+//! The `handrolled` variant is a hand-rolled Rust scalar cosine loop over a flat
+//! `Vec<f32>` decoded from the dataset's canonical parquet file; it is a compute-cost
+//! floor, not a realistic parquet-on-DBMS baseline. See
+//! [`handrolled_baseline`](vector_search_bench::handrolled_baseline) for details.
 
 use std::borrow::Cow;
 use std::path::PathBuf;
@@ -23,7 +28,7 @@ use clap::Parser;
 use indicatif::ProgressBar;
 use vector_search_bench::DEFAULT_THRESHOLD;
 use vector_search_bench::Variant;
-use vector_search_bench::parquet_baseline::run_parquet_baseline_timings;
+use vector_search_bench::handrolled_baseline::run_handrolled_baseline_timings;
 use vector_search_bench::prepare_dataset;
 use vector_search_bench::prepare_variant;
 use vector_search_bench::recall::DEFAULT_TOP_K;
@@ -61,9 +66,9 @@ struct Args {
     /// Which benchmark variants to run, using kebab-cased labels. The `--formats` name is
     /// used (instead of `--variants`) so this benchmark matches the CI invocation
     /// convention shared across random-access-bench / compress-bench. Accepted values:
-    /// `parquet`, `vortex-uncompressed`, `vortex-default`, `vortex-turboquant`. Defaults
-    /// to running all four.
-    #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![SelectableFormat::Parquet, SelectableFormat::VortexUncompressed, SelectableFormat::VortexDefault, SelectableFormat::VortexTurboQuant])]
+    /// `handrolled`, `vortex-uncompressed`, `vortex-default`, `vortex-turboquant`.
+    /// Defaults to running all four.
+    #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![SelectableFormat::Handrolled, SelectableFormat::VortexUncompressed, SelectableFormat::VortexDefault, SelectableFormat::VortexTurboQuant])]
     formats: Vec<SelectableFormat>,
 
     /// Number of query rows sampled when computing Recall@K for TurboQuant. 0 disables
@@ -123,9 +128,12 @@ impl SelectableDataset {
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 enum SelectableFormat {
-    /// Parquet-Arrow hand-rolled cosine loop baseline.
-    #[clap(name = "parquet")]
-    Parquet,
+    /// Hand-rolled Rust scalar cosine loop over a flat `Vec<f32>` decoded from the
+    /// canonical parquet file via `parquet-rs` / `arrow-rs`. Compute-cost floor —
+    /// not a realistic parquet-on-DBMS baseline. See
+    /// [`vector_search_bench::handrolled_baseline`].
+    #[clap(name = "handrolled")]
+    Handrolled,
     /// Raw `Vector<dim, f32>` with no encoding compression.
     #[clap(name = "vortex-uncompressed")]
     VortexUncompressed,
@@ -140,7 +148,7 @@ enum SelectableFormat {
 impl SelectableFormat {
     fn into_variant(self) -> Option<Variant> {
         match self {
-            SelectableFormat::Parquet => None,
+            SelectableFormat::Handrolled => None,
             SelectableFormat::VortexUncompressed => Some(Variant::VortexUncompressed),
             SelectableFormat::VortexDefault => Some(Variant::VortexDefault),
             SelectableFormat::VortexTurboQuant => Some(Variant::VortexTurboQuant),
@@ -160,7 +168,7 @@ async fn main() -> Result<()> {
         .map(SelectableDataset::into_dataset)
         .collect();
 
-    let run_parquet_baseline = args.formats.contains(&SelectableFormat::Parquet);
+    let run_handrolled_baseline = args.formats.contains(&SelectableFormat::Handrolled);
     let variants: Vec<Variant> = args
         .formats
         .iter()
@@ -185,8 +193,8 @@ async fn main() -> Result<()> {
         );
 
         // Ground-truth cosine scores for the verification query — the scores produced by
-        // the uncompressed Vortex scan. Every other variant (including the parquet
-        // hand-rolled loop) will be compared against this.
+        // the uncompressed Vortex scan. Every other variant (including the hand-rolled
+        // baseline) will be compared against this.
         let baseline_scores =
             compute_cosine_scores(&prepared.uncompressed, &prepared.query, &SESSION)
                 .context("compute ground-truth cosine scores for verification")?;
@@ -196,58 +204,66 @@ async fn main() -> Result<()> {
             prepared.name
         );
 
-        // Parquet-Arrow baseline. Emitted as a separate pseudo-variant with label
-        // `parquet` / Format::Parquet so it shows up in dashboards next to the Vortex
-        // variants. The parquet baseline uses a hand-rolled Rust cosine loop; it must
-        // match the Vortex cosine scores within lossless tolerance (f32 ULPs) because
-        // it's computing the same math on the same underlying f32 values.
-        if run_parquet_baseline {
+        // Hand-rolled baseline. Emitted as a separate pseudo-variant with label
+        // `handrolled` so it shows up in dashboards next to the Vortex variants. This
+        // is a hand-rolled Rust scalar cosine loop over a flat `Vec<f32>` decoded from
+        // parquet via `parquet-rs`; it must match the Vortex cosine scores within the
+        // lossless tolerance (f32 ULPs) because it's computing the same math on the
+        // same underlying f32 values.
+        //
+        // `target.format` stays `Format::Parquet` because the *storage* side is still
+        // parquet on disk — only the *compute* is hand-rolled. The metric `name` field
+        // carries the `handrolled` label so human readers can tell the compute apart
+        // from, say, a DuckDB `list_cosine_similarity` baseline on the same parquet.
+        if run_handrolled_baseline {
             let parquet_path = dataset.to_parquet_path().await?;
             let baseline_data =
-                vector_search_bench::parquet_baseline::read_parquet_embedding_column(&parquet_path)
-                    .context("read parquet emb column for verification")?;
-            let parquet_scores = vector_search_bench::parquet_baseline::cosine_loop(
+                vector_search_bench::handrolled_baseline::read_parquet_embedding_column(
+                    &parquet_path,
+                )
+                .context("read parquet emb column for verification")?;
+            let handrolled_scores = vector_search_bench::handrolled_baseline::cosine_loop(
                 &baseline_data.elements,
                 baseline_data.num_rows,
                 baseline_data.dim,
                 &prepared.query,
             );
-            let parquet_report = vector_search_bench::verify::verify_scores(
+            let handrolled_report = vector_search_bench::verify::verify_scores(
                 &baseline_scores,
-                &parquet_scores,
+                &handrolled_scores,
                 VerificationKind::Lossless,
             );
-            if !parquet_report.passed {
+            if !handrolled_report.passed {
                 anyhow::bail!(
-                    "parquet baseline correctness check failed on {}: \
+                    "handrolled baseline correctness check failed on {}: \
                      max_abs_diff={:.6}, mean_abs_diff={:.6}, tolerance={:.6}",
                     prepared.name,
-                    parquet_report.max_abs_diff,
-                    parquet_report.mean_abs_diff,
-                    parquet_report.tolerance(),
+                    handrolled_report.max_abs_diff,
+                    handrolled_report.mean_abs_diff,
+                    handrolled_report.tolerance(),
                 );
             }
             tracing::info!(
-                "parquet/{} verification: max_abs_diff={:.2e}, mean_abs_diff={:.2e}",
+                "handrolled/{} verification: max_abs_diff={:.2e}, mean_abs_diff={:.2e}",
                 prepared.name,
-                parquet_report.max_abs_diff,
-                parquet_report.mean_abs_diff,
+                handrolled_report.max_abs_diff,
+                handrolled_report.mean_abs_diff,
             );
             verification.push(CustomUnitMeasurement {
-                name: format!("correctness-max-diff/parquet/{}", prepared.name),
+                name: format!("correctness-max-diff/handrolled/{}", prepared.name),
                 format: Format::Parquet,
                 unit: Cow::from("abs-diff"),
-                value: parquet_report.max_abs_diff,
+                value: handrolled_report.max_abs_diff,
             });
 
-            let baseline_timings = run_parquet_baseline_timings(
+            let baseline_timings = run_handrolled_baseline_timings(
                 &parquet_path,
                 &prepared.query,
                 DEFAULT_THRESHOLD,
                 args.iterations,
             )?;
 
-            let label = "parquet";
+            let label = "handrolled";
             let bench_name = format!("{label}/{}", prepared.name);
 
             sizes.push(CustomUnitMeasurement {

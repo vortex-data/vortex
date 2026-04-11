@@ -51,7 +51,7 @@ jobs:
           - id: vector-search-bench
             name: Vector Similarity Search
             build_args: ""
-            formats: "parquet,vortex-uncompressed,vortex-default,vortex-turboquant"
+            formats: "handrolled,vortex-uncompressed,vortex-default,vortex-turboquant"
     steps:
       - uses: runs-on/action@v2
         if: github.repository == 'vortex-data/vortex'
