@@ -1,17 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Per-child matching cost: current matches() scan vs HashMap lookup.
+//! Measures precisely:
 //!
-//! Setup: N Primitive children, one Cast parent.
+//! reduce (match only, nothing fires):
+//!   current:  N × 4 × rule.matches(parent)   — each is as_any().is::<>()
+//!   proposed: 1 × HashMap.get(parent_id) + N × HashMap.get(child_id)
 //!
-//! reduce_parent (match only, nothing fires):
-//!   Current per child: vtable dispatch → ArrayView → 3 × matches() → all miss
-//!   Proposed per child: encoding_id() + HashMap.get()
-//!
-//! execute_parent (match + execute, CastExecuteAdaptor fires):
-//!   Current per child: vtable dispatch → ArrayView → 4 × matches() → Cast hits → runs kernel
-//!   Proposed per child: HashMap.get() → hit → call execute_parent
+//! execute (match scan + kernel runs):
+//!   current:  N × child.execute_parent(parent) — matches scan + kernel
+//!   proposed: N × (HashMap.get + child.execute_parent) — skip scan
 
 #![expect(clippy::unwrap_used)]
 
@@ -22,12 +20,19 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::Bool;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::filter::FilterReduceAdaptor;
 use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
+use vortex_array::arrays::slice::SliceReduceAdaptor;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::optimizer::rules::DynArrayParentReduceRule;
+use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar_fn::fns::cast::Cast;
+use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
+use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 
@@ -35,8 +40,17 @@ fn main() {
     divan::main();
 }
 
-/// N Primitive children stored in a Vec (not inside a Chunked — avoids
-/// confounding with ChunkedArray's own slots/offsets).
+// 4 matchers — same public adaptors Bool uses (minus pub(crate) BoolMaskedValidityRule).
+// Parent types matched: ExactScalarFn<Cast>, ExactScalarFn<Mask>, Slice, Filter.
+// For a Cast parent: CastReduceAdaptor hits, others miss.
+// For a Primitive parent: ALL miss.
+static RULES: [&dyn DynArrayParentReduceRule<Bool>; 4] = [
+    ParentRuleSet::lift(&CastReduceAdaptor(Bool)),
+    ParentRuleSet::lift(&MaskReduceAdaptor(Bool)),
+    ParentRuleSet::lift(&SliceReduceAdaptor(Bool)),
+    ParentRuleSet::lift(&FilterReduceAdaptor(Bool)),
+];
+
 fn make_children(n: usize) -> Vec<ArrayRef> {
     (0..n)
         .map(|i| {
@@ -46,7 +60,6 @@ fn make_children(n: usize) -> Vec<ArrayRef> {
         .collect()
 }
 
-/// A Cast(Primitive) parent. The children above are what we iterate over.
 fn make_cast_parent() -> ArrayRef {
     let a =
         PrimitiveArray::new(Buffer::from(vec![1i32; 100]), Validity::NonNullable).into_array();
@@ -58,8 +71,6 @@ fn make_cast_parent() -> ArrayRef {
     .unwrap()
 }
 
-/// A Primitive "parent" (not a real expression parent — just to measure
-/// the case where no child has any matching rules at all).
 fn make_leaf_parent() -> ArrayRef {
     PrimitiveArray::new(Buffer::from(vec![1i32; 100]), Validity::NonNullable).into_array()
 }
@@ -68,15 +79,16 @@ fn build_registry() -> HashMap<&'static str, HashMap<&'static str, bool>> {
     let mut map: HashMap<&'static str, HashMap<&'static str, bool>> = HashMap::new();
     for (p, c) in [
         ("vortex.cast", "vortex.primitive"),
-        ("vortex.cast", "vortex.chunked"),
+        ("vortex.cast", "vortex.bool"),
+        ("vortex.mask", "vortex.primitive"),
+        ("vortex.mask", "vortex.bool"),
+        ("vortex.slice", "vortex.primitive"),
+        ("vortex.slice", "vortex.bool"),
+        ("vortex.filter", "vortex.primitive"),
+        ("vortex.filter", "vortex.bool"),
+        ("vortex.masked", "vortex.primitive"),
         ("vortex.between", "vortex.primitive"),
         ("vortex.binary", "vortex.primitive"),
-        ("vortex.fill_null", "vortex.primitive"),
-        ("vortex.take", "vortex.primitive"),
-        ("vortex.masked", "vortex.primitive"),
-        ("vortex.mask", "vortex.primitive"),
-        ("vortex.slice", "vortex.primitive"),
-        ("vortex.filter", "vortex.primitive"),
     ] {
         map.entry(p).or_default().insert(c, true);
     }
@@ -86,30 +98,43 @@ fn build_registry() -> HashMap<&'static str, HashMap<&'static str, bool>> {
 const N: &[usize] = &[1, 10, 100];
 
 // ============================================================================
-// reduce_parent: MATCH ONLY (nothing fires)
-//
-// Primitive child, Cast parent.
-// Primitive reduce rules: [Masked, Mask, Slice] — none match Cast.
-// So this is purely wasted matching work.
+// REDUCE MATCH ONLY: Cast parent, all 4 matchers miss except Cast
 // ============================================================================
 
-/// Current: N × child.reduce_parent(parent, idx)
-/// Each call does: vtable dispatch + ArrayView + 3 × matches() all miss.
+/// N × 4 × rule.matches(parent). Pure matcher cost.
+/// Cast parent: CastReduceAdaptor matches (ExactScalarFn<Cast>), others miss.
+/// Each matches() = vtable call on DynArrayParentReduceRule → as_any().is::<>().
 #[divan::bench(args = N)]
-fn reduce_match_only_current(bencher: divan::Bencher, n: usize) {
+fn reduce_matcher_scan_cast_parent(bencher: divan::Bencher, n: usize) {
     let children = make_children(n);
     let parent = make_cast_parent();
     bencher.bench(|| {
-        for (i, child) in black_box(&children).iter().enumerate() {
-            black_box(child.reduce_parent(black_box(&parent), i)).unwrap();
+        for _child in black_box(&children).iter() {
+            for rule in &RULES {
+                black_box(rule.matches(black_box(&parent)));
+            }
         }
     });
 }
 
-/// Proposed: N × (encoding_id + HashMap.get)
-/// No vtable dispatch, no matches().
+/// N × 4 × rule.matches(parent). Leaf parent: ALL miss.
 #[divan::bench(args = N)]
-fn reduce_match_only_proposed(bencher: divan::Bencher, n: usize) {
+fn reduce_matcher_scan_leaf_parent(bencher: divan::Bencher, n: usize) {
+    let children = make_children(n);
+    let parent = make_leaf_parent();
+    bencher.bench(|| {
+        for _child in black_box(&children).iter() {
+            for rule in &RULES {
+                black_box(rule.matches(black_box(&parent)));
+            }
+        }
+    });
+}
+
+/// Proposed: 1 outer HashMap.get(parent_id) + N inner HashMap.get(child_id).
+/// Cast parent: outer hits, N inner lookups.
+#[divan::bench(args = N)]
+fn reduce_hashmap_lookup_cast_parent(bencher: divan::Bencher, n: usize) {
     let children = make_children(n);
     let parent = make_cast_parent();
     let registry = build_registry();
@@ -125,52 +150,32 @@ fn reduce_match_only_proposed(bencher: divan::Bencher, n: usize) {
     });
 }
 
-/// Leaf parent: no rules for any child. Measures the overhead when the
-/// parent isn't even an expression type.
+/// Proposed: 1 outer HashMap.get(parent_id) misses → skip all children.
+/// Leaf parent: constant time regardless of N.
 #[divan::bench(args = N)]
-fn reduce_match_only_current_leaf_parent(bencher: divan::Bencher, n: usize) {
-    let children = make_children(n);
-    let parent = make_leaf_parent();
-    bencher.bench(|| {
-        for (i, child) in black_box(&children).iter().enumerate() {
-            black_box(child.reduce_parent(black_box(&parent), i)).unwrap();
-        }
-    });
-}
-
-/// Proposed with leaf parent: outer HashMap miss, skip all children.
-#[divan::bench(args = N)]
-fn reduce_match_only_proposed_leaf_parent(bencher: divan::Bencher, n: usize) {
-    let children = make_children(n);
+fn reduce_hashmap_lookup_leaf_parent(bencher: divan::Bencher, n: usize) {
+    let _children = make_children(n);
     let parent = make_leaf_parent();
     let registry = build_registry();
     let pid = parent.encoding_id();
     bencher.bench(|| {
-        let child_map = registry.get(black_box(pid.as_ref()));
-        if child_map.is_some() {
-            for child in black_box(&children).iter() {
-                let cid = child.encoding_id();
-                black_box(child_map.unwrap().get(cid.as_ref()));
-            }
-        }
+        // Outer miss = done. No child iteration.
+        black_box(registry.get(black_box(pid.as_ref())))
     });
 }
 
 // ============================================================================
-// execute_parent: MATCH + EXECUTE (CastExecuteAdaptor fires)
+// EXECUTE MATCH + KERNEL: Cast parent, kernel fires on every child
 //
-// Primitive child, Cast parent.
-// Primitive execute kernels: [Between, Cast, FillNull, Take].
-// Between misses (1 matches()), Cast hits (1 matches() + runs kernel).
-// So per child: 2 matches() calls + kernel execution.
-//
-// We iterate ALL N children (no early return) to measure total cost.
+// Current: N × child.execute_parent() — includes matches() scan + kernel
+// Proposed: N × (HashMap.get + child.execute_parent()) — HashMap before dispatch
+// The kernel cost dominates so we expect similar numbers.
 // ============================================================================
 
-/// Current: N × child.execute_parent(parent, idx, ctx)
-/// Each call: vtable dispatch + ArrayView + 2× matches() + kernel execution.
+/// Current: N × child.execute_parent(parent, i, ctx).
+/// Includes vtable dispatch → 4 kernel.matches() → Cast hits → runs kernel.
 #[divan::bench(args = N)]
-fn execute_match_and_run_current(bencher: divan::Bencher, n: usize) {
+fn execute_current(bencher: divan::Bencher, n: usize) {
     let children = make_children(n);
     let parent = make_cast_parent();
     bencher.bench(|| {
@@ -181,11 +186,11 @@ fn execute_match_and_run_current(bencher: divan::Bencher, n: usize) {
     });
 }
 
-/// Proposed: N × (HashMap.get → hit → call execute_parent)
-/// The HashMap lookup replaces the matches() scan. We still call
-/// execute_parent to measure the real kernel execution cost.
+/// Proposed: HashMap.get(child_id) → if hit, call child.execute_parent().
+/// In reality we'd call the kernel directly; here we still go through dispatch
+/// to show the best-case overhead of the HashMap gate.
 #[divan::bench(args = N)]
-fn execute_match_and_run_proposed(bencher: divan::Bencher, n: usize) {
+fn execute_proposed(bencher: divan::Bencher, n: usize) {
     let children = make_children(n);
     let parent = make_cast_parent();
     let registry = build_registry();
@@ -197,7 +202,6 @@ fn execute_match_and_run_proposed(bencher: divan::Bencher, n: usize) {
             let cid = child.encoding_id();
             if let Some(cm) = child_map {
                 if cm.get(cid.as_ref()).is_some() {
-                    // Rule exists — call the real execute_parent
                     black_box(child.execute_parent(black_box(&parent), i, &mut ctx)).unwrap();
                 }
             }
