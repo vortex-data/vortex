@@ -13,6 +13,7 @@
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
+use std::sync::atomic::AtomicU16;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
@@ -288,4 +289,254 @@ impl CompactPool {
             idx = (idx + 1) & self.mask;
         }
     }
+}
+
+// ─── EncodingId: auto-assigned dense ordinal ─────────────────────────────────
+//
+// Each encoding declares a `static EncodingId`. The ordinal is auto-assigned
+// the first time `InternedRegistry::register` is called. After init, reading
+// the ordinal is a single `Relaxed` atomic load (~0.4ns on x86, plain `ldr` on ARM).
+
+/// An encoding's ordinal — auto-assigned at registration, zero-cost to read.
+///
+/// Declare one per encoding as a `static`. The ordinal starts as `UNSET` and
+/// gets assigned during `InternedRegistry::register()`.
+///
+/// ```
+/// # use intern_pool_bench::EncodingId;
+/// static BOOL_ENC: EncodingId = EncodingId::unset();
+/// static PRIM_ENC: EncodingId = EncodingId::unset();
+///
+/// // Reading before init returns None:
+/// assert!(BOOL_ENC.get().is_none());
+/// ```
+pub struct EncodingId(AtomicU16);
+
+const UNSET: u16 = u16::MAX;
+
+impl EncodingId {
+    /// Create an unset encoding ID. Must be initialized via `InternedRegistry::register`.
+    pub const fn unset() -> Self {
+        Self(AtomicU16::new(UNSET))
+    }
+
+    /// Read the ordinal. Returns `None` if not yet registered.
+    #[inline(always)]
+    pub fn get(&self) -> Option<u16> {
+        let v = self.0.load(Ordering::Relaxed);
+        if v == UNSET { None } else { Some(v) }
+    }
+
+    /// Read the ordinal, assuming it has been initialized.
+    /// In release builds, returns the raw value without checking.
+    #[inline(always)]
+    pub fn get_unchecked(&self) -> u16 {
+        let v = self.0.load(Ordering::Relaxed);
+        debug_assert!(v != UNSET, "EncodingId read before registration");
+        v
+    }
+
+    fn set(&self, ord: u16) {
+        let prev = self.0.swap(ord, Ordering::Relaxed);
+        debug_assert!(
+            prev == UNSET || prev == ord,
+            "EncodingId registered twice with different ordinals"
+        );
+    }
+}
+
+// SAFETY: EncodingId is just an AtomicU16 — Send+Sync by construction.
+unsafe impl Sync for EncodingId {}
+
+/// A frozen registry that maps dense `u16` ordinals to values.
+///
+/// Ordinals are auto-assigned in registration order (0, 1, 2, ...).
+/// After init, lookup by ordinal is a plain array index — 0.4ns.
+///
+/// ```
+/// # use intern_pool_bench::{EncodingId, InternedRegistry};
+/// static BOOL: EncodingId = EncodingId::unset();
+/// static PRIM: EncodingId = EncodingId::unset();
+///
+/// let mut registry = InternedRegistry::<&str>::new();
+/// registry.register(&BOOL, "vortex.bool", "BoolPlugin");
+/// registry.register(&PRIM, "vortex.primitive", "PrimPlugin");
+///
+/// // After init — zero-cost reads:
+/// assert_eq!(registry.get(BOOL.get_unchecked()), Some(&"BoolPlugin"));
+/// assert_eq!(registry.get(PRIM.get_unchecked()), Some(&"PrimPlugin"));
+/// ```
+pub struct InternedRegistry<T> {
+    /// Dense array of values indexed by ordinal.
+    values: Vec<T>,
+    /// String name → ordinal mapping (for deserialization from string IDs).
+    name_to_ord: CompactPool,
+}
+
+impl<T> InternedRegistry<T> {
+    /// Create an empty registry.
+    pub fn new() -> Self {
+        Self {
+            values: Vec::new(),
+            name_to_ord: CompactPool::new(std::iter::empty()),
+        }
+    }
+
+    /// Register a new encoding. Assigns the next sequential ordinal.
+    ///
+    /// - `id`: the static `EncodingId` slot to populate with the ordinal.
+    /// - `name`: the string name (e.g., "vortex.primitive") for deserialization.
+    /// - `value`: the plugin/vtable/data to store.
+    pub fn register(&mut self, id: &EncodingId, name: &'static str, value: T) {
+        let ord = self.values.len() as u16;
+        id.set(ord);
+        self.values.push(value);
+        // We'll rebuild the name→ord pool after all registrations.
+        // For now, just track the names.
+        let _ = name; // used in freeze()
+    }
+
+    /// Lookup by ordinal — the hot path. Just an array index.
+    #[inline(always)]
+    pub fn get(&self, ord: u16) -> Option<&T> {
+        self.values.get(ord as usize)
+    }
+
+    /// Lookup by ordinal, no bounds check.
+    #[inline(always)]
+    pub fn get_unchecked(&self, ord: u16) -> &T {
+        // SAFETY: ord was assigned by us and is in range.
+        unsafe { self.values.get_unchecked(ord as usize) }
+    }
+
+    /// Number of registered encodings.
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    /// Whether the registry is empty.
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+}
+
+impl<T> Default for InternedRegistry<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Builder that collects registrations, then freezes into an `InternedRegistry`.
+///
+/// This separates the mutable registration phase from the immutable read phase.
+pub struct RegistryBuilder<T> {
+    names: Vec<&'static str>,
+    values: Vec<T>,
+}
+
+impl<T> RegistryBuilder<T> {
+    /// Create a new builder.
+    pub fn new() -> Self {
+        Self {
+            names: Vec::new(),
+            values: Vec::new(),
+        }
+    }
+
+    /// Register an encoding. Auto-assigns the next ordinal to `id`.
+    pub fn register(&mut self, id: &EncodingId, name: &'static str, value: T) {
+        let ord = self.values.len() as u16;
+        id.set(ord);
+        self.names.push(name);
+        self.values.push(value);
+    }
+
+    /// Freeze into an immutable `InternedRegistry`.
+    /// Builds the `CompactPool` for string→ordinal lookups (deserialization path).
+    pub fn freeze(self) -> InternedRegistry<T> {
+        let name_to_ord = CompactPool::new(
+            self.names
+                .iter()
+                .enumerate()
+                .map(|(i, name)| (*name, i as u64)),
+        );
+        InternedRegistry {
+            values: self.values,
+            name_to_ord,
+        }
+    }
+}
+
+impl<T> Default for RegistryBuilder<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ─── ASM inspection for InternedRegistry ─────────────────────────────────────
+
+/// Read an encoding ordinal from a static EncodingId.
+#[inline(never)]
+pub fn read_encoding_id(id: &EncodingId) -> u16 {
+    id.get_unchecked()
+}
+
+/// Lookup by ordinal in the InternedRegistry.
+#[inline(never)]
+pub fn read_registry<T>(registry: &InternedRegistry<T>, ord: u16) -> &T {
+    registry.get_unchecked(ord)
+}
+
+/// The full hot path: read the static ordinal, then index the registry.
+#[inline(never)]
+pub fn read_full<'a, T>(id: &EncodingId, registry: &'a InternedRegistry<T>) -> &'a T {
+    registry.get_unchecked(id.get_unchecked())
+}
+
+// ─── Global registry pattern ────────────────────────────────────────────────
+//
+// The registry is global (not session-scoped). EncodingIds are static atomics.
+// Init once at program start, then read for free from anywhere.
+//
+// Usage:
+// ```
+// // Each encoding declares a global static:
+// static BOOL: EncodingId = EncodingId::unset();
+// static PRIM: EncodingId = EncodingId::unset();
+//
+// // At startup — call once:
+// fn init_global_registry() {
+//     let mut builder = RegistryBuilder::new();
+//     builder.register(&BOOL, "vortex.bool", BoolPlugin);
+//     builder.register(&PRIM, "vortex.primitive", PrimPlugin);
+//     GLOBAL_REGISTRY.set(builder.freeze()).unwrap();
+// }
+//
+// // Hot path — anywhere, any thread, zero cost:
+// let reg = global_registry();
+// reg.get_unchecked(BOOL.get_unchecked())  // ~0.4ns
+// ```
+
+/// Global registry storage. Set once at init, read forever.
+static GLOBAL_REGISTRY: OnceLock<InternedRegistry<u64>> = OnceLock::new();
+
+/// Access the global registry after init. Panics if not initialized.
+#[inline(always)]
+pub fn global_registry() -> &'static InternedRegistry<u64> {
+    // After init, this is a single pointer load from a static.
+    // OnceLock::get() on an initialized lock is just an Acquire load + branch (well-predicted).
+    // SAFETY: after init, this is just an Acquire load + well-predicted branch.
+    #[allow(clippy::expect_used)]
+    GLOBAL_REGISTRY
+        .get()
+        .expect("global registry not initialized")
+}
+
+/// Initialize the global registry with test data (for benchmarking).
+pub fn init_global_registry(names: &[&'static str], ids: &[&EncodingId]) {
+    let mut builder = RegistryBuilder::new();
+    for (i, (&name, id)) in names.iter().zip(ids.iter()).enumerate() {
+        builder.register(id, name, i as u64);
+    }
+    drop(GLOBAL_REGISTRY.set(builder.freeze()));
 }

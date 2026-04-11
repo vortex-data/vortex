@@ -31,6 +31,8 @@ use dashmap::DashMap;
 use divan::Bencher;
 use divan::counter::ItemsCount;
 use intern_pool_bench::CompactPool;
+use intern_pool_bench::EncodingId;
+use intern_pool_bench::RegistryBuilder;
 use intern_pool_bench::StringId;
 use parking_lot::RwLock;
 use rand::prelude::*;
@@ -592,6 +594,90 @@ mod id_read_cost {
         bencher.counter(ItemsCount::new(keys.len())).bench(|| {
             for key in keys {
                 black_box(map.get(key));
+            }
+        });
+    }
+}
+
+// ─── Bench E: Global InternedRegistry (auto-assigned ordinals) ───────────────
+//
+// Simulates the proposed design: each encoding declares a `static EncodingId`,
+// ordinals are auto-assigned at init, reads are a plain array index.
+
+mod global_registry {
+    use intern_pool_bench::InternedRegistry;
+
+    use super::*;
+
+    // 200 global static EncodingIds — one per encoding.
+    // In the real code, each encoding crate would own its own static.
+    static ENCODING_IDS: [EncodingId; NUM_STRINGS] = {
+        // const array init — each starts as UNSET
+        [const { EncodingId::unset() }; NUM_STRINGS]
+    };
+
+    /// Build the registry once, assigning ordinals 0..199 to each encoding.
+    fn frozen_registry() -> &'static InternedRegistry<u64> {
+        static REG: OnceLock<InternedRegistry<u64>> = OnceLock::new();
+        REG.get_or_init(|| {
+            let strings = test_strings();
+            let mut builder = RegistryBuilder::new();
+            for (i, &name) in strings.iter().enumerate() {
+                builder.register(&ENCODING_IDS[i], name, i as u64);
+            }
+            builder.freeze()
+        })
+    }
+
+    /// Zipfian ordinals — read from the static EncodingIds.
+    fn zipf_ordinals() -> &'static [u16] {
+        static ORDS: OnceLock<Vec<u16>> = OnceLock::new();
+        // Make sure registry is initialized first.
+        let _ = frozen_registry();
+        ORDS.get_or_init(|| {
+            zipf_indices()
+                .iter()
+                .map(|&i| ENCODING_IDS[i].get_unchecked())
+                .collect()
+        })
+    }
+
+    /// Full hot path: read static EncodingId → index into frozen registry.
+    /// This is what production code would do.
+    #[divan::bench(threads = [1, 2, 4])]
+    fn static_id_to_registry(bencher: Bencher) {
+        let reg = frozen_registry();
+        let indices = zipf_indices();
+        bencher.counter(ItemsCount::new(indices.len())).bench(|| {
+            for &i in indices {
+                // 1. Read ordinal from global static (AtomicU16 Relaxed)
+                let ord = ENCODING_IDS[i].get_unchecked();
+                // 2. Index into frozen registry (array access)
+                black_box(reg.get_unchecked(ord));
+            }
+        });
+    }
+
+    /// Pre-resolved ordinals: skip the AtomicU16 load, just index directly.
+    #[divan::bench(threads = [1, 2, 4])]
+    fn preresolved_ordinal(bencher: Bencher) {
+        let reg = frozen_registry();
+        let ords = zipf_ordinals();
+        bencher.counter(ItemsCount::new(ords.len())).bench(|| {
+            for &ord in ords {
+                black_box(reg.get_unchecked(ord));
+            }
+        });
+    }
+
+    /// Compare: FxHashMap string lookup (what vortex does today).
+    #[divan::bench(threads = [1, 2, 4])]
+    fn dashmap_str_baseline(bencher: Bencher) {
+        let map = dashmap_pool();
+        let keys = zipf_keys();
+        bencher.counter(ItemsCount::new(keys.len())).bench(|| {
+            for key in keys {
+                black_box(map.get(key).map(|v| *v));
             }
         });
     }
