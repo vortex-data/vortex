@@ -112,11 +112,6 @@ impl Variant {
     }
 }
 
-/// Number of rows in the query vector — matches the database so `ScalarFnArray`'s
-/// equal-length contract is satisfied. This type alias exists to make the broadcast
-/// semantics obvious at call sites.
-type QueryLen = usize;
-
 /// A materialized Vortex array and its associated execution session / context.
 pub struct PreparedDataset {
     /// Name used in metric strings — usually the dataset's `Dataset::name()`.
@@ -361,8 +356,6 @@ pub fn run_timings(
     iterations: usize,
     session: &VortexSession,
 ) -> Result<VariantTimings> {
-    let _ = QueryLen::default; // touch the type alias so rustc doesn't warn
-
     let mut decompress = Duration::MAX;
     let mut cosine = Duration::MAX;
     let mut filter = Duration::MAX;
