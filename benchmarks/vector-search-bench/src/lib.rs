@@ -105,13 +105,14 @@ pub enum Variant {
 impl Variant {
     /// The Format enum value this variant reports itself as in emitted measurements.
     /// Uncompressed and BtrBlocks-default both surface as [`Format::OnDiskVortex`]; the
-    /// TurboQuant variant gets its own [`Format::VortexTurboQuant`] so dashboards can
-    /// distinguish them.
+    /// TurboQuant variant surfaces as [`Format::VortexLossy`] — the general
+    /// file-format bucket for any `.vortex` file that contains lossy encodings —
+    /// so dashboards can distinguish lossy runs from the lossless baseline.
     pub fn as_format(&self) -> Format {
         match self {
             Variant::VortexUncompressed => Format::OnDiskVortex,
             Variant::VortexDefault => Format::OnDiskVortex,
-            Variant::VortexTurboQuant => Format::VortexTurboQuant,
+            Variant::VortexTurboQuant => Format::VortexLossy,
         }
     }
 
@@ -303,6 +304,17 @@ pub struct PreparedVariant {
 /// compressed tree — the disk-size comparison collapses two conceptually different
 /// things into one number. Reporting `nbytes()` of the in-memory tree keeps the size
 /// measurement consistent with what the *compute* measurements operate on.
+///
+/// **Forward migration to disk-backed runs.** Today this benchmark keeps each
+/// variant in memory because the TurboQuant pipeline's `L2Denorm` and
+/// `SorfTransform` scalar functions do not yet implement `ScalarFnVTable::serialize`,
+/// so writing a TurboQuant variant to a `.vortex` file and reading it back is not
+/// round-trippable. Once those serialize impls land, this benchmark can switch to
+/// disk-backed runs additively — there is no lossy-variant-specific code to unwind
+/// here, because the `Format::VortexLossy` bucket was deliberately kept generic.
+/// Variants continue to report their `Format` via `as_format()` exactly as they do
+/// today; only the path from `PreparedVariant` to execution gains an optional
+/// write/read hop.
 pub fn prepare_variant(prepared: &PreparedDataset, variant: Variant) -> Result<PreparedVariant> {
     match variant {
         Variant::VortexUncompressed => {
