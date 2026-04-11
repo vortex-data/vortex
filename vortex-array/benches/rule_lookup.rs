@@ -95,6 +95,12 @@ fn build_registry() -> HashMap<&'static str, HashMap<&'static str, bool>> {
     map
 }
 
+// Pre-filtered: only the rule that matches Cast parent.
+// In the real registry this is what HashMap.get(parent_id, child_id) returns.
+static CAST_ONLY: [&dyn DynArrayParentReduceRule<Bool>; 1] = [
+    ParentRuleSet::lift(&CastReduceAdaptor(Bool)),
+];
+
 const N: &[usize] = &[1, 10, 100];
 
 // ============================================================================
@@ -161,6 +167,65 @@ fn reduce_hashmap_lookup_leaf_parent(bencher: divan::Bencher, n: usize) {
     bencher.bench(|| {
         // Outer miss = done. No child iteration.
         black_box(registry.get(black_box(pid.as_ref())))
+    });
+}
+
+// ============================================================================
+// REDUCE MATCH: all 4 rules with matches() vs pre-filtered 1 rule
+//
+// After the HashMap finds the right bucket, we'd iterate ONLY the rules
+// that match this (parent_id, child_id) pair. Compare:
+//   current:  iterate 4 rules, call matches() on each, 1 hits
+//   proposed: iterate 1 pre-filtered rule, call matches() (always hits)
+// ============================================================================
+
+/// Current: 4 rules × matches(). 3 miss, 1 hit.
+#[divan::bench(args = N)]
+fn reduce_scan_4_rules_1_hit(bencher: divan::Bencher, n: usize) {
+    let children = make_children(n);
+    let parent = make_cast_parent();
+    bencher.bench(|| {
+        for _child in black_box(&children).iter() {
+            for rule in &RULES {
+                if rule.matches(black_box(&parent)) {
+                    break;
+                }
+            }
+        }
+    });
+}
+
+/// Proposed: 1 pre-filtered rule, matches() always hits.
+/// This is what happens after the HashMap resolves to the right bucket.
+#[divan::bench(args = N)]
+fn reduce_scan_1_prefiltered_rule(bencher: divan::Bencher, n: usize) {
+    let children = make_children(n);
+    let parent = make_cast_parent();
+    bencher.bench(|| {
+        for _child in black_box(&children).iter() {
+            for rule in &CAST_ONLY {
+                black_box(rule.matches(black_box(&parent)));
+            }
+        }
+    });
+}
+
+/// Just the HashMap lookup, no matches() at all.
+/// This is the pure lookup cost before iterating the pre-filtered rules.
+#[divan::bench(args = N)]
+fn reduce_hashmap_only(bencher: divan::Bencher, n: usize) {
+    let children = make_children(n);
+    let parent = make_cast_parent();
+    let registry = build_registry();
+    let pid = parent.encoding_id();
+    bencher.bench(|| {
+        let child_map = registry.get(black_box(pid.as_ref()));
+        for child in black_box(&children).iter() {
+            let cid = child.encoding_id();
+            if let Some(cm) = child_map {
+                black_box(cm.get(cid.as_ref()));
+            }
+        }
     });
 }
 
