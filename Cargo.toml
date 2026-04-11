@@ -59,6 +59,7 @@ members = [
     "benchmarks/datafusion-bench",
     "benchmarks/duckdb-bench",
     "benchmarks/random-access-bench",
+    "benchmarks/vector-search-bench",
 ]
 exclude = ["java/testfiles", "wasm-test"]
 resolver = "2"

@@ -347,11 +347,11 @@ pub struct CompressionTimingMeasurement {
 impl ToJson for CompressionTimingMeasurement {
     fn to_json(&self) -> serde_json::Value {
         let (name, engine) = match self.format {
-            Format::OnDiskVortex => (self.name.to_string(), Engine::Vortex),
+            Format::OnDiskVortex | Format::VortexLossy => (self.name.to_string(), Engine::Vortex),
             Format::Parquet => (format!("parquet_rs-zstd {}", self.name), Engine::Arrow),
             Format::Lance => (format!("lance {}", self.name), Engine::Arrow),
             _ => vortex_panic!(
-                "CompressionTimingMeasurement only supports vortex, lance, and parquet formats"
+                "CompressionTimingMeasurement only supports vortex, vortex-lossy, lance, and parquet formats"
             ),
         };
 
@@ -392,7 +392,7 @@ pub struct CustomUnitMeasurement {
 impl ToJson for CustomUnitMeasurement {
     fn to_json(&self) -> serde_json::Value {
         let engine = match self.format {
-            Format::OnDiskVortex | Format::VortexCompact => Engine::Vortex,
+            Format::OnDiskVortex | Format::VortexCompact | Format::VortexLossy => Engine::Vortex,
             Format::Parquet => Engine::Arrow,
             Format::Lance => Engine::Arrow,
             _ => Engine::Vortex, // Default to Vortex for other formats.

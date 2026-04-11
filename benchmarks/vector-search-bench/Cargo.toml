@@ -1,0 +1,37 @@
+[package]
+name = "vector-search-bench"
+description = "Vector similarity search benchmarks for Vortex on public embedding datasets"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+include.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
+arrow-schema = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+indicatif = { workspace = true }
+parquet = { workspace = true }
+tabled = { workspace = true, features = ["std"] }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+vortex = { workspace = true }
+vortex-bench = { workspace = true }
+vortex-btrblocks = { workspace = true }
+vortex-tensor = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

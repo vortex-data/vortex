@@ -33,6 +33,8 @@ jobs:
             build_args: "--features lance"
           - id: compress-bench
             name: Compression
+          - id: vector-search-bench
+            name: Vector Similarity Search
     steps:
       - uses: runs-on/action@v2
         if: github.event.pull_request.head.repo.fork == false

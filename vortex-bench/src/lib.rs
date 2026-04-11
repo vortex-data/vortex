@@ -53,6 +53,7 @@ pub mod statpopgen;
 pub mod tpcds;
 pub mod tpch;
 pub mod utils;
+pub mod vector_dataset;
 
 pub use benchmark::Benchmark;
 pub use benchmark::TableSpec;
@@ -138,6 +139,13 @@ pub enum Format {
     #[clap(name = "vortex-compact")]
     #[serde(rename = "vortex-compact")]
     VortexCompact,
+    /// Vortex file that uses one or more lossy encodings — e.g. TurboQuant
+    /// vector quantization, or a future product/binary/scalar quantizer.
+    /// Distinguishes lossy-compressed vector data from the lossless
+    /// [`Format::OnDiskVortex`] layout on downstream dashboards.
+    #[clap(name = "vortex-lossy")]
+    #[serde(rename = "vortex-lossy")]
+    VortexLossy,
     #[clap(name = "duckdb")]
     #[serde(rename = "duckdb")]
     OnDiskDuckDB,
@@ -177,6 +185,7 @@ impl Format {
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex-file-compressed",
             Format::VortexCompact => "vortex-compact",
+            Format::VortexLossy => "vortex-lossy",
             Format::OnDiskDuckDB => "duckdb",
             Format::Lance => "lance",
         }
@@ -189,6 +198,7 @@ impl Format {
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex",
             Format::VortexCompact => "vortex",
+            Format::VortexLossy => "vortex",
             Format::OnDiskDuckDB => "duckdb",
             Format::Lance => "lance",
         }
