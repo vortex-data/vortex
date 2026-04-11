@@ -54,14 +54,13 @@ struct Args {
     #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![SelectableDataset::CohereSmall])]
     datasets: Vec<SelectableDataset>,
 
-    /// Subset of variants to exercise. Defaults to all three Vortex variants.
-    #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![Variant::VortexUncompressed, Variant::VortexDefault, Variant::VortexTurboQuant])]
-    variants: Vec<Variant>,
-
-    /// Also run the Parquet-Arrow hand-rolled cosine baseline as an additional variant.
-    /// Default `true` — disable only when you intentionally want a Vortex-only comparison.
-    #[arg(long, default_value_t = true)]
-    parquet_baseline: bool,
+    /// Which benchmark variants to run, using kebab-cased labels. The `--formats` name is
+    /// used (instead of `--variants`) so this benchmark matches the CI invocation
+    /// convention shared across random-access-bench / compress-bench. Accepted values:
+    /// `parquet`, `vortex-uncompressed`, `vortex-default`, `vortex-turboquant`. Defaults
+    /// to running all four.
+    #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![SelectableFormat::Parquet, SelectableFormat::VortexUncompressed, SelectableFormat::VortexDefault, SelectableFormat::VortexTurboQuant])]
+    formats: Vec<SelectableFormat>,
 
     /// Number of query rows sampled when computing Recall@K for TurboQuant. 0 disables
     /// the quality measurement entirely (useful for smoke tests).
@@ -103,6 +102,33 @@ impl SelectableDataset {
     }
 }
 
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+enum SelectableFormat {
+    /// Parquet-Arrow hand-rolled cosine loop baseline.
+    #[clap(name = "parquet")]
+    Parquet,
+    /// Raw `Vector<dim, f32>` with no encoding compression.
+    #[clap(name = "vortex-uncompressed")]
+    VortexUncompressed,
+    /// BtrBlocks default-compression applied to the FSL storage child.
+    #[clap(name = "vortex-default")]
+    VortexDefault,
+    /// Full TurboQuant pipeline (lossy).
+    #[clap(name = "vortex-turboquant")]
+    VortexTurboQuant,
+}
+
+impl SelectableFormat {
+    fn into_variant(self) -> Option<Variant> {
+        match self {
+            SelectableFormat::Parquet => None,
+            SelectableFormat::VortexUncompressed => Some(Variant::VortexUncompressed),
+            SelectableFormat::VortexDefault => Some(Variant::VortexDefault),
+            SelectableFormat::VortexTurboQuant => Some(Variant::VortexTurboQuant),
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
@@ -115,7 +141,14 @@ async fn main() -> Result<()> {
         .map(SelectableDataset::into_dataset)
         .collect();
 
-    let total_work = datasets.len() * args.variants.len();
+    let run_parquet_baseline = args.formats.contains(&SelectableFormat::Parquet);
+    let variants: Vec<Variant> = args
+        .formats
+        .iter()
+        .filter_map(|f| f.into_variant())
+        .collect();
+
+    let total_work = datasets.len() * args.formats.len();
     let progress = ProgressBar::new(total_work as u64);
 
     let mut timings: Vec<CompressionTimingMeasurement> = Vec::new();
@@ -135,7 +168,7 @@ async fn main() -> Result<()> {
         // Parquet-Arrow baseline. Emitted as a separate pseudo-variant with label
         // `parquet` / Format::Parquet so it shows up in dashboards next to the Vortex
         // variants.
-        if args.parquet_baseline {
+        if run_parquet_baseline {
             let parquet_path = dataset.to_parquet_path().await?;
             let baseline_timings = run_parquet_baseline_timings(
                 &parquet_path,
@@ -170,7 +203,7 @@ async fn main() -> Result<()> {
             });
         }
 
-        for &variant in &args.variants {
+        for &variant in &variants {
             let (variant_array, size_bytes) = prepare_variant(&prepared, variant, &SESSION).await?;
 
             let variant_label = variant.label();
