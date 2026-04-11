@@ -16,15 +16,13 @@
 
 use anyhow::Result;
 use vortex::array::ArrayRef;
-use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::extension::ExtensionArrayExt;
-use vortex::error::VortexExpect;
 use vortex::session::VortexSession;
 use vortex::utils::aliases::hash_set::HashSet;
-use vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity;
-use vortex_tensor::vector_search::build_constant_query_vector;
+
+use crate::verify::compute_cosine_scores;
 
 /// Size of the neighbour set we compare. 10 is the standard VectorDBBench default.
 pub const DEFAULT_TOP_K: usize = 10;
@@ -64,10 +62,10 @@ pub fn measure_recall_at_k(
         let row = (q * step).min(num_rows - 1);
         let query = extract_query_row(uncompressed, row, session)?;
 
-        let gt_scores = score_all_rows(uncompressed, &query, session)?;
+        let gt_scores = compute_cosine_scores(uncompressed, &query, session)?;
         let truth = top_k_indices(&gt_scores, top_k);
 
-        let lossy_scores = score_all_rows(compressed, &query, session)?;
+        let lossy_scores = compute_cosine_scores(compressed, &query, session)?;
         let lossy = top_k_indices(&lossy_scores, top_k);
 
         let truth_set: HashSet<usize> = truth.iter().copied().collect();
@@ -103,18 +101,6 @@ fn extract_query_row(
     let slice = elements.as_slice::<f32>();
     let start = row * dim_usize;
     Ok(slice[start..start + dim_usize].to_vec())
-}
-
-fn score_all_rows(data: &ArrayRef, query: &[f32], session: &VortexSession) -> Result<Vec<f32>> {
-    let num_rows = data.len();
-    let query_vec = build_constant_query_vector(query, num_rows)?;
-    let cosine = CosineSimilarity::try_new_array(data.clone(), query_vec, num_rows)
-        .vortex_expect("cosine similarity accepts matching Vector inputs")
-        .into_array();
-
-    let mut ctx = session.create_execution_ctx();
-    let scores: PrimitiveArray = cosine.execute(&mut ctx)?;
-    Ok(scores.as_slice::<f32>().to_vec())
 }
 
 /// Return the indices of the top-K highest scores, stable-sorted descending.
@@ -164,22 +150,12 @@ mod tests {
             parquet_bytes: 0,
         };
 
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        let (tq_array, _) = rt
-            .block_on(prepare_variant(
-                &prepared,
-                Variant::VortexTurboQuant,
-                &SESSION,
-            ))
-            .unwrap();
+        let tq_prep = prepare_variant(&prepared, Variant::VortexTurboQuant, &SESSION).unwrap();
 
         // With only 64 random rows, recall@10 won't be 1.0 but it should be well
         // above chance (10/64 ≈ 0.156). The test asserts a loose lower bound to catch
         // total regressions without being flaky on distribution noise.
-        let recall = measure_recall_at_k(&uncompressed, &tq_array, 4, 10, &SESSION).unwrap();
+        let recall = measure_recall_at_k(&uncompressed, &tq_prep.array, 4, 10, &SESSION).unwrap();
         assert!(
             recall >= 0.3,
             "TurboQuant recall@10 on 64×128 synthetic data should be ≥0.3, got {recall}",

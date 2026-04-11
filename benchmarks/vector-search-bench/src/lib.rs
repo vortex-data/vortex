@@ -3,27 +3,38 @@
 
 //! Vector similarity-search benchmark core.
 //!
-//! This crate measures four quantities for each `(dataset, variant)` pair:
+//! For each `(dataset, variant)` pair we report:
 //!
-//! 1. **Compressed storage size** (bytes on disk, or in-memory `.nbytes()` for variants that
-//!    don't yet serialize — currently just [`Variant::VortexTurboQuant`]).
-//! 2. **Full-scan decode time** — executing the `Vector<dim, f32>` column into a
-//!    materialized [`vortex::array::arrays::FixedSizeListArray`].
-//! 3. **Cosine-similarity execute time** — executing
-//!    `CosineSimilarity(data, const_query)` into a materialized f32 primitive array.
-//! 4. **Filter execute time** — executing
-//!    `Binary(Gt, [CosineSimilarity, threshold])` into a
-//!    [`vortex::array::arrays::BoolArray`].
+//! - **In-memory size** — `ArrayRef::nbytes()` of the prepared variant tree. This is the
+//!   memory footprint you'd pay to keep that encoding resident.
+//! - **Compress time** — the wall time to build the variant tree from the materialized
+//!   uncompressed source (0 for the uncompressed variant itself, the BtrBlocks pass for
+//!   `vortex-default`, the full L2Denorm+SORF+quantize pipeline for `vortex-turboquant`).
+//! - **Decompress time** — the wall time to execute the variant tree back into a
+//!   canonical `FixedSizeListArray` (≈0 for the already-canonical uncompressed variant,
+//!   meaningful for the compressed variants).
+//! - **Cosine time** — executing `CosineSimilarity(data, const_query)` to a materialized
+//!   f32 primitive array.
+//! - **Filter time** — executing `Binary(Gt, [cosine, threshold])` to a `BoolArray`.
+//! - **Recall@10** (for the lossy TurboQuant variant only) against exact top-10 from the
+//!   uncompressed variant.
 //!
-//! Measurements are emitted via the existing `vortex_bench::measurements` types so that
-//! the benchmark results flow through the standard `gh-json` pipeline and appear in the
-//! CI dashboard alongside compress-bench / random-access-bench results.
+//! Before any timing begins, the benchmark also runs a **correctness verification** pass
+//! via [`verify`]: for every variant it computes cosine scores for a single query and
+//! compares them to the ground-truth scores from the uncompressed variant. Lossless
+//! variants must match within [`verify::LOSSLESS_TOLERANCE`]; lossy variants must match
+//! within [`verify::LOSSY_TOLERANCE`]. A correctness failure bails the run.
+//!
+//! Measurements are emitted via the existing `vortex_bench::measurements` types so
+//! results flow through the standard `gh-json` pipeline and show up on the CI dashboard
+//! alongside compress-bench / random-access-bench.
 
 use std::time::Duration;
 use std::time::Instant;
 
 pub mod parquet_baseline;
 pub mod recall;
+pub mod verify;
 
 use anyhow::Context;
 use anyhow::Result;
@@ -260,67 +271,82 @@ fn extract_query_row(vector_ext: &ArrayRef, row: usize) -> Result<Vec<f32>> {
     Ok(slice[start..start + dim_usize].to_vec())
 }
 
-/// Apply a `Variant`'s preparation strategy to the uncompressed Vortex array and return the
-/// prepared array together with its reported size in bytes. For serializable variants the
-/// size is the number of bytes written to a `.vortex` file; for in-memory-only variants
-/// (TurboQuant) it's the live `.nbytes()` footprint.
-pub async fn prepare_variant(
+/// A prepared variant: the in-memory array tree plus the metadata we want to report
+/// alongside it (size and construction cost).
+#[derive(Debug, Clone)]
+pub struct PreparedVariant {
+    /// The variant's in-memory array tree. For the uncompressed variant this is the same
+    /// canonical `Extension<Vector>` pulled out of `prepare_dataset`; for the others it's
+    /// the output of the respective compression pipeline.
+    pub array: ArrayRef,
+    /// Summed byte footprint of the variant tree — `ArrayRef::nbytes()`. This is the
+    /// in-memory cost of keeping the variant resident, not a disk size.
+    pub nbytes: u64,
+    /// Wall time spent constructing the variant tree from the already-materialized
+    /// uncompressed source. 0 for [`Variant::VortexUncompressed`]; meaningful for the
+    /// compressed variants.
+    pub compress_duration: Duration,
+}
+
+/// Apply a `Variant`'s preparation strategy to the materialized uncompressed source and
+/// return the resulting tree together with its reported in-memory size and construction
+/// time.
+///
+/// **Why nbytes instead of on-disk size?** The Vortex file writer applies BtrBlocks
+/// compression as part of its default write strategy regardless of the in-memory tree
+/// shape, so serializing an "uncompressed" tree and measuring the resulting `.vortex`
+/// file produces the same bytes as serializing a `BtrBlocksCompressor::default()`-
+/// compressed tree — the disk-size comparison collapses two conceptually different
+/// things into one number. Reporting `nbytes()` of the in-memory tree keeps the size
+/// measurement consistent with what the *compute* measurements operate on.
+pub fn prepare_variant(
     prepared: &PreparedDataset,
     variant: Variant,
     session: &VortexSession,
-) -> Result<(ArrayRef, u64)> {
+) -> Result<PreparedVariant> {
     match variant {
         Variant::VortexUncompressed => {
+            // Identity: the uncompressed Extension<Vector> is already materialized. Still
+            // record a dummy Instant so the timing point has a well-defined value even
+            // if it's effectively zero.
+            let start = Instant::now();
             let array = prepared.uncompressed.clone();
-            let size =
-                measure_on_disk_size(&array, session, &prepared.name, "uncompressed").await?;
-            Ok((array, size))
+            let compress_duration = start.elapsed();
+            let nbytes = array.nbytes();
+            Ok(PreparedVariant {
+                array,
+                nbytes,
+                compress_duration,
+            })
         }
         Variant::VortexDefault => {
+            let start = Instant::now();
             let array = BtrBlocksCompressor::default().compress(&prepared.uncompressed)?;
-            let size = measure_on_disk_size(&array, session, &prepared.name, "default").await?;
-            Ok((array, size))
+            let compress_duration = start.elapsed();
+            let nbytes = array.nbytes();
+            Ok(PreparedVariant {
+                array,
+                nbytes,
+                compress_duration,
+            })
         }
         Variant::VortexTurboQuant => {
             let mut ctx = session.create_execution_ctx();
+            let start = Instant::now();
             let array = compress_turboquant(prepared.uncompressed.clone(), &mut ctx)?;
-            // TurboQuant cannot yet round-trip through a Vortex file (L2Denorm metadata
-            // serialization is not implemented). Report the in-memory `.nbytes()` footprint
-            // as a proxy. Document this in the benchmark output so consumers of the
-            // dashboard aren't misled.
-            let size = array.nbytes() as u64;
-            Ok((array, size))
+            let compress_duration = start.elapsed();
+            let nbytes = array.nbytes();
+            Ok(PreparedVariant {
+                array,
+                nbytes,
+                compress_duration,
+            })
         }
     }
 }
 
-/// Serialize a prepared Vortex array to a temporary `.vortex` file and return its length.
-/// This is what we report as the "compressed size" for serializable variants; it matches
-/// the semantics of `compress-bench` which reports the on-disk parquet/vortex file size.
-async fn measure_on_disk_size(
-    array: &ArrayRef,
-    session: &VortexSession,
-    dataset_name: &str,
-    variant_label: &str,
-) -> Result<u64> {
-    use vortex::file::WriteOptionsSessionExt;
-
-    let tmp_dir = std::env::temp_dir().join("vortex-vector-search-bench");
-    tokio::fs::create_dir_all(&tmp_dir).await?;
-    let tmp_path = tmp_dir.join(format!("{dataset_name}-{variant_label}.vortex"));
-
-    let mut file = tokio::fs::File::create(&tmp_path).await?;
-    session
-        .write_options()
-        .write(&mut file, array.clone().to_array_stream())
-        .await?;
-
-    let metadata = tokio::fs::metadata(&tmp_path).await?;
-    Ok(metadata.len())
-}
-
-/// Run the decode / cosine / filter microbenchmarks against a prepared variant array and
-/// return the best-of-`iterations` wall times for each measurement.
+/// Run the decompress / cosine / filter microbenchmarks against a prepared variant
+/// array and return the best-of-`iterations` wall times for each measurement.
 pub fn run_timings(
     variant_array: &ArrayRef,
     query: &[f32],
@@ -329,15 +355,15 @@ pub fn run_timings(
 ) -> Result<VariantTimings> {
     let _ = QueryLen::default; // touch the type alias so rustc doesn't warn
 
-    let mut decode = Duration::MAX;
+    let mut decompress = Duration::MAX;
     let mut cosine = Duration::MAX;
     let mut filter = Duration::MAX;
 
     for _ in 0..iterations {
         let mut ctx = session.create_execution_ctx();
         let start = Instant::now();
-        let decoded: FixedSizeListArray = decode_full_scan(variant_array, &mut ctx)?;
-        decode = decode.min(start.elapsed());
+        let decoded: FixedSizeListArray = decompress_full_scan(variant_array, &mut ctx)?;
+        decompress = decompress.min(start.elapsed());
         drop(decoded);
     }
 
@@ -358,7 +384,7 @@ pub fn run_timings(
     }
 
     Ok(VariantTimings {
-        decode,
+        decompress,
         cosine,
         filter,
     })
@@ -367,33 +393,54 @@ pub fn run_timings(
 /// Timing summary for one `(dataset, variant)` pair.
 #[derive(Debug, Clone, Copy)]
 pub struct VariantTimings {
-    /// Wall time for a full column decode.
-    pub decode: Duration,
-    /// Wall time for the cosine_similarity scalar-function execution.
+    /// Wall time to execute the variant's array tree back into a canonical
+    /// `FixedSizeListArray`. ~0 for [`Variant::VortexUncompressed`] (the tree is already
+    /// canonical), meaningful for the two compressed variants.
+    pub decompress: Duration,
+    /// Wall time for the cosine_similarity scalar-function execution over the whole
+    /// column (materialized into an `f32` [`PrimitiveArray`]).
     pub cosine: Duration,
-    /// Wall time for the full `Binary(Gt, [cosine, threshold])` expression.
+    /// Wall time for the full `Binary(Gt, [cosine, threshold])` expression executed
+    /// into a [`BoolArray`].
     pub filter: Duration,
 }
 
 /// Fully materialize the input column so the measurement captures *all* decompression
-/// work — the extension shell, the FSL storage, and the inner element buffer.
+/// work — the extension shell, the FSL storage, **and the inner f32 element buffer**.
+///
+/// Forcing the element buffer to materialize as a canonical `PrimitiveArray<f32>` is
+/// what distinguishes this from a no-op cache hit. Executing the `ExtensionArray` or
+/// `FixedSizeListArray` alone only unwraps the container shells — if the FSL's
+/// `elements` child is (e.g.) an `alprd` tree, the bit-unpacking is lazy and only
+/// happens when something reads the values. The `execute::<PrimitiveArray>` call below
+/// forces that read.
 ///
 /// For the Vortex-uncompressed variant this is cheap (bitwise copy / no-op). For
-/// BtrBlocks-default it includes FSL decompression. For TurboQuant it includes running
-/// the inverse SORF rotation + dictionary lookup through the scalar-fn pipeline.
-fn decode_full_scan(
+/// BtrBlocks-default it includes the ALP-RD decoding pass. For TurboQuant it includes
+/// running the inverse SORF rotation + dictionary lookup through the scalar-fn
+/// pipeline.
+pub fn decompress_full_scan(
     array: &ArrayRef,
     ctx: &mut vortex::array::ExecutionCtx,
 ) -> Result<FixedSizeListArray> {
     use vortex::array::arrays::ExtensionArray;
     use vortex::array::arrays::extension::ExtensionArrayExt;
+    use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
 
     let ext: ExtensionArray = array.clone().execute(ctx)?;
     let fsl: FixedSizeListArray = ext.storage_array().clone().execute(ctx)?;
+    // Force the element buffer all the way down to a canonical PrimitiveArray so the
+    // timing captures any lazy decode work (ALP-RD bit unpacking, dict lookups, SORF
+    // inverse rotation, etc.).
+    let elements: PrimitiveArray = fsl.elements().clone().execute(ctx)?;
+    drop(elements);
     Ok(fsl)
 }
 
-fn execute_cosine(
+/// Execute `CosineSimilarity(data, broadcast(query))` to a materialized `f32`
+/// [`PrimitiveArray`]. Shared between the timing loop and the correctness-verification
+/// path so both exercise the exact same expression tree.
+pub fn execute_cosine(
     data: &ArrayRef,
     query: &[f32],
     ctx: &mut vortex::array::ExecutionCtx,
@@ -494,24 +541,96 @@ mod tests {
             Variant::VortexDefault,
             Variant::VortexTurboQuant,
         ] {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-            let (array, size) = rt
-                .block_on(prepare_variant(&prepared, variant, &SESSION))
-                .unwrap();
+            let prep = prepare_variant(&prepared, variant, &SESSION).unwrap();
             assert_eq!(
-                array.len(),
+                prep.array.len(),
                 num_rows,
                 "variant {variant:?} changed row count"
             );
-            assert!(size > 0, "variant {variant:?} reported zero size");
+            assert!(prep.nbytes > 0, "variant {variant:?} reported zero size");
 
-            let timings = run_timings(&array, &prepared.query, 2, &SESSION).unwrap();
-            assert!(timings.decode > Duration::ZERO);
+            let timings = run_timings(&prep.array, &prepared.query, 2, &SESSION).unwrap();
+            // TurboQuant + default must do real work; uncompressed's decompress is a
+            // no-op and can plausibly time as zero.
             assert!(timings.cosine > Duration::ZERO);
             assert!(timings.filter > Duration::ZERO);
+        }
+    }
+
+    /// The **uncompressed** variant's decompress pass must be a no-op (the tree is
+    /// already canonical), while TurboQuant must do real work. This is a regression
+    /// guard for a future change accidentally making the uncompressed variant take the
+    /// slow path.
+    #[test]
+    fn uncompressed_decompress_is_fast() {
+        let dim = 128u32;
+        let num_rows = 256usize;
+        let uncompressed = synthetic_vector(dim, num_rows, 0xDEADBEEF);
+
+        let prepared = PreparedDataset {
+            name: "synthetic".to_string(),
+            uncompressed,
+            query: vec![0.1f32; dim as usize],
+            parquet_bytes: 0,
+        };
+
+        let uncompressed_prep =
+            prepare_variant(&prepared, Variant::VortexUncompressed, &SESSION).unwrap();
+        let turboquant_prep =
+            prepare_variant(&prepared, Variant::VortexTurboQuant, &SESSION).unwrap();
+
+        let unc_timings =
+            run_timings(&uncompressed_prep.array, &prepared.query, 3, &SESSION).unwrap();
+        let tq_timings = run_timings(&turboquant_prep.array, &prepared.query, 3, &SESSION).unwrap();
+
+        // The uncompressed decompress should be at least an order of magnitude faster
+        // than TurboQuant's (usually many orders of magnitude). 5x is a loose lower
+        // bound that won't flake on a noisy CI runner.
+        assert!(
+            tq_timings.decompress > unc_timings.decompress * 5,
+            "expected TurboQuant decompress ({:?}) to be >5x uncompressed ({:?})",
+            tq_timings.decompress,
+            unc_timings.decompress
+        );
+    }
+
+    /// Diagnostic: print the in-memory tree shape for each variant so we can see
+    /// exactly what BtrBlocks and TurboQuant do to the FSL storage.
+    ///
+    /// Run with:
+    /// ```bash
+    /// cargo test -p vector-search-bench --release -- \
+    ///     --ignored --nocapture print_variant_trees
+    /// ```
+    #[test]
+    #[ignore]
+    #[expect(clippy::use_debug, reason = "human-readable diagnostic output")]
+    fn print_variant_trees() {
+        let dim = 768u32;
+        let num_rows = 500usize;
+        let uncompressed = synthetic_vector(dim, num_rows, 0xC0FFEE);
+
+        let prepared = PreparedDataset {
+            name: "synthetic".to_string(),
+            uncompressed,
+            query: vec![0.1f32; dim as usize],
+            parquet_bytes: 0,
+        };
+
+        for variant in [
+            Variant::VortexUncompressed,
+            Variant::VortexDefault,
+            Variant::VortexTurboQuant,
+        ] {
+            let prep = prepare_variant(&prepared, variant, &SESSION).unwrap();
+            println!("=== {variant:?} ===");
+            println!("  len              : {}", prep.array.len());
+            println!("  nbytes           : {}", prep.nbytes);
+            println!("  compress_duration: {:?}", prep.compress_duration);
+            println!(
+                "  encoding tree    : {}",
+                prep.array.display_tree_encodings_only()
+            );
         }
     }
 }

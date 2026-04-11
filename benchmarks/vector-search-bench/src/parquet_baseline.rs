@@ -172,14 +172,14 @@ pub fn run_parquet_baseline_timings(
     threshold: f32,
     iterations: usize,
 ) -> Result<VariantTimings> {
-    let mut decode = Duration::MAX;
+    let mut decompress = Duration::MAX;
     let mut cosine = Duration::MAX;
     let mut filter = Duration::MAX;
 
     for _ in 0..iterations {
         let start = Instant::now();
         let data = read_parquet_embedding_column(parquet_path)?;
-        decode = decode.min(start.elapsed());
+        decompress = decompress.min(start.elapsed());
 
         let start = Instant::now();
         let scores = cosine_loop(&data.elements, data.num_rows, data.dim, query);
@@ -193,7 +193,7 @@ pub fn run_parquet_baseline_timings(
     }
 
     Ok(VariantTimings {
-        decode,
+        decompress,
         cosine,
         filter,
     })

@@ -17,6 +17,7 @@
 use std::borrow::Cow;
 use std::path::PathBuf;
 
+use anyhow::Context;
 use anyhow::Result;
 use clap::Parser;
 use indicatif::ProgressBar;
@@ -28,6 +29,9 @@ use vector_search_bench::prepare_variant;
 use vector_search_bench::recall::DEFAULT_TOP_K;
 use vector_search_bench::recall::measure_recall_at_k;
 use vector_search_bench::run_timings;
+use vector_search_bench::verify::VerificationKind;
+use vector_search_bench::verify::compute_cosine_scores;
+use vector_search_bench::verify::verify_variant;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
 use vortex_bench::create_output_writer;
@@ -168,8 +172,8 @@ async fn main() -> Result<()> {
 
     let mut timings: Vec<CompressionTimingMeasurement> = Vec::new();
     let mut sizes: Vec<CustomUnitMeasurement> = Vec::new();
-
     let mut recalls: Vec<CustomUnitMeasurement> = Vec::new();
+    let mut verification: Vec<CustomUnitMeasurement> = Vec::new();
 
     for dataset in &datasets {
         let prepared = prepare_dataset(dataset).await?;
@@ -180,11 +184,62 @@ async fn main() -> Result<()> {
             prepared.num_rows()
         );
 
+        // Ground-truth cosine scores for the verification query — the scores produced by
+        // the uncompressed Vortex scan. Every other variant (including the parquet
+        // hand-rolled loop) will be compared against this.
+        let baseline_scores =
+            compute_cosine_scores(&prepared.uncompressed, &prepared.query, &SESSION)
+                .context("compute ground-truth cosine scores for verification")?;
+        tracing::info!(
+            "computed {} ground-truth cosine scores for {}",
+            baseline_scores.len(),
+            prepared.name
+        );
+
         // Parquet-Arrow baseline. Emitted as a separate pseudo-variant with label
         // `parquet` / Format::Parquet so it shows up in dashboards next to the Vortex
-        // variants.
+        // variants. The parquet baseline uses a hand-rolled Rust cosine loop; it must
+        // match the Vortex cosine scores within lossless tolerance (f32 ULPs) because
+        // it's computing the same math on the same underlying f32 values.
         if run_parquet_baseline {
             let parquet_path = dataset.to_parquet_path().await?;
+            let baseline_data =
+                vector_search_bench::parquet_baseline::read_parquet_embedding_column(&parquet_path)
+                    .context("read parquet emb column for verification")?;
+            let parquet_scores = vector_search_bench::parquet_baseline::cosine_loop(
+                &baseline_data.elements,
+                baseline_data.num_rows,
+                baseline_data.dim,
+                &prepared.query,
+            );
+            let parquet_report = vector_search_bench::verify::verify_scores(
+                &baseline_scores,
+                &parquet_scores,
+                VerificationKind::Lossless,
+            );
+            if !parquet_report.passed {
+                anyhow::bail!(
+                    "parquet baseline correctness check failed on {}: \
+                     max_abs_diff={:.6}, mean_abs_diff={:.6}, tolerance={:.6}",
+                    prepared.name,
+                    parquet_report.max_abs_diff,
+                    parquet_report.mean_abs_diff,
+                    parquet_report.tolerance(),
+                );
+            }
+            tracing::info!(
+                "parquet/{} verification: max_abs_diff={:.2e}, mean_abs_diff={:.2e}",
+                prepared.name,
+                parquet_report.max_abs_diff,
+                parquet_report.mean_abs_diff,
+            );
+            verification.push(CustomUnitMeasurement {
+                name: format!("correctness-max-diff/parquet/{}", prepared.name),
+                format: Format::Parquet,
+                unit: Cow::from("abs-diff"),
+                value: parquet_report.max_abs_diff,
+            });
+
             let baseline_timings = run_parquet_baseline_timings(
                 &parquet_path,
                 &prepared.query,
@@ -202,9 +257,9 @@ async fn main() -> Result<()> {
                 value: prepared.parquet_bytes as f64,
             });
             timings.push(CompressionTimingMeasurement {
-                name: format!("decode time/{bench_name}"),
+                name: format!("decompress time/{bench_name}"),
                 format: Format::Parquet,
-                time: baseline_timings.decode,
+                time: baseline_timings.decompress,
             });
             timings.push(CompressionTimingMeasurement {
                 name: format!("cosine-similarity time/{bench_name}"),
@@ -219,25 +274,67 @@ async fn main() -> Result<()> {
         }
 
         for &variant in &variants {
-            let (variant_array, size_bytes) = prepare_variant(&prepared, variant, &SESSION).await?;
+            let prep = prepare_variant(&prepared, variant, &SESSION)?;
 
             let variant_label = variant.label();
             let bench_name = format!("{variant_label}/{}", prepared.name);
 
+            // Correctness verification BEFORE timing. Lossless variants must match
+            // the uncompressed baseline within f32 noise; TurboQuant must stay within
+            // its lossy tolerance. A failure bails the whole run — you cannot publish
+            // throughput numbers for an encoding that returns wrong answers.
+            let kind = if variant == Variant::VortexTurboQuant {
+                VerificationKind::Lossy
+            } else {
+                VerificationKind::Lossless
+            };
+            let report = verify_variant(
+                &bench_name,
+                &prep.array,
+                &prepared.query,
+                &baseline_scores,
+                kind,
+                &SESSION,
+            )?;
+            tracing::info!(
+                "{} verification ({:?}): max_abs_diff={:.2e}, mean_abs_diff={:.2e}",
+                bench_name,
+                kind,
+                report.max_abs_diff,
+                report.mean_abs_diff,
+            );
+            verification.push(CustomUnitMeasurement {
+                name: format!("correctness-max-diff/{bench_name}"),
+                format: variant.as_format(),
+                unit: Cow::from("abs-diff"),
+                value: report.max_abs_diff,
+            });
+
+            // In-memory nbytes — the honest size of the variant tree we're executing.
             sizes.push(CustomUnitMeasurement {
-                name: format!("{variant_label} size/{}", prepared.name),
+                name: format!("{variant_label} nbytes/{}", prepared.name),
                 format: variant.as_format(),
                 unit: Cow::from("bytes"),
-                value: size_bytes as f64,
+                value: prep.nbytes as f64,
+            });
+
+            // Compress time — the wall time it takes to build the variant tree from
+            // the materialized uncompressed source. For the uncompressed variant
+            // itself this is ~0 (identity), so we still emit it as a measurement for
+            // dashboard consistency.
+            timings.push(CompressionTimingMeasurement {
+                name: format!("compress time/{bench_name}"),
+                format: variant.as_format(),
+                time: prep.compress_duration,
             });
 
             let variant_timings =
-                run_timings(&variant_array, &prepared.query, args.iterations, &SESSION)?;
+                run_timings(&prep.array, &prepared.query, args.iterations, &SESSION)?;
 
             timings.push(CompressionTimingMeasurement {
-                name: format!("decode time/{bench_name}"),
+                name: format!("decompress time/{bench_name}"),
                 format: variant.as_format(),
-                time: variant_timings.decode,
+                time: variant_timings.decompress,
             });
             timings.push(CompressionTimingMeasurement {
                 name: format!("cosine-similarity time/{bench_name}"),
@@ -251,12 +348,12 @@ async fn main() -> Result<()> {
             });
 
             // Recall@K quality measurement for lossy variants only. The lossless
-            // variants (uncompressed + BtrBlocks default) are trivially 1.0 against
-            // the uncompressed ground truth, so we skip them to avoid noise.
+            // variants are trivially 1.0 by construction (since they agree with the
+            // uncompressed baseline within 1e-4) so we skip them to keep noise down.
             if args.recall_queries > 0 && variant == Variant::VortexTurboQuant {
                 let recall = measure_recall_at_k(
                     &prepared.uncompressed,
-                    &variant_array,
+                    &prep.array,
                     args.recall_queries,
                     args.recall_k,
                     &SESSION,
@@ -295,11 +392,15 @@ async fn main() -> Result<()> {
                     recall.name, recall.value, recall.unit
                 )?;
             }
+            for check in &verification {
+                writeln!(writer, "{} {:.6e} {}", check.name, check.value, check.unit)?;
+            }
         }
         DisplayFormat::GhJson => {
             print_measurements_json(&mut writer, timings)?;
             print_measurements_json(&mut writer, sizes)?;
             print_measurements_json(&mut writer, recalls)?;
+            print_measurements_json(&mut writer, verification)?;
         }
     }
 
