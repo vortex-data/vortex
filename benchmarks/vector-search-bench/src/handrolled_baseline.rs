@@ -1,27 +1,42 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Parquet-Arrow hand-rolled cosine similarity baseline.
+//! Hand-rolled Rust cosine similarity baseline.
 //!
-//! This module provides the "what you'd do without Vortex" floor for the vector-search
-//! benchmark. It reads the canonical parquet file for a dataset via `parquet::arrow`,
-//! decodes the `emb` column to an Arrow `FixedSizeListArray<f32>`, and then runs a
-//! straightforward Rust cosine-similarity loop — no scalar functions, no lazy expressions,
-//! no index.
+//! This module provides the *compute-cost floor* the other Vortex variants are measured
+//! against. It is **not** a realistic "parquet in a DBMS" baseline — it's the minimum
+//! amount of work a Rust programmer could get away with if they wrote a vector-search
+//! scan by hand with no query engine, no scalar-function dispatch, and no Arrow compute
+//! kernels.
 //!
-//! The four measurements produced mirror those of the Vortex variants so dashboards can
-//! put the parquet bar right next to the vortex bars:
+//! Two distinct phases run per iteration, and the benchmark times them separately so the
+//! dashboard can separate storage-read cost from compute cost:
 //!
-//! 1. Compressed size — the on-disk parquet file in bytes.
-//! 2. Full-scan decode time — parquet → arrow record batches → concatenated
-//!    `FixedSizeListArray<f32>`.
-//! 3. Cosine-similarity execute time — hand-rolled loop producing a `Vec<f32>` of scores.
-//! 4. Filter execute time — the same loop materializing into a `Vec<bool>` where
-//!    `score > threshold`.
+//! 1. **Decompress** ([`read_parquet_embedding_column`]) — reads the canonical parquet
+//!    file via `parquet-rs`, downcasts the `emb` column to an Arrow `Float32Array`, and
+//!    copies every value into a flat `Vec<f32>`. This phase is the only place Arrow is
+//!    actually used — only for the decode. The `memcpy` at the end is incidental: we
+//!    could operate directly on `Float32Array::values()` with identical performance,
+//!    but taking ownership of a `Vec<f32>` frees the Arrow `RecordBatch` lifetimes.
+//! 2. **Compute** ([`cosine_loop`] and [`filter_loop`]) — runs a plain scalar Rust loop
+//!    over `&[f32]`. Arrow is no longer involved. There's no SIMD, no unrolling
+//!    annotations, no dispatch overhead, no output-array allocation beyond a single
+//!    `Vec<f32>`. This is deliberately "the fastest you could possibly make it go
+//!    without writing SIMD intrinsics".
 //!
-//! This module does *not* include the parquet decode time in the cosine/filter wall
-//! times. Decoding is treated as its own measurement. This matches how the Vortex variants
-//! separate decode from compute.
+//! Calling this "the parquet baseline" would be misleading, because:
+//!
+//! - The compute layer has nothing to do with parquet — parquet is only the input
+//!   encoding, not the execution substrate.
+//! - Real parquet-on-DBMS engines (DuckDB's `list_cosine_similarity`, DataFusion with a
+//!   vector UDF, etc.) would pay substantial dispatch / planner / row-iterator cost
+//!   that this loop skips entirely.
+//!
+//! Think of it as: "If you didn't have Vortex and didn't feel like reaching for a query
+//! engine, what's the minimum scan cost you could get away with on this data?" That's
+//! the question this module answers, and it's intentionally a lower bound rather than a
+//! fair DBMS comparison. Future work could add DuckDB / DataFusion baselines alongside
+//! this one for the DBMS-level comparison.
 
 use std::fs::File;
 use std::path::Path;
@@ -43,8 +58,15 @@ use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use crate::VariantTimings;
 
 /// Read the entire `emb` column of a parquet file into a single flat `Vec<f32>`, along
-/// with the dimension and row count.
-pub fn read_parquet_embedding_column(parquet_path: &Path) -> Result<ParquetBaselineData> {
+/// with the dimension and row count. This is the *decompress* phase of the hand-rolled
+/// baseline — it's the only place Arrow is actually used. `parquet-rs` does the file
+/// decode, we downcast to `Float32Array`, and then memcpy into a plain `Vec<f32>` so
+/// the compute loop can operate over a raw slice without holding any Arrow
+/// `RecordBatch` references.
+///
+/// Kept under its `parquet` name because this function *actually reads parquet*; only
+/// the compute-side wrappers take the `handrolled` label.
+pub fn read_parquet_embedding_column(parquet_path: &Path) -> Result<HandrolledBaselineData> {
     let file = File::open(parquet_path)
         .with_context(|| format!("open parquet file {}", parquet_path.display()))?;
     let file_size = file.metadata()?.len();
@@ -88,7 +110,7 @@ pub fn read_parquet_embedding_column(parquet_path: &Path) -> Result<ParquetBasel
     }
 
     let dim = inferred_dim.context("parquet file has zero rows — cannot infer dimension")?;
-    Ok(ParquetBaselineData {
+    Ok(HandrolledBaselineData {
         elements: data,
         dim,
         num_rows,
@@ -150,23 +172,29 @@ fn maybe_set_dim(inferred_dim: &mut Option<usize>, new_dim: usize) -> Result<()>
     }
 }
 
-/// The flattened representation of a parquet file's embedding column, suitable for a
-/// hand-rolled distance loop.
-pub struct ParquetBaselineData {
+/// The flattened representation of an embedding column, suitable for a hand-rolled
+/// distance loop. Intentionally decoupled from any format — the compute side doesn't
+/// care how the data got into this `Vec<f32>`.
+pub struct HandrolledBaselineData {
     /// All rows concatenated: `elements.len() == num_rows * dim`.
     pub elements: Vec<f32>,
     /// Vector dimensionality.
     pub dim: usize,
     /// Number of rows.
     pub num_rows: usize,
-    /// On-disk size of the parquet file in bytes.
+    /// On-disk size of the parquet file in bytes. Reported as the "handrolled size"
+    /// measurement because parquet is the only format this benchmark serializes to
+    /// on disk today — a future v2 could report additional storage formats (raw f32
+    /// blob, Arrow IPC, etc.) alongside it.
     pub file_size: u64,
 }
 
-/// Run the decode / cosine / filter baseline microbenchmarks and return the best-of-N
-/// wall times. Decoding is re-parquet-reading from disk on each iteration (matches how
-/// the Vortex variants also re-execute from scratch each iteration).
-pub fn run_parquet_baseline_timings(
+/// Run the decompress / cosine / filter microbenchmarks for the hand-rolled baseline
+/// and return the best-of-N wall times. The decompress phase re-reads the parquet file
+/// from disk on each iteration (matches how the Vortex variants re-execute their tree
+/// from scratch each iteration), and the compute phase runs [`cosine_loop`] and
+/// [`filter_loop`] over the flat `Vec<f32>` the decompress phase produced.
+pub fn run_handrolled_baseline_timings(
     parquet_path: &Path,
     query: &[f32],
     threshold: f32,
@@ -283,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn parquet_baseline_reads_fsl_column() {
+    fn handrolled_baseline_reads_fsl_column() {
         let file =
             write_tiny_fsl_parquet(3, &[&[1.0, 0.0, 0.0], &[0.0, 1.0, 0.0], &[1.0, 0.0, 0.0]])
                 .unwrap();

@@ -32,7 +32,7 @@
 use std::time::Duration;
 use std::time::Instant;
 
-pub mod parquet_baseline;
+pub mod handrolled_baseline;
 pub mod recall;
 pub mod verify;
 
