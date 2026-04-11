@@ -25,6 +25,8 @@ pub mod vector;
 
 pub mod encodings;
 
+pub mod vector_search;
+
 mod utils;
 
 /// Initialize the Vortex tensor library with a Vortex session.
