@@ -1028,7 +1028,135 @@ fn dense_u32(bencher: divan::Bencher, name: &str) {
 }
 
 // ============================================================================
-// MIXED CHILD TREE: defeats branch prediction
+// BITSET LOOKUP: per-parent bitset of "interesting child codes"
+//
+// For each parent code, store a u64 bitset where bit i = 1 if a rule exists
+// for (parent, child=i). For codes < 64 this is exact; for codes >= 64
+// we conservatively say "might match" and fall back to the per-child check.
+//
+// Each ArrayRef caches a u64 bitset of its children's codes (OR of all child
+// codes that fit in 64 bits). Per-parent check:
+//
+//   if (parent_interesting_children[parent_code] & child_codes_bitset) == 0 {
+//       // definitely no rule will match any child — skip all of them
+//   }
+//
+// One AND per parent, regardless of N children. O(1) per parent.
+// ============================================================================
+
+struct BitsetLookup {
+    /// parent_interesting_children[p] = bitset of child codes (< 64) that have rules
+    /// AND any code >= 64 → assume might match
+    parent_interesting: [u64; MAX_CODE],
+    parent_has_any_high: [bool; MAX_CODE], // any rule for child code >= 64
+    // Inner table for actual lookups (when bitset says "might match")
+    rules: Box<[&'static [MatcherFn]]>,
+}
+
+impl BitsetLookup {
+    fn new() -> Self {
+        let mut parent_interesting = [0u64; MAX_CODE];
+        let mut parent_has_any_high = [false; MAX_CODE];
+        let mut rules: Vec<&'static [MatcherFn]> = vec![EMPTY_RULES; MAX_CODE * MAX_CODE];
+        for (p, c, list) in all_entries() {
+            rules[combine_codes(p, c)] = list;
+            if c < 64 {
+                parent_interesting[p as usize] |= 1u64 << c;
+            } else {
+                parent_has_any_high[p as usize] = true;
+            }
+        }
+        Self {
+            parent_interesting,
+            parent_has_any_high,
+            rules: rules.into_boxed_slice(),
+        }
+    }
+
+    /// Returns true if any child code in `child_bits` (or any high code) might match.
+    #[inline(always)]
+    fn maybe_matches(&self, parent: u64, child_bits: u64) -> bool {
+        let pi = self.parent_interesting[parent as usize];
+        (pi & child_bits) != 0 || self.parent_has_any_high[parent as usize]
+    }
+
+    #[inline(always)]
+    fn get(&self, parent: u64, child: u64) -> &'static [MatcherFn] {
+        unsafe { *self.rules.get_unchecked(combine_codes(parent, child)) }
+    }
+
+    fn mem_bytes(&self) -> usize {
+        size_of::<[u64; MAX_CODE]>()
+            + size_of::<[bool; MAX_CODE]>()
+            + size_of::<&[MatcherFn]>() * self.rules.len()
+    }
+}
+
+/// CodeNode with cached child_codes_bitset.
+struct CodeNodeBs {
+    code: u64,
+    child_codes_bits: u64, // OR of all children's codes (codes < 64)
+    array: ArrayRef,
+    children: Vec<CodeNodeBs>,
+}
+
+fn build_code_tree_bs(array: &ArrayRef) -> CodeNodeBs {
+    let code = encoding_id_to_code(array.encoding_id().as_ref());
+    let children: Vec<CodeNodeBs> = array
+        .slots()
+        .iter()
+        .filter_map(|s| s.as_ref().map(build_code_tree_bs))
+        .collect();
+    let mut child_codes_bits = 0u64;
+    for c in &children {
+        if c.code < 64 {
+            child_codes_bits |= 1u64 << c.code;
+        }
+    }
+    CodeNodeBs {
+        code,
+        child_codes_bits,
+        array: array.clone(),
+        children,
+    }
+}
+
+fn walk_bitset(lookup: &BitsetLookup, node: &CodeNodeBs) -> u64 {
+    let mut count = 0u64;
+    // Single AND check: if bitset says "no children of interest", skip all of them.
+    if lookup.maybe_matches(node.code, node.child_codes_bits) {
+        for child in &node.children {
+            let rules = lookup.get(node.code, child.code);
+            for f in rules {
+                count += (*f as usize) as u64 & 1;
+            }
+        }
+    }
+    for child in &node.children {
+        count += walk_bitset(lookup, child);
+    }
+    count
+}
+
+#[divan::bench(args = TREE_NAMES)]
+fn bitset(bencher: divan::Bencher, name: &str) {
+    let tree = make_tree(name);
+    let code_tree = build_code_tree_bs(&tree);
+    let lookup = BitsetLookup::new();
+    bencher.bench(|| {
+        black_box(walk_bitset(&lookup, black_box(&code_tree)));
+    });
+}
+
+#[divan::bench(args = MIXED_TREE_NAMES)]
+fn mixed_bitset(bencher: divan::Bencher, name: &str) {
+    let tree = make_mixed_tree(name);
+    let code_tree = build_code_tree_bs(&tree);
+    let lookup = BitsetLookup::new();
+    bencher.bench(|| {
+        black_box(walk_bitset(&lookup, black_box(&code_tree)));
+    });
+}
 // Build a Struct with many fields of varied encodings.
 // ============================================================================
 
