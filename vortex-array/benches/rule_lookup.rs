@@ -1138,6 +1138,30 @@ fn walk_bitset(lookup: &BitsetLookup, node: &CodeNodeBs) -> u64 {
     count
 }
 
+/// Walker that recomputes child_codes_bits each call (uncached).
+fn walk_bitset_uncached(lookup: &BitsetLookup, node: &CodeNode) -> u64 {
+    let mut count = 0u64;
+    // Compute the bitset on the fly
+    let mut child_bits = 0u64;
+    for c in &node.children {
+        if c.code < 64 {
+            child_bits |= 1u64 << c.code;
+        }
+    }
+    if lookup.maybe_matches(node.code, child_bits) {
+        for child in &node.children {
+            let rules = lookup.get(node.code, child.code);
+            for f in rules {
+                count += (*f as usize) as u64 & 1;
+            }
+        }
+    }
+    for child in &node.children {
+        count += walk_bitset_uncached(lookup, child);
+    }
+    count
+}
+
 #[divan::bench(args = TREE_NAMES)]
 fn bitset(bencher: divan::Bencher, name: &str) {
     let tree = make_tree(name);
@@ -1145,6 +1169,26 @@ fn bitset(bencher: divan::Bencher, name: &str) {
     let lookup = BitsetLookup::new();
     bencher.bench(|| {
         black_box(walk_bitset(&lookup, black_box(&code_tree)));
+    });
+}
+
+#[divan::bench(args = TREE_NAMES)]
+fn bitset_uncached(bencher: divan::Bencher, name: &str) {
+    let tree = make_tree(name);
+    let code_tree = build_code_tree(&tree);
+    let lookup = BitsetLookup::new();
+    bencher.bench(|| {
+        black_box(walk_bitset_uncached(&lookup, black_box(&code_tree)));
+    });
+}
+
+#[divan::bench(args = MIXED_TREE_NAMES)]
+fn mixed_bitset_uncached(bencher: divan::Bencher, name: &str) {
+    let tree = make_mixed_tree(name);
+    let code_tree = build_code_tree(&tree);
+    let lookup = BitsetLookup::new();
+    bencher.bench(|| {
+        black_box(walk_bitset_uncached(&lookup, black_box(&code_tree)));
     });
 }
 
