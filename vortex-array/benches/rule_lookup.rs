@@ -1,31 +1,40 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Matching-only model with u64 encoding codes.
+//! Matching-only model as close to vortex as possible.
 //!
-//! Models a future world where each encoding has a stable u64 code (instead
-//! of an &str). For each tree, we pre-walk to collect (parent_code, child_code)
-//! pairs, then benchmark iterating those pairs with both approaches.
+//! Three approaches:
+//! 1. CURRENT: dispatch by child type → static slice of fn pointers → each fn
+//!    calls `<P as Matcher>::matches(parent)` which does `as_any().is::<>()`.
+//!    Same cost as real `dyn DynArrayParentReduceRule.matches()`.
+//! 2. DENSE: pre-built `Vec<bool>` indexed by `(parent_code, child_code)`.
+//!    u64 codes are pre-cached on each tree node (no encoding_id() in hot path).
+//! 3. HASHMAP: `HashMap<(u64, u64), bool>` keyed by u64 codes.
 //!
-//! This isolates the MATCHING cost from the tree-walking cost.
+//! Reports timing AND memory size for each.
 
 #![expect(clippy::unwrap_used)]
 
 use std::collections::HashMap;
 use std::hint::black_box;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering;
+use std::mem::size_of;
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::Filter;
+use vortex_array::arrays::Masked;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::Slice;
 use vortex_array::arrays::SliceArray;
 use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
+use vortex_array::arrays::scalar_fn::ScalarFnVTable;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::matcher::Matcher as VortexMatcher;
 use vortex_array::scalar_fn::fns::cast::Cast;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
@@ -35,7 +44,31 @@ fn main() {
 }
 
 // ============================================================================
-// u64 encoding codes (would be assigned at registration time in real impl)
+// REAL MATCHERS — fn pointers calling VortexMatcher::matches
+// Each fn does as_any().is::<>() — the same TypeId compare via vtable that
+// real `dyn DynArrayParentReduceRule.matches(parent)` does.
+// ============================================================================
+
+type MatcherFn = fn(&ArrayRef) -> bool;
+
+fn match_masked(p: &ArrayRef) -> bool {
+    <Masked as VortexMatcher>::matches(p)
+}
+fn match_slice(p: &ArrayRef) -> bool {
+    <Slice as VortexMatcher>::matches(p)
+}
+fn match_filter(p: &ArrayRef) -> bool {
+    <Filter as VortexMatcher>::matches(p)
+}
+fn match_dict(p: &ArrayRef) -> bool {
+    <Dict as VortexMatcher>::matches(p)
+}
+fn match_any_scalar_fn(p: &ArrayRef) -> bool {
+    p.is::<ScalarFnVTable>()
+}
+
+// ============================================================================
+// u64 ENCODING CODES — pre-assigned, dense indices
 // ============================================================================
 
 const C_PRIMITIVE: u64 = 1;
@@ -56,7 +89,7 @@ const C_SLICE: u64 = 15;
 const C_FILTER: u64 = 16;
 const C_MASKED: u64 = 17;
 
-// Scalar fn codes (each scalar fn has its own encoding ID = scalar fn ID)
+// Scalar fn codes
 const C_CAST: u64 = 100;
 const C_BINARY: u64 = 101;
 const C_BETWEEN: u64 = 102;
@@ -83,7 +116,6 @@ const ALL_SCALAR_FN_CODES: &[u64] = &[
     C_DYNAMIC, C_ROOT, C_LITERAL, C_ARRAY, C_PACK,
 ];
 
-/// Map an encoding_id string to a u64 code (one-time setup, not in the hot path).
 fn encoding_id_to_code(id: &str) -> u64 {
     match id {
         "vortex.primitive" => C_PRIMITIVE,
@@ -122,159 +154,105 @@ fn encoding_id_to_code(id: &str) -> u64 {
         "vortex.literal" => C_LITERAL,
         "vortex.array" => C_ARRAY,
         "vortex.pack" => C_PACK,
-        _ => 0, // unknown
+        _ => 0,
     }
 }
 
 // ============================================================================
-// CURRENT: linear scan over matchers
-//
-// Each matcher is a u64 code (the parent code it matches). Iterating and
-// comparing u64s is the fastest possible "scan" — anything based on TypeId
-// or strings is strictly more expensive.
+// CURRENT: dispatch by child code → static slice of MatcherFn
+// Each MatcherFn is a real `as_any().is::<>()` call (same cost as the real
+// dyn dispatch chain).
 // ============================================================================
 
-#[derive(Clone, Copy)]
-enum CurrentMatcher {
-    Exact(u64),
-    AnyScalarFn,
-}
-
-impl CurrentMatcher {
-    #[inline(always)]
-    fn matches(&self, parent_code: u64) -> bool {
-        match self {
-            CurrentMatcher::Exact(c) => *c == parent_code,
-            CurrentMatcher::AnyScalarFn => ALL_SCALAR_FN_CODES.contains(&parent_code),
-        }
-    }
-}
-
-/// Look up the matcher list for a child encoding code.
-/// Mirrors vtable dispatch — one branch.
 #[inline(never)]
-fn rules_for_child(child_code: u64) -> &'static [CurrentMatcher] {
+fn rules_for_child(child_code: u64) -> &'static [MatcherFn] {
     match child_code {
-        C_PRIMITIVE => &[
-            CurrentMatcher::Exact(C_MASKED),
-            CurrentMatcher::Exact(C_MASK),
-            CurrentMatcher::Exact(C_SLICE),
-        ],
+        C_PRIMITIVE => &[match_masked, match_any_scalar_fn, match_slice],
         C_BOOL => &[
-            CurrentMatcher::Exact(C_MASKED),
-            CurrentMatcher::Exact(C_CAST),
-            CurrentMatcher::Exact(C_MASK),
-            CurrentMatcher::Exact(C_SLICE),
-            CurrentMatcher::Exact(C_FILTER),
+            match_masked,
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_slice,
+            match_filter,
         ],
         C_DICT => &[
-            CurrentMatcher::Exact(C_FILTER),
-            CurrentMatcher::Exact(C_CAST),
-            CurrentMatcher::Exact(C_MASK),
-            CurrentMatcher::Exact(C_LIKE),
-            CurrentMatcher::AnyScalarFn,
-            CurrentMatcher::AnyScalarFn,
-            CurrentMatcher::Exact(C_SLICE),
+            match_filter,
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_slice,
         ],
         C_CHUNKED => &[
-            CurrentMatcher::Exact(C_CAST),
-            CurrentMatcher::AnyScalarFn,
-            CurrentMatcher::AnyScalarFn,
-            CurrentMatcher::Exact(C_FILL_NULL),
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_any_scalar_fn,
         ],
         C_CONSTANT => &[
-            CurrentMatcher::Exact(C_BETWEEN),
-            CurrentMatcher::Exact(C_CAST),
-            CurrentMatcher::Exact(C_FILTER),
-            CurrentMatcher::Exact(C_FILL_NULL),
-            CurrentMatcher::Exact(C_FILTER),
-            CurrentMatcher::Exact(C_NOT),
-            CurrentMatcher::Exact(C_SLICE),
-            CurrentMatcher::Exact(C_DICT),
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_filter,
+            match_any_scalar_fn,
+            match_filter,
+            match_any_scalar_fn,
+            match_slice,
+            match_dict,
         ],
         C_VARBIN | C_VARBINVIEW | C_LIST | C_FIXEDSIZELIST => &[
-            CurrentMatcher::Exact(C_CAST),
-            CurrentMatcher::Exact(C_MASK),
-            CurrentMatcher::Exact(C_SLICE),
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_slice,
         ],
         C_STRUCT => &[
-            CurrentMatcher::Exact(C_CAST),
-            CurrentMatcher::Exact(C_GET_ITEM),
-            CurrentMatcher::Exact(C_MASK),
-            CurrentMatcher::Exact(C_SLICE),
-            CurrentMatcher::Exact(C_DICT),
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_slice,
+            match_dict,
         ],
         C_EXT => &[
-            CurrentMatcher::Exact(C_FILTER),
-            CurrentMatcher::Exact(C_CAST),
-            CurrentMatcher::Exact(C_FILTER),
-            CurrentMatcher::Exact(C_MASK),
-            CurrentMatcher::Exact(C_SLICE),
+            match_filter,
+            match_any_scalar_fn,
+            match_filter,
+            match_any_scalar_fn,
+            match_slice,
         ],
         C_NULL | C_LISTVIEW => &[
-            CurrentMatcher::Exact(C_FILTER),
-            CurrentMatcher::Exact(C_CAST),
-            CurrentMatcher::Exact(C_MASK),
-            CurrentMatcher::Exact(C_SLICE),
-            CurrentMatcher::Exact(C_DICT),
+            match_filter,
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_slice,
+            match_dict,
         ],
-        C_DECIMAL => &[
-            CurrentMatcher::Exact(C_MASKED),
-            CurrentMatcher::Exact(C_MASK),
-            CurrentMatcher::Exact(C_SLICE),
-        ],
-        C_SLICE => &[CurrentMatcher::Exact(C_SLICE)],
-        C_FILTER => &[CurrentMatcher::Exact(C_FILTER)],
-        C_MASKED => &[
-            CurrentMatcher::Exact(C_FILTER),
-            CurrentMatcher::Exact(C_MASK),
-            CurrentMatcher::Exact(C_SLICE),
-            CurrentMatcher::Exact(C_DICT),
-        ],
+        C_DECIMAL => &[match_masked, match_any_scalar_fn, match_slice],
+        C_SLICE => &[match_slice],
+        C_FILTER => &[match_filter],
+        C_MASKED => &[match_filter, match_any_scalar_fn, match_slice, match_dict],
         _ => &[],
     }
 }
 
-/// Current matching: for one (parent, child) pair, scan child's matchers.
+/// Current: scan rules calling each fn (vtable-equivalent) on parent.
 #[inline(never)]
-fn current_check(parent_code: u64, child_code: u64) -> bool {
-    for m in rules_for_child(child_code) {
-        MATCH_CALLS.fetch_add(1, Ordering::Relaxed);
-        if m.matches(parent_code) {
-            MATCHED.fetch_add(1, Ordering::Relaxed);
+fn current_check(parent: &ArrayRef, child_code: u64) -> bool {
+    for f in rules_for_child(child_code) {
+        if f(parent) {
             return true;
         }
     }
     false
 }
 
-#[inline(never)]
-fn current_check_fast(parent_code: u64, child_code: u64) -> bool {
-    for m in rules_for_child(child_code) {
-        if m.matches(parent_code) {
-            return true;
-        }
-    }
-    false
-}
-
-static MATCH_CALLS: AtomicU64 = AtomicU64::new(0);
-static MATCHED: AtomicU64 = AtomicU64::new(0);
-static LOOKUP_CALLS: AtomicU64 = AtomicU64::new(0);
-
 // ============================================================================
-// PROPOSED: dense Vec<Vec<bool>> indexed by (parent_code, child_code)
-//
-// With u64 codes assigned sequentially, we can use a 2D array for O(1) lookup
-// with no hashing.
+// DENSE 2D Vec<bool>
 // ============================================================================
 
-const MAX_CODE: usize = 200; // larger than any code
+const MAX_CODE: usize = 200;
 
 struct DenseLookup {
-    /// table[parent_code][child_code] = has_rules
     table: Box<[bool; MAX_CODE * MAX_CODE]>,
-    /// parent_has_any[parent_code] = any rule for this parent at all
     parent_has_any: [bool; MAX_CODE],
 }
 
@@ -305,8 +283,11 @@ impl DenseLookup {
         self.parent_has_any[parent as usize]
     }
 
+    fn mem_bytes(&self) -> usize {
+        size_of::<[bool; MAX_CODE * MAX_CODE]>() + size_of::<[bool; MAX_CODE]>()
+    }
+
     fn populate(&mut self) {
-        let children_with_any_scalar_fn = [C_DICT, C_CHUNKED];
         let entries: &[(u64, &[u64])] = &[
             (C_PRIMITIVE, &[C_MASKED, C_MASK, C_SLICE]),
             (C_BOOL, &[C_MASKED, C_CAST, C_MASK, C_SLICE, C_FILTER]),
@@ -331,8 +312,9 @@ impl DenseLookup {
                 self.set(*p, *child);
             }
         }
-        // AnyScalarFn rules: duplicate into every scalar fn id bucket
-        for &child in &children_with_any_scalar_fn {
+        // AnyScalarFn rules: dict and chunked match every scalar fn parent
+        let any_scalar_fn_children = [C_DICT, C_CHUNKED];
+        for &child in &any_scalar_fn_children {
             for &sf in ALL_SCALAR_FN_CODES {
                 self.set(sf, child);
             }
@@ -340,24 +322,134 @@ impl DenseLookup {
     }
 }
 
-/// Proposed matching: single 2D array lookup.
-#[inline(never)]
-fn proposed_check(lookup: &DenseLookup, parent_code: u64, child_code: u64) -> bool {
-    LOOKUP_CALLS.fetch_add(1, Ordering::Relaxed);
-    let hit = lookup.has(parent_code, child_code);
-    if hit {
-        MATCHED.fetch_add(1, Ordering::Relaxed);
-    }
-    hit
+// ============================================================================
+// HASHMAP with u64 keys
+// ============================================================================
+
+struct HashLookup {
+    map: HashMap<(u64, u64), bool>,
+    parent_has_any: HashMap<u64, bool>,
 }
 
-#[inline(never)]
-fn proposed_check_fast(lookup: &DenseLookup, parent_code: u64, child_code: u64) -> bool {
-    lookup.has(parent_code, child_code)
+impl HashLookup {
+    fn new() -> Self {
+        let mut me = Self {
+            map: HashMap::new(),
+            parent_has_any: HashMap::new(),
+        };
+        me.populate();
+        me
+    }
+
+    fn set(&mut self, parent: u64, child: u64) {
+        self.map.insert((parent, child), true);
+        self.parent_has_any.insert(parent, true);
+    }
+
+    #[inline(always)]
+    fn has(&self, parent: u64, child: u64) -> bool {
+        self.map.contains_key(&(parent, child))
+    }
+
+    #[inline(always)]
+    fn parent_interesting(&self, parent: u64) -> bool {
+        self.parent_has_any.contains_key(&parent)
+    }
+
+    fn mem_bytes(&self) -> usize {
+        // HashMap overhead: ~48 bytes per entry (key + value + bucket overhead)
+        let entry_size = size_of::<((u64, u64), bool)>() + 16; // approximate hashbrown overhead
+        let parent_entry = size_of::<(u64, bool)>() + 16;
+        self.map.len() * entry_size + self.parent_has_any.len() * parent_entry
+    }
+
+    fn populate(&mut self) {
+        let dense = DenseLookup::new();
+        for p in 0..MAX_CODE as u64 {
+            for c in 0..MAX_CODE as u64 {
+                if dense.has(p, c) {
+                    self.set(p, c);
+                }
+            }
+        }
+    }
 }
 
 // ============================================================================
-// TREE HELPERS
+// PRE-CACHED CODE TREE — u64 codes computed once at construction
+// ============================================================================
+
+struct CodeNode {
+    code: u64,
+    array: ArrayRef,
+    children: Vec<CodeNode>,
+}
+
+fn build_code_tree(array: &ArrayRef) -> CodeNode {
+    let code = encoding_id_to_code(array.encoding_id().as_ref());
+    let children: Vec<CodeNode> = array
+        .slots()
+        .iter()
+        .filter_map(|s| s.as_ref().map(build_code_tree))
+        .collect();
+    CodeNode {
+        code,
+        array: array.clone(),
+        children,
+    }
+}
+
+fn count_nodes(node: &CodeNode) -> usize {
+    1 + node.children.iter().map(count_nodes).sum::<usize>()
+}
+
+// ============================================================================
+// TREE WALKERS — three approaches
+// ============================================================================
+
+fn walk_current(node: &CodeNode) -> u64 {
+    let mut count = 0u64;
+    for child in &node.children {
+        if current_check(&node.array, child.code) {
+            count += 1;
+        }
+        count += walk_current(child);
+    }
+    count
+}
+
+fn walk_dense(lookup: &DenseLookup, node: &CodeNode) -> u64 {
+    let mut count = 0u64;
+    if lookup.parent_interesting(node.code) {
+        for child in &node.children {
+            if lookup.has(node.code, child.code) {
+                count += 1;
+            }
+        }
+    }
+    for child in &node.children {
+        count += walk_dense(lookup, child);
+    }
+    count
+}
+
+fn walk_hashmap(lookup: &HashLookup, node: &CodeNode) -> u64 {
+    let mut count = 0u64;
+    if lookup.parent_interesting(node.code) {
+        for child in &node.children {
+            if lookup.has(node.code, child.code) {
+                count += 1;
+            }
+        }
+    }
+    for child in &node.children {
+        count += walk_hashmap(lookup, child);
+    }
+    count
+}
+
+// ============================================================================
+// TREE CONSTRUCTORS
 // ============================================================================
 
 fn primitive(n: usize) -> ArrayRef {
@@ -415,38 +507,6 @@ fn slice(child: ArrayRef) -> ArrayRef {
     SliceArray::new(child, 0..len.min(50)).into_array()
 }
 
-/// A pre-built tree of u64 codes mirroring the array tree.
-#[derive(Default)]
-struct CodeNode {
-    code: u64,
-    children: Vec<CodeNode>,
-}
-
-fn build_code_tree(array: &ArrayRef) -> CodeNode {
-    let code = encoding_id_to_code(array.encoding_id().as_ref());
-    let children: Vec<CodeNode> = array
-        .slots()
-        .iter()
-        .filter_map(|s| s.as_ref().map(build_code_tree))
-        .collect();
-    CodeNode { code, children }
-}
-
-/// Walk the tree and collect (parent_code, child_code) pairs in DFS order.
-fn collect_pairs(array: &ArrayRef) -> Vec<(u64, u64)> {
-    let tree = build_code_tree(array);
-    let mut pairs = Vec::new();
-    walk_pairs(&tree, &mut pairs);
-    pairs
-}
-
-fn walk_pairs(node: &CodeNode, pairs: &mut Vec<(u64, u64)>) {
-    for child in &node.children {
-        pairs.push((node.code, child.code));
-        walk_pairs(child, pairs);
-    }
-}
-
 const TREE_NAMES: &[&str] = &[
     "primitive",
     "cast_primitive",
@@ -479,213 +539,85 @@ fn make_tree(name: &str) -> ArrayRef {
 }
 
 // ============================================================================
-// BENCHMARKS — measure ONLY the matching loop over pre-collected pairs
+// BENCHMARKS
 // ============================================================================
 
 #[divan::bench(args = TREE_NAMES)]
-fn current_match(bencher: divan::Bencher, name: &str) {
+fn current(bencher: divan::Bencher, name: &str) {
     let tree = make_tree(name);
-    let pairs = collect_pairs(&tree);
+    let code_tree = build_code_tree(&tree);
     bencher.bench(|| {
-        for (p, c) in black_box(&pairs) {
-            black_box(current_check_fast(*p, *c));
-        }
+        black_box(walk_current(black_box(&code_tree)));
     });
 }
 
-/// Run with counters once per tree to report match counts.
 #[divan::bench(args = TREE_NAMES)]
-fn count_current(bencher: divan::Bencher, name: &str) {
+fn dense(bencher: divan::Bencher, name: &str) {
     let tree = make_tree(name);
-    let pairs = collect_pairs(&tree);
-    MATCH_CALLS.store(0, Ordering::Relaxed);
-    MATCHED.store(0, Ordering::Relaxed);
-    bencher.bench(|| {
-        for (p, c) in black_box(&pairs) {
-            black_box(current_check(*p, *c));
-        }
-    });
-    let calls = MATCH_CALLS.load(Ordering::Relaxed);
-    let matched = MATCHED.load(Ordering::Relaxed);
-    eprintln!(
-        "  {name}: pairs={}, matches() calls={}, matched={}",
-        pairs.len(),
-        calls,
-        matched
-    );
-}
-
-#[divan::bench(args = TREE_NAMES)]
-fn proposed_match(bencher: divan::Bencher, name: &str) {
-    let tree = make_tree(name);
-    let pairs = collect_pairs(&tree);
+    let code_tree = build_code_tree(&tree);
     let lookup = DenseLookup::new();
     bencher.bench(|| {
-        for (p, c) in black_box(&pairs) {
-            black_box(proposed_check_fast(&lookup, *p, *c));
-        }
+        black_box(walk_dense(&lookup, black_box(&code_tree)));
     });
 }
 
 #[divan::bench(args = TREE_NAMES)]
-fn count_proposed(bencher: divan::Bencher, name: &str) {
+fn hashmap(bencher: divan::Bencher, name: &str) {
     let tree = make_tree(name);
-    let pairs = collect_pairs(&tree);
-    let lookup = DenseLookup::new();
-    LOOKUP_CALLS.store(0, Ordering::Relaxed);
-    MATCHED.store(0, Ordering::Relaxed);
+    let code_tree = build_code_tree(&tree);
+    let lookup = HashLookup::new();
     bencher.bench(|| {
-        for (p, c) in black_box(&pairs) {
-            black_box(proposed_check(&lookup, *p, *c));
-        }
+        black_box(walk_hashmap(&lookup, black_box(&code_tree)));
     });
-    let calls = LOOKUP_CALLS.load(Ordering::Relaxed);
-    let matched = MATCHED.load(Ordering::Relaxed);
-    eprintln!(
-        "  {name}: pairs={}, lookups={}, matched={}",
-        pairs.len(),
-        calls,
-        matched
-    );
 }
 
-// ============================================================================
-// TREE WALKERS — same structure as the real optimizer
-//
-// Walks the tree, at each parent: check if parent is interesting, if so
-// iterate children. The "is parent interesting" check is the key win.
-// ============================================================================
+// One-shot bench that just reports counts and memory
+#[divan::bench(args = TREE_NAMES)]
+fn report(bencher: divan::Bencher, name: &str) {
+    let tree = make_tree(name);
+    let code_tree = build_code_tree(&tree);
+    let dense_lookup = DenseLookup::new();
+    let hash_lookup = HashLookup::new();
+    let nodes = count_nodes(&code_tree);
 
-fn walk_current_tree(node: &CodeNode) -> u64 {
-    let mut count = 0u64;
-    for child in &node.children {
-        // Current: scan rules unconditionally
-        if current_check_fast(node.code, child.code) {
-            count += 1;
-        }
-        count += walk_current_tree(child);
-    }
-    count
-}
-
-fn walk_proposed_tree(lookup: &DenseLookup, node: &CodeNode) -> u64 {
-    let mut count = 0u64;
-    // Hoisted: check once per parent
-    if lookup.parent_interesting(node.code) {
+    // Count current matches() calls
+    fn count_current(node: &CodeNode, count: &mut u64) {
         for child in &node.children {
-            if lookup.has(node.code, child.code) {
-                count += 1;
-            }
-        }
-    }
-    // Recurse regardless — children may themselves be interesting parents
-    for child in &node.children {
-        count += walk_proposed_tree(lookup, child);
-    }
-    count
-}
-
-#[divan::bench(args = TREE_NAMES)]
-fn current_walk(bencher: divan::Bencher, name: &str) {
-    let tree = make_tree(name);
-    let code_tree = build_code_tree(&tree);
-    bencher.bench(|| {
-        black_box(walk_current_tree(black_box(&code_tree)));
-    });
-}
-
-#[divan::bench(args = TREE_NAMES)]
-fn proposed_walk(bencher: divan::Bencher, name: &str) {
-    let tree = make_tree(name);
-    let code_tree = build_code_tree(&tree);
-    let lookup = DenseLookup::new();
-    bencher.bench(|| {
-        black_box(walk_proposed_tree(&lookup, black_box(&code_tree)));
-    });
-}
-
-/// Count how many checks each does for each tree.
-#[divan::bench(args = TREE_NAMES)]
-fn count_walk(bencher: divan::Bencher, name: &str) {
-    let tree = make_tree(name);
-    let code_tree = build_code_tree(&tree);
-    let lookup = DenseLookup::new();
-    let mut current_calls = 0u64;
-    let mut proposed_calls = 0u64;
-    let mut proposed_hits = 0u64;
-    let mut interesting_parents = 0u64;
-    let mut total_parents = 0u64;
-    fn count_current_calls(node: &CodeNode, calls: &mut u64) {
-        *calls += node.children.len() as u64;
-        // current_check iterates ALL matchers up to first hit
-        for child in &node.children {
-            for m in rules_for_child(child.code) {
-                *calls += 1;
-                if m.matches(node.code) {
+            for f in rules_for_child(child.code) {
+                *count += 1;
+                if f(&node.array) {
                     break;
                 }
             }
-        }
-        for child in &node.children {
-            count_current_calls(child, calls);
+            count_current(child, count);
         }
     }
-    fn count_proposed_calls(
-        lookup: &DenseLookup,
-        node: &CodeNode,
-        calls: &mut u64,
-        hits: &mut u64,
-        interesting: &mut u64,
-        total: &mut u64,
-    ) {
-        *total += 1;
+    let mut current_calls = 0u64;
+    count_current(&code_tree, &mut current_calls);
+
+    // Count dense lookups
+    fn count_dense(lookup: &DenseLookup, node: &CodeNode, count: &mut u64, interesting: &mut u64) {
         if lookup.parent_interesting(node.code) {
             *interesting += 1;
-            for child in &node.children {
-                *calls += 1;
-                if lookup.has(node.code, child.code) {
-                    *hits += 1;
-                }
-            }
+            *count += node.children.len() as u64;
         }
         for child in &node.children {
-            count_proposed_calls(lookup, child, calls, hits, interesting, total);
+            count_dense(lookup, child, count, interesting);
         }
     }
-    count_current_calls(&code_tree, &mut current_calls);
-    count_proposed_calls(
-        &lookup,
-        &code_tree,
-        &mut proposed_calls,
-        &mut proposed_hits,
-        &mut interesting_parents,
-        &mut total_parents,
+    let mut dense_calls = 0u64;
+    let mut interesting = 0u64;
+    count_dense(&dense_lookup, &code_tree, &mut dense_calls, &mut interesting);
+
+    eprintln!(
+        "  {name}: nodes={nodes}, interesting_parents={interesting}, current_matches={current_calls}, dense_lookups={dense_calls}"
     );
     eprintln!(
-        "  {name}: parents={total_parents}, interesting_parents={interesting_parents}, current_matches={current_calls}, proposed_lookups={proposed_calls}, hits={proposed_hits}"
+        "    mem: dense={} bytes, hashmap={} bytes",
+        dense_lookup.mem_bytes(),
+        hash_lookup.mem_bytes()
     );
-    bencher.bench(|| {
-        black_box(walk_proposed_tree(&lookup, black_box(&code_tree)));
-    });
-}
 
-// Also: HashMap-based proposed for comparison
-#[divan::bench(args = TREE_NAMES)]
-fn proposed_hashmap_match(bencher: divan::Bencher, name: &str) {
-    let tree = make_tree(name);
-    let pairs = collect_pairs(&tree);
-    let mut lookup: HashMap<(u64, u64), bool> = HashMap::new();
-    let dense = DenseLookup::new();
-    for p in 0..MAX_CODE as u64 {
-        for c in 0..MAX_CODE as u64 {
-            if dense.has(p, c) {
-                lookup.insert((p, c), true);
-            }
-        }
-    }
-    bencher.bench(|| {
-        for (p, c) in black_box(&pairs) {
-            black_box(lookup.contains_key(&(*p, *c)));
-        }
-    });
+    // No-op bench so divan doesn't complain
+    bencher.bench(|| black_box(0));
 }
