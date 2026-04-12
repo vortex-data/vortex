@@ -911,6 +911,47 @@ fn batched(bencher: divan::Bencher, name: &str) {
     });
 }
 
+/// Pre-resolve all rules for the tree into a flat list. No table lookup at iteration.
+fn pre_resolve(node: &CodeNode, lookup: &DenseLookup) -> Vec<&'static [MatcherFn]> {
+    let mut out = Vec::new();
+    fn walk(node: &CodeNode, lookup: &DenseLookup, out: &mut Vec<&'static [MatcherFn]>) {
+        if lookup.parent_interesting(node.code) {
+            for child in &node.children {
+                out.push(lookup.get(node.code, child.code));
+            }
+        }
+        for child in &node.children {
+            walk(child, lookup, out);
+        }
+    }
+    walk(node, lookup, &mut out);
+    out
+}
+
+/// Pre-resolve into a Vec of row pointers per parent (one per node).
+/// At iteration, look up child code in the cached row.
+struct PreResolvedRows {
+    /// For each node in DFS order: (Option<row_ptr>, &[child_codes])
+    nodes: Vec<(Option<*const [&'static [MatcherFn]; MAX_CODE]>, Vec<u64>)>,
+}
+
+#[divan::bench(args = TREE_NAMES)]
+fn pre_resolved_rules(bencher: divan::Bencher, name: &str) {
+    let tree = make_tree(name);
+    let code_tree = build_code_tree(&tree);
+    let lookup = DenseLookup::new();
+    let pre = pre_resolve(&code_tree, &lookup);
+    bencher.bench(|| {
+        let mut count = 0u64;
+        for rules in black_box(&pre) {
+            for f in *rules {
+                count += (*f as usize) as u64 & 1;
+            }
+        }
+        black_box(count);
+    });
+}
+
 #[divan::bench(args = TREE_NAMES)]
 fn flat_list(bencher: divan::Bencher, name: &str) {
     let tree = make_tree(name);
