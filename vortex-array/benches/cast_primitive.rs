@@ -9,6 +9,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::expr::stats::Stat;
 
 fn main() {
     divan::main();
@@ -28,6 +29,8 @@ fn cast_u16_to_u32(bencher: Bencher) {
         }
     }))
     .into_array();
+    // Pre-compute min/max so values_fit_in is a cache hit during the benchmark.
+    arr.statistics().compute_all(&[Stat::Min, Stat::Max]).ok();
     bencher.with_inputs(|| arr.clone()).bench_refs(|a| {
         #[expect(clippy::unwrap_used)]
         a.cast(DType::Primitive(PType::U32, Nullability::Nullable))
