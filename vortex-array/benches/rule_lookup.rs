@@ -246,36 +246,190 @@ fn current_check(parent: &ArrayRef, child_code: u64) -> bool {
 }
 
 // ============================================================================
-// DENSE 2D Vec<bool>
+// DENSE: Vec<&[MatcherFn]> indexed by combined (parent, child) id
+// HASHMAP: HashMap<u64, &[MatcherFn]> keyed by combined id
+//
+// Lookup returns the list of matchers that might match this (parent, child)
+// pair. The list is pre-filtered — no scanning needed.
 // ============================================================================
 
 const MAX_CODE: usize = 200;
 
+#[inline(always)]
+fn combine_codes(parent: u64, child: u64) -> usize {
+    (parent as usize) * MAX_CODE + (child as usize)
+}
+
+#[inline(always)]
+fn combine_codes_u64(parent: u64, child: u64) -> u64 {
+    (parent << 32) | child
+}
+
+/// Returns the (parent, child) → list of matchers entries.
+/// Mirrors the real PARENT_RULES from each child encoding's ParentRuleSet.
+/// For matching-only, the matcher fns are kept but never called.
+fn all_entries() -> Vec<(u64, u64, &'static [MatcherFn])> {
+    // For each child encoding, the parents that have rules + the matcher list
+    // Each (parent, child) pair gets ALL the matchers that could fire for that pair.
+    // For real code, this is what the registry would store.
+    let mut out: Vec<(u64, u64, &'static [MatcherFn])> = Vec::new();
+
+    // Primitive child: 3 rules → if parent matches Masked/Mask/Slice
+    static PRIM_MASKED: [MatcherFn; 1] = [match_masked];
+    static PRIM_MASK: [MatcherFn; 1] = [match_any_scalar_fn];
+    static PRIM_SLICE: [MatcherFn; 1] = [match_slice];
+    out.push((C_MASKED, C_PRIMITIVE, &PRIM_MASKED));
+    out.push((C_MASK, C_PRIMITIVE, &PRIM_MASK));
+    out.push((C_SLICE, C_PRIMITIVE, &PRIM_SLICE));
+
+    // Bool child: 5 rules
+    static BOOL_M: [MatcherFn; 1] = [match_masked];
+    static BOOL_C: [MatcherFn; 1] = [match_any_scalar_fn];
+    static BOOL_MASK: [MatcherFn; 1] = [match_any_scalar_fn];
+    static BOOL_S: [MatcherFn; 1] = [match_slice];
+    static BOOL_F: [MatcherFn; 1] = [match_filter];
+    out.push((C_MASKED, C_BOOL, &BOOL_M));
+    out.push((C_CAST, C_BOOL, &BOOL_C));
+    out.push((C_MASK, C_BOOL, &BOOL_MASK));
+    out.push((C_SLICE, C_BOOL, &BOOL_S));
+    out.push((C_FILTER, C_BOOL, &BOOL_F));
+
+    // Dict child: 7 rules (4 specific + 2 AnyScalarFn duplicated + 1 slice)
+    static DICT_FILTER: [MatcherFn; 1] = [match_filter];
+    static DICT_CAST: [MatcherFn; 2] = [match_any_scalar_fn, match_any_scalar_fn]; // CastReduce + DictValuesPushDown
+    static DICT_SCALARFN: [MatcherFn; 2] = [match_any_scalar_fn, match_any_scalar_fn]; // 2 AnyScalarFn rules
+    static DICT_SLICE: [MatcherFn; 1] = [match_slice];
+    out.push((C_FILTER, C_DICT, &DICT_FILTER));
+    out.push((C_CAST, C_DICT, &DICT_CAST));
+    out.push((C_MASK, C_DICT, &DICT_SCALARFN));
+    out.push((C_LIKE, C_DICT, &DICT_SCALARFN));
+    out.push((C_SLICE, C_DICT, &DICT_SLICE));
+    // Duplicate DictionaryScalarFn rules for every scalar fn parent
+    for &sf in ALL_SCALAR_FN_CODES {
+        if sf != C_CAST && sf != C_PACK {
+            out.push((sf, C_DICT, &DICT_SCALARFN));
+        }
+    }
+
+    // Chunked child: 4 rules
+    static CHK_CAST: [MatcherFn; 3] = [match_any_scalar_fn, match_any_scalar_fn, match_any_scalar_fn];
+    static CHK_FN: [MatcherFn; 2] = [match_any_scalar_fn, match_any_scalar_fn];
+    static CHK_FILL: [MatcherFn; 1] = [match_any_scalar_fn];
+    out.push((C_CAST, C_CHUNKED, &CHK_CAST));
+    out.push((C_FILL_NULL, C_CHUNKED, &CHK_FILL));
+    for &sf in ALL_SCALAR_FN_CODES {
+        if sf != C_CAST && sf != C_FILL_NULL {
+            out.push((sf, C_CHUNKED, &CHK_FN));
+        }
+    }
+
+    // Constant child: 8 rules
+    static CONST_RULES: [MatcherFn; 1] = [match_any_scalar_fn];
+    static CONST_FILTER: [MatcherFn; 2] = [match_filter, match_filter];
+    static CONST_SLICE: [MatcherFn; 1] = [match_slice];
+    static CONST_DICT: [MatcherFn; 1] = [match_dict];
+    out.push((C_BETWEEN, C_CONSTANT, &CONST_RULES));
+    out.push((C_CAST, C_CONSTANT, &CONST_RULES));
+    out.push((C_FILTER, C_CONSTANT, &CONST_FILTER));
+    out.push((C_FILL_NULL, C_CONSTANT, &CONST_RULES));
+    out.push((C_NOT, C_CONSTANT, &CONST_RULES));
+    out.push((C_SLICE, C_CONSTANT, &CONST_SLICE));
+    out.push((C_DICT, C_CONSTANT, &CONST_DICT));
+
+    // VarBin/VarBinView/List/FixedSizeList: 3 rules each
+    static SIMPLE_C: [MatcherFn; 1] = [match_any_scalar_fn];
+    static SIMPLE_M: [MatcherFn; 1] = [match_any_scalar_fn];
+    static SIMPLE_S: [MatcherFn; 1] = [match_slice];
+    for &c in &[C_VARBIN, C_VARBINVIEW, C_LIST, C_FIXEDSIZELIST] {
+        out.push((C_CAST, c, &SIMPLE_C));
+        out.push((C_MASK, c, &SIMPLE_M));
+        out.push((C_SLICE, c, &SIMPLE_S));
+    }
+
+    // Struct: 5 rules
+    static STRUCT_R: [MatcherFn; 1] = [match_any_scalar_fn];
+    static STRUCT_S: [MatcherFn; 1] = [match_slice];
+    static STRUCT_D: [MatcherFn; 1] = [match_dict];
+    out.push((C_CAST, C_STRUCT, &STRUCT_R));
+    out.push((C_GET_ITEM, C_STRUCT, &STRUCT_R));
+    out.push((C_MASK, C_STRUCT, &STRUCT_R));
+    out.push((C_SLICE, C_STRUCT, &STRUCT_S));
+    out.push((C_DICT, C_STRUCT, &STRUCT_D));
+
+    // Ext: 5 rules
+    static EXT_F: [MatcherFn; 2] = [match_filter, match_filter];
+    static EXT_R: [MatcherFn; 1] = [match_any_scalar_fn];
+    static EXT_S: [MatcherFn; 1] = [match_slice];
+    out.push((C_FILTER, C_EXT, &EXT_F));
+    out.push((C_CAST, C_EXT, &EXT_R));
+    out.push((C_MASK, C_EXT, &EXT_R));
+    out.push((C_SLICE, C_EXT, &EXT_S));
+
+    // Null + ListView: 5 rules
+    static NULL_F: [MatcherFn; 1] = [match_filter];
+    static NULL_R: [MatcherFn; 1] = [match_any_scalar_fn];
+    static NULL_S: [MatcherFn; 1] = [match_slice];
+    static NULL_D: [MatcherFn; 1] = [match_dict];
+    for &c in &[C_NULL, C_LISTVIEW] {
+        out.push((C_FILTER, c, &NULL_F));
+        out.push((C_CAST, c, &NULL_R));
+        out.push((C_MASK, c, &NULL_R));
+        out.push((C_SLICE, c, &NULL_S));
+        out.push((C_DICT, c, &NULL_D));
+    }
+
+    // Decimal: 3 rules
+    static DEC_M: [MatcherFn; 1] = [match_masked];
+    static DEC_MASK: [MatcherFn; 1] = [match_any_scalar_fn];
+    static DEC_S: [MatcherFn; 1] = [match_slice];
+    out.push((C_MASKED, C_DECIMAL, &DEC_M));
+    out.push((C_MASK, C_DECIMAL, &DEC_MASK));
+    out.push((C_SLICE, C_DECIMAL, &DEC_S));
+
+    // Slice/Filter/Masked
+    static SLICE_R: [MatcherFn; 1] = [match_slice];
+    static FILTER_R: [MatcherFn; 1] = [match_filter];
+    static MASKED_F: [MatcherFn; 1] = [match_filter];
+    static MASKED_M: [MatcherFn; 1] = [match_any_scalar_fn];
+    static MASKED_S: [MatcherFn; 1] = [match_slice];
+    static MASKED_D: [MatcherFn; 1] = [match_dict];
+    out.push((C_SLICE, C_SLICE, &SLICE_R));
+    out.push((C_FILTER, C_FILTER, &FILTER_R));
+    out.push((C_FILTER, C_MASKED, &MASKED_F));
+    out.push((C_MASK, C_MASKED, &MASKED_M));
+    out.push((C_SLICE, C_MASKED, &MASKED_S));
+    out.push((C_DICT, C_MASKED, &MASKED_D));
+
+    out
+}
+
+const EMPTY_RULES: &[MatcherFn] = &[];
+
+// --- DENSE: Vec<&[MatcherFn]> indexed by combine_codes(parent, child) ---
 struct DenseLookup {
-    table: Box<[bool; MAX_CODE * MAX_CODE]>,
-    parent_has_any: [bool; MAX_CODE],
+    /// flat 2D table: rules[parent * MAX + child]
+    rules: Box<[&'static [MatcherFn]]>,
+    /// parent_has_any[p] = true if any rules for this parent
+    parent_has_any: Box<[bool]>,
 }
 
 impl DenseLookup {
     fn new() -> Self {
-        let table = vec![false; MAX_CODE * MAX_CODE].into_boxed_slice();
-        let table: Box<[bool; MAX_CODE * MAX_CODE]> = table.try_into().unwrap();
-        let mut me = Self {
-            table,
-            parent_has_any: [false; MAX_CODE],
-        };
-        me.populate();
-        me
-    }
-
-    fn set(&mut self, parent: u64, child: u64) {
-        self.table[(parent as usize) * MAX_CODE + (child as usize)] = true;
-        self.parent_has_any[parent as usize] = true;
+        let mut rules: Vec<&'static [MatcherFn]> = vec![EMPTY_RULES; MAX_CODE * MAX_CODE];
+        let mut parent_has_any = vec![false; MAX_CODE];
+        for (p, c, list) in all_entries() {
+            rules[combine_codes(p, c)] = list;
+            parent_has_any[p as usize] = true;
+        }
+        Self {
+            rules: rules.into_boxed_slice(),
+            parent_has_any: parent_has_any.into_boxed_slice(),
+        }
     }
 
     #[inline(always)]
-    fn has(&self, parent: u64, child: u64) -> bool {
-        self.table[(parent as usize) * MAX_CODE + (child as usize)]
+    fn get(&self, parent: u64, child: u64) -> &'static [MatcherFn] {
+        self.rules[combine_codes(parent, child)]
     }
 
     #[inline(always)]
@@ -284,71 +438,36 @@ impl DenseLookup {
     }
 
     fn mem_bytes(&self) -> usize {
-        size_of::<[bool; MAX_CODE * MAX_CODE]>() + size_of::<[bool; MAX_CODE]>()
-    }
-
-    fn populate(&mut self) {
-        let entries: &[(u64, &[u64])] = &[
-            (C_PRIMITIVE, &[C_MASKED, C_MASK, C_SLICE]),
-            (C_BOOL, &[C_MASKED, C_CAST, C_MASK, C_SLICE, C_FILTER]),
-            (C_DICT, &[C_FILTER, C_CAST, C_MASK, C_LIKE, C_SLICE]),
-            (C_CHUNKED, &[C_CAST, C_FILL_NULL]),
-            (C_CONSTANT, &[C_BETWEEN, C_CAST, C_FILTER, C_FILL_NULL, C_NOT, C_SLICE, C_DICT]),
-            (C_VARBIN, &[C_CAST, C_MASK, C_SLICE]),
-            (C_VARBINVIEW, &[C_CAST, C_MASK, C_SLICE]),
-            (C_LIST, &[C_CAST, C_MASK, C_SLICE]),
-            (C_FIXEDSIZELIST, &[C_CAST, C_MASK, C_SLICE]),
-            (C_STRUCT, &[C_CAST, C_GET_ITEM, C_MASK, C_SLICE, C_DICT]),
-            (C_EXT, &[C_FILTER, C_CAST, C_MASK, C_SLICE]),
-            (C_NULL, &[C_FILTER, C_CAST, C_MASK, C_SLICE, C_DICT]),
-            (C_LISTVIEW, &[C_FILTER, C_CAST, C_MASK, C_SLICE, C_DICT]),
-            (C_DECIMAL, &[C_MASKED, C_MASK, C_SLICE]),
-            (C_SLICE, &[C_SLICE]),
-            (C_FILTER, &[C_FILTER]),
-            (C_MASKED, &[C_FILTER, C_MASK, C_SLICE, C_DICT]),
-        ];
-        for (child, parents) in entries {
-            for p in *parents {
-                self.set(*p, *child);
-            }
-        }
-        // AnyScalarFn rules: dict and chunked match every scalar fn parent
-        let any_scalar_fn_children = [C_DICT, C_CHUNKED];
-        for &child in &any_scalar_fn_children {
-            for &sf in ALL_SCALAR_FN_CODES {
-                self.set(sf, child);
-            }
-        }
+        size_of::<&[MatcherFn]>() * self.rules.len() + size_of::<bool>() * self.parent_has_any.len()
     }
 }
 
-// ============================================================================
-// HASHMAP with u64 keys
-// ============================================================================
-
+// --- HASHMAP: HashMap<u64, &[MatcherFn]> keyed by combine_codes_u64 ---
 struct HashLookup {
-    map: HashMap<(u64, u64), bool>,
-    parent_has_any: HashMap<u64, bool>,
+    rules: HashMap<u64, &'static [MatcherFn]>,
+    parent_has_any: HashMap<u64, ()>,
 }
 
 impl HashLookup {
     fn new() -> Self {
-        let mut me = Self {
-            map: HashMap::new(),
-            parent_has_any: HashMap::new(),
-        };
-        me.populate();
-        me
-    }
-
-    fn set(&mut self, parent: u64, child: u64) {
-        self.map.insert((parent, child), true);
-        self.parent_has_any.insert(parent, true);
+        let mut rules = HashMap::new();
+        let mut parent_has_any = HashMap::new();
+        for (p, c, list) in all_entries() {
+            rules.insert(combine_codes_u64(p, c), list);
+            parent_has_any.insert(p, ());
+        }
+        Self {
+            rules,
+            parent_has_any,
+        }
     }
 
     #[inline(always)]
-    fn has(&self, parent: u64, child: u64) -> bool {
-        self.map.contains_key(&(parent, child))
+    fn get(&self, parent: u64, child: u64) -> &'static [MatcherFn] {
+        self.rules
+            .get(&combine_codes_u64(parent, child))
+            .copied()
+            .unwrap_or(EMPTY_RULES)
     }
 
     #[inline(always)]
@@ -357,21 +476,10 @@ impl HashLookup {
     }
 
     fn mem_bytes(&self) -> usize {
-        // HashMap overhead: ~48 bytes per entry (key + value + bucket overhead)
-        let entry_size = size_of::<((u64, u64), bool)>() + 16; // approximate hashbrown overhead
-        let parent_entry = size_of::<(u64, bool)>() + 16;
-        self.map.len() * entry_size + self.parent_has_any.len() * parent_entry
-    }
-
-    fn populate(&mut self) {
-        let dense = DenseLookup::new();
-        for p in 0..MAX_CODE as u64 {
-            for c in 0..MAX_CODE as u64 {
-                if dense.has(p, c) {
-                    self.set(p, c);
-                }
-            }
-        }
+        // approximate hashbrown overhead: 24 bytes per entry
+        let main_entry = size_of::<u64>() + size_of::<&[MatcherFn]>() + 16;
+        let parent_entry = size_of::<u64>() + 16;
+        self.rules.len() * main_entry + self.parent_has_any.len() * parent_entry
     }
 }
 
@@ -422,8 +530,11 @@ fn walk_dense(lookup: &DenseLookup, node: &CodeNode) -> u64 {
     let mut count = 0u64;
     if lookup.parent_interesting(node.code) {
         for child in &node.children {
-            if lookup.has(node.code, child.code) {
-                count += 1;
+            // Get pre-filtered list of matchers. Iterate to model the cost
+            // of touching each rule (in real code we'd run rule.reduce_parent).
+            let rules = lookup.get(node.code, child.code);
+            for f in rules {
+                count += (*f as usize) as u64 & 1;
             }
         }
     }
@@ -437,8 +548,9 @@ fn walk_hashmap(lookup: &HashLookup, node: &CodeNode) -> u64 {
     let mut count = 0u64;
     if lookup.parent_interesting(node.code) {
         for child in &node.children {
-            if lookup.has(node.code, child.code) {
-                count += 1;
+            let rules = lookup.get(node.code, child.code);
+            for f in rules {
+                count += (*f as usize) as u64 & 1;
             }
         }
     }
@@ -580,7 +692,7 @@ fn report(bencher: divan::Bencher, name: &str) {
     let hash_lookup = HashLookup::new();
     let nodes = count_nodes(&code_tree);
 
-    // Count current matches() calls
+    // Count current matches() calls (linear scan)
     fn count_current(node: &CodeNode, count: &mut u64) {
         for child in &node.children {
             for f in rules_for_child(child.code) {
@@ -595,22 +707,39 @@ fn report(bencher: divan::Bencher, name: &str) {
     let mut current_calls = 0u64;
     count_current(&code_tree, &mut current_calls);
 
-    // Count dense lookups
-    fn count_dense(lookup: &DenseLookup, node: &CodeNode, count: &mut u64, interesting: &mut u64) {
+    // Count proposed lookups + total rules iterated from lookup result
+    fn count_dense(
+        lookup: &DenseLookup,
+        node: &CodeNode,
+        lookups: &mut u64,
+        rules_iterated: &mut u64,
+        interesting: &mut u64,
+    ) {
         if lookup.parent_interesting(node.code) {
             *interesting += 1;
-            *count += node.children.len() as u64;
+            for child in &node.children {
+                *lookups += 1;
+                let rules = lookup.get(node.code, child.code);
+                *rules_iterated += rules.len() as u64;
+            }
         }
         for child in &node.children {
-            count_dense(lookup, child, count, interesting);
+            count_dense(lookup, child, lookups, rules_iterated, interesting);
         }
     }
-    let mut dense_calls = 0u64;
+    let mut dense_lookups = 0u64;
+    let mut rules_iterated = 0u64;
     let mut interesting = 0u64;
-    count_dense(&dense_lookup, &code_tree, &mut dense_calls, &mut interesting);
+    count_dense(
+        &dense_lookup,
+        &code_tree,
+        &mut dense_lookups,
+        &mut rules_iterated,
+        &mut interesting,
+    );
 
     eprintln!(
-        "  {name}: nodes={nodes}, interesting_parents={interesting}, current_matches={current_calls}, dense_lookups={dense_calls}"
+        "  {name}: nodes={nodes}, interesting_parents={interesting}, current_matches={current_calls}, dense_lookups={dense_lookups}, rules_iterated_from_lookup={rules_iterated}"
     );
     eprintln!(
         "    mem: dense={} bytes, hashmap={} bytes",
@@ -618,6 +747,5 @@ fn report(bencher: divan::Bencher, name: &str) {
         hash_lookup.mem_bytes()
     );
 
-    // No-op bench so divan doesn't complain
     bencher.bench(|| black_box(0));
 }
