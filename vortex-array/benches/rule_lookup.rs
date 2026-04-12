@@ -952,6 +952,204 @@ fn pre_resolved_rules(bencher: divan::Bencher, name: &str) {
     });
 }
 
+// ============================================================================
+// u32 dense: u32 index into a flat rules table (4 bytes per cell instead of 16)
+// ============================================================================
+
+struct DenseU32 {
+    /// flat 2D table: idx[parent * MAX + child] → rules_table index (0 = empty)
+    idx: Box<[u32]>,
+    /// rules_table[i] = &'static [MatcherFn]; index 0 is empty
+    rules_table: Vec<&'static [MatcherFn]>,
+    parent_has_any: Box<[bool]>,
+}
+
+impl DenseU32 {
+    fn new() -> Self {
+        let mut idx = vec![0u32; MAX_CODE * MAX_CODE].into_boxed_slice();
+        let mut rules_table: Vec<&'static [MatcherFn]> = vec![EMPTY_RULES]; // index 0 = empty
+        let mut parent_has_any = vec![false; MAX_CODE].into_boxed_slice();
+        for (p, c, list) in all_entries() {
+            let i = rules_table.len() as u32;
+            rules_table.push(list);
+            idx[combine_codes(p, c)] = i;
+            parent_has_any[p as usize] = true;
+        }
+        Self {
+            idx,
+            rules_table,
+            parent_has_any,
+        }
+    }
+
+    #[inline(always)]
+    fn get(&self, parent: u64, child: u64) -> &'static [MatcherFn] {
+        let i = self.idx[combine_codes(parent, child)];
+        // SAFETY: idx values are always valid indices into rules_table
+        unsafe { *self.rules_table.get_unchecked(i as usize) }
+    }
+
+    #[inline(always)]
+    fn parent_interesting(&self, parent: u64) -> bool {
+        self.parent_has_any[parent as usize]
+    }
+
+    fn mem_bytes(&self) -> usize {
+        size_of::<u32>() * self.idx.len()
+            + size_of::<&[MatcherFn]>() * self.rules_table.capacity()
+            + self.parent_has_any.len()
+    }
+}
+
+fn walk_dense_u32(lookup: &DenseU32, node: &CodeNode) -> u64 {
+    let mut count = 0u64;
+    if lookup.parent_interesting(node.code) {
+        for child in &node.children {
+            let rules = lookup.get(node.code, child.code);
+            for f in rules {
+                count += (*f as usize) as u64 & 1;
+            }
+        }
+    }
+    for child in &node.children {
+        count += walk_dense_u32(lookup, child);
+    }
+    count
+}
+
+#[divan::bench(args = TREE_NAMES)]
+fn dense_u32(bencher: divan::Bencher, name: &str) {
+    let tree = make_tree(name);
+    let code_tree = build_code_tree(&tree);
+    let lookup = DenseU32::new();
+    bencher.bench(|| {
+        black_box(walk_dense_u32(&lookup, black_box(&code_tree)));
+    });
+}
+
+// ============================================================================
+// MIXED CHILD TREE: defeats branch prediction
+// Build a Struct with many fields of varied encodings.
+// ============================================================================
+
+fn bool_array(n: usize) -> ArrayRef {
+    use vortex_array::arrays::BoolArray;
+    use vortex_buffer::BitBuffer;
+    BoolArray::new(BitBuffer::collect_bool(n, |_| true), Validity::NonNullable).into_array()
+}
+
+fn varbin_array(n: usize) -> ArrayRef {
+    use vortex_array::arrays::VarBinViewArray;
+    let strs: Vec<&str> = (0..n).map(|_| "x").collect();
+    VarBinViewArray::from_iter_str(strs).into_array()
+}
+
+fn make_mixed_chunked(nchunks: usize) -> ArrayRef {
+    // Rotate through many encoding types so each chunk has a different code.
+    let chunks: Vec<ArrayRef> = (0..nchunks)
+        .map(|i| match i % 5 {
+            0 => primitive(100),
+            1 => dict(100, 10),
+            2 => bool_array(100),
+            3 => varbin_array(100),
+            _ => primitive(100),
+        })
+        .collect();
+    unsafe {
+        ChunkedArray::new_unchecked(
+            chunks,
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+        )
+    }
+    .into_array()
+}
+
+const MIXED_TREE_NAMES: &[&str] = &[
+    "mixed_chunked_1k",
+    "mixed_chunked_100k",
+    "cast_mixed_100k",
+];
+
+fn make_mixed_tree(name: &str) -> ArrayRef {
+    match name {
+        "mixed_chunked_1k" => make_mixed_chunked(1_000),
+        "mixed_chunked_100k" => make_mixed_chunked(100_000),
+        "cast_mixed_100k" => cast(make_mixed_chunked(100_000)),
+        _ => panic!(),
+    }
+}
+
+#[divan::bench(args = MIXED_TREE_NAMES)]
+fn mixed_current(bencher: divan::Bencher, name: &str) {
+    let tree = make_mixed_tree(name);
+    let code_tree = build_code_tree(&tree);
+    bencher.bench(|| {
+        black_box(walk_current(black_box(&code_tree)));
+    });
+}
+
+#[divan::bench(args = MIXED_TREE_NAMES)]
+fn mixed_dense(bencher: divan::Bencher, name: &str) {
+    let tree = make_mixed_tree(name);
+    let code_tree = build_code_tree(&tree);
+    let lookup = DenseLookup::new();
+    bencher.bench(|| {
+        black_box(walk_dense(&lookup, black_box(&code_tree)));
+    });
+}
+
+#[divan::bench(args = MIXED_TREE_NAMES)]
+fn mixed_dense_u32(bencher: divan::Bencher, name: &str) {
+    let tree = make_mixed_tree(name);
+    let code_tree = build_code_tree(&tree);
+    let lookup = DenseU32::new();
+    bencher.bench(|| {
+        black_box(walk_dense_u32(&lookup, black_box(&code_tree)));
+    });
+}
+
+#[divan::bench(args = MIXED_TREE_NAMES)]
+fn mixed_hashmap(bencher: divan::Bencher, name: &str) {
+    let tree = make_mixed_tree(name);
+    let code_tree = build_code_tree(&tree);
+    let lookup = HashLookup::new();
+    bencher.bench(|| {
+        black_box(walk_hashmap(&lookup, black_box(&code_tree)));
+    });
+}
+
+#[divan::bench(args = MIXED_TREE_NAMES)]
+fn mixed_report(bencher: divan::Bencher, name: &str) {
+    let tree = make_mixed_tree(name);
+    let code_tree = build_code_tree(&tree);
+    let dense = DenseLookup::new();
+    let dense_u32 = DenseU32::new();
+    let hash = HashLookup::new();
+    let nodes = count_nodes(&code_tree);
+
+    fn count_current(node: &CodeNode, count: &mut u64) {
+        for child in &node.children {
+            for f in rules_for_child(child.code) {
+                *count += 1;
+                if f(&node.array) {
+                    break;
+                }
+            }
+            count_current(child, count);
+        }
+    }
+    let mut current_calls = 0u64;
+    count_current(&code_tree, &mut current_calls);
+
+    eprintln!(
+        "  {name}: nodes={nodes}, current_matches={current_calls}, mem: dense={}KB, dense_u32={}KB, hashmap={}B",
+        dense.mem_bytes() / 1024,
+        dense_u32.mem_bytes() / 1024,
+        hash.mem_bytes()
+    );
+    bencher.bench(|| black_box(0));
+}
+
 #[divan::bench(args = TREE_NAMES)]
 fn flat_list(bencher: divan::Bencher, name: &str) {
     let tree = make_tree(name);
