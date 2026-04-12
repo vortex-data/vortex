@@ -15,6 +15,7 @@
 
 #![expect(clippy::unwrap_used)]
 
+use std::any::TypeId;
 use std::collections::HashMap;
 use std::hint::black_box;
 use std::sync::atomic::AtomicU64;
@@ -22,11 +23,28 @@ use std::sync::atomic::Ordering;
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Bool;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::Constant;
+use vortex_array::arrays::Decimal;
+use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::Filter;
+use vortex_array::arrays::FixedSizeList;
+use vortex_array::arrays::List;
+use vortex_array::arrays::ListView;
+use vortex_array::arrays::Masked;
+use vortex_array::arrays::Null;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::Slice;
 use vortex_array::arrays::SliceArray;
+use vortex_array::arrays::Struct;
+use vortex_array::arrays::VarBin;
+use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
+use vortex_array::arrays::scalar_fn::ScalarFnVTable;
+use vortex_array::matcher::Matcher as VortexMatcher;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -39,10 +57,35 @@ fn main() {
 }
 
 // ============================================================================
-// EXTRACTED MATCHER MODEL — duplicated from real rules, no transformations
+// REAL MATCHERS — use as_any().is::<>() via VortexMatcher::matches
 // ============================================================================
 
-/// All known scalar fn IDs (for AnyScalarFn matchers).
+/// A matcher predicate using REAL TypeId comparison (as_any().is::<>()).
+/// This is what the actual code does in rule.matches(parent).
+type MatchFn = fn(&ArrayRef) -> bool;
+
+// Each matcher is a fn pointer that calls the real Matcher trait.
+// fn pointer call ≈ vtable call ≈ what the real `dyn Rule.matches()` does.
+fn match_masked(p: &ArrayRef) -> bool {
+    <Masked as VortexMatcher>::matches(p)
+}
+fn match_slice(p: &ArrayRef) -> bool {
+    <Slice as VortexMatcher>::matches(p)
+}
+fn match_filter(p: &ArrayRef) -> bool {
+    <Filter as VortexMatcher>::matches(p)
+}
+fn match_dict(p: &ArrayRef) -> bool {
+    <Dict as VortexMatcher>::matches(p)
+}
+// For ExactScalarFn<F> we just use AnyScalarFn — checking the exact F is
+// a second downcast inside try_match. matches() for ExactScalarFn is the
+// same cost as AnyScalarFn (one as_any().is::<ScalarFnVTable>() check).
+fn match_any_scalar_fn(p: &ArrayRef) -> bool {
+    p.is::<ScalarFnVTable>()
+}
+
+/// All known scalar fn IDs (for AnyScalarFn matchers in the proposed lookup).
 const ALL_SCALAR_FN_IDS: &[&str] = &[
     "vortex.cast",
     "vortex.binary",
@@ -65,146 +108,155 @@ const ALL_SCALAR_FN_IDS: &[&str] = &[
     "vortex.pack",
 ];
 
-/// A matcher predicate: given a parent encoding_id, does this rule match?
-#[derive(Clone, Copy)]
-enum Matcher {
-    /// Matches a single specific encoding_id.
-    Exact(&'static str),
-    /// Matches ANY scalar fn id.
-    AnyScalarFn,
-}
-
-impl Matcher {
-    #[inline]
-    fn matches(&self, parent_id: &str) -> bool {
-        match self {
-            Matcher::Exact(id) => *id == parent_id,
-            Matcher::AnyScalarFn => ALL_SCALAR_FN_IDS.contains(&parent_id),
-        }
-    }
-}
-
-/// Look up the matcher list for a child encoding via match (mirrors vtable dispatch).
-/// In the real code this is `child.reduce_parent` → vtable → `RULES.evaluate()` →
-/// returns the static slice. We model that as a single `match` here, which has
-/// equivalent cost to a vtable dispatch.
+/// Look up the matcher list for a child encoding by ENCODING ID.
+/// Each returned fn does a REAL `as_any().is::<>()` check (TypeId compare).
 #[inline(never)]
-fn rules_for_child(child_id: &str) -> &'static [Matcher] {
+fn rules_for_child(child_id: &str) -> &'static [MatchFn] {
     match child_id {
-        "vortex.primitive" => &[
-            Matcher::Exact("vortex.masked"),
-            Matcher::Exact("vortex.mask"),
-            Matcher::Exact("vortex.slice"),
-        ],
+        "vortex.primitive" => &[match_masked, match_any_scalar_fn, match_slice],
         "vortex.bool" => &[
-            Matcher::Exact("vortex.masked"),
-            Matcher::Exact("vortex.cast"),
-            Matcher::Exact("vortex.mask"),
-            Matcher::Exact("vortex.slice"),
-            Matcher::Exact("vortex.filter"),
+            match_masked,
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_slice,
+            match_filter,
         ],
         "vortex.dict" => &[
-            Matcher::Exact("vortex.filter"),
-            Matcher::Exact("vortex.cast"),
-            Matcher::Exact("vortex.mask"),
-            Matcher::Exact("vortex.like"),
-            Matcher::AnyScalarFn,
-            Matcher::AnyScalarFn,
-            Matcher::Exact("vortex.slice"),
+            match_filter,
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_slice,
         ],
         "vortex.chunked" => &[
-            Matcher::Exact("vortex.cast"),
-            Matcher::AnyScalarFn,
-            Matcher::AnyScalarFn,
-            Matcher::Exact("vortex.fill_null"),
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_any_scalar_fn,
         ],
         "vortex.constant" => &[
-            Matcher::Exact("vortex.between"),
-            Matcher::Exact("vortex.cast"),
-            Matcher::Exact("vortex.filter"),
-            Matcher::Exact("vortex.fill_null"),
-            Matcher::Exact("vortex.filter"),
-            Matcher::Exact("vortex.not"),
-            Matcher::Exact("vortex.slice"),
-            Matcher::Exact("vortex.dict"),
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_filter,
+            match_any_scalar_fn,
+            match_filter,
+            match_any_scalar_fn,
+            match_slice,
+            match_dict,
         ],
         "vortex.varbin" | "vortex.varbinview" | "vortex.list" | "vortex.fixed_size_list" => &[
-            Matcher::Exact("vortex.cast"),
-            Matcher::Exact("vortex.mask"),
-            Matcher::Exact("vortex.slice"),
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_slice,
         ],
         "vortex.struct" => &[
-            Matcher::Exact("vortex.cast"),
-            Matcher::Exact("vortex.get_item"),
-            Matcher::Exact("vortex.mask"),
-            Matcher::Exact("vortex.slice"),
-            Matcher::Exact("vortex.dict"),
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_slice,
+            match_dict,
         ],
         "vortex.ext" => &[
-            Matcher::Exact("vortex.filter"),
-            Matcher::Exact("vortex.cast"),
-            Matcher::Exact("vortex.filter"),
-            Matcher::Exact("vortex.mask"),
-            Matcher::Exact("vortex.slice"),
+            match_filter,
+            match_any_scalar_fn,
+            match_filter,
+            match_any_scalar_fn,
+            match_slice,
         ],
         "vortex.null" | "vortex.listview" => &[
-            Matcher::Exact("vortex.filter"),
-            Matcher::Exact("vortex.cast"),
-            Matcher::Exact("vortex.mask"),
-            Matcher::Exact("vortex.slice"),
-            Matcher::Exact("vortex.dict"),
+            match_filter,
+            match_any_scalar_fn,
+            match_any_scalar_fn,
+            match_slice,
+            match_dict,
         ],
-        "vortex.decimal" => &[
-            Matcher::Exact("vortex.masked"),
-            Matcher::Exact("vortex.mask"),
-            Matcher::Exact("vortex.slice"),
-        ],
-        "vortex.slice" => &[Matcher::Exact("vortex.slice")],
-        "vortex.filter" => &[Matcher::Exact("vortex.filter")],
-        "vortex.masked" => &[
-            Matcher::Exact("vortex.filter"),
-            Matcher::Exact("vortex.mask"),
-            Matcher::Exact("vortex.slice"),
-            Matcher::Exact("vortex.dict"),
-        ],
+        "vortex.decimal" => &[match_masked, match_any_scalar_fn, match_slice],
+        "vortex.slice" => &[match_slice],
+        "vortex.filter" => &[match_filter],
+        "vortex.masked" => &[match_filter, match_any_scalar_fn, match_slice, match_dict],
         _ => &[],
     }
 }
 
-/// Old API kept for the build_two_level constructor that needs all (child, rules).
-fn build_child_rules() -> HashMap<&'static str, Vec<Matcher>> {
-    let mut m = HashMap::new();
-    for child_id in &[
-        "vortex.primitive", "vortex.bool", "vortex.dict", "vortex.chunked",
-        "vortex.constant", "vortex.varbin", "vortex.varbinview", "vortex.struct",
-        "vortex.ext", "vortex.null", "vortex.listview", "vortex.list",
-        "vortex.fixed_size_list", "vortex.decimal", "vortex.slice", "vortex.filter",
-        "vortex.masked",
-    ] {
-        m.insert(*child_id, rules_for_child(child_id).to_vec());
-    }
-    m
-}
-
 /// Two-level lookup: parent_id → child_id → bool.
-fn build_two_level(
-    rules: &HashMap<&'static str, Vec<Matcher>>,
-) -> HashMap<&'static str, HashMap<&'static str, bool>> {
+/// Built once at startup. Pre-resolves AnyScalarFn into all scalar fn IDs.
+fn build_two_level() -> HashMap<&'static str, HashMap<&'static str, bool>> {
     let mut map: HashMap<&'static str, HashMap<&'static str, bool>> = HashMap::new();
-    for (child_id, matchers) in rules {
-        for m in matchers {
-            match m {
-                Matcher::Exact(parent_id) => {
-                    map.entry(parent_id).or_default().insert(child_id, true);
-                }
-                Matcher::AnyScalarFn => {
-                    for sf in ALL_SCALAR_FN_IDS {
-                        map.entry(sf).or_default().insert(child_id, true);
-                    }
-                }
-            }
+
+    // For each child encoding, list (parent encoding ids that match)
+    let entries: &[(&str, &[&str])] = &[
+        ("vortex.primitive", &["vortex.masked", "vortex.slice"]),
+        (
+            "vortex.bool",
+            &["vortex.masked", "vortex.slice", "vortex.filter"],
+        ),
+        (
+            "vortex.dict",
+            &["vortex.filter", "vortex.slice"],
+        ),
+        ("vortex.chunked", &[]),
+        (
+            "vortex.constant",
+            &["vortex.filter", "vortex.slice", "vortex.dict"],
+        ),
+        ("vortex.varbin", &["vortex.slice"]),
+        ("vortex.varbinview", &["vortex.slice"]),
+        ("vortex.list", &["vortex.slice"]),
+        ("vortex.fixed_size_list", &["vortex.slice"]),
+        ("vortex.struct", &["vortex.slice", "vortex.dict"]),
+        (
+            "vortex.ext",
+            &["vortex.filter", "vortex.slice"],
+        ),
+        (
+            "vortex.null",
+            &["vortex.filter", "vortex.slice", "vortex.dict"],
+        ),
+        (
+            "vortex.listview",
+            &["vortex.filter", "vortex.slice", "vortex.dict"],
+        ),
+        ("vortex.decimal", &["vortex.masked", "vortex.slice"]),
+        ("vortex.slice", &["vortex.slice"]),
+        ("vortex.filter", &["vortex.filter"]),
+        (
+            "vortex.masked",
+            &["vortex.filter", "vortex.slice", "vortex.dict"],
+        ),
+    ];
+
+    // Add specific exact entries.
+    for (child_id, parents) in entries {
+        for p in *parents {
+            map.entry(*p).or_default().insert(*child_id, true);
         }
     }
+
+    // Add AnyScalarFn entries: for each scalar fn id, the children with
+    // an AnyScalarFn rule (Primitive, Bool, Dict, Chunked, etc).
+    let scalar_fn_children: &[&str] = &[
+        "vortex.primitive",
+        "vortex.bool",
+        "vortex.dict",
+        "vortex.chunked",
+        "vortex.constant",
+        "vortex.varbin",
+        "vortex.varbinview",
+        "vortex.struct",
+        "vortex.ext",
+        "vortex.null",
+        "vortex.listview",
+        "vortex.decimal",
+        "vortex.masked",
+    ];
+    for sf in ALL_SCALAR_FN_IDS {
+        for c in scalar_fn_children {
+            map.entry(*sf).or_default().insert(*c, true);
+        }
+    }
+
     map
 }
 
@@ -226,13 +278,14 @@ fn reset_counters() {
 // MATCHING FUNCTIONS — what we actually measure
 // ============================================================================
 
-/// Current approach: vtable-style dispatch (match on child_id) → scan matchers.
+/// Current approach: dispatch by child encoding_id → scan rules → call matches() on each.
+/// Each matches() does as_any().is::<>() — REAL TypeId compare via fn pointer.
 #[inline(never)]
-fn current_check(parent_id: &str, child_id: &str) -> bool {
+fn current_check(parent: &ArrayRef, child_id: &str) -> bool {
     let matchers = rules_for_child(child_id);
     for m in matchers {
         MATCH_CALLS.fetch_add(1, Ordering::Relaxed);
-        if m.matches(parent_id) {
+        if m(parent) {
             MATCHED.fetch_add(1, Ordering::Relaxed);
             return true;
         }
@@ -262,9 +315,9 @@ fn proposed_two_level_check(
 // (counters add atomic ops which would distort timings).
 
 #[inline(never)]
-fn current_check_fast(parent_id: &str, child_id: &str) -> bool {
+fn current_check_fast(parent: &ArrayRef, child_id: &str) -> bool {
     for m in rules_for_child(child_id) {
-        if m.matches(parent_id) {
+        if m(parent) {
             return true;
         }
     }
@@ -287,13 +340,12 @@ fn proposed_two_level_fast(
 // TREE WALKER
 // ============================================================================
 
-fn walk_current_dyn(parent: &ArrayRef, parent_id: &str) {
+fn walk_current_dyn(parent: &ArrayRef) {
     for slot in parent.slots() {
         if let Some(child) = slot {
             let cid = child.encoding_id();
-            let child_id_str = cid.as_ref().to_string();
-            let _ = current_check_fast(parent_id, &child_id_str);
-            walk_current_dyn(child, &child_id_str);
+            let _ = current_check_fast(parent, cid.as_ref());
+            walk_current_dyn(child);
         }
     }
 }
@@ -301,19 +353,18 @@ fn walk_current_dyn(parent: &ArrayRef, parent_id: &str) {
 fn walk_proposed_two_level(
     lookup: &HashMap<&'static str, HashMap<&'static str, bool>>,
     parent: &ArrayRef,
-    parent_id: &str,
 ) {
     // Hoist the outer lookup out of the children loop.
-    let parent_rules = lookup.get(parent_id);
+    let pid = parent.encoding_id();
+    let parent_rules = lookup.get(pid.as_ref());
     for slot in parent.slots() {
         if let Some(child) = slot {
-            let cid = child.encoding_id();
-            let child_id_str = cid.as_ref().to_string();
             // Inner lookup only if outer hit
             if let Some(child_map) = parent_rules {
-                let _ = child_map.contains_key(child_id_str.as_str());
+                let cid = child.encoding_id();
+                let _ = child_map.contains_key(cid.as_ref());
             }
-            walk_proposed_two_level(lookup, child, &child_id_str);
+            walk_proposed_two_level(lookup, child);
         }
     }
 }
@@ -415,20 +466,17 @@ fn make_tree(name: &str) -> ArrayRef {
 #[divan::bench(args = TREE_NAMES)]
 fn current_walker(bencher: divan::Bencher, name: &str) {
     let tree = make_tree(name);
-    let root_id = tree.encoding_id().as_ref().to_string();
     bencher.bench(|| {
-        walk_current_dyn(black_box(&tree), black_box(&root_id));
+        walk_current_dyn(black_box(&tree));
     });
 }
 
 #[divan::bench(args = TREE_NAMES)]
 fn proposed_walker(bencher: divan::Bencher, name: &str) {
-    let rules = build_child_rules();
-    let lookup = build_two_level(&rules);
+    let lookup = build_two_level();
     let tree = make_tree(name);
-    let root_id = tree.encoding_id().as_ref().to_string();
     bencher.bench(|| {
-        walk_proposed_two_level(&lookup, black_box(&tree), black_box(&root_id));
+        walk_proposed_two_level(&lookup, black_box(&tree));
     });
 }
 
@@ -439,36 +487,32 @@ fn proposed_walker(bencher: divan::Bencher, name: &str) {
 #[divan::bench(args = TREE_NAMES)]
 fn count_current(bencher: divan::Bencher, name: &str) {
     let tree = make_tree(name);
-    let root_id = tree.encoding_id().as_ref().to_string();
     reset_counters();
     bencher.bench(|| {
-        walk_count_current(&tree, &root_id);
+        walk_count_current(&tree);
     });
     let calls = MATCH_CALLS.load(Ordering::Relaxed);
     let matched = MATCHED.load(Ordering::Relaxed);
     eprintln!("  {name}: matches() calls = {calls}, matched = {matched}");
 }
 
-fn walk_count_current(parent: &ArrayRef, parent_id: &str) {
+fn walk_count_current(parent: &ArrayRef) {
     for slot in parent.slots() {
         if let Some(child) = slot {
             let cid = child.encoding_id();
-            let child_id_str = cid.as_ref().to_string();
-            let _ = current_check(parent_id, &child_id_str);
-            walk_count_current(child, &child_id_str);
+            let _ = current_check(parent, cid.as_ref());
+            walk_count_current(child);
         }
     }
 }
 
 #[divan::bench(args = TREE_NAMES)]
 fn count_proposed(bencher: divan::Bencher, name: &str) {
-    let rules = build_child_rules();
-    let lookup = build_two_level(&rules);
+    let lookup = build_two_level();
     let tree = make_tree(name);
-    let root_id = tree.encoding_id().as_ref().to_string();
     reset_counters();
     bencher.bench(|| {
-        walk_count_proposed(&lookup, &tree, &root_id);
+        walk_count_proposed(&lookup, &tree);
     });
     let calls = LOOKUP_CALLS.load(Ordering::Relaxed);
     let matched = MATCHED.load(Ordering::Relaxed);
@@ -478,14 +522,19 @@ fn count_proposed(bencher: divan::Bencher, name: &str) {
 fn walk_count_proposed(
     lookup: &HashMap<&'static str, HashMap<&'static str, bool>>,
     parent: &ArrayRef,
-    parent_id: &str,
 ) {
+    let pid = parent.encoding_id();
+    let parent_rules = lookup.get(pid.as_ref());
     for slot in parent.slots() {
         if let Some(child) = slot {
-            let cid = child.encoding_id();
-            let child_id_str = cid.as_ref().to_string();
-            let _ = proposed_two_level_check(lookup, parent_id, &child_id_str);
-            walk_count_proposed(lookup, child, &child_id_str);
+            LOOKUP_CALLS.fetch_add(1, Ordering::Relaxed);
+            if let Some(child_map) = parent_rules {
+                let cid = child.encoding_id();
+                if child_map.contains_key(cid.as_ref()) {
+                    MATCHED.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            walk_count_proposed(lookup, child);
         }
     }
 }
