@@ -806,6 +806,111 @@ fn compact(bencher: divan::Bencher, name: &str) {
     });
 }
 
+// ============================================================================
+// More optimizations
+// ============================================================================
+
+/// Walker that hoists the parent's row pointer out of the children loop.
+/// One row lookup per parent, then index into the row per child.
+fn walk_dense_hoisted(lookup: &DenseLookup, node: &CodeNode) -> u64 {
+    let mut count = 0u64;
+    if lookup.parent_interesting(node.code) {
+        let row_offset = (node.code as usize) * MAX_CODE;
+        // SAFETY: row_offset + child.code is guaranteed in-range since child.code < MAX_CODE
+        // and the table has MAX_CODE * MAX_CODE entries.
+        for child in &node.children {
+            let rules = unsafe { *lookup.rules.get_unchecked(row_offset + child.code as usize) };
+            for f in rules {
+                count += (*f as usize) as u64 & 1;
+            }
+        }
+    }
+    for child in &node.children {
+        count += walk_dense_hoisted(lookup, child);
+    }
+    count
+}
+
+/// Iterative + hoisted parent row.
+fn walk_iter_hoisted(lookup: &DenseLookup, root: &CodeNode) -> u64 {
+    let mut count = 0u64;
+    let mut stack: Vec<&CodeNode> = Vec::with_capacity(64);
+    stack.push(root);
+    while let Some(node) = stack.pop() {
+        if lookup.parent_interesting(node.code) {
+            let row_offset = (node.code as usize) * MAX_CODE;
+            for child in &node.children {
+                let rules =
+                    unsafe { *lookup.rules.get_unchecked(row_offset + child.code as usize) };
+                for f in rules {
+                    count += (*f as usize) as u64 & 1;
+                }
+            }
+        }
+        for child in node.children.iter().rev() {
+            stack.push(child);
+        }
+    }
+    count
+}
+
+/// Walker that detects runs of same-encoding children and batches them.
+/// For chunked arrays where all chunks are the same encoding, this gets the
+/// rules ONCE per parent and applies to all children.
+fn walk_batched(lookup: &DenseLookup, node: &CodeNode) -> u64 {
+    let mut count = 0u64;
+    if lookup.parent_interesting(node.code) {
+        let row_offset = (node.code as usize) * MAX_CODE;
+        let mut last_code = u64::MAX;
+        let mut last_rules: &[MatcherFn] = EMPTY_RULES;
+        for child in &node.children {
+            if child.code != last_code {
+                last_rules = unsafe {
+                    *lookup.rules.get_unchecked(row_offset + child.code as usize)
+                };
+                last_code = child.code;
+            }
+            for f in last_rules {
+                count += (*f as usize) as u64 & 1;
+            }
+        }
+    }
+    for child in &node.children {
+        count += walk_batched(lookup, child);
+    }
+    count
+}
+
+#[divan::bench(args = TREE_NAMES)]
+fn dense_hoisted(bencher: divan::Bencher, name: &str) {
+    let tree = make_tree(name);
+    let code_tree = build_code_tree(&tree);
+    let lookup = DenseLookup::new();
+    bencher.bench(|| {
+        black_box(walk_dense_hoisted(&lookup, black_box(&code_tree)));
+    });
+}
+
+#[divan::bench(args = TREE_NAMES)]
+fn iter_hoisted(bencher: divan::Bencher, name: &str) {
+    let tree = make_tree(name);
+    let code_tree = build_code_tree(&tree);
+    let lookup = DenseLookup::new();
+    bencher.bench(|| {
+        black_box(walk_iter_hoisted(&lookup, black_box(&code_tree)));
+    });
+}
+
+#[divan::bench(args = TREE_NAMES)]
+fn batched(bencher: divan::Bencher, name: &str) {
+    let tree = make_tree(name);
+    let code_tree = build_code_tree(&tree);
+    let lookup = DenseLookup::new();
+    bencher.bench(|| {
+        black_box(walk_batched(&lookup, black_box(&code_tree)));
+    });
+}
+
 #[divan::bench(args = TREE_NAMES)]
 fn flat_list(bencher: divan::Bencher, name: &str) {
     let tree = make_tree(name);
