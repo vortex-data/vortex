@@ -13,6 +13,8 @@
 
 use std::collections::HashMap;
 use std::hint::black_box;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -237,12 +239,28 @@ fn rules_for_child(child_code: u64) -> &'static [CurrentMatcher] {
 #[inline(never)]
 fn current_check(parent_code: u64, child_code: u64) -> bool {
     for m in rules_for_child(child_code) {
+        MATCH_CALLS.fetch_add(1, Ordering::Relaxed);
+        if m.matches(parent_code) {
+            MATCHED.fetch_add(1, Ordering::Relaxed);
+            return true;
+        }
+    }
+    false
+}
+
+#[inline(never)]
+fn current_check_fast(parent_code: u64, child_code: u64) -> bool {
+    for m in rules_for_child(child_code) {
         if m.matches(parent_code) {
             return true;
         }
     }
     false
 }
+
+static MATCH_CALLS: AtomicU64 = AtomicU64::new(0);
+static MATCHED: AtomicU64 = AtomicU64::new(0);
+static LOOKUP_CALLS: AtomicU64 = AtomicU64::new(0);
 
 // ============================================================================
 // PROPOSED: dense Vec<Vec<bool>> indexed by (parent_code, child_code)
@@ -256,24 +274,35 @@ const MAX_CODE: usize = 200; // larger than any code
 struct DenseLookup {
     /// table[parent_code][child_code] = has_rules
     table: Box<[bool; MAX_CODE * MAX_CODE]>,
+    /// parent_has_any[parent_code] = any rule for this parent at all
+    parent_has_any: [bool; MAX_CODE],
 }
 
 impl DenseLookup {
     fn new() -> Self {
-        let mut table = vec![false; MAX_CODE * MAX_CODE].into_boxed_slice();
+        let table = vec![false; MAX_CODE * MAX_CODE].into_boxed_slice();
         let table: Box<[bool; MAX_CODE * MAX_CODE]> = table.try_into().unwrap();
-        let mut me = Self { table };
+        let mut me = Self {
+            table,
+            parent_has_any: [false; MAX_CODE],
+        };
         me.populate();
         me
     }
 
     fn set(&mut self, parent: u64, child: u64) {
         self.table[(parent as usize) * MAX_CODE + (child as usize)] = true;
+        self.parent_has_any[parent as usize] = true;
     }
 
     #[inline(always)]
     fn has(&self, parent: u64, child: u64) -> bool {
         self.table[(parent as usize) * MAX_CODE + (child as usize)]
+    }
+
+    #[inline(always)]
+    fn parent_interesting(&self, parent: u64) -> bool {
+        self.parent_has_any[parent as usize]
     }
 
     fn populate(&mut self) {
@@ -314,6 +343,16 @@ impl DenseLookup {
 /// Proposed matching: single 2D array lookup.
 #[inline(never)]
 fn proposed_check(lookup: &DenseLookup, parent_code: u64, child_code: u64) -> bool {
+    LOOKUP_CALLS.fetch_add(1, Ordering::Relaxed);
+    let hit = lookup.has(parent_code, child_code);
+    if hit {
+        MATCHED.fetch_add(1, Ordering::Relaxed);
+    }
+    hit
+}
+
+#[inline(never)]
+fn proposed_check_fast(lookup: &DenseLookup, parent_code: u64, child_code: u64) -> bool {
     lookup.has(parent_code, child_code)
 }
 
@@ -376,23 +415,35 @@ fn slice(child: ArrayRef) -> ArrayRef {
     SliceArray::new(child, 0..len.min(50)).into_array()
 }
 
+/// A pre-built tree of u64 codes mirroring the array tree.
+#[derive(Default)]
+struct CodeNode {
+    code: u64,
+    children: Vec<CodeNode>,
+}
+
+fn build_code_tree(array: &ArrayRef) -> CodeNode {
+    let code = encoding_id_to_code(array.encoding_id().as_ref());
+    let children: Vec<CodeNode> = array
+        .slots()
+        .iter()
+        .filter_map(|s| s.as_ref().map(build_code_tree))
+        .collect();
+    CodeNode { code, children }
+}
+
 /// Walk the tree and collect (parent_code, child_code) pairs in DFS order.
-fn collect_pairs(parent: &ArrayRef) -> Vec<(u64, u64)> {
+fn collect_pairs(array: &ArrayRef) -> Vec<(u64, u64)> {
+    let tree = build_code_tree(array);
     let mut pairs = Vec::new();
-    walk(parent, &mut pairs);
+    walk_pairs(&tree, &mut pairs);
     pairs
 }
 
-fn walk(parent: &ArrayRef, pairs: &mut Vec<(u64, u64)>) {
-    let pid = parent.encoding_id();
-    let pcode = encoding_id_to_code(pid.as_ref());
-    for slot in parent.slots() {
-        if let Some(child) = slot {
-            let cid = child.encoding_id();
-            let ccode = encoding_id_to_code(cid.as_ref());
-            pairs.push((pcode, ccode));
-            walk(child, pairs);
-        }
+fn walk_pairs(node: &CodeNode, pairs: &mut Vec<(u64, u64)>) {
+    for child in &node.children {
+        pairs.push((node.code, child.code));
+        walk_pairs(child, pairs);
     }
 }
 
@@ -435,12 +486,33 @@ fn make_tree(name: &str) -> ArrayRef {
 fn current_match(bencher: divan::Bencher, name: &str) {
     let tree = make_tree(name);
     let pairs = collect_pairs(&tree);
-    eprintln!("  {name}: {} pairs", pairs.len());
+    bencher.bench(|| {
+        for (p, c) in black_box(&pairs) {
+            black_box(current_check_fast(*p, *c));
+        }
+    });
+}
+
+/// Run with counters once per tree to report match counts.
+#[divan::bench(args = TREE_NAMES)]
+fn count_current(bencher: divan::Bencher, name: &str) {
+    let tree = make_tree(name);
+    let pairs = collect_pairs(&tree);
+    MATCH_CALLS.store(0, Ordering::Relaxed);
+    MATCHED.store(0, Ordering::Relaxed);
     bencher.bench(|| {
         for (p, c) in black_box(&pairs) {
             black_box(current_check(*p, *c));
         }
     });
+    let calls = MATCH_CALLS.load(Ordering::Relaxed);
+    let matched = MATCHED.load(Ordering::Relaxed);
+    eprintln!(
+        "  {name}: pairs={}, matches() calls={}, matched={}",
+        pairs.len(),
+        calls,
+        matched
+    );
 }
 
 #[divan::bench(args = TREE_NAMES)]
@@ -450,8 +522,150 @@ fn proposed_match(bencher: divan::Bencher, name: &str) {
     let lookup = DenseLookup::new();
     bencher.bench(|| {
         for (p, c) in black_box(&pairs) {
+            black_box(proposed_check_fast(&lookup, *p, *c));
+        }
+    });
+}
+
+#[divan::bench(args = TREE_NAMES)]
+fn count_proposed(bencher: divan::Bencher, name: &str) {
+    let tree = make_tree(name);
+    let pairs = collect_pairs(&tree);
+    let lookup = DenseLookup::new();
+    LOOKUP_CALLS.store(0, Ordering::Relaxed);
+    MATCHED.store(0, Ordering::Relaxed);
+    bencher.bench(|| {
+        for (p, c) in black_box(&pairs) {
             black_box(proposed_check(&lookup, *p, *c));
         }
+    });
+    let calls = LOOKUP_CALLS.load(Ordering::Relaxed);
+    let matched = MATCHED.load(Ordering::Relaxed);
+    eprintln!(
+        "  {name}: pairs={}, lookups={}, matched={}",
+        pairs.len(),
+        calls,
+        matched
+    );
+}
+
+// ============================================================================
+// TREE WALKERS — same structure as the real optimizer
+//
+// Walks the tree, at each parent: check if parent is interesting, if so
+// iterate children. The "is parent interesting" check is the key win.
+// ============================================================================
+
+fn walk_current_tree(node: &CodeNode) -> u64 {
+    let mut count = 0u64;
+    for child in &node.children {
+        // Current: scan rules unconditionally
+        if current_check_fast(node.code, child.code) {
+            count += 1;
+        }
+        count += walk_current_tree(child);
+    }
+    count
+}
+
+fn walk_proposed_tree(lookup: &DenseLookup, node: &CodeNode) -> u64 {
+    let mut count = 0u64;
+    // Hoisted: check once per parent
+    if lookup.parent_interesting(node.code) {
+        for child in &node.children {
+            if lookup.has(node.code, child.code) {
+                count += 1;
+            }
+        }
+    }
+    // Recurse regardless — children may themselves be interesting parents
+    for child in &node.children {
+        count += walk_proposed_tree(lookup, child);
+    }
+    count
+}
+
+#[divan::bench(args = TREE_NAMES)]
+fn current_walk(bencher: divan::Bencher, name: &str) {
+    let tree = make_tree(name);
+    let code_tree = build_code_tree(&tree);
+    bencher.bench(|| {
+        black_box(walk_current_tree(black_box(&code_tree)));
+    });
+}
+
+#[divan::bench(args = TREE_NAMES)]
+fn proposed_walk(bencher: divan::Bencher, name: &str) {
+    let tree = make_tree(name);
+    let code_tree = build_code_tree(&tree);
+    let lookup = DenseLookup::new();
+    bencher.bench(|| {
+        black_box(walk_proposed_tree(&lookup, black_box(&code_tree)));
+    });
+}
+
+/// Count how many checks each does for each tree.
+#[divan::bench(args = TREE_NAMES)]
+fn count_walk(bencher: divan::Bencher, name: &str) {
+    let tree = make_tree(name);
+    let code_tree = build_code_tree(&tree);
+    let lookup = DenseLookup::new();
+    let mut current_calls = 0u64;
+    let mut proposed_calls = 0u64;
+    let mut proposed_hits = 0u64;
+    let mut interesting_parents = 0u64;
+    let mut total_parents = 0u64;
+    fn count_current_calls(node: &CodeNode, calls: &mut u64) {
+        *calls += node.children.len() as u64;
+        // current_check iterates ALL matchers up to first hit
+        for child in &node.children {
+            for m in rules_for_child(child.code) {
+                *calls += 1;
+                if m.matches(node.code) {
+                    break;
+                }
+            }
+        }
+        for child in &node.children {
+            count_current_calls(child, calls);
+        }
+    }
+    fn count_proposed_calls(
+        lookup: &DenseLookup,
+        node: &CodeNode,
+        calls: &mut u64,
+        hits: &mut u64,
+        interesting: &mut u64,
+        total: &mut u64,
+    ) {
+        *total += 1;
+        if lookup.parent_interesting(node.code) {
+            *interesting += 1;
+            for child in &node.children {
+                *calls += 1;
+                if lookup.has(node.code, child.code) {
+                    *hits += 1;
+                }
+            }
+        }
+        for child in &node.children {
+            count_proposed_calls(lookup, child, calls, hits, interesting, total);
+        }
+    }
+    count_current_calls(&code_tree, &mut current_calls);
+    count_proposed_calls(
+        &lookup,
+        &code_tree,
+        &mut proposed_calls,
+        &mut proposed_hits,
+        &mut interesting_parents,
+        &mut total_parents,
+    );
+    eprintln!(
+        "  {name}: parents={total_parents}, interesting_parents={interesting_parents}, current_matches={current_calls}, proposed_lookups={proposed_calls}, hits={proposed_hits}"
+    );
+    bencher.bench(|| {
+        black_box(walk_proposed_tree(&lookup, black_box(&code_tree)));
     });
 }
 
