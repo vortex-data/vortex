@@ -3,8 +3,6 @@
 
 //! L2 norm expression for tensor-like types.
 
-use std::fmt::Formatter;
-
 use num_traits::Float;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -84,17 +82,6 @@ impl ScalarFnVTable for L2Norm {
             0 => ChildName::from("input"),
             _ => unreachable!("L2Norm must have exactly one child"),
         }
-    }
-
-    fn fmt_sql(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        f: &mut Formatter<'_>,
-    ) -> std::fmt::Result {
-        write!(f, "l2_norm(")?;
-        expr.child(0).fmt_sql(f)?;
-        write!(f, ")")
     }
 
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {

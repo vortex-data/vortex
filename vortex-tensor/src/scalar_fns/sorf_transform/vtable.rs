@@ -3,8 +3,6 @@
 
 //! [`ScalarFnVTable`] implementation for [`SorfTransform`].
 
-use std::fmt;
-use std::fmt::Formatter;
 use std::sync::Arc;
 
 use num_traits::Float;
@@ -60,17 +58,6 @@ impl ScalarFnVTable for SorfTransform {
             0 => ChildName::from("rotated"),
             _ => unreachable!("SorfTransform must have exactly one child"),
         }
-    }
-
-    fn fmt_sql(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        f: &mut Formatter<'_>,
-    ) -> fmt::Result {
-        write!(f, "sorf_transform(")?;
-        expr.child(0).fmt_sql(f)?;
-        write!(f, ")")
     }
 
     fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {

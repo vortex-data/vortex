@@ -3,8 +3,6 @@
 
 //! Inner product expression for tensor-like types.
 
-use std::fmt::Formatter;
-
 use num_traits::Float;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -87,19 +85,6 @@ impl ScalarFnVTable for InnerProduct {
             1 => ChildName::from("rhs"),
             _ => unreachable!("InnerProduct must have exactly two children"),
         }
-    }
-
-    fn fmt_sql(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        f: &mut Formatter<'_>,
-    ) -> std::fmt::Result {
-        write!(f, "inner_product(")?;
-        expr.child(0).fmt_sql(f)?;
-        write!(f, ", ")?;
-        expr.child(1).fmt_sql(f)?;
-        write!(f, ")")
     }
 
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {

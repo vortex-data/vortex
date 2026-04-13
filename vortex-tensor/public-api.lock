@@ -258,8 +258,6 @@ pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::child_nam
 
 pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::execute(&self, _options: &Self::Options, args: &dyn vortex_array::scalar_fn::vtable::ExecutionArgs, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::expression::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
 pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
 pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::is_fallible(&self, _options: &Self::Options) -> bool
@@ -293,8 +291,6 @@ pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::arity(&self, _opt
 pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::child_name(&self, _options: &Self::Options, child_idx: usize) -> vortex_array::scalar_fn::vtable::ChildName
 
 pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::execute(&self, _options: &Self::Options, args: &dyn vortex_array::scalar_fn::vtable::ExecutionArgs, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
-
-pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::expression::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
@@ -331,8 +327,6 @@ pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::arity(&self, _options: &S
 pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::child_name(&self, _options: &Self::Options, child_idx: usize) -> vortex_array::scalar_fn::vtable::ChildName
 
 pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::execute(&self, _options: &Self::Options, args: &dyn vortex_array::scalar_fn::vtable::ExecutionArgs, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
-
-pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::expression::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
@@ -371,8 +365,6 @@ pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::arity(&self, _options: &Self:
 pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::child_name(&self, _options: &Self::Options, child_idx: usize) -> vortex_array::scalar_fn::vtable::ChildName
 
 pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::execute(&self, _options: &Self::Options, args: &dyn vortex_array::scalar_fn::vtable::ExecutionArgs, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
-
-pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::expression::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
@@ -453,8 +445,6 @@ pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::arity(&self, _o
 pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::child_name(&self, _options: &Self::Options, child_idx: usize) -> vortex_array::scalar_fn::vtable::ChildName
 
 pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::execute(&self, options: &Self::Options, args: &dyn vortex_array::scalar_fn::vtable::ExecutionArgs, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
-
-pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::expression::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 

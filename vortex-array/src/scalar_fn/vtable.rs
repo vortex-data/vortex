@@ -22,6 +22,7 @@ use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
 use crate::expr::stats::Stat;
+use crate::expr::traversal::Node;
 use crate::scalar_fn::ScalarFn;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
@@ -77,7 +78,21 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         options: &Self::Options,
         expr: &Expression,
         f: &mut Formatter<'_>,
-    ) -> fmt::Result;
+    ) -> fmt::Result {
+        write!(f, "{}(", self.id())?;
+        let nchildren = expr.children_count();
+        for (i, child) in expr.children().iter().enumerate() {
+            child.fmt_sql(f)?;
+            if i + 1 < nchildren {
+                write!(f, ", ")?;
+            }
+        }
+        let opts = format!("{}", options);
+        if !opts.is_empty() {
+            write!(f, ", opts={}", opts)?;
+        }
+        write!(f, ")")
+    }
 
     /// Coerce the arguments of this function.
     ///

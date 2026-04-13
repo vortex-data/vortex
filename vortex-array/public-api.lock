@@ -16176,7 +16176,7 @@ pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::deserialize(&self, _me
 
 pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::execute(&self, _options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::fmt_sql(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
@@ -16332,7 +16332,7 @@ pub fn vortex_array::scalar_fn::fns::is_null::IsNull::deserialize(&self, _metada
 
 pub fn vortex_array::scalar_fn::fns::is_null::IsNull::execute(&self, _data: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::scalar_fn::fns::is_null::IsNull::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_array::scalar_fn::fns::is_null::IsNull::fmt_sql(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_array::scalar_fn::fns::is_null::IsNull::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
@@ -16504,7 +16504,7 @@ pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::deserialize(&s
 
 pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::execute(&self, _options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::fmt_sql(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
@@ -16636,7 +16636,7 @@ pub fn vortex_array::scalar_fn::fns::mask::Mask::deserialize(&self, _metadata: &
 
 pub fn vortex_array::scalar_fn::fns::mask::Mask::execute(&self, _options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::scalar_fn::fns::mask::Mask::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_array::scalar_fn::fns::mask::Mask::fmt_sql(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_array::scalar_fn::fns::mask::Mask::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
@@ -16814,7 +16814,7 @@ pub fn vortex_array::scalar_fn::fns::merge::Merge::deserialize(&self, _metadata:
 
 pub fn vortex_array::scalar_fn::fns::merge::Merge::execute(&self, options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::scalar_fn::fns::merge::Merge::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_array::scalar_fn::fns::merge::Merge::fmt_sql(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_array::scalar_fn::fns::merge::Merge::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
@@ -16860,7 +16860,7 @@ pub fn vortex_array::scalar_fn::fns::not::Not::deserialize(&self, _metadata: &[u
 
 pub fn vortex_array::scalar_fn::fns::not::Not::execute(&self, _data: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::scalar_fn::fns::not::Not::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_array::scalar_fn::fns::not::Not::fmt_sql(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_array::scalar_fn::fns::not::Not::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
@@ -18030,7 +18030,7 @@ pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::deserialize(&self, _me
 
 pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::execute(&self, _options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::fmt_sql(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
@@ -18106,7 +18106,7 @@ pub fn vortex_array::scalar_fn::fns::is_null::IsNull::deserialize(&self, _metada
 
 pub fn vortex_array::scalar_fn::fns::is_null::IsNull::execute(&self, _data: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::scalar_fn::fns::is_null::IsNull::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_array::scalar_fn::fns::is_null::IsNull::fmt_sql(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_array::scalar_fn::fns::is_null::IsNull::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
@@ -18182,7 +18182,7 @@ pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::deserialize(&s
 
 pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::execute(&self, _options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::fmt_sql(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
@@ -18258,7 +18258,7 @@ pub fn vortex_array::scalar_fn::fns::mask::Mask::deserialize(&self, _metadata: &
 
 pub fn vortex_array::scalar_fn::fns::mask::Mask::execute(&self, _options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::scalar_fn::fns::mask::Mask::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_array::scalar_fn::fns::mask::Mask::fmt_sql(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_array::scalar_fn::fns::mask::Mask::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
@@ -18296,7 +18296,7 @@ pub fn vortex_array::scalar_fn::fns::merge::Merge::deserialize(&self, _metadata:
 
 pub fn vortex_array::scalar_fn::fns::merge::Merge::execute(&self, options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::scalar_fn::fns::merge::Merge::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_array::scalar_fn::fns::merge::Merge::fmt_sql(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_array::scalar_fn::fns::merge::Merge::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
@@ -18334,7 +18334,7 @@ pub fn vortex_array::scalar_fn::fns::not::Not::deserialize(&self, _metadata: &[u
 
 pub fn vortex_array::scalar_fn::fns::not::Not::execute(&self, _data: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::scalar_fn::fns::not::Not::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_array::scalar_fn::fns::not::Not::fmt_sql(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_array::scalar_fn::fns::not::Not::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 

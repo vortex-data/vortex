@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Formatter;
-
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -58,17 +56,6 @@ impl ScalarFnVTable for IsNull {
             0 => ChildName::from("input"),
             _ => unreachable!("Invalid child index {} for IsNull expression", child_idx),
         }
-    }
-
-    fn fmt_sql(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        f: &mut Formatter<'_>,
-    ) -> std::fmt::Result {
-        write!(f, "is_null(")?;
-        expr.child(0).fmt_sql(f)?;
-        write!(f, ")")
     }
 
     fn return_dtype(&self, _options: &Self::Options, _arg_dtypes: &[DType]) -> VortexResult<DType> {
@@ -240,10 +227,10 @@ mod tests {
     #[test]
     fn test_display() {
         let expr = is_null(get_item("name", root()));
-        assert_eq!(expr.to_string(), "is_null($.name)");
+        assert_eq!(expr.to_string(), "vortex.is_null($.name)");
 
         let expr2 = is_null(root());
-        assert_eq!(expr2.to_string(), "is_null($)");
+        assert_eq!(expr2.to_string(), "vortex.is_null($)");
     }
 
     #[test]

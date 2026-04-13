@@ -3,8 +3,6 @@
 
 mod kernel;
 
-use std::fmt::Formatter;
-
 pub use kernel::*;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -19,7 +17,6 @@ use crate::arrays::ConstantArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::expr::Expression;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -60,17 +57,6 @@ impl ScalarFnVTable for Not {
             0 => ChildName::from("input"),
             _ => unreachable!("Invalid child index {} for Not expression", child_idx),
         }
-    }
-
-    fn fmt_sql(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        f: &mut Formatter<'_>,
-    ) -> std::fmt::Result {
-        write!(f, "not(")?;
-        expr.child(0).fmt_sql(f)?;
-        write!(f, ")")
     }
 
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
@@ -155,8 +141,8 @@ mod tests {
         let a = not(get_item("a", root()));
         let b = get_item("a", not(root()));
         assert_ne!(a.to_string(), b.to_string());
-        assert_eq!(a.to_string(), "not($.a)");
-        assert_eq!(b.to_string(), "not($).a");
+        assert_eq!(a.to_string(), "vortex.not($.a)");
+        assert_eq!(b.to_string(), "vortex.not($).a");
     }
 
     #[test]
