@@ -75,7 +75,7 @@ mod test {
         use vortex_buffer::buffer;
 
         let array = PrimitiveArray::from_iter([a, b, outlier]);
-        let encoded = RDEncoder::new(&[a, b]).encode(&array);
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
 
         assert!(encoded.left_parts_patches().is_some());
         assert!(
@@ -99,7 +99,7 @@ mod test {
     #[case(0.1f64, 0.2f64, 3e100f64)]
     fn take_with_nulls<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
         let array = PrimitiveArray::from_iter([a, b, outlier]);
-        let encoded = RDEncoder::new(&[a, b]).encode(&array);
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
 
         assert!(encoded.left_parts_patches().is_some());
         assert!(
@@ -127,7 +127,7 @@ mod test {
     fn test_take_conformance_alprd<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
         test_take_conformance(
             &RDEncoder::new(&[a, b])
-                .encode(&PrimitiveArray::from_iter([a, b, outlier, b, outlier]))
+                .encode(PrimitiveArray::from_iter([a, b, outlier, b, outlier]).as_view())
                 .into_array(),
         );
     }
@@ -138,13 +138,10 @@ mod test {
     fn test_take_with_nulls_conformance<T: ALPRDFloat>(#[case] a: T, #[case] outlier: T) {
         test_take_conformance(
             &RDEncoder::new(&[a])
-                .encode(&PrimitiveArray::from_option_iter([
-                    Some(a),
-                    None,
-                    Some(outlier),
-                    Some(a),
-                    None,
-                ]))
+                .encode(
+                    PrimitiveArray::from_option_iter([Some(a), None, Some(outlier), Some(a), None])
+                        .as_view(),
+                )
                 .into_array(),
         );
     }

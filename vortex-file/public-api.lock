@@ -10,9 +10,7 @@ pub async fn vortex_file::multi::MultiFileDataSource::build(self) -> vortex_erro
 
 pub fn vortex_file::multi::MultiFileDataSource::new(session: vortex_session::VortexSession) -> Self
 
-pub fn vortex_file::multi::MultiFileDataSource::with_filesystem(self, fs: vortex_io::filesystem::FileSystemRef) -> Self
-
-pub fn vortex_file::multi::MultiFileDataSource::with_glob(self, glob: impl core::convert::Into<alloc::string::String>) -> Self
+pub fn vortex_file::multi::MultiFileDataSource::with_glob(self, glob: impl core::convert::Into<alloc::string::String>, fs: core::option::Option<vortex_io::filesystem::FileSystemRef>) -> Self
 
 pub fn vortex_file::multi::MultiFileDataSource::with_open_options(self, f: impl core::ops::function::Fn(vortex_file::VortexOpenOptions) -> vortex_file::VortexOpenOptions + core::marker::Send + core::marker::Sync + 'static) -> Self
 

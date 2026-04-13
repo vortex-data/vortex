@@ -41,7 +41,7 @@ impl Display for SharedData {
     }
 }
 
-#[allow(async_fn_in_trait)]
+#[expect(async_fn_in_trait)]
 pub trait SharedArrayExt: TypedArrayRef<Shared> {
     fn source(&self) -> &ArrayRef {
         self.as_ref().slots()[SOURCE_SLOT]

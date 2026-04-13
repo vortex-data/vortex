@@ -40,7 +40,6 @@ pub trait ArrayPlugin: 'static + Send + Sync {
     ///
     /// The returned array doesn't necessary have to match this plugin's encoding ID. This is
     /// useful for implementing back-compat logic and deserializing arrays into the new version.
-    #[allow(clippy::too_many_arguments)]
     fn deserialize(
         &self,
         dtype: &DType,

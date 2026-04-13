@@ -58,7 +58,7 @@ mod test {
     #[case(0.1f64, 0.2f64, 3e100f64)]
     fn test_filter<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
         let array = PrimitiveArray::new(buffer![a, b, outlier], Validity::NonNullable);
-        let encoded = RDEncoder::new(&[a, b]).encode(&array);
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
 
         // Make sure that we're testing the exception pathway.
         assert!(encoded.left_parts_patches().is_some());
@@ -76,7 +76,7 @@ mod test {
     fn test_filter_simple<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
         test_filter_conformance(
             &RDEncoder::new(&[a, b])
-                .encode(&PrimitiveArray::from_iter([a, b, outlier, b, outlier]))
+                .encode(PrimitiveArray::from_iter([a, b, outlier, b, outlier]).as_view())
                 .into_array(),
         );
     }
@@ -87,13 +87,10 @@ mod test {
     fn test_filter_with_nulls<T: ALPRDFloat>(#[case] a: T, #[case] outlier: T) {
         test_filter_conformance(
             &RDEncoder::new(&[a])
-                .encode(&PrimitiveArray::from_option_iter([
-                    Some(a),
-                    None,
-                    Some(outlier),
-                    Some(a),
-                    None,
-                ]))
+                .encode(
+                    PrimitiveArray::from_option_iter([Some(a), None, Some(outlier), Some(a), None])
+                        .as_view(),
+                )
                 .into_array(),
         );
     }

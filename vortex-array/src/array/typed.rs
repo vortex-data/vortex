@@ -192,7 +192,6 @@ pub struct Array<V: VTable> {
     _phantom: PhantomData<V>,
 }
 
-#[allow(clippy::same_name_method)]
 impl<V: VTable> Array<V> {
     /// Create a typed array from explicit construction parameters.
     pub fn try_from_parts(new: ArrayParts<V>) -> VortexResult<Self> {
@@ -229,7 +228,6 @@ impl<V: VTable> Array<V> {
     ///
     /// # Safety
     /// Caller must ensure the `ArrayRef` contains an `ArrayInner<V>`.
-    #[allow(dead_code)]
     pub(crate) unsafe fn from_array_ref_unchecked(array: ArrayRef) -> Self {
         Self {
             inner: array,
@@ -342,52 +340,42 @@ impl<V: VTable> Array<V> {
 
 /// Public API methods that shadow `DynArray` / `ArrayRef` methods.
 impl<V: VTable> Array<V> {
-    #[allow(clippy::same_name_method)]
     pub fn slice(&self, range: std::ops::Range<usize>) -> VortexResult<ArrayRef> {
         self.inner.slice(range)
     }
 
-    #[allow(clippy::same_name_method)]
     pub fn scalar_at(&self, index: usize) -> VortexResult<crate::scalar::Scalar> {
         self.inner.scalar_at(index)
     }
 
-    #[allow(clippy::same_name_method)]
     pub fn filter(&self, mask: vortex_mask::Mask) -> VortexResult<ArrayRef> {
         self.inner.filter(mask)
     }
 
-    #[allow(clippy::same_name_method)]
     pub fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
         self.inner.take(indices)
     }
 
-    #[allow(clippy::same_name_method)]
     pub fn validity(&self) -> VortexResult<Validity> {
         self.inner.validity()
     }
 
-    #[allow(clippy::same_name_method)]
     pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
         self.inner.is_valid(index)
     }
 
-    #[allow(clippy::same_name_method)]
     pub fn is_invalid(&self, index: usize) -> VortexResult<bool> {
         self.inner.is_invalid(index)
     }
 
-    #[allow(clippy::same_name_method)]
     pub fn all_valid(&self) -> VortexResult<bool> {
         self.inner.all_valid()
     }
 
-    #[allow(clippy::same_name_method)]
     pub fn all_invalid(&self) -> VortexResult<bool> {
         self.inner.all_invalid()
     }
 
-    #[allow(clippy::same_name_method)]
     pub fn to_canonical(&self) -> VortexResult<crate::Canonical> {
         self.inner.to_canonical()
     }
@@ -396,7 +384,6 @@ impl<V: VTable> Array<V> {
         self.inner.nbytes()
     }
 
-    #[allow(clippy::same_name_method)]
     pub fn nbuffers(&self) -> usize {
         self.inner.nbuffers()
     }
@@ -405,17 +392,14 @@ impl<V: VTable> Array<V> {
         self.inner.as_constant()
     }
 
-    #[allow(clippy::same_name_method)]
     pub fn valid_count(&self) -> VortexResult<usize> {
         self.inner.valid_count()
     }
 
-    #[allow(clippy::same_name_method)]
     pub fn invalid_count(&self) -> VortexResult<usize> {
         self.inner.invalid_count()
     }
 
-    #[allow(clippy::same_name_method)]
     pub fn append_to_builder(
         &self,
         builder: &mut dyn crate::builders::ArrayBuilder,
@@ -424,7 +408,6 @@ impl<V: VTable> Array<V> {
         self.inner.append_to_builder(builder, ctx)
     }
 
-    #[allow(clippy::same_name_method)]
     pub fn validity_mask(&self) -> VortexResult<vortex_mask::Mask> {
         self.inner.validity_mask()
     }

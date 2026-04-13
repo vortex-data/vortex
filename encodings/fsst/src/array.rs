@@ -311,10 +311,8 @@ impl VTable for FSST {
 /// Lengths of the original values before compression, can be compressed.
 pub(crate) const UNCOMPRESSED_LENGTHS_SLOT: usize = 0;
 /// The offsets array for the FSST-compressed codes.
-#[allow(dead_code, reason = "reserved for back-compat slot numbering")]
 pub(crate) const CODES_OFFSETS_SLOT: usize = 1;
 /// The validity bitmap for the compressed codes.
-#[allow(dead_code, reason = "reserved for back-compat slot numbering")]
 pub(crate) const CODES_VALIDITY_SLOT: usize = 2;
 pub(crate) const NUM_SLOTS: usize = 3;
 pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] =
@@ -526,7 +524,7 @@ impl FSSTData {
     }
 
     /// Validate using the decomposed components (codes bytes + offsets + nullability).
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn validate_parts(
         symbols: &Buffer<Symbol>,
         symbol_lengths: &Buffer<u8>,

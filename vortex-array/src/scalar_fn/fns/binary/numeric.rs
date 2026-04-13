@@ -70,7 +70,6 @@ fn constant_numeric(
 }
 
 #[cfg(test)]
-#[allow(deprecated)]
 mod test {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;

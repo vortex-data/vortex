@@ -82,7 +82,7 @@ impl Not for &Mask {
 }
 
 #[cfg(test)]
-#[allow(clippy::many_single_char_names)]
+#[expect(clippy::many_single_char_names)]
 mod tests {
     use vortex_buffer::BitBuffer;
 

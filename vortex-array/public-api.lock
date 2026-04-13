@@ -3618,6 +3618,8 @@ pub fn vortex_array::arrays::patched::PatchedSlotsView<'a>::fmt(&self, f: &mut c
 
 impl<'a> core::marker::Copy for vortex_array::arrays::patched::PatchedSlotsView<'a>
 
+pub static vortex_array::arrays::patched::USE_EXPERIMENTAL_PATCHES: std::sync::lazy_lock::LazyLock<bool>
+
 pub trait vortex_array::arrays::patched::PatchedArrayExt: vortex_array::arrays::patched::PatchedArraySlotsExt
 
 pub fn vortex_array::arrays::patched::PatchedArrayExt::lane_range(&self, chunk: usize, lane: usize) -> vortex_error::VortexResult<core::ops::range::Range<usize>>
@@ -9984,7 +9986,7 @@ pub fn vortex_array::dtype::FieldName::cmp(&self, other: &vortex_array::dtype::F
 
 impl core::cmp::PartialEq for vortex_array::dtype::FieldName
 
-pub fn vortex_array::dtype::FieldName::eq(&self, other: &vortex_array::dtype::FieldName) -> bool
+pub fn vortex_array::dtype::FieldName::eq(&self, other: &Self) -> bool
 
 impl core::cmp::PartialEq<&alloc::string::String> for vortex_array::dtype::FieldName
 
@@ -10058,8 +10060,6 @@ impl core::hash::Hash for vortex_array::dtype::FieldName
 
 pub fn vortex_array::dtype::FieldName::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
 
-impl core::marker::StructuralPartialEq for vortex_array::dtype::FieldName
-
 pub struct vortex_array::dtype::FieldNames(_)
 
 impl vortex_array::dtype::FieldNames
@@ -10084,7 +10084,7 @@ impl core::cmp::Eq for vortex_array::dtype::FieldNames
 
 impl core::cmp::PartialEq for vortex_array::dtype::FieldNames
 
-pub fn vortex_array::dtype::FieldNames::eq(&self, other: &vortex_array::dtype::FieldNames) -> bool
+pub fn vortex_array::dtype::FieldNames::eq(&self, other: &Self) -> bool
 
 impl core::cmp::PartialEq<&[&str]> for &vortex_array::dtype::FieldNames
 
@@ -10153,8 +10153,6 @@ pub type vortex_array::dtype::FieldNames::IntoIter = vortex_array::dtype::FieldN
 pub type vortex_array::dtype::FieldNames::Item = vortex_array::dtype::FieldName
 
 pub fn vortex_array::dtype::FieldNames::into_iter(self) -> Self::IntoIter
-
-impl core::marker::StructuralPartialEq for vortex_array::dtype::FieldNames
 
 impl core::ops::index::Index<usize> for vortex_array::dtype::FieldNames
 
@@ -10396,7 +10394,7 @@ impl core::cmp::Eq for vortex_array::dtype::StructFields
 
 impl core::cmp::PartialEq for vortex_array::dtype::StructFields
 
-pub fn vortex_array::dtype::StructFields::eq(&self, other: &vortex_array::dtype::StructFields) -> bool
+pub fn vortex_array::dtype::StructFields::eq(&self, other: &Self) -> bool
 
 impl core::default::Default for vortex_array::dtype::StructFields
 
@@ -10413,8 +10411,6 @@ pub fn vortex_array::dtype::StructFields::fmt(&self, f: &mut core::fmt::Formatte
 impl core::hash::Hash for vortex_array::dtype::StructFields
 
 pub fn vortex_array::dtype::StructFields::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl core::marker::StructuralPartialEq for vortex_array::dtype::StructFields
 
 impl vortex_array::dtype::arrow::FromArrowType<&arrow_schema::fields::Fields> for vortex_array::dtype::StructFields
 
@@ -13801,8 +13797,6 @@ pub mod vortex_array::patches
 pub struct vortex_array::patches::Patches
 
 impl vortex_array::patches::Patches
-
-pub unsafe fn vortex_array::patches::Patches::apply_to_buffer<P: vortex_array::dtype::NativePType>(&self, buffer: &mut [P], validity: &mut vortex_mask::mask_mut::MaskMut, ctx: &mut vortex_array::ExecutionCtx)
 
 pub fn vortex_array::patches::Patches::array_len(&self) -> usize
 

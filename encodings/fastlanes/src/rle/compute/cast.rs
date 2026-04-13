@@ -60,7 +60,7 @@ mod tests {
     use crate::rle::RLEArray;
 
     fn rle(primitive: &PrimitiveArray) -> RLEArray {
-        RLEData::encode(primitive).unwrap()
+        RLEData::encode(primitive.as_view()).unwrap()
     }
 
     #[test]

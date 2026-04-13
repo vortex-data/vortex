@@ -1035,7 +1035,7 @@ impl OperationsVTable<Zstd> for Zstd {
 }
 
 #[cfg(test)]
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 mod tests {
     use vortex_buffer::ByteBuffer;
 

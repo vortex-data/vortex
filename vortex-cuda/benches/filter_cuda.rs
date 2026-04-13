@@ -3,8 +3,8 @@
 
 //! CUDA benchmarks for GPU filtering using CUB DeviceSelect::Flagged.
 
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::cast_possible_truncation)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::cast_possible_truncation)]
 
 use std::ffi::c_void;
 use std::fmt::Debug;

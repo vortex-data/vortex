@@ -338,7 +338,12 @@ where
             erased: TypedStats {
                 min: T::max_value(),
                 max: T::min_value(),
-                distinct: None,
+                distinct: Some(DistinctInfo {
+                    distinct_values: HashMap::with_capacity_and_hasher(0, FxBuildHasher),
+                    distinct_count: 0,
+                    most_frequent_value: T::zero(),
+                    top_frequency: 0,
+                }),
             }
             .into(),
         });

@@ -202,7 +202,7 @@ pyo3-bytes = "0.6"
 pyo3-log = "0.13.0"
 pyo3-object_store = "0.9.0"
 quote = "1.0.44"
-rand = "0.10.0"
+rand = "0.10.1"
 rand_distr = "0.6"
 ratatui = { version = "0.30", default-features = false }
 regex = "1.11.0"
@@ -316,8 +316,6 @@ unused_lifetimes = "deny"
 unused_qualifications = "deny"
 unexpected_cfgs = { level = "deny", check-cfg = [
     "cfg(codspeed)",
-    "cfg(disable_loom)",
-    "cfg(vortex_nightly)",
     'cfg(target_os, values("unknown"))',
 ] }
 warnings = "warn"

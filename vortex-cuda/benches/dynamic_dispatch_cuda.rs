@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::cast_possible_truncation)]
-#![allow(clippy::expect_used)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::cast_possible_truncation)]
+#![expect(clippy::expect_used)]
 
 use std::mem::size_of;
 use std::sync::Arc;
@@ -135,6 +135,7 @@ impl BenchRunner {
             dispatch_plan,
             device_buffers,
             shared_mem_bytes,
+            ..
         } = plan.materialize(cuda_ctx).vortex_expect("materialize plan");
 
         let device_plan = Arc::new(
@@ -381,7 +382,7 @@ fn bench_alp_for_bitpacked(c: &mut Criterion) {
         let float_prim = PrimitiveArray::new(Buffer::from(floats), NonNullable);
 
         // Encode: ALP → FoR → BitPacked
-        let alp = alp_encode(&float_prim, Some(exponents)).vortex_expect("alp_encode");
+        let alp = alp_encode(float_prim.as_view(), Some(exponents)).vortex_expect("alp_encode");
         assert!(alp.patches().is_none());
         let for_arr = FoRData::encode(alp.encoded().to_primitive()).vortex_expect("for encode");
         let bp =

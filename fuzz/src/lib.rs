@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::use_debug)]
+#![expect(clippy::use_debug)]
 
 mod array;
 pub mod compress;

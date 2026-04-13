@@ -383,6 +383,8 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_database ffi_db, const d
         auto &system_catalog = Catalog::GetSystemCatalog(*db);
         auto data = CatalogTransaction::GetSystemTransaction(*db);
         CreateTableFunctionInfo tf_info(tf);
+        // Allow registering multiple overloads with the same name but different parameter types.
+        tf_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
         system_catalog.CreateFunction(data, tf_info);
     } catch (...) {
         return DuckDBError;

@@ -59,7 +59,7 @@ impl<'a> Arbitrary<'a> for FuzzCompressRoundtrip {
 /// - `Ok(true)` - keep in corpus
 /// - `Ok(false)` - reject from corpus
 /// - `Err(_)` - a bug was found
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err)]
 pub fn run_compress_roundtrip(fuzz: FuzzCompressRoundtrip) -> crate::error::VortexFuzzResult<bool> {
     use crate::error::Backtrace;
     use crate::error::VortexFuzzError;

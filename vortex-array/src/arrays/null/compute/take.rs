@@ -16,7 +16,7 @@ use crate::match_each_integer_ptype;
 use crate::optimizer::rules::ParentRuleSet;
 
 impl TakeReduce for Null {
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     fn take(array: ArrayView<'_, Null>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let indices = indices.to_primitive();
 

@@ -130,7 +130,7 @@ impl FileOpener for VortexOpener {
         let projection_pushdown = self.projection_pushdown;
 
         // Replace column access for partition columns with literals
-        #[allow(clippy::disallowed_types)]
+        #[expect(clippy::disallowed_types)]
         let literal_value_cols = self
             .table_schema
             .table_partition_cols()

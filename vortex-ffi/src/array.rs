@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-#![allow(non_camel_case_types)]
+#![expect(non_camel_case_types)]
 
 //! FFI interface for working with Vortex Arrays.
 use std::ffi::c_void;

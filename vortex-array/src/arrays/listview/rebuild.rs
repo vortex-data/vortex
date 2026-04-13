@@ -368,7 +368,6 @@ impl ListViewArray {
 }
 
 #[cfg(test)]
-#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use vortex_buffer::BitBuffer;
     use vortex_error::VortexResult;

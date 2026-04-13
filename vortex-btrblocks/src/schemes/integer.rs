@@ -11,6 +11,7 @@ use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Patched;
+use vortex_array::arrays::patched::USE_EXPERIMENTAL_PATCHES;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::scalar::Scalar;
 use vortex_compressor::builtins::FloatDictScheme;
@@ -32,7 +33,6 @@ use vortex_fastlanes::FoR;
 use vortex_fastlanes::FoRArrayExt;
 use vortex_fastlanes::RLE;
 use vortex_fastlanes::RLEArrayExt;
-use vortex_fastlanes::USE_EXPERIMENTAL_PATCHES;
 use vortex_fastlanes::bitpack_compress::bit_width_histogram;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_fastlanes::bitpack_compress::find_best_bit_width;
@@ -328,15 +328,16 @@ impl Scheme for BitPackingScheme {
     ) -> VortexResult<ArrayRef> {
         let primitive_array = data.array_as_primitive();
 
-        let histogram = bit_width_histogram(&primitive_array)?;
+        let histogram = bit_width_histogram(primitive_array)?;
         let bw = find_best_bit_width(primitive_array.ptype(), &histogram)?;
 
         // If best bw is determined to be the current bit-width, return the original array.
         if bw as usize == primitive_array.ptype().bit_width() {
-            return Ok(primitive_array.into_array());
+            return Ok(primitive_array.array().clone());
         }
 
         // Otherwise we can bitpack the array.
+        let primitive_array = primitive_array.into_owned();
         let packed = bitpack_encode(&primitive_array, bw, Some(&histogram))?;
 
         let packed_stats = packed.statistics().to_owned();
@@ -615,7 +616,7 @@ impl Scheme for RunEndScheme {
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
         // Run-end encode the ends.
-        let (ends, values) = runend_encode(data.array_as_primitive().as_view());
+        let (ends, values) = runend_encode(data.array_as_primitive());
 
         let compressed_values =
             compressor.compress_child(&values.to_primitive().into_array(), &ctx, self.id(), 0)?;
@@ -690,7 +691,7 @@ impl Scheme for SequenceScheme {
         // why do we divide the ratio by 2???
 
         CompressionEstimate::Estimate(Box::new(|_compressor, data, _ctx| {
-            let Some(encoded) = sequence_encode(&data.array_as_primitive())? else {
+            let Some(encoded) = sequence_encode(data.array_as_primitive())? else {
                 // If we are unable to sequence encode this array, make sure we skip.
                 return Ok(CompressionEstimate::Skip);
             };
@@ -713,7 +714,7 @@ impl Scheme for SequenceScheme {
         if stats.null_count() > 0 {
             vortex_bail!("sequence encoding does not support nulls");
         }
-        sequence_encode(&data.array_as_primitive())?
+        sequence_encode(data.array_as_primitive())?
             .ok_or_else(|| vortex_err!("cannot sequence encode array"))
     }
 }
@@ -750,7 +751,7 @@ impl Scheme for PcoScheme {
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
         Ok(vortex_pco::Pco::from_primitive(
-            &data.array_as_primitive(),
+            data.array_as_primitive(),
             pco::DEFAULT_COMPRESSION_LEVEL,
             8192,
         )?
@@ -765,8 +766,7 @@ pub(crate) fn rle_compress(
     data: &mut ArrayAndStats,
     ctx: CompressorContext,
 ) -> VortexResult<ArrayRef> {
-    let array = data.array_as_primitive();
-    let rle_array = RLE::encode(&array)?;
+    let rle_array = RLE::encode(data.array_as_primitive())?;
 
     let compressed_values = compressor.compress_child(
         &rle_array.values().to_primitive().into_array(),

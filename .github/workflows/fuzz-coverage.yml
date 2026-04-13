@@ -75,8 +75,7 @@ jobs:
 
       - name: Generate coverage data
         run: |
-          RUSTFLAGS="--cfg vortex_nightly" \
-            cargo +$NIGHTLY_TOOLCHAIN fuzz coverage --release --debug-assertions \
+          cargo +$NIGHTLY_TOOLCHAIN fuzz coverage --release --debug-assertions \
             ${{ matrix.fuzz_target }} \
             -- -rss_limit_mb=4096
 

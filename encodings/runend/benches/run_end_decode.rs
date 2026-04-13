@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used, clippy::cast_possible_truncation)]
+#![expect(clippy::cast_possible_truncation)]
 
 use std::fmt;
 

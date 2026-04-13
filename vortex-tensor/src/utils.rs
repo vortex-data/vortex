@@ -13,8 +13,10 @@ use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
+use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
@@ -39,6 +41,40 @@ pub fn validate_tensor_float_input(input_dtype: &DType) -> VortexResult<TensorMa
     );
 
     Ok(tensor_match)
+}
+
+/// Cast a float [`PrimitiveArray`] to a `Buffer<f32>`.
+///
+/// Several operations in this crate (SORF transform, TurboQuant quantization) work exclusively
+/// in f32. This function handles the cast from any float ptype:
+///
+/// - f16: losslessly widened to f32.
+/// - f32: zero-copy buffer extraction.
+/// - f64: truncated to f32 precision. Values outside f32 range become +/- infinity. This is
+///   acceptable because callers of this function operate in f32 and document this constraint.
+pub fn cast_to_f32(prim: PrimitiveArray) -> VortexResult<Buffer<f32>> {
+    match prim.ptype() {
+        PType::F16 => Ok(prim
+            .as_slice::<half::f16>()
+            .iter()
+            .map(|&v| f32::from(v))
+            .collect()),
+        PType::F32 => Ok(prim.into_buffer()),
+        PType::F64 => Ok(prim
+            .as_slice::<f64>()
+            .iter()
+            .map(|&v| {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "f64 values outside f32 range become infinity, which is acceptable \
+                              because callers operate in f32 and document this constraint"
+                )]
+                let v = v as f32;
+                v
+            })
+            .collect()),
+        other => vortex_bail!("expected float elements, got {other:?}"),
+    }
 }
 
 /// The flat primitive elements of a tensor storage array, with typed row access.
@@ -67,6 +103,8 @@ impl FlatElements {
     }
 }
 
+// TODO(connor): Usage of this function is sometimes incorrect / not performant.
+// Make sure to fix them.
 /// Extracts the flat primitive elements from a tensor storage array (FixedSizeList).
 ///
 /// When the input is a [`ConstantArray`] (e.g., a literal query vector), only a single row is

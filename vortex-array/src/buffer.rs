@@ -332,7 +332,7 @@ impl BufferHandle {
         self.slice(start..end)
     }
 
-    #[allow(clippy::panic)]
+    #[expect(clippy::panic)]
     /// Unwraps the handle as host memory.
     ///
     /// # Panics
@@ -345,7 +345,7 @@ impl BufferHandle {
         }
     }
 
-    #[allow(clippy::panic)]
+    #[expect(clippy::panic)]
     /// Unwraps the handle as device memory.
     ///
     /// # Panics

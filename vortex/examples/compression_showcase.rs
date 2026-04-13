@@ -236,7 +236,7 @@ fn compress_structured_data() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Estimate the size of an array in bytes (approximation)
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn estimate_size(array: &ArrayRef) -> usize {
     array.nbytes() as usize
 }

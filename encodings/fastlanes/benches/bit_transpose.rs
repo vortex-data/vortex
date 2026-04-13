@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
-
 use divan::Bencher;
 use vortex_fastlanes::bit_transpose::scalar::transpose_bits_scalar;
 use vortex_fastlanes::bit_transpose::scalar::untranspose_bits_scalar;
@@ -12,7 +10,7 @@ fn main() {
 }
 
 /// Generate deterministic test data.
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn generate_test_data(seed: usize) -> [u8; 128] {
     let mut data = [0u8; 128];
     for (i, byte) in data.iter_mut().enumerate() {

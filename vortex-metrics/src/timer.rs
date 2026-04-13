@@ -42,8 +42,8 @@ impl Timer {
 
     /// Returns the estimated quantile value, which must be in the [0.0, 1.0] range, will panic otherwise.
     /// Returns `None` if the timer is empty.
-    #[allow(clippy::expect_used)]
-    #[allow(clippy::unwrap_in_result)]
+    #[expect(clippy::expect_used)]
+    #[expect(clippy::unwrap_in_result)]
     pub fn quantile(&self, quantile: f64) -> Option<Duration> {
         assert!(
             (0.0..=1.0).contains(&quantile),

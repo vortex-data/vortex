@@ -90,10 +90,9 @@ mod tests {
 
     #[test]
     pub fn nullable_scalar_at() -> VortexResult<()> {
-        let zigzag = zigzag_encode(PrimitiveArray::new(
-            buffer![-189, -160, 1],
-            Validity::AllValid,
-        ))?;
+        let zigzag = zigzag_encode(
+            PrimitiveArray::new(buffer![-189, -160, 1], Validity::AllValid).as_view(),
+        )?;
         assert_eq!(
             zigzag.scalar_at(1)?,
             Scalar::primitive(-160, Nullability::Nullable)
@@ -103,30 +102,30 @@ mod tests {
 
     #[test]
     fn take_zigzag() -> VortexResult<()> {
-        let zigzag = zigzag_encode(PrimitiveArray::new(
-            buffer![-189, -160, 1],
-            Validity::AllValid,
-        ))?;
+        let zigzag = zigzag_encode(
+            PrimitiveArray::new(buffer![-189, -160, 1], Validity::AllValid).as_view(),
+        )?;
 
         let indices = buffer![0, 2].into_array();
         let actual = zigzag.take(indices).unwrap();
         let expected =
-            zigzag_encode(PrimitiveArray::new(buffer![-189, 1], Validity::AllValid))?.into_array();
+            zigzag_encode(PrimitiveArray::new(buffer![-189, 1], Validity::AllValid).as_view())?
+                .into_array();
         assert_arrays_eq!(actual, expected);
         Ok(())
     }
 
     #[test]
     fn filter_zigzag() -> VortexResult<()> {
-        let zigzag = zigzag_encode(PrimitiveArray::new(
-            buffer![-189, -160, 1],
-            Validity::AllValid,
-        ))?;
+        let zigzag = zigzag_encode(
+            PrimitiveArray::new(buffer![-189, -160, 1], Validity::AllValid).as_view(),
+        )?;
 
         let filter_mask = BitBuffer::from(vec![true, false, true]).into();
         let actual = zigzag.filter(filter_mask).unwrap();
         let expected =
-            zigzag_encode(PrimitiveArray::new(buffer![-189, 1], Validity::AllValid))?.into_array();
+            zigzag_encode(PrimitiveArray::new(buffer![-189, 1], Validity::AllValid).as_view())?
+                .into_array();
         assert_arrays_eq!(actual, expected);
         Ok(())
     }
@@ -136,23 +135,25 @@ mod tests {
         use vortex_array::compute::conformance::filter::test_filter_conformance;
 
         // Test with i32 values
-        let zigzag = zigzag_encode(PrimitiveArray::new(
-            buffer![-189i32, -160, 1, 42, -73],
-            Validity::AllValid,
-        ))?;
+        let zigzag = zigzag_encode(
+            PrimitiveArray::new(buffer![-189i32, -160, 1, 42, -73], Validity::AllValid).as_view(),
+        )?;
         test_filter_conformance(&zigzag.into_array());
 
         // Test with i64 values
-        let zigzag = zigzag_encode(PrimitiveArray::new(
-            buffer![1000i64, -2000, 3000, -4000, 5000],
-            Validity::AllValid,
-        ))?;
+        let zigzag = zigzag_encode(
+            PrimitiveArray::new(
+                buffer![1000i64, -2000, 3000, -4000, 5000],
+                Validity::AllValid,
+            )
+            .as_view(),
+        )?;
         test_filter_conformance(&zigzag.into_array());
 
         // Test with nullable values
         let array =
             PrimitiveArray::from_option_iter([Some(-10i16), None, Some(20), Some(-30), None]);
-        let zigzag = zigzag_encode(array)?;
+        let zigzag = zigzag_encode(array.as_view())?;
         test_filter_conformance(&zigzag.into_array());
         Ok(())
     }
@@ -162,17 +163,16 @@ mod tests {
         use vortex_array::compute::conformance::mask::test_mask_conformance;
 
         // Test with i32 values
-        let zigzag = zigzag_encode(PrimitiveArray::new(
-            buffer![-100i32, 200, -300, 400, -500],
-            Validity::AllValid,
-        ))?;
+        let zigzag = zigzag_encode(
+            PrimitiveArray::new(buffer![-100i32, 200, -300, 400, -500], Validity::AllValid)
+                .as_view(),
+        )?;
         test_mask_conformance(&zigzag.into_array());
 
         // Test with i8 values
-        let zigzag = zigzag_encode(PrimitiveArray::new(
-            buffer![-127i8, 0, 127, -1, 1],
-            Validity::AllValid,
-        ))?;
+        let zigzag = zigzag_encode(
+            PrimitiveArray::new(buffer![-127i8, 0, 127, -1, 1], Validity::AllValid).as_view(),
+        )?;
         test_mask_conformance(&zigzag.into_array());
         Ok(())
     }
@@ -186,36 +186,36 @@ mod tests {
     fn test_take_zigzag_conformance(#[case] array: ArrayRef) -> VortexResult<()> {
         use vortex_array::compute::conformance::take::test_take_conformance;
 
-        let zigzag = zigzag_encode(array.to_primitive())?;
+        let zigzag = zigzag_encode(array.to_primitive().as_view())?;
         test_take_conformance(&zigzag.into_array());
         Ok(())
     }
 
     #[rstest]
     // Basic ZigZag arrays
-    #[case::zigzag_i8(zigzag_encode(PrimitiveArray::from_iter([-128i8, -1, 0, 1, 127])).unwrap())]
-    #[case::zigzag_i16(zigzag_encode(PrimitiveArray::from_iter([-1000i16, -100, 0, 100, 1000])).unwrap())]
-    #[case::zigzag_i32(zigzag_encode(PrimitiveArray::from_iter([-100000i32, -1000, 0, 1000, 100000])).unwrap())]
-    #[case::zigzag_i64(zigzag_encode(PrimitiveArray::from_iter([-1000000i64, -10000, 0, 10000, 1000000])).unwrap())]
+    #[case::zigzag_i8(zigzag_encode(PrimitiveArray::from_iter([-128i8, -1, 0, 1, 127]).as_view()).unwrap())]
+    #[case::zigzag_i16(zigzag_encode(PrimitiveArray::from_iter([-1000i16, -100, 0, 100, 1000]).as_view()).unwrap())]
+    #[case::zigzag_i32(zigzag_encode(PrimitiveArray::from_iter([-100000i32, -1000, 0, 1000, 100000]).as_view()).unwrap())]
+    #[case::zigzag_i64(zigzag_encode(PrimitiveArray::from_iter([-1000000i64, -10000, 0, 10000, 1000000]).as_view()).unwrap())]
     // Nullable arrays
-    #[case::zigzag_nullable_i32(zigzag_encode(PrimitiveArray::from_option_iter([Some(-100i32), None, Some(0), Some(100), None])).unwrap())]
-    #[case::zigzag_nullable_i64(zigzag_encode(PrimitiveArray::from_option_iter([Some(-1000i64), None, Some(0), Some(1000), None])).unwrap())]
+    #[case::zigzag_nullable_i32(zigzag_encode(PrimitiveArray::from_option_iter([Some(-100i32), None, Some(0), Some(100), None]).as_view()).unwrap())]
+    #[case::zigzag_nullable_i64(zigzag_encode(PrimitiveArray::from_option_iter([Some(-1000i64), None, Some(0), Some(1000), None]).as_view()).unwrap())]
     // Edge cases
-    #[case::zigzag_single(zigzag_encode(PrimitiveArray::from_iter([-42i32])).unwrap())]
-    #[case::zigzag_alternating(zigzag_encode(PrimitiveArray::from_iter([-1i32, 1, -2, 2, -3, 3])).unwrap())]
+    #[case::zigzag_single(zigzag_encode(PrimitiveArray::from_iter([-42i32]).as_view()).unwrap())]
+    #[case::zigzag_alternating(zigzag_encode(PrimitiveArray::from_iter([-1i32, 1, -2, 2, -3, 3]).as_view()).unwrap())]
     // Large arrays
-    #[case::zigzag_large_i32(zigzag_encode(PrimitiveArray::from_iter(-500..500)).unwrap())]
-    #[case::zigzag_large_i64(zigzag_encode(PrimitiveArray::from_iter((-1000..1000).map(|i| i as i64 * 100))).unwrap())]
+    #[case::zigzag_large_i32(zigzag_encode(PrimitiveArray::from_iter(-500..500).as_view()).unwrap())]
+    #[case::zigzag_large_i64(zigzag_encode(PrimitiveArray::from_iter((-1000..1000).map(|i| i as i64 * 100)).as_view()).unwrap())]
     fn test_zigzag_consistency(#[case] array: ZigZagArray) {
         test_array_consistency(&array.into_array());
     }
 
     #[rstest]
-    #[case::zigzag_i8_basic(zigzag_encode(PrimitiveArray::from_iter([-10i8, -5, 0, 5, 10])).unwrap())]
-    #[case::zigzag_i16_basic(zigzag_encode(PrimitiveArray::from_iter([-100i16, -50, 0, 50, 100])).unwrap())]
-    #[case::zigzag_i32_basic(zigzag_encode(PrimitiveArray::from_iter([-1000i32, -500, 0, 500, 1000])).unwrap())]
-    #[case::zigzag_i64_basic(zigzag_encode(PrimitiveArray::from_iter([-10000i64, -5000, 0, 5000, 10000])).unwrap())]
-    #[case::zigzag_i32_large(zigzag_encode(PrimitiveArray::from_iter((-50..50).map(|i| i * 10))).unwrap())]
+    #[case::zigzag_i8_basic(zigzag_encode(PrimitiveArray::from_iter([-10i8, -5, 0, 5, 10]).as_view()).unwrap())]
+    #[case::zigzag_i16_basic(zigzag_encode(PrimitiveArray::from_iter([-100i16, -50, 0, 50, 100]).as_view()).unwrap())]
+    #[case::zigzag_i32_basic(zigzag_encode(PrimitiveArray::from_iter([-1000i32, -500, 0, 500, 1000]).as_view()).unwrap())]
+    #[case::zigzag_i64_basic(zigzag_encode(PrimitiveArray::from_iter([-10000i64, -5000, 0, 5000, 10000]).as_view()).unwrap())]
+    #[case::zigzag_i32_large(zigzag_encode(PrimitiveArray::from_iter((-50..50).map(|i| i * 10)).as_view()).unwrap())]
     fn test_zigzag_binary_numeric(#[case] array: ZigZagArray) {
         test_binary_numeric_array(array.into_array());
     }

@@ -386,7 +386,7 @@ pub struct vortex_alp::RDEncoder
 
 impl vortex_alp::RDEncoder
 
-pub fn vortex_alp::RDEncoder::encode(&self, array: &vortex_array::arrays::primitive::vtable::PrimitiveArray) -> vortex_alp::ALPRDArray
+pub fn vortex_alp::RDEncoder::encode(&self, array: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>) -> vortex_alp::ALPRDArray
 
 pub fn vortex_alp::RDEncoder::from_parts(right_bit_width: u8, codes: alloc::vec::Vec<u16>) -> Self
 
@@ -642,7 +642,7 @@ pub fn f64::to_bits(value: Self) -> Self::UINT
 
 pub fn f64::to_u16(bits: Self::UINT) -> u16
 
-pub fn vortex_alp::alp_encode(parray: &vortex_array::arrays::primitive::vtable::PrimitiveArray, exponents: core::option::Option<vortex_alp::Exponents>) -> vortex_error::VortexResult<vortex_alp::ALPArray>
+pub fn vortex_alp::alp_encode(parray: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>, exponents: core::option::Option<vortex_alp::Exponents>) -> vortex_error::VortexResult<vortex_alp::ALPArray>
 
 pub fn vortex_alp::alp_rd_decode<T: vortex_alp::ALPRDFloat>(left_parts: vortex_buffer::buffer_mut::BufferMut<u16>, left_parts_dict: &[u16], right_bit_width: u8, right_parts: vortex_buffer::buffer_mut::BufferMut<<T as vortex_alp::ALPRDFloat>::UINT>, left_parts_patches: core::option::Option<vortex_array::patches::Patches>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_buffer::buffer::Buffer<T>>
 

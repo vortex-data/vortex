@@ -318,7 +318,6 @@ impl VTable for Patched {
 }
 
 /// Apply patches on top of the existing value types.
-#[allow(clippy::too_many_arguments)]
 fn apply_patches_primitive<V: NativePType>(
     output: &mut [V],
     offset: usize,
