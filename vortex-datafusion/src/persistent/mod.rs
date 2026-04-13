@@ -7,7 +7,7 @@ mod cache;
 mod format;
 pub mod metrics;
 mod opener;
-mod reader;
+pub mod reader;
 mod sink;
 mod source;
 mod stream;
@@ -20,6 +20,8 @@ pub use source::VortexSource;
 
 #[cfg(test)]
 mod tests {
+
+    use std::sync::Arc;
 
     use datafusion::arrow::util::pretty::pretty_format_batches;
     use datafusion_physical_plan::display::DisplayableExecutionPlan;
@@ -65,11 +67,12 @@ mod tests {
             Validity::NonNullable,
         )?;
 
-        let mut writer = ObjectStoreWrite::new(ctx.store.clone(), &"test.vortex".into()).await?;
+        let mut writer =
+            ObjectStoreWrite::new(Arc::clone(&ctx.store), &"test.vortex".into()).await?;
 
         let summary = session
             .write_options()
-            .write(&mut writer, st.to_array_stream())
+            .write(&mut writer, st.into_array().to_array_stream())
             .await?;
 
         writer.shutdown().await?;

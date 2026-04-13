@@ -2,17 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::ALPRDArrayExt;
 use crate::alp_rd::ALPRD;
-use crate::alp_rd::ALPRDArray;
 
 impl CastReduce for ALPRD {
-    fn cast(array: &ALPRDArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // ALPRDArray stores floating-point values, so only cast between float types
         // or if just changing nullability
 
@@ -28,13 +29,13 @@ impl CastReduce for ALPRD {
             )?;
 
             return Ok(Some(
-                ALPRDArray::try_new(
+                ALPRD::try_new(
                     dtype.clone(),
                     new_left_parts,
                     array.left_parts_dictionary().clone(),
                     array.right_parts().clone(),
                     array.right_bit_width(),
-                    array.left_parts_patches().cloned(),
+                    array.left_parts_patches(),
                 )?
                 .into_array(),
             ));
@@ -64,7 +65,7 @@ mod tests {
         let values = vec![1.0f32, 1.1, 1.2, 1.3, 1.4];
         let arr = PrimitiveArray::from_iter(values.clone());
         let encoder = RDEncoder::new(&values);
-        let alprd = encoder.encode(&arr);
+        let alprd = encoder.encode(arr.as_view());
 
         let casted = alprd
             .into_array()
@@ -88,7 +89,7 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(10.0f64), None, Some(10.1), Some(10.2), None]);
         let values = vec![10.0f64, 10.1, 10.2];
         let encoder = RDEncoder::new(&values);
-        let alprd = encoder.encode(&arr);
+        let alprd = encoder.encode(arr.as_view());
 
         // Cast to NonNullable should fail since we have nulls
         let result = alprd
@@ -113,31 +114,31 @@ mod tests {
         let values = vec![1.23f32, 4.56, 7.89, 10.11, 12.13];
         let arr = PrimitiveArray::from_iter(values.clone());
         let encoder = RDEncoder::new(&values);
-        encoder.encode(&arr)
+        encoder.encode(arr.as_view())
     })]
     #[case::f64({
         let values = vec![100.1f64, 200.2, 300.3, 400.4, 500.5];
         let arr = PrimitiveArray::from_iter(values.clone());
         let encoder = RDEncoder::new(&values);
-        encoder.encode(&arr)
+        encoder.encode(arr.as_view())
     })]
     #[case::single({
         let values = vec![42.42f64];
         let arr = PrimitiveArray::from_iter(values.clone());
         let encoder = RDEncoder::new(&values);
-        encoder.encode(&arr)
+        encoder.encode(arr.as_view())
     })]
     #[case::negative({
         let values = vec![0.0f32, -1.5, 2.5, -3.5, 4.5];
         let arr = PrimitiveArray::from_iter(values.clone());
         let encoder = RDEncoder::new(&values);
-        encoder.encode(&arr)
+        encoder.encode(arr.as_view())
     })]
     #[case::nullable({
         let arr = PrimitiveArray::from_option_iter([Some(1.1f32), None, Some(2.2), Some(3.3), None]);
         let values = vec![1.1f32, 2.2, 3.3];
         let encoder = RDEncoder::new(&values);
-        encoder.encode(&arr)
+        encoder.encode(arr.as_view())
     })]
     fn test_cast_alprd_conformance(#[case] alprd: crate::alp_rd::ALPRDArray) {
         test_cast_conformance(&alprd.into_array());

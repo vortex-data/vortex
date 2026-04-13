@@ -24,6 +24,7 @@ use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ScalarFnVTable;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
+use vortex::array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex::array::optimizer::ArrayOptimizer;
 use vortex::dtype::DType;
 use vortex::dtype::FieldNames;
@@ -41,8 +42,8 @@ use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::ThreadSafeIterator;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::scalar_fn::fns::pack::Pack;
-use vortex::scan::api::DataSourceRef;
-use vortex::scan::api::ScanRequest;
+use vortex::scan::DataSourceRef;
+use vortex::scan::ScanRequest;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::RUNTIME;
@@ -110,7 +111,7 @@ pub struct DataSourceBindData {
 impl Clone for DataSourceBindData {
     fn clone(&self) -> Self {
         Self {
-            data_source: self.data_source.clone(),
+            data_source: Arc::clone(&self.data_source),
             // filter_exprs are consumed once in `init_global`.
             filter_exprs: vec![],
             column_names: self.column_names.clone(),
@@ -264,7 +265,11 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                         }
                     };
                     while let Some(item) = stream.next().await {
-                        if tx.send(item.map(|a| (a, cache.clone()))).await.is_err() {
+                        if tx
+                            .send(item.map(|a| (a, Arc::clone(&cache))))
+                            .await
+                            .is_err()
+                        {
                             // Exit early if the receiver has been dropped, which happens when the
                             // scan is complete or if an error has occurred in another partition.
                             return;
@@ -329,8 +334,9 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                 let (array_result, conversion_cache) = result?;
                 let array_result = array_result.optimize_recursive()?;
 
-                let array_result = if let Some(array) = array_result.as_opt::<Struct>() {
-                    array.clone()
+                let array_result: StructArray = if let Some(array) = array_result.as_opt::<Struct>()
+                {
+                    array.into_owned()
                 } else if let Some(array) = array_result.as_opt::<ScalarFnVTable>()
                     && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
                 {
@@ -478,7 +484,7 @@ fn extract_projection_expr(
     };
 
     // duckdb index is u64 (size_t) but in Rust u64 and usize are different things.
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     let names = projection_ids
         .iter()
         .filter(|p| **p != EMPTY_COLUMN_IDX)
@@ -487,7 +493,7 @@ fn extract_projection_expr(
                 idx = &column_ids[*idx as usize];
             }
 
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_possible_truncation)]
             column_names
                 .get(*idx as usize)
                 .vortex_expect("prune idx in column names")

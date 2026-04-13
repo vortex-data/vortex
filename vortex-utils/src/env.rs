@@ -166,7 +166,7 @@ mod tests {
 
         let key = "VORTEX_TEST_ENV_VAR_WAIT";
         let second_acquired = Arc::new(AtomicBool::new(false));
-        let second_acquired_clone = second_acquired.clone();
+        let second_acquired_clone = Arc::clone(&second_acquired);
 
         // First guard in main thread
         let _guard1 = EnvVarGuard::set(key, "first");

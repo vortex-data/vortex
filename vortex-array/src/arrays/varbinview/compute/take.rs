@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::iter;
+use std::sync::Arc;
 
 use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
@@ -11,6 +12,7 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
@@ -19,17 +21,16 @@ use crate::arrays::varbinview::BinaryView;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
-use crate::vtable::ValidityHelper;
 
 impl TakeExecute for VarBinView {
     /// Take involves creating a new array that references the old array, just with the given set of views.
     fn take(
-        array: &VarBinViewArray,
+        array: ArrayView<'_, VarBinView>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let validity = array.validity().take(indices)?;
-        let indices = indices.to_array().execute::<PrimitiveArray>(ctx)?;
+        let validity = array.validity()?.take(indices)?;
+        let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
 
         let indices_mask = indices.validity_mask()?;
         let views_buffer = match_each_integer_ptype!(indices.ptype(), |I| {
@@ -41,7 +42,7 @@ impl TakeExecute for VarBinView {
             Ok(Some(
                 VarBinViewArray::new_handle_unchecked(
                     BufferHandle::new_host(views_buffer.into_byte_buffer()),
-                    array.buffers().clone(),
+                    Arc::clone(array.data_buffers()),
                     array
                         .dtype()
                         .union_nullability(indices.dtype().nullability()),
@@ -89,7 +90,6 @@ mod tests {
 
     use crate::IntoArray;
     use crate::accessor::ArrayAccessor;
-    use crate::array::DynArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::varbinview::compute::take::PrimitiveArray;
     use crate::canonical::ToCanonical;

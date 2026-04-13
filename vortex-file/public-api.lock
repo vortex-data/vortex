@@ -6,13 +6,11 @@ pub struct vortex_file::multi::MultiFileDataSource
 
 impl vortex_file::multi::MultiFileDataSource
 
-pub async fn vortex_file::multi::MultiFileDataSource::build(self) -> vortex_error::VortexResult<impl vortex_scan::api::DataSource>
+pub async fn vortex_file::multi::MultiFileDataSource::build(self) -> vortex_error::VortexResult<impl vortex_scan::DataSource>
 
 pub fn vortex_file::multi::MultiFileDataSource::new(session: vortex_session::VortexSession) -> Self
 
-pub fn vortex_file::multi::MultiFileDataSource::with_filesystem(self, fs: vortex_io::filesystem::FileSystemRef) -> Self
-
-pub fn vortex_file::multi::MultiFileDataSource::with_glob(self, glob: impl core::convert::Into<alloc::string::String>) -> Self
+pub fn vortex_file::multi::MultiFileDataSource::with_glob(self, glob: impl core::convert::Into<alloc::string::String>, fs: core::option::Option<vortex_io::filesystem::FileSystemRef>) -> Self
 
 pub fn vortex_file::multi::MultiFileDataSource::with_open_options(self, f: impl core::ops::function::Fn(vortex_file::VortexOpenOptions) -> vortex_file::VortexOpenOptions + core::marker::Send + core::marker::Sync + 'static) -> Self
 
@@ -126,7 +124,7 @@ pub fn vortex_file::BlockingWriter<'_, '_, B>::bytes_written(&self) -> u64
 
 pub fn vortex_file::BlockingWriter<'_, '_, B>::finish(self) -> vortex_error::VortexResult<vortex_file::WriteSummary>
 
-pub fn vortex_file::BlockingWriter<'_, '_, B>::push(&mut self, chunk: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<()>
+pub fn vortex_file::BlockingWriter<'_, '_, B>::push(&mut self, chunk: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<()>
 
 pub struct vortex_file::FileStatistics
 
@@ -264,7 +262,7 @@ impl vortex_file::VortexFile
 
 pub fn vortex_file::VortexFile::can_prune(&self, filter: &vortex_array::expr::expression::Expression) -> vortex_error::VortexResult<bool>
 
-pub fn vortex_file::VortexFile::data_source(&self) -> vortex_error::VortexResult<vortex_scan::api::DataSourceRef>
+pub fn vortex_file::VortexFile::data_source(&self) -> vortex_error::VortexResult<vortex_scan::DataSourceRef>
 
 pub fn vortex_file::VortexFile::dtype(&self) -> &vortex_array::dtype::DType
 
@@ -276,7 +274,7 @@ pub fn vortex_file::VortexFile::layout_reader(&self) -> vortex_error::VortexResu
 
 pub fn vortex_file::VortexFile::row_count(&self) -> u64
 
-pub fn vortex_file::VortexFile::scan(&self) -> vortex_error::VortexResult<vortex_scan::scan_builder::ScanBuilder<vortex_array::array::ArrayRef>>
+pub fn vortex_file::VortexFile::scan(&self) -> vortex_error::VortexResult<vortex_layout::scan::scan_builder::ScanBuilder<vortex_array::array::erased::ArrayRef>>
 
 pub fn vortex_file::VortexFile::segment_source(&self) -> alloc::sync::Arc<dyn vortex_layout::segments::source::SegmentSource>
 
@@ -344,13 +342,11 @@ impl vortex_file::WriteStrategyBuilder
 
 pub fn vortex_file::WriteStrategyBuilder::build(self) -> alloc::sync::Arc<dyn vortex_layout::strategy::LayoutStrategy>
 
-pub fn vortex_file::WriteStrategyBuilder::with_allow_encodings(self, allow_encodings: vortex_array::session::ArrayRegistry) -> Self
+pub fn vortex_file::WriteStrategyBuilder::with_allow_encodings(self, allow_encodings: vortex_utils::aliases::hash_set::HashSet<vortex_array::array::ArrayId>) -> Self
 
-pub fn vortex_file::WriteStrategyBuilder::with_compact_encodings(self) -> Self
+pub fn vortex_file::WriteStrategyBuilder::with_btrblocks_builder(self, builder: vortex_btrblocks::builder::BtrBlocksCompressorBuilder) -> Self
 
 pub fn vortex_file::WriteStrategyBuilder::with_compressor<C: vortex_layout::layouts::compressed::CompressorPlugin>(self, compressor: C) -> Self
-
-pub fn vortex_file::WriteStrategyBuilder::with_cuda_compatible_encodings(self) -> Self
 
 pub fn vortex_file::WriteStrategyBuilder::with_field_writer(self, field: impl core::convert::Into<vortex_array::dtype::field::FieldPath>, writer: alloc::sync::Arc<dyn vortex_layout::strategy::LayoutStrategy>) -> Self
 
@@ -382,7 +378,7 @@ pub fn vortex_file::Writer<'_>::bytes_written(&self) -> u64
 
 pub async fn vortex_file::Writer<'_>::finish(self) -> vortex_error::VortexResult<vortex_file::WriteSummary>
 
-pub async fn vortex_file::Writer<'_>::push(&mut self, chunk: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<()>
+pub async fn vortex_file::Writer<'_>::push(&mut self, chunk: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<()>
 
 pub async fn vortex_file::Writer<'_>::push_stream(&mut self, stream: vortex_array::stream::SendableArrayStream) -> vortex_error::VortexResult<()>
 
@@ -398,13 +394,13 @@ pub const vortex_file::VERSION: u16
 
 pub const vortex_file::VORTEX_FILE_EXTENSION: &str
 
-pub static vortex_file::ALLOWED_ENCODINGS: std::sync::lazy_lock::LazyLock<vortex_array::session::ArrayRegistry>
+pub static vortex_file::ALLOWED_ENCODINGS: std::sync::lazy_lock::LazyLock<vortex_utils::aliases::hash_set::HashSet<vortex_array::array::ArrayId>>
 
-pub trait vortex_file::OpenOptionsSessionExt: vortex_array::session::ArraySessionExt + vortex_layout::session::LayoutSessionExt + vortex_io::session::RuntimeSessionExt
+pub trait vortex_file::OpenOptionsSessionExt: vortex_array::session::ArraySessionExt + vortex_layout::session::LayoutSessionExt + vortex_io::session::RuntimeSessionExt + vortex_array::memory::MemorySessionExt
 
 pub fn vortex_file::OpenOptionsSessionExt::open_options(&self) -> vortex_file::VortexOpenOptions
 
-impl<S: vortex_array::session::ArraySessionExt + vortex_layout::session::LayoutSessionExt + vortex_io::session::RuntimeSessionExt> vortex_file::OpenOptionsSessionExt for S
+impl<S: vortex_array::session::ArraySessionExt + vortex_layout::session::LayoutSessionExt + vortex_io::session::RuntimeSessionExt + vortex_array::memory::MemorySessionExt> vortex_file::OpenOptionsSessionExt for S
 
 pub fn S::open_options(&self) -> vortex_file::VortexOpenOptions
 
@@ -416,4 +412,4 @@ impl<S: vortex_session::SessionExt> vortex_file::WriteOptionsSessionExt for S
 
 pub fn S::write_options(&self) -> vortex_file::VortexWriteOptions
 
-pub fn vortex_file::register_default_encodings(session: &mut vortex_session::VortexSession)
+pub fn vortex_file::register_default_encodings(session: &vortex_session::VortexSession)

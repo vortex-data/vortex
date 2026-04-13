@@ -9,7 +9,6 @@
 //! Run with: cargo run --example compression_showcase
 
 use vortex::array::ArrayRef;
-use vortex::array::DynArray;
 use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
@@ -147,7 +146,7 @@ fn compress_float_data() -> Result<(), Box<dyn std::error::Error>> {
     println!("    Uncompressed size: ~{} bytes", uncompressed_size);
 
     let compressor = BtrBlocksCompressor::default();
-    let compressed = compressor.compress(&array.to_array())?;
+    let compressed = compressor.compress(&array)?;
 
     let compressed_size = compressed.nbytes();
     let ratio = uncompressed_size as f64 / compressed_size as f64;
@@ -237,7 +236,7 @@ fn compress_structured_data() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Estimate the size of an array in bytes (approximation)
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn estimate_size(array: &ArrayRef) -> usize {
     array.nbytes() as usize
 }

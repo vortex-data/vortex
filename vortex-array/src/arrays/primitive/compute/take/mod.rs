@@ -4,9 +4,6 @@
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 mod avx2;
 
-#[cfg(vortex_nightly)]
-mod portable;
-
 use std::sync::LazyLock;
 
 use vortex_buffer::Buffer;
@@ -15,8 +12,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
@@ -28,47 +25,41 @@ use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 // Kernel selection happens on the first call to `take` and uses a combination of compile-time
 // and runtime feature detection to infer the best kernel for the platform.
 static PRIMITIVE_TAKE_KERNEL: LazyLock<&'static dyn TakeImpl> = LazyLock::new(|| {
-    cfg_if::cfg_if! {
-        if #[cfg(vortex_nightly)] {
-            // nightly codepath: use portable_simd kernel
-            &portable::TakeKernelPortableSimd
-        } else if #[cfg(target_arch = "x86_64")] {
-            // stable x86_64 path: use the optimized AVX2 kernel when available, falling
-            // back to scalar when not.
-            if is_x86_feature_detected!("avx2") {
-                &avx2::TakeKernelAVX2
-            } else {
-                &TakeKernelScalar
-            }
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    {
+        if is_x86_feature_detected!("avx2") {
+            &avx2::TakeKernelAVX2
         } else {
-            // stable all other platforms: scalar kernel
             &TakeKernelScalar
         }
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "x86")))]
+    {
+        &TakeKernelScalar
     }
 });
 
 trait TakeImpl: Send + Sync {
     fn take(
         &self,
-        array: &PrimitiveArray,
-        indices: &PrimitiveArray,
+        array: ArrayView<'_, Primitive>,
+        indices: ArrayView<'_, Primitive>,
         validity: Validity,
     ) -> VortexResult<ArrayRef>;
 }
 
-#[allow(unused)]
 struct TakeKernelScalar;
 
 impl TakeImpl for TakeKernelScalar {
     fn take(
         &self,
-        array: &PrimitiveArray,
-        indices: &PrimitiveArray,
+        array: ArrayView<'_, Primitive>,
+        indices: ArrayView<'_, Primitive>,
         validity: Validity,
     ) -> VortexResult<ArrayRef> {
         match_each_native_ptype!(array.ptype(), |T| {
@@ -82,7 +73,7 @@ impl TakeImpl for TakeKernelScalar {
 
 impl TakeExecute for Primitive {
     fn take(
-        array: &PrimitiveArray,
+        array: ArrayView<'_, Primitive>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -91,27 +82,29 @@ impl TakeExecute for Primitive {
         };
 
         let unsigned_indices = if ptype.is_unsigned_int() {
-            indices.to_array().execute::<PrimitiveArray>(ctx)?
+            indices.clone().execute::<PrimitiveArray>(ctx)?
         } else {
             // This will fail if all values cannot be converted to unsigned
             indices
-                .to_array()
+                .clone()
                 .cast(DType::Primitive(ptype.to_unsigned(), *null))?
                 .execute::<PrimitiveArray>(ctx)?
         };
 
         let validity = array
-            .validity()
+            .validity()?
             .take(&unsigned_indices.clone().into_array())?;
         // Delegate to the best kernel based on the target CPU
-        PRIMITIVE_TAKE_KERNEL
-            .take(array, &unsigned_indices, validity)
-            .map(Some)
+        {
+            let unsigned_indices = unsigned_indices.as_view();
+            PRIMITIVE_TAKE_KERNEL
+                .take(array, unsigned_indices, validity)
+                .map(Some)
+        }
     }
 }
 
 // Compiler may see this as unused based on enabled features
-#[allow(unused)]
 #[inline(always)]
 fn take_primitive_scalar<T: NativePType, I: IntegerPType>(
     buffer: &[T],
@@ -142,7 +135,6 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
 
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;

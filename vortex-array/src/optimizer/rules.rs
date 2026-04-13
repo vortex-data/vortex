@@ -1,17 +1,38 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Metadata-only rewrite rules for the optimizer (Layers 1 and 2 of the execution model).
+//!
+//! Reduce rules are the cheapest transformations in the execution pipeline: they operate
+//! purely on array structure and metadata without reading any data buffers.
+//!
+//! There are two kinds of reduce rules:
+//!
+//! - [`ArrayReduceRule`] (Layer 1) -- a self-rewrite where an array simplifies itself.
+//!   Example: a `FilterArray` with an all-true mask removes the filter wrapper.
+//!
+//! - [`ArrayParentReduceRule`] (Layer 2) -- a child-driven rewrite where a child rewrites
+//!   its parent. Example: a `DictArray` child of a `ScalarFnArray` pushes the scalar function
+//!   into the dictionary values.
+//!
+//! Rules are collected into [`ReduceRuleSet`] and [`ParentRuleSet`] respectively, and
+//! evaluated by the optimizer in a fixpoint loop until no more rules apply.
+
 use std::any::type_name;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
 use vortex_error::VortexResult;
 
-use crate::array::ArrayRef;
+use crate::ArrayRef;
+use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::matcher::Matcher;
-use crate::vtable::VTable;
 
-/// A rewrite rule that transforms arrays based on their own content
+/// A metadata-only rewrite rule that transforms an array based on its own structure (Layer 1).
+///
+/// These rules look only at the array's metadata and children types (not buffer contents)
+/// and return a structurally simpler replacement, or `None` if the rule doesn't apply.
 pub trait ArrayReduceRule<V: VTable>: Debug + Send + Sync + 'static {
     /// Attempt to rewrite this array.
     ///
@@ -19,11 +40,16 @@ pub trait ArrayReduceRule<V: VTable>: Debug + Send + Sync + 'static {
     /// - `Ok(Some(new_array))` if the rule applied successfully
     /// - `Ok(None)` if the rule doesn't apply
     /// - `Err(e)` if an error occurred
-    fn reduce(&self, array: &V::Array) -> VortexResult<Option<ArrayRef>>;
+    fn reduce(&self, array: ArrayView<'_, V>) -> VortexResult<Option<ArrayRef>>;
 }
 
-/// A rewrite rule that transforms arrays based on parent context
+/// A metadata-only rewrite rule where a child encoding rewrites its parent (Layer 2).
+///
+/// The child sees the parent's type via the associated `Parent` [`Matcher`] and can return
+/// a replacement for the parent. This enables optimizations like pushing operations through
+/// compression layers (e.g., pushing a scalar function into dictionary values).
 pub trait ArrayParentReduceRule<V: VTable>: Debug + Send + Sync + 'static {
+    /// The parent array type this rule matches against.
     type Parent: Matcher;
 
     /// Attempt to rewrite this child array given information about its parent.
@@ -34,25 +60,27 @@ pub trait ArrayParentReduceRule<V: VTable>: Debug + Send + Sync + 'static {
     /// - `Err(e)` if an error occurred
     fn reduce_parent(
         &self,
-        array: &V::Array,
+        array: ArrayView<'_, V>,
         parent: <Self::Parent as Matcher>::Match<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-/// Dynamic trait for array parent reduce rules
+/// Type-erased version of [`ArrayParentReduceRule`] used for dynamic dispatch within
+/// [`ParentRuleSet`].
 pub trait DynArrayParentReduceRule<V: VTable>: Debug + Send + Sync {
     fn matches(&self, parent: &ArrayRef) -> bool;
 
     fn reduce_parent(
         &self,
-        array: &V::Array,
+        array: ArrayView<'_, V>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-/// Adapter for ArrayParentReduceRule
+/// Bridges a concrete [`ArrayParentReduceRule<V, R>`] to the type-erased
+/// [`DynArrayParentReduceRule<V>`] trait. Created by [`ParentRuleSet::lift`].
 pub struct ParentReduceRuleAdapter<V, R> {
     rule: R,
     _phantom: PhantomData<V>,
@@ -76,7 +104,7 @@ impl<V: VTable, K: ArrayParentReduceRule<V>> DynArrayParentReduceRule<V>
 
     fn reduce_parent(
         &self,
-        child: &V::Array,
+        child: ArrayView<'_, V>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -87,6 +115,10 @@ impl<V: VTable, K: ArrayParentReduceRule<V>> DynArrayParentReduceRule<V>
     }
 }
 
+/// A collection of [`ArrayReduceRule`]s registered for a specific encoding.
+///
+/// During optimization, the optimizer calls [`evaluate`](Self::evaluate) which tries each rule
+/// in order. The first rule that returns `Some` wins.
 pub struct ReduceRuleSet<V: VTable> {
     rules: &'static [&'static dyn ArrayReduceRule<V>],
 }
@@ -98,7 +130,7 @@ impl<V: VTable> ReduceRuleSet<V> {
     }
 
     /// Evaluate the reduction rules on the given array.
-    pub fn evaluate(&self, array: &V::Array) -> VortexResult<Option<ArrayRef>> {
+    pub fn evaluate(&self, array: ArrayView<'_, V>) -> VortexResult<Option<ArrayRef>> {
         for rule in self.rules.iter() {
             if let Some(reduced) = rule.reduce(array)? {
                 return Ok(Some(reduced));
@@ -138,7 +170,7 @@ impl<V: VTable> ParentRuleSet<V> {
     /// Evaluate the parent reduction rules on the given child and parent arrays.
     pub fn evaluate(
         &self,
-        child: &V::Array,
+        child: ArrayView<'_, V>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {

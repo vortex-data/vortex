@@ -10,7 +10,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
@@ -34,17 +33,17 @@ impl Datum {
             })
         } else {
             Ok(Self {
-                array: array.to_array().into_arrow_preferred()?,
+                array: array.clone().into_arrow_preferred()?,
                 is_scalar: false,
             })
         }
     }
 
-    /// Create a new [`Datum`] from an [`DynArray`], which can then be passed to Arrow compute.
+    /// Create a new [`Datum`] from an `DynArray`, which can then be passed to Arrow compute.
     /// This not try and convert the array to a scalar if it is constant.
     pub fn try_new_array(array: &ArrayRef) -> VortexResult<Self> {
         Ok(Self {
-            array: array.to_array().into_arrow_preferred()?,
+            array: array.clone().into_arrow_preferred()?,
             is_scalar: false,
         })
     }
@@ -60,7 +59,7 @@ impl Datum {
             })
         } else {
             Ok(Self {
-                array: array.to_array().into_arrow(target_datatype)?,
+                array: array.clone().into_arrow(target_datatype)?,
                 is_scalar: false,
             })
         }

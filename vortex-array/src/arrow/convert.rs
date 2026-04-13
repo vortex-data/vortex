@@ -275,12 +275,15 @@ where
             DataType::Utf8 | DataType::LargeUtf8 => DType::Utf8(nullable.into()),
             dt => vortex_panic!("Invalid data type for ByteArray: {dt}"),
         };
-        Ok(VarBinArray::try_new(
-            value.offsets().clone().into_array(),
-            ByteBuffer::from_arrow_buffer(value.values().clone(), Alignment::of::<u8>()),
-            dtype,
-            nulls(value.nulls(), nullable),
-        )?
+        // SAFETY: Arrow arrays are already validated (valid UTF-8, valid offsets, correct validity).
+        Ok(unsafe {
+            VarBinArray::new_unchecked(
+                value.offsets().clone().into_array(),
+                ByteBuffer::from_arrow_buffer(value.values().clone(), Alignment::of::<u8>()),
+                dtype,
+                nulls(value.nulls(), nullable),
+            )
+        }
         .into_array())
     }
 }
@@ -688,6 +691,10 @@ mod tests {
     use crate::arrays::Struct;
     use crate::arrays::VarBin;
     use crate::arrays::VarBinView;
+    use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
+    use crate::arrays::list::ListArrayExt;
+    use crate::arrays::listview::ListViewArrayExt;
+    use crate::arrays::struct_::StructArrayExt;
     use crate::arrow::FromArrowArray as _;
     use crate::arrow::convert::TemporalArray;
     use crate::dtype::DType;
@@ -1005,14 +1012,13 @@ mod tests {
         assert_eq!(vortex_array_non_null.len(), 4);
 
         // Verify metadata - should be TemporalArray with Second time unit
-        let temporal_array = TemporalArray::try_from(vortex_array.clone()).unwrap();
+        let temporal_array = TemporalArray::try_from(vortex_array).unwrap();
         assert_eq!(
             temporal_array.temporal_metadata().time_unit(),
             TimeUnit::Seconds
         );
 
-        let temporal_array_non_null =
-            TemporalArray::try_from(vortex_array_non_null.clone()).unwrap();
+        let temporal_array_non_null = TemporalArray::try_from(vortex_array_non_null).unwrap();
         assert_eq!(
             temporal_array_non_null.temporal_metadata().time_unit(),
             TimeUnit::Seconds
@@ -1109,14 +1115,13 @@ mod tests {
         assert_eq!(vortex_array_non_null.len(), 4);
 
         // Verify metadata - should be TemporalArray with Second time unit
-        let temporal_array = TemporalArray::try_from(vortex_array.clone()).unwrap();
+        let temporal_array = TemporalArray::try_from(vortex_array).unwrap();
         assert_eq!(
             temporal_array.temporal_metadata().time_unit(),
             TimeUnit::Seconds
         );
 
-        let temporal_array_non_null =
-            TemporalArray::try_from(vortex_array_non_null.clone()).unwrap();
+        let temporal_array_non_null = TemporalArray::try_from(vortex_array_non_null).unwrap();
         assert_eq!(
             temporal_array_non_null.temporal_metadata().time_unit(),
             TimeUnit::Seconds
@@ -1297,14 +1302,14 @@ mod tests {
         // Verify metadata - should be VarBinViewArray with correct buffer count and dtype
         let varbin_view_array = vortex_array.as_::<VarBinView>();
         assert_eq!(
-            varbin_view_array.buffers().len(),
+            varbin_view_array.data_buffers().len(),
             arrow_array.data_buffers().len()
         );
         assert_eq!(varbin_view_array.dtype(), &DType::Utf8(true.into()));
 
         let varbin_view_array_non_null = vortex_array_non_null.as_::<VarBinView>();
         assert_eq!(
-            varbin_view_array_non_null.buffers().len(),
+            varbin_view_array_non_null.data_buffers().len(),
             arrow_array_non_null.data_buffers().len()
         );
         assert_eq!(
@@ -1337,14 +1342,14 @@ mod tests {
         // Verify metadata - should be VarBinViewArray with correct buffer count and dtype
         let varbin_view_array = vortex_array.as_::<VarBinView>();
         assert_eq!(
-            varbin_view_array.buffers().len(),
+            varbin_view_array.data_buffers().len(),
             arrow_array.data_buffers().len()
         );
         assert_eq!(varbin_view_array.dtype(), &DType::Binary(true.into()));
 
         let varbin_view_array_non_null = vortex_array_non_null.as_::<VarBinView>();
         assert_eq!(
-            varbin_view_array_non_null.buffers().len(),
+            varbin_view_array_non_null.data_buffers().len(),
             arrow_array_non_null.data_buffers().len()
         );
         assert_eq!(
@@ -1503,7 +1508,8 @@ mod tests {
         // Create a FixedSizeListArray with list_size=3
         let field = Arc::new(Field::new("item", DataType::Int32, true));
         let arrow_array =
-            ArrowFixedSizeListArray::try_new(field.clone(), 3, Arc::new(values), None).unwrap();
+            ArrowFixedSizeListArray::try_new(Arc::clone(&field), 3, Arc::new(values), None)
+                .unwrap();
         let vortex_array = ArrayRef::from_arrow(&arrow_array, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
@@ -1569,7 +1575,7 @@ mod tests {
 
         let field = Arc::new(Field::new("item", DataType::Int32, true));
         let arrow_array = GenericListViewArray::try_new(
-            field.clone(),
+            Arc::clone(&field),
             offsets.clone(),
             sizes.clone(),
             Arc::new(values.clone()),
@@ -1595,7 +1601,7 @@ mod tests {
             arrow_buffer::NullBuffer::new(BooleanBuffer::from(vec![true, false, true, true]));
 
         let arrow_array_nullable = GenericListViewArray::try_new(
-            field.clone(),
+            Arc::clone(&field),
             offsets,
             sizes,
             Arc::new(values.clone()),

@@ -8,7 +8,6 @@ use vortex_error::vortex_err;
 use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Columnar;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnRef;
@@ -99,6 +98,11 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             self.dtype,
             batch.dtype()
         );
+
+        // Allow the vtable to short-circuit on the raw array before decompression.
+        if self.vtable.try_accumulate(&mut self.partial, batch, ctx)? {
+            return Ok(());
+        }
 
         let session = ctx.session().clone();
         let kernels = &session.aggregate_fns().kernels;

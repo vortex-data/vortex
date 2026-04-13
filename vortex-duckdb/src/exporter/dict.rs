@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::marker::PhantomData;
-use std::sync::Arc;
 
 use num_traits::AsPrimitive;
 use vortex::array::Canonical;
@@ -12,12 +11,12 @@ use vortex::array::arrays::Constant;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::dict::DictArraySlotsExt;
 use vortex::array::match_each_integer_ptype;
 use vortex::dtype::IntegerPType;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
-use crate::duckdb::LogicalType;
 use crate::duckdb::ReusableDict;
 use crate::duckdb::SelectionVector;
 use crate::duckdb::VectorRef;
@@ -43,7 +42,6 @@ pub(crate) fn new_exporter_with_flatten(
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     // Grab the cache dictionary values.
     let values = array.values();
-    let values_type: LogicalType = values.dtype().try_into()?;
     if let Some(constant) = values.as_opt::<Constant>() {
         return constant::new_exporter_with_mask(
             ConstantArray::new(constant.scalar().clone(), array.codes().len()),
@@ -57,7 +55,7 @@ pub(crate) fn new_exporter_with_flatten(
 
     match codes_mask {
         Mask::AllTrue(_) => {}
-        Mask::AllFalse(len) => return Ok(all_invalid::new_exporter(len, &values_type)),
+        Mask::AllFalse(_) => return Ok(all_invalid::new_exporter()),
         Mask::Values(_) => {
             // duckdb cannot have a dictionary with validity in the codes, so flatten the array and
             // apply the validity mask there.
@@ -65,7 +63,7 @@ pub(crate) fn new_exporter_with_flatten(
         }
     }
 
-    let values_key = Arc::as_ptr(values).addr();
+    let values_key = values.addr();
     let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
 
     let reusable_dict = if flatten {
@@ -158,13 +156,13 @@ mod tests {
     use vortex::VortexSessionDefault;
     use vortex::array::ExecutionCtx;
     use vortex::array::IntoArray;
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::ConstantArray;
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::buffer::Buffer;
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
-    use vortex_array::VortexSessionExecute;
 
     use crate::SESSION;
     use crate::cpp;

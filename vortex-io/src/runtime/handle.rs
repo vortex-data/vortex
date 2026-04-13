@@ -88,7 +88,7 @@ impl Handle {
         Fut: Future<Output = R> + Send + 'static,
         R: Send + 'static,
     {
-        self.spawn(f(Handle::new(self.runtime.clone())))
+        self.spawn(f(Handle::new(Weak::clone(&self.runtime))))
     }
 
     /// Spawn a CPU-bound task for execution on the runtime.
@@ -165,7 +165,7 @@ impl<T> Task<T> {
 impl<T> Future for Task<T> {
     type Output = T;
 
-    #[allow(clippy::panic)]
+    #[expect(clippy::panic)]
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match ready!(self.recv.poll_unpin(cx)) {
             Ok(result) => Poll::Ready(result),

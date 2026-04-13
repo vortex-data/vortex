@@ -28,6 +28,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
@@ -406,6 +407,7 @@ mod tests {
     fn evaluate_expr(expr: &Expression, array: &ArrayRef) -> ArrayRef {
         let mut ctx = SESSION.create_execution_ctx();
         array
+            .clone()
             .apply(expr)
             .unwrap()
             .execute::<Canonical>(&mut ctx)

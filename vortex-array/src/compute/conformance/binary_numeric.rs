@@ -28,7 +28,6 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::RecursiveCanonical;
@@ -126,9 +125,6 @@ where
         let Ok(result) = result else {
             continue;
         };
-
-        println!("result {}", result.display_tree());
-        println!("result {}", result.display_values());
 
         let actual_values = to_vec_of_scalar(&result);
 

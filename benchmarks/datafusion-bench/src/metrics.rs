@@ -47,7 +47,7 @@ impl MetricsSetExt for MetricsSet {
         }
     }
 
-    #[allow(clippy::disallowed_types)]
+    #[expect(clippy::disallowed_types)]
     fn aggregate(&self) -> Self {
         use std::collections::HashMap;
         let mut map = HashMap::new();

@@ -4,33 +4,29 @@
 mod operations;
 mod validity;
 
-use std::hash::Hasher;
-
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
+use vortex_session::VortexSession;
 
-use crate::ArrayEq;
-use crate::ArrayHash;
 use crate::ArrayRef;
-use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
-use crate::IntoArray;
-use crate::Precision;
-use crate::arrays::VariantArray;
+use crate::ExecutionResult;
+use crate::array::Array;
+use crate::array::ArrayId;
+use crate::array::ArrayView;
+use crate::array::EmptyArrayData;
+use crate::array::VTable;
+use crate::arrays::variant::SLOT_NAMES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
-use crate::stats::StatsSetRef;
-use crate::vtable;
-use crate::vtable::ArrayId;
-use crate::vtable::VTable;
 
-vtable!(Variant);
+/// A [`Variant`]-encoded Vortex array.
+pub type VariantArray = Array<Variant>;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Variant;
 
 impl Variant {
@@ -44,120 +40,108 @@ impl Variant {
 }
 
 impl VTable for Variant {
-    type Array = VariantArray;
-
-    type Metadata = EmptyMetadata;
+    type ArrayData = EmptyArrayData;
 
     type OperationsVTable = Self;
 
     type ValidityVTable = Self;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn id(&self) -> ArrayId {
         Self::array_id()
     }
 
-    fn len(array: &Self::Array) -> usize {
-        array.child.len()
+    fn validate(
+        &self,
+        _data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            slots[0].is_some(),
+            "VariantArray child slot must be present"
+        );
+        let child = slots[0]
+            .as_ref()
+            .vortex_expect("validated child slot presence");
+        vortex_ensure!(
+            matches!(dtype, DType::Variant(_)),
+            "Expected Variant DType, got {dtype}"
+        );
+        vortex_ensure!(
+            child.dtype() == dtype,
+            "VariantArray child dtype {} does not match outer dtype {}",
+            child.dtype(),
+            dtype
+        );
+        vortex_ensure!(
+            child.len() == len,
+            "VariantArray length {} does not match outer length {}",
+            child.len(),
+            len
+        );
+        Ok(())
     }
 
-    fn dtype(array: &Self::Array) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &Self::Array) -> StatsSetRef<'_> {
-        array.child.statistics()
-    }
-
-    fn array_hash<H: Hasher>(array: &Self::Array, state: &mut H, precision: Precision) {
-        array.child.array_hash(state, precision);
-    }
-
-    fn array_eq(array: &Self::Array, other: &Self::Array, precision: Precision) -> bool {
-        array.child.array_eq(&other.child, precision)
-    }
-
-    fn nbuffers(_array: &Self::Array) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &Self::Array, idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         vortex_panic!("VariantArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &Self::Array, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(_array: &Self::Array) -> usize {
-        1
-    }
-
-    fn child(array: &Self::Array, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.child.clone(),
-            _ => vortex_panic!("VariantArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &Self::Array, idx: usize) -> String {
-        match idx {
-            0 => "child".to_string(),
-            _ => vortex_panic!("VariantArray child_name index {idx} out of bounds"),
-        }
-    }
-
-    fn metadata(_array: &Self::Array) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        _array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
     fn deserialize(
-        _bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &vortex_session::VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        metadata: &[u8],
+
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<Self::Array> {
+        _session: &VortexSession,
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
+        vortex_ensure!(
+            metadata.is_empty(),
+            "VariantArray expects empty metadata, got {} bytes",
+            metadata.len()
+        );
         vortex_ensure!(matches!(dtype, DType::Variant(_)), "Expected Variant DType");
         vortex_ensure!(
             children.len() == 1,
             "Expected 1 child, got {}",
             children.len()
         );
-        // The child can be any variant encoding, so we use DType::Variant.
-        let child = children.get(
-            0,
-            &DType::Variant(crate::dtype::Nullability::NonNullable),
-            len,
-        )?;
-        Ok(VariantArray::new(child, dtype.nullability()))
+        // The child carries the nullability for the whole VariantArray.
+        let child = children.get(0, dtype, len)?;
+        Ok(
+            crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData)
+                .with_slots(vec![Some(child)]),
+        )
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.len() == 1,
-            "VariantArray expects exactly 1 child, got {}",
-            children.len()
-        );
-        array.child = children.into_iter().next().vortex_expect("must exist");
-        Ok(())
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        match SLOT_NAMES.get(idx) {
+            Some(name) => (*name).to_string(),
+            None => vortex_panic!("VariantArray slot_name index {idx} out of bounds"),
+        }
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        // VariantArray is the canonical variant representation.
-        Ok(ExecutionStep::done(array.clone().into_array()))
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array))
     }
 }
+
+#[cfg(test)]
+mod tests {}

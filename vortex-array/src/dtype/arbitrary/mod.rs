@@ -6,6 +6,7 @@ use std::sync::Arc;
 use arbitrary::Arbitrary;
 use arbitrary::Result;
 use arbitrary::Unstructured;
+use itertools::Itertools;
 use vortex_error::VortexExpect;
 
 use crate::dtype::DType;
@@ -108,11 +109,15 @@ impl<'a> Arbitrary<'a> for StructFields {
     }
 }
 
+// TODO(joe): enable duplicate field gen in the fuzzer.
+// we dont for now to unblock this to find more interesting things
 fn random_struct_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<StructFields> {
     let field_count = u.choose_index(3)?;
-    let names: FieldNames = (0..field_count)
+    let names: Vec<FieldName> = (0..field_count)
         .map(|_| FieldName::arbitrary(u))
-        .collect::<Result<FieldNames>>()?;
+        .collect::<Result<Vec<_>>>()?;
+    // Deduplicate field names, keeping only the first occurrence of each.
+    let names: FieldNames = names.into_iter().unique().collect();
     let dtypes = (0..names.len())
         .map(|_| random_dtype(u, depth))
         .collect::<Result<Vec<_>>>()?;

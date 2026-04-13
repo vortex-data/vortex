@@ -20,6 +20,9 @@ pub use vtable::*;
 mod plugin;
 pub use plugin::*;
 
+mod foreign;
+pub(crate) use foreign::*;
+
 mod typed;
 pub use typed::*;
 
@@ -31,6 +34,7 @@ pub use options::*;
 
 pub mod fns;
 pub mod kernels;
+pub mod proto;
 pub mod session;
 
 /// A unique identifier for an aggregate function.

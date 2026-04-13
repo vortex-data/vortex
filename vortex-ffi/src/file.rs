@@ -36,9 +36,9 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
+use vortex::layout::scan::scan_builder::ScanBuilder;
+use vortex::layout::scan::split_by::SplitBy;
 use vortex::proto::expr::Expr;
-use vortex::scan::ScanBuilder;
-use vortex::scan::SplitBy;
 use vortex::session::VortexSession;
 
 use crate::RUNTIME;
@@ -59,7 +59,6 @@ arc_wrapper!(
 
 /// Options supplied for opening a file.
 #[repr(C)]
-#[allow(non_camel_case_types)]
 // FIXME(ngates): we cannot have transparent structs in FFI since we cannot break them.
 pub struct vx_file_open_options {
     /// URI for opening the file.
@@ -76,7 +75,6 @@ pub struct vx_file_open_options {
 
 /// Scan options provided by an FFI client calling the `vx_file_scan` function.
 #[repr(C)]
-#[allow(non_camel_case_types)]
 // FIXME(ngates): we cannot have transparent structs in FFI since we cannot break them.
 pub struct vx_file_scan_options {
     /// Column names to project out in the scan. These must be null-terminated C strings.
@@ -185,8 +183,10 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
             .parse()
             .map_err(|e| vortex_err!("Failed to parse URI '{}': {}", uri_str, e))?;
 
-        let prop_keys = unsafe { to_string_vec(options.property_keys, options.property_len) };
-        let prop_vals = unsafe { to_string_vec(options.property_vals, options.property_len) };
+        let prop_keys =
+            unsafe { to_string_vec(options.property_keys, options.property_len as usize) };
+        let prop_vals =
+            unsafe { to_string_vec(options.property_vals, options.property_len as usize) };
 
         let object_store = make_object_store(&uri, &prop_keys, &prop_vals)?;
 

@@ -6,7 +6,9 @@ use std::ops::Add;
 use num_traits::CheckedAdd;
 use num_traits::CheckedSub;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
@@ -18,8 +20,9 @@ use vortex_buffer::BufferMut;
 use vortex_buffer::trusted_len::TrustedLen;
 use vortex_error::VortexResult;
 
+use crate::Sequence;
 use crate::SequenceArray;
-
+use crate::SequenceData;
 /// An iterator that yields `base, base + step, base + 2*step, ...` via repeated addition.
 struct SequenceIter<T> {
     acc: T,
@@ -83,13 +86,15 @@ pub fn sequence_decompress(array: &SequenceArray) -> VortexResult<ArrayRef> {
 /// 3. The array is representable as a sequence `A[i] = base + i * multiplier` for multiplier != 0.
 /// 4. The sequence has no deviations from the equation, this could be fixed with patches. However,
 ///    we might want a different array for that since sequence provide fast access.
-pub fn sequence_encode(primitive_array: &PrimitiveArray) -> VortexResult<Option<ArrayRef>> {
+pub fn sequence_encode(
+    primitive_array: ArrayView<'_, Primitive>,
+) -> VortexResult<Option<ArrayRef>> {
     if primitive_array.is_empty() {
         // we cannot encode an empty array
         return Ok(None);
     }
 
-    if !primitive_array.all_valid()? {
+    if !primitive_array.array().all_valid()? {
         return Ok(None);
     }
 
@@ -112,7 +117,7 @@ fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSu
 ) -> VortexResult<Option<ArrayRef>> {
     if slice.len() == 1 {
         // The multiplier here can be any value, zero is chosen
-        return SequenceArray::try_new_typed(slice[0], P::zero(), nullability, 1)
+        return Sequence::try_new_typed(slice[0], P::zero(), nullability, 1)
             .map(|a| Some(a.into_array()));
     }
     let base = slice[0];
@@ -124,7 +129,7 @@ fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSu
         return Ok(None);
     }
 
-    if SequenceArray::try_last(base.into(), multiplier.into(), P::PTYPE, slice.len()).is_err() {
+    if SequenceData::try_last(base.into(), multiplier.into(), P::PTYPE, slice.len()).is_err() {
         // If the last value is out of range, we cannot encode
         return Ok(None);
     }
@@ -133,7 +138,7 @@ fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSu
         .windows(2)
         .all(|w| Some(w[1]) == w[0].checked_add(&multiplier))
         .then_some(
-            SequenceArray::try_new_typed(base, multiplier, nullability, slice.len())
+            Sequence::try_new_typed(base, multiplier, nullability, slice.len())
                 .map(|a| a.into_array()),
         )
         .transpose()
@@ -141,7 +146,7 @@ fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSu
 
 #[cfg(test)]
 mod tests {
-    #[allow(unused_imports)]
+    #[expect(unused_imports)]
     use itertools::Itertools;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
@@ -152,7 +157,7 @@ mod tests {
     #[test]
     fn test_encode_array_success() {
         let primitive_array = PrimitiveArray::from_iter([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
-        let encoded = sequence_encode(&primitive_array).unwrap();
+        let encoded = sequence_encode(primitive_array.as_view()).unwrap();
         assert!(encoded.is_some());
         let decoded = encoded.unwrap().to_primitive();
         assert_arrays_eq!(decoded, primitive_array);
@@ -161,7 +166,7 @@ mod tests {
     #[test]
     fn test_encode_array_1_success() {
         let primitive_array = PrimitiveArray::from_iter([0]);
-        let encoded = sequence_encode(&primitive_array).unwrap();
+        let encoded = sequence_encode(primitive_array.as_view()).unwrap();
         assert!(encoded.is_some());
         let decoded = encoded.unwrap().to_primitive();
         assert_arrays_eq!(decoded, primitive_array);
@@ -171,7 +176,7 @@ mod tests {
     fn test_encode_array_fail() {
         let primitive_array = PrimitiveArray::from_iter([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0]);
 
-        let encoded = sequence_encode(&primitive_array).unwrap();
+        let encoded = sequence_encode(primitive_array.as_view()).unwrap();
         assert!(encoded.is_none());
     }
 
@@ -179,14 +184,14 @@ mod tests {
     fn test_encode_array_fail_oob() {
         let primitive_array = PrimitiveArray::from_iter(vec![100i8; 1000]);
 
-        let encoded = sequence_encode(&primitive_array).unwrap();
+        let encoded = sequence_encode(primitive_array.as_view()).unwrap();
         assert!(encoded.is_none());
     }
 
     #[test]
     fn test_encode_all_u8_values() {
         let primitive_array = PrimitiveArray::from_iter(0u8..=255);
-        let encoded = sequence_encode(&primitive_array).unwrap();
+        let encoded = sequence_encode(primitive_array.as_view()).unwrap();
         assert!(encoded.is_some());
         let decoded = encoded.unwrap().to_primitive();
         assert_arrays_eq!(decoded, primitive_array);

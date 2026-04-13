@@ -169,7 +169,7 @@ impl ExtVTable for Timestamp {
         })
     }
 
-    fn can_coerce_from(&self, ext_dtype: &ExtDType<Self>, other: &DType) -> bool {
+    fn can_coerce_from(ext_dtype: &ExtDType<Self>, other: &DType) -> bool {
         let DType::Extension(other_ext) = other else {
             return false;
         };
@@ -182,7 +182,7 @@ impl ExtVTable for Timestamp {
             && (ext_dtype.storage_dtype().is_nullable() || !other.is_nullable())
     }
 
-    fn least_supertype(&self, ext_dtype: &ExtDType<Self>, other: &DType) -> Option<DType> {
+    fn least_supertype(ext_dtype: &ExtDType<Self>, other: &DType) -> Option<DType> {
         let DType::Extension(other_ext) = other else {
             return None;
         };
@@ -198,7 +198,7 @@ impl ExtVTable for Timestamp {
         ))
     }
 
-    fn validate_dtype(&self, ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
         vortex_ensure!(
             matches!(ext_dtype.storage_dtype(), DType::Primitive(PType::I64, _)),
             "Timestamp storage dtype must be i64"
@@ -207,7 +207,6 @@ impl ExtVTable for Timestamp {
     }
 
     fn unpack_native<'a>(
-        &self,
         ext_dtype: &'a ExtDType<Self>,
         storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>> {

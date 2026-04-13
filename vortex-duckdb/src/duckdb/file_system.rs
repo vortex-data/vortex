@@ -114,7 +114,7 @@ impl VortexWrite for DuckDbFsWriter {
     async fn write_all<B: IoBuf>(&mut self, buffer: B) -> std::io::Result<B> {
         let len = buffer.bytes_init();
         let offset = self.pos;
-        let handle = self.handle.clone();
+        let handle = Arc::clone(&self.handle);
 
         let runtime = RUNTIME.handle();
         let buffer = runtime
@@ -145,7 +145,7 @@ impl VortexWrite for DuckDbFsWriter {
     }
 
     async fn flush(&mut self) -> std::io::Result<()> {
-        let handle = self.handle.clone();
+        let handle = Arc::clone(&self.handle);
 
         let runtime = RUNTIME.handle();
         runtime

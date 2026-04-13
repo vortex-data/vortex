@@ -302,8 +302,6 @@ impl vortex_buffer::BitBuffer
 
 pub fn vortex_buffer::BitBuffer::into_inner(self) -> (usize, usize, vortex_buffer::ByteBuffer)
 
-pub fn vortex_buffer::BitBuffer::into_mut(self) -> vortex_buffer::BitBufferMut
-
 pub fn vortex_buffer::BitBuffer::try_into_mut(self) -> core::result::Result<vortex_buffer::BitBufferMut, Self>
 
 impl core::clone::Clone for vortex_buffer::BitBuffer
@@ -432,15 +430,11 @@ pub fn vortex_buffer::BitBufferMut::append_n(&mut self, value: bool, n: usize)
 
 pub fn vortex_buffer::BitBufferMut::append_true(&mut self)
 
-pub fn vortex_buffer::BitBufferMut::as_mut_ptr(&mut self) -> *mut u8
-
 pub fn vortex_buffer::BitBufferMut::as_mut_slice(&mut self) -> &mut [u8]
 
 pub fn vortex_buffer::BitBufferMut::as_slice(&self) -> &[u8]
 
 pub fn vortex_buffer::BitBufferMut::capacity(&self) -> usize
-
-pub fn vortex_buffer::BitBufferMut::chunks(&self) -> arrow_buffer::util::bit_chunk_iterator::BitChunks<'_>
 
 pub fn vortex_buffer::BitBufferMut::clear(&mut self)
 
@@ -449,8 +443,6 @@ pub fn vortex_buffer::BitBufferMut::collect_bool<F: core::ops::function::FnMut(u
 pub fn vortex_buffer::BitBufferMut::copy_from(bit_buffer: &vortex_buffer::BitBuffer) -> Self
 
 pub fn vortex_buffer::BitBufferMut::empty() -> Self
-
-pub fn vortex_buffer::BitBufferMut::false_count(&self) -> usize
 
 pub fn vortex_buffer::BitBufferMut::fill_range(&mut self, start: usize, end: usize, value: bool)
 
@@ -488,13 +480,9 @@ pub fn vortex_buffer::BitBufferMut::set_to(&mut self, index: usize, value: bool)
 
 pub unsafe fn vortex_buffer::BitBufferMut::set_to_unchecked(&mut self, index: usize, value: bool)
 
-pub fn vortex_buffer::BitBufferMut::split_off(&mut self, at: usize) -> Self
-
-pub fn vortex_buffer::BitBufferMut::true_count(&self) -> usize
+pub unsafe fn vortex_buffer::BitBufferMut::set_unchecked(&mut self, index: usize)
 
 pub fn vortex_buffer::BitBufferMut::truncate(&mut self, len: usize)
-
-pub fn vortex_buffer::BitBufferMut::unaligned_chunks(&self) -> arrow_buffer::util::bit_chunk_iterator::UnalignedBitChunk<'_>
 
 pub fn vortex_buffer::BitBufferMut::unset(&mut self, index: usize)
 
@@ -511,12 +499,6 @@ pub fn vortex_buffer::BitBufferMut::with_capacity(capacity: usize) -> Self
 impl core::clone::Clone for vortex_buffer::BitBufferMut
 
 pub fn vortex_buffer::BitBufferMut::clone(&self) -> vortex_buffer::BitBufferMut
-
-impl core::cmp::Eq for vortex_buffer::BitBufferMut
-
-impl core::cmp::PartialEq for vortex_buffer::BitBufferMut
-
-pub fn vortex_buffer::BitBufferMut::eq(&self, other: &Self) -> bool
 
 impl core::convert::From<&[bool]> for vortex_buffer::BitBufferMut
 
@@ -607,6 +589,8 @@ pub fn vortex_buffer::Buffer<T>::is_empty(&self) -> bool
 pub fn vortex_buffer::Buffer<T>::iter(&self) -> vortex_buffer::Iter<'_, T>
 
 pub fn vortex_buffer::Buffer<T>::len(&self) -> usize
+
+pub fn vortex_buffer::Buffer<T>::map_each_in_place<R, F>(self, f: F) -> vortex_buffer::BufferMut<R> where T: core::marker::Copy, F: core::ops::function::FnMut(T) -> R
 
 pub fn vortex_buffer::Buffer<T>::slice(&self, range: impl core::ops::range::RangeBounds<usize>) -> Self
 

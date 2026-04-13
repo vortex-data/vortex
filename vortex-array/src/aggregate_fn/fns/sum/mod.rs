@@ -74,6 +74,10 @@ impl AggregateFnVTable for Sum {
         AggregateFnId::new("vortex.sum")
     }
 
+    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        unimplemented!("Sum is not yet serializable");
+    }
+
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         // When a sum overflows, we return a sum _value_ of null. Therefore, we all return dtypes
         // are nullable.
@@ -327,7 +331,6 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::ArrayRef;
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;

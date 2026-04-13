@@ -202,11 +202,8 @@ impl ArrayBuilder for DecimalBuilder {
                 .extend(decimal_array.buffer::<D>().iter().copied());
         });
 
-        self.nulls.append_validity_mask(
-            decimal_array
-                .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
-        );
+        self.nulls
+            .append_validity_mask(decimal_array.validity_mask().vortex_expect("validity_mask"));
     }
 
     fn reserve_exact(&mut self, additional: usize) {

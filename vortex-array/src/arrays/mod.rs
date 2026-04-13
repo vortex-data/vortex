@@ -7,7 +7,7 @@
 mod assertions;
 
 #[cfg(any(test, feature = "_test-harness"))]
-pub use assertions::format_indices;
+pub use assertions::assert_arrays_eq_impl;
 
 #[cfg(test)]
 mod validation_tests;
@@ -65,6 +65,10 @@ pub use masked::MaskedArray;
 pub mod null;
 pub use null::Null;
 pub use null::NullArray;
+
+pub mod patched;
+pub use patched::Patched;
+pub use patched::PatchedArray;
 
 pub mod primitive;
 pub use primitive::Primitive;

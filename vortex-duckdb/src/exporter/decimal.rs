@@ -6,11 +6,11 @@ use std::marker::PhantomData;
 use num_traits::ToPrimitive;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::DecimalArray;
-use vortex::array::arrays::decimal::DecimalArrayParts;
+use vortex::array::arrays::decimal::DecimalDataParts;
 use vortex::array::match_each_decimal_value_type;
+use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::dtype::BigCast;
-use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
 use vortex::dtype::DecimalType;
 use vortex::dtype::NativeDecimalType;
@@ -19,7 +19,6 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::mask::Mask;
 
-use crate::duckdb::LogicalType;
 use crate::duckdb::VectorBuffer;
 use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
@@ -42,20 +41,18 @@ pub(crate) fn new_exporter(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let len = array.len();
-    let DecimalArrayParts {
+    let DecimalDataParts {
         validity,
         decimal_dtype,
         values_type,
         values,
-    } = array.into_parts();
+    } = array.into_data_parts();
     let dest_values_type = precision_to_duckdb_storage_size(&decimal_dtype)?;
-    let nullability = validity.nullability();
-    let validity = validity.to_array(len).execute::<Mask>(ctx)?;
 
-    if validity.all_false() {
-        let ltype = LogicalType::try_from(DType::Decimal(decimal_dtype, nullability))?;
-        return Ok(all_invalid::new_exporter(len, &ltype));
+    if matches!(validity, Validity::AllInvalid) {
+        return Ok(all_invalid::new_exporter());
     }
+    let validity = validity.to_array(len).execute::<Mask>(ctx)?;
 
     let exporter = if values_type == dest_values_type {
         match_each_decimal_value_type!(values_type, |D| {
@@ -138,10 +135,10 @@ pub fn precision_to_duckdb_storage_size(decimal_dtype: &DecimalDType) -> VortexR
 
 #[cfg(test)]
 mod tests {
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::DecimalArray;
     use vortex::dtype::DecimalDType;
     use vortex::error::VortexExpect;
-    use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::SESSION;

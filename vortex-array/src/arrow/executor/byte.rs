@@ -14,16 +14,16 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
+use crate::array::ArrayView;
 use crate::arrays::VarBin;
-use crate::arrays::VarBinArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::varbin::VarBinArrayExt;
 use crate::arrow::byte_view::execute_varbinview_to_arrow;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
-use crate::vtable::ValidityHelper;
 
 /// Convert a Vortex array into an Arrow GenericBinaryArray.
 pub(super) fn to_arrow_byte_array<T: ByteArrayType>(
@@ -51,7 +51,7 @@ where
 
 /// Convert a Vortex VarBinArray into an Arrow GenericBinaryArray.
 fn varbin_to_byte_array<T: ByteArrayType>(
-    array: &VarBinArray,
+    array: ArrayView<'_, VarBin>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef>
 where
@@ -68,7 +68,7 @@ where
 
     let data = array.bytes().clone().into_arrow_buffer();
 
-    let null_buffer = to_arrow_null_buffer(array.validity().clone(), array.len(), ctx)?;
+    let null_buffer = to_arrow_null_buffer(array.validity()?, array.len(), ctx)?;
     Ok(Arc::new(unsafe {
         GenericByteArray::<T>::new_unchecked(offsets, data, null_buffer)
     }))

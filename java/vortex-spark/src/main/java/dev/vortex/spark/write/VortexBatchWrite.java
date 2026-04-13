@@ -10,7 +10,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import org.apache.spark.sql.connector.expressions.Transform;
 import org.apache.spark.sql.connector.write.*;
 import org.apache.spark.sql.types.StructType;
 import org.slf4j.Logger;
@@ -29,20 +33,30 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
     private final StructType schema;
     private final Map<String, String> options;
     private final boolean overwrite;
+    // Resolved eagerly so that Spark Transform objects (Scala case classes that are not
+    // Java-serializable) never reach the DataWriterFactory serialization boundary.
+    private final PartitionedVortexDataWriter.ResolvedTransform[] resolvedTransforms;
 
     /**
      * Creates a new VortexBatchWrite.
      *
-     * @param outputPath the base path where Vortex files will be written
-     * @param schema     the schema of the data to write
-     * @param options    additional write options
-     * @param overwrite  whether to overwrite existing files
+     * @param outputPath          the base path where Vortex files will be written
+     * @param schema              the schema of the data to write
+     * @param options             additional write options
+     * @param overwrite           whether to overwrite existing files
+     * @param partitionTransforms partition transforms (may be empty)
      */
-    public VortexBatchWrite(String outputPath, StructType schema, Map<String, String> options, boolean overwrite) {
+    VortexBatchWrite(
+            String outputPath,
+            StructType schema,
+            Map<String, String> options,
+            boolean overwrite,
+            Transform[] partitionTransforms) {
         this.outputPath = outputPath;
         this.schema = schema;
         this.options = options;
         this.overwrite = overwrite;
+        this.resolvedTransforms = PartitionedVortexDataWriter.resolveTransforms(partitionTransforms, schema);
     }
 
     /**
@@ -75,7 +89,7 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
             log.warn("overwrite currently does not do anything for vortex format");
         }
 
-        return new VortexDataWriterFactory(outputPath, schema, options);
+        return new VortexDataWriterFactory(outputPath, schema, options, resolvedTransforms);
     }
 
     /**
@@ -103,17 +117,10 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
      */
     @Override
     public void commit(WriterCommitMessage[] messages) {
-        // Overwrite cleanup should happen BEFORE writing, not after
-        // The commit method is called AFTER files are written, so we don't delete them here
+        List<String> writtenFiles = extractFilePaths(messages);
 
-        // Extract file paths from commit messages for logging
-        String[] writtenFiles = Arrays.stream(messages)
-                .filter(msg -> msg instanceof VortexWriterCommitMessage)
-                .map(msg -> ((VortexWriterCommitMessage) msg).getFilePath())
-                .toArray(String[]::new);
-
-        if (writtenFiles.length > 0) {
-            log.info("Successfully wrote {} Vortex files to {}", writtenFiles.length, outputPath);
+        if (!writtenFiles.isEmpty()) {
+            log.info("Successfully wrote {} Vortex files to {}", writtenFiles.size(), outputPath);
         }
     }
 
@@ -126,20 +133,29 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
      */
     @Override
     public void abort(WriterCommitMessage[] messages) {
-        // Clean up any partially written files
-        Arrays.stream(messages)
-                .filter(msg -> msg instanceof VortexWriterCommitMessage)
-                .map(msg -> ((VortexWriterCommitMessage) msg).getFilePath())
-                .forEach(filePath -> {
-                    try {
-                        Path path = Paths.get(filePath);
-                        if (Files.exists(path)) {
-                            Files.delete(path);
-                        }
-                    } catch (IOException e) {
-                        // Log but don't throw - we're already in an error state
-                        log.error("Failed to clean up file: {}", filePath, e);
+        for (String filePath : extractFilePaths(messages)) {
+            try {
+                Path path = Paths.get(filePath);
+                if (Files.exists(path)) {
+                    Files.delete(path);
+                }
+            } catch (IOException e) {
+                log.error("Failed to clean up file: {}", filePath, e);
+            }
+        }
+    }
+
+    private static List<String> extractFilePaths(WriterCommitMessage[] messages) {
+        return Arrays.stream(messages)
+                .flatMap(msg -> {
+                    if (msg instanceof VortexWriterCommitMessage) {
+                        return Stream.of(((VortexWriterCommitMessage) msg).filePath());
+                    } else if (msg instanceof PartitionedVortexDataWriter.PartitionedWriterCommitMessage) {
+                        return ((PartitionedVortexDataWriter.PartitionedWriterCommitMessage) msg)
+                                .getPartitionMessages().stream().map(VortexWriterCommitMessage::filePath);
                     }
-                });
+                    return Stream.empty();
+                })
+                .collect(Collectors.toList());
     }
 }

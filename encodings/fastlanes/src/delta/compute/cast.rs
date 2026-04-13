@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -11,10 +12,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::delta::Delta;
-use crate::delta::DeltaArray;
-
+use crate::delta::array::DeltaArrayExt;
 impl CastReduce for Delta {
-    fn cast(array: &DeltaArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Delta encoding stores differences between consecutive values, which requires
         // unsigned integers to avoid overflow issues. Signed integers could produce
         // negative deltas that wouldn't fit in the unsigned delta representation.
@@ -36,17 +36,20 @@ impl CastReduce for Delta {
         let casted_bases = array.bases().cast(dtype.with_nullability(NonNullable))?;
         let casted_deltas = array.deltas().cast(dtype.clone())?;
 
-        // Create a new DeltaArray with the casted components
+        // Create a new DeltaArray with the casted components, preserving offset and logical length
         Ok(Some(
-            DeltaArray::try_from_delta_compress_parts(casted_bases, casted_deltas)?.into_array(),
+            Delta::try_new(casted_bases, casted_deltas, array.offset(), array.len())?.into_array(),
         ))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
@@ -54,14 +57,20 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::session::ArraySession;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
-    use crate::delta::DeltaArray;
+    use crate::Delta;
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn test_cast_delta_u8_to_u32() {
         let primitive = PrimitiveArray::from_iter([10u8, 20, 30, 40, 50]);
-        let array = DeltaArray::try_from_primitive_array(&primitive).unwrap();
+        let array =
+            Delta::try_from_primitive_array(&primitive, &mut SESSION.create_execution_ctx())
+                .unwrap();
 
         let casted = array
             .into_array()
@@ -84,7 +93,8 @@ mod tests {
             buffer![100u16, 0, 200, 300, 0],
             vortex_array::validity::Validity::NonNullable,
         );
-        let array = DeltaArray::try_from_primitive_array(&values).unwrap();
+        let array =
+            Delta::try_from_primitive_array(&values, &mut SESSION.create_execution_ctx()).unwrap();
 
         let casted = array
             .into_array()
@@ -122,7 +132,9 @@ mod tests {
         )
     )]
     fn test_cast_delta_conformance(#[case] primitive: PrimitiveArray) {
-        let delta_array = DeltaArray::try_from_primitive_array(&primitive).unwrap();
+        let delta_array =
+            Delta::try_from_primitive_array(&primitive, &mut SESSION.create_execution_ctx())
+                .unwrap();
         test_cast_conformance(&delta_array.into_array());
     }
 }

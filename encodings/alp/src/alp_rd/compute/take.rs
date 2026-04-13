@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::dict::TakeExecute;
@@ -11,15 +11,15 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::ALPRD;
-use crate::ALPRDArray;
+use crate::ALPRDArrayExt;
 
 impl TakeExecute for ALPRD {
     fn take(
-        array: &ALPRDArray,
+        array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let taken_left_parts = array.left_parts().take(indices.to_array())?;
+        let taken_left_parts = array.left_parts().take(indices.clone())?;
         let left_parts_exceptions = array
             .left_parts_patches()
             .map(|patches| patches.take(indices, ctx))
@@ -35,11 +35,11 @@ impl TakeExecute for ALPRD {
             .transpose()?;
         let right_parts = array
             .right_parts()
-            .take(indices.to_array())?
+            .take(indices.clone())?
             .fill_null(Scalar::zero_value(array.right_parts().dtype()))?;
 
         Ok(Some(
-            ALPRDArray::try_new(
+            ALPRD::try_new(
                 array
                     .dtype()
                     .with_nullability(taken_left_parts.dtype().nullability()),
@@ -63,6 +63,7 @@ mod test {
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
 
+    use crate::ALPRDArrayExt;
     use crate::ALPRDFloat;
     use crate::RDEncoder;
 
@@ -74,7 +75,7 @@ mod test {
         use vortex_buffer::buffer;
 
         let array = PrimitiveArray::from_iter([a, b, outlier]);
-        let encoded = RDEncoder::new(&[a, b]).encode(&array);
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
 
         assert!(encoded.left_parts_patches().is_some());
         assert!(
@@ -98,7 +99,7 @@ mod test {
     #[case(0.1f64, 0.2f64, 3e100f64)]
     fn take_with_nulls<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
         let array = PrimitiveArray::from_iter([a, b, outlier]);
-        let encoded = RDEncoder::new(&[a, b]).encode(&array);
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
 
         assert!(encoded.left_parts_patches().is_some());
         assert!(
@@ -126,7 +127,7 @@ mod test {
     fn test_take_conformance_alprd<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
         test_take_conformance(
             &RDEncoder::new(&[a, b])
-                .encode(&PrimitiveArray::from_iter([a, b, outlier, b, outlier]))
+                .encode(PrimitiveArray::from_iter([a, b, outlier, b, outlier]).as_view())
                 .into_array(),
         );
     }
@@ -137,13 +138,10 @@ mod test {
     fn test_take_with_nulls_conformance<T: ALPRDFloat>(#[case] a: T, #[case] outlier: T) {
         test_take_conformance(
             &RDEncoder::new(&[a])
-                .encode(&PrimitiveArray::from_option_iter([
-                    Some(a),
-                    None,
-                    Some(outlier),
-                    Some(a),
-                    None,
-                ]))
+                .encode(
+                    PrimitiveArray::from_option_iter([Some(a), None, Some(outlier), Some(a), None])
+                        .as_view(),
+                )
                 .into_array(),
         );
     }

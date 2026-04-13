@@ -73,8 +73,8 @@ impl VTable for Dict {
 
     fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef> {
         match idx {
-            0 => Ok(layout.values.clone()),
-            1 => Ok(layout.codes.clone()),
+            0 => Ok(Arc::clone(&layout.values)),
+            1 => Ok(Arc::clone(&layout.codes)),
             _ => vortex_bail!("Unreachable child index: {}", idx),
         }
     }

@@ -15,6 +15,7 @@ use vortex::array::arrow::FromArrowArray;
 use vortex::array::iter::ArrayIterator;
 use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
+use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexError;
@@ -30,6 +31,8 @@ use crate::TOKIO_RUNTIME;
 use crate::arrays::PyArray;
 use crate::arrays::PyArrayRef;
 use crate::arrow::FromPyArrow;
+use crate::classes::record_batch_reader_class;
+use crate::classes::table_class;
 use crate::dataset::PyVortexDataset;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
@@ -277,7 +280,7 @@ impl PyVortexWriteOptions {
     /// >>> vx.io.VortexWriteOptions.default().write(sprl, "chonky.vortex")
     /// >>> import os
     /// >>> os.path.getsize('chonky.vortex')
-    /// 215972
+    /// 216004
     /// ```
     ///
     /// Wow, Vortex manages to use about two bytes per integer! So advanced. So tiny.
@@ -289,7 +292,7 @@ impl PyVortexWriteOptions {
     /// ```python
     /// >>> vx.io.VortexWriteOptions.compact().write(sprl, "tiny.vortex")
     /// >>> os.path.getsize('tiny.vortex')
-    /// 55088
+    /// 55120
     /// ```
     ///
     /// Random numbers are not (usually) composed of random bytes!
@@ -350,7 +353,8 @@ impl PyVortexWriteOptions {
         py.detach(|| {
             let mut strategy = WriteStrategyBuilder::default();
             if self.use_compact_encodings {
-                strategy = strategy.with_compact_encodings();
+                strategy = strategy
+                    .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact());
             }
             let strategy = strategy.build();
             TOKIO_RUNTIME.block_on(async move {
@@ -425,11 +429,11 @@ fn try_arrow_stream_to_iterator(
     ob: &Borrowed<'_, '_, PyAny>,
 ) -> PyResult<Box<dyn ArrayIterator + Send>> {
     let py = ob.py();
-    let pa = py.import("pyarrow")?;
-    let pa_table = pa.getattr("Table")?;
-    let pa_record_batch_reader = pa.getattr("RecordBatchReader")?;
 
-    if ob.is_instance(&pa_table)? || ob.is_instance(&pa_record_batch_reader)? {
+    let pa_table = table_class(py)?;
+    let pa_record_batch_reader = record_batch_reader_class(py)?;
+
+    if ob.is_instance(pa_table)? || ob.is_instance(pa_record_batch_reader)? {
         // Convert to Arrow stream using FFI
         let arrow_stream = ArrowArrayStreamReader::from_pyarrow(ob)?;
         let dtype = DType::from_arrow(arrow_stream.schema());

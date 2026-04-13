@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
@@ -17,13 +18,14 @@ use vortex_array::scalar_fn::fns::between::StrictComparison;
 use vortex_error::VortexResult;
 
 use crate::ALP;
-use crate::ALPArray;
 use crate::ALPFloat;
+use crate::alp::array::ALPArrayExt;
+use crate::alp::array::ALPArraySlotsExt;
 use crate::match_each_alp_float_ptype;
 
 impl BetweenReduce for ALP {
     fn between(
-        array: &ALPArray,
+        array: ArrayView<'_, Self>,
         lower: &ArrayRef,
         upper: &ArrayRef,
         options: &BetweenOptions,
@@ -38,7 +40,7 @@ impl BetweenReduce for ALP {
 
         let nullability =
             array.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability();
-        match_each_alp_float_ptype!(array.ptype(), |F| {
+        match_each_alp_float_ptype!(array.dtype().as_ptype(), |F| {
             between_impl::<F>(
                 array,
                 F::try_from(&lower)?,
@@ -52,7 +54,7 @@ impl BetweenReduce for ALP {
 }
 
 fn between_impl<T: NativePType + ALPFloat>(
-    array: &ALPArray,
+    array: ArrayView<'_, ALP>,
     lower: T,
     upper: T,
     nullability: Nullability,
@@ -101,6 +103,7 @@ mod tests {
     use vortex_array::scalar_fn::fns::between::StrictComparison;
 
     use crate::ALPArray;
+    use crate::alp::array::ALPArrayExt;
     use crate::alp::compute::between::between_impl;
     use crate::alp_encode;
 
@@ -111,7 +114,8 @@ mod tests {
         options: &BetweenOptions,
         expected: bool,
     ) {
-        let res = between_impl(arr, lower, upper, Nullability::Nullable, options).unwrap();
+        let res =
+            between_impl(arr.as_view(), lower, upper, Nullability::Nullable, options).unwrap();
         assert_arrays_eq!(res, BoolArray::from_iter([Some(expected)]));
     }
 
@@ -119,7 +123,7 @@ mod tests {
     fn comparison_range() {
         let value = 0.0605_f32;
         let array = PrimitiveArray::from_iter([value; 1]);
-        let encoded = alp_encode(&array, None).unwrap();
+        let encoded = alp_encode(array.as_view(), None).unwrap();
         assert!(encoded.patches().is_none());
 
         assert_between(

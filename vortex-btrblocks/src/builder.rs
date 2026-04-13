@@ -3,156 +3,188 @@
 
 //! Builder for configuring `BtrBlocksCompressor` instances.
 
-use itertools::Itertools;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::BtrBlocksCompressor;
-use crate::FloatCode;
-use crate::IntCode;
-use crate::StringCode;
-use crate::compressor::float::ALL_FLOAT_SCHEMES;
-use crate::compressor::float::FloatScheme;
-use crate::compressor::integer::ALL_INT_SCHEMES;
-use crate::compressor::integer::IntegerScheme;
-use crate::compressor::string::ALL_STRING_SCHEMES;
-use crate::compressor::string::StringScheme;
+use crate::CascadingCompressor;
+use crate::Scheme;
+use crate::SchemeExt;
+use crate::SchemeId;
+use crate::schemes::bool;
+use crate::schemes::decimal;
+use crate::schemes::float;
+use crate::schemes::integer;
+use crate::schemes::string;
+use crate::schemes::temporal;
+
+/// All available compression schemes.
+///
+/// This list is order-sensitive: the builder preserves this order when constructing
+/// the final scheme list, so that tie-breaking is deterministic.
+pub const ALL_SCHEMES: &[&dyn Scheme] = &[
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    // Bool schemes.
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    &bool::BoolConstantScheme,
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    // Integer schemes.
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    &integer::IntConstantScheme,
+    // NOTE: FoR must precede BitPacking to avoid unnecessary patches.
+    &integer::FoRScheme,
+    // NOTE: ZigZag should precede BitPacking because we don't want negative numbers.
+    &integer::ZigZagScheme,
+    &integer::BitPackingScheme,
+    &integer::SparseScheme,
+    &integer::IntDictScheme,
+    &integer::RunEndScheme,
+    &integer::SequenceScheme,
+    &integer::IntRLEScheme,
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    // Float schemes.
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    &float::FloatConstantScheme,
+    &float::ALPScheme,
+    &float::ALPRDScheme,
+    &float::FloatDictScheme,
+    &float::NullDominatedSparseScheme,
+    &float::FloatRLEScheme,
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    // String schemes.
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    &string::StringDictScheme,
+    &string::FSSTScheme,
+    &string::StringConstantScheme,
+    &string::NullDominatedSparseScheme,
+    // Decimal schemes.
+    &decimal::DecimalScheme,
+    // Temporal schemes.
+    &temporal::TemporalScheme,
+];
 
 /// Builder for creating configured [`BtrBlocksCompressor`] instances.
 ///
-/// Use this builder to configure which compression schemes are allowed for each data type.
-/// By default, all schemes are enabled.
+/// By default, all schemes in [`ALL_SCHEMES`] are enabled. Feature-gated schemes (Pco, Zstd)
+/// are not in `ALL_SCHEMES` and must be added explicitly via
+/// [`with_scheme`](BtrBlocksCompressorBuilder::with_new_scheme) or
+/// [`with_compact`](BtrBlocksCompressorBuilder::with_compact).
 ///
 /// # Examples
 ///
 /// ```rust
-/// use vortex_btrblocks::{BtrBlocksCompressorBuilder, IntCode, FloatCode};
+/// use vortex_btrblocks::{BtrBlocksCompressorBuilder, Scheme, SchemeExt};
+/// use vortex_btrblocks::schemes::integer::IntDictScheme;
 ///
-/// // Default compressor - all schemes allowed
+/// // Default compressor with all schemes in ALL_SCHEMES.
 /// let compressor = BtrBlocksCompressorBuilder::default().build();
 ///
-/// // Exclude specific schemes
+/// // Remove specific schemes.
 /// let compressor = BtrBlocksCompressorBuilder::default()
-///     .exclude_int([IntCode::Dict])
-///     .build();
-///
-/// // Exclude then re-include
-/// let compressor = BtrBlocksCompressorBuilder::default()
-///     .exclude_int([IntCode::Dict, IntCode::Rle])
-///     .include_int([IntCode::Dict])
+///     .exclude_schemes([IntDictScheme.id()])
 ///     .build();
 /// ```
 #[derive(Debug, Clone)]
 pub struct BtrBlocksCompressorBuilder {
-    int_schemes: HashSet<&'static dyn IntegerScheme>,
-    float_schemes: HashSet<&'static dyn FloatScheme>,
-    string_schemes: HashSet<&'static dyn StringScheme>,
+    schemes: Vec<&'static dyn Scheme>,
 }
 
 impl Default for BtrBlocksCompressorBuilder {
     fn default() -> Self {
         Self {
-            int_schemes: ALL_INT_SCHEMES
-                .iter()
-                .copied()
-                .filter(|s| s.code() != IntCode::Pco)
-                .collect(),
-            float_schemes: ALL_FLOAT_SCHEMES
-                .iter()
-                .copied()
-                .filter(|s| s.code() != FloatCode::Pco)
-                .collect(),
-            string_schemes: ALL_STRING_SCHEMES
-                .iter()
-                .copied()
-                .filter(|s| s.code() != StringCode::Zstd && s.code() != StringCode::ZstdBuffers)
-                .collect(),
+            schemes: ALL_SCHEMES.to_vec(),
         }
     }
 }
 
 impl BtrBlocksCompressorBuilder {
-    /// Create a new builder with no encodings enabled.
-    pub fn empty() -> Self {
-        Self {
-            int_schemes: Default::default(),
-            float_schemes: Default::default(),
-            string_schemes: Default::default(),
-        }
-    }
+    /// Adds an external compression scheme not in [`ALL_SCHEMES`].
+    ///
+    /// This allows encoding crates outside of `vortex-btrblocks` to register their own schemes
+    /// with the compressor.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a scheme with the same [`SchemeId`] is already present.
+    pub fn with_new_scheme(mut self, scheme: &'static dyn Scheme) -> Self {
+        assert!(
+            !self.schemes.iter().any(|s| s.id() == scheme.id()),
+            "scheme {:?} is already present in the builder",
+            scheme.id(),
+        );
 
-    /// Excludes the specified integer compression schemes.
-    pub fn exclude_int(mut self, codes: impl IntoIterator<Item = IntCode>) -> Self {
-        let codes: HashSet<_> = codes.into_iter().collect();
-        self.int_schemes.retain(|s| !codes.contains(&s.code()));
+        self.schemes.push(scheme);
         self
     }
 
-    /// Excludes the specified float compression schemes.
-    pub fn exclude_float(mut self, codes: impl IntoIterator<Item = FloatCode>) -> Self {
-        let codes: HashSet<_> = codes.into_iter().collect();
-        self.float_schemes.retain(|s| !codes.contains(&s.code()));
+    /// Adds compact encoding schemes (Zstd for strings, Pco for numerics).
+    ///
+    /// This provides better compression ratios than the default, especially for floating-point
+    /// heavy datasets. Requires the `zstd` feature. When the `pco` feature is also enabled,
+    /// Pco schemes for integers and floats are included.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any of the compact schemes are already present.
+    #[cfg(feature = "zstd")]
+    pub fn with_compact(self) -> Self {
+        let builder = self.with_new_scheme(&string::ZstdScheme);
+
+        #[cfg(feature = "pco")]
+        let builder = builder
+            .with_new_scheme(&integer::PcoScheme)
+            .with_new_scheme(&float::PcoScheme);
+
+        builder
+    }
+
+    /// Adds the TurboQuant lossy vector quantization scheme.
+    ///
+    /// When enabled, [`Vector`] extension arrays are compressed using the TurboQuant algorithm
+    /// with MSE-optimal scalar quantization.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the TurboQuant scheme is already present.
+    ///
+    /// [`Vector`]: vortex_tensor::vector::Vector
+    #[cfg(feature = "unstable_encodings")]
+    pub fn with_turboquant(self) -> Self {
+        use vortex_tensor::encodings::turboquant::TurboQuantScheme;
+        self.with_new_scheme(&TurboQuantScheme)
+    }
+
+    /// Excludes schemes without CUDA kernel support and adds Zstd for string compression.
+    ///
+    /// With the `unstable_encodings` feature, buffer-level Zstd compression is used which
+    /// preserves the array buffer layout for zero-conversion GPU decompression. Without it,
+    /// interleaved Zstd compression is used.
+    pub fn only_cuda_compatible(self) -> Self {
+        let builder = self.exclude_schemes([
+            integer::SparseScheme.id(),
+            integer::IntRLEScheme.id(),
+            float::FloatRLEScheme.id(),
+            float::NullDominatedSparseScheme.id(),
+            string::StringDictScheme.id(),
+            string::FSSTScheme.id(),
+        ]);
+
+        #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
+        let builder = builder.with_new_scheme(&string::ZstdBuffersScheme);
+        #[cfg(all(feature = "zstd", not(feature = "unstable_encodings")))]
+        let builder = builder.with_new_scheme(&string::ZstdScheme);
+
+        builder
+    }
+
+    /// Removes the specified compression schemes by their [`SchemeId`].
+    pub fn exclude_schemes(mut self, ids: impl IntoIterator<Item = SchemeId>) -> Self {
+        let ids: HashSet<_> = ids.into_iter().collect();
+        self.schemes.retain(|s| !ids.contains(&s.id()));
         self
     }
 
-    /// Excludes the specified string compression schemes.
-    pub fn exclude_string(mut self, codes: impl IntoIterator<Item = StringCode>) -> Self {
-        let codes: HashSet<_> = codes.into_iter().collect();
-        self.string_schemes.retain(|s| !codes.contains(&s.code()));
-        self
-    }
-
-    /// Includes the specified integer compression schemes.
-    pub fn include_int(mut self, codes: impl IntoIterator<Item = IntCode>) -> Self {
-        let codes: HashSet<_> = codes.into_iter().collect();
-        for scheme in ALL_INT_SCHEMES {
-            if codes.contains(&scheme.code()) {
-                self.int_schemes.insert(*scheme);
-            }
-        }
-        self
-    }
-
-    /// Includes the specified float compression schemes.
-    pub fn include_float(mut self, codes: impl IntoIterator<Item = FloatCode>) -> Self {
-        let codes: HashSet<_> = codes.into_iter().collect();
-        for scheme in ALL_FLOAT_SCHEMES {
-            if codes.contains(&scheme.code()) {
-                self.float_schemes.insert(*scheme);
-            }
-        }
-        self
-    }
-
-    /// Includes the specified string compression schemes.
-    pub fn include_string(mut self, codes: impl IntoIterator<Item = StringCode>) -> Self {
-        let codes: HashSet<_> = codes.into_iter().collect();
-        for scheme in ALL_STRING_SCHEMES {
-            if codes.contains(&scheme.code()) {
-                self.string_schemes.insert(*scheme);
-            }
-        }
-        self
-    }
-
-    /// Builds the configured `BtrBlocksCompressor`.
+    /// Builds the configured [`BtrBlocksCompressor`].
     pub fn build(self) -> BtrBlocksCompressor {
-        // Note we should apply the schemes in the same order, in case try conflict.
-        BtrBlocksCompressor {
-            int_schemes: self
-                .int_schemes
-                .into_iter()
-                .sorted_by_key(|s| s.code())
-                .collect_vec(),
-            float_schemes: self
-                .float_schemes
-                .into_iter()
-                .sorted_by_key(|s| s.code())
-                .collect_vec(),
-            string_schemes: self
-                .string_schemes
-                .into_iter()
-                .sorted_by_key(|s| s.code())
-                .collect_vec(),
-        }
+        BtrBlocksCompressor(CascadingCompressor::new(self.schemes))
     }
 }

@@ -7,7 +7,6 @@ use rstest::rstest;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
-use crate::DynArray;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
@@ -16,6 +15,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ListArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::list_view_from_list;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;

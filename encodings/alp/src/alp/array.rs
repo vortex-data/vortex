@@ -2,40 +2,41 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::hash::Hash;
+use std::hash::Hasher;
 
+use prost::Message;
+use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
+use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
-use vortex_array::DeserializeMetadata;
-use vortex_array::DynArray;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
-use vortex_array::ProstMetadata;
-use vortex_array::SerializeMetadata;
+use vortex_array::TypedArrayRef;
+use vortex_array::array_slots;
+use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
+use vortex_array::require_child;
+use vortex_array::require_patches;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
-use vortex_array::stats::StatsSetRef;
-use vortex_array::vtable;
-use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
-use vortex_array::vtable::patches_child;
-use vortex_array::vtable::patches_child_name;
-use vortex_array::vtable::patches_nchildren;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -45,120 +46,97 @@ use crate::alp::decompress::execute_decompress;
 use crate::alp::rules::PARENT_KERNELS;
 use crate::alp::rules::RULES;
 
-vtable!(ALP);
+/// A [`ALP`]-encoded Vortex array.
+pub type ALPArray = Array<ALP>;
+
+impl ArrayHash for ALPData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.exponents.hash(state);
+        self.patch_offset.hash(state);
+        self.patch_offset_within_chunk.hash(state);
+    }
+}
+
+impl ArrayEq for ALPData {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.exponents == other.exponents
+            && self.patch_offset == other.patch_offset
+            && self.patch_offset_within_chunk == other.patch_offset_within_chunk
+    }
+}
 
 impl VTable for ALP {
-    type Array = ALPArray;
+    type ArrayData = ALPData;
 
-    type Metadata = ProstMetadata<ALPMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn id(&self) -> ArrayId {
         Self::array_id()
     }
 
-    fn len(array: &ALPArray) -> usize {
-        array.encoded.len()
+    fn validate(
+        &self,
+        data: &ALPData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        let slots = ALPSlotsView::from_slots(slots);
+        validate_parts(
+            dtype,
+            len,
+            data.exponents,
+            slots.encoded,
+            patches_from_slots(
+                &slots,
+                data.patch_offset,
+                data.patch_offset_within_chunk,
+                len,
+            ),
+        )
     }
 
-    fn dtype(array: &ALPArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &ALPArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &ALPArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
-        array.encoded.array_hash(state, precision);
-        array.exponents.hash(state);
-        array.patches.array_hash(state, precision);
-    }
-
-    fn array_eq(array: &ALPArray, other: &ALPArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
-            && array.encoded.array_eq(&other.encoded, precision)
-            && array.exponents == other.exponents
-            && array.patches.array_eq(&other.patches, precision)
-    }
-
-    fn nbuffers(_array: &ALPArray) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &ALPArray, idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         vortex_panic!("ALPArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &ALPArray, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(array: &ALPArray) -> usize {
-        1 + array.patches().map_or(0, patches_nchildren)
-    }
-
-    fn child(array: &ALPArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.encoded().clone(),
-            _ => {
-                let patches = array
-                    .patches()
-                    .unwrap_or_else(|| vortex_panic!("ALPArray child index {idx} out of bounds"));
-                patches_child(patches, idx - 1)
-            }
-        }
-    }
-
-    fn child_name(array: &ALPArray, idx: usize) -> String {
-        match idx {
-            0 => "encoded".to_string(),
-            _ => {
-                if array.patches().is_none() {
-                    vortex_panic!("ALPArray child_name index {idx} out of bounds");
-                }
-                patches_child_name(idx - 1).to_string()
-            }
-        }
-    }
-
-    fn metadata(array: &ALPArray) -> VortexResult<Self::Metadata> {
-        let exponents = array.exponents();
-        Ok(ProstMetadata(ALPMetadata {
-            exp_e: exponents.e as u32,
-            exp_f: exponents.f as u32,
-            patches: array
-                .patches()
-                .map(|p| p.to_metadata(array.len(), array.dtype()))
-                .transpose()?,
-        }))
-    }
-
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
-    }
-
-    fn deserialize(
-        bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
+    fn serialize(
+        array: ArrayView<'_, Self>,
         _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(
-            <ProstMetadata<ALPMetadata> as DeserializeMetadata>::deserialize(bytes)?,
+    ) -> VortexResult<Option<Vec<u8>>> {
+        let exponents = array.exponents();
+        Ok(Some(
+            ALPMetadata {
+                exp_e: exponents.e as u32,
+                exp_f: exponents.f as u32,
+                patches: array
+                    .patches()
+                    .map(|p| p.to_metadata(array.len(), array.dtype()))
+                    .transpose()?,
+            }
+            .encode_to_vec(),
         ))
     }
 
-    fn build(
+    fn deserialize(
+        &self,
         dtype: &DType,
         len: usize,
-        metadata: &Self::Metadata,
+        metadata: &[u8],
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ALPArray> {
+        _session: &VortexSession,
+    ) -> VortexResult<ArrayParts<Self>> {
+        let metadata = ALPMetadata::decode(metadata)?;
         let encoded_ptype = match &dtype {
             DType::Primitive(PType::F32, n) => DType::Primitive(PType::I32, *n),
             DType::Primitive(PType::F64, n) => DType::Primitive(PType::I64, *n),
@@ -180,70 +158,37 @@ impl VTable for ALP {
             })
             .transpose()?;
 
-        ALPArray::try_new(
-            encoded,
+        let slots = ALPData::make_slots(&encoded, &patches);
+        let data = ALPData::new(
             Exponents {
                 e: u8::try_from(metadata.exp_e)?,
                 f: u8::try_from(metadata.exp_f)?,
             },
             patches,
-        )
+        );
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        // Children: encoded, patches (if present): indices, values, chunk_offsets (optional)
-        let patches_info = array
-            .patches
-            .as_ref()
-            .map(|p| (p.array_len(), p.offset(), p.chunk_offsets().is_some()));
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        ALPSlots::NAMES[idx].to_string()
+    }
 
-        let expected_children = match &patches_info {
-            Some((_, _, has_chunk_offsets)) => 1 + 2 + if *has_chunk_offsets { 1 } else { 0 },
-            None => 1,
-        };
-
-        vortex_ensure!(
-            children.len() == expected_children,
-            "ALPArray expects {} children, got {}",
-            expected_children,
-            children.len()
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.encoded(), ALPSlots::ENCODED => Primitive);
+        require_patches!(
+            array,
+            ALPSlots::PATCH_INDICES,
+            ALPSlots::PATCH_VALUES,
+            ALPSlots::PATCH_CHUNK_OFFSETS
         );
 
-        let mut children_iter = children.into_iter();
-        array.encoded = children_iter
-            .next()
-            .ok_or_else(|| vortex_err!("Expected encoded child"))?;
-
-        if let Some((array_len, offset, _has_chunk_offsets)) = patches_info {
-            let indices = children_iter
-                .next()
-                .ok_or_else(|| vortex_err!("Expected patch indices child"))?;
-            let values = children_iter
-                .next()
-                .ok_or_else(|| vortex_err!("Expected patch values child"))?;
-            let chunk_offsets = children_iter.next();
-
-            array.patches = Some(Patches::new(
-                array_len,
-                offset,
-                indices,
-                values,
-                chunk_offsets,
-            )?);
-        }
-
-        Ok(())
-    }
-
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        // TODO(joe): take by value
-        Ok(ExecutionStep::Done(
-            execute_decompress(array.clone(), ctx)?.into_array(),
+        Ok(ExecutionResult::done(
+            execute_decompress(array, ctx)?.into_array(),
         ))
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -251,7 +196,7 @@ impl VTable for ALP {
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -260,16 +205,36 @@ impl VTable for ALP {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct ALPArray {
-    encoded: ArrayRef,
-    patches: Option<Patches>,
-    dtype: DType,
-    exponents: Exponents,
-    stats_set: ArrayStats,
+#[array_slots(ALP)]
+pub struct ALPSlots {
+    /// The ALP-encoded values array.
+    pub encoded: ArrayRef,
+    /// The indices of exception values that could not be ALP-encoded.
+    pub patch_indices: Option<ArrayRef>,
+    /// The exception values that could not be ALP-encoded.
+    pub patch_values: Option<ArrayRef>,
+    /// Chunk offsets for the patch indices/values.
+    pub patch_chunk_offsets: Option<ArrayRef>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
+pub struct ALPData {
+    patch_offset: Option<usize>,
+    patch_offset_within_chunk: Option<usize>,
+    exponents: Exponents,
+}
+
+impl Display for ALPData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "exponents: {}", self.exponents)?;
+        if let Some(offset) = self.patch_offset {
+            write!(f, ", patch_offset: {offset}")?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct ALP;
 
 impl ALP {
@@ -292,8 +257,8 @@ pub struct ALPMetadata {
     pub(crate) patches: Option<PatchesMetadata>,
 }
 
-impl ALPArray {
-    fn validate(
+impl ALPData {
+    fn validate_components(
         encoded: &ArrayRef,
         exponents: Exponents,
         patches: Option<&Patches>,
@@ -344,6 +309,18 @@ impl ALPArray {
         Ok(())
     }
 
+    fn logical_dtype(encoded: &ArrayRef) -> VortexResult<DType> {
+        match encoded.dtype() {
+            DType::Primitive(PType::I32, nullability) => {
+                Ok(DType::Primitive(PType::F32, *nullability))
+            }
+            DType::Primitive(PType::I64, nullability) => {
+                Ok(DType::Primitive(PType::F64, *nullability))
+            }
+            _ => vortex_bail!("ALP encoded ints have invalid DType {}", encoded.dtype(),),
+        }
+    }
+
     /// Validate that any patches provided are valid for the ALPArray.
     fn validate_patches<T: ALPFloat>(patches: &Patches, encoded: &ArrayRef) -> VortexResult<()> {
         vortex_ensure!(
@@ -364,13 +341,22 @@ impl ALPArray {
     }
 }
 
-impl ALPArray {
+impl ALPData {
     /// Build a new `ALPArray` from components, panicking on validation failure.
     ///
-    /// See [`ALPArray::try_new`] for reference on preconditions that must pass before
+    /// See [`ALP::try_new`] for reference on preconditions that must pass before
     /// calling this method.
-    pub fn new(encoded: ArrayRef, exponents: Exponents, patches: Option<Patches>) -> Self {
-        Self::try_new(encoded, exponents, patches).vortex_expect("ALPArray new")
+    pub fn new(exponents: Exponents, patches: Option<Patches>) -> Self {
+        let (patch_offset, patch_offset_within_chunk) = match &patches {
+            Some(p) => (Some(p.offset()), p.offset_within_chunk()),
+            None => (None, None),
+        };
+
+        Self {
+            patch_offset,
+            patch_offset_within_chunk,
+            exponents,
+        }
     }
 
     /// Build a new `ALPArray` from components:
@@ -379,119 +365,163 @@ impl ALPArray {
     /// * `exponents` are the ALP exponents, valid range depends on the data type
     /// * `patches` are any patch values that don't cleanly encode using the ALP conversion function
     ///
-    /// This method validates the inputs and will return an error if any validation fails.
+    /// Build a new `ALPArray` from components without validation.
     ///
-    /// # Validation
-    ///
-    /// * The `encoded` array must be either `i32` or `i64`
-    ///     * If `i32`, any `patches` must have DType `f32` with same nullability
-    ///     * If `i64`, then `patches`must have DType `f64` with same nullability
-    /// * `exponents` must be in the valid range depending on if the ALPArray is of type `f32` or
-    ///   `f64`.
-    /// * `patches` must have an `array_len` equal to the length of `encoded`
-    ///
-    /// Any failure of these preconditions will result in an error being returned.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use vortex_alp::{ALPArray, Exponents};
-    /// # use vortex_array::IntoArray;
-    /// # use vortex_buffer::buffer;
-    ///
-    /// // Returns error because buffer has wrong PType.
-    /// let result = ALPArray::try_new(
-    ///     buffer![1i8].into_array(),
-    ///     Exponents { e: 1, f: 1 },
-    ///     None
-    /// );
-    /// assert!(result.is_err());
-    ///
-    /// // Returns error because Exponents are out of bounds for f32
-    /// let result = ALPArray::try_new(
-    ///     buffer![1i32, 2i32].into_array(),
-    ///     Exponents { e: 100, f: 100 },
-    ///     None
-    /// );
-    /// assert!(result.is_err());
-    ///
-    /// // Success!
-    /// let value = ALPArray::try_new(
-    ///     buffer![0i32].into_array(),
-    ///     Exponents { e: 1, f: 1 },
-    ///     None
-    /// ).unwrap();
-    ///
-    /// assert_eq!(value.scalar_at(0).unwrap(), 0f32.into());
-    /// ```
+    /// See [`ALP::try_new`] for information about the preconditions that should be checked
+    /// **before** calling this method.
+    pub(crate) unsafe fn new_unchecked(exponents: Exponents, patches: Option<Patches>) -> Self {
+        Self::new(exponents, patches)
+    }
+}
+
+/// Constructors for [`ALPArray`].
+impl ALP {
+    pub fn new(encoded: ArrayRef, exponents: Exponents, patches: Option<Patches>) -> ALPArray {
+        let dtype = ALPData::logical_dtype(&encoded).vortex_expect("ALP encoded dtype");
+        let len = encoded.len();
+        let slots = ALPData::make_slots(&encoded, &patches);
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(ALP, dtype, len, ALPData::new(exponents, patches))
+                    .with_slots(slots),
+            )
+        }
+    }
+
     pub fn try_new(
         encoded: ArrayRef,
         exponents: Exponents,
         patches: Option<Patches>,
-    ) -> VortexResult<Self> {
-        Self::validate(&encoded, exponents, patches.as_ref())?;
-
-        let dtype = match encoded.dtype() {
-            DType::Primitive(PType::I32, nullability) => DType::Primitive(PType::F32, *nullability),
-            DType::Primitive(PType::I64, nullability) => DType::Primitive(PType::F64, *nullability),
-            _ => unreachable!(),
-        };
-
-        Ok(Self {
-            dtype,
-            encoded,
-            exponents,
-            patches,
-            stats_set: Default::default(),
-        })
+    ) -> VortexResult<ALPArray> {
+        let dtype = ALPData::logical_dtype(&encoded)?;
+        let len = encoded.len();
+        let slots = ALPData::make_slots(&encoded, &patches);
+        let data = ALPData::new(exponents, patches);
+        Array::try_from_parts(ArrayParts::new(ALP, dtype, len, data).with_slots(slots))
     }
 
-    /// Build a new `ALPArray` from components without validation.
-    ///
-    /// See [`ALPArray::try_new`] for information about the preconditions that should be checked
-    /// **before** calling this method.
-    pub(crate) unsafe fn new_unchecked(
+    /// # Safety
+    /// See [`ALP::try_new`] for preconditions.
+    pub unsafe fn new_unchecked(
         encoded: ArrayRef,
         exponents: Exponents,
         patches: Option<Patches>,
-        dtype: DType,
-    ) -> Self {
-        Self {
-            dtype,
-            encoded,
-            exponents,
-            patches,
-            stats_set: Default::default(),
+    ) -> ALPArray {
+        let dtype = ALPData::logical_dtype(&encoded).vortex_expect("ALP encoded dtype");
+        let len = encoded.len();
+        let slots = ALPData::make_slots(&encoded, &patches);
+        let data = unsafe { ALPData::new_unchecked(exponents, patches) };
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(ALP, dtype, len, data).with_slots(slots))
         }
     }
+}
 
-    pub fn ptype(&self) -> PType {
-        self.dtype.as_ptype()
-    }
-
-    pub fn encoded(&self) -> &ArrayRef {
-        &self.encoded
+impl ALPData {
+    fn make_slots(encoded: &ArrayRef, patches: &Option<Patches>) -> Vec<Option<ArrayRef>> {
+        let (patch_indices, patch_values, patch_chunk_offsets) = match patches {
+            Some(p) => (
+                Some(p.indices().clone()),
+                Some(p.values().clone()),
+                p.chunk_offsets().clone(),
+            ),
+            None => (None, None, None),
+        };
+        vec![
+            Some(encoded.clone()),
+            patch_indices,
+            patch_values,
+            patch_chunk_offsets,
+        ]
     }
 
     #[inline]
     pub fn exponents(&self) -> Exponents {
         self.exponents
     }
+}
 
-    pub fn patches(&self) -> Option<&Patches> {
-        self.patches.as_ref()
+pub trait ALPArrayExt: ALPArraySlotsExt {
+    fn exponents(&self) -> Exponents {
+        self.exponents
     }
 
-    /// Consumes the array and returns its parts.
+    fn patches(&self) -> Option<Patches> {
+        patches_from_slots(
+            &self.slots_view(),
+            self.patch_offset,
+            self.patch_offset_within_chunk,
+            self.as_ref().len(),
+        )
+    }
+}
+
+fn patches_from_slots(
+    slots: &ALPSlotsView,
+    patch_offset: Option<usize>,
+    patch_offset_within_chunk: Option<usize>,
+    len: usize,
+) -> Option<Patches> {
+    match (slots.patch_indices, slots.patch_values) {
+        (Some(indices), Some(values)) => {
+            let patch_offset = patch_offset.vortex_expect("has patch slots but no patch_offset");
+            Some(unsafe {
+                Patches::new_unchecked(
+                    len,
+                    patch_offset,
+                    indices.clone(),
+                    values.clone(),
+                    slots.patch_chunk_offsets.cloned(),
+                    patch_offset_within_chunk,
+                )
+            })
+        }
+        _ => None,
+    }
+}
+
+fn validate_parts(
+    dtype: &DType,
+    len: usize,
+    exponents: Exponents,
+    encoded: &ArrayRef,
+    patches: Option<Patches>,
+) -> VortexResult<()> {
+    let logical_dtype = ALPData::logical_dtype(encoded)?;
+    ALPData::validate_components(encoded, exponents, patches.as_ref())?;
+    vortex_ensure!(
+        encoded.len() == len,
+        "ALP encoded len {} != outer len {len}",
+        encoded.len(),
+    );
+    vortex_ensure!(
+        &logical_dtype == dtype,
+        "ALP dtype {} does not match encoded logical dtype {}",
+        dtype,
+        logical_dtype,
+    );
+    Ok(())
+}
+
+impl<T: TypedArrayRef<ALP>> ALPArrayExt for T {}
+
+pub trait ALPArrayOwnedExt {
+    fn into_parts(self) -> (ArrayRef, Exponents, Option<Patches>);
+}
+
+impl ALPArrayOwnedExt for Array<ALP> {
     #[inline]
-    pub fn into_parts(self) -> (ArrayRef, Exponents, Option<Patches>, DType) {
-        (self.encoded, self.exponents, self.patches, self.dtype)
+    fn into_parts(self) -> (ArrayRef, Exponents, Option<Patches>) {
+        let patches = self.patches();
+        let exponents = self.exponents();
+        let encoded = self.encoded().clone();
+        (encoded, exponents, patches)
     }
 }
 
 impl ValidityChild<ALP> for ALP {
-    fn validity_child(array: &ALPArray) -> &ArrayRef {
-        array.encoded()
+    fn validity_child(array: ArrayView<'_, ALP>) -> ArrayRef {
+        array.encoded().clone()
     }
 }
 
@@ -509,7 +539,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::session::ArraySession;
-    use vortex_array::vtable::ValidityHelper;
+    use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -531,7 +561,7 @@ mod tests {
     #[case(2049)]
     fn test_execute_f32(#[case] size: usize) {
         let values = PrimitiveArray::from_iter((0..size).map(|i| i as f32));
-        let encoded = alp_encode(&values, None).unwrap();
+        let encoded = alp_encode(values.as_view(), None).unwrap();
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
@@ -560,7 +590,7 @@ mod tests {
     #[case(2049)]
     fn test_execute_f64(#[case] size: usize) {
         let values = PrimitiveArray::from_iter((0..size).map(|i| i as f64));
-        let encoded = alp_encode(&values, None).unwrap();
+        let encoded = alp_encode(values.as_view(), None).unwrap();
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
@@ -594,7 +624,7 @@ mod tests {
             .collect();
 
         let array = PrimitiveArray::from_iter(values);
-        let encoded = alp_encode(&array, None).unwrap();
+        let encoded = alp_encode(array.as_view(), None).unwrap();
         assert!(encoded.patches().unwrap().array_len() > 0);
 
         let result_canonical = {
@@ -628,7 +658,7 @@ mod tests {
             .collect();
 
         let array = PrimitiveArray::from_option_iter(values);
-        let encoded = alp_encode(&array, None).unwrap();
+        let encoded = alp_encode(array.as_view(), None).unwrap();
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
@@ -663,7 +693,7 @@ mod tests {
             .collect();
 
         let array = PrimitiveArray::from_option_iter(values);
-        let encoded = alp_encode(&array, None).unwrap();
+        let encoded = alp_encode(array.as_view(), None).unwrap();
         assert!(encoded.patches().unwrap().array_len() > 0);
 
         let result_canonical = {
@@ -699,7 +729,7 @@ mod tests {
             .collect();
 
         let array = PrimitiveArray::from_option_iter(values.clone());
-        let encoded = alp_encode(&array, None).unwrap();
+        let encoded = alp_encode(array.as_view(), None).unwrap();
 
         let slice_end = size - slice_start;
         let slice_len = slice_end - slice_start;
@@ -714,7 +744,11 @@ mod tests {
         for idx in 0..slice_len {
             let expected_value = values[slice_start + idx];
 
-            let result_valid = result_primitive.validity().is_valid(idx).unwrap();
+            let result_valid = result_primitive
+                .validity()
+                .vortex_expect("result validity should be derivable")
+                .is_valid(idx)
+                .unwrap();
             assert_eq!(
                 result_valid,
                 expected_value.is_some(),
@@ -746,7 +780,7 @@ mod tests {
             .collect();
 
         let array = PrimitiveArray::from_option_iter(values.clone());
-        let encoded = alp_encode(&array, None).unwrap();
+        let encoded = alp_encode(array.as_view(), None).unwrap();
 
         let slice_end = size - slice_start;
         let slice_len = slice_end - slice_start;
@@ -787,7 +821,7 @@ mod tests {
         let original = PrimitiveArray::from_iter(values);
 
         // First encode normally to get a properly formed ALPArray with patches.
-        let normally_encoded = alp_encode(&original, None).unwrap();
+        let normally_encoded = alp_encode(original.as_view(), None).unwrap();
         assert!(
             normally_encoded.patches().is_some(),
             "Test requires patches to be present"
@@ -810,7 +844,7 @@ mod tests {
         .unwrap();
 
         // Build a new ALPArray with the same encoded data but patches without chunk_offsets.
-        let alp_without_chunk_offsets = ALPArray::new(
+        let alp_without_chunk_offsets = ALP::new(
             normally_encoded.encoded().clone(),
             normally_encoded.exponents(),
             Some(patches_without_chunk_offsets),

@@ -50,7 +50,7 @@ jobs:
           echo "Found llvm-profdata at $LLVM_PROFDATA"
 
       - name: Install cargo-fuzz
-        uses: taiki-e/cache-cargo-install-action@24c4eaa867646941dd8cd6f08c1497ea68d732ba
+        uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:
           tool: cargo-fuzz
 
@@ -75,8 +75,7 @@ jobs:
 
       - name: Generate coverage data
         run: |
-          RUSTFLAGS="--cfg vortex_nightly" \
-            cargo +$NIGHTLY_TOOLCHAIN fuzz coverage --release --debug-assertions \
+          cargo +$NIGHTLY_TOOLCHAIN fuzz coverage --release --debug-assertions \
             ${{ matrix.fuzz_target }} \
             -- -rss_limit_mb=4096
 

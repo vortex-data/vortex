@@ -35,8 +35,8 @@ use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
 /// Initialize run-end encoding in the given session.
-pub fn initialize(session: &mut VortexSession) {
-    session.arrays().register(RunEnd::ID, RunEnd);
+pub fn initialize(session: &VortexSession) {
+    session.arrays().register(RunEnd);
 
     // Register the RunEnd-specific aggregate kernels.
     session.aggregate_fns().register_aggregate_kernel(
@@ -58,7 +58,7 @@ pub fn initialize(session: &mut VortexSession) {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::ProstMetadata;
+    use prost::Message;
     use vortex_array::dtype::PType;
     use vortex_array::test_harness::check_metadata;
 
@@ -69,11 +69,12 @@ mod tests {
     fn test_runend_metadata() {
         check_metadata(
             "runend.metadata",
-            ProstMetadata(RunEndMetadata {
+            &RunEndMetadata {
                 ends_ptype: PType::U64 as i32,
                 num_runs: u64::MAX,
                 offset: u64::MAX,
-            }),
+            }
+            .encode_to_vec(),
         );
     }
 }

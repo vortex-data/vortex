@@ -5,14 +5,15 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl MaskReduce for ListView {
-    fn mask(array: &ListViewArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: ArrayView<'_, ListView>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: masking the validity does not affect the invariants
         Ok(Some(
             unsafe {
@@ -20,10 +21,7 @@ impl MaskReduce for ListView {
                     array.elements().clone(),
                     array.offsets().clone(),
                     array.sizes().clone(),
-                    array
-                        .validity()
-                        .clone()
-                        .and(Validity::Array(mask.clone()))?,
+                    array.validity()?.and(Validity::Array(mask.clone()))?,
                 )
                 .with_zero_copy_to_list(array.is_zero_copy_to_list())
             }

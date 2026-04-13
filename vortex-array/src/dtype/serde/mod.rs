@@ -7,7 +7,7 @@ pub(crate) mod flatbuffers;
 
 mod proto;
 
-#[allow(clippy::module_inception)]
+#[expect(clippy::module_inception)]
 #[cfg(feature = "serde")]
 mod serde;
 

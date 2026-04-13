@@ -6,6 +6,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::PrimitiveArray;
@@ -15,16 +16,15 @@ use crate::dtype::NativeDecimalType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
-use crate::vtable::ValidityHelper;
 
 impl TakeExecute for Decimal {
     fn take(
-        array: &DecimalArray,
+        array: ArrayView<'_, Decimal>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let indices = indices.to_array().execute::<PrimitiveArray>(ctx)?;
-        let validity = array.validity().take(&indices.clone().into_array())?;
+        let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
+        let validity = array.validity()?.take(&indices.clone().into_array())?;
 
         // TODO(joe): if the true count of take indices validity is low, only take array values with
         // valid indices.
@@ -70,7 +70,7 @@ mod tests {
         );
 
         let indices = buffer![0, 2, 3].into_array();
-        let taken = array.take(indices.to_array()).unwrap();
+        let taken = array.take(indices).unwrap();
 
         let expected = DecimalArray::from_iter([10i128, 12, 13], ddtype);
         assert_arrays_eq!(expected, taken);
@@ -86,7 +86,7 @@ mod tests {
         );
 
         let indices = PrimitiveArray::from_option_iter([None, Some(2), Some(3)]).into_array();
-        let taken = array.take(indices.to_array()).unwrap();
+        let taken = array.take(indices).unwrap();
 
         let expected = DecimalArray::from_option_iter([None, Some(12i128), Some(13)], ddtype);
         assert_arrays_eq!(expected, taken);

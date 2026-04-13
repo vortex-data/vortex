@@ -5,7 +5,7 @@ use bytes::Bytes;
 use bytes::BytesMut;
 use flatbuffers::FlatBufferBuilder;
 use vortex_array::ArrayContext;
-use vortex_array::DynArray;
+use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::serde::SerializeOptions;
 use vortex_buffer::ByteBuffer;
@@ -14,10 +14,11 @@ use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::WriteFlatBufferExt;
 use vortex_flatbuffers::message as fb;
+use vortex_session::VortexSession;
 
 /// An IPC message ready to be passed to the encoder.
 pub enum EncoderMessage<'a> {
-    Array(&'a dyn DynArray),
+    Array(&'a ArrayRef),
     Buffer(&'a ByteBuffer),
     DType(&'a DType),
 }
@@ -25,17 +26,17 @@ pub enum EncoderMessage<'a> {
 pub struct MessageEncoder {
     /// A reusable buffer of zeros used for padding.
     zeros: Bytes,
-}
-
-impl Default for MessageEncoder {
-    fn default() -> Self {
-        Self {
-            zeros: BytesMut::zeroed(u16::MAX as usize).freeze(),
-        }
-    }
+    session: VortexSession,
 }
 
 impl MessageEncoder {
+    pub fn new(session: VortexSession) -> Self {
+        Self {
+            session,
+            zeros: BytesMut::zeroed(u16::MAX as usize).freeze(),
+        }
+    }
+
     /// Encode an IPC message for writing to a byte stream.
     ///
     /// The returned buffers should be written contiguously to the stream.
@@ -59,7 +60,8 @@ impl MessageEncoder {
                 // sending deltas later.
                 let ctx = ArrayContext::empty();
 
-                let array_buffers = array.serialize(&ctx, &SerializeOptions::default())?;
+                let array_buffers =
+                    array.serialize(&ctx, &self.session, &SerializeOptions::default())?;
                 let body_len = array_buffers.iter().map(|b| b.len() as u64).sum::<u64>();
 
                 let array_encodings = ctx

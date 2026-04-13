@@ -8,18 +8,19 @@ use vortex_error::vortex_ensure;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
+use crate::arrays::struct_::StructArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::cast::CastKernel;
-use crate::vtable::ValidityHelper;
 
 impl CastKernel for Struct {
     fn cast(
-        array: &StructArray,
+        array: ArrayView<'_, Struct>,
         dtype: &DType,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -38,10 +39,7 @@ impl CastKernel for Struct {
 
         let mut cast_fields = Vec::with_capacity(target_sdtype.nfields());
         if fields_match_order {
-            for (field, target_type) in array
-                .unmasked_fields()
-                .iter()
-                .zip_eq(target_sdtype.fields())
+            for (field, target_type) in array.iter_unmasked_fields().zip_eq(target_sdtype.fields())
             {
                 let cast_field = field.cast(target_type)?;
                 cast_fields.push(cast_field);
@@ -66,8 +64,7 @@ impl CastKernel for Struct {
                     }
                     Some(src_field_idx) => {
                         // Field exists in source field. Cast it to the target type.
-                        let cast_field =
-                            array.unmasked_fields()[src_field_idx].cast(target_type)?;
+                        let cast_field = array.unmasked_field(src_field_idx).cast(target_type)?;
                         cast_fields.push(cast_field);
                     }
                 }
@@ -75,8 +72,7 @@ impl CastKernel for Struct {
         }
 
         let validity = array
-            .validity()
-            .clone()
+            .validity()?
             .cast_nullability(dtype.nullability(), array.len())?;
 
         StructArray::try_new(
@@ -94,12 +90,12 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
 
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinArray;
+    use crate::arrays::struct_::StructArrayExt;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::DType;
@@ -213,7 +209,7 @@ mod tests {
             .unwrap();
         assert_eq!(result.dtype(), &target_dtype);
         assert_eq!(result.len(), 3);
-        assert_eq!(result.to_struct().unmasked_fields().len(), 2);
+        assert_eq!(result.to_struct().struct_fields().nfields(), 2);
     }
 
     #[test]
@@ -242,6 +238,6 @@ mod tests {
             .unwrap();
         assert_eq!(result.dtype(), &target_dtype);
         assert_eq!(result.len(), 3);
-        assert_eq!(result.to_struct().unmasked_fields().len(), 3);
+        assert_eq!(result.to_struct().struct_fields().nfields(), 3);
     }
 }

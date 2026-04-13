@@ -39,12 +39,12 @@ pub struct ExtDTypeRef(pub(super) Arc<dyn DynExtDType>);
 impl ExtDTypeRef {
     /// Returns the [`ExtId`] identifying this extension type.
     pub fn id(&self) -> ExtId {
-        self.0.ext_id()
+        self.0.id()
     }
 
     /// Returns the storage dtype of the extension type.
     pub fn storage_dtype(&self) -> &DType {
-        self.0.ext_storage_dtype()
+        self.0.storage_dtype()
     }
 
     /// Returns the nullability of the storage dtype.
@@ -78,7 +78,7 @@ impl ExtDTypeRef {
     // TODO(connor): We should add a different type that returns something that can be serialized.
     /// Serialize the metadata into a byte vector.
     pub fn serialize_metadata(&self) -> VortexResult<Vec<u8>> {
-        self.0.metadata_serialize()
+        self.0.serialize_metadata()
     }
 
     /// Returns a `Display`-able view of just the metadata.
@@ -97,22 +97,22 @@ impl ExtDTypeRef {
 
     /// Validates that the given storage scalar value is valid for this dtype.
     pub(crate) fn validate_storage_value(&self, storage_value: &ScalarValue) -> VortexResult<()> {
-        self.0.value_validate(storage_value)
+        self.0.validate_scalar_value(storage_value)
     }
 
     /// Can a value of `other` be implicitly coerced into this extension type?
     pub fn can_coerce_from(&self, other: &DType) -> bool {
-        self.0.coercion_can_coerce_from(other)
+        self.0.can_coerce_from(other)
     }
 
     /// Can this extension type be implicitly coerced into `other`?
     pub fn can_coerce_to(&self, other: &DType) -> bool {
-        self.0.coercion_can_coerce_to(other)
+        self.0.can_coerce_to(other)
     }
 
     /// Compute the least supertype of this extension type and another type.
     pub fn least_supertype(&self, other: &DType) -> Option<DType> {
-        self.0.coercion_least_supertype(other)
+        self.0.least_supertype(other)
     }
 }
 
@@ -160,7 +160,7 @@ impl ExtDTypeRef {
             .map_err(|this| {
                 vortex_err!(
                     "Failed to downcast ExtDTypeRef {} to {}",
-                    this.0.ext_id(),
+                    this.0.id(),
                     type_name::<V>(),
                 )
             })

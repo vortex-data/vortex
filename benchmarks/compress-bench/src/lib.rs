@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use ::vortex::array::arrays::ChunkedArray;
+use ::vortex::array::arrays::chunked::ChunkedArrayExt;
 use ::vortex::array::arrays::listview::recursive_list_from_list_view;
 use arrow_array::RecordBatch;
 use arrow_schema::Schema;
@@ -15,16 +16,15 @@ pub mod vortex;
 pub fn chunked_to_vec_record_batch(
     chunked: ChunkedArray,
 ) -> anyhow::Result<(Vec<RecordBatch>, Arc<Schema>)> {
-    let chunks_vec = chunked.chunks();
-    assert!(!chunks_vec.is_empty(), "empty chunks");
+    assert!(chunked.nchunks() > 0, "empty chunks");
 
-    let batches = chunks_vec
-        .iter()
+    let batches = chunked
+        .iter_chunks()
         .map(|array| {
             // TODO(connor)[ListView]: The rust Parquet implementation does not support writing
             // `ListView` to Parquet files yet.
             let converted_array = recursive_list_from_list_view(array.clone())?;
-            Ok(RecordBatch::try_from(converted_array.as_ref())?)
+            Ok(RecordBatch::try_from(&converted_array)?)
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
 

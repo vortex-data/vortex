@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
+
 use arrow_array::BooleanArray;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
@@ -11,13 +14,23 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::bool;
+use crate::array::Array;
+use crate::array::ArrayParts;
+use crate::array::TypedArrayRef;
+use crate::array::child_to_validity;
+use crate::array::validity_to_child;
+use crate::arrays::Bool;
+use crate::arrays::BoolArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
-/// A boolean array that stores true/false values in a compact bit-packed format.
+/// The validity bitmap indicating which elements are non-null.
+pub(super) const VALIDITY_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
+
+/// Inner data for a boolean array that stores true/false values in a compact bit-packed format.
 ///
 /// This mirrors the Apache Arrow Boolean array encoding, where each boolean value
 /// is stored as a single bit rather than a full byte.
@@ -50,23 +63,90 @@ use crate::validity::Validity;
 /// # }
 /// ```
 #[derive(Clone, Debug)]
-pub struct BoolArray {
-    pub(super) dtype: DType,
+pub struct BoolData {
     pub(super) bits: BufferHandle,
     pub(super) offset: usize,
-    pub(super) len: usize,
-    pub(super) validity: Validity,
-    pub(super) stats_set: ArrayStats,
 }
 
-pub struct BoolArrayParts {
+impl Display for BoolData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "offset: {}", self.offset)
+    }
+}
+
+pub struct BoolDataParts {
     pub bits: BufferHandle,
     pub offset: usize,
     pub len: usize,
-    pub validity: Validity,
 }
 
-impl BoolArray {
+pub trait BoolArrayExt: TypedArrayRef<Bool> {
+    fn nullability(&self) -> crate::dtype::Nullability {
+        match self.as_ref().dtype() {
+            DType::Bool(nullability) => *nullability,
+            _ => unreachable!("BoolArrayExt requires a bool dtype"),
+        }
+    }
+
+    fn validity(&self) -> Validity {
+        child_to_validity(&self.as_ref().slots()[VALIDITY_SLOT], self.nullability())
+    }
+
+    fn bool_validity_mask(&self) -> Mask {
+        self.validity().to_mask(self.as_ref().len())
+    }
+
+    fn to_bit_buffer(&self) -> BitBuffer {
+        let buffer = self.bits.as_host().clone();
+        BitBuffer::new_with_offset(buffer, self.as_ref().len(), self.offset)
+    }
+
+    fn maybe_to_mask(&self) -> VortexResult<Option<Mask>> {
+        let all_valid = match &self.validity() {
+            Validity::NonNullable | Validity::AllValid => true,
+            Validity::AllInvalid => false,
+            Validity::Array(a) => a.statistics().compute_min::<bool>().unwrap_or(false),
+        };
+        Ok(all_valid.then(|| Mask::from_buffer(self.to_bit_buffer())))
+    }
+
+    fn to_mask(&self) -> Mask {
+        self.maybe_to_mask()
+            .vortex_expect("failed to check validity")
+            .vortex_expect("cannot convert nullable boolean array to mask")
+    }
+
+    fn to_mask_fill_null_false(&self) -> Mask {
+        let validity_mask = self.bool_validity_mask();
+        let buffer = match validity_mask {
+            Mask::AllTrue(_) => self.to_bit_buffer(),
+            Mask::AllFalse(_) => return Mask::new_false(self.as_ref().len()),
+            Mask::Values(validity) => validity.bit_buffer() & self.to_bit_buffer(),
+        };
+        Mask::from_buffer(buffer)
+    }
+}
+impl<T: TypedArrayRef<Bool>> BoolArrayExt for T {}
+
+/// Field accessors and non-consuming methods on the inner bool data.
+impl BoolData {
+    /// Splits into owned parts
+    #[inline]
+    pub fn into_parts(self, len: usize) -> BoolDataParts {
+        BoolDataParts {
+            bits: self.bits,
+            offset: self.offset,
+            len,
+        }
+    }
+
+    pub(crate) fn make_slots(validity: &Validity, len: usize) -> Vec<Option<ArrayRef>> {
+        vec![validity_to_child(validity, len)]
+    }
+}
+
+/// Constructors and consuming methods for `BoolArray` (`Array<Bool>`).
+impl Array<Bool> {
     /// Constructs a new `BoolArray`.
     ///
     /// # Panics
@@ -88,35 +168,93 @@ impl BoolArray {
 
     /// Constructs a new `BoolArray`.
     ///
-    /// See [`BoolArray::new_unchecked`] for more information.
-    ///
     /// # Errors
     ///
-    /// Returns an error if the provided components do not satisfy the invariants documented in
-    /// [`BoolArray::new_unchecked`].
+    /// Returns an error if the provided components do not satisfy the invariants.
     pub fn try_new(bits: BitBuffer, validity: Validity) -> VortexResult<Self> {
-        let bits = bits.shrink_offset();
-        Self::validate(&bits, &validity)?;
-
-        let (offset, len, buffer) = bits.into_inner();
-
-        Ok(Self {
-            dtype: DType::Bool(validity.nullability()),
-            bits: BufferHandle::new_host(buffer),
-            offset,
-            len,
-            validity,
-            stats_set: ArrayStats::default(),
+        let dtype = DType::Bool(validity.nullability());
+        let len = bits.len();
+        let slots = BoolData::make_slots(&validity, len);
+        let data = BoolData::try_new(bits, validity)?;
+        Ok(unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data).with_slots(slots))
         })
     }
 
     /// Build a new bool array from a `BufferHandle`, returning an error if the offset is
     /// too large or the buffer is not large enough to hold the values.
-    ///
-    /// # Error
-    ///
-    /// Error if the inputs fail validation. See also `try_new`.
     pub fn try_new_from_handle(
+        bits: BufferHandle,
+        offset: usize,
+        len: usize,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        let dtype = DType::Bool(validity.nullability());
+        let slots = BoolData::make_slots(&validity, len);
+        let data = BoolData::try_new_from_handle(bits, offset, len, validity)?;
+        Ok(unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data).with_slots(slots))
+        })
+    }
+
+    /// Creates a new [`BoolArray`] without validation.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the validity length is equal to the bit buffer length.
+    pub unsafe fn new_unchecked(bits: BitBuffer, validity: Validity) -> Self {
+        let dtype = DType::Bool(validity.nullability());
+        let len = bits.len();
+        let slots = BoolData::make_slots(&validity, len);
+        // SAFETY: caller guarantees validity length equals bit buffer length.
+        let data = unsafe { BoolData::new_unchecked(bits, validity) };
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data).with_slots(slots))
+        }
+    }
+
+    /// Validates the components that would be used to create a [`BoolArray`].
+    pub fn validate(bits: &BitBuffer, validity: &Validity) -> VortexResult<()> {
+        BoolData::validate(bits, validity)
+    }
+
+    /// Create a new BoolArray from a set of indices and a length.
+    ///
+    /// All indices must be less than the length.
+    pub fn from_indices<I: IntoIterator<Item = usize>>(
+        length: usize,
+        indices: I,
+        validity: Validity,
+    ) -> Self {
+        let mut buffer = BitBufferMut::new_unset(length);
+        indices.into_iter().for_each(|idx| buffer.set(idx));
+        Self::new(buffer.freeze(), validity)
+    }
+
+    /// Returns the underlying [`BitBuffer`] of the array, consuming self.
+    pub fn into_bit_buffer(self) -> BitBuffer {
+        let len = self.len();
+        let data = self.into_data();
+        let buffer = data.bits.unwrap_host();
+        BitBuffer::new_with_offset(buffer, len, data.offset)
+    }
+}
+
+/// Internal constructors on BoolData (used by Array<Bool> constructors and VTable::build).
+impl BoolData {
+    pub(super) fn try_new(bits: BitBuffer, validity: Validity) -> VortexResult<Self> {
+        let bits = bits.shrink_offset();
+        Self::validate(&bits, &validity)?;
+
+        let (offset, _len, buffer) = bits.into_inner();
+
+        Ok(Self {
+            bits: BufferHandle::new_host(buffer),
+            offset,
+        })
+    }
+
+    pub(super) fn try_new_from_handle(
         bits: BufferHandle,
         offset: usize,
         len: usize,
@@ -137,49 +275,29 @@ impl BoolArray {
             bits.len() * 8,
         );
 
-        Ok(Self {
-            dtype: DType::Bool(validity.nullability()),
-            bits,
-            offset,
-            len,
-            validity,
-            stats_set: ArrayStats::default(),
-        })
+        Ok(Self { bits, offset })
     }
 
-    /// Creates a new [`BoolArray`] without validation from these components:
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that the validity length is equal to the bit buffer length.
-    pub unsafe fn new_unchecked(bits: BitBuffer, validity: Validity) -> Self {
+    pub(super) unsafe fn new_unchecked(bits: BitBuffer, validity: Validity) -> Self {
         if cfg!(debug_assertions) {
-            Self::new(bits, validity)
+            Self::try_new(bits, validity).vortex_expect("Failed to create BoolData")
         } else {
-            let (offset, len, buffer) = bits.into_inner();
+            let (offset, _len, buffer) = bits.into_inner();
 
             Self {
-                dtype: DType::Bool(validity.nullability()),
                 bits: BufferHandle::new_host(buffer),
                 offset,
-                len,
-                validity,
-                stats_set: ArrayStats::default(),
             }
         }
     }
 
-    /// Validates the components that would be used to create a [`BoolArray`].
-    ///
-    /// This function checks all the invariants required by [`BoolArray::new_unchecked`].
-    pub fn validate(bits: &BitBuffer, validity: &Validity) -> VortexResult<()> {
+    pub(super) fn validate(bits: &BitBuffer, validity: &Validity) -> VortexResult<()> {
         vortex_ensure!(
             bits.offset() < 8,
             "BitBuffer offset must be <8, got {}",
             bits.offset()
         );
 
-        // Validate validity
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
                 validity_len == bits.len(),
@@ -190,86 +308,17 @@ impl BoolArray {
 
         Ok(())
     }
-
-    /// Splits into owned parts
-    #[inline]
-    pub fn into_parts(self) -> BoolArrayParts {
-        BoolArrayParts {
-            bits: self.bits,
-            offset: self.offset,
-            len: self.len,
-            validity: self.validity,
-        }
-    }
-
-    /// Create a new BoolArray from a set of indices and a length.
-    ///
-    /// All indices must be less than the length.
-    pub fn from_indices<I: IntoIterator<Item = usize>>(
-        length: usize,
-        indices: I,
-        validity: Validity,
-    ) -> Self {
-        let mut buffer = BitBufferMut::new_unset(length);
-        indices.into_iter().for_each(|idx| buffer.set(idx));
-        Self::new(buffer.freeze(), validity)
-    }
-
-    /// Returns the underlying [`BitBuffer`] of the array.
-    pub fn to_bit_buffer(&self) -> BitBuffer {
-        let buffer = self.bits.as_host().clone();
-
-        BitBuffer::new_with_offset(buffer, self.len, self.offset)
-    }
-
-    /// Returns the underlying [`BitBuffer`] of the array
-    pub fn into_bit_buffer(self) -> BitBuffer {
-        self.to_bit_buffer()
-    }
-
-    pub fn to_mask(&self) -> Mask {
-        self.maybe_to_mask()
-            .vortex_expect("failed to check validity")
-            .vortex_expect("cannot convert nullable boolean array to mask")
-    }
-
-    pub fn maybe_to_mask(&self) -> VortexResult<Option<Mask>> {
-        Ok(self
-            .all_valid()?
-            .then(|| Mask::from_buffer(self.to_bit_buffer())))
-    }
-
-    pub fn to_mask_fill_null_false(&self) -> Mask {
-        if let Some(constant) = self.as_constant() {
-            let bool_constant = constant.as_bool();
-            if bool_constant.value().unwrap_or(false) {
-                return Mask::new_true(self.len());
-            } else {
-                return Mask::new_false(self.len());
-            }
-        }
-        // Extract a boolean buffer, treating null values to false
-        let buffer = match self
-            .validity_mask()
-            .unwrap_or_else(|_| Mask::new_true(self.len()))
-        {
-            Mask::AllTrue(_) => self.to_bit_buffer(),
-            Mask::AllFalse(_) => return Mask::new_false(self.len()),
-            Mask::Values(validity) => validity.bit_buffer() & self.to_bit_buffer(),
-        };
-        Mask::from_buffer(buffer)
-    }
 }
 
 impl From<BitBuffer> for BoolArray {
     fn from(value: BitBuffer) -> Self {
-        Self::new(value, Validity::NonNullable)
+        BoolArray::new(value, Validity::NonNullable)
     }
 }
 
 impl FromIterator<bool> for BoolArray {
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
-        Self::from(BitBuffer::from_iter(iter))
+        BoolArray::from(BitBuffer::from_iter(iter))
     }
 }
 
@@ -277,7 +326,7 @@ impl FromIterator<Option<bool>> for BoolArray {
     fn from_iter<I: IntoIterator<Item = Option<bool>>>(iter: I) -> Self {
         let (buffer, nulls) = BooleanArray::from_iter(iter).into_parts();
 
-        Self::new(
+        BoolArray::new(
             BitBuffer::from(buffer),
             nulls
                 .map(|n| Validity::from(BitBuffer::from(n.into_inner())))
@@ -307,16 +356,15 @@ mod tests {
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
 
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::bool::BoolArrayExt;
     use crate::assert_arrays_eq;
     use crate::patches::Patches;
     use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     #[test]
     fn bool_array() {
@@ -329,7 +377,7 @@ mod tests {
     fn test_all_some_iter() {
         let arr = BoolArray::from_iter([Some(true), Some(false)]);
 
-        assert!(matches!(arr.validity(), Validity::AllValid));
+        assert!(matches!(arr.validity(), Ok(Validity::AllValid)));
 
         let scalar = bool::try_from(&arr.scalar_at(0).unwrap()).unwrap();
         assert!(scalar);

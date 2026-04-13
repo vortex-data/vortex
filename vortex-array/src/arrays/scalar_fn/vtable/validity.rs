@@ -7,7 +7,9 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
-use crate::arrays::scalar_fn::array::ScalarFnArray;
+use crate::array::ArrayView;
+use crate::array::ValidityVTable;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::vtable::ArrayExpr;
 use crate::arrays::scalar_fn::vtable::FakeEq;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
@@ -18,7 +20,6 @@ use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::root::Root;
 use crate::validity::Validity;
-use crate::vtable::ValidityVTable;
 
 /// Execute an expression tree recursively.
 ///
@@ -50,10 +51,9 @@ fn execute_expr(expr: &Expression, row_count: usize) -> VortexResult<ArrayRef> {
 }
 
 impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
-    fn validity(array: &ScalarFnArray) -> VortexResult<Validity> {
+    fn validity(array: ArrayView<'_, ScalarFnVTable>) -> VortexResult<Validity> {
         let inputs: Vec<_> = array
-            .children
-            .iter()
+            .iter_children()
             .map(|child| {
                 if let Some(scalar) = child.as_constant() {
                     return Ok(lit(scalar));
@@ -62,7 +62,7 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
             })
             .collect::<VortexResult<_>>()?;
 
-        let expr = Expression::try_new(array.scalar_fn.clone(), inputs)?;
+        let expr = Expression::try_new(array.scalar_fn().clone(), inputs)?;
         let validity_expr = array.scalar_fn().validity(&expr)?;
 
         // Execute the validity expression. All leaves are ArrayExpr nodes.

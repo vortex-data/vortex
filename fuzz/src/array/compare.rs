@@ -2,11 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -123,7 +123,7 @@ pub fn compare_canonical_array(
             let binary_value = value.as_binary();
             compare_to(
                 // Don't understand the lifetime problem here but identity map makes it go away
-                #[allow(clippy::map_identity)]
+                #[expect(clippy::map_identity)]
                 iter.map(|v| v),
                 binary_value.value().vortex_expect("nulls handled before"),
                 operator,

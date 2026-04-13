@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
-
 use std::iter::Iterator;
 
 use arrow_buffer::BooleanBuffer;
@@ -12,6 +10,15 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 
 fn main() {
+    // Pre-warm CPUID feature detection so the one-time probe cost is never
+    // included in any benchmark iteration.
+    #[cfg(target_arch = "x86_64")]
+    {
+        let _ = is_x86_feature_detected!("avx2");
+        let _ = is_x86_feature_detected!("avx512f");
+        let _ = is_x86_feature_detected!("avx512vpopcntdq");
+    }
+
     divan::main();
 }
 
@@ -166,9 +173,6 @@ fn slice_arrow_buffer(bencher: Bencher, length: usize) {
 #[divan::bench(args = INPUT_SIZE)]
 fn true_count_vortex_buffer(bencher: Bencher, length: usize) {
     let buffer = BitBuffer::from_iter((0..length).map(true_count_pattern));
-    // Preload cpuid flags, one slow run that does feature detection skews sampling thus leading to way too few runs when feature detection kicks in.
-    #[cfg(target_arch = "x86_64")]
-    let _ = is_x86_feature_detected!("avx2");
 
     bencher
         .with_inputs(|| &buffer)

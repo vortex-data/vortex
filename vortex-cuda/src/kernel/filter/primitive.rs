@@ -4,7 +4,7 @@
 use cudarc::driver::DeviceRepr;
 use vortex::array::Canonical;
 use vortex::array::arrays::PrimitiveArray;
-use vortex::array::arrays::primitive::PrimitiveArrayParts;
+use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::dtype::NativePType;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
@@ -22,9 +22,9 @@ pub(super) async fn filter_primitive<T>(
 where
     T: NativePType + DeviceRepr + CubFilterable + Send + Sync + 'static,
 {
-    let PrimitiveArrayParts {
+    let PrimitiveDataParts {
         buffer, validity, ..
-    } = array.into_parts();
+    } = array.into_data_parts();
 
     let filtered_validity = validity.filter(&mask)?;
     let filtered_values = filter_sized::<T>(buffer, mask, ctx).await?;

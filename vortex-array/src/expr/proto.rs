@@ -8,6 +8,7 @@ use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::expr::Expression;
+use crate::scalar_fn::ForeignScalarFnVTable;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::session::ScalarFnSessionExt;
 
@@ -39,19 +40,21 @@ impl ExprSerializeProtoExt for Expression {
 impl Expression {
     pub fn from_proto(expr: &pb::Expr, session: &VortexSession) -> VortexResult<Expression> {
         let expr_id = ScalarFnId::new(expr.id.as_str());
-        let vtable = session
-            .scalar_fns()
-            .registry()
-            .find(&expr_id)
-            .ok_or_else(|| vortex_err!("unknown expression id: {}", expr_id))?;
-
         let children = expr
             .children
             .iter()
             .map(|e| Expression::from_proto(e, session))
             .collect::<VortexResult<Vec<_>>>()?;
 
-        Expression::try_new(vtable.deserialize(expr.metadata(), session)?, children)
+        let scalar_fn = if let Some(vtable) = session.scalar_fns().registry().find(&expr_id) {
+            vtable.deserialize(expr.metadata(), session)?
+        } else if session.allows_unknown() {
+            ForeignScalarFnVTable::make_scalar_fn(expr_id, expr.metadata().to_vec(), children.len())
+        } else {
+            return Err(vortex_err!("unknown expression id: {}", expr_id));
+        };
+
+        Expression::try_new(scalar_fn, children)
     }
 }
 
@@ -68,6 +71,7 @@ pub fn deserialize_expr_proto(
 mod tests {
     use prost::Message;
     use vortex_proto::expr as pb;
+    use vortex_session::VortexSession;
 
     use super::ExprSerializeProtoExt;
     use crate::LEGACY_SESSION;
@@ -81,6 +85,7 @@ mod tests {
     use crate::expr::root;
     use crate::scalar_fn::fns::between::BetweenOptions;
     use crate::scalar_fn::fns::between::StrictComparison;
+    use crate::scalar_fn::session::ScalarFnSession;
 
     #[test]
     fn expression_serde() {
@@ -106,5 +111,26 @@ mod tests {
         let deser_expr = Expression::from_proto(&s_expr, &LEGACY_SESSION).unwrap();
 
         assert_eq!(&deser_expr, &expr);
+    }
+
+    #[test]
+    fn unknown_expression_id_allow_unknown() {
+        let session = VortexSession::empty()
+            .with::<ScalarFnSession>()
+            .allow_unknown();
+
+        let expr_proto = pb::Expr {
+            id: "vortex.test.foreign_scalar_fn".to_string(),
+            metadata: Some(vec![1, 2, 3, 4]),
+            children: vec![root().serialize_proto().unwrap()],
+        };
+
+        let expr = Expression::from_proto(&expr_proto, &session).unwrap();
+        assert_eq!(expr.id().as_ref(), "vortex.test.foreign_scalar_fn");
+
+        let roundtrip = expr.serialize_proto().unwrap();
+        assert_eq!(roundtrip.id, expr_proto.id);
+        assert_eq!(roundtrip.metadata(), expr_proto.metadata());
+        assert_eq!(roundtrip.children.len(), 1);
     }
 }

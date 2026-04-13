@@ -64,7 +64,7 @@ impl VTable for Zoned {
     fn metadata(layout: &Self::Layout) -> Self::Metadata {
         ZonedMetadata {
             zone_len: u32::try_from(layout.zone_len).vortex_expect("Invalid zone length"),
-            present_stats: layout.present_stats.clone(),
+            present_stats: Arc::clone(&layout.present_stats),
         }
     }
 
@@ -122,7 +122,7 @@ impl VTable for Zoned {
             dtype: dtype.clone(),
             children: children.to_arc(),
             zone_len: metadata.zone_len as usize,
-            present_stats: metadata.present_stats.clone(),
+            present_stats: Arc::clone(&metadata.present_stats),
         })
     }
 

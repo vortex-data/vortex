@@ -13,6 +13,7 @@ use crate::dtype::DecimalDType;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
 use crate::dtype::extension::ExtId;
+use crate::dtype::extension::ForeignExtDType;
 use crate::dtype::field::Field;
 use crate::dtype::field::FieldPath;
 use crate::dtype::proto::dtype as pb;
@@ -87,16 +88,19 @@ impl DType {
             }
             DtypeType::Extension(e) => {
                 let id = ExtId::new(e.id.as_str());
-                let vtable = session.dtypes().registry().find(&id).ok_or_else(
-                    || vortex_err!(Serde: "Unregistered extension type ID: {}", e.id),
-                )?;
                 let storage_dtype = DType::from_proto(
                     e.storage_dtype
                         .as_ref()
                         .ok_or_else(|| vortex_err!("Extension DType missing storage proto"))?,
                     session,
                 )?;
-                let ext_dtype = vtable.deserialize(e.metadata(), storage_dtype)?;
+                let ext_dtype = if let Some(vtable) = session.dtypes().registry().find(&id) {
+                    vtable.deserialize(e.metadata(), storage_dtype)?
+                } else if session.allows_unknown() {
+                    ForeignExtDType::from_parts(id, e.metadata().to_vec(), storage_dtype)?
+                } else {
+                    return Err(vortex_err!(Serde: "Unregistered extension type ID: {}", e.id));
+                };
                 Ok(Self::Extension(ext_dtype))
             }
             DtypeType::Variant(v) => Ok(Self::Variant(v.nullable.into())),
@@ -220,6 +224,8 @@ impl TryFrom<&pb::FieldPath> for FieldPath {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::dtype::DType;
@@ -489,5 +495,36 @@ mod tests {
                 .to_string()
                 .contains("Extension DType missing storage proto")
         );
+    }
+
+    #[test]
+    fn test_unknown_extension_allow_unknown() {
+        let session = VortexSession::empty().allow_unknown();
+        let proto = pb::DType {
+            dtype_type: Some(DtypeType::Extension(Box::new(pb::Extension {
+                id: "vortex.test.foreign_ext".to_string(),
+                storage_dtype: Some(Box::new(pb::DType {
+                    dtype_type: Some(DtypeType::Primitive(pb::Primitive {
+                        r#type: pb::PType::I32.into(),
+                        nullable: false,
+                    })),
+                })),
+                metadata: Some(vec![1, 2, 3]),
+            }))),
+        };
+
+        let dtype = DType::from_proto(&proto, &session).unwrap();
+        let DType::Extension(ext) = &dtype else {
+            panic!("Expected extension dtype");
+        };
+        assert_eq!(ext.id().as_ref(), "vortex.test.foreign_ext");
+        assert_eq!(ext.serialize_metadata().unwrap(), vec![1, 2, 3]);
+
+        let roundtrip = pb::DType::try_from(&dtype).unwrap();
+        let DtypeType::Extension(roundtrip_ext) = roundtrip.dtype_type.unwrap() else {
+            panic!("Expected extension dtype");
+        };
+        assert_eq!(roundtrip_ext.id, "vortex.test.foreign_ext");
+        assert_eq!(roundtrip_ext.metadata(), &[1, 2, 3]);
     }
 }

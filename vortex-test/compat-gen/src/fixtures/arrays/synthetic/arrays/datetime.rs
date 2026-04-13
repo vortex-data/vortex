@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Extension;
@@ -12,7 +13,6 @@ use vortex_array::arrays::TemporalArray;
 use vortex_array::dtype::FieldNames;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ArrayId;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 

@@ -145,7 +145,7 @@ impl LazyReaderChildren {
             let child = self.children.child(idx, dtype)?;
             child.new_reader(
                 Arc::clone(&self.names[idx]),
-                self.segment_source.clone(),
+                Arc::clone(&self.segment_source),
                 &self.session,
             )
         })

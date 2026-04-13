@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# https://github.com/vortex-data/vortex/pull/7244
+# This is likely a false positive in TSan for oneshot::channel and kanal
+# where ordering is correct but uses an explicit fence and not relaxed load
+race:oneshot-*/src/channel.rs

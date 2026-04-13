@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Decimal;
@@ -9,7 +10,6 @@ use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ArrayId;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 

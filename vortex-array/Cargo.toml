@@ -68,6 +68,7 @@ tabled = { workspace = true, optional = true, default-features = false, features
 termtree = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
+vortex-array-macros = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-error = { workspace = true, features = ["flatbuffers"] }
 vortex-flatbuffers = { workspace = true, features = ["array", "dtype"] }
@@ -94,6 +95,10 @@ rstest = { workspace = true }
 serde_json = { workspace = true }
 serde_test = { workspace = true }
 vortex-array = { path = ".", features = ["_test-harness", "table-display"] }
+
+[[bench]]
+name = "cast_primitive"
+harness = false
 
 [[bench]]
 name = "search_sorted"
@@ -170,6 +175,10 @@ harness = false
 
 [[bench]]
 name = "take_fsl"
+harness = false
+
+[[bench]]
+name = "filter_bool"
 harness = false
 
 [[bench]]

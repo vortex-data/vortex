@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
-use vortex::array::vtable::ArrayId;
 use vortex::encodings::fastlanes::FoR;
-use vortex::encodings::fastlanes::FoRArray;
 use vortex::error::VortexResult;
 
 use super::N;
@@ -69,16 +68,16 @@ impl FlatLayoutFixture for FoRFixture {
                 "near_max_u64",
             ]),
             vec![
-                FoRArray::encode(clustered_i32)?.into_array(),
-                FoRArray::encode(clustered_u64)?.into_array(),
-                FoRArray::encode(clustered_i64)?.into_array(),
-                FoRArray::encode(negative_i32)?.into_array(),
-                FoRArray::encode(nullable_i32)?.into_array(),
-                FoRArray::encode(clustered_i16)?.into_array(),
-                FoRArray::encode(constant_offsets)?.into_array(),
-                FoRArray::encode(zero_crossing_i32)?.into_array(),
-                FoRArray::encode(far_outlier_i64)?.into_array(),
-                FoRArray::encode(near_max_u64)?.into_array(),
+                FoR::encode(clustered_i32)?.into_array(),
+                FoR::encode(clustered_u64)?.into_array(),
+                FoR::encode(clustered_i64)?.into_array(),
+                FoR::encode(negative_i32)?.into_array(),
+                FoR::encode(nullable_i32)?.into_array(),
+                FoR::encode(clustered_i16)?.into_array(),
+                FoR::encode(constant_offsets)?.into_array(),
+                FoR::encode(zero_crossing_i32)?.into_array(),
+                FoR::encode(far_outlier_i64)?.into_array(),
+                FoR::encode(near_max_u64)?.into_array(),
             ],
             N,
             Validity::NonNullable,

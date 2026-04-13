@@ -210,8 +210,8 @@ async fn exec_inspect_json(
     let footer_json =
         if matches!(mode, InspectMode::Footer) && eof.valid_magic && postscript_json.is_some() {
             inspector.read_footer().await.ok().map(|footer| {
-                let segment_map = footer.segment_map().clone();
-                let root_layout = footer.layout().clone();
+                let segment_map = Arc::clone(footer.segment_map());
+                let root_layout = Arc::clone(footer.layout());
 
                 let mut segment_paths: Vec<Option<Vec<Arc<str>>>> = vec![None; segment_map.len()];
                 let mut queue =
@@ -538,14 +538,14 @@ impl FooterSegments {
 
         println!("\nSegment details:\n");
 
-        let segment_map = self.0.segment_map().clone();
+        let segment_map = Arc::clone(self.0.segment_map());
         if segment_map.is_empty() {
             println!("<no segments>");
             return;
         }
 
         let mut segment_paths: Vec<Option<Vec<Arc<str>>>> = vec![None; segment_map.len()];
-        let root_layout = self.0.layout().clone();
+        let root_layout = Arc::clone(self.0.layout());
 
         let mut queue =
             VecDeque::<(Vec<Arc<str>>, LayoutRef)>::from_iter([(Vec::new(), root_layout)]);

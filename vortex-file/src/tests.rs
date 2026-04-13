@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::cast_possible_truncation)]
+#![expect(clippy::cast_possible_truncation)]
 use std::iter;
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -11,7 +11,6 @@ use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::pin_mut;
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::accessor::ArrayAccessor;
@@ -25,6 +24,8 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::dict::DictArraySlotsExt;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
@@ -62,8 +63,9 @@ use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSession;
+use vortex_layout::Layout;
+use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::session::LayoutSession;
-use vortex_scan::ScanBuilder;
 use vortex_session::VortexSession;
 
 use crate::OpenOptionsSessionExt;
@@ -71,15 +73,16 @@ use crate::V1_FOOTER_FBS_SIZE;
 use crate::VERSION;
 use crate::VortexFile;
 use crate::WriteOptionsSessionExt;
+use crate::footer::SegmentSpec;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let mut session = VortexSession::empty()
+    let session = VortexSession::empty()
         .with::<ArraySession>()
         .with::<LayoutSession>()
         .with::<ScalarFnSession>()
         .with::<RuntimeSession>();
 
-    crate::register_default_encodings(&mut session);
+    crate::register_default_encodings(&session);
 
     session
 });
@@ -111,7 +114,7 @@ async fn test_read_simple() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -187,11 +190,12 @@ async fn test_round_trip_many_types() {
         ("decimal_35", decimal_35),
     ])
     .unwrap();
+    let dtype = st.dtype().clone();
     let mut buf = ByteBufferMut::empty();
 
     SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -207,7 +211,7 @@ async fn test_round_trip_many_types() {
         .await
         .unwrap();
 
-    let read = ChunkedArray::try_new(chunks, st.dtype().clone()).unwrap();
+    let read = ChunkedArray::try_new(chunks, dtype).unwrap();
 
     assert_eq!(read.len(), 3);
 }
@@ -248,7 +252,7 @@ async fn test_read_simple_with_spawn() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -279,7 +283,7 @@ async fn test_read_projection() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -302,9 +306,9 @@ async fn test_read_projection() {
         )
     );
 
-    let actual = array.to_struct().unmasked_fields()[0].clone();
+    let actual = array.to_struct().unmasked_field(0).clone();
     let expected = VarBinArray::from(strings_expected.to_vec()).into_array();
-    assert_arrays_eq!(actual.as_ref(), expected.as_ref());
+    assert_arrays_eq!(actual, expected);
 
     let array = file
         .scan()
@@ -324,9 +328,9 @@ async fn test_read_projection() {
         )
     );
 
-    let actual = array.to_struct().unmasked_fields()[0].clone();
+    let actual = array.to_struct().unmasked_field(0).clone();
     let expected = Buffer::copy_from(numbers_expected).into_array();
-    assert_arrays_eq!(actual.as_ref(), expected.as_ref());
+    assert_arrays_eq!(actual, expected);
 }
 
 #[tokio::test]
@@ -348,7 +352,7 @@ async fn unequal_batches() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -408,7 +412,7 @@ async fn write_chunked() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, chunked_st.to_array_stream())
+        .write(&mut buf, chunked_st.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -435,11 +439,12 @@ async fn test_empty_varbin_array_roundtrip() {
     let empty = VarBinArray::from(Vec::<&str>::new()).into_array();
 
     let st = StructArray::from_fields(&[("a", empty)]).unwrap();
+    let dtype = st.dtype().clone();
 
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -455,7 +460,7 @@ async fn test_empty_varbin_array_roundtrip() {
         .unwrap();
 
     assert_eq!(result.len(), 0);
-    assert_eq!(result.dtype(), st.dtype());
+    assert_eq!(result.dtype(), &dtype);
 }
 
 #[tokio::test]
@@ -518,7 +523,7 @@ async fn filter_string() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -536,15 +541,15 @@ async fn filter_string() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names_actual = result[0].to_struct().unmasked_fields()[0].clone();
+    let names_actual = result[0].to_struct().unmasked_field(0).clone();
     let names_expected =
         VarBinArray::from_iter(vec![Some("Joseph")], DType::Utf8(Nullability::Nullable))
             .into_array();
-    assert_arrays_eq!(names_actual.as_ref(), names_expected.as_ref());
+    assert_arrays_eq!(names_actual, names_expected);
 
-    let ages_actual = result[0].to_struct().unmasked_fields()[1].clone();
+    let ages_actual = result[0].to_struct().unmasked_field(1).clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32)]).into_array();
-    assert_arrays_eq!(ages_actual.as_ref(), ages_expected.as_ref());
+    assert_arrays_eq!(ages_actual, ages_expected);
 }
 
 #[tokio::test]
@@ -567,7 +572,7 @@ async fn filter_or() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -591,17 +596,17 @@ async fn filter_or() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names_actual = result[0].to_struct().unmasked_fields()[0].clone();
+    let names_actual = result[0].to_struct().unmasked_field(0).clone();
     let names_expected = VarBinArray::from_iter(
         vec![Some("Joseph"), Some("Angela")],
         DType::Utf8(Nullability::Nullable),
     )
     .into_array();
-    assert_arrays_eq!(names_actual.as_ref(), names_expected.as_ref());
+    assert_arrays_eq!(names_actual, names_expected);
 
-    let ages_actual = result[0].to_struct().unmasked_fields()[1].clone();
+    let ages_actual = result[0].to_struct().unmasked_field(1).clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32), None]).into_array();
-    assert_arrays_eq!(ages_actual.as_ref(), ages_expected.as_ref());
+    assert_arrays_eq!(ages_actual, ages_expected);
 }
 
 #[tokio::test]
@@ -624,7 +629,7 @@ async fn filter_and() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -645,17 +650,17 @@ async fn filter_and() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names_actual = result[0].to_struct().unmasked_fields()[0].clone();
+    let names_actual = result[0].to_struct().unmasked_field(0).clone();
     let names_expected = VarBinArray::from_iter(
         vec![Some("Joseph"), None],
         DType::Utf8(Nullability::Nullable),
     )
     .into_array();
-    assert_arrays_eq!(names_actual.as_ref(), names_expected.as_ref());
+    assert_arrays_eq!(names_actual, names_expected);
 
-    let ages_actual = result[0].to_struct().unmasked_fields()[1].clone();
+    let ages_actual = result[0].to_struct().unmasked_field(1).clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32), Some(31i32)]).into_array();
-    assert_arrays_eq!(ages_actual.as_ref(), ages_expected.as_ref());
+    assert_arrays_eq!(ages_actual, ages_expected);
 }
 
 #[tokio::test]
@@ -678,7 +683,7 @@ async fn test_with_indices_simple() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, expected_array.to_array_stream())
+        .write(&mut buf, expected_array.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -711,14 +716,14 @@ async fn test_with_indices_simple() {
         .await
         .unwrap()
         .to_struct();
-    let actual_kept_numbers_array = actual_kept_array.unmasked_fields()[0].to_primitive();
+    let actual_kept_numbers_array = actual_kept_array.unmasked_field(0).to_primitive();
 
     let expected_kept_numbers: Vec<i16> = kept_indices
         .iter()
         .map(|&x| expected_numbers[x as usize])
         .collect();
     let expected_array = Buffer::copy_from(&expected_kept_numbers).into_array();
-    assert_arrays_eq!(actual_kept_numbers_array.as_ref(), expected_array.as_ref());
+    assert_arrays_eq!(actual_kept_numbers_array, expected_array);
 
     // test all indices
     let actual_array = file
@@ -731,9 +736,9 @@ async fn test_with_indices_simple() {
         .await
         .unwrap()
         .to_struct();
-    let actual_numbers_array = actual_array.unmasked_fields()[0].clone();
+    let actual_numbers_array = actual_array.unmasked_field(0).clone();
     let expected_array = Buffer::copy_from(&expected_numbers).into_array();
-    assert_arrays_eq!(actual_numbers_array.as_ref(), expected_array.as_ref());
+    assert_arrays_eq!(actual_numbers_array, expected_array);
 }
 
 #[tokio::test]
@@ -757,7 +762,7 @@ async fn test_with_indices_on_two_columns() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -773,24 +778,23 @@ async fn test_with_indices_on_two_columns() {
         .read_all()
         .await
         .unwrap()
-        .to_struct()
         .to_struct();
 
-    let strings_actual = array.unmasked_fields()[0].clone();
+    let strings_actual = array.unmasked_field(0).clone();
     let strings_expected_vec: Vec<&str> = kept_indices
         .iter()
         .map(|&x| strings_expected[x as usize])
         .collect();
     let strings_expected_array = VarBinArray::from(strings_expected_vec).into_array();
-    assert_arrays_eq!(strings_actual.as_ref(), strings_expected_array.as_ref());
+    assert_arrays_eq!(strings_actual, strings_expected_array);
 
-    let numbers_actual = array.unmasked_fields()[1].clone();
+    let numbers_actual = array.unmasked_field(1).clone();
     let numbers_expected_vec: Vec<u32> = kept_indices
         .iter()
         .map(|&x| numbers_expected[x as usize])
         .collect();
     let numbers_expected_array = Buffer::copy_from(&numbers_expected_vec).into_array();
-    assert_arrays_eq!(numbers_actual.as_ref(), numbers_expected_array.as_ref());
+    assert_arrays_eq!(numbers_actual, numbers_expected_array);
 }
 
 #[tokio::test]
@@ -813,7 +817,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, expected_array.to_array_stream())
+        .write(&mut buf, expected_array.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -848,7 +852,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .unwrap()
         .to_struct();
 
-    let actual_kept_numbers_array = actual_kept_array.unmasked_fields()[0].to_primitive();
+    let actual_kept_numbers_array = actual_kept_array.unmasked_field(0).to_primitive();
 
     let expected_kept_numbers: Buffer<i16> = kept_indices
         .iter()
@@ -856,7 +860,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .filter(|&x| x > 50)
         .collect();
     let expected_array = expected_kept_numbers.into_array();
-    assert_arrays_eq!(actual_kept_numbers_array.as_ref(), expected_array.as_ref());
+    assert_arrays_eq!(actual_kept_numbers_array, expected_array);
 
     // test all indices
     let actual_array = file
@@ -871,17 +875,14 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .unwrap()
         .to_struct();
 
-    let actual_numbers_array = actual_array.unmasked_fields()[0].clone();
+    let actual_numbers_array = actual_array.unmasked_field(0).clone();
     let expected_filtered: Buffer<i16> = expected_numbers
         .iter()
         .filter(|&&x| x > 50)
         .cloned()
         .collect();
     let expected_numbers_array = expected_filtered.into_array();
-    assert_arrays_eq!(
-        actual_numbers_array.as_ref(),
-        expected_numbers_array.as_ref()
-    );
+    assert_arrays_eq!(actual_numbers_array, expected_numbers_array);
 }
 
 #[tokio::test]
@@ -934,15 +935,15 @@ async fn filter_string_chunked() {
         .to_struct();
 
     assert_eq!(actual_array.len(), 1);
-    let names_actual = actual_array.unmasked_fields()[0].clone();
+    let names_actual = actual_array.unmasked_field(0).clone();
     let names_expected =
         VarBinArray::from_iter(vec![Some("Joseph")], DType::Utf8(Nullability::Nullable))
             .into_array();
-    assert_arrays_eq!(names_actual.as_ref(), names_expected.as_ref());
+    assert_arrays_eq!(names_actual, names_expected);
 
-    let ages_actual = actual_array.unmasked_fields()[1].clone();
+    let ages_actual = actual_array.unmasked_field(1).clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32)]).into_array();
-    assert_arrays_eq!(ages_actual.as_ref(), ages_expected.as_ref());
+    assert_arrays_eq!(ages_actual, ages_expected);
 }
 
 #[tokio::test]
@@ -1025,7 +1026,7 @@ async fn test_pruning_with_or() {
         .to_struct();
 
     assert_eq!(actual_array.len(), 10);
-    let letters_actual = actual_array.unmasked_fields()[0].clone();
+    let letters_actual = actual_array.unmasked_field(0).clone();
     let letters_expected = VarBinViewArray::from_iter_nullable_str([
         Some("A".to_owned()),
         Some("B".to_owned()),
@@ -1039,9 +1040,9 @@ async fn test_pruning_with_or() {
         Some("P".to_owned()),
     ])
     .into_array();
-    assert_arrays_eq!(letters_actual.as_ref(), letters_expected.as_ref());
+    assert_arrays_eq!(letters_actual, letters_expected);
 
-    let numbers_actual = actual_array.unmasked_fields()[1].clone();
+    let numbers_actual = actual_array.unmasked_field(1).clone();
     let numbers_expected = PrimitiveArray::from_option_iter([
         Some(25_i32),
         Some(31),
@@ -1055,7 +1056,7 @@ async fn test_pruning_with_or() {
         Some(22),
     ])
     .into_array();
-    assert_arrays_eq!(numbers_actual.as_ref(), numbers_expected.as_ref());
+    assert_arrays_eq!(numbers_actual, numbers_expected);
 }
 
 #[tokio::test]
@@ -1077,7 +1078,7 @@ async fn test_repeated_projection() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, single_column_array.to_array_stream())
+        .write(&mut buf, single_column_array.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -1120,7 +1121,7 @@ async fn basic_file_roundtrip() -> VortexResult<()> {
     let result = vxf.scan()?.into_array_stream()?.read_all().await?;
 
     let expected = buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8].into_array();
-    assert_arrays_eq!(result.as_ref(), expected.as_ref());
+    assert_arrays_eq!(result, expected);
 
     Ok(())
 }
@@ -1168,7 +1169,7 @@ async fn file_take() -> VortexResult<()> {
         .await?;
 
     let expected = buffer![0i32, 1, 8].into_array();
-    assert_arrays_eq!(result.as_ref(), expected.as_ref());
+    assert_arrays_eq!(result, expected);
 
     Ok(())
 }
@@ -1242,7 +1243,7 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
     let result = round_trip(&array, Ok).await?.to_struct();
 
     assert_eq!(result.len(), 3);
-    assert_eq!(result.unmasked_fields().len(), 1);
+    assert_eq!(result.struct_fields().nfields(), 1);
     assert!(result.all_valid()?);
 
     let nested_struct = result.unmasked_field_by_name("struct")?.to_struct();
@@ -1291,7 +1292,7 @@ async fn test_into_tokio_array_stream() -> VortexResult<()> {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.into_array().to_array_stream())
         .await?;
 
     let file = SESSION.open_options().open_buffer(buf)?;
@@ -1383,7 +1384,7 @@ async fn test_writer_multiple_pushes() -> VortexResult<()> {
         .unmasked_field_by_name("numbers")?
         .clone();
     let expected = buffer![1u32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
-    assert_arrays_eq!(numbers.as_ref(), expected.as_ref());
+    assert_arrays_eq!(numbers, expected);
 
     Ok(())
 }
@@ -1417,7 +1418,7 @@ async fn test_writer_push_stream() -> VortexResult<()> {
         .unmasked_field_by_name("numbers")?
         .clone();
     let expected = buffer![1u32, 2, 3, 4, 5, 6].into_array();
-    assert_arrays_eq!(numbers.as_ref(), expected.as_ref());
+    assert_arrays_eq!(numbers, expected);
 
     Ok(())
 }
@@ -1481,7 +1482,7 @@ async fn test_writer_empty_chunks() -> VortexResult<()> {
         .unmasked_field_by_name("numbers")?
         .clone();
     let expected = buffer![1u32, 2].into_array();
-    assert_arrays_eq!(numbers.as_ref(), expected.as_ref());
+    assert_arrays_eq!(numbers, expected);
 
     Ok(())
 }
@@ -1519,7 +1520,7 @@ async fn test_writer_mixed_push_and_stream() -> VortexResult<()> {
         .unmasked_field_by_name("numbers")?
         .clone();
     let expected = buffer![1u32, 2, 3, 4, 5, 6].into_array();
-    assert_arrays_eq!(numbers.as_ref(), expected.as_ref());
+    assert_arrays_eq!(numbers, expected);
 
     Ok(())
 }
@@ -1692,6 +1693,179 @@ async fn timestamp_unit_mismatch_errors_with_constant_children()
          This indicates the scanner silently applied the filter incorrectly when \
          DateTimePartsArray children use ConstantArray encoding.",
         results.unwrap().len()
+    );
+
+    Ok(())
+}
+
+/// Collect all segment byte offsets reachable from a layout node.
+fn collect_segment_offsets(layout: &dyn Layout, segment_specs: &[SegmentSpec]) -> Vec<u64> {
+    let mut result = Vec::new();
+    collect_segment_offsets_inner(layout, segment_specs, &mut result);
+    result
+}
+
+fn collect_segment_offsets_inner(
+    layout: &dyn Layout,
+    segment_specs: &[SegmentSpec],
+    result: &mut Vec<u64>,
+) {
+    for seg_id in layout.segment_ids() {
+        result.push(segment_specs[*seg_id as usize].offset);
+    }
+    for child in layout.children().unwrap() {
+        collect_segment_offsets_inner(child.as_ref(), segment_specs, result);
+    }
+}
+
+/// Assert that all offsets in `before` are less than all offsets in `after`.
+fn assert_offsets_ordered(before: &[u64], after: &[u64], context: &str) {
+    if let (Some(&max_before), Some(&min_after)) = (before.iter().max(), after.iter().min()) {
+        assert!(
+            max_before < min_after,
+            "{context}: expected all 'before' offsets < all 'after' offsets, \
+             but max before = {max_before} >= min after = {min_after}"
+        );
+    }
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_segment_ordering_dict_codes_before_values() -> VortexResult<()> {
+    // Create low-cardinality strings to trigger dict encoding, plus an integer column.
+    let n = 100_000;
+    let values: Vec<&str> = (0..n).map(|i| ["alpha", "beta", "gamma"][i % 3]).collect();
+    let strings = VarBinArray::from(values).into_array();
+    let numbers = PrimitiveArray::from_iter(0..n as i32).into_array();
+
+    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .write(&mut buf, st.into_array().to_array_stream())
+        .await?;
+
+    let footer = summary.footer();
+    let segment_specs = footer.segment_map();
+    let root = footer.layout();
+
+    // Walk the layout tree and find all dict layouts.
+    // Verify codes segments come before values segments in byte order within each run.
+    fn check_dict_ordering(layout: &dyn Layout, segment_specs: &[SegmentSpec]) {
+        if layout.encoding_id().as_ref() == "vortex.dict" {
+            // child 0 = values, child 1 = codes
+            let values_offsets =
+                collect_segment_offsets(layout.child(0).unwrap().as_ref(), segment_specs);
+            let codes_offsets =
+                collect_segment_offsets(layout.child(1).unwrap().as_ref(), segment_specs);
+
+            assert_offsets_ordered(
+                &codes_offsets,
+                &values_offsets,
+                "dict: codes should come before values",
+            );
+        }
+
+        for child in layout.children().unwrap() {
+            check_dict_ordering(child.as_ref(), segment_specs);
+        }
+    }
+
+    check_dict_ordering(root.as_ref(), segment_specs);
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
+    // Create a multi-column struct with enough rows to produce zone maps.
+    let n = 100_000;
+    let values: Vec<&str> = (0..n).map(|i| ["alpha", "beta", "gamma"][i % 3]).collect();
+    let strings = VarBinArray::from(values).into_array();
+    let numbers = PrimitiveArray::from_iter(0..n as i32).into_array();
+    let floats = PrimitiveArray::from_iter((0..n).map(|i| i as f64 * 0.1)).into_array();
+
+    let st = StructArray::from_fields(&[
+        ("strings", strings),
+        ("numbers", numbers),
+        ("floats", floats),
+    ])
+    .unwrap();
+
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .write(&mut buf, st.into_array().to_array_stream())
+        .await?;
+
+    let footer = summary.footer();
+    let segment_specs = footer.segment_map();
+    let root = footer.layout();
+
+    // Find all zoned layouts and verify data segments come before zone map segments.
+    fn check_zoned_ordering(layout: &dyn Layout, segment_specs: &[SegmentSpec]) {
+        if layout.encoding_id().as_ref() == "vortex.stats" {
+            // child 0 = data, child 1 = zones
+            let data_offsets =
+                collect_segment_offsets(layout.child(0).unwrap().as_ref(), segment_specs);
+            let zones_offsets =
+                collect_segment_offsets(layout.child(1).unwrap().as_ref(), segment_specs);
+
+            assert_offsets_ordered(
+                &data_offsets,
+                &zones_offsets,
+                "zoned: data should come before zones",
+            );
+        }
+
+        for child in layout.children().unwrap() {
+            check_zoned_ordering(child.as_ref(), segment_specs);
+        }
+    }
+
+    check_zoned_ordering(root.as_ref(), segment_specs);
+
+    // Additionally: all zone map segments across all columns should appear after
+    // all data segments across all columns.
+    let mut all_data_offsets = Vec::new();
+    let mut all_zones_offsets = Vec::new();
+
+    fn collect_all_zoned(
+        layout: &dyn Layout,
+        segment_specs: &[SegmentSpec],
+        all_data: &mut Vec<u64>,
+        all_zones: &mut Vec<u64>,
+    ) {
+        if layout.encoding_id().as_ref() == "vortex.stats" {
+            // child 0 = data, child 1 = zones
+            all_data.extend(collect_segment_offsets(
+                layout.child(0).unwrap().as_ref(),
+                segment_specs,
+            ));
+            all_zones.extend(collect_segment_offsets(
+                layout.child(1).unwrap().as_ref(),
+                segment_specs,
+            ));
+            return;
+        }
+        for child in layout.children().unwrap() {
+            collect_all_zoned(child.as_ref(), segment_specs, all_data, all_zones);
+        }
+    }
+
+    collect_all_zoned(
+        root.as_ref(),
+        segment_specs,
+        &mut all_data_offsets,
+        &mut all_zones_offsets,
+    );
+
+    assert_offsets_ordered(
+        &all_data_offsets,
+        &all_zones_offsets,
+        "global: all data segments should come before all zone map segments",
     );
 
     Ok(())

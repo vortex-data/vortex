@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::cast_possible_truncation)]
+#![expect(clippy::unwrap_used)]
 
 use std::time::Duration;
 
@@ -10,13 +9,13 @@ use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
 use futures::executor::block_on;
+use vortex::array::IntoArray;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::dtype::PType;
+use vortex::array::patches::Patches;
 use vortex::buffer::Buffer;
 use vortex::buffer::buffer;
 use vortex::session::VortexSession;
-use vortex_array::IntoArray;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::dtype::PType;
-use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_cuda::CudaSession;
 use vortex_cuda::transpose_patches;

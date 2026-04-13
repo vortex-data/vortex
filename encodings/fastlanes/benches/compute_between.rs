@@ -5,7 +5,9 @@
 use num_traits::NumCast;
 use rand::RngExt;
 use rand::rngs::StdRng;
-use vortex_alp::ALPArray;
+use vortex_alp::ALP;
+use vortex_alp::ALPArrayExt;
+use vortex_alp::ALPArraySlotsExt;
 use vortex_alp::alp_encode;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -47,14 +49,14 @@ fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast>(
         .map(|_| T::from_usize(rng.random_range(0..10_000)).vortex_expect(""))
         .collect::<PrimitiveArray>();
 
-    let alp = alp_encode(&a, None).vortex_expect("");
+    let alp = alp_encode(a.as_view(), None).vortex_expect("");
 
     let encoded = alp.encoded().to_primitive();
 
     let bp = bitpack_to_best_bit_width(&encoded)
         .vortex_expect("")
         .into_array();
-    ALPArray::new(bp, alp.exponents(), None).into_array()
+    ALP::new(bp, alp.exponents(), None).into_array()
 }
 
 const BENCH_ARGS: &[usize] = &[2 << 10, 2 << 13, 2 << 14];
@@ -190,14 +192,14 @@ mod bitpack {
             .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
             .bench_refs(|(arr, ctx)| {
                 let gte = arr
-                    .to_array()
+                    .clone()
                     .binary(
                         ConstantArray::new(min, arr.len()).into_array(),
                         Operator::Gte,
                     )
                     .vortex_expect("");
                 let lt = arr
-                    .to_array()
+                    .clone()
                     .binary(
                         ConstantArray::new(max, arr.len()).into_array(),
                         Operator::Lt,
@@ -281,14 +283,14 @@ mod alp {
             .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
             .bench_refs(|(arr, ctx)| {
                 let gte = arr
-                    .to_array()
+                    .clone()
                     .binary(
                         ConstantArray::new(min, arr.len()).into_array(),
                         Operator::Gte,
                     )
                     .vortex_expect("");
                 let lt = arr
-                    .to_array()
+                    .clone()
                     .binary(
                         ConstantArray::new(max, arr.len()).into_array(),
                         Operator::Lt,

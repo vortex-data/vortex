@@ -5,8 +5,8 @@
 //!
 //! Both are tracked by number of indices/codes for fair comparison.
 
-#![allow(clippy::cast_possible_truncation)]
-#![allow(clippy::unwrap_used)]
+#![expect(clippy::cast_possible_truncation)]
+#![expect(clippy::unwrap_used)]
 
 use divan::Bencher;
 use rand::distr::Uniform;

@@ -13,19 +13,20 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn;
+use crate::array::ArrayView;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::cast::CastKernel;
-use crate::vtable::ValidityHelper;
 
 impl CastKernel for Primitive {
     fn cast(
-        array: &PrimitiveArray,
+        array: ArrayView<'_, Primitive>,
         dtype: &DType,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -36,8 +37,7 @@ impl CastKernel for Primitive {
 
         // First, check that the cast is compatible with the source array's validity
         let new_validity = array
-            .validity()
-            .clone()
+            .validity()?
             .cast_nullability(new_nullability, array.len())?;
 
         // Same ptype: zero-copy, just update validity.
@@ -79,7 +79,7 @@ impl CastKernel for Primitive {
             }));
         }
 
-        let mask = array.validity_mask()?;
+        let mask = array.validity_mask();
 
         // Otherwise, we need to cast the values one-by-one.
         Ok(Some(match_each_native_ptype!(new_ptype, |T| {
@@ -92,9 +92,13 @@ impl CastKernel for Primitive {
 }
 
 /// Returns `true` if all valid values in `array` are representable as `target_ptype`.
-fn values_fit_in(array: &PrimitiveArray, target_ptype: PType, ctx: &mut ExecutionCtx) -> bool {
+fn values_fit_in(
+    array: ArrayView<'_, Primitive>,
+    target_ptype: PType,
+    ctx: &mut ExecutionCtx,
+) -> bool {
     let target_dtype = DType::Primitive(target_ptype, Nullability::NonNullable);
-    aggregate_fn::fns::min_max::min_max(&array.clone().into_array(), ctx)
+    aggregate_fn::fns::min_max::min_max(array.array(), ctx)
         .ok()
         .flatten()
         .is_none_or(|mm| mm.min.cast(&target_dtype).is_ok() && mm.max.cast(&target_dtype).is_ok())
@@ -144,9 +148,7 @@ mod test {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
-    #[allow(clippy::cognitive_complexity)]
     #[test]
     fn cast_u32_u8() {
         let arr = buffer![0u32, 10, 200].into_array();
@@ -154,7 +156,7 @@ mod test {
         // cast from u32 to u8
         let p = arr.cast(PType::U8.into()).unwrap().to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]));
-        assert!(matches!(p.validity(), Validity::NonNullable));
+        assert!(matches!(p.validity(), Ok(Validity::NonNullable)));
 
         // to nullable
         let p = p
@@ -166,7 +168,7 @@ mod test {
             p,
             PrimitiveArray::new(buffer![0u8, 10, 200], Validity::AllValid)
         );
-        assert!(matches!(p.validity(), Validity::AllValid));
+        assert!(matches!(p.validity(), Ok(Validity::AllValid)));
 
         // back to non-nullable
         let p = p
@@ -175,7 +177,7 @@ mod test {
             .unwrap()
             .to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]));
-        assert!(matches!(p.validity(), Validity::NonNullable));
+        assert!(matches!(p.validity(), Ok(Validity::NonNullable)));
 
         // to nullable u32
         let p = p
@@ -187,7 +189,7 @@ mod test {
             p,
             PrimitiveArray::new(buffer![0u32, 10, 200], Validity::AllValid)
         );
-        assert!(matches!(p.validity(), Validity::AllValid));
+        assert!(matches!(p.validity(), Ok(Validity::AllValid)));
 
         // to non-nullable u8
         let p = p
@@ -196,7 +198,7 @@ mod test {
             .unwrap()
             .to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]));
-        assert!(matches!(p.validity(), Validity::NonNullable));
+        assert!(matches!(p.validity(), Ok(Validity::NonNullable)));
     }
 
     #[test]
@@ -292,7 +294,7 @@ mod test {
             .cast(DType::Primitive(PType::I8, Nullability::Nullable))?
             .to_primitive();
         assert_eq!(casted.len(), 2);
-        assert!(matches!(casted.validity(), Validity::AllInvalid));
+        assert!(matches!(casted.validity(), Ok(Validity::AllInvalid)));
         Ok(())
     }
 

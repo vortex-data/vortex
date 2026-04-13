@@ -3,17 +3,21 @@
 
 use vortex_error::VortexResult;
 
-use crate::DynArray;
+use crate::ExecutionCtx;
+use crate::array::ArrayView;
+use crate::array::OperationsVTable;
 use crate::arrays::Struct;
-use crate::arrays::StructArray;
+use crate::arrays::struct_::StructArrayExt;
 use crate::scalar::Scalar;
-use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<Struct> for Struct {
-    fn scalar_at(array: &StructArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: ArrayView<'_, Struct>,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         let field_scalars: VortexResult<Vec<Scalar>> = array
-            .unmasked_fields()
-            .iter()
+            .iter_unmasked_fields()
             .map(|field| field.scalar_at(index))
             .collect();
         // SAFETY: The vtable guarantees index is in-bounds and non-null before this is called.

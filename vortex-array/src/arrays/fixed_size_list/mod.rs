@@ -2,7 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
-pub use array::FixedSizeListArray;
+pub use array::FixedSizeListArrayExt;
+pub use array::FixedSizeListData;
+pub use array::FixedSizeListDataParts;
+pub use vtable::FixedSizeListArray;
 
 pub(crate) mod compute;
 

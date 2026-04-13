@@ -39,9 +39,9 @@ use vortex::error::VortexError;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
+use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
-use vortex::scan::ScanBuilder;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
@@ -101,7 +101,7 @@ pub(crate) struct VortexOpener {
 impl FileOpener for VortexOpener {
     fn open(&self, file: PartitionedFile) -> DFResult<FileOpenFuture> {
         let session = self.session.clone();
-        let metrics_registry = self.metrics_registry.clone();
+        let metrics_registry = Arc::clone(&self.metrics_registry);
         let labels = vec![
             Label::new(PATH_LABEL, file.path().to_string()),
             Label::new(PARTITION_LABEL, self.partition.to_string()),
@@ -110,29 +110,27 @@ impl FileOpener for VortexOpener {
         let mut projection = self.projection.clone();
         let mut filter = self.filter.clone();
 
-        let reader = self
-            .vortex_reader_factory
-            .create_reader(file.path().as_ref(), &session)?;
+        let reader = self.vortex_reader_factory.create_reader(&file, &session)?;
 
         let reader =
             InstrumentedReadAt::new_with_labels(reader, metrics_registry.as_ref(), labels.clone());
 
         let file_pruning_predicate = self.file_pruning_predicate.clone();
-        let expr_adapter_factory = self.expr_adapter_factory.clone();
+        let expr_adapter_factory = Arc::clone(&self.expr_adapter_factory);
         let file_metadata_cache = self.file_metadata_cache.clone();
 
-        let unified_file_schema = self.table_schema.file_schema().clone();
+        let unified_file_schema = Arc::clone(self.table_schema.file_schema());
         let batch_size = self.batch_size;
         let limit = self.limit;
-        let layout_reader = self.layout_readers.clone();
+        let layout_reader = Arc::clone(&self.layout_readers);
         let has_output_ordering = self.has_output_ordering;
         let scan_concurrency = self.scan_concurrency;
 
-        let expr_convertor = self.expression_convertor.clone();
+        let expr_convertor = Arc::clone(&self.expression_convertor);
         let projection_pushdown = self.projection_pushdown;
 
         // Replace column access for partition columns with literals
-        #[allow(clippy::disallowed_types)]
+        #[expect(clippy::disallowed_types)]
         let literal_value_cols = self
             .table_schema
             .table_partition_cols()
@@ -165,7 +163,7 @@ impl FileOpener for VortexOpener {
                 })
                 .and_then(|predicate| {
                     FilePruner::try_new(
-                        predicate.clone(),
+                        Arc::clone(&predicate),
                         &unified_file_schema,
                         &file,
                         Count::default(),
@@ -183,12 +181,14 @@ impl FileOpener for VortexOpener {
             let mut open_opts = session
                 .open_options()
                 .with_file_size(file.object_meta.size)
-                .with_metrics_registry(metrics_registry.clone())
+                .with_metrics_registry(Arc::clone(&metrics_registry))
                 .with_labels(labels);
 
             if let Some(file_metadata_cache) = file_metadata_cache
-                && let Some(file_metadata) = file_metadata_cache.get(&file.object_meta)
-                && let Some(vortex_metadata) = file_metadata
+                && let Some(entry) = file_metadata_cache.get(file.path())
+                && entry.is_valid_for(&file.object_meta)
+                && let Some(vortex_metadata) = entry
+                    .file_metadata
                     .as_any()
                     .downcast_ref::<CachedVortexMetadata>()
             {
@@ -199,6 +199,12 @@ impl FileOpener for VortexOpener {
                 .open_read(reader)
                 .await
                 .map_err(|e| exec_datafusion_err!("Failed to open Vortex file {e}"))?;
+
+            // Check if there are rows in this file. If not, we can save
+            // ourselves some work and return an empty stream.
+            if vxf.row_count() == 0 {
+                return Ok(stream::empty().boxed());
+            }
 
             // This is the expected arrow types of the actual columns in the file, which might have different types
             // from the unified logical schema or miss
@@ -212,7 +218,7 @@ impl FileOpener for VortexOpener {
             let expr_adapter = expr_adapter_factory.create(
                 Arc::clone(&unified_file_schema),
                 Arc::clone(&this_file_schema),
-            );
+            )?;
 
             let simplifier = PhysicalExprSimplifier::new(&this_file_schema);
 
@@ -432,6 +438,8 @@ fn apply_byte_range(
 }
 
 fn byte_range_to_row_range(byte_range: Range<u64>, row_count: u64, total_size: u64) -> Range<u64> {
+    debug_assert!(row_count > 0); // Asserted by an early exit check in VortexOpener::open
+
     let average_row = total_size / row_count;
     assert!(average_row > 0, "A row must always have at least one byte");
 
@@ -474,13 +482,14 @@ mod tests {
     use object_store::memory::InMemory;
     use rstest::rstest;
     use vortex::VortexSessionDefault;
+    use vortex::array::ArrayRef;
     use vortex::array::arrow::FromArrowArray;
     use vortex::buffer::Buffer;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::VortexWrite;
     use vortex::io::object_store::ObjectStoreWrite;
     use vortex::metrics::DefaultMetricsRegistry;
-    use vortex::scan::Selection;
+    use vortex::scan::selection::Selection;
     use vortex::session::VortexSession;
 
     use super::*;
@@ -582,14 +591,14 @@ mod tests {
         let file_path = "part=1/file.vortex";
         let batch = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)])).unwrap();
         let data_size =
-            write_arrow_to_vortex(object_store.clone(), file_path, batch.clone()).await?;
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
 
         let file_schema = batch.schema();
         let mut file = PartitionedFile::new(file_path.to_string(), data_size);
         file.partition_values = vec![ScalarValue::Int32(Some(1))];
 
         let table_schema = TableSchema::new(
-            file_schema.clone(),
+            Arc::clone(&file_schema),
             vec![Arc::new(Field::new("part", DataType::Int32, false))],
         );
 
@@ -597,7 +606,11 @@ mod tests {
         let filter = col("part").eq(lit(1));
         let filter = logical2physical(&filter, table_schema.table_schema());
 
-        let opener = make_opener(object_store.clone(), table_schema.clone(), Some(filter));
+        let opener = make_opener(
+            Arc::clone(&object_store),
+            table_schema.clone(),
+            Some(filter),
+        );
         let stream = opener.open(file.clone()).unwrap().await.unwrap();
 
         let data = stream.try_collect::<Vec<_>>().await?;
@@ -610,13 +623,44 @@ mod tests {
         let filter = col("part").eq(lit(2));
         let filter = logical2physical(&filter, table_schema.table_schema());
 
-        let opener = make_opener(object_store.clone(), table_schema.clone(), Some(filter));
+        let opener = make_opener(
+            Arc::clone(&object_store),
+            table_schema.clone(),
+            Some(filter),
+        );
         let stream = opener.open(file.clone()).unwrap().await.unwrap();
 
         let data = stream.try_collect::<Vec<_>>().await?;
         let num_batches = data.len();
         let num_rows = data.iter().map(|rb| rb.num_rows()).sum::<usize>();
         assert_eq!((num_batches, num_rows), (0, 0));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_open_empty_file() -> anyhow::Result<()> {
+        use futures::TryStreamExt;
+
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let data_batch = record_batch!(("a", Int32, Vec::<i32>::new())).unwrap();
+        let file_path = "part=1/empty.vortex";
+        let file_size =
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, data_batch.clone()).await?;
+
+        let file_schema = data_batch.schema();
+        // Parallel scans may attach a byte range even for empty files; the
+        // opener must not call byte_range_to_row_range when the row_count is 0.
+        let file =
+            PartitionedFile::new_with_range(file_path.to_string(), file_size, 0, file_size as i64);
+
+        let table_schema = TableSchema::from_file_schema(Arc::clone(&file_schema));
+
+        let opener = make_opener(object_store, table_schema, None);
+        let stream = opener.open(file)?.await?;
+        let data = stream.try_collect::<Vec<_>>().await?;
+
+        assert_eq!(data.len(), 0);
 
         Ok(())
     }
@@ -630,7 +674,7 @@ mod tests {
             let file1_path = "/path/file1.vortex";
             let batch1 = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)])).unwrap();
             let data_size1 =
-                write_arrow_to_vortex(object_store.clone(), file1_path, batch1).await?;
+                write_arrow_to_vortex(Arc::clone(&object_store), file1_path, batch1).await?;
             PartitionedFile::new(file1_path.to_string(), data_size1)
         };
 
@@ -638,7 +682,7 @@ mod tests {
             let file2_path = "/path/file2.vortex";
             let batch2 = record_batch!(("a", Int16, vec![Some(-1), Some(-2), Some(-3)])).unwrap();
             let data_size2 =
-                write_arrow_to_vortex(object_store.clone(), file2_path, batch2).await?;
+                write_arrow_to_vortex(Arc::clone(&object_store), file2_path, batch2).await?;
             PartitionedFile::new(file2_path.to_string(), data_size2)
         };
 
@@ -652,7 +696,9 @@ mod tests {
         let make_opener = |filter| VortexOpener {
             partition: 1,
             session: SESSION.clone(),
-            vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(object_store.clone())),
+            vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(Arc::clone(
+                &object_store,
+            ))),
             projection: ProjectionExprs::from_indices(&[0], table_schema.file_schema()),
             filter: Some(filter),
             file_pruning_predicate: None,
@@ -672,7 +718,7 @@ mod tests {
         let filter = col("a").lt(lit(100_i32));
         let filter = logical2physical(&filter, table_schema.table_schema());
 
-        let opener1 = make_opener(filter.clone());
+        let opener1 = make_opener(Arc::clone(&filter));
         let stream = opener1.open(file1)?.await?;
 
         let format_opts = FormatOptions::new().with_types_info(true);
@@ -689,7 +735,7 @@ mod tests {
         +-------+
         ");
 
-        let opener2 = make_opener(filter.clone());
+        let opener2 = make_opener(Arc::clone(&filter));
         let stream = opener2.open(file2)?.await?;
 
         let data = stream.try_collect::<Vec<_>>().await?;
@@ -725,7 +771,7 @@ mod tests {
             ("a", Int32, vec![Some(100), Some(101), Some(102)])
         )
         .unwrap();
-        let data_size = write_arrow_to_vortex(object_store.clone(), file_path, batch).await?;
+        let data_size = write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch).await?;
         let file = PartitionedFile::new(file_path.to_string(), data_size);
 
         // Table schema has columns in different order: a, b, c
@@ -743,7 +789,7 @@ mod tests {
             filter: None,
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
-            table_schema: TableSchema::from_file_schema(table_schema.clone()),
+            table_schema: TableSchema::from_file_schema(Arc::clone(&table_schema)),
             batch_size: 100,
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
@@ -803,7 +849,7 @@ mod tests {
             )])),
             vec![Arc::new(struct_array)],
         )?;
-        let data_size = write_arrow_to_vortex(object_store.clone(), file_path, batch).await?;
+        let data_size = write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch).await?;
 
         // Table schema has an extra utf8 field.
         let table_schema = TableSchema::from_file_schema(Arc::new(Schema::new(vec![Field::new(
@@ -825,7 +871,7 @@ mod tests {
         )])));
 
         let opener = make_opener(
-            object_store.clone(),
+            Arc::clone(&object_store),
             table_schema.clone(),
             // expression references my_struct column which has different fields in each
             // field.
@@ -864,7 +910,7 @@ mod tests {
             ("c", Int32, vec![Some(2)])
         )
         .unwrap();
-        let data_size = write_arrow_to_vortex(object_store.clone(), file_path, batch).await?;
+        let data_size = write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch).await?;
 
         // Table schema has columns in DIFFERENT order: c, a, b
         // and different types that require casting (Utf8 -> Dictionary)
@@ -889,7 +935,9 @@ mod tests {
         let opener = VortexOpener {
             partition: 1,
             session: SESSION.clone(),
-            vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(object_store.clone())),
+            vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(Arc::clone(
+                &object_store,
+            ))),
             projection: ProjectionExprs::from_indices(
                 projection.as_ref(),
                 table_schema.file_schema(),
@@ -974,14 +1022,14 @@ mod tests {
     async fn test_selection_include_by_index() -> anyhow::Result<()> {
         use datafusion::arrow::util::pretty::pretty_format_batches_with_options;
         use vortex::buffer::Buffer;
-        use vortex::scan::Selection;
+        use vortex::scan::selection::Selection;
 
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file_path = "/path/file.vortex";
 
         let batch = make_test_batch_with_10_rows();
         let data_size =
-            write_arrow_to_vortex(object_store.clone(), file_path, batch.clone()).await?;
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
 
         let schema = batch.schema();
         let mut file = PartitionedFile::new(file_path.to_string(), data_size);
@@ -990,8 +1038,8 @@ mod tests {
         )));
 
         let opener = make_test_opener(
-            object_store.clone(),
-            schema.clone(),
+            Arc::clone(&object_store),
+            Arc::clone(&schema),
             ProjectionExprs::from_indices(&[0, 1], &schema),
         );
 
@@ -1022,7 +1070,7 @@ mod tests {
 
         let batch = make_test_batch_with_10_rows();
         let data_size =
-            write_arrow_to_vortex(object_store.clone(), file_path, batch.clone()).await?;
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
 
         let schema = batch.schema();
         let mut file = PartitionedFile::new(file_path.to_string(), data_size);
@@ -1031,8 +1079,8 @@ mod tests {
         )));
 
         let opener = make_test_opener(
-            object_store.clone(),
-            schema.clone(),
+            Arc::clone(&object_store),
+            Arc::clone(&schema),
             ProjectionExprs::from_indices(&[0, 1], &schema),
         );
 
@@ -1059,14 +1107,14 @@ mod tests {
     #[tokio::test]
     // Test that Selection::All returns all rows.
     async fn test_selection_all() -> anyhow::Result<()> {
-        use vortex::scan::Selection;
+        use vortex::scan::selection::Selection;
 
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file_path = "/path/file.vortex";
 
         let batch = make_test_batch_with_10_rows();
         let data_size =
-            write_arrow_to_vortex(object_store.clone(), file_path, batch.clone()).await?;
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
 
         let schema = batch.schema();
         let mut file = PartitionedFile::new(file_path.to_string(), data_size);
@@ -1075,8 +1123,8 @@ mod tests {
         ));
 
         let opener = make_test_opener(
-            object_store.clone(),
-            schema.clone(),
+            Arc::clone(&object_store),
+            Arc::clone(&schema),
             ProjectionExprs::from_indices(&[0], &schema),
         );
 
@@ -1097,15 +1145,15 @@ mod tests {
 
         let batch = make_test_batch_with_10_rows();
         let data_size =
-            write_arrow_to_vortex(object_store.clone(), file_path, batch.clone()).await?;
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
 
         let schema = batch.schema();
         let file = PartitionedFile::new(file_path.to_string(), data_size);
         // file.extensions is None by default
 
         let opener = make_test_opener(
-            object_store.clone(),
-            schema.clone(),
+            Arc::clone(&object_store),
+            Arc::clone(&schema),
             ProjectionExprs::from_indices(&[0], &schema),
         );
 
@@ -1129,10 +1177,10 @@ mod tests {
         )
         .unwrap();
         let data_size =
-            write_arrow_to_vortex(object_store.clone(), file_path, batch.clone()).await?;
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
 
         let file_schema = batch.schema();
-        let table_schema = TableSchema::from_file_schema(file_schema.clone());
+        let table_schema = TableSchema::from_file_schema(Arc::clone(&file_schema));
 
         // Create a projection that includes an arithmetic expression: a + b * 2
         let col_a = df_expr::col("a", &file_schema)?;
@@ -1152,7 +1200,9 @@ mod tests {
         let opener = VortexOpener {
             partition: 1,
             session: SESSION.clone(),
-            vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(object_store.clone())),
+            vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(Arc::clone(
+                &object_store,
+            ))),
             projection,
             filter: None,
             file_pruning_predicate: None,
@@ -1215,14 +1265,14 @@ mod tests {
             DataType::Struct(struct_fields.clone()),
             false,
         )]));
-        let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(struct_array)])?;
+        let batch = RecordBatch::try_new(Arc::clone(&schema), vec![Arc::new(struct_array)])?;
 
         let file_path = "/test.vortex";
-        let data_size = write_arrow_to_vortex(object_store.clone(), file_path, batch).await?;
+        let data_size = write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch).await?;
 
         let opener = make_test_opener(
-            object_store.clone(),
-            schema.clone(),
+            Arc::clone(&object_store),
+            Arc::clone(&schema),
             ProjectionExprs::from_indices(&[0], &schema),
         );
         let data: Vec<_> = opener

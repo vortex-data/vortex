@@ -17,7 +17,6 @@ use futures::StreamExt;
 use parking_lot::Mutex;
 use pin_project_lite::pin_project;
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::dtype::DType;
 use vortex_array::stream::ArrayStream;
 use vortex_error::VortexExpect;
@@ -102,7 +101,7 @@ impl SequenceId {
     pub fn descend(self) -> SequencePointer {
         let mut id = self.id.clone();
         id.push(0);
-        SequencePointer(SequenceId::new(id, self.universe.clone()))
+        SequencePointer(SequenceId::new(id, Arc::clone(&self.universe)))
     }
 
     /// Waits until all SequenceIds with IDs lexicographically smaller than this one are dropped.
@@ -188,7 +187,7 @@ impl SequencePointer {
         let last = next_id.last_mut();
         let last = last.vortex_expect("must have at least one element");
         *last += 1;
-        let next_sibling = SequenceId::new(next_id, self.0.universe.clone());
+        let next_sibling = SequenceId::new(next_id, Arc::clone(&self.0.universe));
         std::mem::replace(&mut self.0, next_sibling)
     }
 

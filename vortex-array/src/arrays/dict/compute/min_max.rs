@@ -12,6 +12,8 @@ use crate::aggregate_fn::fns::min_max::make_minmax_dtype;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::arrays::Dict;
+use crate::arrays::dict::DictArrayExt;
+use crate::arrays::dict::DictArraySlotsExt;
 use crate::scalar::Scalar;
 
 /// Dict-specific min/max kernel.

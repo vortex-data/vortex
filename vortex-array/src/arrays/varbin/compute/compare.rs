@@ -11,14 +11,14 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
-use crate::arrays::VarBinArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::varbin::VarBinArrayExt;
 use crate::arrow::Datum;
 use crate::arrow::from_arrow_array_with_len;
 use crate::builtins::ArrayBuiltins;
@@ -28,12 +28,11 @@ use crate::match_each_integer_ptype;
 use crate::scalar_fn::fns::binary::CompareKernel;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
-use crate::vtable::ValidityHelper;
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
 impl CompareKernel for VarBin {
     fn compare(
-        lhs: &VarBinArray,
+        lhs: ArrayView<'_, VarBin>,
         rhs: &ArrayRef,
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,
@@ -75,15 +74,13 @@ impl CompareKernel for VarBin {
                 return Ok(Some(
                     BoolArray::new(
                         buffer,
-                        lhs.validity()
-                            .clone()
-                            .union_nullability(rhs.dtype().nullability()),
+                        lhs.validity()?.union_nullability(rhs.dtype().nullability()),
                     )
                     .into_array(),
                 ));
             }
 
-            let lhs = Datum::try_new(&lhs.clone().into_array())?;
+            let lhs = Datum::try_new(lhs.array())?;
 
             // Use StringViewArray/BinaryViewArray to match the Utf8View/BinaryView types
             // produced by Datum::try_new (which uses into_arrow_preferred())
@@ -119,13 +116,13 @@ impl CompareKernel for VarBin {
             // NOTE: If the rhs is not a VarBin array it will be canonicalized to a VarBinView
             // Arrow doesn't support comparing VarBin to VarBinView arrays, so we convert ourselves
             // to VarBinView and re-invoke.
-            return Ok(Some(
-                lhs.clone()
-                    .into_array()
+            Ok(Some(
+                lhs.array()
+                    .clone()
                     .execute::<VarBinViewArray>(ctx)?
                     .into_array()
-                    .binary(rhs.to_array(), Operator::from(operator))?,
-            ));
+                    .binary(rhs.clone(), Operator::from(operator))?,
+            ))
         } else {
             Ok(None)
         }
@@ -152,6 +149,7 @@ mod test {
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
+    use crate::arrays::bool::BoolArrayExt;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -216,7 +214,6 @@ mod test {
 
 #[cfg(test)]
 mod tests {
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;

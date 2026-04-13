@@ -3,24 +3,28 @@
 
 use std::iter;
 
+use vortex_error::VortexExpect;
+
 use crate::ToCanonical;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::VarBinViewArray;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl ArrayAccessor<[u8]> for VarBinViewArray {
     fn with_iterator<F: for<'a> FnOnce(&mut dyn Iterator<Item = Option<&'a [u8]>>) -> R, R>(
         &self,
         f: F,
     ) -> R {
-        let bytes = (0..self.nbuffers())
+        let bytes = (0..self.data_buffers().len())
             .map(|i| self.buffer(i))
             .collect::<Vec<_>>();
 
         let views = self.views();
 
-        match self.validity() {
+        match self
+            .validity()
+            .vortex_expect("varbinview validity should be derivable")
+        {
             Validity::NonNullable | Validity::AllValid => {
                 let mut iter = views.iter().map(|view| {
                     if view.is_inlined() {

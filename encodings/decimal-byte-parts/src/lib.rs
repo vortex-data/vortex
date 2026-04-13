@@ -20,10 +20,8 @@ use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
 /// Initialize decimal-byte-parts encoding in the given session.
-pub fn initialize(session: &mut VortexSession) {
-    session
-        .arrays()
-        .register(DecimalByteParts::ID, DecimalByteParts);
+pub fn initialize(session: &VortexSession) {
+    session.arrays().register(DecimalByteParts);
 
     session.aggregate_fns().register_aggregate_kernel(
         DecimalByteParts::ID,

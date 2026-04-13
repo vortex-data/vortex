@@ -7,8 +7,6 @@
 //! - `LLVMFuzzerTestOneInput` - the fuzzing entry point
 //! - `wasmfuzz_malloc` / `wasmfuzz_free` - memory allocation for wasmfuzz to pass input data
 
-#![allow(clippy::unwrap_used, clippy::result_large_err)]
-
 use std::alloc::Layout;
 use std::alloc::alloc;
 use std::alloc::dealloc;

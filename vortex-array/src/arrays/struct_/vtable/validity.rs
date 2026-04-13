@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::arrays::StructArray;
-use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
+use vortex_error::VortexResult;
 
-impl ValidityHelper for StructArray {
-    fn validity(&self) -> &Validity {
-        &self.validity
+use crate::array::ArrayView;
+use crate::array::ValidityVTable;
+use crate::arrays::struct_::StructArrayExt;
+use crate::arrays::struct_::vtable::Struct;
+use crate::validity::Validity;
+
+impl ValidityVTable<Struct> for Struct {
+    fn validity(array: ArrayView<'_, Struct>) -> VortexResult<Validity> {
+        Ok(array.struct_validity())
     }
 }

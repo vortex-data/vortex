@@ -49,13 +49,29 @@ pub fn layout_from_flatbuffer(
     ctx: &ReadContext,
     layouts: &LayoutRegistry,
 ) -> VortexResult<LayoutRef> {
+    layout_from_flatbuffer_with_options(flatbuffer, dtype, layout_ctx, ctx, layouts, false)
+}
+
+/// Parse a [`LayoutRef`] from a layout flatbuffer with unknown-encoding behavior control.
+pub fn layout_from_flatbuffer_with_options(
+    flatbuffer: FlatBuffer,
+    dtype: &DType,
+    layout_ctx: &ReadContext,
+    ctx: &ReadContext,
+    layouts: &LayoutRegistry,
+    allow_unknown: bool,
+) -> VortexResult<LayoutRef> {
     let fb_layout = root_with_opts::<layout::Layout>(&LAYOUT_VERIFIER, &flatbuffer)?;
     let encoding_id = layout_ctx
         .resolve(fb_layout.encoding())
         .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.encoding()))?;
-    let encoding = layouts
-        .find(&encoding_id)
-        .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.encoding()))?;
+    let encoding = layouts.find(&encoding_id);
+
+    if encoding.is_none() && allow_unknown {
+        return foreign_layout_from_fb(fb_layout, dtype, layout_ctx);
+    }
+    let encoding =
+        encoding.ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.encoding()))?;
 
     // SAFETY: we validate the flatbuffer above in the `root` call, and extract a loc.
     let viewed_children = unsafe {
@@ -65,6 +81,7 @@ pub fn layout_from_flatbuffer(
             ctx.clone(),
             layout_ctx.clone(),
             layouts.clone(),
+            allow_unknown,
         )
     };
 
@@ -86,6 +103,40 @@ pub fn layout_from_flatbuffer(
     )?;
 
     Ok(layout)
+}
+
+fn foreign_layout_from_fb(
+    fb_layout: layout::Layout<'_>,
+    dtype: &DType,
+    layout_ctx: &ReadContext,
+) -> VortexResult<LayoutRef> {
+    let encoding_id = layout_ctx
+        .resolve(fb_layout.encoding())
+        .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.encoding()))?;
+
+    let children = fb_layout
+        .children()
+        .unwrap_or_default()
+        .iter()
+        .map(|child| foreign_layout_from_fb(child, dtype, layout_ctx))
+        .collect::<VortexResult<Vec<_>>>()?;
+
+    Ok(crate::layouts::foreign::new_foreign_layout(
+        encoding_id,
+        dtype.clone(),
+        fb_layout.row_count(),
+        fb_layout
+            .metadata()
+            .map(|m| m.bytes().to_vec())
+            .unwrap_or_default(),
+        fb_layout
+            .segments()
+            .unwrap_or_default()
+            .iter()
+            .map(SegmentId::from)
+            .collect(),
+        children,
+    ))
 }
 
 impl dyn Layout + '_ {
@@ -157,5 +208,85 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
                 segments,
             },
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use flatbuffers::FlatBufferBuilder;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_flatbuffers::layout as fbl;
+    use vortex_session::registry::ReadContext;
+
+    use super::layout_from_flatbuffer_with_options;
+    use crate::LayoutEncodingId;
+    use crate::session::LayoutSession;
+
+    #[test]
+    fn unknown_layout_encoding_allow_unknown() {
+        let mut fbb = FlatBufferBuilder::new();
+
+        let child_metadata = fbb.create_vector(&[9u8]);
+        let child = fbl::Layout::create(
+            &mut fbb,
+            &fbl::LayoutArgs {
+                encoding: 1,
+                row_count: 3,
+                metadata: Some(child_metadata),
+                children: None,
+                segments: None,
+            },
+        );
+
+        let children = fbb.create_vector(&[child]);
+        let metadata = fbb.create_vector(&[1u8, 2, 3]);
+        let segments = fbb.create_vector(&[7u32]);
+        let root = fbl::Layout::create(
+            &mut fbb,
+            &fbl::LayoutArgs {
+                encoding: 0,
+                row_count: 10,
+                metadata: Some(metadata),
+                children: Some(children),
+                segments: Some(segments),
+            },
+        );
+        fbb.finish_minimal(root);
+        let (buf, start) = fbb.collapse();
+        let layout_buffer = vortex_flatbuffers::FlatBuffer::align_from(
+            vortex_buffer::ByteBuffer::from(buf).slice(start..),
+        );
+
+        let layout_ctx = ReadContext::new([
+            LayoutEncodingId::new("vortex.test.foreign_layout"),
+            LayoutEncodingId::new("vortex.test.foreign_child_layout"),
+        ]);
+        let array_ctx = ReadContext::new([]);
+        let layouts = LayoutSession::default().registry().clone();
+
+        let layout = layout_from_flatbuffer_with_options(
+            layout_buffer,
+            &DType::Variant(Nullability::Nullable),
+            &layout_ctx,
+            &array_ctx,
+            &layouts,
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(layout.encoding_id().as_ref(), "vortex.test.foreign_layout");
+        assert_eq!(layout.row_count(), 10);
+        assert_eq!(layout.metadata(), vec![1, 2, 3]);
+        assert_eq!(layout.segment_ids().len(), 1);
+        assert_eq!(*layout.segment_ids()[0], 7);
+        assert_eq!(layout.nchildren(), 1);
+
+        let child = layout.child(0).unwrap();
+        assert_eq!(
+            child.encoding_id().as_ref(),
+            "vortex.test.foreign_child_layout"
+        );
+        assert_eq!(child.metadata(), vec![9]);
     }
 }

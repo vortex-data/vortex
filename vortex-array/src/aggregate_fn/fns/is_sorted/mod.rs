@@ -22,7 +22,6 @@ use self::varbin::check_varbinview_sorted;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::Columnar;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::Accumulator;
@@ -231,16 +230,28 @@ impl AggregateFnVTable for IsSorted {
         AggregateFnId::new("vortex.is_sorted")
     }
 
+    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        unimplemented!("IsSorted is not yet serializable");
+    }
+
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
-            DType::Null | DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => None,
+            DType::Null
+            | DType::Struct(..)
+            | DType::List(..)
+            | DType::FixedSizeList(..)
+            | DType::Variant(..) => None,
             _ => Some(DType::Bool(Nullability::NonNullable)),
         }
     }
 
     fn partial_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
-            DType::Null | DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => None,
+            DType::Null
+            | DType::Struct(..)
+            | DType::List(..)
+            | DType::FixedSizeList(..)
+            | DType::Variant(..) => None,
             _ => Some(make_is_sorted_partial_dtype(input_dtype)),
         }
     }

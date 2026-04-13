@@ -5,12 +5,12 @@
 //! patching enables fully parallel GPU execution, as outlined by Hepkema et al. in
 //! "G-ALP: Rethinking Light-weight Encodings for GPUs" <https://doi.org/10.1145/3736227.3736242>
 
+use vortex::array::Canonical;
+use vortex::array::buffer::BufferHandle;
+use vortex::array::dtype::IntegerPType;
+use vortex::array::dtype::NativePType;
 use vortex::buffer::Buffer;
 use vortex::buffer::BufferMut;
-use vortex_array::Canonical;
-use vortex_array::buffer::BufferHandle;
-use vortex_array::dtype::IntegerPType;
-use vortex_array::dtype::NativePType;
 use vortex_array::match_each_native_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
@@ -123,7 +123,7 @@ impl<V: Copy> HostPatches<V> {
 }
 
 /// Transpose a set of patches from the default sorted layout into the data parallel layout.
-#[allow(clippy::cognitive_complexity)]
+#[expect(clippy::cognitive_complexity)]
 pub async fn transpose_patches(
     patches: &Patches,
     ctx: &mut CudaExecutionCtx,
@@ -161,7 +161,7 @@ pub async fn transpose_patches(
     })
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn transpose<I: IntegerPType, V: NativePType>(
     indices_in: &[I],
     values_in: &[V],
@@ -239,10 +239,10 @@ fn transpose<I: IntegerPType, V: NativePType>(
 
 #[cfg(test)]
 mod tests {
+    use vortex::array::ExecutionCtx;
     use vortex::buffer::BufferMut;
     use vortex::buffer::buffer;
     use vortex::buffer::buffer_mut;
-    use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::arrays::PrimitiveArray;
@@ -305,7 +305,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     fn test_transpose_complex() -> VortexResult<()> {
         test_case(1024, 0, &[0], &[0f32])?;
         test_case(512, 512, &[512, 513, 514], &[10i8, 20, 30])?;

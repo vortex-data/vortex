@@ -14,7 +14,6 @@ use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::arrow::Datum;
 use crate::arrow::from_arrow_array_with_len;

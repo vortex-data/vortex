@@ -14,6 +14,7 @@ use std::arch::x86_64::_mm_setzero_si128;
 use std::arch::x86_64::_mm_shuffle_epi32;
 use std::arch::x86_64::_mm_storeu_si128;
 use std::arch::x86_64::_mm_unpacklo_epi64;
+use std::arch::x86_64::_mm256_andnot_si256;
 use std::arch::x86_64::_mm256_cmpgt_epi32;
 use std::arch::x86_64::_mm256_cmpgt_epi64;
 use std::arch::x86_64::_mm256_cvtepu8_epi32;
@@ -39,9 +40,11 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::compute::take::TakeImpl;
 use crate::arrays::primitive::compute::take::take_primitive_scalar;
+use crate::arrays::primitive::vtable::Primitive;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
@@ -56,8 +59,8 @@ impl TakeImpl for TakeKernelAVX2 {
     #[inline(always)]
     fn take(
         &self,
-        values: &PrimitiveArray,
-        indices: &PrimitiveArray,
+        values: ArrayView<'_, Primitive>,
+        indices: ArrayView<'_, Primitive>,
         validity: Validity,
     ) -> VortexResult<ArrayRef> {
         assert!(indices.ptype().is_unsigned_int());
@@ -116,7 +119,6 @@ where
 /// # Safety
 ///
 /// The caller must ensure the `avx2` feature is enabled.
-#[allow(dead_code, unused_variables, reason = "TODO(connor): Implement this")]
 #[target_feature(enable = "avx2")]
 #[doc(hidden)]
 unsafe fn take_avx2<V: NativePType, I: UnsignedPType>(buffer: &[V], indices: &[I]) -> Buffer<V> {
@@ -131,6 +133,10 @@ unsafe fn take_avx2<V: NativePType, I: UnsignedPType>(buffer: &[V], indices: &[I
             let result = exec_take::<$cast, $indices, AVX2Gather>(values, indices);
             unsafe { result.transmute::<V>() }
         }};
+    }
+
+    if buffer.is_empty() {
+        return Buffer::zeroed(indices.len());
     }
 
     match (I::PTYPE, V::PTYPE) {
@@ -221,7 +227,7 @@ macro_rules! impl_gather {
                     // Create a vec of the max idx.
                     let max_idx_vec = unsafe { $splat(max_idx as _) };
                     // Create a mask for valid indices (where the max_idx > provided index).
-                    let invalid_mask = unsafe { $mask_indices(max_idx_vec, indices_vec) };
+                    let invalid_mask = unsafe { _mm256_andnot_si256($mask_indices(indices_vec, max_idx_vec), $splat(-1)) };
                     let invalid_mask = {
                         let $mask_var = invalid_mask;
                         $mask_cvt
@@ -577,4 +583,22 @@ mod avx2_tests {
         index_type => u64,
         value_types => u32, i32, u64, i64, f32, f64
     );
+
+    #[test]
+    fn test_avx2_take_last_valid_index_u8() {
+        let values: Vec<i64> = (0..(255 + 1)).collect();
+        let indices: Vec<u8> = vec![255; 20];
+
+        let result = unsafe { take_avx2(&values, &indices) };
+        assert_eq!(&vec![255; indices.len()], result.as_slice());
+    }
+
+    #[test]
+    fn test_avx2_take_last_valid_index_u16() {
+        let values: Vec<i64> = (0..(65535 + 1)).collect();
+        let indices: Vec<u16> = vec![65535; 20];
+
+        let result = unsafe { take_avx2(&values, &indices) };
+        assert_eq!(&vec![65535; indices.len()], result.as_slice());
+    }
 }

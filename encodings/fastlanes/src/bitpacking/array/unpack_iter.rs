@@ -11,8 +11,10 @@ use lending_iterator::prelude::Item;
 use lending_iterator::prelude::LendingIterator;
 use vortex_array::dtype::PhysicalPType;
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
-use crate::BitPackedArray;
+use crate::BitPackedData;
 
 const CHUNK_SIZE: usize = 1024;
 
@@ -54,11 +56,12 @@ impl<T: PhysicalPType<Physical: BitPacking>> UnpackStrategy<T> for BitPackingStr
 /// use lending_iterator::prelude::LendingIterator;
 /// use vortex_array::IntoArray;
 /// use vortex_buffer::buffer;
-/// use vortex_fastlanes::BitPackedArray;
+/// use vortex_fastlanes::BitPackedData;
+/// use vortex_fastlanes::BitPackedArrayExt;
 /// use vortex_fastlanes::unpack_iter::BitUnpackedChunks;
 ///
-/// let array = BitPackedArray::encode(&buffer![2, 3, 4, 5].into_array(), 2).unwrap();
-/// let mut unpacked_chunks: BitUnpackedChunks<i32> = array.unpacked_chunks();
+/// let array = BitPackedData::encode(&buffer![2, 3, 4, 5].into_array(), 2).unwrap();
+/// let mut unpacked_chunks: BitUnpackedChunks<i32> = array.unpacked_chunks().unwrap();
 ///
 /// if let Some(header) = unpacked_chunks.initial() {
 ///    // handle partial initial chunk
@@ -89,13 +92,13 @@ pub struct UnpackedChunks<T: PhysicalPType, S: UnpackStrategy<T>> {
 pub type BitUnpackedChunks<T> = UnpackedChunks<T, BitPackingStrategy>;
 
 impl<T: BitPacked> BitUnpackedChunks<T> {
-    pub fn new(array: &BitPackedArray) -> Self {
-        Self::new_with_strategy(
+    pub fn try_new(array: &BitPackedData, len: usize) -> VortexResult<Self> {
+        Self::try_new_with_strategy(
             BitPackingStrategy,
             array.packed().clone().unwrap_host(),
             array.bit_width() as usize,
             array.offset() as usize,
-            array.len(),
+            len,
         )
     }
 
@@ -115,26 +118,29 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
 }
 
 impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
-    pub fn new_with_strategy(
+    pub fn try_new_with_strategy(
         strategy: S,
         packed: ByteBuffer,
         bit_width: usize,
         offset: usize,
         len: usize,
-    ) -> Self {
+    ) -> VortexResult<Self> {
+        vortex_ensure!(
+            offset < CHUNK_SIZE,
+            "Invalid bit-packed offset {offset}, expected < {CHUNK_SIZE}"
+        );
         let elems_per_chunk = 128 * bit_width / size_of::<T>();
         let num_chunks = (offset + len).div_ceil(CHUNK_SIZE);
 
-        assert_eq!(
-            packed.len() / size_of::<T>(),
-            num_chunks * elems_per_chunk,
+        vortex_ensure!(
+            packed.len() / size_of::<T>() == num_chunks * elems_per_chunk,
             "Invalid packed length: got {}, expected {}",
             packed.len() / size_of::<T>(),
             num_chunks * elems_per_chunk
         );
 
         let last_chunk_length = (offset + len) % CHUNK_SIZE;
-        Self {
+        Ok(Self {
             strategy,
             bit_width,
             offset,
@@ -143,7 +149,7 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
             buffer: [const { MaybeUninit::<T>::uninit() }; CHUNK_SIZE],
             num_chunks,
             last_chunk_length,
-        }
+        })
     }
 
     #[inline(always)]

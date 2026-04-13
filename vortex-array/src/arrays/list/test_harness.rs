@@ -28,7 +28,7 @@ impl ListArray {
     {
         let iter = iter.into_iter();
         let mut builder = ListBuilder::<O>::with_capacity(
-            dtype.clone(),
+            Arc::clone(&dtype),
             crate::dtype::Nullability::NonNullable,
             2 * iter.size_hint().0,
             iter.size_hint().0,
@@ -36,7 +36,7 @@ impl ListArray {
 
         for v in iter {
             let elem = Scalar::list(
-                dtype.clone(),
+                Arc::clone(&dtype),
                 v.into_iter().map(|x| x.into()).collect_vec(),
                 dtype.nullability(),
             );
@@ -55,7 +55,7 @@ impl ListArray {
     {
         let iter = iter.into_iter();
         let mut builder = ListBuilder::<O>::with_capacity(
-            dtype.clone(),
+            Arc::clone(&dtype),
             crate::dtype::Nullability::Nullable,
             2 * iter.size_hint().0,
             iter.size_hint().0,
@@ -64,7 +64,7 @@ impl ListArray {
         for v in iter {
             if let Some(v) = v {
                 let elem = Scalar::list(
-                    dtype.clone(),
+                    Arc::clone(&dtype),
                     v.into_iter().map(|x| x.into()).collect_vec(),
                     dtype.nullability(),
                 );
