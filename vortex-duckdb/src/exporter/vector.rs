@@ -48,11 +48,11 @@ impl VectorRef {
         }
     }
 
-    fn set_all_true_validity(&mut self) {
+    pub fn set_all_true_validity(&mut self) {
         unsafe { duckdb_vx_vector_set_all_valid(self.as_ptr()) };
     }
 
-    fn set_all_false_validity(&mut self) {
+    pub fn set_all_false_validity(&mut self) {
         self.reference_value(&Value::null(&self.logical_type()));
     }
 }

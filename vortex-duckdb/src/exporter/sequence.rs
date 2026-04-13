@@ -35,6 +35,7 @@ impl ColumnExporter for SequenceExporter {
     ) -> VortexResult<()> {
         let offset = offset.as_i64();
         let start = (offset * self.step) + self.start;
+        // TODO why don't we apply validity mask here?
 
         vector.to_sequence(start, self.step, len.as_u64());
         Ok(())

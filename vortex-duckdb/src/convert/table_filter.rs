@@ -12,10 +12,10 @@ use vortex::error::vortex_bail;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::get_item;
+use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_contains;
 use vortex::expr::lit;
-use vortex::expr::not;
 use vortex::expr::or_collect;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
@@ -61,7 +61,7 @@ pub fn try_from_table_filter(
             or_collect(children).unwrap_or_else(|| lit(false))
         }
         TableFilterClass::IsNull => is_null(col.clone()),
-        TableFilterClass::IsNotNull => not(is_null(col.clone())),
+        TableFilterClass::IsNotNull => is_not_null(col.clone()),
         TableFilterClass::StructExtract(name, child_filter) => {
             return try_from_table_filter(child_filter, &get_item(name, col.clone()), scope_dtype);
         }

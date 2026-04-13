@@ -8668,6 +8668,8 @@ pub fn vortex_array::builtins::ArrayBuiltins::fill_null(&self, fill_value: impl 
 
 pub fn vortex_array::builtins::ArrayBuiltins::get_item(&self, field_name: impl core::convert::Into<vortex_array::dtype::FieldName>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
+pub fn vortex_array::builtins::ArrayBuiltins::is_not_null(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
 pub fn vortex_array::builtins::ArrayBuiltins::is_null(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::builtins::ArrayBuiltins::list_contains(&self, value: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -8690,6 +8692,8 @@ pub fn vortex_array::ArrayRef::fill_null(&self, fill_value: impl core::convert::
 
 pub fn vortex_array::ArrayRef::get_item(&self, field_name: impl core::convert::Into<vortex_array::dtype::FieldName>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
+pub fn vortex_array::ArrayRef::is_not_null(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
 pub fn vortex_array::ArrayRef::is_null(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::ArrayRef::list_contains(&self, value: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -8710,6 +8714,8 @@ pub fn vortex_array::builtins::ExprBuiltins::fill_null(&self, fill_value: vortex
 
 pub fn vortex_array::builtins::ExprBuiltins::get_item(&self, field_name: impl core::convert::Into<vortex_array::dtype::FieldName>) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
+pub fn vortex_array::builtins::ExprBuiltins::is_not_null(&self) -> vortex_error::VortexResult<vortex_array::expr::Expression>
+
 pub fn vortex_array::builtins::ExprBuiltins::is_null(&self) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 pub fn vortex_array::builtins::ExprBuiltins::list_contains(&self, value: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
@@ -8729,6 +8735,8 @@ pub fn vortex_array::expr::Expression::cast(&self, dtype: vortex_array::dtype::D
 pub fn vortex_array::expr::Expression::fill_null(&self, fill_value: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 pub fn vortex_array::expr::Expression::get_item(&self, field_name: impl core::convert::Into<vortex_array::dtype::FieldName>) -> vortex_error::VortexResult<vortex_array::expr::Expression>
+
+pub fn vortex_array::expr::Expression::is_not_null(&self) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 pub fn vortex_array::expr::Expression::is_null(&self) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
@@ -9394,7 +9402,7 @@ impl core::cmp::Eq for vortex_array::dtype::DType
 
 impl core::cmp::PartialEq for vortex_array::dtype::DType
 
-pub fn vortex_array::dtype::DType::eq(&self, other: &vortex_array::dtype::DType) -> bool
+pub fn vortex_array::dtype::DType::eq(&self, other: &Self) -> bool
 
 impl core::convert::From<vortex_array::dtype::DType> for vortex_array::dtype::FieldDType
 
@@ -9443,8 +9451,6 @@ pub fn vortex_array::dtype::DType::fmt(&self, f: &mut core::fmt::Formatter<'_>) 
 impl core::hash::Hash for vortex_array::dtype::DType
 
 pub fn vortex_array::dtype::DType::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl core::marker::StructuralPartialEq for vortex_array::dtype::DType
 
 impl vortex_array::dtype::arrow::FromArrowType<&arrow_schema::field::Field> for vortex_array::dtype::DType
 
@@ -12656,6 +12662,8 @@ pub fn vortex_array::expr::Expression::fill_null(&self, fill_value: vortex_array
 
 pub fn vortex_array::expr::Expression::get_item(&self, field_name: impl core::convert::Into<vortex_array::dtype::FieldName>) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
+pub fn vortex_array::expr::Expression::is_not_null(&self) -> vortex_error::VortexResult<vortex_array::expr::Expression>
+
 pub fn vortex_array::expr::Expression::is_null(&self) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 pub fn vortex_array::expr::Expression::list_contains(&self, value: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
@@ -12749,6 +12757,8 @@ pub fn vortex_array::expr::ilike(child: vortex_array::expr::Expression, pattern:
 pub fn vortex_array::expr::immediate_scope_access<'a>(expr: &'a vortex_array::expr::Expression, scope: &'a vortex_array::dtype::StructFields) -> vortex_utils::aliases::hash_set::HashSet<vortex_array::dtype::FieldName>
 
 pub fn vortex_array::expr::immediate_scope_accesses<'a>(expr: &'a vortex_array::expr::Expression, scope: &'a vortex_array::dtype::StructFields) -> vortex_array::expr::FieldAccesses<'a>
+
+pub fn vortex_array::expr::is_not_null(child: vortex_array::expr::Expression) -> vortex_array::expr::Expression
 
 pub fn vortex_array::expr::is_null(child: vortex_array::expr::Expression) -> vortex_array::expr::Expression
 
@@ -16532,6 +16542,52 @@ pub fn vortex_array::scalar_fn::fns::get_item::GetItem::stat_falsification(&self
 
 pub fn vortex_array::scalar_fn::fns::get_item::GetItem::validity(&self, options: &Self::Options, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
+pub mod vortex_array::scalar_fn::fns::is_not_null
+
+pub struct vortex_array::scalar_fn::fns::is_not_null::IsNotNull
+
+impl core::clone::Clone for vortex_array::scalar_fn::fns::is_not_null::IsNotNull
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::clone(&self) -> vortex_array::scalar_fn::fns::is_not_null::IsNotNull
+
+impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::is_not_null::IsNotNull
+
+pub type vortex_array::scalar_fn::fns::is_not_null::IsNotNull::Options = vortex_array::scalar_fn::EmptyOptions
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::arity(&self, _options: &Self::Options) -> vortex_array::scalar_fn::Arity
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::child_name(&self, _instance: &Self::Options, child_idx: usize) -> vortex_array::scalar_fn::ChildName
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::coerce_args(&self, options: &Self::Options, args: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::execute(&self, _data: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::is_fallible(&self, _instance: &Self::Options) -> bool
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::is_null_sensitive(&self, _instance: &Self::Options) -> bool
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::reduce(&self, options: &Self::Options, node: &dyn vortex_array::scalar_fn::ReduceNode, ctx: &dyn vortex_array::scalar_fn::ReduceCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar_fn::ReduceNodeRef>>
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::return_dtype(&self, _options: &Self::Options, _arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::serialize(&self, _instance: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::simplify(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, ctx: &dyn vortex_array::scalar_fn::SimplifyCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::simplify_untyped(&self, options: &Self::Options, expr: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::stat_expression(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, stat: vortex_array::expr::stats::Stat, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::stat_falsification(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::validity(&self, options: &Self::Options, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
 pub mod vortex_array::scalar_fn::fns::is_null
 
 pub struct vortex_array::scalar_fn::fns::is_null::IsNull
@@ -18313,6 +18369,44 @@ pub fn vortex_array::scalar_fn::fns::get_item::GetItem::stat_expression(&self, f
 pub fn vortex_array::scalar_fn::fns::get_item::GetItem::stat_falsification(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
 
 pub fn vortex_array::scalar_fn::fns::get_item::GetItem::validity(&self, options: &Self::Options, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::is_not_null::IsNotNull
+
+pub type vortex_array::scalar_fn::fns::is_not_null::IsNotNull::Options = vortex_array::scalar_fn::EmptyOptions
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::arity(&self, _options: &Self::Options) -> vortex_array::scalar_fn::Arity
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::child_name(&self, _instance: &Self::Options, child_idx: usize) -> vortex_array::scalar_fn::ChildName
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::coerce_args(&self, options: &Self::Options, args: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::execute(&self, _data: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::is_fallible(&self, _instance: &Self::Options) -> bool
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::is_null_sensitive(&self, _instance: &Self::Options) -> bool
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::reduce(&self, options: &Self::Options, node: &dyn vortex_array::scalar_fn::ReduceNode, ctx: &dyn vortex_array::scalar_fn::ReduceCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar_fn::ReduceNodeRef>>
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::return_dtype(&self, _options: &Self::Options, _arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::serialize(&self, _instance: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::simplify(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, ctx: &dyn vortex_array::scalar_fn::SimplifyCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::simplify_untyped(&self, options: &Self::Options, expr: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::stat_expression(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, stat: vortex_array::expr::stats::Stat, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::stat_falsification(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::validity(&self, options: &Self::Options, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::is_null::IsNull
 
@@ -22819,6 +22913,8 @@ pub fn vortex_array::ArrayRef::cast(&self, dtype: vortex_array::dtype::DType) ->
 pub fn vortex_array::ArrayRef::fill_null(&self, fill_value: impl core::convert::Into<vortex_array::scalar::Scalar>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::ArrayRef::get_item(&self, field_name: impl core::convert::Into<vortex_array::dtype::FieldName>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::ArrayRef::is_not_null(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::ArrayRef::is_null(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
