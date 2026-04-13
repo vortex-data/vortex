@@ -28,10 +28,8 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
 use vortex_array::ToCanonical;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
@@ -54,6 +52,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::PcoChunkInfo;
@@ -219,10 +218,11 @@ impl VTable for Pco {
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let unsliced_validity =
             child_to_validity(&array.as_ref().slots()[0], array.dtype().nullability());
+        let unsliced_mask = unsliced_validity.execute_mask(array.data().unsliced_n_rows(), ctx)?;
         Ok(ExecutionResult::done(
             array
                 .data()
-                .decompress(&unsliced_validity, ctx)?
+                .decompress(&unsliced_validity, &unsliced_mask)?
                 .into_array(),
         ))
     }
@@ -491,7 +491,7 @@ impl PcoData {
     pub fn decompress(
         &self,
         unsliced_validity: &Validity,
-        ctx: &mut ExecutionCtx,
+        unsliced_mask: &Mask,
     ) -> VortexResult<PrimitiveArray> {
         // To start, we figure out which chunks and pages we need to decompress, and with
         // what value offset into the first such page.
@@ -499,7 +499,7 @@ impl PcoData {
         let values_byte_buffer = match_number_enum!(
             number_type,
             NumberType<T> => {
-              self.decompress_values_typed::<T>(unsliced_validity, ctx)?
+              self.decompress_values_typed::<T>(unsliced_mask)?
             }
         );
 
@@ -511,15 +511,10 @@ impl PcoData {
         ))
     }
 
-    fn decompress_values_typed<T: Number>(
-        &self,
-        unsliced_validity: &Validity,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ByteBuffer> {
+    fn decompress_values_typed<T: Number>(&self, unsliced_mask: &Mask) -> VortexResult<ByteBuffer> {
         // To start, we figure out what range of values we need to decompress.
-        let slice_value_indices = unsliced_validity
-            .execute_mask(self.unsliced_n_rows, ctx)?
-            .valid_counts_for_indices(&[self.slice_start, self.slice_stop]);
+        let slice_value_indices =
+            unsliced_mask.valid_counts_for_indices(&[self.slice_start, self.slice_stop]);
         let slice_value_start = slice_value_indices[0];
         let slice_value_stop = slice_value_indices[1];
         let slice_n_values = slice_value_stop - slice_value_start;
@@ -627,11 +622,11 @@ impl ValidityVTable<Pco> for Pco {
 
 impl OperationsVTable<Pco> for Pco {
     fn scalar_at(array: ArrayView<'_, Pco>, index: usize) -> VortexResult<Scalar> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let unsliced_validity = child_to_validity(&array.slots()[0], array.dtype().nullability());
+        let unsliced_mask = unsliced_validity.to_mask(array.unsliced_n_rows());
         array
             ._slice(index, index + 1)
-            .decompress(&unsliced_validity, &mut ctx)?
+            .decompress(&unsliced_validity, &unsliced_mask)?
             .into_array()
             .scalar_at(0)
     }

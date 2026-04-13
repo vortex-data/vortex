@@ -49,12 +49,14 @@ fn test_compress_decompress() {
     assert!(compressed.pages.len() < array.into_array().nbytes() as usize);
 
     // check full decompression works
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let unsliced_validity = child_to_validity(
         &compressed.as_ref().slots()[0],
         compressed.dtype().nullability(),
     );
-    let decompressed = compressed.decompress(&unsliced_validity, &mut ctx).unwrap();
+    let unsliced_mask = unsliced_validity.to_mask(compressed.unsliced_n_rows());
+    let decompressed = compressed
+        .decompress(&unsliced_validity, &unsliced_mask)
+        .unwrap();
     assert_arrays_eq!(decompressed, PrimitiveArray::from_iter(data));
 
     // check slicing works
@@ -76,12 +78,14 @@ fn test_compress_decompress_small() {
     let expected = array.into_array();
     assert_arrays_eq!(compressed, expected);
 
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let unsliced_validity = child_to_validity(
         &compressed.as_ref().slots()[0],
         compressed.dtype().nullability(),
     );
-    let decompressed = compressed.decompress(&unsliced_validity, &mut ctx).unwrap();
+    let unsliced_mask = unsliced_validity.to_mask(compressed.unsliced_n_rows());
+    let decompressed = compressed
+        .decompress(&unsliced_validity, &unsliced_mask)
+        .unwrap();
     assert_arrays_eq!(decompressed, expected);
 }
 
@@ -90,12 +94,14 @@ fn test_empty() {
     let data: Vec<i32> = vec![];
     let array = PrimitiveArray::from_iter(data.clone());
     let compressed = Pco::from_primitive(array.as_view(), 3, 100).unwrap();
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let unsliced_validity = child_to_validity(
         &compressed.as_ref().slots()[0],
         compressed.dtype().nullability(),
     );
-    let primitive = compressed.decompress(&unsliced_validity, &mut ctx).unwrap();
+    let unsliced_mask = unsliced_validity.to_mask(compressed.unsliced_n_rows());
+    let primitive = compressed
+        .decompress(&unsliced_validity, &unsliced_mask)
+        .unwrap();
     assert_arrays_eq!(primitive, PrimitiveArray::from_iter(data));
 }
 

@@ -21,10 +21,8 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
 use vortex_array::ToCanonical;
-use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -54,6 +52,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::ZstdFrameMetadata;
@@ -233,9 +232,10 @@ impl VTable for Zstd {
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let unsliced_validity =
             child_to_validity(&array.as_ref().slots()[0], array.dtype().nullability());
+        let unsliced_mask = unsliced_validity.execute_mask(array.data().unsliced_n_rows(), ctx)?;
         array
             .data()
-            .decompress(array.dtype(), &unsliced_validity, ctx)?
+            .decompress(array.dtype(), &unsliced_validity, &unsliced_mask)?
             .execute::<ArrayRef>(ctx)
             .map(ExecutionResult::done)
     }
@@ -309,9 +309,10 @@ impl Zstd {
     pub fn decompress(array: &ZstdArray, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let unsliced_validity =
             child_to_validity(&array.as_ref().slots()[0], array.dtype().nullability());
+        let unsliced_mask = unsliced_validity.execute_mask(array.data().unsliced_n_rows(), ctx)?;
         array
             .data()
-            .decompress(array.dtype(), &unsliced_validity, ctx)
+            .decompress(array.dtype(), &unsliced_validity, &unsliced_mask)
     }
 }
 
@@ -809,15 +810,14 @@ impl ZstdData {
         &self,
         dtype: &DType,
         unsliced_validity: &Validity,
-        ctx: &mut ExecutionCtx,
+        unsliced_mask: &Mask,
     ) -> VortexResult<ArrayRef> {
         // To start, we figure out which frames we need to decompress, and with
         // what row offset into the first such frame.
         let byte_width = Self::byte_width(dtype);
         let slice_n_rows = self.slice_stop - self.slice_start;
-        let slice_value_indices = unsliced_validity
-            .execute_mask(self.unsliced_n_rows, ctx)?
-            .valid_counts_for_indices(&[self.slice_start, self.slice_stop]);
+        let slice_value_indices =
+            unsliced_mask.valid_counts_for_indices(&[self.slice_start, self.slice_stop]);
 
         let slice_value_idx_start = slice_value_indices[0];
         let slice_value_idx_stop = slice_value_indices[1];
@@ -922,7 +922,10 @@ impl ZstdData {
                 Ok(primitive.into_array())
             }
             DType::Binary(_) | DType::Utf8(_) => {
-                match slice_validity.execute_mask(slice_n_rows, ctx)?.indices() {
+                match unsliced_mask
+                    .slice(self.slice_start..self.slice_stop)
+                    .indices()
+                {
                     AllOr::All => {
                         let (buffers, all_views) = reconstruct_views(&decompressed, MAX_BUFFER_LEN);
                         let valid_views = all_views.slice(
@@ -1021,11 +1024,11 @@ impl ValidityVTable<Zstd> for Zstd {
 
 impl OperationsVTable<Zstd> for Zstd {
     fn scalar_at(array: ArrayView<'_, Zstd>, index: usize) -> VortexResult<Scalar> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let unsliced_validity = child_to_validity(&array.slots()[0], array.dtype().nullability());
+        let unsliced_mask = unsliced_validity.to_mask(array.data().unsliced_n_rows());
         let sliced = array.data().with_slice(index, index + 1);
         sliced
-            .decompress(array.dtype(), &unsliced_validity, &mut ctx)?
+            .decompress(array.dtype(), &unsliced_validity, &unsliced_mask)?
             .scalar_at(0)
     }
 }
