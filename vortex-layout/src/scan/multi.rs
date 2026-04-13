@@ -116,6 +116,23 @@ impl MultiLayoutDataSource {
         }
     }
 
+    pub fn new_eager(readers: Vec<LayoutReaderRef>, session: &VortexSession) -> Self {
+        let dtype = readers[0].dtype().clone();
+        let concurrency = std::thread::available_parallelism()
+            .map(|v| v.get())
+            .unwrap_or(DEFAULT_CONCURRENCY);
+
+        let mut children = Vec::with_capacity(readers.len());
+        children.extend(readers.into_iter().map(MultiLayoutChild::Opened));
+
+        Self {
+            dtype,
+            session: session.clone(),
+            children,
+            concurrency,
+        }
+    }
+
     /// Creates a multi-layout data source where all children are deferred.
     ///
     /// The dtype must be provided externally since there is no pre-opened reader to infer it

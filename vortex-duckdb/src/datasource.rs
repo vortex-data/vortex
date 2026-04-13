@@ -37,6 +37,7 @@ use vortex::expr::col;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::expr::stats::Precision;
+use vortex::file::FileStatistics;
 use vortex::io::kanal_ext::KanalExt;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::ThreadSafeIterator;
@@ -54,6 +55,7 @@ use crate::duckdb::BindInputRef;
 use crate::duckdb::BindResultRef;
 use crate::duckdb::Cardinality;
 use crate::duckdb::ClientContextRef;
+use crate::duckdb::ColumnStatistics;
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::ExpressionRef;
 use crate::duckdb::LogicalType;
@@ -80,6 +82,8 @@ use crate::exporter::ConversionCache;
 static EMPTY_COLUMN_IDX: u64 = 18446744073709551614;
 static EMPTY_COLUMN_NAME: &str = "";
 
+pub type DataSourceWithStats = (DataSourceRef, Option<FileStatistics>);
+
 /// A trait for table functions that resolve to a [`DataSourceRef`].
 ///
 /// Implementors only need to define how parameters are declared and how binding produces a
@@ -97,7 +101,14 @@ pub(crate) trait DataSourceTableFunction: Sized + Debug {
     }
 
     /// Bind the table function and return a [`DataSourceRef`].
-    fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<DataSourceRef>;
+    fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<DataSourceWithStats>;
+}
+
+#[derive(Clone)]
+pub enum DataSourceStatistics {
+    All(Vec<ColumnStatistics>),
+    /// Dummy column to return a reference to
+    None(ColumnStatistics),
 }
 
 /// Bind data produced by a [`DataSourceTableFunction`].
@@ -106,6 +117,7 @@ pub struct DataSourceBindData {
     filter_exprs: Vec<Expression>,
     column_names: Vec<String>,
     column_types: Vec<LogicalType>,
+    stats: DataSourceStatistics,
 }
 
 impl Clone for DataSourceBindData {
@@ -116,6 +128,7 @@ impl Clone for DataSourceBindData {
             filter_exprs: vec![],
             column_names: self.column_names.clone(),
             column_types: self.column_types.clone(),
+            stats: self.stats.clone(),
         }
     }
 }
@@ -189,19 +202,39 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         input: &BindInputRef,
         result: &mut BindResultRef,
     ) -> VortexResult<Self::BindData> {
-        let data_source = T::bind(ctx, input)?;
-
+        let (data_source, file_stats) = T::bind(ctx, input)?;
         let (column_names, column_types) = extract_schema_from_dtype(data_source.dtype())?;
 
-        for (column_name, column_type) in column_names.iter().zip(&column_types) {
-            result.add_result_column(column_name, column_type);
+        if file_stats.is_none() {
+            for i in 0..column_names.len() {
+                result.add_result_column(&column_names[i], &column_types[i]);
+            }
+
+            let stats = DataSourceStatistics::None(ColumnStatistics::default());
+            return Ok(DataSourceBindData {
+                data_source,
+                filter_exprs: vec![],
+                column_names,
+                column_types,
+                stats,
+            });
         }
+        let file_stats = file_stats.vortex_expect("no stats");
+
+        let mut stats = Vec::with_capacity(column_names.len());
+        for i in 0..column_names.len() {
+            result.add_result_column(&column_names[i], &column_types[i]);
+            let (stats_set, dtype) = file_stats.get(i);
+            stats.push(ColumnStatistics::new(stats_set, dtype.clone()));
+        }
+        let stats = DataSourceStatistics::All(stats);
 
         Ok(DataSourceBindData {
             data_source,
             filter_exprs: vec![],
             column_names,
             column_types,
+            stats,
         })
     }
 
@@ -410,6 +443,17 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         //  etc. to return estimates. But this function is probably called too late anyway. Maybe
         //  we need our own cardinality heuristics.
         Ok(false)
+    }
+
+    fn statistics<'a>(
+        _client_context: &ClientContextRef,
+        bind_data: &'a Self::BindData,
+        column_index: usize,
+    ) -> &'a ColumnStatistics {
+        match &bind_data.stats {
+            DataSourceStatistics::All(items) => &items[column_index],
+            DataSourceStatistics::None(dummy) => dummy,
+        }
     }
 
     fn cardinality(bind_data: &Self::BindData) -> Cardinality {

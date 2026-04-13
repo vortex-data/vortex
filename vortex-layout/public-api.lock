@@ -1010,6 +1010,8 @@ impl vortex_layout::scan::multi::MultiLayoutDataSource
 
 pub fn vortex_layout::scan::multi::MultiLayoutDataSource::new_deferred(dtype: vortex_array::dtype::DType, factories: alloc::vec::Vec<alloc::sync::Arc<dyn vortex_layout::scan::multi::LayoutReaderFactory>>, session: &vortex_session::VortexSession) -> Self
 
+pub fn vortex_layout::scan::multi::MultiLayoutDataSource::new_eager(readers: alloc::vec::Vec<vortex_layout::LayoutReaderRef>, session: &vortex_session::VortexSession) -> Self
+
 pub fn vortex_layout::scan::multi::MultiLayoutDataSource::new_with_first(first: vortex_layout::LayoutReaderRef, remaining: alloc::vec::Vec<alloc::sync::Arc<dyn vortex_layout::scan::multi::LayoutReaderFactory>>, session: &vortex_session::VortexSession) -> Self
 
 pub fn vortex_layout::scan::multi::MultiLayoutDataSource::with_concurrency(self, concurrency: usize) -> Self

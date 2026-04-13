@@ -19,6 +19,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::RUNTIME;
 use crate::SESSION;
 use crate::datasource::DataSourceTableFunction;
+use crate::datasource::DataSourceWithStats;
 use crate::duckdb::BindInputRef;
 use crate::duckdb::ClientContextRef;
 use crate::duckdb::ExtractedValue;
@@ -76,7 +77,7 @@ impl DataSourceTableFunction for VortexMultiFileScan {
         vec![LogicalType::varchar()]
     }
 
-    fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<DataSourceRef> {
+    fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<DataSourceWithStats> {
         bind_multi_file_scan(ctx, input)
     }
 }
@@ -89,7 +90,7 @@ impl DataSourceTableFunction for VortexMultiFileScanList {
         ]
     }
 
-    fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<DataSourceRef> {
+    fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<DataSourceWithStats> {
         bind_multi_file_scan(ctx, input)
     }
 }
@@ -98,7 +99,7 @@ impl DataSourceTableFunction for VortexMultiFileScanList {
 fn bind_multi_file_scan(
     ctx: &ClientContextRef,
     input: &BindInputRef,
-) -> VortexResult<DataSourceRef> {
+) -> VortexResult<DataSourceWithStats> {
     let glob_url_parameter = input
         .get_parameter(0)
         .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
@@ -139,7 +140,7 @@ fn bind_multi_file_scan(
     }
 
     RUNTIME.block_on(async {
-        let mut builder = MultiFileDataSource::new(SESSION.clone());
+        let mut builder = MultiFileDataSource::new_eager(SESSION.clone());
 
         for glob_url in &glob_urls {
             let mut base_url = glob_url.clone();
@@ -151,8 +152,9 @@ fn bind_multi_file_scan(
             builder = builder.with_glob(glob_url.path(), Some(fs));
         }
 
-        let ds = builder.build().await?;
-        Ok(Arc::new(ds) as DataSourceRef)
+        let (data_source, stats) = builder.build().await?;
+        let ds = Arc::new(data_source) as DataSourceRef;
+        Ok((ds, stats))
     })
 }
 

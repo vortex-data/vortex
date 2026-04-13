@@ -73,6 +73,10 @@ impl VortexFile {
         self.footer.statistics()
     }
 
+    pub fn take_file_stats(&mut self) -> Option<FileStatistics> {
+        self.footer.take_statistics()
+    }
+
     /// Create a new segment source for reading from the file.
     ///
     /// This may spawn a background I/O driver that will exit when the returned segment source

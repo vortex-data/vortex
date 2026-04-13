@@ -5,13 +5,16 @@
 
 use std::ffi::CString;
 
+use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex_array::stats::StatsSet;
 
 use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::BindInputRef;
 use crate::duckdb::BindResultRef;
 use crate::duckdb::ClientContextRef;
+use crate::duckdb::ColumnStatistics;
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::LogicalType;
 use crate::duckdb::TableFunction;
@@ -23,6 +26,7 @@ pub struct TestTableFunction;
 #[derive(Debug, Clone)]
 pub struct TestBindData {
     cache_key: String,
+    stats: ColumnStatistics,
 }
 
 #[derive(Debug)]
@@ -61,6 +65,7 @@ impl TableFunction for TestTableFunction {
 
         Ok(TestBindData {
             cache_key: "test_table_function_data".to_string(),
+            stats: ColumnStatistics::new(&StatsSet::default(), DType::Null),
         })
     }
 
@@ -111,6 +116,14 @@ impl TableFunction for TestTableFunction {
         _local_init_data: &mut Self::LocalState,
     ) -> VortexResult<u64> {
         Ok(0)
+    }
+
+    fn statistics<'a>(
+        _client_context: &ClientContextRef,
+        bind_data: &'a Self::BindData,
+        _column_index: usize,
+    ) -> &'a ColumnStatistics {
+        &bind_data.stats
     }
 }
 

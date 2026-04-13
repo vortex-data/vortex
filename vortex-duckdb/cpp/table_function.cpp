@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#include "duckdb_vx/table_function.h"
 #include "duckdb_vx/duckdb_diagnostics.h"
 
 DUCKDB_INCLUDES_BEGIN
@@ -30,8 +31,10 @@ struct CTableFunctionInfo final : TableFunctionInfo {
 };
 
 struct CTableBindData final : TableFunctionData {
-    CTableBindData(unique_ptr<CTableFunctionInfo> info_p, unique_ptr<vortex::CData> ffi_data_p)
-        : info(std::move(info_p)), ffi_data(std::move(ffi_data_p)) {
+    CTableBindData(unique_ptr<CTableFunctionInfo> info_p,
+                   unique_ptr<vortex::CData> ffi_data_p,
+                   const vector<LogicalType> &types)
+        : info(std::move(info_p)), ffi_data(std::move(ffi_data_p)), types(types) {
     }
 
     unique_ptr<FunctionData> Copy() const override {
@@ -43,11 +46,13 @@ struct CTableBindData final : TableFunctionData {
             throw BinderException(IntoErrString(error_out));
         }
         return make_uniq<CTableBindData>(make_uniq<CTableFunctionInfo>(info->vtab),
-                                         unique_ptr<CData>(reinterpret_cast<CData *>(copied_ffi_data)));
+                                         unique_ptr<CData>(reinterpret_cast<CData *>(copied_ffi_data)),
+                                         types);
     }
 
     unique_ptr<CTableFunctionInfo> info;
     unique_ptr<CData> ffi_data;
+    vector<LogicalType> types;
 };
 
 struct CTableGlobalData final : GlobalTableFunctionState {
@@ -88,6 +93,79 @@ double c_table_scan_progress(ClientContext &context,
     return bind.info->vtab.table_scan_progress(c_ctx, c_bind_data, c_global_state);
 }
 
+static Value &UnwrapValue(duckdb_value value) {
+    return *(reinterpret_cast<Value *>(value));
+}
+
+unique_ptr<BaseStatistics> numeric_stats(duckdb_column_statistics &stats, LogicalType type) {
+    BaseStatistics out = StringStats::CreateUnknown(type);
+    if (stats.min) {
+        NumericStats::SetMin(out, UnwrapValue(stats.min));
+        duckdb_destroy_value(&stats.min);
+    }
+    if (stats.max) {
+        NumericStats::SetMax(out, UnwrapValue(stats.max));
+        duckdb_destroy_value(&stats.max);
+    }
+    return out.ToUnique();
+}
+
+unique_ptr<BaseStatistics> string_stats(duckdb_column_statistics &stats, LogicalType type) {
+    BaseStatistics out = StringStats::CreateUnknown(type);
+    if (stats.min) {
+        StringStats::SetMin(out, StringValue::Get(UnwrapValue(stats.min)));
+        duckdb_destroy_value(&stats.min);
+    }
+    if (stats.max) {
+        StringStats::SetMax(out, StringValue::Get(UnwrapValue(stats.max)));
+        duckdb_destroy_value(&stats.max);
+    }
+    if (stats.max_string_length >> 63) {
+        StringStats::SetMaxStringLength(out, uint32_t(stats.max_string_length));
+    }
+    return out.ToUnique();
+}
+
+unique_ptr<BaseStatistics>
+c_statistics(ClientContext &context, const FunctionData *bind_data, column_t column_index) {
+    if (column_index == COLUMN_IDENTIFIER_EMPTY) {
+        return BaseStatistics::CreateUnknown(LogicalTypeId::INVALID).ToUnique();
+    }
+
+    const auto &bind = bind_data->Cast<CTableBindData>();
+    void *const ffi_bind = bind.ffi_data->DataPtr();
+
+    duckdb_client_context c_ctx = reinterpret_cast<duckdb_client_context>(&context);
+    duckdb_column_statistics statistics = {};
+    const LogicalType type = bind.types[column_index];
+
+    switch (type.id()) {
+    case LogicalTypeId::BOOLEAN:
+    case LogicalTypeId::TINYINT:
+    case LogicalTypeId::SMALLINT:
+    case LogicalTypeId::INTEGER:
+    case LogicalTypeId::BIGINT:
+    case LogicalTypeId::FLOAT:
+    case LogicalTypeId::DOUBLE:
+    case LogicalTypeId::UTINYINT:
+    case LogicalTypeId::USMALLINT:
+    case LogicalTypeId::UINTEGER:
+    case LogicalTypeId::UBIGINT:
+    case LogicalTypeId::UHUGEINT:
+    case LogicalTypeId::HUGEINT: {
+        bind.info->vtab.statistics(c_ctx, ffi_bind, column_index, &statistics);
+        return numeric_stats(statistics, type);
+    }
+    case LogicalTypeId::VARCHAR:
+    case LogicalTypeId::BLOB: {
+        bind.info->vtab.statistics(c_ctx, ffi_bind, column_index, &statistics);
+        return string_stats(statistics, type);
+    }
+    default:
+        return BaseStatistics::CreateUnknown(type).ToUnique();
+    }
+}
+
 unique_ptr<FunctionData> c_bind(ClientContext &context,
                                 TableFunctionBindInput &input,
                                 vector<LogicalType> &return_types,
@@ -111,7 +189,8 @@ unique_ptr<FunctionData> c_bind(ClientContext &context,
     }
 
     return make_uniq<CTableBindData>(make_uniq<CTableFunctionInfo>(info.vtab),
-                                     unique_ptr<CData>(reinterpret_cast<CData *>(ffi_bind_data)));
+                                     unique_ptr<CData>(reinterpret_cast<CData *>(ffi_bind_data)),
+                                     return_types);
 }
 
 unique_ptr<GlobalTableFunctionState> c_init_global(ClientContext &context, TableFunctionInitInput &input) {
@@ -363,6 +442,7 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_database ffi_db, const d
     tf.get_virtual_columns = c_get_virtual_columns;
     tf.to_string = c_to_string;
     tf.table_scan_progress = c_table_scan_progress;
+    tf.statistics = c_statistics;
 
     // Set up the parameters
     tf.arguments.reserve(vtab->parameter_count);

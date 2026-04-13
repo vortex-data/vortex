@@ -6,9 +6,11 @@ pub struct vortex_file::multi::MultiFileDataSource
 
 impl vortex_file::multi::MultiFileDataSource
 
-pub async fn vortex_file::multi::MultiFileDataSource::build(self) -> vortex_error::VortexResult<impl vortex_scan::DataSource>
+pub async fn vortex_file::multi::MultiFileDataSource::build(self) -> vortex_error::VortexResult<(impl vortex_scan::DataSource, core::option::Option<vortex_file::FileStatistics>)>
 
 pub fn vortex_file::multi::MultiFileDataSource::new(session: vortex_session::VortexSession) -> Self
+
+pub fn vortex_file::multi::MultiFileDataSource::new_eager(session: vortex_session::VortexSession) -> Self
 
 pub fn vortex_file::multi::MultiFileDataSource::with_glob(self, glob: impl core::convert::Into<alloc::string::String>, fs: core::option::Option<vortex_io::filesystem::FileSystemRef>) -> Self
 
@@ -136,6 +138,8 @@ pub fn vortex_file::FileStatistics::from_flatbuffer<'a>(fb: &vortex_flatbuffers:
 
 pub fn vortex_file::FileStatistics::get(&self, field_idx: usize) -> (&vortex_array::stats::stats_set::StatsSet, &vortex_array::dtype::DType)
 
+pub fn vortex_file::FileStatistics::merge(self, other: &vortex_file::FileStatistics) -> vortex_error::VortexResult<vortex_file::FileStatistics>
+
 pub fn vortex_file::FileStatistics::new(stats: alloc::sync::Arc<[vortex_array::stats::stats_set::StatsSet]>, dtypes: alloc::sync::Arc<[vortex_array::dtype::DType]>) -> Self
 
 pub fn vortex_file::FileStatistics::new_with_dtype(stats: alloc::sync::Arc<[vortex_array::stats::stats_set::StatsSet]>, file_dtype: &vortex_array::dtype::DType) -> Self
@@ -185,6 +189,8 @@ pub fn vortex_file::Footer::row_count(&self) -> u64
 pub fn vortex_file::Footer::segment_map(&self) -> &alloc::sync::Arc<[vortex_file::SegmentSpec]>
 
 pub fn vortex_file::Footer::statistics(&self) -> core::option::Option<&vortex_file::FileStatistics>
+
+pub fn vortex_file::Footer::take_statistics(&mut self) -> core::option::Option<vortex_file::FileStatistics>
 
 impl core::clone::Clone for vortex_file::Footer
 
@@ -279,6 +285,8 @@ pub fn vortex_file::VortexFile::scan(&self) -> vortex_error::VortexResult<vortex
 pub fn vortex_file::VortexFile::segment_source(&self) -> alloc::sync::Arc<dyn vortex_layout::segments::source::SegmentSource>
 
 pub fn vortex_file::VortexFile::splits(&self) -> vortex_error::VortexResult<alloc::vec::Vec<core::ops::range::Range<u64>>>
+
+pub fn vortex_file::VortexFile::take_file_stats(&mut self) -> core::option::Option<vortex_file::FileStatistics>
 
 impl core::clone::Clone for vortex_file::VortexFile
 
