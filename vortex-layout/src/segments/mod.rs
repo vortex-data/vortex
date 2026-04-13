@@ -5,7 +5,6 @@ mod cache;
 mod shared;
 mod sink;
 mod source;
-mod tracing;
 
 #[cfg(any(test, feature = "_test-harness"))]
 mod test;
@@ -17,7 +16,6 @@ pub use cache::*;
 pub use shared::*;
 pub use sink::*;
 pub use source::*;
-pub use tracing::*;
 #[cfg(any(test, feature = "_test-harness"))]
 pub use test::*;
 use vortex_error::VortexError;
