@@ -6,7 +6,7 @@ import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 plugins {
     `java-library`
     `jvm-test-suite`
-    id("com.gradleup.shadow") version "9.4.0"
+    id("com.gradleup.shadow") version "9.4.1"
 }
 
 // Derive Scala and Spark versions from the Gradle project name (vortex-spark_2.12 or vortex-spark_2.13)
