@@ -82,4 +82,3 @@ unstable_encodings = [
     "vortex-zstd?/unstable_encodings",
     "vortex-btrblocks/unstable_encodings",
 ]
-

@@ -19,4 +19,3 @@ sketches-ddsketch = { workspace = true }
 
 [lints]
 workspace = true
-
