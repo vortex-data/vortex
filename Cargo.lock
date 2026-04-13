@@ -10129,7 +10129,6 @@ dependencies = [
  "enum-iterator",
  "flatbuffers",
  "futures",
- "getrandom 0.4.2",
  "goldenfile",
  "half",
  "humansize",
@@ -10228,7 +10227,6 @@ name = "vortex-btrblocks"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
- "getrandom 0.4.2",
  "itertools 0.14.0",
  "num-traits",
  "pco",
@@ -10553,7 +10551,6 @@ dependencies = [
  "bytes",
  "flatbuffers",
  "futures",
- "getrandom 0.4.2",
  "itertools 0.14.0",
  "kanal",
  "moka",
@@ -10563,7 +10560,6 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "tracing",
- "uuid",
  "vortex-alp",
  "vortex-array",
  "vortex-btrblocks",
@@ -10653,7 +10649,6 @@ dependencies = [
  "bytes",
  "custom-labels",
  "futures",
- "getrandom 0.4.2",
  "glob",
  "handle",
  "itertools 0.14.0",
@@ -10770,7 +10765,6 @@ dependencies = [
 name = "vortex-metrics"
 version = "0.1.0"
 dependencies = [
- "getrandom 0.4.2",
  "parking_lot",
  "sketches-ddsketch 0.4.0",
 ]

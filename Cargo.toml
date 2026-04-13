@@ -302,11 +302,6 @@ vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
 vortex-test-e2e-cuda = { path = "./vortex-test/e2e-cuda", default-features = false }
 vortex-tui = { path = "./vortex-tui" }
 
-[workspace.dependencies.getrandom_v03]
-features = ["wasm_js"]
-package = "getrandom"
-version = "0.4.0"
-
 [workspace.lints.rust]
 let_underscore_drop = "deny"
 macro_use_extern_crate = "deny"
