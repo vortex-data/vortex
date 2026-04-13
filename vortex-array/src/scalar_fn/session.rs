@@ -14,6 +14,7 @@ use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::get_item::GetItem;
+use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::fns::is_null::IsNull;
 use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::list_contains::ListContains;
@@ -58,6 +59,7 @@ impl Default for ScalarFnSession {
         this.register(Cast);
         this.register(FillNull);
         this.register(GetItem);
+        this.register(IsNotNull);
         this.register(IsNull);
         this.register(Like);
         this.register(ListContains);

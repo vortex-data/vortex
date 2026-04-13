@@ -34,7 +34,8 @@ public final class Expressions {
     /**
      * Deserialize a protocol buffer representation back into an {@link Expression} object.
      * The method examines the expression ID and creates the appropriate concrete expression type
-     * based on the registered expression types (binary, get_item, root, literal, not).
+     * based on the registered expression types (binary, get_item, root, literal, not, is null,
+     * is not null).
      * If the expression ID is not recognized, an {@link Unknown} expression is created.
      *
      * @param expr the protocol buffer expression to deserialize
@@ -58,6 +59,8 @@ public final class Expressions {
                 return Not.parse(metadata, children);
             case "vortex.is_null":
                 return IsNull.parse(metadata, children);
+            case "vortex.is_not_null":
+                return IsNotNull.parse(metadata, children);
             default:
                 return new Unknown(expr.getId(), children, expr.getMetadata().toByteArray());
         }
