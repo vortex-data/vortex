@@ -22,7 +22,6 @@ use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
