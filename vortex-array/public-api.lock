@@ -22508,6 +22508,8 @@ pub fn vortex_array::ArrayRef::fill_null(&self, fill_value: impl core::convert::
 
 pub fn vortex_array::ArrayRef::get_item(&self, field_name: impl core::convert::Into<vortex_array::dtype::FieldName>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
+pub fn vortex_array::ArrayRef::is_not_null(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
 pub fn vortex_array::ArrayRef::is_null(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::ArrayRef::list_contains(&self, value: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
