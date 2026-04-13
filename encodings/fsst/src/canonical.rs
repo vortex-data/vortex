@@ -68,21 +68,20 @@ pub(crate) fn fsst_decode_views(
             .sum()
     });
 
-        // Bulk-decompress the entire array.
-        let decompressor = fsst_array.decompressor();
-        let mut uncompressed_bytes = ByteBufferMut::with_capacity(total_size + 7);
-        let len =
-            decompressor.decompress_into(bytes.as_slice(), uncompressed_bytes.spare_capacity_mut());
-        unsafe { uncompressed_bytes.set_len(len) };
+    // Bulk-decompress the entire array.
+    let decompressor = fsst_array.decompressor();
+    let mut uncompressed_bytes = ByteBufferMut::with_capacity(total_size + 7);
+    let len =
+        decompressor.decompress_into(bytes.as_slice(), uncompressed_bytes.spare_capacity_mut());
+    unsafe { uncompressed_bytes.set_len(len) };
 
-        // Directly create the binary views.
-        Ok(build_views(
-            start_buf_index,
-            MAX_BUFFER_LEN,
-            uncompressed_bytes,
-            uncompressed_lengths.as_slice(),
-        ))
-    })
+    // Directly create the binary views.
+    Ok(build_views(
+        start_buf_index,
+        MAX_BUFFER_LEN,
+        uncompressed_bytes,
+        uncompressed_lens_array.as_slice(),
+    ))
 }
 
 #[cfg(test)]
