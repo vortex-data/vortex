@@ -351,6 +351,40 @@ fn test_vortex_scan_multiple_files() {
 }
 
 #[test]
+fn test_vortex_scan_multiple_globs() {
+    // Test scanning multiple directories using a list of glob patterns.
+    let (tempdir1, tempdir2, _file1, _file2, _file3) = RUNTIME.block_on(async {
+        let tempdir1 = tempfile::tempdir().unwrap();
+        let tempdir2 = tempfile::tempdir().unwrap();
+
+        let file1 = write_vortex_file_to_dir(tempdir1.path(), "numbers", buffer![1i32, 2, 3]).await;
+        let file2 = write_vortex_file_to_dir(tempdir1.path(), "numbers", buffer![4i32, 5, 6]).await;
+        let file3 =
+            write_vortex_file_to_dir(tempdir2.path(), "numbers", buffer![7i32, 8, 9, 10]).await;
+
+        (tempdir1, tempdir2, file1, file2, file3)
+    });
+
+    // Create glob patterns for each directory.
+    let glob_pattern1 = format!("{}/*.vortex", tempdir1.path().display());
+    let glob_pattern2 = format!("{}/*.vortex", tempdir2.path().display());
+
+    // Scan files from both directories using a list of globs.
+    let conn = database_connection();
+    let result = conn
+        .query(&format!(
+            "SELECT SUM(numbers) FROM read_vortex(['{glob_pattern1}', '{glob_pattern2}'])"
+        ))
+        .unwrap();
+    let chunk = result.into_iter().next().unwrap();
+    let vec = chunk.get_vector(0);
+    let total_sum = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
+
+    // 1+2+3 + 4+5+6 + 7+8+9+10 = 55
+    assert_eq!(total_sum, 55);
+}
+
+#[test]
 fn test_vortex_scan_over_http() {
     let file = RUNTIME.block_on(async {
         let strings = VarBinArray::from(vec!["a", "b", "c"]);
