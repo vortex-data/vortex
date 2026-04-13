@@ -8,9 +8,9 @@ use vortex::array::arrays::StructArray;
 use vortex::array::arrays::bool::BoolArrayExt;
 use vortex::array::arrays::struct_::StructDataParts;
 use vortex::array::builtins::ArrayBuiltins;
+use vortex::array::validity::Validity;
 use vortex::error::VortexResult;
 
-use crate::duckdb::LogicalType;
 use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::ConversionCache;
@@ -30,16 +30,15 @@ pub(crate) fn new_exporter(
     let len = array.len();
     let StructDataParts {
         validity,
-        struct_fields,
+        struct_fields: _struct_fields,
         fields,
         ..
     } = array.into_data_parts();
-    let validity = validity.to_array(len).execute::<BoolArray>(ctx)?;
 
-    if validity.to_bit_buffer().true_count() == 0 {
-        let ltype = LogicalType::try_from(struct_fields)?;
-        return Ok(all_invalid::new_exporter(len, &ltype));
-    }
+    if matches!(validity, Validity::AllInvalid) {
+        return Ok(all_invalid::new_exporter());
+    };
+    let validity = validity.to_array(len).execute::<BoolArray>(ctx)?;
 
     let children = fields
         .iter()

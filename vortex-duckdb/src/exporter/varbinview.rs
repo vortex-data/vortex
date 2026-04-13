@@ -9,12 +9,12 @@ use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::varbinview::BinaryView;
 use vortex::array::arrays::varbinview::Inlined;
 use vortex::array::arrays::varbinview::VarBinViewDataParts;
+use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
-use crate::duckdb::LogicalType;
 use crate::duckdb::VectorBuffer;
 use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
@@ -34,15 +34,15 @@ pub(crate) fn new_exporter(
     let len = array.len();
     let VarBinViewDataParts {
         validity,
-        dtype,
+        dtype: _dtype,
         views,
         buffers,
     } = array.into_data_parts();
-    let validity = validity.to_array(len).execute::<Mask>(ctx)?;
-    if validity.all_false() {
-        let ltype = LogicalType::try_from(dtype)?;
-        return Ok(all_invalid::new_exporter(len, &ltype));
+
+    if matches!(validity, Validity::AllInvalid) {
+        return Ok(all_invalid::new_exporter());
     }
+    let validity = validity.to_array(len).execute::<Mask>(ctx)?;
 
     let buffers: Vec<_> = buffers.iter().cloned().map(|b| b.unwrap_host()).collect();
     let buffers: Arc<[ByteBuffer]> = Arc::from(buffers);

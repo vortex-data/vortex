@@ -17,7 +17,6 @@ use vortex::dtype::IntegerPType;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
-use crate::duckdb::LogicalType;
 use crate::duckdb::ReusableDict;
 use crate::duckdb::SelectionVector;
 use crate::duckdb::VectorRef;
@@ -43,7 +42,6 @@ pub(crate) fn new_exporter_with_flatten(
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     // Grab the cache dictionary values.
     let values = array.values();
-    let values_type: LogicalType = values.dtype().try_into()?;
     if let Some(constant) = values.as_opt::<Constant>() {
         return constant::new_exporter_with_mask(
             ConstantArray::new(constant.scalar().clone(), array.codes().len()),
@@ -57,7 +55,7 @@ pub(crate) fn new_exporter_with_flatten(
 
     match codes_mask {
         Mask::AllTrue(_) => {}
-        Mask::AllFalse(len) => return Ok(all_invalid::new_exporter(len, &values_type)),
+        Mask::AllFalse(_) => return Ok(all_invalid::new_exporter()),
         Mask::Values(_) => {
             // duckdb cannot have a dictionary with validity in the codes, so flatten the array and
             // apply the validity mask there.
