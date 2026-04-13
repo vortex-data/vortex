@@ -9166,7 +9166,7 @@ impl core::cmp::Eq for vortex_array::dtype::DType
 
 impl core::cmp::PartialEq for vortex_array::dtype::DType
 
-pub fn vortex_array::dtype::DType::eq(&self, other: &vortex_array::dtype::DType) -> bool
+pub fn vortex_array::dtype::DType::eq(&self, other: &Self) -> bool
 
 impl core::convert::From<vortex_array::dtype::DType> for vortex_array::dtype::FieldDType
 
@@ -9215,8 +9215,6 @@ pub fn vortex_array::dtype::DType::fmt(&self, f: &mut core::fmt::Formatter<'_>) 
 impl core::hash::Hash for vortex_array::dtype::DType
 
 pub fn vortex_array::dtype::DType::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl core::marker::StructuralPartialEq for vortex_array::dtype::DType
 
 impl vortex_array::dtype::arrow::FromArrowType<&arrow_schema::field::Field> for vortex_array::dtype::DType
 
