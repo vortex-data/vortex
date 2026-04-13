@@ -25,7 +25,6 @@ use vortex::array::stream::ArrayStreamExt;
 use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
-use vortex::file::segments::set_io_tracing;
 use vortex::layout::segments::TracingSegmentSource;
 use vortex::utils::aliases::hash_map::HashMap;
 
@@ -81,7 +80,6 @@ impl RandomAccessor for VortexRandomAccessor {
         if let Some(ts) = &self.tracing_source {
             ts.clear();
         }
-        set_io_tracing(true);
 
         let indices_buf: Buffer<u64> = Buffer::from(indices.to_vec());
         let array = self
@@ -91,8 +89,6 @@ impl RandomAccessor for VortexRandomAccessor {
             .into_array_stream()?
             .read_all()
             .await?;
-
-        set_io_tracing(false);
 
         if let Some(ts) = &self.tracing_source {
             eprintln!("\n=== Logical Segment Requests ===");

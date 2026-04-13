@@ -9,16 +9,6 @@ use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
 
-use std::sync::atomic::AtomicBool;
-
-/// Global flag to enable I/O tracing output.
-pub static IO_TRACING_ENABLED: AtomicBool = AtomicBool::new(false);
-
-/// Enable or disable I/O tracing output printed to stdout.
-pub fn set_io_tracing(enabled: bool) {
-    IO_TRACING_ENABLED.store(enabled, Ordering::Relaxed);
-}
-
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::channel::mpsc;
@@ -132,24 +122,13 @@ impl FileSegmentSource {
         )
         .boxed();
 
-        let pread_counter = Arc::new(AtomicUsize::new(0));
         let drive_fut = async move {
             stream
                 .map(move |req| {
                     let reader = reader.clone();
-                    let pread_counter = Arc::clone(&pread_counter);
                     async move {
-                        let offset = req.offset();
-                        let len = req.len();
-                        if IO_TRACING_ENABLED.load(Ordering::Relaxed) {
-                            let order = pread_counter.fetch_add(1, Ordering::Relaxed);
-                            eprintln!(
-                                "  [pread #{:<3}] offset={:<14} bytes={:<10}",
-                                order, offset, len,
-                            );
-                        }
                         let result = reader
-                            .read_at(offset, len, req.alignment())
+                            .read_at(req.offset(), req.len(), req.alignment())
                             .await;
                         req.resolve(result);
                     }
