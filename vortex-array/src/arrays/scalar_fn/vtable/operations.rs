@@ -3,7 +3,6 @@
 
 use vortex_error::VortexResult;
 
-use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
@@ -17,11 +16,7 @@ use crate::scalar::Scalar;
 use crate::scalar_fn::VecExecutionArgs;
 
 impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
-    fn scalar_at(
-        array: ArrayView<'_, ScalarFnVTable>,
-        index: usize,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
+    fn scalar_at(array: ArrayView<'_, ScalarFnVTable>, index: usize) -> VortexResult<Scalar> {
         let inputs: Vec<_> = array
             .children()
             .iter()

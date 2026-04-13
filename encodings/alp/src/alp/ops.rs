@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayView;
-use vortex_array::ExecutionCtx;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexExpect;
@@ -15,11 +14,7 @@ use crate::ALPFloat;
 use crate::match_each_alp_float_ptype;
 
 impl OperationsVTable<ALP> for ALP {
-    fn scalar_at(
-        array: ArrayView<'_, ALP>,
-        index: usize,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
+    fn scalar_at(array: ArrayView<'_, ALP>, index: usize) -> VortexResult<Scalar> {
         if let Some(patches) = array.patches()
             && let Some(patch) = patches.get_patched(index)?
         {

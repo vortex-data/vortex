@@ -319,11 +319,7 @@ impl ValidityVTable<ByteBool> for ByteBool {
 }
 
 impl OperationsVTable<ByteBool> for ByteBool {
-    fn scalar_at(
-        array: ArrayView<'_, ByteBool>,
-        index: usize,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
+    fn scalar_at(array: ArrayView<'_, ByteBool>, index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::bool(
             array.buffer.as_host()[index] == 1,
             array.dtype().nullability(),

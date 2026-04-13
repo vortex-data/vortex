@@ -17,8 +17,6 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ExecutionCtx;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -220,11 +218,7 @@ impl<V: VTable> DynArray for ArrayInner<V> {
 
     fn scalar_at(&self, this: &ArrayRef, index: usize) -> VortexResult<Scalar> {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        <V::OperationsVTable as OperationsVTable<V>>::scalar_at(
-            view,
-            index,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
+        <V::OperationsVTable as OperationsVTable<V>>::scalar_at(view, index)
     }
 
     fn validity(&self, this: &ArrayRef) -> VortexResult<Validity> {

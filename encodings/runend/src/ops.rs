@@ -3,7 +3,6 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
-use vortex_array::ExecutionCtx;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::search_sorted::SearchResult;
@@ -16,11 +15,7 @@ use crate::RunEnd;
 use crate::array::RunEndArrayExt;
 
 impl OperationsVTable<RunEnd> for RunEnd {
-    fn scalar_at(
-        array: ArrayView<'_, RunEnd>,
-        index: usize,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
+    fn scalar_at(array: ArrayView<'_, RunEnd>, index: usize) -> VortexResult<Scalar> {
         array.values().scalar_at(array.find_physical_index(index)?)
     }
 }

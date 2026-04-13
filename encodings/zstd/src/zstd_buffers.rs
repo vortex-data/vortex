@@ -453,11 +453,7 @@ impl VTable for ZstdBuffers {
 }
 
 impl OperationsVTable<ZstdBuffers> for ZstdBuffers {
-    fn scalar_at(
-        array: ArrayView<'_, ZstdBuffers>,
-        index: usize,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
+    fn scalar_at(array: ArrayView<'_, ZstdBuffers>, index: usize) -> VortexResult<Scalar> {
         // TODO(os): maybe we should not support scalar_at, it is really slow, and adding a cache
         // layer here is weird. Valid use of zstd buffers array would be by executing it first into
         // canonical

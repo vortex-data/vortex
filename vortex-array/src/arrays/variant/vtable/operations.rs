@@ -3,7 +3,6 @@
 
 use vortex_error::VortexResult;
 
-use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::arrays::Variant;
@@ -11,11 +10,7 @@ use crate::arrays::variant::VariantArrayExt;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Variant> for Variant {
-    fn scalar_at(
-        array: ArrayView<'_, Variant>,
-        index: usize,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
+    fn scalar_at(array: ArrayView<'_, Variant>, index: usize) -> VortexResult<Scalar> {
         array.child().scalar_at(index)
     }
 }

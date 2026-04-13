@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayView;
-use vortex_array::ExecutionCtx;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
@@ -11,11 +10,7 @@ use crate::BitPacked;
 use crate::bitpack_decompress;
 use crate::bitpacking::array::BitPackedArrayExt;
 impl OperationsVTable<BitPacked> for BitPacked {
-    fn scalar_at(
-        array: ArrayView<'_, BitPacked>,
-        index: usize,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
+    fn scalar_at(array: ArrayView<'_, BitPacked>, index: usize) -> VortexResult<Scalar> {
         Ok(
             if let Some(patches) = array.patches()
                 && let Some(patch) = patches.get_patched(index)?

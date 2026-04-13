@@ -3,7 +3,8 @@
 
 use vortex_error::VortexResult;
 
-use crate::ExecutionCtx;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute as _;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::arrays::PrimitiveArray;
@@ -14,11 +15,7 @@ use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Patched> for Patched {
-    fn scalar_at(
-        array: ArrayView<'_, Patched>,
-        index: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
+    fn scalar_at(array: ArrayView<'_, Patched>, index: usize) -> VortexResult<Scalar> {
         let chunk = (index + array.offset()) / 1024;
 
         #[expect(
@@ -33,11 +30,12 @@ impl OperationsVTable<Patched> for Patched {
 
         // Get the range of indices corresponding to the lane, potentially decoding them to avoid
         // the overhead of repeated scalar_at calls.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let patch_indices = array
             .patch_indices()
             .slice(range.clone())?
             .optimize()?
-            .execute::<PrimitiveArray>(ctx)?;
+            .execute::<PrimitiveArray>(&mut ctx)?;
 
         // NOTE: we do linear scan as lane has <= 32 patches, binary search would likely
         //  be slower.

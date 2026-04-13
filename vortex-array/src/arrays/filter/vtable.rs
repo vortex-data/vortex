@@ -178,11 +178,7 @@ impl VTable for Filter {
     }
 }
 impl OperationsVTable<Filter> for Filter {
-    fn scalar_at(
-        array: ArrayView<'_, Filter>,
-        index: usize,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
+    fn scalar_at(array: ArrayView<'_, Filter>, index: usize) -> VortexResult<Scalar> {
         let rank_idx = array.mask.rank(index);
         array.child().scalar_at(rank_idx)
     }

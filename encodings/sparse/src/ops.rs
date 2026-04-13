@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayView;
-use vortex_array::ExecutionCtx;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
@@ -10,11 +9,7 @@ use vortex_error::VortexResult;
 use crate::Sparse;
 
 impl OperationsVTable<Sparse> for Sparse {
-    fn scalar_at(
-        array: ArrayView<'_, Sparse>,
-        index: usize,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
+    fn scalar_at(array: ArrayView<'_, Sparse>, index: usize) -> VortexResult<Scalar> {
         Ok(array
             .patches()
             .get_patched(index)?

@@ -3,7 +3,6 @@
 
 use vortex_error::VortexResult;
 
-use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::arrays::Chunked;
@@ -11,11 +10,7 @@ use crate::arrays::chunked::ChunkedArrayExt;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Chunked> for Chunked {
-    fn scalar_at(
-        array: ArrayView<'_, Chunked>,
-        index: usize,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
+    fn scalar_at(array: ArrayView<'_, Chunked>, index: usize) -> VortexResult<Scalar> {
         let (chunk_index, chunk_offset) = array.find_chunk_idx(index)?;
         array.chunk(chunk_index).scalar_at(chunk_offset)
     }

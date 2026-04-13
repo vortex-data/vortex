@@ -3,7 +3,6 @@
 
 use vortex_error::VortexResult;
 
-use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::arrays::Struct;
@@ -11,11 +10,7 @@ use crate::arrays::struct_::StructArrayExt;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Struct> for Struct {
-    fn scalar_at(
-        array: ArrayView<'_, Struct>,
-        index: usize,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
+    fn scalar_at(array: ArrayView<'_, Struct>, index: usize) -> VortexResult<Scalar> {
         let field_scalars: VortexResult<Vec<Scalar>> = array
             .iter_unmasked_fields()
             .map(|field| field.scalar_at(index))

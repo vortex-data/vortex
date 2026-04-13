@@ -237,11 +237,7 @@ impl Default for ZigZagData {
 }
 
 impl OperationsVTable<ZigZag> for ZigZag {
-    fn scalar_at(
-        array: ArrayView<'_, ZigZag>,
-        index: usize,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
+    fn scalar_at(array: ArrayView<'_, ZigZag>, index: usize) -> VortexResult<Scalar> {
         let scalar = array.encoded().scalar_at(index)?;
         if scalar.is_null() {
             return scalar.primitive_reinterpret_cast(ZigZagArrayExt::ptype(&array));

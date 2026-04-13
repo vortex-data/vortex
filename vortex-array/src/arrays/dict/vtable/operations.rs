@@ -5,18 +5,13 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use super::Dict;
-use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Dict> for Dict {
-    fn scalar_at(
-        array: ArrayView<'_, Dict>,
-        index: usize,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
+    fn scalar_at(array: ArrayView<'_, Dict>, index: usize) -> VortexResult<Scalar> {
         let Some(dict_index) = array
             .codes()
             .scalar_at(index)?

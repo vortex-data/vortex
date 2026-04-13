@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayView;
-use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::scalar::Scalar;
@@ -11,11 +10,7 @@ use vortex_error::VortexResult;
 
 use super::Delta;
 impl OperationsVTable<Delta> for Delta {
-    fn scalar_at(
-        array: ArrayView<'_, Delta>,
-        index: usize,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
+    fn scalar_at(array: ArrayView<'_, Delta>, index: usize) -> VortexResult<Scalar> {
         let decompressed = array.array().slice(index..index + 1)?.to_primitive();
         decompressed.into_array().scalar_at(0)
     }

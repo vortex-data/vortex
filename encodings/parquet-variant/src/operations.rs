@@ -7,7 +7,6 @@ use chrono::Timelike;
 use parquet_variant::Variant as PqVariant;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
-use vortex_array::ExecutionCtx;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::FieldName;
@@ -38,11 +37,7 @@ impl OperationsVTable<ParquetVariant> for ParquetVariant {
     /// | non-NULL | NULL        | Un-shredded: decode from metadata + value bytes       |
     /// | NULL     | non-NULL    | Perfectly shredded: use typed_value directly           |
     /// | non-NULL | non-NULL    | Partially shredded object (typed_value takes priority) |
-    fn scalar_at(
-        array: ArrayView<'_, ParquetVariant>,
-        index: usize,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
+    fn scalar_at(array: ArrayView<'_, ParquetVariant>, index: usize) -> VortexResult<Scalar> {
         if array.validity()?.is_null(index)? {
             return Ok(Scalar::null(DType::Variant(Nullability::Nullable)));
         }

@@ -152,11 +152,7 @@ impl Array<Null> {
 }
 
 impl OperationsVTable<Null> for Null {
-    fn scalar_at(
-        _array: ArrayView<'_, Null>,
-        _index: usize,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
+    fn scalar_at(_array: ArrayView<'_, Null>, _index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::null(DType::Null))
     }
 }
