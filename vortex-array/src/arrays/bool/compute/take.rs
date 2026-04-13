@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools as _;
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::get_bit;
@@ -52,29 +51,13 @@ impl TakeExecute for Bool {
 }
 
 fn take_valid_indices<I: AsPrimitive<usize>>(bools: &BitBuffer, indices: &[I]) -> BitBuffer {
-    // For boolean arrays that roughly fit into a single page (at least, on Linux), it's worth
-    // the overhead to convert to a Vec<bool>.
-    if bools.len() <= 4096 {
-        let bools = bools.iter().collect_vec();
-        take_byte_bool(bools, indices)
-    } else {
-        take_bool_impl(bools, indices)
-    }
-}
-
-fn take_byte_bool<I: AsPrimitive<usize>>(bools: Vec<bool>, indices: &[I]) -> BitBuffer {
-    BitBuffer::collect_bool(indices.len(), |idx| {
-        bools[unsafe { indices.get_unchecked(idx).as_() }]
-    })
-}
-
-fn take_bool_impl<I: AsPrimitive<usize>>(bools: &BitBuffer, indices: &[I]) -> BitBuffer {
-    // We dereference to underlying buffer to avoid access cost on every index.
+    // Dereference to the underlying buffer once to avoid per-index overhead.
     let buffer = bools.inner().as_ref();
+    let offset = bools.offset();
     BitBuffer::collect_bool(indices.len(), |idx| {
-        // SAFETY: we can take from the indices unchecked since collect_bool just iterates len.
+        // SAFETY: collect_bool iterates exactly `indices.len()` times, so `idx` is in-bounds.
         let idx = unsafe { indices.get_unchecked(idx).as_() };
-        get_bit(buffer, bools.offset() + idx)
+        get_bit(buffer, offset + idx)
     })
 }
 
