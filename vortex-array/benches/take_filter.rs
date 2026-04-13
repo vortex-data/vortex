@@ -41,12 +41,6 @@ fn primitive_array() -> ArrayRef {
     PrimitiveArray::from_iter(0..ARRAY_LEN as u32).into_array()
 }
 
-fn filtered_array(mask: Mask) -> ArrayRef {
-    FilterArray::try_new(primitive_array(), mask)
-        .unwrap()
-        .into_array()
-}
-
 fn slice_mask(filtered_len: usize) -> Mask {
     let start = (ARRAY_LEN - filtered_len) / 2;
     Mask::from_slices(ARRAY_LEN, vec![(start, start + filtered_len)])
@@ -75,7 +69,7 @@ fn take_filter_slice_mask_sequential_indices<const FILTERED_LEN: usize>(
     bencher: Bencher,
     num_indices: usize,
 ) {
-    let array = filtered_array(slice_mask(FILTERED_LEN));
+    let array = primitive_array().filter(slice_mask(FILTERED_LEN)).unwrap();
     let indices = sequential_indices(num_indices);
 
     bencher
@@ -94,7 +88,7 @@ fn take_filter_slice_mask_random_indices<const FILTERED_LEN: usize>(
     bencher: Bencher,
     num_indices: usize,
 ) {
-    let array = filtered_array(slice_mask(FILTERED_LEN));
+    let array = primitive_array().filter(slice_mask(FILTERED_LEN)).unwrap();
     let indices = random_indices(num_indices, FILTERED_LEN);
 
     bencher
@@ -113,7 +107,7 @@ fn take_filter_random_mask_sequential_indices<const FILTERED_LEN: usize>(
     bencher: Bencher,
     num_indices: usize,
 ) {
-    let array = filtered_array(random_mask(FILTERED_LEN));
+    let array = primitive_array().filter(random_mask(FILTERED_LEN)).unwrap();
     let indices = sequential_indices(num_indices);
 
     bencher
@@ -132,7 +126,7 @@ fn take_filter_random_mask_random_indices<const FILTERED_LEN: usize>(
     bencher: Bencher,
     num_indices: usize,
 ) {
-    let array = filtered_array(random_mask(FILTERED_LEN));
+    let array = primitive_array().filter(random_mask(FILTERED_LEN)).unwrap();
     let indices = random_indices(num_indices, FILTERED_LEN);
 
     bencher
