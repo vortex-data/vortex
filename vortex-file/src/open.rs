@@ -237,18 +237,20 @@ impl VortexOpenOptions {
         let metrics = RequestMetrics::new(metrics_registry.as_ref(), self.labels);
 
         // Create a segment source backed by the VortexRead implementation.
-        let segment_source = Arc::new(SharedSegmentSource::new(FileSegmentSource::open(
-            Arc::clone(footer.segment_map()),
-            reader,
-            self.session.handle(),
-            metrics,
-        )));
-
-        // Wrap up the segment source to first resolve segments from the initial read cache.
         let segment_source = Arc::new(SegmentCacheSourceAdapter::new(
             segment_cache,
-            segment_source,
+            Arc::new(FileSegmentSource::open(
+                Arc::clone(footer.segment_map()),
+                reader,
+                self.session.handle(),
+                metrics,
+            )),
         ));
+
+        // Wrap with SharedSegmentSource so that concurrent requests for the same
+        // (segment_id, ranges) key are deduplicated synchronously at call time, before
+        // any async I/O can race against the WeakShared entry.
+        let segment_source = Arc::new(SharedSegmentSource::new(segment_source));
 
         Ok(VortexFile {
             footer,

@@ -65,3 +65,17 @@ pub trait SegmentSource: 'static + Send + Sync {
         .boxed()
     }
 }
+
+impl<S: SegmentSource> SegmentSource for std::sync::Arc<S> {
+    fn segment_len(&self, id: SegmentId) -> Option<usize> {
+        self.as_ref().segment_len(id)
+    }
+
+    fn request(&self, id: SegmentId) -> SegmentFuture {
+        self.as_ref().request(id)
+    }
+
+    fn request_ranges(&self, id: SegmentId, ranges: Vec<Range<usize>>) -> SegmentFuture {
+        self.as_ref().request_ranges(id, ranges)
+    }
+}

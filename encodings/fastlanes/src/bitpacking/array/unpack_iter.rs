@@ -95,7 +95,7 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
     pub fn try_new(array: &BitPackedData, len: usize) -> VortexResult<Self> {
         Self::try_new_with_strategy(
             BitPackingStrategy,
-            array.packed().clone().unwrap_host(),
+            array.packed().clone().try_into_host_sync()?,
             array.bit_width() as usize,
             array.offset() as usize,
             len,

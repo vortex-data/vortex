@@ -75,6 +75,19 @@ impl<S: SegmentSource> SegmentSource for SharedSegmentSource<S> {
     }
 
     fn request_ranges(&self, id: SegmentId, ranges: Vec<Range<usize>>) -> SegmentFuture {
+        // For small segments, fetch the full segment via request() (which benefits from
+        // WeakShared dedup) then apply ranges locally. Reading extra bytes is negligible
+        // for small segments, and this avoids duplicate I/O when different callers request
+        // different sub-ranges of the same small segment.
+        if self.inner.segment_len(id).is_some_and(|len| len <= 4096) {
+            let fut = self.request(id);
+            return async move {
+                let buf = fut.await?;
+                crate::segments::apply_ranges(buf, &ranges)
+            }
+            .boxed();
+        }
+
         loop {
             let key = RequestKey::Ranges(id, ranges.clone());
             match self.in_flight.entry(key) {

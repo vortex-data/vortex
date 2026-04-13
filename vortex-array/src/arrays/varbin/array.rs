@@ -339,13 +339,13 @@ pub trait VarBinArrayExt: TypedArrayRef<VarBin> {
     fn bytes_at(&self, index: usize) -> ByteBuffer {
         let start = self.offset_at(index);
         let end = self.offset_at(index + 1);
-        self.bytes().slice(start..end)
+        self.bytes_handle().to_host_sync().slice(start..end)
     }
 
     fn sliced_bytes(&self) -> ByteBuffer {
         let first_offset: usize = self.offset_at(0);
         let last_offset = self.offset_at(self.as_ref().len());
-        self.bytes().slice(first_offset..last_offset)
+        self.bytes_handle().to_host_sync().slice(first_offset..last_offset)
     }
 }
 impl<T: TypedArrayRef<VarBin>> VarBinArrayExt for T {}

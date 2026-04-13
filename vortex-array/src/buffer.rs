@@ -17,6 +17,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
+use vortex_mask::MaskIter;
 use vortex_utils::dyn_traits::DynEq;
 use vortex_utils::dyn_traits::DynHash;
 
@@ -285,17 +286,27 @@ impl BufferHandle {
     /// ```
     pub fn filter(&self, mask: &Mask, byte_width: usize) -> VortexResult<Self> {
         match &self.0 {
-            Inner::Host(_) => {
-                let slices = match mask.slices() {
-                    AllOr::Some(slices) => slices,
-                    AllOr::All => return Ok(self.clone()),
-                    AllOr::None => return self.copy_ranges(&[]),
-                };
-                let byte_ranges: Vec<Range<usize>> = slices
-                    .iter()
-                    .map(|&(s, e)| (s * byte_width)..(e * byte_width))
-                    .collect();
-                self.copy_ranges(&byte_ranges)
+            Inner::Host(host) => {
+                match mask.threshold_iter(FILTER_SELECTIVITY_THRESHOLD) {
+                    AllOr::All => Ok(self.clone()),
+                    AllOr::None => self.copy_ranges(&[]),
+                    AllOr::Some(MaskIter::Slices(slices)) => {
+                        Ok(BufferHandle::new_host(filter_bytes_by_slices(
+                            host.as_slice(),
+                            slices,
+                            byte_width,
+                            host.alignment(),
+                        )))
+                    }
+                    AllOr::Some(MaskIter::Indices(indices)) => {
+                        Ok(BufferHandle::new_host(filter_bytes_by_indices(
+                            host.as_slice(),
+                            indices,
+                            byte_width,
+                            host.alignment(),
+                        )))
+                    }
+                }
             }
             Inner::Device(device) => Ok(BufferHandle::new_device(device.filter(mask, byte_width)?)),
         }
@@ -502,6 +513,42 @@ impl BufferHandle {
                 .vortex_expect("into_host: copy from device to host failed")
         })
     }
+}
+
+/// Selectivity threshold for dispatching between the indices and slices filter paths.
+///
+/// Mirrors the constant used in `filter::execute::slice`.  When mask density is above this
+/// threshold we copy contiguous runs (slices); below it we copy individual elements (indices).
+const FILTER_SELECTIVITY_THRESHOLD: f64 = 0.8;
+
+/// Filter a byte buffer using a set of element-level `(start, end)` ranges.
+fn filter_bytes_by_slices(
+    src: &[u8],
+    slices: &[(usize, usize)],
+    byte_width: usize,
+    alignment: Alignment,
+) -> ByteBuffer {
+    let total: usize = slices.iter().map(|(s, e)| (e - s) * byte_width).sum();
+    let mut out = ByteBufferMut::with_capacity_aligned(total, alignment);
+    for &(start, end) in slices {
+        out.extend_from_slice(&src[start * byte_width..end * byte_width]);
+    }
+    out.freeze()
+}
+
+/// Filter a byte buffer by copying `byte_width` bytes for each selected index.
+fn filter_bytes_by_indices(
+    src: &[u8],
+    indices: &[usize],
+    byte_width: usize,
+    alignment: Alignment,
+) -> ByteBuffer {
+    let total = indices.len() * byte_width;
+    let mut out = ByteBufferMut::with_capacity_aligned(total, alignment);
+    for &idx in indices {
+        out.extend_from_slice(&src[idx * byte_width..(idx + 1) * byte_width]);
+    }
+    out.freeze()
 }
 
 impl ArrayHash for BufferHandle {

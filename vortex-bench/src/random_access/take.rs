@@ -25,6 +25,8 @@ use vortex::array::stream::ArrayStreamExt;
 use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
+use vortex::file::segments::set_io_tracing;
+use vortex::layout::segments::TracingSegmentSource;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::Format;
@@ -38,6 +40,7 @@ pub struct VortexRandomAccessor {
     name: String,
     format: Format,
     file: VortexFile,
+    tracing_source: Option<Arc<TracingSegmentSource>>,
 }
 
 impl VortexRandomAccessor {
@@ -47,11 +50,19 @@ impl VortexRandomAccessor {
         name: impl Into<String>,
         format: Format,
     ) -> anyhow::Result<Self> {
-        let file = SESSION.open_options().open_path(path.as_ref()).await?;
+        let mut file = SESSION.open_options().open_path(path.as_ref()).await?;
+
+        let tracing_source = Arc::new(TracingSegmentSource::new(
+            file.segment_source(),
+            file.footer().layout().as_ref(),
+        ));
+        file.set_segment_source(tracing_source.clone());
+
         Ok(Self {
             name: name.into(),
             format,
             file,
+            tracing_source: Some(tracing_source),
         })
     }
 }
@@ -67,6 +78,11 @@ impl RandomAccessor for VortexRandomAccessor {
     }
 
     async fn take(&self, indices: &[u64]) -> anyhow::Result<usize> {
+        if let Some(ts) = &self.tracing_source {
+            ts.clear();
+        }
+        set_io_tracing(true);
+
         let indices_buf: Buffer<u64> = Buffer::from(indices.to_vec());
         let array = self
             .file
@@ -75,6 +91,14 @@ impl RandomAccessor for VortexRandomAccessor {
             .into_array_stream()?
             .read_all()
             .await?;
+
+        set_io_tracing(false);
+
+        if let Some(ts) = &self.tracing_source {
+            eprintln!("\n=== Logical Segment Requests ===");
+            ts.dump();
+            std::process::exit(0);
+        }
 
         // We canonicalize / decompress for equivalence to Arrow's `RecordBatch`es.
         let mut ctx = SESSION.create_execution_ctx();

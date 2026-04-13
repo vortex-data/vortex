@@ -81,6 +81,11 @@ impl VortexFile {
         Arc::clone(&self.segment_source)
     }
 
+    /// Replace the segment source with a custom one (e.g. for debugging/tracing).
+    pub fn set_segment_source(&mut self, source: Arc<dyn SegmentSource>) {
+        self.segment_source = source;
+    }
+
     /// Create a new layout reader for the file.
     pub fn layout_reader(&self) -> VortexResult<Arc<dyn LayoutReader>> {
         let segment_source = self.segment_source();

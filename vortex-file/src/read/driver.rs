@@ -311,6 +311,20 @@ impl State {
             current_end - aligned_start,
         );
 
+        if crate::segments::IO_TRACING_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+            let sub_reqs: Vec<String> = requests
+                .iter()
+                .map(|r| format!("id={} off={} len={}", r.id, r.offset, r.length))
+                .collect();
+            eprintln!(
+                "  [coalesced] range={}..{} bytes={:<10} sub_reqs=[{}]",
+                aligned_start,
+                current_end,
+                current_end - aligned_start,
+                sub_reqs.join(", "),
+            );
+        }
+
         Some(CoalescedRequest {
             range: aligned_start..current_end,
             alignment: self.coalesced_buffer_alignment,
