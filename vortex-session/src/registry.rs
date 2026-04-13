@@ -12,6 +12,7 @@ use std::fmt::Formatter;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::OnceLock;
 
 use parking_lot::RwLock;
 use string_interner::DefaultBackend;
@@ -96,6 +97,45 @@ impl PartialEq<&str> for Id {
 impl AsRef<str> for Id {
     fn as_ref(&self) -> &str {
         self.as_str()
+    }
+}
+
+/// A lazily-initialized, cached [`Id`] for use as a `static`.
+///
+/// Avoids repeated interner write-lock acquisition by storing the interned [`Id`]
+/// on first access and returning the cached copy on all subsequent calls.
+///
+/// # Example
+///
+/// ```
+/// use vortex_session::registry::{CachedId, Id};
+///
+/// static MY_ID: CachedId = CachedId::new("my.encoding");
+///
+/// fn get_id() -> Id {
+///     *MY_ID
+/// }
+/// ```
+pub struct CachedId {
+    s: &'static str,
+    cached: OnceLock<Id>,
+}
+
+impl CachedId {
+    /// Create a new `CachedId` that will intern `s` on first access.
+    pub const fn new(s: &'static str) -> Self {
+        Self {
+            s,
+            cached: OnceLock::new(),
+        }
+    }
+}
+
+impl Deref for CachedId {
+    type Target = Id;
+
+    fn deref(&self) -> &Id {
+        self.cached.get_or_init(|| Id::new(self.s))
     }
 }
 

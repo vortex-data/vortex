@@ -21,6 +21,7 @@ use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
+use vortex_session::registry::CachedId;
 use crate::array::VTable;
 use crate::arrays::fixed_size_list::FixedSizeListData;
 use crate::arrays::fixed_size_list::array::NUM_SLOTS;
@@ -45,8 +46,8 @@ impl FixedSizeList {
 
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static CACHED: std::sync::OnceLock<ArrayId> = std::sync::OnceLock::new();
-        *CACHED.get_or_init(|| ArrayId::new(Self::ID))
+        static ID: CachedId = CachedId::new(FixedSizeList::ID);
+        *ID
     }
 }
 

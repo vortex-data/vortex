@@ -22,6 +22,7 @@ use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
+use vortex_session::registry::CachedId;
 use crate::array::VTable;
 use crate::arrays::list::ListArrayExt;
 use crate::arrays::list::ListData;
@@ -205,7 +206,7 @@ impl List {
 
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static CACHED: std::sync::OnceLock<ArrayId> = std::sync::OnceLock::new();
-        *CACHED.get_or_init(|| ArrayId::new(Self::ID))
+        static ID: CachedId = CachedId::new(List::ID);
+        *ID
     }
 }

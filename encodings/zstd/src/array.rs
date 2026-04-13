@@ -15,6 +15,7 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
+use vortex_session::registry::CachedId;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
@@ -257,8 +258,8 @@ impl Zstd {
 
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static CACHED: std::sync::OnceLock<ArrayId> = std::sync::OnceLock::new();
-        *CACHED.get_or_init(|| ArrayId::new(Self::ID))
+        static ID: CachedId = CachedId::new(Zstd::ID);
+        *ID
     }
     pub fn try_new(dtype: DType, data: ZstdData, validity: Validity) -> VortexResult<ZstdArray> {
         let len = data.len();

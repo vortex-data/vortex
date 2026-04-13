@@ -16,6 +16,7 @@ use prost::Message as _;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
+use vortex_session::registry::CachedId;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
@@ -257,8 +258,8 @@ impl DecimalByteParts {
 
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static CACHED: std::sync::OnceLock<ArrayId> = std::sync::OnceLock::new();
-        *CACHED.get_or_init(|| ArrayId::new(Self::ID))
+        static ID: CachedId = CachedId::new(DecimalByteParts::ID);
+        *ID
     }
     /// Construct a new [`DecimalBytePartsArray`] from an MSP array and decimal dtype.
     pub fn try_new(

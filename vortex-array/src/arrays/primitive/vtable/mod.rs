@@ -30,6 +30,7 @@ use vortex_session::VortexSession;
 
 use crate::Precision;
 use crate::array::ArrayId;
+use vortex_session::registry::CachedId;
 use crate::arrays::primitive::array::SLOT_NAMES;
 use crate::arrays::primitive::compute::rules::RULES;
 use crate::hash::ArrayEq;
@@ -208,8 +209,8 @@ impl Primitive {
 
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static CACHED: std::sync::OnceLock<ArrayId> = std::sync::OnceLock::new();
-        *CACHED.get_or_init(|| ArrayId::new(Self::ID))
+        static ID: CachedId = CachedId::new(Primitive::ID);
+        *ID
     }
 }
 
