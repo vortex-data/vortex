@@ -100,7 +100,9 @@ impl ArrayRef {
             .clone()
             .fill_null(Scalar::bool(false, self.dtype().nullability()))?;
 
-        Ok(array.execute::<BoolArray>(ctx)?.to_mask_fill_null_false())
+        Ok(array
+            .execute::<BoolArray>(ctx)?
+            .to_mask_fill_null_false(ctx))
     }
 }
 

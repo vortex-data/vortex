@@ -5,7 +5,9 @@ use std::cmp::Ordering;
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
@@ -32,7 +34,10 @@ pub fn sort_canonical_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
                     bool_array
                         .as_ref()
                         .validity()?
-                        .to_mask(bool_array.as_ref().len())
+                        .to_mask(
+                            bool_array.as_ref().len(),
+                            &mut LEGACY_SESSION.create_execution_ctx(),
+                        )?
                         .to_bit_buffer()
                         .iter(),
                 )
@@ -52,7 +57,10 @@ pub fn sort_canonical_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
                         primitive_array
                             .as_ref()
                             .validity()?
-                            .to_mask(primitive_array.as_ref().len())
+                            .to_mask(
+                                primitive_array.as_ref().len(),
+                                &mut LEGACY_SESSION.create_execution_ctx(),
+                            )?
                             .to_bit_buffer()
                             .iter(),
                     )
@@ -74,7 +82,10 @@ pub fn sort_canonical_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
                         decimal_array
                             .as_ref()
                             .validity()?
-                            .to_mask(decimal_array.as_ref().len())
+                            .to_mask(
+                                decimal_array.as_ref().len(),
+                                &mut LEGACY_SESSION.create_execution_ctx(),
+                            )?
                             .to_bit_buffer()
                             .iter(),
                     )

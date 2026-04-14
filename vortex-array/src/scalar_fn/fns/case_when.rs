@@ -223,7 +223,7 @@ impl ScalarFnVTable for CaseWhen {
 
             let condition = args.get(i * 2)?;
             let cond_bool = condition.execute::<BoolArray>(ctx)?;
-            let cond_mask = cond_bool.to_mask_fill_null_false();
+            let cond_mask = cond_bool.to_mask_fill_null_false(ctx);
             let effective_mask = &remaining & &cond_mask;
 
             if effective_mask.all_false() {

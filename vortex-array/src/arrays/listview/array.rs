@@ -13,7 +13,9 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -335,7 +337,12 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
     }
 
     fn listview_validity_mask(&self) -> vortex_mask::Mask {
-        self.listview_validity().to_mask(self.as_ref().len())
+        self.listview_validity()
+            .to_mask(
+                self.as_ref().len(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+            .vortex_expect("Failed to compute validity mask")
     }
 
     fn offset_at(&self, index: usize) -> usize {

@@ -375,7 +375,9 @@ pub fn data_chunk_to_vortex(
 mod tests {
     use std::ffi::CString;
 
+    use vortex::array::LEGACY_SESSION;
     use vortex::array::ToCanonical;
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
     use vortex::array::arrays::listview::ListViewArrayExt;
@@ -510,7 +512,11 @@ mod tests {
                 .as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(vortex_values.as_ref().len()),
+                .to_mask(
+                    vortex_values.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx()
+                )
+                .unwrap(),
             Mask::from_indices(3, vec![0, 2])
         );
     }
@@ -619,7 +625,11 @@ mod tests {
                 .as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(vortex_array.as_ref().len()),
+                .to_mask(
+                    vortex_array.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx()
+                )
+                .unwrap(),
             Mask::from_indices(3, vec![0, 2])
         );
     }
@@ -790,7 +800,11 @@ mod tests {
                 .as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(vortex_array.as_ref().len()),
+                .to_mask(
+                    vortex_array.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx()
+                )
+                .unwrap(),
             Mask::from_indices(2, vec![0])
         );
     }
@@ -907,7 +921,11 @@ mod tests {
                 .as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(vortex_array.as_ref().len()),
+                .to_mask(
+                    vortex_array.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx()
+                )
+                .unwrap(),
             Mask::from_indices(3, vec![0, 2])
         );
     }

@@ -51,6 +51,8 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::primitive::compute::fill_null::BoolArray;
     use crate::assert_arrays_eq;
@@ -72,7 +74,8 @@ mod test {
             p.as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(p.as_ref().len())
+                .to_mask(p.as_ref().len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
                 .all_true()
         );
     }
@@ -91,7 +94,8 @@ mod test {
             p.as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(p.as_ref().len())
+                .to_mask(p.as_ref().len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
                 .all_true()
         );
     }
@@ -112,7 +116,8 @@ mod test {
             p.as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(p.as_ref().len())
+                .to_mask(p.as_ref().len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
                 .all_true()
         );
     }
@@ -126,7 +131,8 @@ mod test {
             p.as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(p.as_ref().len())
+                .to_mask(p.as_ref().len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
                 .all_true()
         );
     }

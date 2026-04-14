@@ -136,7 +136,7 @@ impl AggregateFnVTable for NanCount {
         &self,
         partial: &mut Self::Partial,
         batch: &Columnar,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         match batch {
             Columnar::Constant(c) => {
@@ -150,7 +150,7 @@ impl AggregateFnVTable for NanCount {
                 Ok(())
             }
             Columnar::Canonical(c) => match c {
-                Canonical::Primitive(p) => accumulate_primitive(partial, p),
+                Canonical::Primitive(p) => accumulate_primitive(partial, p, ctx),
                 _ => vortex_bail!(
                     "Unsupported canonical type for nan_count: {}",
                     batch.dtype()

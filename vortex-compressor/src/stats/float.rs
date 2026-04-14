@@ -8,6 +8,8 @@ use std::hash::Hash;
 use itertools::Itertools;
 use num_traits::Float;
 use rustc_hash::FxBuildHasher;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::NativePType;
@@ -203,7 +205,10 @@ where
         HashSet::with_hasher(FxBuildHasher)
     };
 
-    let validity = array.as_ref().validity()?.to_mask(array.as_ref().len());
+    let validity = array.as_ref().validity()?.to_mask(
+        array.as_ref().len(),
+        &mut LEGACY_SESSION.create_execution_ctx(),
+    )?;
 
     let mut runs = 1;
     let head_idx = validity

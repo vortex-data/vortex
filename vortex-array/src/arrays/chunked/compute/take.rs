@@ -31,7 +31,10 @@ fn take_chunked(
         .cast(DType::Primitive(PType::U64, indices.dtype().nullability()))?
         .execute::<PrimitiveArray>(ctx)?;
 
-    let indices_mask = indices.as_ref().validity()?.to_mask(indices.as_ref().len());
+    let indices_mask = indices
+        .as_ref()
+        .validity()?
+        .to_mask(indices.as_ref().len(), ctx)?;
     let indices_values = indices.as_slice::<u64>();
     let n = indices_values.len();
 
@@ -97,7 +100,10 @@ fn take_chunked(
     // 4. Single take to restore original order and expand duplicates.
     //    Carry the original index validity so null indices produce null outputs.
     let take_validity = Validity::from_mask(
-        indices.as_ref().validity()?.to_mask(indices.as_ref().len()),
+        indices
+            .as_ref()
+            .validity()?
+            .to_mask(indices.as_ref().len(), ctx)?,
         indices.dtype().nullability(),
     );
     flat.take(PrimitiveArray::new(final_take.freeze(), take_validity).into_array())

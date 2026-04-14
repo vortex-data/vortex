@@ -14,6 +14,8 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::ListArray;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::builders::ArrayBuilder;
@@ -225,7 +227,8 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
             array
                 .validity()
                 .vortex_expect("validity_mask in extend_from_array_unchecked")
-                .to_mask(array.len()),
+                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("Failed to compute validity mask"),
         );
 
         // Note that `ListViewArray` has `n` offsets and sizes, not `n+1` offsets like `ListArray`.

@@ -289,7 +289,12 @@ pub trait ListArrayExt: TypedArrayRef<List> {
     }
 
     fn list_validity_mask(&self) -> vortex_mask::Mask {
-        self.list_validity().to_mask(self.as_ref().len())
+        self.list_validity()
+            .to_mask(
+                self.as_ref().len(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+            .vortex_expect("Failed to compute validity mask")
     }
 
     fn offset_at(&self, index: usize) -> VortexResult<usize> {

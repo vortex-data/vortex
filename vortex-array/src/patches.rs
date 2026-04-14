@@ -766,7 +766,7 @@ impl Patches {
                                 take_indices
                                     .as_ref()
                                     .validity()?
-                                    .to_mask(take_indices.as_ref().len()),
+                                    .to_mask(take_indices.as_ref().len(), ctx)?,
                                 include_nulls,
                                 |take_idx| {
                                     self.search_index_chunked_batch(
@@ -784,7 +784,7 @@ impl Patches {
                             take_indices
                                 .as_ref()
                                 .validity()?
-                                .to_mask(take_indices.as_ref().len()),
+                                .to_mask(take_indices.as_ref().len(), ctx)?,
                             include_nulls,
                             |take_idx| {
                                 let Some(offset) = <PatchT as NumCast>::from(self.offset) else {
@@ -1167,7 +1167,11 @@ mod test {
                 .as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(primitive_values.as_ref().len()),
+                .to_mask(
+                    primitive_values.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx()
+                )
+                .unwrap(),
             Mask::from_iter(vec![true])
         );
     }
@@ -1205,7 +1209,11 @@ mod test {
                 .as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(primitive_values.as_ref().len()),
+                .to_mask(
+                    primitive_values.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx()
+                )
+                .unwrap(),
             Mask::from_iter([true, false])
         );
     }

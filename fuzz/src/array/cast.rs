@@ -3,7 +3,9 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::Nullable;
@@ -40,7 +42,9 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
                             .map(|v| *v as Out)
                             .collect::<Buffer<Out>>(),
                         Validity::from_mask(
-                            array.validity()?.to_mask(array.len()),
+                            array
+                                .validity()?
+                                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())?,
                             target.nullability(),
                         ),
                     )
@@ -69,7 +73,9 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
                         .map(|v| *v as f64)
                         .collect::<Buffer<f64>>(),
                     Validity::from_mask(
-                        array.validity()?.to_mask(array.len()),
+                        array
+                            .validity()?
+                            .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())?,
                         target.nullability(),
                     ),
                 )
@@ -87,7 +93,9 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
                             .map(|v| *v as f32)
                             .collect::<Buffer<f32>>(),
                         Validity::from_mask(
-                            array.validity()?.to_mask(array.len()),
+                            array
+                                .validity()?
+                                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())?,
                             target.nullability(),
                         ),
                     )

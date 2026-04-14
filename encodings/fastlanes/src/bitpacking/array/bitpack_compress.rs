@@ -6,6 +6,8 @@ use itertools::Itertools;
 use num_traits::PrimInt;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
@@ -200,7 +202,10 @@ pub fn gather_patches(
     };
 
     let array_len = parray.len();
-    let validity_mask = parray.as_ref().validity()?.to_mask(parray.len());
+    let validity_mask = parray
+        .as_ref()
+        .validity()?
+        .to_mask(parray.len(), &mut LEGACY_SESSION.create_execution_ctx())?;
 
     let patches = if array_len < u8::MAX as usize {
         match_each_integer_ptype!(parray.ptype(), |T| {
@@ -302,7 +307,14 @@ fn bit_width_histogram_typed<T: NativePType + PrimInt>(
         |v: T| (8 * size_of::<T>()) - (PrimInt::leading_zeros(v) as usize);
 
     let mut bit_widths = vec![0usize; size_of::<T>() * 8 + 1];
-    match array.validity()?.to_mask(array.as_ref().len()).bit_buffer() {
+    match array
+        .validity()?
+        .to_mask(
+            array.as_ref().len(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?
+        .bit_buffer()
+    {
         AllOr::All => {
             // All values are valid.
             for v in array.as_slice::<T>() {
@@ -460,7 +472,11 @@ mod test {
                 .as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(compressed.as_ref().len())
+                .to_mask(
+                    compressed.as_ref().len(),
+                    &mut SESSION.create_execution_ctx()
+                )
+                .unwrap()
                 .to_bit_buffer()
                 .set_indices()
                 .collect::<Vec<_>>()

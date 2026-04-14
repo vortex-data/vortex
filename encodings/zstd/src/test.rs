@@ -146,12 +146,19 @@ fn test_validity_vtable() {
     let compressed = Zstd::from_primitive(&array, 3, 0).unwrap();
     let arr = compressed.as_array();
     assert_eq!(
-        arr.validity().unwrap().to_mask(arr.len()),
+        arr.validity()
+            .unwrap()
+            .to_mask(arr.len(), &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap(),
         Mask::from_iter(mask_bools)
     );
     let sliced = compressed.slice(1..4).unwrap();
     assert_eq!(
-        sliced.validity().unwrap().to_mask(sliced.len()),
+        sliced
+            .validity()
+            .unwrap()
+            .to_mask(sliced.len(), &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap(),
         Mask::from_iter(vec![true, true, false])
     );
 }

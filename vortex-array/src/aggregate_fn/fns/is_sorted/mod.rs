@@ -462,10 +462,10 @@ impl AggregateFnVTable for IsSorted {
 
                 // Check within-batch sortedness.
                 let batch_is_sorted = match c {
-                    Canonical::Primitive(p) => check_primitive_sorted(p, partial.strict)?,
-                    Canonical::Bool(b) => check_bool_sorted(b, partial.strict)?,
+                    Canonical::Primitive(p) => check_primitive_sorted(p, partial.strict, ctx)?,
+                    Canonical::Bool(b) => check_bool_sorted(b, partial.strict, ctx)?,
                     Canonical::VarBinView(v) => check_varbinview_sorted(v, partial.strict)?,
-                    Canonical::Decimal(d) => check_decimal_sorted(d, partial.strict)?,
+                    Canonical::Decimal(d) => check_decimal_sorted(d, partial.strict, ctx)?,
                     Canonical::Extension(e) => check_extension_sorted(e, partial.strict, ctx)?,
                     Canonical::Null(_) => !partial.strict,
                     // Struct, List, FixedSizeList should have been filtered out by return_dtype

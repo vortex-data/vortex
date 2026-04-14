@@ -13,6 +13,7 @@ use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -112,8 +113,11 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
             .vortex_expect("cannot convert nullable boolean array to mask")
     }
 
-    fn to_mask_fill_null_false(&self) -> Mask {
-        let validity_mask = self.validity().to_mask(self.as_ref().len());
+    fn to_mask_fill_null_false(&self, ctx: &mut ExecutionCtx) -> Mask {
+        let validity_mask = self
+            .validity()
+            .to_mask(self.as_ref().len(), ctx)
+            .vortex_expect("Failed to compute validity mask");
         let buffer = match validity_mask {
             Mask::AllTrue(_) => self.to_bit_buffer(),
             Mask::AllFalse(_) => return Mask::new_false(self.as_ref().len()),

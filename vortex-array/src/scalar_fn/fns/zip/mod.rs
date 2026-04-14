@@ -118,7 +118,7 @@ impl ScalarFnVTable for Zip {
 
         let mask = mask_array
             .execute::<BoolArray>(ctx)?
-            .to_mask_fill_null_false();
+            .to_mask_fill_null_false(ctx);
 
         let return_dtype = if_true
             .dtype()

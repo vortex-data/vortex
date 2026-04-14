@@ -789,7 +789,11 @@ mod tests {
                 .as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(result_primitive.as_ref().len())
+                .to_mask(
+                    result_primitive.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )
+                .unwrap()
                 .value(idx);
             assert_eq!(
                 result_valid,

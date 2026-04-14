@@ -3,6 +3,8 @@
 
 //! Bool compression statistics.
 
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_error::VortexResult;
@@ -42,7 +44,10 @@ impl BoolStats {
             });
         }
 
-        let validity = input.as_ref().validity()?.to_mask(input.as_ref().len());
+        let validity = input.as_ref().validity()?.to_mask(
+            input.as_ref().len(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         let null_count = validity.false_count();
         let value_count = validity.true_count();
 

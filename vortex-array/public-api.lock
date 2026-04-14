@@ -126,7 +126,7 @@ pub fn vortex_array::aggregate_fn::fns::first::First::serialize(&self, _options:
 
 pub fn vortex_array::aggregate_fn::fns::first::First::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
-pub fn vortex_array::aggregate_fn::fns::first::First::try_accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::ArrayRef, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+pub fn vortex_array::aggregate_fn::fns::first::First::try_accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
 pub struct vortex_array::aggregate_fn::fns::first::FirstPartial
 
@@ -338,7 +338,7 @@ pub fn vortex_array::aggregate_fn::fns::last::Last::serialize(&self, _options: &
 
 pub fn vortex_array::aggregate_fn::fns::last::Last::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
-pub fn vortex_array::aggregate_fn::fns::last::Last::try_accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::ArrayRef, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+pub fn vortex_array::aggregate_fn::fns::last::Last::try_accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
 pub struct vortex_array::aggregate_fn::fns::last::LastPartial
 
@@ -442,7 +442,7 @@ pub type vortex_array::aggregate_fn::fns::nan_count::NanCount::Options = vortex_
 
 pub type vortex_array::aggregate_fn::fns::nan_count::NanCount::Partial = u64
 
-pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::Columnar, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::Columnar, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::coerce_args(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
@@ -506,7 +506,7 @@ pub type vortex_array::aggregate_fn::fns::sum::Sum::Options = vortex_array::aggr
 
 pub type vortex_array::aggregate_fn::fns::sum::Sum::Partial = vortex_array::aggregate_fn::fns::sum::SumPartial
 
-pub fn vortex_array::aggregate_fn::fns::sum::Sum::accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::Columnar, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::Columnar, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::coerce_args(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
@@ -852,7 +852,7 @@ pub fn vortex_array::aggregate_fn::fns::first::First::serialize(&self, _options:
 
 pub fn vortex_array::aggregate_fn::fns::first::First::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
-pub fn vortex_array::aggregate_fn::fns::first::First::try_accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::ArrayRef, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+pub fn vortex_array::aggregate_fn::fns::first::First::try_accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
 impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::is_constant::IsConstant
 
@@ -960,7 +960,7 @@ pub fn vortex_array::aggregate_fn::fns::last::Last::serialize(&self, _options: &
 
 pub fn vortex_array::aggregate_fn::fns::last::Last::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
-pub fn vortex_array::aggregate_fn::fns::last::Last::try_accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::ArrayRef, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+pub fn vortex_array::aggregate_fn::fns::last::Last::try_accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
 impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::min_max::MinMax
 
@@ -1004,7 +1004,7 @@ pub type vortex_array::aggregate_fn::fns::nan_count::NanCount::Options = vortex_
 
 pub type vortex_array::aggregate_fn::fns::nan_count::NanCount::Partial = u64
 
-pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::Columnar, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::Columnar, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::coerce_args(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
@@ -1040,7 +1040,7 @@ pub type vortex_array::aggregate_fn::fns::sum::Sum::Options = vortex_array::aggr
 
 pub type vortex_array::aggregate_fn::fns::sum::Sum::Partial = vortex_array::aggregate_fn::fns::sum::SumPartial
 
-pub fn vortex_array::aggregate_fn::fns::sum::Sum::accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::Columnar, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::accumulate(&self, partial: &mut Self::Partial, batch: &vortex_array::Columnar, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::coerce_args(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
@@ -1278,7 +1278,7 @@ pub fn vortex_array::arrays::bool::BoolArrayExt::to_bit_buffer(&self) -> vortex_
 
 pub fn vortex_array::arrays::bool::BoolArrayExt::to_mask(&self) -> vortex_mask::Mask
 
-pub fn vortex_array::arrays::bool::BoolArrayExt::to_mask_fill_null_false(&self) -> vortex_mask::Mask
+pub fn vortex_array::arrays::bool::BoolArrayExt::to_mask_fill_null_false(&self, ctx: &mut vortex_array::ExecutionCtx) -> vortex_mask::Mask
 
 pub fn vortex_array::arrays::bool::BoolArrayExt::validity(&self) -> vortex_array::validity::Validity
 
@@ -1292,7 +1292,7 @@ pub fn T::to_bit_buffer(&self) -> vortex_buffer::bit::buf::BitBuffer
 
 pub fn T::to_mask(&self) -> vortex_mask::Mask
 
-pub fn T::to_mask_fill_null_false(&self) -> vortex_mask::Mask
+pub fn T::to_mask_fill_null_false(&self, ctx: &mut vortex_array::ExecutionCtx) -> vortex_mask::Mask
 
 pub fn T::validity(&self) -> vortex_array::validity::Validity
 
@@ -6926,11 +6926,11 @@ pub mod vortex_array::arrow
 
 pub mod vortex_array::arrow::bool
 
-pub fn vortex_array::arrow::bool::canonical_bool_to_arrow(array: &vortex_array::arrays::BoolArray) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+pub fn vortex_array::arrow::bool::canonical_bool_to_arrow(array: &vortex_array::arrays::BoolArray, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
 
 pub mod vortex_array::arrow::byte_view
 
-pub fn vortex_array::arrow::byte_view::canonical_varbinview_to_arrow<T: arrow_array::types::ByteViewType>(array: &vortex_array::arrays::VarBinViewArray) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+pub fn vortex_array::arrow::byte_view::canonical_varbinview_to_arrow<T: arrow_array::types::ByteViewType>(array: &vortex_array::arrays::VarBinViewArray, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
 
 pub fn vortex_array::arrow::byte_view::execute_varbinview_to_arrow<T: arrow_array::types::ByteViewType>(array: &vortex_array::arrays::VarBinViewArray, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
 
@@ -6940,7 +6940,7 @@ pub fn vortex_array::arrow::null::canonical_null_to_arrow(array: &vortex_array::
 
 pub mod vortex_array::arrow::primitive
 
-pub fn vortex_array::arrow::primitive::canonical_primitive_to_arrow<T: arrow_array::types::ArrowPrimitiveType>(array: vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<arrow_array::array::ArrayRef> where <T as arrow_array::types::ArrowPrimitiveType>::Native: vortex_array::dtype::NativePType
+pub fn vortex_array::arrow::primitive::canonical_primitive_to_arrow<T: arrow_array::types::ArrowPrimitiveType>(array: vortex_array::arrays::PrimitiveArray, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef> where <T as arrow_array::types::ArrowPrimitiveType>::Native: vortex_array::dtype::NativePType
 
 pub struct vortex_array::arrow::ArrowArrayStreamAdapter
 
@@ -19228,7 +19228,9 @@ pub fn vortex_array::validity::Validity::take(&self, indices: &vortex_array::Arr
 
 pub fn vortex_array::validity::Validity::to_array(&self, len: usize) -> vortex_array::ArrayRef
 
-pub fn vortex_array::validity::Validity::to_mask(&self, length: usize) -> vortex_mask::Mask
+pub fn vortex_array::validity::Validity::to_mask(&self, length: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_mask::Mask>
+
+pub fn vortex_array::validity::Validity::to_mask_sync(&self, length: usize) -> vortex_mask::Mask
 
 pub fn vortex_array::validity::Validity::uncompressed_size(&self) -> usize
 
@@ -21942,8 +21944,6 @@ pub fn vortex_array::Array<V>::valid_count(&self, ctx: &mut vortex_array::Execut
 
 pub fn vortex_array::Array<V>::validity(&self) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
-pub fn vortex_array::Array<V>::validity_mask(&self) -> vortex_error::VortexResult<vortex_mask::Mask>
-
 impl<V: vortex_array::VTable> vortex_array::Array<V>
 
 pub fn vortex_array::Array<V>::as_array(&self) -> &vortex_array::ArrayRef
@@ -22197,8 +22197,6 @@ pub fn vortex_array::ArrayRef::try_downcast<V: vortex_array::VTable>(self) -> co
 pub fn vortex_array::ArrayRef::valid_count(&self, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<usize>
 
 pub fn vortex_array::ArrayRef::validity(&self) -> vortex_error::VortexResult<vortex_array::validity::Validity>
-
-pub fn vortex_array::ArrayRef::validity_mask(&self) -> vortex_error::VortexResult<vortex_mask::Mask>
 
 pub fn vortex_array::ArrayRef::with_slot(self, slot_idx: usize, replacement: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -22593,8 +22591,6 @@ pub fn vortex_array::ArrayView<'a, V>::slots(&self) -> &'a [core::option::Option
 pub fn vortex_array::ArrayView<'a, V>::statistics(&self) -> vortex_array::stats::StatsSetRef<'_>
 
 pub fn vortex_array::ArrayView<'a, V>::validity(&self) -> vortex_error::VortexResult<vortex_array::validity::Validity>
-
-pub fn vortex_array::ArrayView<'a, V>::validity_mask(&self) -> vortex_mask::Mask
 
 impl<V: vortex_array::VTable> core::clone::Clone for vortex_array::ArrayView<'_, V>
 

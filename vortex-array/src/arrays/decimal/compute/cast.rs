@@ -146,6 +146,8 @@ mod tests {
 
     use super::upcast_decimal_values;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::DecimalArray;
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
@@ -387,7 +389,11 @@ mod tests {
             .as_ref()
             .validity()
             .unwrap()
-            .to_mask(casted.as_ref().len());
+            .to_mask(
+                casted.as_ref().len(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+            .unwrap();
         assert!(mask.value(0));
         assert!(!mask.value(1));
         assert!(mask.value(2));

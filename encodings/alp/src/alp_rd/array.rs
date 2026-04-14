@@ -262,7 +262,7 @@ impl VTable for ALPRD {
         let validity = left_parts
             .as_ref()
             .validity()?
-            .to_mask(left_parts.as_ref().len());
+            .to_mask(left_parts.as_ref().len(), ctx)?;
 
         let decoded_array = if ptype == PType::F32 {
             PrimitiveArray::new(

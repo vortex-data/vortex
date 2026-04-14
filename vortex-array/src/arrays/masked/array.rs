@@ -9,6 +9,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -52,7 +54,12 @@ pub trait MaskedArrayExt: TypedArrayRef<Masked> {
     }
 
     fn masked_validity_mask(&self) -> vortex_mask::Mask {
-        self.masked_validity().to_mask(self.as_ref().len())
+        self.masked_validity()
+            .to_mask(
+                self.as_ref().len(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+            .vortex_expect("Failed to compute validity mask")
     }
 }
 impl<T: TypedArrayRef<Masked>> MaskedArrayExt for T {}

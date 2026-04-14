@@ -6,6 +6,8 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::builtins::ArrayBuiltins;
@@ -279,7 +281,8 @@ fn test_nullable_mask_input(array: &ArrayRef) {
     let validity = crate::validity::Validity::from_iter(validity_values.clone());
     let nullable_mask = BoolArray::new(bool_array.to_bit_buffer(), validity);
 
-    let mask_array = nullable_mask.to_mask_fill_null_false();
+    let mask_array =
+        nullable_mask.to_mask_fill_null_false(&mut LEGACY_SESSION.create_execution_ctx());
     let masked = array
         .clone()
         .mask((!&mask_array).into_array())

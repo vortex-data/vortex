@@ -18,6 +18,8 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -546,7 +548,12 @@ pub trait VarBinViewArrayExt: TypedArrayRef<VarBinView> {
     }
 
     fn varbinview_validity_mask(&self) -> Mask {
-        self.varbinview_validity().to_mask(self.as_ref().len())
+        self.varbinview_validity()
+            .to_mask(
+                self.as_ref().len(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+            .vortex_expect("Failed to compute validity mask")
     }
 }
 impl<T: TypedArrayRef<VarBinView>> VarBinViewArrayExt for T {}

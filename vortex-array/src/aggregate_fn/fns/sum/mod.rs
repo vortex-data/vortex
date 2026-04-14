@@ -217,7 +217,7 @@ impl AggregateFnVTable for Sum {
         &self,
         partial: &mut Self::Partial,
         batch: &Columnar,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         // Constants compute scalar * len and combine via combine_partials.
         if let Columnar::Constant(c) = batch {
@@ -234,9 +234,9 @@ impl AggregateFnVTable for Sum {
 
         let result = match batch {
             Columnar::Canonical(c) => match c {
-                Canonical::Primitive(p) => accumulate_primitive(&mut inner, p),
-                Canonical::Bool(b) => accumulate_bool(&mut inner, b),
-                Canonical::Decimal(d) => accumulate_decimal(&mut inner, d),
+                Canonical::Primitive(p) => accumulate_primitive(&mut inner, p, ctx),
+                Canonical::Bool(b) => accumulate_bool(&mut inner, b, ctx),
+                Canonical::Decimal(d) => accumulate_decimal(&mut inner, d, ctx),
                 _ => vortex_bail!("Unsupported canonical type for sum: {}", batch.dtype()),
             },
             Columnar::Constant(_) => unreachable!(),

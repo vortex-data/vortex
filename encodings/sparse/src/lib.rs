@@ -19,8 +19,10 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::buffer::BufferHandle;
@@ -402,7 +404,9 @@ impl SparseData {
                 fill_value.dtype()
             )
         }
-        let mask = array.validity()?.to_mask(array.len());
+        let mask = array
+            .validity()?
+            .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())?;
 
         if mask.all_false() {
             // Array is constant NULL
@@ -512,6 +516,8 @@ impl ValidityVTable<Sparse> for Sparse {
 mod test {
     use itertools::Itertools;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -592,7 +598,11 @@ mod test {
     pub fn validity_mask_sliced_null_fill() {
         let sliced = sparse_array(nullable_fill()).slice(2..7).unwrap();
         assert_eq!(
-            sliced.validity().unwrap().to_mask(sliced.len()),
+            sliced
+                .validity()
+                .unwrap()
+                .to_mask(sliced.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Mask::from_iter(vec![true, false, false, true, false])
         );
     }
@@ -614,7 +624,11 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            sliced.validity().unwrap().to_mask(sliced.len()),
+            sliced
+                .validity()
+                .unwrap()
+                .to_mask(sliced.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Mask::from_iter(vec![false, true, true, false, true])
         );
     }
@@ -639,10 +653,10 @@ mod test {
         let array = sparse_array(nullable_fill());
         assert_eq!(
             array
-                .as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(array.as_ref().len())
+                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
                 .to_bit_buffer()
                 .iter()
                 .collect_vec(),
@@ -657,10 +671,10 @@ mod test {
         let array = sparse_array(non_nullable_fill());
         assert!(
             array
-                .as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(array.as_ref().len())
+                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
                 .all_true()
         );
     }
@@ -694,10 +708,10 @@ mod test {
             .vortex_expect("Sparse::encode should succeed for test data");
         assert_eq!(
             sparse
-                .as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(sparse.as_ref().len()),
+                .to_mask(sparse.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Mask::from_iter(vec![
                 true, true, false, true, false, true, false, true, true, false, true, false,
             ])
@@ -712,10 +726,10 @@ mod test {
             .into_array();
         let array = Sparse::try_new(indices, values, 10, Scalar::null_native::<i16>()).unwrap();
         let actual = array
-            .as_ref()
             .validity()
             .unwrap()
-            .to_mask(array.as_ref().len());
+            .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         let expected = Mask::from_iter([
             true, false, true, false, false, false, false, false, true, false,
         ]);

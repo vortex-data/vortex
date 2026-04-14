@@ -9,6 +9,8 @@ use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::array::ArrayView;
 use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
@@ -148,7 +150,14 @@ fn take_nullable_fsl<I: IntegerPType, E: IntegerPType>(
     let new_len = indices.len();
 
     let array_validity = array.fixed_size_list_validity_mask();
-    let indices_validity = indices_array.validity().vortex_expect("Failed to compute validity mask").to_mask(indices_array.as_ref().len());
+    let indices_validity = indices_array
+        .validity()
+        .vortex_expect("Failed to compute validity mask")
+        .to_mask(
+            indices_array.as_ref().len(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .vortex_expect("Failed to compute validity mask");
 
     // We must use placeholder zeros for null lists to maintain the array length without
     // propagating nullability to the element array's take operation.

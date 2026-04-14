@@ -260,7 +260,9 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray as _;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::MaskFuture;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinArray;
@@ -516,7 +518,12 @@ mod tests {
                 .unwrap()
                 .await
                 .unwrap();
-            let expected = array.validity().unwrap().to_mask(array.len()).into_array();
+            let expected = array
+                .validity()
+                .unwrap()
+                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .into_array();
             assert_arrays_eq!(
                 actual
                     .to_canonical()

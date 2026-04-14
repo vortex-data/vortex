@@ -24,7 +24,9 @@ use pyo3::types::PyRangeMethods;
 use pyo3_bytes::PyBytes;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
 use vortex::array::ToCanonical;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::Chunked;
 use vortex::array::arrays::bool::BoolArrayExt;
 use vortex::array::arrays::chunked::ChunkedArrayExt;
@@ -525,7 +527,9 @@ impl PyArray {
     /// ```
     fn filter(slf: Bound<Self>, mask: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let mask = (&*mask as &ArrayRef).to_bool().to_mask_fill_null_false();
+        let mask = (&*mask as &ArrayRef)
+            .to_bool()
+            .to_mask_fill_null_false(&mut LEGACY_SESSION.create_execution_ctx());
         let inner = slf.filter(mask)?.to_canonical()?.into_array();
         Ok(PyArrayRef::from(inner))
     }

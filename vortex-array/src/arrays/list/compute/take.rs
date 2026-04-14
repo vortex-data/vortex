@@ -63,7 +63,7 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     let indices_validity = indices_array
         .validity()
         .vortex_expect("Failed to compute validity mask")
-        .to_mask(indices_array.as_ref().len());
+        .to_mask(indices_array.as_ref().len(), ctx)?;
 
     if !indices_validity.all_true() || !data_validity.all_true() {
         return _take_nullable::<I, O, OutputOffsetType>(array, indices_array, ctx);
@@ -131,7 +131,7 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPTy
     let indices_validity = indices_array
         .validity()
         .vortex_expect("Failed to compute validity mask")
-        .to_mask(indices_array.as_ref().len());
+        .to_mask(indices_array.as_ref().len(), ctx)?;
 
     let mut new_offsets = PrimitiveBuilder::<OutputOffsetType>::with_capacity(
         Nullability::NonNullable,

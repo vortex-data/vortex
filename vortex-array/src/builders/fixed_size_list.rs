@@ -13,6 +13,8 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::builders::ArrayBuilder;
@@ -245,7 +247,8 @@ impl ArrayBuilder for FixedSizeListBuilder {
             array
                 .validity()
                 .vortex_expect("validity_mask in extend_from_array_unchecked")
-                .to_mask(array.len()),
+                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("Failed to compute validity mask"),
         );
     }
 

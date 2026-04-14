@@ -7,6 +7,8 @@ use std::hash::Hash;
 
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::IntegerPType;
@@ -349,7 +351,10 @@ where
         });
     }
 
-    let validity = array.as_ref().validity()?.to_mask(array.as_ref().len());
+    let validity = array.as_ref().validity()?.to_mask(
+        array.as_ref().len(),
+        &mut LEGACY_SESSION.create_execution_ctx(),
+    )?;
     let null_count = validity.false_count();
     let value_count = validity.true_count();
 

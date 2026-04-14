@@ -151,18 +151,20 @@ impl Validity {
 
     pub fn take(&self, indices: &ArrayRef) -> VortexResult<Self> {
         match self {
-            Self::NonNullable => match indices.validity()?.to_mask(indices.len()).bit_buffer() {
-                AllOr::All => {
-                    if indices.dtype().is_nullable() {
-                        Ok(Self::AllValid)
-                    } else {
-                        Ok(Self::NonNullable)
+            Self::NonNullable => {
+                match indices.validity()?.to_mask_sync(indices.len()).bit_buffer() {
+                    AllOr::All => {
+                        if indices.dtype().is_nullable() {
+                            Ok(Self::AllValid)
+                        } else {
+                            Ok(Self::NonNullable)
+                        }
                     }
+                    AllOr::None => Ok(Self::AllInvalid),
+                    AllOr::Some(buf) => Ok(Validity::from(buf.clone())),
                 }
-                AllOr::None => Ok(Self::AllInvalid),
-                AllOr::Some(buf) => Ok(Validity::from(buf.clone())),
-            },
-            Self::AllValid => match indices.validity()?.to_mask(indices.len()).bit_buffer() {
+            }
+            Self::AllValid => match indices.validity()?.to_mask_sync(indices.len()).bit_buffer() {
                 AllOr::All => Ok(Self::AllValid),
                 AllOr::None => Ok(Self::AllInvalid),
                 AllOr::Some(buf) => Ok(Validity::from(buf.clone())),
@@ -208,7 +210,20 @@ impl Validity {
     /// Converts this validity into a [`Mask`] of the given length.
     ///
     /// Valid elements are `true` and invalid elements are `false`.
-    pub fn to_mask(&self, length: usize) -> Mask {
+    pub fn to_mask(&self, length: usize, ctx: &mut ExecutionCtx) -> VortexResult<Mask> {
+        match self {
+            Self::NonNullable | Self::AllValid => Ok(Mask::new_true(length)),
+            Self::AllInvalid => Ok(Mask::new_false(length)),
+            Self::Array(arr) => arr.clone().execute::<Mask>(ctx),
+        }
+    }
+
+    /// Converts this validity into a [`Mask`] of the given length synchronously.
+    ///
+    /// This is equivalent to [`Validity::to_mask`] but does not require an [`ExecutionCtx`],
+    /// using `to_bool()` for `Validity::Array` variants.
+    /// Valid elements are `true` and invalid elements are `false`.
+    pub fn to_mask_sync(&self, length: usize) -> Mask {
         match self {
             Self::NonNullable | Self::AllValid => Mask::new_true(length),
             Self::AllInvalid => Mask::new_false(length),
@@ -377,7 +392,7 @@ impl Validity {
     #[inline]
     pub fn copy_from_array(array: &ArrayRef) -> VortexResult<Self> {
         Ok(Validity::from_mask(
-            array.validity()?.to_mask(array.len()),
+            array.validity()?.to_mask_sync(array.len()),
             array.dtype().nullability(),
         ))
     }

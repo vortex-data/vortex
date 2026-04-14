@@ -5,7 +5,9 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use vortex_array::ArrayRef;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::dtype::DType;
@@ -67,7 +69,10 @@ pub fn search_sorted_canonical_array(
             let validity = bool_array
                 .as_ref()
                 .validity()?
-                .to_mask(bool_array.as_ref().len())
+                .to_mask(
+                    bool_array.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )?
                 .to_bit_buffer();
             let opt_values = bool_array
                 .to_bit_buffer()
@@ -83,7 +88,10 @@ pub fn search_sorted_canonical_array(
             let validity = primitive_array
                 .as_ref()
                 .validity()?
-                .to_mask(primitive_array.as_ref().len())
+                .to_mask(
+                    primitive_array.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )?
                 .to_bit_buffer();
             match_each_native_ptype!(p, |P| {
                 let opt_values = primitive_array
@@ -102,7 +110,10 @@ pub fn search_sorted_canonical_array(
             let validity = decimal_array
                 .as_ref()
                 .validity()?
-                .to_mask(decimal_array.as_ref().len())
+                .to_mask(
+                    decimal_array.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )?
                 .to_bit_buffer();
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 let buf = decimal_array.buffer::<D>();

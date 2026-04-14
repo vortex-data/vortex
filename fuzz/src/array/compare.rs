@@ -3,7 +3,9 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::bool::BoolArrayExt;
@@ -47,7 +49,8 @@ pub fn compare_canonical_array(
                         array
                             .validity()
                             .vortex_expect("validity_mask")
-                            .to_mask(array.len())
+                            .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                            .vortex_expect("Failed to compute validity mask")
                             .to_bit_buffer()
                             .iter(),
                     )
@@ -73,7 +76,8 @@ pub fn compare_canonical_array(
                             array
                                 .validity()
                                 .vortex_expect("validity_mask")
-                                .to_mask(array.len())
+                                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                                .vortex_expect("Failed to compute validity mask")
                                 .to_bit_buffer()
                                 .iter(),
                         )
@@ -102,7 +106,8 @@ pub fn compare_canonical_array(
                             array
                                 .validity()
                                 .vortex_expect("validity_mask")
-                                .to_mask(array.len())
+                                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                                .vortex_expect("Failed to compute validity mask")
                                 .to_bit_buffer()
                                 .iter(),
                         )

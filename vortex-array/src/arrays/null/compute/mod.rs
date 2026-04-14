@@ -15,7 +15,9 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
     use crate::ToCanonical;
+    use crate::VortexSessionExecute;
     use crate::arrays::NullArray;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::compute::conformance::filter::test_filter_conformance;
@@ -31,7 +33,11 @@ mod test {
         assert_eq!(sliced.len(), 4);
         let sliced_arr = sliced.as_array();
         assert!(matches!(
-            sliced_arr.validity().unwrap().to_mask(sliced_arr.len()),
+            sliced_arr
+                .validity()
+                .unwrap()
+                .to_mask(sliced_arr.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Mask::AllFalse(4)
         ));
     }
@@ -47,7 +53,11 @@ mod test {
         assert_eq!(taken.len(), 5);
         let taken_arr = taken.as_array();
         assert!(matches!(
-            taken_arr.validity().unwrap().to_mask(taken_arr.len()),
+            taken_arr
+                .validity()
+                .unwrap()
+                .to_mask(taken_arr.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Mask::AllFalse(5)
         ));
     }

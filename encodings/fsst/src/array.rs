@@ -289,7 +289,10 @@ impl VTable for FSST {
         builder.push_buffer_and_adjusted_views(
             &buffers,
             &views,
-            array.array().validity()?.to_mask(array.array().len()),
+            array
+                .array()
+                .validity()?
+                .to_mask(array.array().len(), ctx)?,
         );
         Ok(())
     }
