@@ -28,7 +28,9 @@ use jni::sys::jshort;
 use jni::sys::jstring;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayView;
+use vortex::array::LEGACY_SESSION;
 use vortex::array::ToCanonical;
+use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::VarBin;
 use vortex::array::arrays::VarBinView;
 use vortex::array::arrays::extension::ExtensionArrayExt;
@@ -267,7 +269,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getNull(
 ) -> jboolean {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |_| {
-        let is_null = array_ref.inner.is_invalid(index as usize)?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let is_null = array_ref.inner.is_invalid(index as usize, &mut ctx)?;
         if is_null { Ok(JNI_TRUE) } else { Ok(JNI_FALSE) }
     })
 }
@@ -296,14 +299,15 @@ macro_rules! get_primitive {
         ) -> $jtype {
             let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
             try_or_throw(&mut env, |_| {
+                let mut ctx = LEGACY_SESSION.create_execution_ctx();
                 let scalar_value = if array_ref.is_extension {
                     array_ref
                         .inner
                         .to_extension()
                         .storage_array()
-                        .scalar_at(index as usize)?
+                        .scalar_at(index as usize, &mut ctx)?
                 } else {
-                    array_ref.inner.scalar_at(index as usize)?
+                    array_ref.inner.scalar_at(index as usize, &mut ctx)?
                 };
 
                 Ok(scalar_value
@@ -335,14 +339,15 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBigDecimal(
 ) -> jobject {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |env| {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let scalar_value = if array_ref.is_extension {
             array_ref
                 .inner
                 .to_extension()
                 .storage_array()
-                .scalar_at(index as usize)?
+                .scalar_at(index as usize, &mut ctx)?
         } else {
-            array_ref.inner.scalar_at(index as usize)?
+            array_ref.inner.scalar_at(index as usize, &mut ctx)?
         };
 
         let decimal_scalar = scalar_value.as_decimal();
@@ -404,7 +409,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBool(
 ) -> jboolean {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |_| {
-        let value = array_ref.inner.scalar_at(index as usize)?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let value = array_ref.inner.scalar_at(index as usize, &mut ctx)?;
         match value.as_bool().value() {
             None => Ok(JNI_FALSE),
             Some(b) => {
@@ -427,7 +433,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getUTF8<'local>(
 ) -> jstring {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |env| {
-        let value = array_ref.inner.scalar_at(index as usize)?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let value = array_ref.inner.scalar_at(index as usize, &mut ctx)?;
         match value.as_utf8().value() {
             None => Ok(JObject::null().into_raw()),
             Some(buf_str) => Ok(env.new_string(buf_str.as_str())?.into_raw()),
@@ -475,7 +482,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBinary<'local>(
 ) -> jbyteArray {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |env| {
-        let value = array_ref.inner.scalar_at(index as usize)?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let value = array_ref.inner.scalar_at(index as usize, &mut ctx)?;
         match value.as_binary().value() {
             None => Ok(JObject::null().into_raw()),
             Some(buf) => Ok(env.byte_array_from_slice(buf.as_slice())?.into_raw()),

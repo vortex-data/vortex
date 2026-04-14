@@ -8,6 +8,8 @@ use num_traits::NumCast;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute as _;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListViewArray;
@@ -185,6 +187,8 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
 
     let mut patch_idx = 0;
 
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
     // Loop over the patch indices and set them to the corresponding scalar values. For positions
     // that are not patched, use the fill value.
     for position in 0..len {
@@ -199,7 +203,7 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
             builder
                 .append_value(
                     patch_values
-                        .scalar_at(patch_idx)
+                        .scalar_at(patch_idx, &mut ctx)
                         .vortex_expect("scalar_at")
                         .as_list(),
                 )
@@ -271,6 +275,8 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
         .iter()
         .map(|x| (*x).to_usize().vortex_expect("index must fit in usize"));
 
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
     for (patch_idx, sparse_idx) in indices.enumerate() {
         // Fill gap before this patch with fill values.
         append_n_lists(
@@ -284,7 +290,7 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
         if values
             .validity()
             .vortex_expect("sparse fixed-size-list validity should be derivable")
-            .is_valid(patch_idx)
+            .is_valid(patch_idx, &mut ctx)
             .vortex_expect("is_valid")
         {
             let patch_list = values
@@ -292,7 +298,7 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
                 .vortex_expect("fixed_size_list_elements_at");
             for i in 0..list_size as usize {
                 builder
-                    .append_scalar(&patch_list.scalar_at(i).vortex_expect("scalar_at"))
+                    .append_scalar(&patch_list.scalar_at(i, &mut ctx).vortex_expect("scalar_at"))
                     .vortex_expect("element dtype must match");
             }
         } else {

@@ -5,7 +5,9 @@ use std::cmp::Ordering;
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute as _;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
@@ -71,12 +73,13 @@ pub fn sort_canonical_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
             Ok(VarBinViewArray::from_iter(opt_values, array.dtype().clone()).into_array())
         }
         DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => {
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
             let mut sort_indices = (0..array.len()).collect::<Vec<_>>();
             sort_indices.sort_by(|a, b| {
                 array
-                    .scalar_at(*a)
+                    .scalar_at(*a, &mut ctx)
                     .vortex_expect("scalar_at")
-                    .partial_cmp(&array.scalar_at(*b).vortex_expect("scalar_at"))
+                    .partial_cmp(&array.scalar_at(*b, &mut ctx).vortex_expect("scalar_at"))
                     .vortex_expect("must be a valid comparison")
             });
             take_canonical_array_non_nullable_indices(array, &sort_indices)

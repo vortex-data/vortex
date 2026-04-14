@@ -24,7 +24,9 @@ use pyo3::types::PyRangeMethods;
 use pyo3_bytes::PyBytes;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
 use vortex::array::ToCanonical;
+use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::Chunked;
 use vortex::array::arrays::bool::BoolArrayExt;
 use vortex::array::arrays::chunked::ChunkedArrayExt;
@@ -610,7 +612,8 @@ impl PyArray {
             ))
             .into());
         }
-        Ok(PyScalar::init(py, slf.scalar_at(index)?)?)
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        Ok(PyScalar::init(py, slf.scalar_at(index, &mut ctx)?)?)
     }
 
     /// Filter, permute, and/or repeat elements by their index.

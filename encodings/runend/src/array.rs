@@ -18,8 +18,10 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
 use vortex_array::TypedArrayRef;
+use vortex_array::VortexSessionExecute as _;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::buffer::BufferHandle;
@@ -313,7 +315,8 @@ impl RunEndData {
         if ends.is_empty() {
             Ok(0)
         } else {
-            usize::try_from(&ends.scalar_at(ends.len() - 1)?)
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
+            usize::try_from(&ends.scalar_at(ends.len() - 1, &mut ctx)?)
         }
     }
 
@@ -370,15 +373,17 @@ impl RunEndData {
             return Ok(());
         }
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
         // Validate the offset and length are valid for the given ends and values
         if offset != 0 && length != 0 {
-            let first_run_end = usize::try_from(&ends.scalar_at(0)?)?;
+            let first_run_end = usize::try_from(&ends.scalar_at(0, &mut ctx)?)?;
             if first_run_end < offset {
                 vortex_bail!("First run end {first_run_end} must be >= offset {offset}");
             }
         }
 
-        let last_run_end = usize::try_from(&ends.scalar_at(ends.len() - 1)?)?;
+        let last_run_end = usize::try_from(&ends.scalar_at(ends.len() - 1, &mut ctx)?)?;
         let min_required_end = offset + length;
         if last_run_end < min_required_end {
             vortex_bail!("Last run end {last_run_end} must be >= offset+length {min_required_end}");

@@ -19,9 +19,11 @@ impl OperationsVTable<RunEnd> for RunEnd {
     fn scalar_at(
         array: ArrayView<'_, RunEnd>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        array.values().scalar_at(array.find_physical_index(index)?)
+        array
+            .values()
+            .scalar_at(array.find_physical_index(index)?, ctx)
     }
 }
 

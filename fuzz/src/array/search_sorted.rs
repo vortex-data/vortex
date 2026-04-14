@@ -5,7 +5,9 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use vortex_array::ArrayRef;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute as _;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::dtype::DType;
@@ -61,6 +63,7 @@ pub fn search_sorted_canonical_array(
     scalar: &Scalar,
     side: SearchSortedSide,
 ) -> VortexResult<SearchResult> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     match array.dtype() {
         DType::Bool(_) => {
             let bool_array = array.to_bool();
@@ -127,7 +130,7 @@ pub fn search_sorted_canonical_array(
         }
         DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => {
             let scalar_vals = (0..array.len())
-                .map(|i| array.scalar_at(i))
+                .map(|i| array.scalar_at(i, &mut ctx))
                 .collect::<VortexResult<Vec<_>>>()?;
             scalar_vals.search_sorted(&scalar.cast(array.dtype())?, side)
         }

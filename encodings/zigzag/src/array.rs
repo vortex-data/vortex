@@ -240,9 +240,9 @@ impl OperationsVTable<ZigZag> for ZigZag {
     fn scalar_at(
         array: ArrayView<'_, ZigZag>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let scalar = array.encoded().scalar_at(index)?;
+        let scalar = array.encoded().scalar_at(index, ctx)?;
         if scalar.is_null() {
             return scalar.primitive_reinterpret_cast(ZigZagArrayExt::ptype(&array));
         }

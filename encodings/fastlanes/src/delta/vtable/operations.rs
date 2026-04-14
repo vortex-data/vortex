@@ -14,10 +14,10 @@ impl OperationsVTable<Delta> for Delta {
     fn scalar_at(
         array: ArrayView<'_, Delta>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let decompressed = array.array().slice(index..index + 1)?.to_primitive();
-        decompressed.into_array().scalar_at(0)
+        decompressed.into_array().scalar_at(0, ctx)
     }
 }
 

@@ -18,6 +18,8 @@ use vortex::array::scalar::DecimalValue;
 use vortex::array::scalar::Scalar;
 use vortex::array::validity::Validity;
 use vortex::error::VortexResult;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute as _;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
@@ -38,6 +40,7 @@ impl FlatLayoutFixture for ConstantFixture {
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let const_i32 = ConstantArray::new(42i32, N);
         let const_f64 = ConstantArray::new(99.99f64, N);
         let const_bool = ConstantArray::new(true, N);
@@ -75,7 +78,7 @@ impl FlatLayoutFixture for ConstantFixture {
             Some("UTC".into()),
         )
         .into_array()
-        .scalar_at(0)?;
+        .scalar_at(0, &mut ctx)?;
         let const_timestamp = ConstantArray::new(timestamp_scalar, N);
 
         let arr = StructArray::try_new(

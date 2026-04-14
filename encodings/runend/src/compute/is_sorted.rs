@@ -45,6 +45,11 @@ impl DynAggregateKernel for RunEndIsSortedKernel {
             is_sorted(array.values(), ctx)?
         };
 
-        Ok(Some(IsSorted::make_partial(batch, result, options.strict)?))
+        Ok(Some(IsSorted::make_partial(
+            batch,
+            result,
+            options.strict,
+            ctx,
+        )?))
     }
 }

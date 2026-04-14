@@ -303,10 +303,10 @@ impl OperationsVTable<DecimalByteParts> for DecimalByteParts {
     fn scalar_at(
         array: ArrayView<'_, DecimalByteParts>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         // TODO(joe): support parts len != 1
-        let scalar = array.msp().scalar_at(index)?;
+        let scalar = array.msp().scalar_at(index, ctx)?;
 
         // Note. values in msp, can only be signed integers upto size i64.
         let primitive_scalar = scalar.as_primitive();

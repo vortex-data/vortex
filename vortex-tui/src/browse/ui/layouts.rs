@@ -27,7 +27,9 @@ use ratatui::widgets::Table;
 use ratatui::widgets::Widget;
 use ratatui::widgets::Wrap;
 use vortex::array::ArrayRef;
+use vortex::array::LEGACY_SESSION;
 use vortex::array::ToCanonical;
+use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::error::VortexExpect;
 use vortex::layout::layouts::flat::Flat;
@@ -113,6 +115,7 @@ fn render_layout_header(app: &AppState, area: Rect, buf: &mut Buffer) {
 
 /// Render the inner Array for a FlatLayout.
 fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bool) {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // Array data is loaded eagerly when navigating to a FlatLayout (synchronously on
     // native, asynchronously on WASM) and cached in AppState. The render loop never
     // performs I/O.
@@ -163,7 +166,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
             std::iter::once(Cell::from(Text::from(format!("{chunk_id}"))))
                 .chain(field_arrays.iter().map(|arr| {
                     Cell::from(Text::from(
-                        arr.scalar_at(chunk_id)
+                        arr.scalar_at(chunk_id, &mut ctx)
                             .vortex_expect("scalar_at failed")
                             .to_string(),
                     ))

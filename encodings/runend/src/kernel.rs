@@ -7,6 +7,8 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute as _;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Slice;
 use vortex_array::arrays::dict::TakeExecuteAdaptor;
@@ -55,9 +57,11 @@ fn slice(array: ArrayView<'_, RunEnd>, range: Range<usize>) -> VortexResult<Arra
     let slice_begin = array.find_physical_index(range.start)?;
     let slice_end = crate::ops::find_slice_end_index(array.ends(), range.end + array.offset())?;
 
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
     // If the sliced range contains only a single run, opt to return a ConstantArray.
     if slice_begin + 1 == slice_end {
-        let value = array.values().scalar_at(slice_begin)?;
+        let value = array.values().scalar_at(slice_begin, &mut ctx)?;
         return Ok(ConstantArray::new(value, new_length).into_array());
     }
 

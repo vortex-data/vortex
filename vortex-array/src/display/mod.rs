@@ -19,6 +19,7 @@ use itertools::Itertools as _;
 pub use tree_display::TreeDisplay;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 
@@ -521,7 +522,13 @@ impl ArrayRef {
         DisplayArrayAs(self, DisplayOptions::TableDisplay)
     }
 
+    fn fmt_scalar(&self, i: usize, ctx: &mut ExecutionCtx) -> String {
+        self.scalar_at(i, ctx)
+            .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string())
+    }
+
     fn fmt_as(&self, f: &mut std::fmt::Formatter, options: &DisplayOptions) -> std::fmt::Result {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         match options {
             DisplayOptions::MetadataOnly => EncodingSummaryExtractor::write(self, f),
             DisplayOptions::CommaSeparatedScalars {
@@ -536,22 +543,25 @@ impl ArrayRef {
 
                 let is_truncated = self.len() > limit;
 
-                let fmt_scalar = |i| {
-                    self.scalar_at(i, &mut LEGACY_SESSION.create_execution_ctx())
-                        .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string())
-                };
+                write!(f, "{opening_brace}")?;
                 write!(
                     f,
-                    "{opening_brace}{}{closing_brace}",
+                    "{}",
                     (0..limit.saturating_sub(3))
-                        .map(fmt_scalar)
-                        .chain(std::iter::repeat_n(
-                            "...".to_string(),
-                            is_truncated as usize
-                        ))
-                        .chain((self.len().saturating_sub(3)..self.len()).map(fmt_scalar))
+                        .map(|i| self.fmt_scalar(i, &mut ctx))
                         .format(sep)
-                )
+                )?;
+                if is_truncated {
+                    write!(f, "...")?;
+                }
+                write!(
+                    f,
+                    "{}",
+                    (self.len().saturating_sub(3)..self.len())
+                        .map(|i| self.fmt_scalar(i, &mut ctx))
+                        .format(sep)
+                )?;
+                write!(f, "{closing_brace}")
             }
             DisplayOptions::TreeDisplay {
                 buffers,
@@ -590,7 +600,7 @@ impl ArrayRef {
                     // For non-struct arrays, simply display a single column table without header.
                     for row_idx in 0..self.len() {
                         let value = self
-                            .scalar_at(row_idx)
+                            .scalar_at(row_idx, &mut ctx)
                             .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string());
                         builder.push_record([value]);
                     }
@@ -605,7 +615,7 @@ impl ArrayRef {
                 builder.push_record(sf.names().iter().map(|name| name.to_string()));
 
                 for row_idx in 0..self.len() {
-                    if !self.is_valid(row_idx).unwrap_or(false) {
+                    if !self.is_valid(row_idx, &mut ctx).unwrap_or(false) {
                         let null_row = vec!["null".to_string(); sf.names().len()];
                         builder.push_record(null_row);
                     } else {
@@ -614,7 +624,7 @@ impl ArrayRef {
                             crate::arrays::struct_::StructArrayExt::iter_unmasked_fields(&struct_)
                         {
                             let value = field_array
-                                .scalar_at(row_idx)
+                                .scalar_at(row_idx, &mut ctx)
                                 .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string());
                             row.push(value);
                         }
@@ -631,7 +641,7 @@ impl ArrayRef {
                 }
 
                 for row_idx in 0..self.len() {
-                    if !self.is_valid(row_idx).unwrap_or(false) {
+                    if !self.is_valid(row_idx, &mut ctx).unwrap_or(false) {
                         table.modify(
                             (1 + row_idx, 0),
                             tabled::settings::Span::column(sf.names().len() as isize),

@@ -5,6 +5,8 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute as _;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::MaskedArray;
 use vortex_array::scalar::Scalar;
@@ -49,11 +51,13 @@ fn compress_constant_array_with_validity(source: &ArrayRef) -> VortexResult<Arra
         );
     }
 
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
     let scalar_idx = (0..source.len())
-        .position(|idx| source.is_valid(idx).unwrap_or(false))
+        .position(|idx| source.is_valid(idx, &mut ctx).unwrap_or(false))
         .vortex_expect("We checked that there exists a scalar that is not invalid");
 
-    let scalar = source.scalar_at(scalar_idx)?;
+    let scalar = source.scalar_at(scalar_idx, &mut ctx)?;
     let const_arr = ConstantArray::new(scalar, source.len()).into_array();
 
     if !source.all_valid()? {

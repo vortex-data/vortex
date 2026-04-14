@@ -5,7 +5,9 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use vortex_array::ArrayRef;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::TypedArrayRef;
+use vortex_array::VortexSessionExecute as _;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -110,15 +112,17 @@ pub trait RLEArrayExt: TypedArrayRef<crate::RLE> {
         reason = "expect is safe here as scalar_at returns a valid primitive"
     )]
     fn values_idx_offset(&self, chunk_idx: usize) -> usize {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
         self.values_idx_offsets()
-            .scalar_at(chunk_idx)
+            .scalar_at(chunk_idx, &mut ctx)
             .expect("index must be in bounds")
             .as_primitive()
             .as_::<usize>()
             .expect("index must be of type usize")
             - self
                 .values_idx_offsets()
-                .scalar_at(0)
+                .scalar_at(0, &mut ctx)
                 .expect("index must be in bounds")
                 .as_primitive()
                 .as_::<usize>()

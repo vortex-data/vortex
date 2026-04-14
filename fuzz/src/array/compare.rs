@@ -3,7 +3,9 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute as _;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::bool::BoolArrayExt;
@@ -131,8 +133,9 @@ pub fn compare_canonical_array(
             )
         }),
         DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => {
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
             let scalar_vals: Vec<Scalar> = (0..array.len())
-                .map(|i| array.scalar_at(i).vortex_expect("scalar_at"))
+                .map(|i| array.scalar_at(i, &mut ctx).vortex_expect("scalar_at"))
                 .collect();
             BoolArray::from_iter(scalar_vals.iter().map(|v| {
                 scalar_cmp(v, value, operator)

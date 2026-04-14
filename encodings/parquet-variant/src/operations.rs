@@ -8,6 +8,8 @@ use parquet_variant::Variant as PqVariant;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute as _;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::FieldName;
@@ -41,15 +43,15 @@ impl OperationsVTable<ParquetVariant> for ParquetVariant {
     fn scalar_at(
         array: ArrayView<'_, ParquetVariant>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        if array.validity()?.is_null(index)? {
+        if array.validity()?.is_null(index, ctx)? {
             return Ok(Scalar::null(DType::Variant(Nullability::Nullable)));
         }
 
         let metadata = array
             .metadata_array()
-            .scalar_at(index)?
+            .scalar_at(index, ctx)?
             .as_binary()
             .value()
             .cloned()
@@ -74,16 +76,17 @@ fn scalar_from_variant_storage(
     typed_value: Option<&ArrayRef>,
     index: usize,
 ) -> VortexResult<Scalar> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     if let Some(typed_value) = typed_value
-        && typed_value.is_valid(index)?
+        && typed_value.is_valid(index, &mut ctx)?
     {
         return scalar_from_typed_value_array(metadata, value, typed_value, index);
     }
 
     if let Some(value) = value
-        && value.is_valid(index)?
+        && value.is_valid(index, &mut ctx)?
     {
-        return scalar_from_unshredded_value(metadata, &value.scalar_at(index)?);
+        return scalar_from_unshredded_value(metadata, &value.scalar_at(index, &mut ctx)?);
     }
 
     Ok(Scalar::null(DType::Null))
@@ -95,11 +98,17 @@ fn scalar_from_typed_value_array(
     typed_value: &ArrayRef,
     index: usize,
 ) -> VortexResult<Scalar> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
     let value_scalar = match value {
-        Some(value) if value.is_valid(index)? => Some(value.scalar_at(index)?),
+        Some(value) if value.is_valid(index, &mut ctx)? => Some(value.scalar_at(index, &mut ctx)?),
         _ => None,
     };
-    scalar_from_typed_value_scalar(metadata, value_scalar, typed_value.scalar_at(index)?)
+    scalar_from_typed_value_scalar(
+        metadata,
+        value_scalar,
+        typed_value.scalar_at(index, &mut ctx)?,
+    )
 }
 
 fn scalar_from_typed_value_scalar(

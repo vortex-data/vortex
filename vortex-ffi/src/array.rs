@@ -10,7 +10,9 @@ use std::sync::Arc;
 use paste::paste;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
 use vortex::array::ToCanonical;
+use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::NullArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::struct_::StructArrayExt;
@@ -238,7 +240,8 @@ pub unsafe extern "C-unwind" fn vx_array_element_is_invalid(
 ) -> bool {
     try_or_default(error, || {
         vortex_ensure!(!array.is_null());
-        vx_array::as_ref(array).is_invalid(index)
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        vx_array::as_ref(array).is_invalid(index, &mut ctx)
     })
 }
 
@@ -324,9 +327,10 @@ macro_rules! ffiarray_get_ptype {
         paste! {
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<vx_array_get_ $ptype>](array: *const vx_array, index: usize) -> $ptype {
+                let mut ctx = LEGACY_SESSION.create_execution_ctx();
                 let array = vx_array::as_ref(array);
                 // TODO(joe): propagate this error up instead of expecting
-                let value = array.scalar_at(index).vortex_expect("scalar_at failed");
+                let value = array.scalar_at(index, &mut ctx).vortex_expect("scalar_at failed");
                 // TODO(joe): propagate this error up instead of expecting
                 value.as_primitive()
                     .as_::<$ptype>()
@@ -335,9 +339,10 @@ macro_rules! ffiarray_get_ptype {
 
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<vx_array_get_storage_ $ptype>](array: *const vx_array, index: usize) -> $ptype {
+                let mut ctx = LEGACY_SESSION.create_execution_ctx();
                 let array = vx_array::as_ref(array);
                 // TODO(joe): propagate this error up instead of expecting
-                let value = array.scalar_at(index).vortex_expect("scalar_at failed");
+                let value = array.scalar_at(index, &mut ctx).vortex_expect("scalar_at failed");
                 // TODO(joe): propagate this error up instead of expecting
                 value.as_extension()
                     .to_storage_scalar()
@@ -368,10 +373,11 @@ pub unsafe extern "C-unwind" fn vx_array_get_utf8(
     array: *const vx_array,
     index: u32,
 ) -> *const vx_string {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let array = vx_array::as_ref(array);
     // TODO(joe): propagate this error up instead of expecting
     let value = array
-        .scalar_at(index as usize)
+        .scalar_at(index as usize, &mut ctx)
         .vortex_expect("scalar_at failed");
     let utf8_scalar = value.as_utf8();
     if let Some(buffer) = utf8_scalar.value() {
@@ -388,10 +394,11 @@ pub unsafe extern "C-unwind" fn vx_array_get_binary(
     array: *const vx_array,
     index: u32,
 ) -> *const vx_binary {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let array = vx_array::as_ref(array);
     // TODO(joe): propagate this error up instead of expecting
     let value = array
-        .scalar_at(index as usize)
+        .scalar_at(index as usize, &mut ctx)
         .vortex_expect("scalar_at failed");
     let binary_scalar = value.as_binary();
     if let Some(bytes) = binary_scalar.value() {

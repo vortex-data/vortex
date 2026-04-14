@@ -28,10 +28,8 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
 use vortex_array::ToCanonical;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
@@ -629,15 +627,14 @@ impl OperationsVTable<Pco> for Pco {
     fn scalar_at(
         array: ArrayView<'_, Pco>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let unsliced_validity = child_to_validity(&array.slots()[0], array.dtype().nullability());
         array
             ._slice(index, index + 1)
-            .decompress(&unsliced_validity, &mut ctx)?
+            .decompress(&unsliced_validity, ctx)?
             .into_array()
-            .scalar_at(0)
+            .scalar_at(0, ctx)
     }
 }
 

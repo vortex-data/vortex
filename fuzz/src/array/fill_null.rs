@@ -6,7 +6,9 @@ use std::sync::Arc;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute as _;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
@@ -199,6 +201,7 @@ fn fill_varbinview_array(
 
             match array.dtype() {
                 DType::Utf8(_) => {
+                    let mut ctx = LEGACY_SESSION.create_execution_ctx();
                     let fill_str = fill_value
                         .as_utf8()
                         .value()
@@ -207,7 +210,7 @@ fn fill_varbinview_array(
                         .map(|i| {
                             if validity_bits.value(i) {
                                 array_ref
-                                    .scalar_at(i)
+                                    .scalar_at(i, &mut ctx)
                                     .vortex_expect("scalar_at")
                                     .as_utf8()
                                     .value()
@@ -233,6 +236,7 @@ fn fill_varbinview_array(
                     }
                 }
                 DType::Binary(_) => {
+                    let mut ctx = LEGACY_SESSION.create_execution_ctx();
                     let fill_bytes = fill_value
                         .as_binary()
                         .value()
@@ -241,7 +245,7 @@ fn fill_varbinview_array(
                         .map(|i| {
                             if validity_bits.value(i) {
                                 array_ref
-                                    .scalar_at(i)
+                                    .scalar_at(i, &mut ctx)
                                     .vortex_expect("scalar_at")
                                     .as_binary()
                                     .value()

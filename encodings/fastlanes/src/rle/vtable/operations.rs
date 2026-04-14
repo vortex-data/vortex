@@ -16,10 +16,10 @@ impl OperationsVTable<RLE> for RLE {
     fn scalar_at(
         array: ArrayView<'_, RLE>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let offset_in_chunk = array.offset();
-        let chunk_relative_idx = array.indices().scalar_at(offset_in_chunk + index)?;
+        let chunk_relative_idx = array.indices().scalar_at(offset_in_chunk + index, ctx)?;
 
         let chunk_relative_idx = chunk_relative_idx
             .as_primitive()
@@ -31,7 +31,7 @@ impl OperationsVTable<RLE> for RLE {
 
         let scalar = array
             .values()
-            .scalar_at(value_idx_offset + chunk_relative_idx)?;
+            .scalar_at(value_idx_offset + chunk_relative_idx, ctx)?;
 
         Scalar::try_new(array.dtype().clone(), scalar.into_value())
     }
