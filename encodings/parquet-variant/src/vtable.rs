@@ -244,13 +244,13 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::Precision;
     use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::arrays::Variant;
     use vortex_array::arrays::VariantArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
+    use vortex_array::session::ArraySession;
     use vortex_array::session::ArraySessionExt;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
@@ -261,11 +261,14 @@ mod tests {
 
     use crate::ParquetVariant;
     use crate::array::ParquetVariantArrayExt;
+
     fn roundtrip(array: ArrayRef) -> ArrayRef {
         let dtype = array.dtype().clone();
         let len = array.len();
 
-        let session = VortexSession::empty().with::<vortex_array::session::ArraySession>();
+        let session = VortexSession::empty().with::<ArraySession>();
+        session.arrays().register(ParquetVariant);
+
         let ctx = ArrayContext::empty();
         let serialized = array
             .serialize(&ctx, &session, &SerializeOptions::default())
@@ -276,8 +279,6 @@ mod tests {
             concat.extend_from_slice(buf.as_ref());
         }
         let concat = concat.freeze();
-        session.arrays().register(ParquetVariant);
-        session.arrays().register(Variant);
 
         let parts = SerializedArray::try_from(concat).unwrap();
         parts

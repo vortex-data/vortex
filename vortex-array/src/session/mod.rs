@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::registry::Registry;
@@ -15,6 +16,7 @@ use crate::arrays::Bool;
 use crate::arrays::Chunked;
 use crate::arrays::Constant;
 use crate::arrays::Decimal;
+use crate::arrays::Dict;
 use crate::arrays::Extension;
 use crate::arrays::FixedSizeList;
 use crate::arrays::List;
@@ -26,6 +28,7 @@ use crate::arrays::Primitive;
 use crate::arrays::Struct;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinView;
+use crate::arrays::Variant;
 
 pub type ArrayRegistry = Registry<ArrayPluginRef>;
 
@@ -68,11 +71,13 @@ impl Default for ArraySession {
         this.register(ListView);
         this.register(FixedSizeList);
         this.register(Struct);
+        this.register(Variant);
         this.register(Extension);
 
         // Register the utility encodings.
         this.register(Chunked);
         this.register(Constant);
+        this.register(Dict);
         this.register(List);
         this.register(Masked);
         this.register(Patched);
@@ -92,8 +97,12 @@ pub trait ArraySessionExt: SessionExt {
     /// Serialize an array using a plugin from the registry.
     fn array_serialize(&self, array: &ArrayRef) -> VortexResult<Option<Vec<u8>>> {
         let Some(plugin) = self.arrays().registry.find(&array.encoding_id()) else {
-            return Ok(None);
+            vortex_bail!(
+                "Array {} is not registered for serializations",
+                array.encoding_id()
+            );
         };
+
         plugin.serialize(array, &self.session())
     }
 }
