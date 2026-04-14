@@ -20,7 +20,6 @@ use parking_lot::RwLock;
 use string_interner::DefaultBackend;
 use string_interner::DefaultSymbol;
 use string_interner::StringInterner;
-use string_interner::Symbol;
 use vortex_error::VortexExpect;
 use vortex_utils::aliases::dash_map::DashMap;
 
@@ -28,49 +27,57 @@ use vortex_utils::aliases::dash_map::DashMap;
 static INTERNER: LazyLock<Interner> = LazyLock::new(Interner::default);
 
 struct Interner {
-    state: ArcSwap<InternedIds>,
+    state: ArcSwap<StringInterner<DefaultBackend>>,
     write_lock: Mutex<()>,
 }
 
 impl Default for Interner {
     fn default() -> Self {
         Self {
-            state: ArcSwap::from_pointee(InternedIds::default()),
+            state: ArcSwap::from_pointee(StringInterner::with_capacity(200)),
             write_lock: Mutex::new(()),
         }
     }
 }
 
 impl Interner {
-    fn intern(&self, s: &str) -> DefaultSymbol {
-        if let Some(symbol) = self.state.load().interner.get(s) {
+    fn intern_static(&self, s: &'static str) -> DefaultSymbol {
+        if let Some(symbol) = self.state.load().get(s) {
             return symbol;
         }
 
+        // Ensure if we need to add this we have the write lock and check again if its was
+        // added just now.
         let _guard = self.write_lock.lock();
         let state = self.state.load_full();
-        if let Some(symbol) = state.interner.get(s) {
+        if let Some(symbol) = state.get(s) {
             return symbol;
         }
 
-        let s: &'static str = Box::leak(s.to_owned().into_boxed_str());
         let mut next = (*state).clone();
-        let symbol = next.interner.get_or_intern_static(s);
-        debug_assert_eq!(symbol.to_usize(), next.strings.len());
-        next.strings.push(s);
+        let symbol = next.get_or_intern_static(s);
         self.state.store(Arc::new(next));
         symbol
     }
 
-    fn resolve(&self, symbol: DefaultSymbol) -> Option<&'static str> {
-        self.state.load().strings.get(symbol.to_usize()).copied()
-    }
-}
+    fn intern(&self, s: &str) -> DefaultSymbol {
+        if let Some(symbol) = self.state.load().get(s) {
+            return symbol;
+        }
 
-#[derive(Clone, Default)]
-struct InternedIds {
-    interner: StringInterner<DefaultBackend>,
-    strings: Vec<&'static str>,
+        // Ensure if we need to add this we have the write lock and check again if its was
+        // added just now.
+        let _guard = self.write_lock.lock();
+        let state = self.state.load_full();
+        if let Some(symbol) = state.get(s) {
+            return symbol;
+        }
+
+        let mut next = (*state).clone();
+        let symbol = next.get_or_intern(s);
+        self.state.store(Arc::new(next));
+        symbol
+    }
 }
 
 /// A lightweight, copyable identifier backed by a global string interner.
@@ -87,11 +94,22 @@ impl Id {
         Self(INTERNER.intern(s))
     }
 
+    /// Intern a string and return its `Id`.
+    pub fn new_static(s: &'static str) -> Self {
+        Self(INTERNER.intern_static(s))
+    }
+
     /// Returns the interned string.
     pub fn as_str(&self) -> &str {
-        INTERNER
+        // SAFETY: The interner is append-only (symbols are never removed), so the resolved
+        // string reference is valid for the lifetime of this borrow.
+        let interner = INTERNER.state.load();
+        let s = interner
             .resolve(self.0)
-            .vortex_expect("Id symbol not found in interner")
+            .vortex_expect("Id symbol not found in interner");
+        // SAFETY: The interner is append-only and lives for 'static, so the &str is valid
+        // for the program's lifetime. We just can't express that through the RwLock borrow.
+        unsafe { &*(s as *const str) }
     }
 }
 
