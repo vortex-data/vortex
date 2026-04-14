@@ -13,6 +13,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -21,7 +22,6 @@ use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
-use vortex_session::registry::CachedId;
 use crate::array::VTable;
 use crate::arrays::varbinview::BinaryView;
 use crate::arrays::varbinview::VarBinViewData;

@@ -32,9 +32,10 @@ mod validity;
 
 use std::hash::Hash;
 
+use vortex_session::registry::CachedId;
+
 use crate::Precision;
 use crate::array::ArrayId;
-use vortex_session::registry::CachedId;
 use crate::arrays::decimal::array::SLOT_NAMES;
 use crate::arrays::decimal::compute::rules::RULES;
 use crate::hash::ArrayEq;

@@ -2,6 +2,18 @@ pub mod vortex_session
 
 pub mod vortex_session::registry
 
+pub struct vortex_session::registry::CachedId
+
+impl vortex_session::registry::CachedId
+
+pub const fn vortex_session::registry::CachedId::new(s: &'static str) -> Self
+
+impl core::ops::deref::Deref for vortex_session::registry::CachedId
+
+pub type vortex_session::registry::CachedId::Target = vortex_session::registry::Id
+
+pub fn vortex_session::registry::CachedId::deref(&self) -> &vortex_session::registry::Id
+
 pub struct vortex_session::registry::Context<T>
 
 impl<T: core::clone::Clone> vortex_session::registry::Context<T>

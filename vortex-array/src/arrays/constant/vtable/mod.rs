@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -21,7 +22,6 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
-use vortex_session::registry::CachedId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::constant::ConstantData;

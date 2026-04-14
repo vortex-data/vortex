@@ -5,13 +5,13 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::array::Array;
 use crate::array::ArrayId;
-use vortex_session::registry::CachedId;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::EmptyArrayData;

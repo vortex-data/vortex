@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -17,7 +18,6 @@ use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
-use vortex_session::registry::CachedId;
 use crate::array::VTable;
 use crate::arrays::varbin::VarBinArrayExt;
 use crate::arrays::varbin::VarBinData;

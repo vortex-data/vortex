@@ -29,8 +29,9 @@ mod kernel;
 mod operations;
 mod validity;
 
-use crate::array::ArrayId;
 use vortex_session::registry::CachedId;
+
+use crate::array::ArrayId;
 
 /// A [`Struct`]-encoded Vortex array.
 pub type StructArray = Array<Struct>;

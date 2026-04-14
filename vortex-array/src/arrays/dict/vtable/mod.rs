@@ -12,6 +12,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use super::DictData;
 use super::DictMetadata;
@@ -26,7 +27,6 @@ use crate::Canonical;
 use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
-use vortex_session::registry::CachedId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::ConstantArray;

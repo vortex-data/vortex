@@ -30,9 +30,10 @@ mod kernel;
 mod operations;
 mod validity;
 
+use vortex_session::registry::CachedId;
+
 use crate::Precision;
 use crate::array::ArrayId;
-use vortex_session::registry::CachedId;
 use crate::arrays::bool::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;

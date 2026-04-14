@@ -12,6 +12,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::AnyCanonical;
 use crate::ArrayEq;
@@ -22,7 +23,6 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
-use vortex_session::registry::CachedId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::validity_to_child;

@@ -16,7 +16,6 @@ use prost::Message as _;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
-use vortex_session::registry::CachedId;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
@@ -44,6 +43,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::decimal_byte_parts::compute::kernel::PARENT_KERNELS;
 use crate::decimal_byte_parts::rules::PARENT_RULES;
