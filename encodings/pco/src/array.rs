@@ -274,11 +274,9 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
 pub struct Pco;
 
 impl Pco {
-    pub const ID: &'static str = "vortex.pco";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(Pco::ID);
+        static ID: CachedId = CachedId::new("vortex.pco");
         *ID
     }
 

@@ -24,7 +24,7 @@ pub fn initialize(session: &VortexSession) {
     session.arrays().register(DecimalByteParts);
 
     session.aggregate_fns().register_aggregate_kernel(
-        DecimalByteParts::ID,
+        DecimalByteParts::array_id(),
         Some(IsConstant.id()),
         &DecimalBytePartsIsConstantKernel,
     );

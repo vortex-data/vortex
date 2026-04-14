@@ -239,11 +239,9 @@ impl Display for ALPData {
 pub struct ALP;
 
 impl ALP {
-    pub const ID: &'static str = "vortex.alp";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(ALP::ID);
+        static ID: CachedId = CachedId::new("vortex.alp");
         *ID
     }
 }

@@ -39,11 +39,9 @@ pub type SharedArray = Array<Shared>;
 pub struct Shared;
 
 impl Shared {
-    pub const ID: &'static str = "vortex.shared";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(Shared::ID);
+        static ID: CachedId = CachedId::new("vortex.shared");
         *ID
     }
 }

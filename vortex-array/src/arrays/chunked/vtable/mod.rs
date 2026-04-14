@@ -50,11 +50,9 @@ pub type ChunkedArray = Array<Chunked>;
 pub struct Chunked;
 
 impl Chunked {
-    pub const ID: &'static str = "vortex.chunked";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(Chunked::ID);
+        static ID: CachedId = CachedId::new("vortex.chunked");
         *ID
     }
 }

@@ -205,11 +205,9 @@ impl VTable for Primitive {
 pub struct Primitive;
 
 impl Primitive {
-    pub const ID: &'static str = "vortex.primitive";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(Primitive::ID);
+        static ID: CachedId = CachedId::new("vortex.primitive");
         *ID
     }
 }

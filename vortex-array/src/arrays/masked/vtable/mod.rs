@@ -50,11 +50,9 @@ pub type MaskedArray = Array<Masked>;
 pub struct Masked;
 
 impl Masked {
-    pub const ID: &'static str = "vortex.masked";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(Masked::ID);
+        static ID: CachedId = CachedId::new("vortex.masked");
         *ID
     }
 }

@@ -47,11 +47,9 @@ use crate::kernel::PARENT_KERNELS;
 pub struct ParquetVariant;
 
 impl ParquetVariant {
-    pub const ID: &'static str = "vortex.parquet.variant";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(ParquetVariant::ID);
+        static ID: CachedId = CachedId::new("vortex.parquet.variant");
         *ID
     }
 }

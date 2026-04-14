@@ -31,11 +31,9 @@ pub type VariantArray = Array<Variant>;
 pub struct Variant;
 
 impl Variant {
-    pub const ID: &'static str = "vortex.variant";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(Variant::ID);
+        static ID: CachedId = CachedId::new("vortex.variant");
         *ID
     }
 }

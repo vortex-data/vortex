@@ -47,17 +47,17 @@ pub fn initialize(session: &VortexSession) {
 
     // Register the encoding-specific aggregate kernels.
     session.aggregate_fns().register_aggregate_kernel(
-        BitPacked::ID,
+        BitPacked::array_id(),
         Some(IsConstant.id()),
         &BitPackedIsConstantKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
-        FoR::ID,
+        FoR::array_id(),
         Some(IsConstant.id()),
         &FoRIsConstantKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
-        FoR::ID,
+        FoR::array_id(),
         Some(IsSorted.id()),
         &FoRIsSortedKernel,
     );

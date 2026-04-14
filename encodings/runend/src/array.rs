@@ -242,11 +242,9 @@ impl<T: TypedArrayRef<RunEnd>> RunEndArrayExt for T {}
 pub struct RunEnd;
 
 impl RunEnd {
-    pub const ID: &'static str = "vortex.runend";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(RunEnd::ID);
+        static ID: CachedId = CachedId::new("vortex.runend");
         *ID
     }
     /// Build a new [`RunEndArray`] without validation.

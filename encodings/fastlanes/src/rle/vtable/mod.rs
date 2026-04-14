@@ -210,11 +210,9 @@ impl VTable for RLE {
 pub struct RLE;
 
 impl RLE {
-    pub const ID: &'static str = "fastlanes.rle";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(RLE::ID);
+        static ID: CachedId = CachedId::new("fastlanes.rle");
         *ID
     }
 

@@ -47,11 +47,9 @@ pub type SliceArray = Array<Slice>;
 pub struct Slice;
 
 impl Slice {
-    pub const ID: &'static str = "vortex.slice";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(Slice::ID);
+        static ID: CachedId = CachedId::new("vortex.slice");
         *ID
     }
 }

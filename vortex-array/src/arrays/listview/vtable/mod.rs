@@ -44,11 +44,9 @@ pub type ListViewArray = Array<ListView>;
 pub struct ListView;
 
 impl ListView {
-    pub const ID: &'static str = "vortex.listview";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(ListView::ID);
+        static ID: CachedId = CachedId::new("vortex.listview");
         *ID
     }
 }

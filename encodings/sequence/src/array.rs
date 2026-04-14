@@ -370,11 +370,9 @@ impl ValidityVTable<Sequence> for Sequence {
 pub struct Sequence;
 
 impl Sequence {
-    pub const ID: &'static str = "vortex.sequence";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(Sequence::ID);
+        static ID: CachedId = CachedId::new("vortex.sequence");
         *ID
     }
 

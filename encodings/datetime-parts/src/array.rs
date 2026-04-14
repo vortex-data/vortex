@@ -251,11 +251,9 @@ impl<T: TypedArrayRef<DateTimeParts>> DateTimePartsArrayExt for T {}
 pub struct DateTimeParts;
 
 impl DateTimeParts {
-    pub const ID: &'static str = "vortex.datetimeparts";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(DateTimeParts::ID);
+        static ID: CachedId = CachedId::new("vortex.datetimeparts");
         *ID
     }
 

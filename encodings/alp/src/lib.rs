@@ -41,7 +41,7 @@ pub fn initialize(session: &VortexSession) {
 
     // Register the ALP-specific NaN count aggregate kernel.
     session.aggregate_fns().register_aggregate_kernel(
-        ALP::ID,
+        ALP::array_id(),
         Some(NanCount.id()),
         &compute::nan_count::ALPNanCountKernel,
     );

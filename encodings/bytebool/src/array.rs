@@ -201,11 +201,9 @@ impl<T: TypedArrayRef<ByteBool>> ByteBoolArrayExt for T {}
 pub struct ByteBool;
 
 impl ByteBool {
-    pub const ID: &'static str = "vortex.bytebool";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(ByteBool::ID);
+        static ID: CachedId = CachedId::new("vortex.bytebool");
         *ID
     }
     pub fn new(buffer: BufferHandle, validity: Validity) -> ByteBoolArray {

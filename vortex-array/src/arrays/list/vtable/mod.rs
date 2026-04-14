@@ -202,11 +202,9 @@ impl VTable for List {
 pub struct List;
 
 impl List {
-    pub const ID: &'static str = "vortex.list";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(List::ID);
+        static ID: CachedId = CachedId::new("vortex.list");
         *ID
     }
 }

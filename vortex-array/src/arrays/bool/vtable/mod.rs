@@ -193,11 +193,9 @@ impl VTable for Bool {
 pub struct Bool;
 
 impl Bool {
-    pub const ID: &'static str = "vortex.bool";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(Bool::ID);
+        static ID: CachedId = CachedId::new("vortex.bool");
         *ID
     }
 }

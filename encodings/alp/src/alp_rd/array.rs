@@ -358,11 +358,9 @@ pub struct ALPRDDataParts {
 pub struct ALPRD;
 
 impl ALPRD {
-    pub const ID: &'static str = "vortex.alprd";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(ALPRD::ID);
+        static ID: CachedId = CachedId::new("vortex.alprd");
         *ID
     }
 

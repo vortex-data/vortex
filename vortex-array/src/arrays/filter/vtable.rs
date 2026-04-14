@@ -50,11 +50,9 @@ pub type FilterArray = Array<Filter>;
 pub struct Filter;
 
 impl Filter {
-    pub const ID: &'static str = "vortex.filter";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(Filter::ID);
+        static ID: CachedId = CachedId::new("vortex.filter");
         *ID
     }
 }

@@ -163,11 +163,9 @@ impl VTable for FoR {
 pub struct FoR;
 
 impl FoR {
-    pub const ID: &'static str = "fastlanes.for";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(FoR::ID);
+        static ID: CachedId = CachedId::new("fastlanes.for");
         *ID
     }
     /// Construct a new FoR array from an encoded array and a reference scalar.

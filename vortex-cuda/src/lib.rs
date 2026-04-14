@@ -93,22 +93,22 @@ pub fn cuda_available() -> bool {
 /// Registers CUDA kernels.
 pub fn initialize_cuda(session: &CudaSession) {
     info!("Registering CUDA kernels");
-    session.register_kernel(ALP::ID, &ALPExecutor);
-    session.register_kernel(BitPacked::ID, &BitPackedExecutor);
-    session.register_kernel(Constant::ID, &ConstantNumericExecutor);
-    session.register_kernel(DateTimeParts::ID, &DateTimePartsExecutor);
-    session.register_kernel(DecimalByteParts::ID, &DecimalBytePartsExecutor);
-    session.register_kernel(Dict::ID, &DictExecutor);
-    session.register_kernel(Shared::ID, &SharedExecutor);
-    session.register_kernel(FoR::ID, &FoRExecutor);
-    session.register_kernel(RunEnd::ID, &RunEndExecutor);
-    session.register_kernel(Sequence::ID, &SequenceExecutor);
-    session.register_kernel(ZigZag::ID, &ZigZagExecutor);
-    session.register_kernel(Zstd::ID, &ZstdExecutor);
+    session.register_kernel(ALP::array_id(), &ALPExecutor);
+    session.register_kernel(BitPacked::array_id(), &BitPackedExecutor);
+    session.register_kernel(Constant::array_id(), &ConstantNumericExecutor);
+    session.register_kernel(DateTimeParts::array_id(), &DateTimePartsExecutor);
+    session.register_kernel(DecimalByteParts::array_id(), &DecimalBytePartsExecutor);
+    session.register_kernel(Dict::array_id(), &DictExecutor);
+    session.register_kernel(Shared::array_id(), &SharedExecutor);
+    session.register_kernel(FoR::array_id(), &FoRExecutor);
+    session.register_kernel(RunEnd::array_id(), &RunEndExecutor);
+    session.register_kernel(Sequence::array_id(), &SequenceExecutor);
+    session.register_kernel(ZigZag::array_id(), &ZigZagExecutor);
+    session.register_kernel(Zstd::array_id(), &ZstdExecutor);
     #[cfg(feature = "unstable_encodings")]
-    session.register_kernel(ZstdBuffers::ID, &ZstdBuffersExecutor);
+    session.register_kernel(ZstdBuffers::array_id(), &ZstdBuffersExecutor);
 
     // Operation kernels
-    session.register_kernel(Filter::ID, &FilterExecutor);
-    session.register_kernel(Slice::ID, &SliceExecutor);
+    session.register_kernel(Filter::array_id(), &FilterExecutor);
+    session.register_kernel(Slice::array_id(), &SliceExecutor);
 }

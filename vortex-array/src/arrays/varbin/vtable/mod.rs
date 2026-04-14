@@ -200,11 +200,9 @@ impl VTable for VarBin {
 pub struct VarBin;
 
 impl VarBin {
-    pub const ID: &'static str = "vortex.varbin";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(VarBin::ID);
+        static ID: CachedId = CachedId::new("vortex.varbin");
         *ID
     }
 }

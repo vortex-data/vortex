@@ -22,7 +22,7 @@ pub fn initialize(session: &VortexSession) {
     session.arrays().register(DateTimeParts);
 
     session.aggregate_fns().register_aggregate_kernel(
-        DateTimeParts::ID,
+        DateTimeParts::array_id(),
         Some(IsConstant.id()),
         &compute::is_constant::DateTimePartsIsConstantKernel,
     );

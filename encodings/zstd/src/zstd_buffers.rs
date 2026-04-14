@@ -45,11 +45,9 @@ pub type ZstdBuffersArray = Array<ZstdBuffers>;
 pub struct ZstdBuffers;
 
 impl ZstdBuffers {
-    pub const ID: &'static str = "vortex.zstd_buffers";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(ZstdBuffers::ID);
+        static ID: CachedId = CachedId::new("vortex.zstd_buffers");
         *ID
     }
     pub fn try_new(

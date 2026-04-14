@@ -141,11 +141,9 @@ impl VTable for Null {
 pub struct Null;
 
 impl Null {
-    pub const ID: &'static str = "vortex.null";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(Null::ID);
+        static ID: CachedId = CachedId::new("vortex.null");
         *ID
     }
 }

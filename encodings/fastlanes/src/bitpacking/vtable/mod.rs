@@ -310,11 +310,9 @@ impl VTable for BitPacked {
 pub struct BitPacked;
 
 impl BitPacked {
-    pub const ID: &'static str = "fastlanes.bitpacked";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(BitPacked::ID);
+        static ID: CachedId = CachedId::new("fastlanes.bitpacked");
         *ID
     }
     pub fn try_new(

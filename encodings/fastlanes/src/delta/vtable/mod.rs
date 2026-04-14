@@ -181,11 +181,9 @@ impl VTable for Delta {
 pub struct Delta;
 
 impl Delta {
-    pub const ID: &'static str = "fastlanes.delta";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(Delta::ID);
+        static ID: CachedId = CachedId::new("fastlanes.delta");
         *ID
     }
 

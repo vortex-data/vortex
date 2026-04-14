@@ -228,11 +228,9 @@ impl Display for SparseData {
 pub struct Sparse;
 
 impl Sparse {
-    pub const ID: &'static str = "vortex.sparse";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(Sparse::ID);
+        static ID: CachedId = CachedId::new("vortex.sparse");
         *ID
     }
 

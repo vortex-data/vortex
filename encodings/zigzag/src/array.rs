@@ -196,11 +196,9 @@ impl<T: TypedArrayRef<ZigZag>> ZigZagArrayExt for T {}
 pub struct ZigZag;
 
 impl ZigZag {
-    pub const ID: &'static str = "vortex.zigzag";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(ZigZag::ID);
+        static ID: CachedId = CachedId::new("vortex.zigzag");
         *ID
     }
     /// Construct a new [`ZigZagArray`] from an encoded unsigned integer array.

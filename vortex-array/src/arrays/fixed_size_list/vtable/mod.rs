@@ -42,11 +42,9 @@ pub type FixedSizeListArray = Array<FixedSizeList>;
 pub struct FixedSizeList;
 
 impl FixedSizeList {
-    pub const ID: &'static str = "vortex.fixed_size_list";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(FixedSizeList::ID);
+        static ID: CachedId = CachedId::new("vortex.fixed_size_list");
         *ID
     }
 }

@@ -40,17 +40,17 @@ pub fn initialize(session: &VortexSession) {
 
     // Register the RunEnd-specific aggregate kernels.
     session.aggregate_fns().register_aggregate_kernel(
-        RunEnd::ID,
+        RunEnd::array_id(),
         Some(MinMax.id()),
         &compute::min_max::RunEndMinMaxKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
-        RunEnd::ID,
+        RunEnd::array_id(),
         Some(IsConstant.id()),
         &compute::is_constant::RunEndIsConstantKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
-        RunEnd::ID,
+        RunEnd::array_id(),
         Some(IsSorted.id()),
         &compute::is_sorted::RunEndIsSortedKernel,
     );

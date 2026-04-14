@@ -254,11 +254,9 @@ impl VTable for Zstd {
 pub struct Zstd;
 
 impl Zstd {
-    pub const ID: &'static str = "vortex.zstd";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(Zstd::ID);
+        static ID: CachedId = CachedId::new("vortex.zstd");
         *ID
     }
     pub fn try_new(dtype: DType, data: ZstdData, validity: Validity) -> VortexResult<ZstdArray> {

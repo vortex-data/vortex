@@ -29,12 +29,12 @@ pub fn initialize(session: &VortexSession) {
 
     // Register the Sequence-specific aggregate kernels.
     session.aggregate_fns().register_aggregate_kernel(
-        Sequence::ID,
+        Sequence::array_id(),
         Some(MinMax.id()),
         &compute::min_max::SequenceMinMaxKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
-        Sequence::ID,
+        Sequence::array_id(),
         Some(IsSorted.id()),
         &compute::is_sorted::SequenceIsSortedKernel,
     );

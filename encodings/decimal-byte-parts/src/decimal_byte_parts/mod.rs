@@ -254,11 +254,9 @@ impl DecimalBytePartsData {
 pub struct DecimalByteParts;
 
 impl DecimalByteParts {
-    pub const ID: &'static str = "vortex.decimal_byte_parts";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(DecimalByteParts::ID);
+        static ID: CachedId = CachedId::new("vortex.decimal_byte_parts");
         *ID
     }
     /// Construct a new [`DecimalBytePartsArray`] from an MSP array and decimal dtype.

@@ -168,11 +168,9 @@ impl VTable for Extension {
 pub struct Extension;
 
 impl Extension {
-    pub const ID: &'static str = "vortex.ext";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(Extension::ID);
+        static ID: CachedId = CachedId::new("vortex.ext");
         *ID
     }
 }

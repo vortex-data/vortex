@@ -44,11 +44,9 @@ pub type VarBinViewArray = Array<VarBinView>;
 pub struct VarBinView;
 
 impl VarBinView {
-    pub const ID: &'static str = "vortex.varbinview";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(VarBinView::ID);
+        static ID: CachedId = CachedId::new("vortex.varbinview");
         *ID
     }
 }

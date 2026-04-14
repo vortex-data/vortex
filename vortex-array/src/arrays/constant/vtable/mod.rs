@@ -53,11 +53,9 @@ pub type ConstantArray = Array<Constant>;
 pub struct Constant;
 
 impl Constant {
-    pub const ID: &'static str = "vortex.constant";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(Constant::ID);
+        static ID: CachedId = CachedId::new("vortex.constant");
         *ID
     }
 }

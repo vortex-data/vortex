@@ -80,7 +80,7 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
             tracing::trace!(
                 "Not pushing down fallible scalar function {} over dictionary with sparse codes {}",
                 parent.scalar_fn(),
-                Dict::ID,
+                Dict::array_id(),
             );
             return Ok(None);
         }
@@ -104,7 +104,7 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
             tracing::trace!(
                 "Not pushing down null-sensitive scalar function {} over dictionary with null codes {}",
                 parent.scalar_fn(),
-                Dict::ID,
+                Dict::array_id(),
             );
             return Ok(None);
         }

@@ -54,11 +54,9 @@ pub type DictArray = Array<Dict>;
 pub struct Dict;
 
 impl Dict {
-    pub const ID: &'static str = "vortex.dict";
-
     /// Returns the cached [`ArrayId`] for this encoding.
     pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new(Dict::ID);
+        static ID: CachedId = CachedId::new("vortex.dict");
         *ID
     }
 }
