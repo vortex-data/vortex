@@ -684,11 +684,16 @@ impl Scheme for SequenceScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        // If the distinct_values_count was computed, and not all values are unique, then this
-        // cannot be encoded as a sequence array.
-        if stats
-            .distinct_count()
-            .is_some_and(|count| count as usize != data.array_len())
+        // If the distinct_values_count was computed, and the array has clearly fewer distinct
+        // values than its length, then this cannot be encoded as a sequence array. The distinct
+        // count is now sourced from a cardinality estimator, so we allow a small tolerance to
+        // account for its approximation error (~1-2% for typical inputs). Arrays that are truly
+        // sequences will fall through to the deferred callback which validates them exactly.
+        let distinct_count = stats.distinct_count();
+        let array_len = data.array_len();
+        let tolerance = array_len.div_ceil(16);
+        if distinct_count
+            .is_some_and(|count| (count as usize).saturating_add(tolerance) < array_len)
         {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }

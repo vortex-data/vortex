@@ -3,11 +3,11 @@
 
 //! String compression statistics.
 
+use cardinality_estimator::CardinalityEstimator;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use super::GenerateStatsOptions;
 
@@ -23,23 +23,27 @@ pub struct StringStats {
     null_count: u32,
 }
 
-/// Estimate the number of distinct strings in the var bin view array.
+/// Estimate the number of distinct strings in the var bin view array using Cloudflare's
+/// cardinality estimator.
+///
+/// The signal used for each string is the 64-bit combination of its length and first 4-byte
+/// prefix: two strings that are equal must agree on both. This remains an approximation for
+/// strings that share a 4-byte prefix and length, but is exact for distinct prefixes/lengths.
+/// The cardinality estimator itself is exact for small cardinalities and falls back to
+/// HyperLogLog++ for larger ones.
 fn estimate_distinct_count(strings: &VarBinViewArray) -> VortexResult<u32> {
     let views = strings.views();
-    // Iterate the views. Two strings which are equal must have the same first 8-bytes.
-    // NOTE: there are cases where this performs pessimally, e.g. when we have strings that all
-    // share a 4-byte prefix and have the same length.
-    let mut distinct = HashSet::with_capacity(views.len() / 2);
-    views.iter().for_each(|&view| {
+    let mut estimator: CardinalityEstimator<u64> = CardinalityEstimator::new();
+    for &view in views.iter() {
         #[expect(
             clippy::cast_possible_truncation,
             reason = "approximate uniqueness with view prefix"
         )]
         let len_and_prefix = view.as_u128() as u64;
-        distinct.insert(len_and_prefix);
-    });
+        estimator.insert(&len_and_prefix);
+    }
 
-    Ok(u32::try_from(distinct.len())?)
+    Ok(u32::try_from(estimator.estimate())?)
 }
 
 impl StringStats {

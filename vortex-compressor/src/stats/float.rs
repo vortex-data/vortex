@@ -4,10 +4,11 @@
 //! Float compression statistics.
 
 use std::hash::Hash;
+use std::marker::PhantomData;
 
+use cardinality_estimator::CardinalityEstimator;
 use itertools::Itertools;
 use num_traits::Float;
-use rustc_hash::FxBuildHasher;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::NativePType;
@@ -18,24 +19,19 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use super::GenerateStatsOptions;
 
 /// Information about the distinct values in a float array.
+///
+/// The distinct count is an estimate produced by Cloudflare's cardinality estimator, which is
+/// exact for small cardinalities and approximate beyond that.
 #[derive(Debug, Clone)]
 pub struct DistinctInfo<T> {
-    /// The set of distinct float values.
-    distinct_values: HashSet<NativeValue<T>, FxBuildHasher>,
-    /// The count of unique values. This _must_ be non-zero.
+    /// The estimated count of unique values. This _must_ be non-zero.
     distinct_count: u32,
-}
-
-impl<T> DistinctInfo<T> {
-    /// Returns a reference to the distinct values set.
-    pub fn distinct_values(&self) -> &HashSet<NativeValue<T>, FxBuildHasher> {
-        &self.distinct_values
-    }
+    /// Phantom marker for the float element type.
+    _marker: PhantomData<T>,
 }
 
 /// Typed statistics for a specific float type.
@@ -181,8 +177,8 @@ where
             average_run_length: 0,
             erased: TypedStats {
                 distinct: Some(DistinctInfo {
-                    distinct_values: HashSet::with_capacity_and_hasher(0, FxBuildHasher),
                     distinct_count: 0,
+                    _marker: PhantomData,
                 }),
             }
             .into(),
@@ -195,13 +191,9 @@ where
         .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
     let value_count = array.len() - null_count;
 
-    // Keep a HashMap of T, then convert the keys into PValue afterward since value is
-    // so much more efficient to hash and search for.
-    let mut distinct_values = if count_distinct_values {
-        HashSet::with_capacity_and_hasher(array.len() / 2, FxBuildHasher)
-    } else {
-        HashSet::with_hasher(FxBuildHasher)
-    };
+    // Cloudflare's cardinality estimator gives us a bounded-memory approximation of the
+    // number of distinct values, replacing the previous exact `HashSet`.
+    let mut estimator: CardinalityEstimator<NativeValue<T>> = CardinalityEstimator::new();
 
     let validity = array.validity_mask()?;
 
@@ -217,7 +209,7 @@ where
         AllOr::All => {
             for value in first_valid_buff {
                 if count_distinct_values {
-                    distinct_values.insert(NativeValue(value));
+                    estimator.insert(&NativeValue(value));
                 }
 
                 if value != prev {
@@ -234,7 +226,7 @@ where
             {
                 if valid {
                     if count_distinct_values {
-                        distinct_values.insert(NativeValue(value));
+                        estimator.insert(&NativeValue(value));
                     }
 
                     if value != prev {
@@ -250,9 +242,10 @@ where
     let value_count = u32::try_from(value_count)?;
 
     let distinct = count_distinct_values.then(|| DistinctInfo {
-        distinct_count: u32::try_from(distinct_values.len())
-            .vortex_expect("more than u32::MAX distinct values"),
-        distinct_values,
+        distinct_count: u32::try_from(estimator.estimate())
+            .vortex_expect("more than u32::MAX distinct values")
+            .max(1),
+        _marker: PhantomData,
     });
 
     Ok(FloatStats {

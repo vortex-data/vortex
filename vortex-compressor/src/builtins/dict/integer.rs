@@ -6,6 +6,7 @@
 //! Vortex encoders must always produce unsigned integer codes; signed codes are only accepted
 //! for external compatibility.
 
+use rustc_hash::FxBuildHasher;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
@@ -15,11 +16,14 @@ use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::DictArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
+use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_mask::AllOr;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::CascadingCompressor;
 use crate::builtins::IntDictScheme;
@@ -31,7 +35,6 @@ use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
 use crate::stats::ArrayAndStats;
 use crate::stats::GenerateStatsOptions;
-use crate::stats::IntegerErasedStats;
 use crate::stats::IntegerStats;
 
 impl Scheme for IntDictScheme {
@@ -131,39 +134,50 @@ impl Scheme for IntDictScheme {
     }
 }
 
-/// Encodes a typed integer array into a [`DictArray`] using the pre-computed distinct values.
+/// Encodes a typed integer array into a [`DictArray`] by scanning for distinct values.
+///
+/// Because compression stats now estimate distinct counts without retaining the values
+/// themselves, this macro rebuilds the exact set of distinct values directly from the array.
 macro_rules! typed_encode {
-    ($source_array:ident, $stats:ident, $typed:ident, $typ:ty) => {{
-        let distinct = $typed.distinct().vortex_expect(
-            "this must be present since `DictScheme` declared that we need distinct values",
-        );
-
+    ($source_array:ident, $typ:ty) => {{
         let values_validity = match $source_array.validity()? {
             Validity::NonNullable => Validity::NonNullable,
             _ => Validity::AllValid,
         };
         let codes_validity = $source_array.validity()?;
 
-        let values: Buffer<$typ> = distinct.distinct_values().keys().map(|x| x.0).collect();
+        let source = $source_array.as_slice::<$typ>();
+        let validity_mask = $source_array.validity_mask();
+
+        let mut seen: HashSet<NativeValue<$typ>, FxBuildHasher> =
+            HashSet::with_hasher(FxBuildHasher);
+        match validity_mask.bit_buffer() {
+            AllOr::All => {
+                for &v in source {
+                    seen.insert(NativeValue(v));
+                }
+            }
+            AllOr::None => {}
+            AllOr::Some(mask) => {
+                for (idx, &v) in source.iter().enumerate() {
+                    if mask.value(idx) {
+                        seen.insert(NativeValue(v));
+                    }
+                }
+            }
+        }
+
+        let values: Buffer<$typ> = seen.iter().map(|x| x.0).collect();
 
         let max_code = values.len();
         let codes = if max_code <= u8::MAX as usize {
-            let buf = <DictEncoder as Encode<$typ, u8>>::encode(
-                &values,
-                $source_array.as_slice::<$typ>(),
-            );
+            let buf = <DictEncoder as Encode<$typ, u8>>::encode(&values, source);
             PrimitiveArray::new(buf, codes_validity).into_array()
         } else if max_code <= u16::MAX as usize {
-            let buf = <DictEncoder as Encode<$typ, u16>>::encode(
-                &values,
-                $source_array.as_slice::<$typ>(),
-            );
+            let buf = <DictEncoder as Encode<$typ, u16>>::encode(&values, source);
             PrimitiveArray::new(buf, codes_validity).into_array()
         } else {
-            let buf = <DictEncoder as Encode<$typ, u32>>::encode(
-                &values,
-                $source_array.as_slice::<$typ>(),
-            );
+            let buf = <DictEncoder as Encode<$typ, u32>>::encode(&values, source);
             PrimitiveArray::new(buf, codes_validity).into_array()
         };
 
@@ -173,7 +187,7 @@ macro_rules! typed_encode {
     }};
 }
 
-/// Compresses an integer array into a dictionary array according to attached stats.
+/// Compresses an integer array into a dictionary array.
 ///
 /// # Errors
 ///
@@ -186,15 +200,17 @@ pub fn dictionary_encode(
     array: ArrayView<'_, Primitive>,
     stats: &IntegerStats,
 ) -> VortexResult<DictArray> {
-    match stats.erased() {
-        IntegerErasedStats::U8(typed) => typed_encode!(array, stats, typed, u8),
-        IntegerErasedStats::U16(typed) => typed_encode!(array, stats, typed, u16),
-        IntegerErasedStats::U32(typed) => typed_encode!(array, stats, typed, u32),
-        IntegerErasedStats::U64(typed) => typed_encode!(array, stats, typed, u64),
-        IntegerErasedStats::I8(typed) => typed_encode!(array, stats, typed, i8),
-        IntegerErasedStats::I16(typed) => typed_encode!(array, stats, typed, i16),
-        IntegerErasedStats::I32(typed) => typed_encode!(array, stats, typed, i32),
-        IntegerErasedStats::I64(typed) => typed_encode!(array, stats, typed, i64),
+    let _ = stats;
+    match array.ptype() {
+        vortex_array::dtype::PType::U8 => typed_encode!(array, u8),
+        vortex_array::dtype::PType::U16 => typed_encode!(array, u16),
+        vortex_array::dtype::PType::U32 => typed_encode!(array, u32),
+        vortex_array::dtype::PType::U64 => typed_encode!(array, u64),
+        vortex_array::dtype::PType::I8 => typed_encode!(array, i8),
+        vortex_array::dtype::PType::I16 => typed_encode!(array, i16),
+        vortex_array::dtype::PType::I32 => typed_encode!(array, i32),
+        vortex_array::dtype::PType::I64 => typed_encode!(array, i64),
+        other => vortex_error::vortex_bail!("unsupported integer ptype for dict encoding: {other}"),
     }
 }
 
