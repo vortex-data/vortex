@@ -7,6 +7,7 @@ use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
+use vortex_array::scalar_fn::fns::cast::CastOptions;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_array::vtable::child_to_validity;
 use vortex_error::VortexResult;
@@ -14,7 +15,7 @@ use vortex_error::VortexResult;
 use crate::Pco;
 use crate::PcoData;
 impl CastReduce for Pco {
-    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Self>, dtype: &DType,_options: &CastOptions) -> VortexResult<Option<ArrayRef>> {
         if !dtype.is_nullable()
             || !array
                 .array()

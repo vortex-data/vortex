@@ -72,7 +72,7 @@ pub fn vortex_fsst::FSST::compare(lhs: vortex_array::array::view::ArrayView<'_, 
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_fsst::FSST
 
-pub fn vortex_fsst::FSST::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+pub fn vortex_fsst::FSST::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType, options: &vortex_array::scalar_fn::fns::cast::CastOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::like::kernel::LikeKernel for vortex_fsst::FSST
 

@@ -11,13 +11,18 @@ use crate::arrays::ChunkedArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::scalar_fn::fns::cast::CastOptions;
 use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for Chunked {
-    fn cast(array: ArrayView<'_, Chunked>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(
+        array: ArrayView<'_, Chunked>,
+        dtype: &DType,
+        options: &CastOptions,
+    ) -> VortexResult<Option<ArrayRef>> {
         let mut cast_chunks = Vec::new();
         for chunk in array.iter_chunks() {
-            cast_chunks.push(chunk.cast(dtype.clone())?);
+            cast_chunks.push(chunk.cast_opts(dtype.clone(), *options)?);
         }
 
         // SAFETY: casting all chunks retains all chunks have same DType

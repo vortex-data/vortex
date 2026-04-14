@@ -11,10 +11,15 @@ use crate::arrays::ListArray;
 use crate::arrays::list::ListArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::scalar_fn::fns::cast::CastOptions;
 use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for List {
-    fn cast(array: ArrayView<'_, List>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(
+        array: ArrayView<'_, List>,
+        dtype: &DType,
+        options: &CastOptions,
+    ) -> VortexResult<Option<ArrayRef>> {
         let Some(target_element_type) = dtype.as_list_element_opt() else {
             return Ok(None);
         };
@@ -23,7 +28,9 @@ impl CastReduce for List {
             .validity()?
             .cast_nullability(dtype.nullability(), array.len())?;
 
-        let new_elements = array.elements().cast((**target_element_type).clone())?;
+        let new_elements = array
+            .elements()
+            .cast_opts((**target_element_type).clone(), *options)?;
 
         ListArray::try_new(new_elements, array.offsets().clone(), validity)
             .map(|a| Some(a.into_array()))

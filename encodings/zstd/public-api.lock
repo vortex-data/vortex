@@ -64,7 +64,7 @@ pub fn vortex_zstd::Zstd::slice(array: vortex_array::array::view::ArrayView<'_, 
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_zstd::Zstd
 
-pub fn vortex_zstd::Zstd::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+pub fn vortex_zstd::Zstd::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType, _options: &vortex_array::scalar_fn::fns::cast::CastOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
 pub struct vortex_zstd::ZstdBuffersMetadata
 

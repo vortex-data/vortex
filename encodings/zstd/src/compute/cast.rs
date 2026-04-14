@@ -6,6 +6,7 @@ use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::scalar_fn::fns::cast::CastOptions;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::child_to_validity;
@@ -14,7 +15,11 @@ use vortex_error::VortexResult;
 use crate::Zstd;
 use crate::ZstdData;
 impl CastReduce for Zstd {
-    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(
+        array: ArrayView<'_, Self>,
+        dtype: &DType,
+        _options: &CastOptions,
+    ) -> VortexResult<Option<ArrayRef>> {
         if !dtype.eq_ignore_nullability(array.dtype()) {
             // Type changes can't be handled in ZSTD, need to decode and tweak.
             // TODO(aduffy): handle trivial conversions like Binary -> UTF8, integer widening, etc.

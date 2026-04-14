@@ -6,6 +6,7 @@ use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::scalar_fn::fns::cast::CastOptions;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
@@ -13,7 +14,11 @@ use crate::ALPRDArrayExt;
 use crate::alp_rd::ALPRD;
 
 impl CastReduce for ALPRD {
-    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(
+        array: ArrayView<'_, Self>,
+        dtype: &DType,
+        options: &CastOptions,
+    ) -> VortexResult<Option<ArrayRef>> {
         // ALPRDArray stores floating-point values, so only cast between float types
         // or if just changing nullability
 
@@ -21,11 +26,12 @@ impl CastReduce for ALPRD {
         if array.dtype().eq_ignore_nullability(dtype) {
             // For nullability-only changes, we need to cast the left_parts array
             // since it carries the validity information
-            let new_left_parts = array.left_parts().cast(
+            let new_left_parts = array.left_parts().cast_opts(
                 array
                     .left_parts()
                     .dtype()
                     .with_nullability(dtype.nullability()),
+                *options,
             )?;
 
             return Ok(Some(

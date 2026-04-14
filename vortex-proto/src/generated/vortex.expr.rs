@@ -132,6 +132,8 @@ pub struct LikeOpts {
 pub struct CastOpts {
     #[prost(message, optional, tag = "1")]
     pub target: ::core::option::Option<super::dtype::DType>,
+    #[prost(enumeration = "CastMode", tag = "2")]
+    pub mode: i32,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct FieldNames {
@@ -162,4 +164,30 @@ pub mod select_opts {
 pub struct CaseWhenOpts {
     #[prost(uint32, tag = "1")]
     pub num_children: u32,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum CastMode {
+    ByPosition = 0,
+    ByName = 1,
+}
+impl CastMode {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::ByPosition => "BY_POSITION",
+            Self::ByName => "BY_NAME",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "BY_POSITION" => Some(Self::ByPosition),
+            "BY_NAME" => Some(Self::ByName),
+            _ => None,
+        }
+    }
 }

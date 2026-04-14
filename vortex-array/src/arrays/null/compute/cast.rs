@@ -11,10 +11,15 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Null;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
+use crate::scalar_fn::fns::cast::CastOptions;
 use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for Null {
-    fn cast(array: ArrayView<'_, Null>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(
+        array: ArrayView<'_, Null>,
+        dtype: &DType,
+        _options: &CastOptions,
+    ) -> VortexResult<Option<ArrayRef>> {
         if !dtype.is_nullable() {
             vortex_bail!("Cannot cast Null to {}", dtype);
         }

@@ -26,6 +26,8 @@ use crate::scalar_fn::fns::between::Between;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::cast::Cast;
+use crate::scalar_fn::fns::cast::CastFnOptions;
+use crate::scalar_fn::fns::cast::CastOptions;
 use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::is_not_null::IsNotNull;
@@ -38,8 +40,11 @@ use crate::scalar_fn::fns::zip::Zip;
 
 /// A collection of built-in scalar functions that can be applied to expressions or arrays.
 pub trait ExprBuiltins: Sized {
-    /// Cast to the given data type.
+    /// Cast to the given data type using the default [`CastOptions`].
     fn cast(&self, dtype: DType) -> VortexResult<Expression>;
+
+    /// Cast to the given data type with explicit [`CastOptions`].
+    fn cast_opts(&self, dtype: DType, options: CastOptions) -> VortexResult<Expression>;
 
     /// Replace null values with the given fill value.
     fn fill_null(&self, fill_value: Expression) -> VortexResult<Expression>;
@@ -73,7 +78,11 @@ pub trait ExprBuiltins: Sized {
 
 impl ExprBuiltins for Expression {
     fn cast(&self, dtype: DType) -> VortexResult<Expression> {
-        Cast.try_new_expr(dtype, [self.clone()])
+        self.cast_opts(dtype, CastOptions::default())
+    }
+
+    fn cast_opts(&self, dtype: DType, options: CastOptions) -> VortexResult<Expression> {
+        Cast.try_new_expr(CastFnOptions::new(dtype, options), [self.clone()])
     }
 
     fn fill_null(&self, fill_value: Expression) -> VortexResult<Expression> {
@@ -114,8 +123,11 @@ impl ExprBuiltins for Expression {
 }
 
 pub trait ArrayBuiltins: Sized {
-    /// Cast to the given data type.
+    /// Cast to the given data type using the default [`CastOptions`].
     fn cast(&self, dtype: DType) -> VortexResult<ArrayRef>;
+
+    /// Cast to the given data type with explicit [`CastOptions`].
+    fn cast_opts(&self, dtype: DType, options: CastOptions) -> VortexResult<ArrayRef>;
 
     /// Replace null values with the given fill value.
     fn fill_null(&self, fill_value: impl Into<Scalar>) -> VortexResult<ArrayRef>;
@@ -157,11 +169,19 @@ pub trait ArrayBuiltins: Sized {
 
 impl ArrayBuiltins for ArrayRef {
     fn cast(&self, dtype: DType) -> VortexResult<ArrayRef> {
+        self.cast_opts(dtype, CastOptions::default())
+    }
+
+    fn cast_opts(&self, dtype: DType, options: CastOptions) -> VortexResult<ArrayRef> {
         if self.dtype() == &dtype {
             return Ok(self.clone());
         }
-        Cast.try_new_array(self.len(), dtype, [self.clone()])?
-            .optimize()
+        Cast.try_new_array(
+            self.len(),
+            CastFnOptions::new(dtype, options),
+            [self.clone()],
+        )?
+        .optimize()
     }
 
     fn fill_null(&self, fill_value: impl Into<Scalar>) -> VortexResult<ArrayRef> {

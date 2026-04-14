@@ -6,20 +6,25 @@ use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::scalar_fn::fns::cast::CastOptions;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::r#for::FoR;
 use crate::r#for::array::FoRArrayExt;
 impl CastReduce for FoR {
-    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(
+        array: ArrayView<'_, Self>,
+        dtype: &DType,
+        options: &CastOptions,
+    ) -> VortexResult<Option<ArrayRef>> {
         // FoR only supports integer types
         if !dtype.is_int() {
             return Ok(None);
         }
 
         // For type changes between integers, cast the components
-        let casted_child = array.encoded().cast(dtype.clone())?;
+        let casted_child = array.encoded().cast_opts(dtype.clone(), *options)?;
         let casted_reference = array.reference_scalar().cast(dtype)?;
 
         Ok(Some(

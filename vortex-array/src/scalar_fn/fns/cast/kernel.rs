@@ -14,6 +14,7 @@ use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar_fn::fns::cast::Cast;
+use crate::scalar_fn::fns::cast::CastOptions;
 
 /// Reduce rule for cast: restructure the array without reading buffers.
 ///
@@ -23,7 +24,13 @@ use crate::scalar_fn::fns::cast::Cast;
 ///
 /// Returns `Ok(None)` if the rule doesn't apply to this array/dtype combination.
 pub trait CastReduce: VTable {
-    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>>;
+    /// Attempt to restructure the array to `dtype` using the given `options`, without reading
+    /// buffers.
+    fn cast(
+        array: ArrayView<'_, Self>,
+        dtype: &DType,
+        options: &CastOptions,
+    ) -> VortexResult<Option<ArrayRef>>;
 }
 
 /// Execute kernel for cast: perform the actual value conversion, potentially reading buffers.
@@ -33,9 +40,11 @@ pub trait CastReduce: VTable {
 ///
 /// Returns `Ok(None)` if this kernel cannot handle the given dtype conversion.
 pub trait CastKernel: VTable {
+    /// Perform the actual value conversion to `dtype` using the given `options`.
     fn cast(
         array: ArrayView<'_, Self>,
         dtype: &DType,
+        options: &CastOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
 }
@@ -56,11 +65,12 @@ where
         parent: ScalarFnArrayView<'_, Cast>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        let dtype = parent.options;
+        let instance = parent.options;
+        let dtype = instance.target();
         if array.dtype() == dtype {
             return Ok(Some(array.array().clone()));
         }
-        <V as CastReduce>::cast(array, dtype)
+        <V as CastReduce>::cast(array, dtype, instance.options())
     }
 }
 
@@ -81,10 +91,11 @@ where
         _child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let dtype = parent.options;
+        let instance = parent.options;
+        let dtype = instance.target();
         if array.dtype() == dtype {
             return Ok(Some(array.array().clone()));
         }
-        <V as CastKernel>::cast(array, dtype, ctx)
+        <V as CastKernel>::cast(array, dtype, instance.options(), ctx)
     }
 }

@@ -70,7 +70,7 @@ pub fn vortex_decimal_byte_parts::DecimalByteParts::compare(lhs: vortex_array::a
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_decimal_byte_parts::DecimalByteParts
 
-pub fn vortex_decimal_byte_parts::DecimalByteParts::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+pub fn vortex_decimal_byte_parts::DecimalByteParts::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType, options: &vortex_array::scalar_fn::fns::cast::CastOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::mask::kernel::MaskReduce for vortex_decimal_byte_parts::DecimalByteParts
 

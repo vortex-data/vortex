@@ -21,11 +21,13 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::cast::CastKernel;
+use crate::scalar_fn::fns::cast::CastOptions;
 
 impl CastKernel for Primitive {
     fn cast(
         array: ArrayView<'_, Primitive>,
         dtype: &DType,
+        _options: &CastOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let DType::Primitive(new_ptype, new_nullability) = dtype else {

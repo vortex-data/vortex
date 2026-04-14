@@ -10,42 +10,46 @@ use vortex_error::vortex_ensure;
 
 use crate::dtype::DType;
 use crate::scalar::Scalar;
+use crate::scalar_fn::fns::cast::CastOptions;
 
 impl Scalar {
-    /// Cast this scalar to another data type.
+    /// Cast this scalar to another data type using the default [`CastOptions`].
     ///
     /// # Errors
     ///
     /// Returns an error if the cast is not supported or if a null value is cast to a non-nullable
     /// type.
     pub fn cast(&self, target_dtype: &DType) -> VortexResult<Scalar> {
-        // If the types are the same, return a clone.
+        self.cast_opts(target_dtype, CastOptions::default())
+    }
+
+    /// Cast this scalar to another data type, honoring the given [`CastOptions`].
+    ///
+    /// Only struct scalars actually use the options today; for all other source types the cast
+    /// behavior is identical to [`Self::cast`].
+    pub fn cast_opts(&self, target_dtype: &DType, options: CastOptions) -> VortexResult<Scalar> {
         if self.dtype() == target_dtype {
             return Ok(self.clone());
         }
 
-        // Check for solely nullability casting.
         if self.dtype().eq_ignore_nullability(target_dtype) {
-            // Cast from non-nullable to nullable or vice versa.
-            // The `try_new` will handle nullability checks.
             return Scalar::try_new(target_dtype.clone(), self.value().cloned());
         }
 
-        // Null can be cast into any nullable type as null.
-        // Note that the `matches` clause is technically unnecessary here, just protective.
         if self.value().is_none() || matches!(self.dtype(), DType::Null) {
             vortex_ensure!(
                 target_dtype.is_nullable(),
                 "Cannot cast null to {target_dtype}: target type is non-nullable"
             );
-
             return Scalar::try_new(target_dtype.clone(), self.value().cloned());
         }
 
         // TODO(connor): This isn't really correct for extension types.
         // If the target is an extension type, then we want to cast to its storage type.
         if let Some(ext_dtype) = target_dtype.as_extension_opt() {
-            let cast_storage_scalar_value = self.cast(ext_dtype.storage_dtype())?.into_value();
+            let cast_storage_scalar_value = self
+                .cast_opts(ext_dtype.storage_dtype(), options)?
+                .into_value();
             return Scalar::try_new(target_dtype.clone(), cast_storage_scalar_value);
         }
 
@@ -56,7 +60,7 @@ impl Scalar {
             DType::Decimal(..) => self.as_decimal().cast(target_dtype),
             DType::Utf8(_) => self.as_utf8().cast(target_dtype),
             DType::Binary(_) => self.as_binary().cast(target_dtype),
-            DType::Struct(..) => self.as_struct().cast(target_dtype),
+            DType::Struct(..) => self.as_struct().cast_opts(target_dtype, options),
             DType::List(..) | DType::FixedSizeList(..) => self.as_list().cast(target_dtype),
             DType::Extension(..) => self.as_extension().cast(target_dtype),
             DType::Variant(_) => vortex_bail!("Variant scalars can't be cast to {target_dtype}"),

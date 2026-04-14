@@ -6,15 +6,20 @@ use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::scalar_fn::fns::cast::CastOptions;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
 use crate::array::RunEndArrayExt;
 impl CastReduce for RunEnd {
-    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(
+        array: ArrayView<'_, Self>,
+        dtype: &DType,
+        options: &CastOptions,
+    ) -> VortexResult<Option<ArrayRef>> {
         // Cast the values array to the target type
-        let casted_values = array.values().cast(dtype.clone())?;
+        let casted_values = array.values().cast_opts(dtype.clone(), *options)?;
 
         // SAFETY: casting does not affect the ends being valid
         unsafe {

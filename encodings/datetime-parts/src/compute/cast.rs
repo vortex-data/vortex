@@ -6,13 +6,18 @@ use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::scalar_fn::fns::cast::CastOptions;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::DateTimeParts;
 use crate::array::DateTimePartsArrayExt;
 impl CastReduce for DateTimeParts {
-    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(
+        array: ArrayView<'_, Self>,
+        dtype: &DType,
+        options: &CastOptions,
+    ) -> VortexResult<Option<ArrayRef>> {
         if !array.dtype().eq_ignore_nullability(dtype) {
             return Ok(None);
         };
@@ -20,9 +25,10 @@ impl CastReduce for DateTimeParts {
         Ok(Some(
             DateTimeParts::try_new(
                 dtype.clone(),
-                array
-                    .days()
-                    .cast(array.days().dtype().with_nullability(dtype.nullability()))?,
+                array.days().cast_opts(
+                    array.days().dtype().with_nullability(dtype.nullability()),
+                    *options,
+                )?,
                 array.seconds().clone(),
                 array.subseconds().clone(),
             )?

@@ -6,20 +6,25 @@ use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::scalar_fn::fns::cast::CastOptions;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::ZigZag;
 use crate::array::ZigZagArrayExt;
 impl CastReduce for ZigZag {
-    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(
+        array: ArrayView<'_, Self>,
+        dtype: &DType,
+        options: &CastOptions,
+    ) -> VortexResult<Option<ArrayRef>> {
         if !dtype.is_signed_int() {
             return Ok(None);
         }
 
         let new_encoded_dtype =
             DType::Primitive(dtype.as_ptype().to_unsigned(), dtype.nullability());
-        let new_encoded = array.encoded().cast(new_encoded_dtype)?;
+        let new_encoded = array.encoded().cast_opts(new_encoded_dtype, *options)?;
         Ok(Some(ZigZag::try_new(new_encoded)?.into_array()))
     }
 }

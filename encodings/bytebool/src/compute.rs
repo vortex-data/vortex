@@ -11,6 +11,7 @@ use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::scalar_fn::fns::cast::CastOptions;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_array::scalar_fn::fns::mask::MaskReduce;
 use vortex_array::validity::Validity;
@@ -20,7 +21,11 @@ use vortex_error::VortexResult;
 use super::ByteBool;
 
 impl CastReduce for ByteBool {
-    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(
+        array: ArrayView<'_, Self>,
+        dtype: &DType,
+        _options: &CastOptions,
+    ) -> VortexResult<Option<ArrayRef>> {
         // ByteBool is essentially a bool array stored as bytes
         // The main difference from BoolArray is the storage format
         // For casting, we can decode to canonical (BoolArray) and let it handle the cast

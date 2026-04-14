@@ -18,11 +18,13 @@ use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
 use crate::scalar_fn::fns::cast::CastKernel;
+use crate::scalar_fn::fns::cast::CastOptions;
 
 impl CastKernel for Decimal {
     fn cast(
         array: ArrayView<'_, Decimal>,
         dtype: &DType,
+        _options: &CastOptions,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // Early return if not casting to decimal

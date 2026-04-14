@@ -3,6 +3,7 @@
 
 mod kernel;
 
+use std::fmt::Display;
 use std::fmt::Formatter;
 
 pub use kernel::*;
@@ -49,17 +50,139 @@ use crate::scalar_fn::ScalarFnVTable;
 #[derive(Clone)]
 pub struct Cast;
 
+/// How a cast matches up values between the input and target types.
+///
+/// Most relevant when casting between struct types, where matching fields by name allows
+/// reordering and schema evolution, while matching by position requires the source and target
+/// struct to have the same field order.
+#[derive(Copy, Clone, Hash, Eq, PartialEq, Debug, Default)]
+pub enum CastMode {
+    /// Match fields by position.
+    ByPosition,
+    /// Match fields by name. This is the default.
+    #[default]
+    ByName,
+}
+
+impl CastMode {
+    /// A short string identifier for this mode, used in displays.
+    pub fn name(&self) -> &'static str {
+        match self {
+            CastMode::ByPosition => "by_position",
+            CastMode::ByName => "by_name",
+        }
+    }
+}
+
+impl From<CastMode> for pb::CastMode {
+    fn from(mode: CastMode) -> Self {
+        match mode {
+            CastMode::ByPosition => pb::CastMode::ByPosition,
+            CastMode::ByName => pb::CastMode::ByName,
+        }
+    }
+}
+
+impl From<pb::CastMode> for CastMode {
+    fn from(mode: pb::CastMode) -> Self {
+        match mode {
+            pb::CastMode::ByPosition => CastMode::ByPosition,
+            pb::CastMode::ByName => CastMode::ByName,
+        }
+    }
+}
+
+/// Options controlling the semantics of a cast operation.
+///
+/// The target data type is passed separately alongside these options; `CastOptions` captures
+/// only knobs that tweak *how* the cast is performed.
+#[derive(Copy, Clone, Hash, Eq, PartialEq, Debug, Default)]
+pub struct CastOptions {
+    mode: CastMode,
+}
+
+impl CastOptions {
+    /// Create a new [`CastOptions`] with the given matching mode.
+    pub fn new(mode: CastMode) -> Self {
+        Self { mode }
+    }
+
+    /// Options that match struct fields by name (the default).
+    pub fn by_name() -> Self {
+        Self::new(CastMode::ByName)
+    }
+
+    /// Options that match struct fields by position.
+    pub fn by_position() -> Self {
+        Self::new(CastMode::ByPosition)
+    }
+
+    /// The field-matching mode of this cast.
+    pub fn mode(&self) -> CastMode {
+        self.mode
+    }
+}
+
+impl Display for CastOptions {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.mode.name())
+    }
+}
+
+/// Combined options stored on a `vortex.cast` [`ScalarFnVTable`] instance: the target
+/// data type plus the [`CastOptions`] controlling how the cast is performed.
+#[derive(Clone, Hash, Eq, PartialEq, Debug)]
+pub struct CastFnOptions {
+    target: DType,
+    options: CastOptions,
+}
+
+impl CastFnOptions {
+    /// Create a new [`CastFnOptions`] from a target type and cast options.
+    pub fn new(target: DType, options: CastOptions) -> Self {
+        Self { target, options }
+    }
+
+    /// The target data type of this cast.
+    pub fn target(&self) -> &DType {
+        &self.target
+    }
+
+    /// The [`CastOptions`] that govern how the cast is performed.
+    pub fn options(&self) -> &CastOptions {
+        &self.options
+    }
+}
+
+impl From<DType> for CastFnOptions {
+    fn from(target: DType) -> Self {
+        Self::new(target, CastOptions::default())
+    }
+}
+
+impl Display for CastFnOptions {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        // Omit the mode when it matches the default to keep the common case terse.
+        if self.options.mode == CastMode::default() {
+            write!(f, "{}", self.target)
+        } else {
+            write!(f, "{}: {}", self.options, self.target)
+        }
+    }
+}
+
 impl ScalarFnVTable for Cast {
-    type Options = DType;
+    type Options = CastFnOptions;
 
     fn id(&self) -> ScalarFnId {
         ScalarFnId::new("vortex.cast")
     }
 
-    fn serialize(&self, dtype: &DType) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, instance: &CastFnOptions) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::CastOpts {
-                target: Some(dtype.try_into()?),
+                target: Some((&instance.target).try_into()?),
+                mode: pb::CastMode::from(instance.options.mode()) as i32,
             }
             .encode_to_vec(),
         ))
@@ -70,81 +193,95 @@ impl ScalarFnVTable for Cast {
         _metadata: &[u8],
         session: &VortexSession,
     ) -> VortexResult<Self::Options> {
-        let proto = pb::CastOpts::decode(_metadata)?.target;
-        DType::from_proto(
+        let proto = pb::CastOpts::decode(_metadata)?;
+        let mode = CastMode::from(pb::CastMode::try_from(proto.mode).map_err(|_| {
+            vortex_err!("Unknown cast mode value {} in Cast expression", proto.mode)
+        })?);
+        let target = DType::from_proto(
             proto
+                .target
                 .as_ref()
                 .ok_or_else(|| vortex_err!("Missing target dtype in Cast expression"))?,
             session,
-        )
+        )?;
+        Ok(CastFnOptions::new(target, CastOptions::new(mode)))
     }
 
-    fn arity(&self, _options: &DType) -> Arity {
+    fn arity(&self, _options: &CastFnOptions) -> Arity {
         Arity::Exact(1)
     }
 
-    fn child_name(&self, _instance: &DType, child_idx: usize) -> ChildName {
+    fn child_name(&self, _instance: &CastFnOptions, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::from("input"),
             _ => unreachable!("Invalid child index {} for Cast expression", child_idx),
         }
     }
 
-    fn fmt_sql(&self, dtype: &DType, expr: &Expression, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(
+        &self,
+        instance: &CastFnOptions,
+        expr: &Expression,
+        f: &mut Formatter<'_>,
+    ) -> std::fmt::Result {
         write!(f, "cast(")?;
         expr.children()[0].fmt_sql(f)?;
-        write!(f, " as {}", dtype)?;
+        write!(f, " as {}", instance)?;
         write!(f, ")")
     }
 
-    fn return_dtype(&self, dtype: &DType, _arg_dtypes: &[DType]) -> VortexResult<DType> {
-        Ok(dtype.clone())
+    fn return_dtype(&self, instance: &CastFnOptions, _arg_dtypes: &[DType]) -> VortexResult<DType> {
+        Ok(instance.target.clone())
     }
 
     fn execute(
         &self,
-        target_dtype: &DType,
+        instance: &CastFnOptions,
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let input = args.get(0)?;
 
         let Some(columnar) = input.as_opt::<AnyColumnar>() else {
-            return input.execute::<ArrayRef>(ctx)?.cast(target_dtype.clone());
+            return input
+                .execute::<ArrayRef>(ctx)?
+                .cast_opts(instance.target.clone(), instance.options);
         };
 
         match columnar {
             ColumnarView::Canonical(canonical) => {
-                match cast_canonical(canonical, target_dtype, ctx)? {
+                match cast_canonical(canonical, &instance.target, &instance.options, ctx)? {
                     Some(result) => Ok(result),
                     None => vortex_bail!(
                         "No CastKernel to cast canonical array {} from {} to {}",
                         canonical.to_array_ref().encoding_id(),
                         canonical.to_array_ref().dtype(),
-                        target_dtype,
+                        instance.target,
                     ),
                 }
             }
-            ColumnarView::Constant(constant) => match cast_constant(constant, target_dtype)? {
-                Some(result) => Ok(result),
-                None => vortex_bail!(
-                    "No CastReduce to cast constant array from {} to {}",
-                    constant.dtype(),
-                    target_dtype,
-                ),
-            },
+            ColumnarView::Constant(constant) => {
+                match cast_constant(constant, &instance.target, &instance.options)? {
+                    Some(result) => Ok(result),
+                    None => vortex_bail!(
+                        "No CastReduce to cast constant array from {} to {}",
+                        constant.dtype(),
+                        instance.target,
+                    ),
+                }
+            }
         }
     }
 
     fn reduce(
         &self,
-        target_dtype: &DType,
+        instance: &CastFnOptions,
         node: &dyn ReduceNode,
         _ctx: &dyn ReduceCtx,
     ) -> VortexResult<Option<ReduceNodeRef>> {
         // Collapse node if child is already the target type
         let child = node.child(0);
-        if &child.node_dtype()? == target_dtype {
+        if child.node_dtype()? == instance.target {
             return Ok(Some(child));
         }
         Ok(None)
@@ -152,7 +289,7 @@ impl ScalarFnVTable for Cast {
 
     fn stat_expression(
         &self,
-        dtype: &DType,
+        instance: &CastFnOptions,
         expr: &Expression,
         stat: Stat,
         catalog: &dyn StatsCatalog,
@@ -168,7 +305,7 @@ impl ScalarFnVTable for Cast {
                 // We cast min/max to the new type
                 expr.child(0)
                     .stat_expression(stat, catalog)
-                    .map(|x| cast(x, dtype.clone()))
+                    .map(|x| cast(x, instance.target.clone()))
             }
             Stat::NullCount => {
                 // if !expr.data().is_nullable() {
@@ -183,8 +320,12 @@ impl ScalarFnVTable for Cast {
         }
     }
 
-    fn validity(&self, dtype: &DType, expression: &Expression) -> VortexResult<Option<Expression>> {
-        Ok(Some(if dtype.is_nullable() {
+    fn validity(
+        &self,
+        instance: &CastFnOptions,
+        expression: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        Ok(Some(if instance.target.is_nullable() {
             expression.child(0).validity()?
         } else {
             lit(true)
@@ -192,7 +333,7 @@ impl ScalarFnVTable for Cast {
     }
 
     // This might apply a nullability
-    fn is_null_sensitive(&self, _instance: &DType) -> bool {
+    fn is_null_sensitive(&self, _instance: &CastFnOptions) -> bool {
         true
     }
 }
@@ -202,18 +343,19 @@ impl ScalarFnVTable for Cast {
 fn cast_canonical(
     canonical: CanonicalView<'_>,
     dtype: &DType,
+    options: &CastOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     match canonical {
-        CanonicalView::Null(a) => <Null as CastReduce>::cast(a, dtype),
-        CanonicalView::Bool(a) => <Bool as CastReduce>::cast(a, dtype),
-        CanonicalView::Primitive(a) => <Primitive as CastKernel>::cast(a, dtype, ctx),
-        CanonicalView::Decimal(a) => <Decimal as CastKernel>::cast(a, dtype, ctx),
-        CanonicalView::VarBinView(a) => <VarBinView as CastReduce>::cast(a, dtype),
-        CanonicalView::List(a) => <ListView as CastReduce>::cast(a, dtype),
-        CanonicalView::FixedSizeList(a) => <FixedSizeList as CastReduce>::cast(a, dtype),
-        CanonicalView::Struct(a) => <Struct as CastKernel>::cast(a, dtype, ctx),
-        CanonicalView::Extension(a) => <Extension as CastReduce>::cast(a, dtype),
+        CanonicalView::Null(a) => <Null as CastReduce>::cast(a, dtype, options),
+        CanonicalView::Bool(a) => <Bool as CastReduce>::cast(a, dtype, options),
+        CanonicalView::Primitive(a) => <Primitive as CastKernel>::cast(a, dtype, options, ctx),
+        CanonicalView::Decimal(a) => <Decimal as CastKernel>::cast(a, dtype, options, ctx),
+        CanonicalView::VarBinView(a) => <VarBinView as CastReduce>::cast(a, dtype, options),
+        CanonicalView::List(a) => <ListView as CastReduce>::cast(a, dtype, options),
+        CanonicalView::FixedSizeList(a) => <FixedSizeList as CastReduce>::cast(a, dtype, options),
+        CanonicalView::Struct(a) => <Struct as CastKernel>::cast(a, dtype, options, ctx),
+        CanonicalView::Extension(a) => <Extension as CastReduce>::cast(a, dtype, options),
         CanonicalView::Variant(_) => {
             vortex_bail!("Variant arrays don't support casting")
         }
@@ -221,8 +363,12 @@ fn cast_canonical(
 }
 
 /// Cast a constant array by dispatching to its [`CastReduce`] implementation.
-fn cast_constant(array: ArrayView<Constant>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-    <Constant as CastReduce>::cast(array, dtype)
+fn cast_constant(
+    array: ArrayView<Constant>,
+    dtype: &DType,
+    options: &CastOptions,
+) -> VortexResult<Option<ArrayRef>> {
+    <Constant as CastReduce>::cast(array, dtype, options)
 }
 
 #[cfg(test)]

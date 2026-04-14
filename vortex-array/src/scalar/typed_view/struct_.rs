@@ -22,6 +22,8 @@ use crate::dtype::FieldNames;
 use crate::dtype::StructFields;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::scalar_fn::fns::cast::CastMode;
+use crate::scalar_fn::fns::cast::CastOptions;
 
 /// A scalar value representing a struct with named fields.
 ///
@@ -196,50 +198,109 @@ impl<'a> StructScalar<'a> {
         )
     }
 
-    /// Casts this struct scalar to another struct type.
+    /// Casts this struct scalar to another struct type using the default [`CastOptions`].
     ///
     /// # Errors
     ///
-    /// Returns an error if the target type is not a struct or if the number of fields don't match.
+    /// Returns an error if the target type is not a struct, or if the cast is otherwise invalid
+    /// per the default cast options (see [`Self::cast_opts`]).
     pub fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
-        let DType::Struct(st, _) = dtype else {
+        self.cast_opts(dtype, CastOptions::default())
+    }
+
+    /// Casts this struct scalar to another struct type, honoring the given [`CastOptions`].
+    ///
+    /// In [`CastMode::ByPosition`] the source and target must have the same number of fields and
+    /// they are matched positionally regardless of name. In [`CastMode::ByName`] both source and
+    /// target field names must be unique; fields are looked up by name and target-only fields may
+    /// be added as null if nullable (schema evolution).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the target type is not a struct, if by-position counts differ, if
+    /// by-name finds duplicate names, or if a missing by-name field is non-nullable.
+    pub fn cast_opts(&self, dtype: &DType, options: CastOptions) -> VortexResult<Scalar> {
+        let DType::Struct(target_sf, _) = dtype else {
             vortex_bail!(
                 "Cannot cast struct to {}: struct can only be cast to struct",
                 dtype
             )
         };
-        let own_st = self.struct_fields();
+        let source_sf = self.struct_fields();
 
-        if st.fields().len() != own_st.fields().len() {
-            vortex_bail!(
-                "Cannot cast between structs with different number of fields: {} and {}",
-                own_st.fields().len(),
-                st.fields().len()
-            );
-        }
+        let Some(source_fs) = self.fields else {
+            // Null struct scalar is null in any struct target if the target is nullable.
+            return Ok(Scalar::null(dtype.clone()));
+        };
 
-        if let Some(fs) = self.fields {
-            let fields = fs
-                .iter()
-                .enumerate()
-                .map(|(i, f)| {
-                    Scalar::try_new(
-                        own_st
-                            .field_by_index(i)
-                            .vortex_expect("Iterating over scalar fields"),
-                        f.clone(),
-                    )?
-                    .cast(
-                        &st.field_by_index(i)
-                            .vortex_expect("Iterating over scalar fields"),
+        let target_values: Vec<Option<ScalarValue>> = match options.mode() {
+            CastMode::ByPosition => {
+                if target_sf.nfields() != source_sf.nfields() {
+                    vortex_bail!(
+                        "CAST by position requires source ({}) and target ({}) struct to have the same number of fields",
+                        source_sf.nfields(),
+                        target_sf.nfields()
+                    );
+                }
+                source_fs
+                    .iter()
+                    .zip_eq(source_sf.fields().zip_eq(target_sf.fields()))
+                    .map(|(v, (src_dt, tgt_dt))| {
+                        // SAFETY: dtype matches the scalar value provenance.
+                        let src_scalar = unsafe { Scalar::new_unchecked(src_dt, v.clone()) };
+                        src_scalar
+                            .cast_opts(&tgt_dt, options)
+                            .map(|s| s.into_value())
+                    })
+                    .collect::<VortexResult<Vec<_>>>()?
+            }
+            CastMode::ByName => {
+                if !source_sf.names().iter().all_unique() {
+                    vortex_bail!(
+                        "CAST by name requires unique field names in the source struct; \
+                         use by-position mode for structs with duplicate field names"
+                    );
+                }
+                if !target_sf.names().iter().all_unique() {
+                    vortex_bail!(
+                        "CAST by name requires unique field names in the target struct; \
+                         use by-position mode for structs with duplicate field names"
+                    );
+                }
+                target_sf
+                    .names()
+                    .iter()
+                    .zip_eq(target_sf.fields())
+                    .map(
+                        |(target_name, target_dtype)| match source_sf.find(target_name) {
+                            Some(src_idx) => {
+                                let src_dt = source_sf
+                                    .field_by_index(src_idx)
+                                    .vortex_expect("source field index valid");
+                                // SAFETY: dtype matches the scalar value provenance.
+                                let src_scalar = unsafe {
+                                    Scalar::new_unchecked(src_dt, source_fs[src_idx].clone())
+                                };
+                                src_scalar
+                                    .cast_opts(&target_dtype, options)
+                                    .map(|s| s.into_value())
+                            }
+                            None => {
+                                if !target_dtype.is_nullable() {
+                                    vortex_bail!(
+                                        "Cannot add non-nullable field '{}' during struct cast",
+                                        target_name
+                                    );
+                                }
+                                Ok(None)
+                            }
+                        },
                     )
-                    .map(|s| s.into_value())
-                })
-                .collect::<VortexResult<Vec<_>>>()?;
-            Scalar::try_new(dtype.clone(), Some(ScalarValue::List(fields)))
-        } else {
-            Ok(Scalar::null(dtype.clone()))
-        }
+                    .collect::<VortexResult<Vec<_>>>()?
+            }
+        };
+
+        Scalar::try_new(dtype.clone(), Some(ScalarValue::List(target_values)))
     }
 
     /// Projects this struct scalar to include only the specified fields.

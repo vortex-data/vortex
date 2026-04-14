@@ -7,6 +7,7 @@ use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::patches::Patches;
+use vortex_array::scalar_fn::fns::cast::CastOptions;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
@@ -15,16 +16,21 @@ use crate::ALPArraySlotsExt;
 use crate::alp::ALP;
 
 impl CastReduce for ALP {
-    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(
+        array: ArrayView<'_, Self>,
+        dtype: &DType,
+        options: &CastOptions,
+    ) -> VortexResult<Option<ArrayRef>> {
         // Check if this is just a nullability change
         if array.dtype().eq_ignore_nullability(dtype) {
             // For nullability-only changes, we can avoid decoding
             // Cast the encoded array (integers) to handle nullability
-            let new_encoded = array.encoded().cast(
+            let new_encoded = array.encoded().cast_opts(
                 array
                     .encoded()
                     .dtype()
                     .with_nullability(dtype.nullability()),
+                *options,
             )?;
 
             let new_patches = array
@@ -37,7 +43,7 @@ impl CastReduce for ALP {
                             p.array_len(),
                             p.offset(),
                             p.indices().clone(),
-                            p.values().cast(dtype.clone())?,
+                            p.values().cast_opts(dtype.clone(), *options)?,
                             p.chunk_offsets().clone(),
                         )
                     }

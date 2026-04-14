@@ -7,24 +7,30 @@ use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::scalar_fn::fns::cast::CastOptions;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::rle::RLE;
 use crate::rle::RLEArrayExt;
 impl CastReduce for RLE {
-    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(
+        array: ArrayView<'_, Self>,
+        dtype: &DType,
+        options: &CastOptions,
+    ) -> VortexResult<Option<ArrayRef>> {
         // Cast RLE values.
-        let casted_values = array
-            .values()
-            .cast(DType::Primitive(dtype.as_ptype(), Nullability::NonNullable))?;
+        let casted_values = array.values().cast_opts(
+            DType::Primitive(dtype.as_ptype(), Nullability::NonNullable),
+            *options,
+        )?;
 
         // Cast RLE indices such that validity matches the target dtype.
         let casted_indices = if array.indices().dtype().nullability() != dtype.nullability() {
-            array.indices().cast(DType::Primitive(
-                array.indices().dtype().as_ptype(),
-                dtype.nullability(),
-            ))?
+            array.indices().cast_opts(
+                DType::Primitive(array.indices().dtype().as_ptype(), dtype.nullability()),
+                *options,
+            )?
         } else {
             array.indices().clone()
         };

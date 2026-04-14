@@ -72,8 +72,14 @@ message LikeOpts {
   bool case_insensitive = 2;
 }
 
+enum CastMode {
+  BY_POSITION = 0;
+  BY_NAME = 1;
+}
+
 message CastOpts {
   vortex.dtype.DType target = 1;
+  CastMode mode = 2;
 }
 
 message FieldNames {

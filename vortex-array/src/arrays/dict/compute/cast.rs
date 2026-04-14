@@ -12,11 +12,16 @@ use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::scalar_fn::fns::cast::CastOptions;
 use crate::scalar_fn::fns::cast::CastReduce;
 use crate::validity::Validity;
 
 impl CastReduce for Dict {
-    fn cast(array: ArrayView<'_, Dict>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(
+        array: ArrayView<'_, Dict>,
+        dtype: &DType,
+        options: &CastOptions,
+    ) -> VortexResult<Option<ArrayRef>> {
         // Can have un-reference null values making the cast of values fail without a possible mask.
         // TODO(joe): optimize this, could look at accessible values and fill_null not those?
         if !dtype.is_nullable()
@@ -29,13 +34,14 @@ impl CastReduce for Dict {
             return Ok(None);
         }
         // Cast the dictionary values to the target type
-        let casted_values = array.values().cast(dtype.clone())?;
+        let casted_values = array.values().cast_opts(dtype.clone(), *options)?;
 
         // If the codes are nullable but we are casting to non nullable dtype we have to remove nullability from codes as well
         let casted_codes = if array.codes().dtype().is_nullable() && !dtype.is_nullable() {
-            array
-                .codes()
-                .cast(array.codes().dtype().with_nullability(dtype.nullability()))?
+            array.codes().cast_opts(
+                array.codes().dtype().with_nullability(dtype.nullability()),
+                *options,
+            )?
         } else {
             array.codes().clone()
         };

@@ -56,7 +56,7 @@ pub fn vortex_pco::Pco::slice(array: vortex_array::array::view::ArrayView<'_, Se
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_pco::Pco
 
-pub fn vortex_pco::Pco::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+pub fn vortex_pco::Pco::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType, _options: &vortex_array::scalar_fn::fns::cast::CastOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
 pub struct vortex_pco::PcoChunkInfo
 

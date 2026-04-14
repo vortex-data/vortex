@@ -7,6 +7,7 @@ use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
+use vortex_array::scalar_fn::fns::cast::CastOptions;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -14,7 +15,11 @@ use vortex_error::vortex_panic;
 use crate::delta::Delta;
 use crate::delta::array::DeltaArrayExt;
 impl CastReduce for Delta {
-    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(
+        array: ArrayView<'_, Self>,
+        dtype: &DType,
+        options: &CastOptions,
+    ) -> VortexResult<Option<ArrayRef>> {
         // Delta encoding stores differences between consecutive values, which requires
         // unsigned integers to avoid overflow issues. Signed integers could produce
         // negative deltas that wouldn't fit in the unsigned delta representation.
@@ -33,8 +38,10 @@ impl CastReduce for Delta {
         }
 
         // Cast both bases and deltas to the target type
-        let casted_bases = array.bases().cast(dtype.with_nullability(NonNullable))?;
-        let casted_deltas = array.deltas().cast(dtype.clone())?;
+        let casted_bases = array
+            .bases()
+            .cast_opts(dtype.with_nullability(NonNullable), *options)?;
+        let casted_deltas = array.deltas().cast_opts(dtype.clone(), *options)?;
 
         // Create a new DeltaArray with the casted components, preserving offset and logical length
         Ok(Some(

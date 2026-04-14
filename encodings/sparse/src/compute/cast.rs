@@ -7,16 +7,21 @@ use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::fns::cast::CastOptions;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::Sparse;
 impl CastReduce for Sparse {
-    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(
+        array: ArrayView<'_, Self>,
+        dtype: &DType,
+        options: &CastOptions,
+    ) -> VortexResult<Option<ArrayRef>> {
         let casted_patches = array
             .patches()
             .clone()
-            .map_values(|values| values.cast(dtype.clone()))?;
+            .map_values(|values| values.cast_opts(dtype.clone(), *options))?;
 
         let casted_fill = if array.patches().num_patches() == array.len() {
             // When every position is patched the fill scalar is unused and can be undefined.

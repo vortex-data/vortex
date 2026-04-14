@@ -24,6 +24,8 @@ use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::case_when::CaseWhen;
 use crate::scalar_fn::fns::case_when::CaseWhenOptions;
 use crate::scalar_fn::fns::cast::Cast;
+use crate::scalar_fn::fns::cast::CastFnOptions;
+use crate::scalar_fn::fns::cast::CastOptions;
 use crate::scalar_fn::fns::dynamic::DynamicComparison;
 use crate::scalar_fn::fns::dynamic::DynamicComparisonExpr;
 use crate::scalar_fn::fns::dynamic::Rhs;
@@ -516,7 +518,8 @@ pub fn pack(
 
 // ---- Cast ----
 
-/// Creates an expression that casts values to a target data type.
+/// Creates an expression that casts values to a target data type using the default
+/// [`CastOptions`].
 ///
 /// Converts the input expression's values to the specified target type.
 ///
@@ -526,7 +529,12 @@ pub fn pack(
 /// let expr = cast(root(), DType::Primitive(PType::I64, Nullability::NonNullable));
 /// ```
 pub fn cast(child: Expression, target: DType) -> Expression {
-    Cast.try_new_expr(target, [child])
+    cast_opts(child, target, CastOptions::default())
+}
+
+/// Creates an expression that casts values to a target data type with explicit [`CastOptions`].
+pub fn cast_opts(child: Expression, target: DType, options: CastOptions) -> Expression {
+    Cast.try_new_expr(CastFnOptions::new(target, options), [child])
         .vortex_expect("Failed to create Cast expression")
 }
 

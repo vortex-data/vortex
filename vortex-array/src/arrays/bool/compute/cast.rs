@@ -10,10 +10,15 @@ use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::dtype::DType;
+use crate::scalar_fn::fns::cast::CastOptions;
 use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for Bool {
-    fn cast(array: ArrayView<'_, Bool>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(
+        array: ArrayView<'_, Bool>,
+        dtype: &DType,
+        _options: &CastOptions,
+    ) -> VortexResult<Option<ArrayRef>> {
         if !matches!(dtype, DType::Bool(_)) {
             return Ok(None);
         }

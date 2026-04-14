@@ -768,6 +768,68 @@ pub fn vortex_proto::expr::select_opts::Opts::hash<__H: core::hash::Hasher>(&sel
 
 impl core::marker::StructuralPartialEq for vortex_proto::expr::select_opts::Opts
 
+#[repr(i32)] pub enum vortex_proto::expr::CastMode
+
+pub vortex_proto::expr::CastMode::ByName = 1
+
+pub vortex_proto::expr::CastMode::ByPosition = 0
+
+impl vortex_proto::expr::CastMode
+
+pub fn vortex_proto::expr::CastMode::as_str_name(&self) -> &'static str
+
+pub fn vortex_proto::expr::CastMode::from_str_name(value: &str) -> core::option::Option<Self>
+
+impl vortex_proto::expr::CastMode
+
+pub fn vortex_proto::expr::CastMode::from_i32(value: i32) -> core::option::Option<vortex_proto::expr::CastMode>
+
+pub fn vortex_proto::expr::CastMode::is_valid(value: i32) -> bool
+
+impl core::clone::Clone for vortex_proto::expr::CastMode
+
+pub fn vortex_proto::expr::CastMode::clone(&self) -> vortex_proto::expr::CastMode
+
+impl core::cmp::Eq for vortex_proto::expr::CastMode
+
+impl core::cmp::Ord for vortex_proto::expr::CastMode
+
+pub fn vortex_proto::expr::CastMode::cmp(&self, other: &vortex_proto::expr::CastMode) -> core::cmp::Ordering
+
+impl core::cmp::PartialEq for vortex_proto::expr::CastMode
+
+pub fn vortex_proto::expr::CastMode::eq(&self, other: &vortex_proto::expr::CastMode) -> bool
+
+impl core::cmp::PartialOrd for vortex_proto::expr::CastMode
+
+pub fn vortex_proto::expr::CastMode::partial_cmp(&self, other: &vortex_proto::expr::CastMode) -> core::option::Option<core::cmp::Ordering>
+
+impl core::convert::From<vortex_proto::expr::CastMode> for i32
+
+pub fn i32::from(value: vortex_proto::expr::CastMode) -> i32
+
+impl core::convert::TryFrom<i32> for vortex_proto::expr::CastMode
+
+pub type vortex_proto::expr::CastMode::Error = prost::error::UnknownEnumValue
+
+pub fn vortex_proto::expr::CastMode::try_from(value: i32) -> core::result::Result<vortex_proto::expr::CastMode, prost::error::UnknownEnumValue>
+
+impl core::default::Default for vortex_proto::expr::CastMode
+
+pub fn vortex_proto::expr::CastMode::default() -> vortex_proto::expr::CastMode
+
+impl core::fmt::Debug for vortex_proto::expr::CastMode
+
+pub fn vortex_proto::expr::CastMode::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_proto::expr::CastMode
+
+pub fn vortex_proto::expr::CastMode::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::Copy for vortex_proto::expr::CastMode
+
+impl core::marker::StructuralPartialEq for vortex_proto::expr::CastMode
+
 pub struct vortex_proto::expr::AggregateFn
 
 pub vortex_proto::expr::AggregateFn::id: alloc::string::String
@@ -926,7 +988,15 @@ pub fn vortex_proto::expr::CaseWhenOpts::encoded_len(&self) -> usize
 
 pub struct vortex_proto::expr::CastOpts
 
+pub vortex_proto::expr::CastOpts::mode: i32
+
 pub vortex_proto::expr::CastOpts::target: core::option::Option<vortex_proto::dtype::DType>
+
+impl vortex_proto::expr::CastOpts
+
+pub fn vortex_proto::expr::CastOpts::mode(&self) -> vortex_proto::expr::CastMode
+
+pub fn vortex_proto::expr::CastOpts::set_mode(&mut self, value: vortex_proto::expr::CastMode)
 
 impl core::clone::Clone for vortex_proto::expr::CastOpts
 

@@ -66,7 +66,7 @@ pub fn vortex_bytebool::ByteBool::slice(array: vortex_array::array::view::ArrayV
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_bytebool::ByteBool
 
-pub fn vortex_bytebool::ByteBool::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+pub fn vortex_bytebool::ByteBool::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType, _options: &vortex_array::scalar_fn::fns::cast::CastOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::mask::kernel::MaskReduce for vortex_bytebool::ByteBool
 

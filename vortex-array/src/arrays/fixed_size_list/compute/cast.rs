@@ -11,6 +11,7 @@ use crate::arrays::FixedSizeListArray;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::scalar_fn::fns::cast::CastOptions;
 use crate::scalar_fn::fns::cast::CastReduce;
 
 /// Cast implementation for [`FixedSizeListArray`].
@@ -18,12 +19,18 @@ use crate::scalar_fn::fns::cast::CastReduce;
 /// Recursively casts the inner elements array to the target element type while preserving the list
 /// structure.
 impl CastReduce for FixedSizeList {
-    fn cast(array: ArrayView<'_, FixedSizeList>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(
+        array: ArrayView<'_, FixedSizeList>,
+        dtype: &DType,
+        options: &CastOptions,
+    ) -> VortexResult<Option<ArrayRef>> {
         let Some(target_element_type) = dtype.as_fixed_size_list_element_opt() else {
             return Ok(None);
         };
 
-        let elements = array.elements().cast((**target_element_type).clone())?;
+        let elements = array
+            .elements()
+            .cast_opts((**target_element_type).clone(), *options)?;
         let validity = array
             .validity()?
             .cast_nullability(dtype.nullability(), array.len())?;

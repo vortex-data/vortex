@@ -188,7 +188,7 @@ pub fn vortex_fastlanes::BitPacked::slice(array: vortex_array::array::view::Arra
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_fastlanes::BitPacked
 
-pub fn vortex_fastlanes::BitPacked::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+pub fn vortex_fastlanes::BitPacked::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType, options: &vortex_array::scalar_fn::fns::cast::CastOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
 pub struct vortex_fastlanes::BitPackedData
 
@@ -332,7 +332,7 @@ pub fn vortex_fastlanes::Delta::slice(array: vortex_array::array::view::ArrayVie
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_fastlanes::Delta
 
-pub fn vortex_fastlanes::Delta::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+pub fn vortex_fastlanes::Delta::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType, options: &vortex_array::scalar_fn::fns::cast::CastOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
 pub struct vortex_fastlanes::DeltaData
 
@@ -432,7 +432,7 @@ pub fn vortex_fastlanes::FoR::compare(lhs: vortex_array::array::view::ArrayView<
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_fastlanes::FoR
 
-pub fn vortex_fastlanes::FoR::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+pub fn vortex_fastlanes::FoR::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType, options: &vortex_array::scalar_fn::fns::cast::CastOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
 pub struct vortex_fastlanes::FoRData
 
@@ -526,7 +526,7 @@ pub fn vortex_fastlanes::RLE::slice(array: vortex_array::array::view::ArrayView<
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_fastlanes::RLE
 
-pub fn vortex_fastlanes::RLE::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+pub fn vortex_fastlanes::RLE::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType, options: &vortex_array::scalar_fn::fns::cast::CastOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
 pub struct vortex_fastlanes::RLEData
 

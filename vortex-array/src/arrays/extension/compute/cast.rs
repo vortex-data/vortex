@@ -9,12 +9,14 @@ use crate::arrays::ExtensionArray;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::scalar_fn::fns::cast::CastOptions;
 use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for Extension {
     fn cast(
         array: ArrayView<'_, Extension>,
         dtype: &DType,
+        options: &CastOptions,
     ) -> vortex_error::VortexResult<Option<ArrayRef>> {
         if !array.dtype().eq_ignore_nullability(dtype) {
             // Target is not the same extension type.
@@ -28,7 +30,7 @@ impl CastReduce for Extension {
 
         let new_storage = match array
             .storage_array()
-            .cast(ext_dtype.storage_dtype().clone())
+            .cast_opts(ext_dtype.storage_dtype().clone(), *options)
         {
             Ok(arr) => arr,
             Err(e) => {

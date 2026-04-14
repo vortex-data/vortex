@@ -11,17 +11,24 @@ use crate::arrays::ListViewArray;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::scalar_fn::fns::cast::CastOptions;
 use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for ListView {
-    fn cast(array: ArrayView<'_, ListView>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(
+        array: ArrayView<'_, ListView>,
+        dtype: &DType,
+        options: &CastOptions,
+    ) -> VortexResult<Option<ArrayRef>> {
         // Check if we're casting to a `List` type.
         let Some(target_element_type) = dtype.as_list_element_opt() else {
             return Ok(None);
         };
 
         // Cast the elements to the target element type.
-        let new_elements = array.elements().cast((**target_element_type).clone())?;
+        let new_elements = array
+            .elements()
+            .cast_opts((**target_element_type).clone(), *options)?;
         let validity = array
             .validity()?
             .cast_nullability(dtype.nullability(), array.len())?;

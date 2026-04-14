@@ -17,11 +17,14 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::cast::CastKernel;
+use crate::scalar_fn::fns::cast::CastMode;
+use crate::scalar_fn::fns::cast::CastOptions;
 
 impl CastKernel for Struct {
     fn cast(
         array: ArrayView<'_, Struct>,
         dtype: &DType,
+        options: &CastOptions,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let Some(target_sdtype) = dtype.as_struct_fields_opt() else {
@@ -30,46 +33,59 @@ impl CastKernel for Struct {
 
         let source_sdtype = array.struct_fields();
 
-        let fields_match_order = target_sdtype.nfields() == source_sdtype.nfields()
-            && target_sdtype
-                .names()
-                .iter()
-                .zip(source_sdtype.names().iter())
-                .all(|(f1, f2)| f1 == f2);
-
-        let mut cast_fields = Vec::with_capacity(target_sdtype.nfields());
-        if fields_match_order {
-            for (field, target_type) in array.iter_unmasked_fields().zip_eq(target_sdtype.fields())
-            {
-                let cast_field = field.cast(target_type)?;
-                cast_fields.push(cast_field);
+        let cast_fields = match options.mode() {
+            CastMode::ByPosition => {
+                vortex_ensure!(
+                    target_sdtype.nfields() == source_sdtype.nfields(),
+                    "CAST by position requires source ({}) and target ({}) struct to have the same number of fields",
+                    source_sdtype.nfields(),
+                    target_sdtype.nfields()
+                );
+                array
+                    .iter_unmasked_fields()
+                    .zip_eq(target_sdtype.fields())
+                    .map(|(field, target_type)| field.cast_opts(target_type, *options))
+                    .try_collect()?
             }
-        } else {
-            // Re-order, handle fields by value instead.
-            for (target_name, target_type) in
-                target_sdtype.names().iter().zip_eq(target_sdtype.fields())
-            {
-                match source_sdtype.find(target_name) {
-                    None => {
-                        // No source field with this name => evolve the schema compatibly.
-                        // If the field is nullable, we add a new ConstantArray field with the type.
-                        vortex_ensure!(
-                            target_type.is_nullable(),
-                            "CAST for struct only supports added nullable fields"
-                        );
-
-                        cast_fields.push(
-                            ConstantArray::new(Scalar::null(target_type), array.len()).into_array(),
-                        );
-                    }
-                    Some(src_field_idx) => {
-                        // Field exists in source field. Cast it to the target type.
-                        let cast_field = array.unmasked_field(src_field_idx).cast(target_type)?;
-                        cast_fields.push(cast_field);
+            CastMode::ByName => {
+                vortex_ensure!(
+                    source_sdtype.names().iter().all_unique(),
+                    "CAST by name requires unique field names in the source struct; \
+                     use by-position mode for structs with duplicate field names"
+                );
+                vortex_ensure!(
+                    target_sdtype.names().iter().all_unique(),
+                    "CAST by name requires unique field names in the target struct; \
+                     use by-position mode for structs with duplicate field names"
+                );
+                let mut cast_fields = Vec::with_capacity(target_sdtype.nfields());
+                for (target_name, target_type) in
+                    target_sdtype.names().iter().zip_eq(target_sdtype.fields())
+                {
+                    match source_sdtype.find(target_name) {
+                        None => {
+                            vortex_ensure!(
+                                target_type.is_nullable(),
+                                "Cannot add non-nullable field '{}' during struct cast",
+                                target_name
+                            );
+                            cast_fields.push(
+                                ConstantArray::new(Scalar::null(target_type), array.len())
+                                    .into_array(),
+                            );
+                        }
+                        Some(src_field_idx) => {
+                            cast_fields.push(
+                                array
+                                    .unmasked_field(src_field_idx)
+                                    .cast_opts(target_type, *options)?,
+                            );
+                        }
                     }
                 }
+                cast_fields
             }
-        }
+        };
 
         let validity = array
             .validity()?
@@ -194,7 +210,10 @@ mod tests {
     }
 
     #[test]
-    fn cast_duplicate_field_names_to_nullable() {
+    fn cast_by_position_handles_duplicate_field_names() {
+        use crate::assert_arrays_eq;
+        use crate::scalar_fn::fns::cast::CastOptions;
+
         let names = FieldNames::from(["a", "a"]);
         let field1 = buffer![1i32, 2, 3].into_array();
         let field2 = buffer![10i64, 20, 30].into_array();
@@ -206,13 +225,74 @@ mod tests {
 
         let result = struct_array
             .into_array()
-            .cast(target_dtype.clone())
-            .unwrap();
+            .cast_opts(target_dtype.clone(), CastOptions::by_position())
+            .unwrap()
+            .to_struct();
         assert_eq!(result.dtype(), &target_dtype);
         assert_eq!(result.len(), 3);
         #[expect(deprecated)]
         let nfields = result.to_struct().struct_fields().nfields();
         assert_eq!(nfields, 2);
+        assert_eq!(result.struct_fields().nfields(), 2);
+        assert_arrays_eq!(result.unmasked_field(0), buffer![1i32, 2, 3].into_array());
+        assert_arrays_eq!(
+            result.unmasked_field(1),
+            buffer![10i64, 20, 30].into_array()
+        );
+    }
+
+    #[test]
+    fn cast_by_name_duplicate_source_names_fails() {
+        use crate::scalar_fn::fns::cast::CastOptions;
+
+        let source = StructArray::try_new(
+            FieldNames::from(["a", "a"]),
+            vec![buffer![1i32].into_array(), buffer![10i64].into_array()],
+            1,
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let target = source.dtype().as_nullable();
+
+        let err = source
+            .into_array()
+            .cast_opts(target, CastOptions::by_name())
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("unique"),
+            "expected uniqueness error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn cast_by_name_duplicate_target_names_fails() {
+        use crate::scalar_fn::fns::cast::CastOptions;
+
+        let source = StructArray::try_new(
+            FieldNames::from(["a", "b"]),
+            vec![buffer![1i32].into_array(), buffer![10i64].into_array()],
+            1,
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let target = DType::struct_(
+            [
+                ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                ("a", DType::Primitive(PType::I64, Nullability::NonNullable)),
+            ],
+            Nullability::NonNullable,
+        );
+
+        let err = source
+            .into_array()
+            .cast_opts(target, CastOptions::by_name())
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("unique"),
+            "expected uniqueness error, got: {err}"
+        );
     }
 
     #[test]
@@ -244,5 +324,72 @@ mod tests {
         #[expect(deprecated)]
         let nfields = result.to_struct().struct_fields().nfields();
         assert_eq!(nfields, 3);
+    }
+
+    #[test]
+    fn cast_by_position_renames_fields() {
+        use crate::assert_arrays_eq;
+        use crate::scalar_fn::fns::cast::CastOptions;
+
+        // Source: {a, b}, Target: {x, y} - same number of fields, different names.
+        let source = StructArray::try_new(
+            FieldNames::from(["a", "b"]),
+            vec![
+                buffer![1i32, 2, 3].into_array(),
+                buffer![10i64, 20, 30].into_array(),
+            ],
+            3,
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let target = DType::struct_(
+            [
+                ("x", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                ("y", DType::Primitive(PType::I64, Nullability::NonNullable)),
+            ],
+            Nullability::NonNullable,
+        );
+
+        let result = source
+            .into_array()
+            .cast_opts(target.clone(), CastOptions::by_position())
+            .unwrap()
+            .to_struct();
+
+        assert_eq!(result.dtype(), &target);
+        assert_arrays_eq!(
+            result.unmasked_field_by_name("x").unwrap(),
+            buffer![1i32, 2, 3].into_array()
+        );
+        assert_arrays_eq!(
+            result.unmasked_field_by_name("y").unwrap(),
+            buffer![10i64, 20, 30].into_array()
+        );
+    }
+
+    #[test]
+    fn cast_by_position_field_count_mismatch_fails() {
+        use crate::scalar_fn::fns::cast::CastOptions;
+
+        let source = StructArray::try_new(
+            FieldNames::from(["a", "b"]),
+            vec![buffer![1i32].into_array(), buffer![10i64].into_array()],
+            1,
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let target = DType::struct_(
+            [("x", DType::Primitive(PType::I32, Nullability::NonNullable))],
+            Nullability::NonNullable,
+        );
+
+        assert!(
+            source
+                .into_array()
+                .cast_opts(target, CastOptions::by_position())
+                .is_err()
+        );
     }
 }
