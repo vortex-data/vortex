@@ -520,6 +520,7 @@ mod tests {
     use vortex::encodings::alp::alp_encode;
     use vortex::encodings::fastlanes::BitPacked;
     use vortex::encodings::fastlanes::BitPackedArray;
+    use vortex::encodings::fastlanes::BitPackedArrayExt;
     use vortex::encodings::fastlanes::FoR;
     use vortex::encodings::fastlanes::FoRArrayExt;
     use vortex::encodings::runend::RunEnd;
@@ -783,6 +784,69 @@ mod tests {
         let bp = bitpacked_array_u32(bit_width, len);
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let plan = dispatch_plan(&bp.into_array(), &cuda_ctx)?;
+
+        let actual =
+            run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
+        assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    #[crate::test]
+    fn test_bitpacked_with_patches() -> VortexResult<()> {
+        let bit_width: u8 = 6;
+        let len = 3000;
+        let max_val = (1u32 << bit_width) - 1;
+        // Most values fit in bit_width bits, but every 100th is an exception.
+        let expected: Vec<u32> = (0..len)
+            .map(|i| {
+                if i % 100 == 0 {
+                    max_val + 1 + (i as u32 % 1000)
+                } else {
+                    (i as u32) % (max_val + 1)
+                }
+            })
+            .collect();
+
+        let prim = PrimitiveArray::new(Buffer::from(expected.clone()), NonNullable);
+        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        assert!(bp.patches().is_some(), "expected patches to be present");
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&bp.into_array(), &cuda_ctx)?;
+
+        let actual =
+            run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
+        assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    #[crate::test]
+    fn test_for_bitpacked_with_patches() -> VortexResult<()> {
+        let bit_width: u8 = 6;
+        let len = 3000;
+        let reference = 100_000u32;
+        let max_val = (1u32 << bit_width) - 1;
+        // Residuals: most fit in bit_width, every 50th is an exception.
+        let residuals: Vec<u32> = (0..len)
+            .map(|i| {
+                if i % 50 == 0 {
+                    max_val + 1 + (i as u32 % 500)
+                } else {
+                    (i as u32) % (max_val + 1)
+                }
+            })
+            .collect();
+        let expected: Vec<u32> = residuals.iter().map(|&v| v + reference).collect();
+
+        let prim = PrimitiveArray::new(Buffer::from(residuals), NonNullable);
+        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        assert!(bp.patches().is_some(), "expected patches to be present");
+        let for_arr = FoR::try_new(bp.into_array(), Scalar::from(reference))?;
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&for_arr.into_array(), &cuda_ctx)?;
 
         let actual =
             run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
