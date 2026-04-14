@@ -12,6 +12,7 @@ use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
+use vortex_session::registry::Id;
 use vortex_session::registry::ReadContext;
 
 use crate::IntoLayout;
@@ -20,7 +21,8 @@ use crate::LayoutRef;
 use crate::VTable;
 use crate::segments::SegmentId;
 
-pub type LayoutEncodingId = ArcRef<str>;
+/// A unique identifier for a layout encoding.
+pub type LayoutEncodingId = Id;
 pub type LayoutEncodingRef = ArcRef<dyn LayoutEncoding>;
 
 pub trait LayoutEncoding: 'static + Send + Sync + Debug + private::Sealed {

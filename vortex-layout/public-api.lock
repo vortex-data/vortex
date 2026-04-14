@@ -172,6 +172,8 @@ pub fn vortex_layout::layouts::compressed::CompressingStrategy::new<S: vortex_la
 
 pub fn vortex_layout::layouts::compressed::CompressingStrategy::with_concurrency(self, concurrency: usize) -> Self
 
+pub fn vortex_layout::layouts::compressed::CompressingStrategy::with_stats(self, stats: &[vortex_array::expr::stats::Stat]) -> Self
+
 impl core::clone::Clone for vortex_layout::layouts::compressed::CompressingStrategy
 
 pub fn vortex_layout::layouts::compressed::CompressingStrategy::clone(&self) -> vortex_layout::layouts::compressed::CompressingStrategy
@@ -2130,11 +2132,11 @@ pub type vortex_layout::ArrayFuture = futures_core::future::BoxFuture<'static, v
 
 pub type vortex_layout::LayoutContext = vortex_session::registry::Context<vortex_layout::LayoutEncodingRef>
 
-pub type vortex_layout::LayoutEncodingId = arcref::ArcRef<str>
+pub type vortex_layout::LayoutEncodingId = vortex_session::registry::Id
 
 pub type vortex_layout::LayoutEncodingRef = arcref::ArcRef<dyn vortex_layout::LayoutEncoding>
 
-pub type vortex_layout::LayoutId = arcref::ArcRef<str>
+pub type vortex_layout::LayoutId = vortex_session::registry::Id
 
 pub type vortex_layout::LayoutReaderRef = alloc::sync::Arc<dyn vortex_layout::LayoutReader>
 

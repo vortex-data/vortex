@@ -11,6 +11,7 @@ mod compute;
 mod ops;
 mod timestamp;
 
+use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
@@ -22,7 +23,7 @@ pub fn initialize(session: &VortexSession) {
     session.arrays().register(DateTimeParts);
 
     session.aggregate_fns().register_aggregate_kernel(
-        DateTimeParts::ID,
+        DateTimeParts.id(),
         Some(IsConstant.id()),
         &compute::is_constant::DateTimePartsIsConstantKernel,
     );

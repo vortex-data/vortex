@@ -185,7 +185,7 @@ impl ScalarFnVTable for Between {
     type Options = BetweenOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.between")
+        ScalarFnId::new("vortex.between")
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

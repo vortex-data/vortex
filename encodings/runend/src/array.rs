@@ -39,6 +39,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::compress::runend_decode_primitive;
 use crate::compress::runend_decode_varbinview;
@@ -79,7 +80,8 @@ impl VTable for RunEnd {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.runend");
+        *ID
     }
 
     fn validate(
@@ -241,8 +243,6 @@ impl<T: TypedArrayRef<RunEnd>> RunEndArrayExt for T {}
 pub struct RunEnd;
 
 impl RunEnd {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.runend");
-
     /// Build a new [`RunEndArray`] without validation.
     ///
     /// # Safety

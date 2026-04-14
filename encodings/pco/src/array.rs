@@ -55,6 +55,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::PcoChunkInfo;
 use crate::PcoMetadata;
@@ -129,7 +130,8 @@ impl VTable for Pco {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.pco");
+        *ID
     }
 
     fn validate(
@@ -276,8 +278,6 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
 pub struct Pco;
 
 impl Pco {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.pco");
-
     pub(crate) fn try_new(
         dtype: DType,
         data: PcoData,

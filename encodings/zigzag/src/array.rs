@@ -33,6 +33,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::compute::ZigZagEncoded;
@@ -50,7 +51,8 @@ impl VTable for ZigZag {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.zigzag");
+        *ID
     }
 
     fn validate(
@@ -195,8 +197,6 @@ impl<T: TypedArrayRef<ZigZag>> ZigZagArrayExt for T {}
 pub struct ZigZag;
 
 impl ZigZag {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.zigzag");
-
     /// Construct a new [`ZigZagArray`] from an encoded unsigned integer array.
     pub fn try_new(encoded: ArrayRef) -> VortexResult<ZigZagArray> {
         let dtype = ZigZagData::dtype_from_encoded_dtype(encoded.dtype())?;

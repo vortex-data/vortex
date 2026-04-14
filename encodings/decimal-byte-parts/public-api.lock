@@ -4,8 +4,6 @@ pub struct vortex_decimal_byte_parts::DecimalByteParts
 
 impl vortex_decimal_byte_parts::DecimalByteParts
 
-pub const vortex_decimal_byte_parts::DecimalByteParts::ID: vortex_array::array::ArrayId
-
 pub fn vortex_decimal_byte_parts::DecimalByteParts::try_new(msp: vortex_array::array::erased::ArrayRef, decimal_dtype: vortex_array::dtype::decimal::DecimalDType) -> vortex_error::VortexResult<vortex_decimal_byte_parts::DecimalBytePartsArray>
 
 impl core::clone::Clone for vortex_decimal_byte_parts::DecimalByteParts

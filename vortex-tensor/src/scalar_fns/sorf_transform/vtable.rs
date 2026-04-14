@@ -48,7 +48,7 @@ impl ScalarFnVTable for SorfTransform {
     type Options = SorfOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new_ref("vortex.tensor.sorf_transform")
+        ScalarFnId::new("vortex.tensor.sorf_transform")
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {

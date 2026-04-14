@@ -139,7 +139,7 @@ impl ScalarFnVTable for L2Denorm {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new_ref("vortex.tensor.l2_denorm")
+        ScalarFnId::new("vortex.tensor.l2_denorm")
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {

@@ -94,7 +94,7 @@ impl ScalarFnVTable for Select {
 
     fn child_name(&self, _instance: &FieldSelection, child_idx: usize) -> ChildName {
         match child_idx {
-            0 => ChildName::new_ref("child"),
+            0 => ChildName::from("child"),
             _ => unreachable!(),
         }
     }

@@ -36,7 +36,7 @@ impl ScalarFnVTable for Not {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.not")
+        ScalarFnId::new("vortex.not")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

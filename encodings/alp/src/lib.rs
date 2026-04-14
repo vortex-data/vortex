@@ -18,6 +18,7 @@
 
 pub use alp::*;
 pub use alp_rd::*;
+use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
@@ -41,7 +42,7 @@ pub fn initialize(session: &VortexSession) {
 
     // Register the ALP-specific NaN count aggregate kernel.
     session.aggregate_fns().register_aggregate_kernel(
-        ALP::ID,
+        ALP.id(),
         Some(NanCount.id()),
         &compute::nan_count::ALPNanCountKernel,
     );

@@ -120,8 +120,6 @@ pub struct vortex_fastlanes::BitPacked
 
 impl vortex_fastlanes::BitPacked
 
-pub const vortex_fastlanes::BitPacked::ID: vortex_array::array::ArrayId
-
 pub fn vortex_fastlanes::BitPacked::encode(array: &vortex_array::array::erased::ArrayRef, bit_width: u8) -> vortex_error::VortexResult<vortex_fastlanes::BitPackedArray>
 
 pub fn vortex_fastlanes::BitPacked::into_parts(array: vortex_fastlanes::BitPackedArray) -> vortex_fastlanes::BitPackedDataParts
@@ -280,8 +278,6 @@ pub struct vortex_fastlanes::Delta
 
 impl vortex_fastlanes::Delta
 
-pub const vortex_fastlanes::Delta::ID: vortex_array::array::ArrayId
-
 pub fn vortex_fastlanes::Delta::try_from_primitive_array(array: &vortex_array::arrays::primitive::vtable::PrimitiveArray, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_fastlanes::DeltaArray>
 
 pub fn vortex_fastlanes::Delta::try_new(bases: vortex_array::array::erased::ArrayRef, deltas: vortex_array::array::erased::ArrayRef, offset: usize, len: usize) -> vortex_error::VortexResult<vortex_fastlanes::DeltaArray>
@@ -367,8 +363,6 @@ pub fn vortex_fastlanes::DeltaData::array_hash<H: core::hash::Hasher>(&self, sta
 pub struct vortex_fastlanes::FoR
 
 impl vortex_fastlanes::FoR
-
-pub const vortex_fastlanes::FoR::ID: vortex_array::array::ArrayId
 
 pub fn vortex_fastlanes::FoR::encode(array: vortex_array::arrays::primitive::vtable::PrimitiveArray) -> vortex_error::VortexResult<vortex_fastlanes::FoRArray>
 
@@ -473,8 +467,6 @@ pub fn vortex_fastlanes::FoRData::array_hash<H: core::hash::Hasher>(&self, state
 pub struct vortex_fastlanes::RLE
 
 impl vortex_fastlanes::RLE
-
-pub const vortex_fastlanes::RLE::ID: vortex_array::array::ArrayId
 
 pub fn vortex_fastlanes::RLE::encode(array: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>) -> vortex_error::VortexResult<vortex_fastlanes::RLEArray>
 

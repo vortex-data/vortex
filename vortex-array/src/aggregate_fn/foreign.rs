@@ -54,7 +54,7 @@ impl AggregateFnVTable for ForeignAggregateFnVTable {
     type Partial = ();
 
     fn id(&self) -> AggregateFnId {
-        self.id.clone()
+        self.id
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

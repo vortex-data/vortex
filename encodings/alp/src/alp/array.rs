@@ -39,6 +39,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ALPFloat;
 use crate::alp::Exponents;
@@ -72,7 +73,8 @@ impl VTable for ALP {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.alp");
+        *ID
     }
 
     fn validate(
@@ -236,10 +238,6 @@ impl Display for ALPData {
 
 #[derive(Clone, Debug)]
 pub struct ALP;
-
-impl ALP {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.alp");
-}
 
 #[derive(Clone, prost::Message)]
 pub struct ALPMetadata {

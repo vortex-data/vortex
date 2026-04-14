@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -51,10 +52,6 @@ pub type ConstantArray = Array<Constant>;
 #[derive(Clone, Debug)]
 pub struct Constant;
 
-impl Constant {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.constant");
-}
-
 impl ArrayHash for ConstantData {
     fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
         self.scalar.hash(state);
@@ -74,7 +71,8 @@ impl VTable for Constant {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.constant");
+        *ID
     }
 
     fn validate(

@@ -7,7 +7,6 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use arcref::ArcRef;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -15,6 +14,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::Id;
 
 use crate::ExecutionCtx;
 use crate::LEGACY_SESSION;
@@ -510,4 +510,4 @@ impl Hasher for HasherWrapper<'_> {
 }
 
 /// ArrayId is a globally unique name for the array's vtable.
-pub type ArrayId = ArcRef<str>;
+pub type ArrayId = Id;

@@ -49,6 +49,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::canonical::execute_sparse;
 use crate::rules::RULES;
@@ -90,7 +91,8 @@ impl VTable for Sparse {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.sparse");
+        *ID
     }
 
     fn validate(
@@ -229,8 +231,6 @@ impl Display for SparseData {
 pub struct Sparse;
 
 impl Sparse {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.sparse");
-
     /// Construct a new [`SparseArray`] from indices, values, length, and fill value.
     pub fn try_new(
         indices: ArrayRef,

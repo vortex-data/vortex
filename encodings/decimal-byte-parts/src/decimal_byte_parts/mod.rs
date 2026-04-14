@@ -43,6 +43,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::decimal_byte_parts::compute::kernel::PARENT_KERNELS;
 use crate::decimal_byte_parts::rules::PARENT_RULES;
@@ -75,7 +76,8 @@ impl VTable for DecimalByteParts {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.decimal_byte_parts");
+        *ID
     }
 
     fn validate(
@@ -253,8 +255,6 @@ impl DecimalBytePartsData {
 pub struct DecimalByteParts;
 
 impl DecimalByteParts {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.decimal_byte_parts");
-
     /// Construct a new [`DecimalBytePartsArray`] from an MSP array and decimal dtype.
     pub fn try_new(
         msp: ArrayRef,

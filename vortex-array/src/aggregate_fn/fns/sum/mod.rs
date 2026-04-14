@@ -71,7 +71,7 @@ impl AggregateFnVTable for Sum {
     type Partial = SumPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new_ref("vortex.sum")
+        AggregateFnId::new("vortex.sum")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

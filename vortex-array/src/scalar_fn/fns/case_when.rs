@@ -79,7 +79,7 @@ impl ScalarFnVTable for CaseWhen {
     type Options = CaseWhenOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.case_when")
+        ScalarFnId::new("vortex.case_when")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

@@ -4,8 +4,6 @@ pub struct vortex_fsst::FSST
 
 impl vortex_fsst::FSST
 
-pub const vortex_fsst::FSST::ID: vortex_array::array::ArrayId
-
 pub fn vortex_fsst::FSST::try_new(dtype: vortex_array::dtype::DType, symbols: vortex_buffer::buffer::Buffer<fsst::Symbol>, symbol_lengths: vortex_buffer::buffer::Buffer<u8>, codes: vortex_array::arrays::varbin::vtable::VarBinArray, uncompressed_lengths: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_fsst::FSSTArray>
 
 impl core::clone::Clone for vortex_fsst::FSST

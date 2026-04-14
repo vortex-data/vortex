@@ -21,6 +21,8 @@ use vortex_array::arrays::patched::USE_EXPERIMENTAL_PATCHES;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::PType;
 use vortex_compressor::estimate::CompressionEstimate;
+use vortex_compressor::estimate::DeferredEstimate;
+use vortex_compressor::estimate::EstimateVerdict;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::DescendantExclusion;
 use vortex_error::VortexResult;
@@ -88,15 +90,15 @@ impl Scheme for ALPScheme {
         // ALP encodes floats as integers. Without integer compression afterward, the encoded ints
         // are the same size.
         if ctx.finished_cascading() {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         // We don't support ALP for f16.
         if data.array_as_primitive().ptype() == PType::F16 {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        CompressionEstimate::Sample
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
     fn compress(
@@ -154,10 +156,10 @@ impl Scheme for ALPRDScheme {
     ) -> CompressionEstimate {
         // We don't support ALPRD for f16.
         if data.array_as_primitive().ptype() == PType::F16 {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        CompressionEstimate::Sample
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
     fn compress(
@@ -225,16 +227,16 @@ impl Scheme for NullDominatedSparseScheme {
 
         // All-null arrays should be compressed as constant instead anyways.
         if value_count == 0 {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         // If the majority (90%) of values is null, this will compress well.
         if stats.null_count() as f64 / len > 0.9 {
-            return CompressionEstimate::Ratio(len / value_count as f64);
+            return CompressionEstimate::Verdict(EstimateVerdict::Ratio(len / value_count as f64));
         }
 
         // Otherwise we don't go this route.
-        CompressionEstimate::Skip
+        CompressionEstimate::Verdict(EstimateVerdict::Skip)
     }
 
     fn compress(
@@ -279,7 +281,7 @@ impl Scheme for PcoScheme {
         _data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> CompressionEstimate {
-        CompressionEstimate::Sample
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
     fn compress(
@@ -326,14 +328,14 @@ impl Scheme for FloatRLEScheme {
     ) -> CompressionEstimate {
         // RLE is only useful when we cascade it with another encoding.
         if ctx.finished_cascading() {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         if data.float_stats().average_run_length() < super::integer::RUN_LENGTH_THRESHOLD {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        CompressionEstimate::Sample
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
     fn compress(

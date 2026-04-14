@@ -81,7 +81,7 @@ impl AggregateFnVTable for NanCount {
     type Partial = u64;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new_ref("vortex.nan_count")
+        AggregateFnId::new("vortex.nan_count")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

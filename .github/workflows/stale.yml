@@ -13,7 +13,7 @@ jobs:
       - uses: actions/stale@v10
         with:
           # After 30 days of no activity, a PR will be marked as stale
-          days-before-pr-stale: 30
+          days-before-pr-stale: 14
           # PR has 7 more days to become active, otherwise it will be closed.
           days-before-pr-close: 7
           stale-pr-label: "stale"

@@ -34,6 +34,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ZstdBuffersMetadata;
 
@@ -44,8 +45,6 @@ pub type ZstdBuffersArray = Array<ZstdBuffers>;
 pub struct ZstdBuffers;
 
 impl ZstdBuffers {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.zstd_buffers");
-
     pub fn try_new(
         dtype: DType,
         len: usize,
@@ -333,7 +332,7 @@ fn compute_output_layout(
 }
 
 fn array_id_from_string(s: &str) -> ArrayId {
-    ArrayId::new_arc(Arc::from(s))
+    ArrayId::new(s)
 }
 
 impl ArrayHash for ZstdBuffersData {
@@ -369,7 +368,8 @@ impl VTable for ZstdBuffers {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.zstd_buffers");
+        *ID
     }
 
     fn validate(

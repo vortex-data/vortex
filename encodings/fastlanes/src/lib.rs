@@ -24,6 +24,7 @@ pub(crate) const FL_CHUNK_SIZE: usize = 1024;
 use bitpacking::compute::is_constant::BitPackedIsConstantKernel;
 use r#for::compute::is_constant::FoRIsConstantKernel;
 use r#for::compute::is_sorted::FoRIsSortedKernel;
+use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
@@ -47,17 +48,17 @@ pub fn initialize(session: &VortexSession) {
 
     // Register the encoding-specific aggregate kernels.
     session.aggregate_fns().register_aggregate_kernel(
-        BitPacked::ID,
+        BitPacked.id(),
         Some(IsConstant.id()),
         &BitPackedIsConstantKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
-        FoR::ID,
+        FoR.id(),
         Some(IsConstant.id()),
         &FoRIsConstantKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
-        FoR::ID,
+        FoR.id(),
         Some(IsSorted.id()),
         &FoRIsSortedKernel,
     );

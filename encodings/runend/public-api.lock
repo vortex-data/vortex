@@ -20,8 +20,6 @@ pub struct vortex_runend::RunEnd
 
 impl vortex_runend::RunEnd
 
-pub const vortex_runend::RunEnd::ID: vortex_array::array::ArrayId
-
 pub fn vortex_runend::RunEnd::encode(array: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_runend::RunEndArray>
 
 pub fn vortex_runend::RunEnd::new(ends: vortex_array::array::erased::ArrayRef, values: vortex_array::array::erased::ArrayRef) -> vortex_runend::RunEndArray

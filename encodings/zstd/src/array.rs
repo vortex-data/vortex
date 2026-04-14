@@ -55,6 +55,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ZstdFrameMetadata;
 use crate::ZstdMetadata;
@@ -134,7 +135,8 @@ impl VTable for Zstd {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.zstd");
+        *ID
     }
 
     fn validate(
@@ -253,8 +255,6 @@ impl VTable for Zstd {
 pub struct Zstd;
 
 impl Zstd {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.zstd");
-
     pub fn try_new(dtype: DType, data: ZstdData, validity: Validity) -> VortexResult<ZstdArray> {
         let len = data.len();
         data.validate(&dtype, len, &validity)?;

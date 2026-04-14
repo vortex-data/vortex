@@ -37,8 +37,3 @@ rand = { workspace = true }
 rand_distr = { workspace = true }
 rstest = { workspace = true }
 vortex-btrblocks = { path = "../vortex-btrblocks" }
-
-[[bench]]
-name = "similarity_search"
-harness = false
-test = false

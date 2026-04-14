@@ -13,6 +13,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::AnyCanonical;
 use crate::ArrayEq;
@@ -45,10 +46,6 @@ pub type SliceArray = Array<Slice>;
 #[derive(Clone, Debug)]
 pub struct Slice;
 
-impl Slice {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.slice");
-}
-
 impl ArrayHash for SliceData {
     fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
         self.range.start.hash(state);
@@ -66,9 +63,9 @@ impl VTable for Slice {
     type ArrayData = SliceData;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-
     fn id(&self) -> ArrayId {
-        Slice::ID
+        static ID: CachedId = CachedId::new("vortex.slice");
+        *ID
     }
 
     fn validate(

@@ -195,13 +195,10 @@ impl TryFrom<ViewedDType> for DType {
                 let fb_ext = fb
                     .type__as_extension()
                     .ok_or_else(|| vortex_err!("failed to parse extension from flatbuffer"))?;
-                let id = ExtId::new_arc(
-                    fb_ext
-                        .id()
-                        .ok_or_else(|| vortex_err!("failed to parse extension id from flatbuffer"))?
-                        .to_string()
-                        .into(),
-                );
+                let id =
+                    ExtId::new(fb_ext.id().ok_or_else(|| {
+                        vortex_err!("failed to parse extension id from flatbuffer")
+                    })?);
                 let storage_dtype = fb_ext.storage_dtype().ok_or_else(|| {
                     vortex_err!(
                 Serde: "storage_dtype must be present on DType fbs message")

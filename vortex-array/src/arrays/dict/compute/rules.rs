@@ -8,6 +8,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::Precision;
 use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
@@ -80,7 +81,7 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
             tracing::trace!(
                 "Not pushing down fallible scalar function {} over dictionary with sparse codes {}",
                 parent.scalar_fn(),
-                Dict::ID,
+                Dict.id(),
             );
             return Ok(None);
         }
@@ -104,7 +105,7 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
             tracing::trace!(
                 "Not pushing down null-sensitive scalar function {} over dictionary with null codes {}",
                 parent.scalar_fn(),
-                Dict::ID,
+                Dict.id(),
             );
             return Ok(None);
         }

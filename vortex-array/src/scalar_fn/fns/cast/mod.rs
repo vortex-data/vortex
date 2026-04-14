@@ -53,7 +53,7 @@ impl ScalarFnVTable for Cast {
     type Options = DType;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.cast")
+        ScalarFnId::new("vortex.cast")
     }
 
     fn serialize(&self, dtype: &DType) -> VortexResult<Option<Vec<u8>>> {

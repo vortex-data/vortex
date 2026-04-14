@@ -4,8 +4,6 @@ pub struct vortex_zstd::Zstd
 
 impl vortex_zstd::Zstd
 
-pub const vortex_zstd::Zstd::ID: vortex_array::array::ArrayId
-
 pub fn vortex_zstd::Zstd::decompress(array: &vortex_zstd::ZstdArray, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub fn vortex_zstd::Zstd::from_primitive(parray: &vortex_array::arrays::primitive::vtable::PrimitiveArray, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<vortex_zstd::ZstdArray>

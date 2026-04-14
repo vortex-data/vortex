@@ -256,7 +256,7 @@ impl AggregateFnVTable for IsConstant {
     type Partial = IsConstantPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new_ref("vortex.is_constant")
+        AggregateFnId::new("vortex.is_constant")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

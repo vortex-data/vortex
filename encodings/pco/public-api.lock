@@ -4,8 +4,6 @@ pub struct vortex_pco::Pco
 
 impl vortex_pco::Pco
 
-pub const vortex_pco::Pco::ID: vortex_array::array::ArrayId
-
 pub fn vortex_pco::Pco::from_primitive(parray: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>, level: usize, values_per_page: usize) -> vortex_error::VortexResult<vortex_pco::PcoArray>
 
 impl core::clone::Clone for vortex_pco::Pco

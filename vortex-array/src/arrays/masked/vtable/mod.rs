@@ -12,6 +12,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::AnyCanonical;
 use crate::ArrayEq;
@@ -48,10 +49,6 @@ pub type MaskedArray = Array<Masked>;
 #[derive(Clone, Debug)]
 pub struct Masked;
 
-impl Masked {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.masked");
-}
-
 impl ArrayHash for MaskedData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
 }
@@ -69,7 +66,8 @@ impl VTable for Masked {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.masked");
+        *ID
     }
 
     fn validate(

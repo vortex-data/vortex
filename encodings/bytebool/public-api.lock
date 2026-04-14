@@ -4,8 +4,6 @@ pub struct vortex_bytebool::ByteBool
 
 impl vortex_bytebool::ByteBool
 
-pub const vortex_bytebool::ByteBool::ID: vortex_array::array::ArrayId
-
 pub fn vortex_bytebool::ByteBool::from_option_vec(data: alloc::vec::Vec<core::option::Option<bool>>) -> vortex_bytebool::ByteBoolArray
 
 pub fn vortex_bytebool::ByteBool::from_vec<V: core::convert::Into<vortex_array::validity::Validity>>(data: alloc::vec::Vec<bool>, validity: V) -> vortex_bytebool::ByteBoolArray

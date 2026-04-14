@@ -49,6 +49,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::canonical::canonicalize_fsst;
 use crate::canonical::fsst_decode_views;
@@ -101,7 +102,8 @@ impl VTable for FSST {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.fsst");
+        *ID
     }
 
     fn validate(
@@ -370,8 +372,6 @@ impl Debug for FSSTData {
 pub struct FSST;
 
 impl FSST {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.fsst");
-
     /// Build an FSST array from a set of `symbols` and `codes`.
     ///
     /// The `codes` VarBinArray is decomposed: its bytes are stored in [`FSSTData`], while

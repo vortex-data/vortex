@@ -40,7 +40,7 @@ impl AggregateFnVTable for Last {
     type Partial = LastPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new_ref("vortex.last")
+        AggregateFnId::new("vortex.last")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

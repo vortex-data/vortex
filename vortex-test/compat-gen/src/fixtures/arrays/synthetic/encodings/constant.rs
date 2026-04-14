@@ -3,6 +3,7 @@
 
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
+use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
 use vortex::array::arrays::Constant;
 use vortex::array::arrays::ConstantArray;
@@ -34,7 +35,7 @@ impl FlatLayoutFixture for ConstantFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Constant::ID]
+        vec![Constant.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

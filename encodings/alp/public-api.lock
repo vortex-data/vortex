@@ -6,10 +6,6 @@ pub struct vortex_alp::ALP
 
 impl vortex_alp::ALP
 
-pub const vortex_alp::ALP::ID: vortex_array::array::ArrayId
-
-impl vortex_alp::ALP
-
 pub fn vortex_alp::ALP::new(encoded: vortex_array::array::erased::ArrayRef, exponents: vortex_alp::Exponents, patches: core::option::Option<vortex_array::patches::Patches>) -> vortex_alp::ALPArray
 
 pub unsafe fn vortex_alp::ALP::new_unchecked(encoded: vortex_array::array::erased::ArrayRef, exponents: vortex_alp::Exponents, patches: core::option::Option<vortex_array::patches::Patches>) -> vortex_alp::ALPArray
@@ -147,8 +143,6 @@ pub fn vortex_alp::ALPMetadata::encoded_len(&self) -> usize
 pub struct vortex_alp::ALPRD
 
 impl vortex_alp::ALPRD
-
-pub const vortex_alp::ALPRD::ID: vortex_array::array::ArrayId
 
 pub unsafe fn vortex_alp::ALPRD::new_unchecked(dtype: vortex_array::dtype::DType, left_parts: vortex_array::array::erased::ArrayRef, left_parts_dictionary: vortex_buffer::buffer::Buffer<u16>, right_parts: vortex_array::array::erased::ArrayRef, right_bit_width: u8, left_parts_patches: core::option::Option<vortex_array::patches::Patches>) -> vortex_alp::ALPRDArray
 

@@ -3,6 +3,7 @@
 
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
+use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::dtype::FieldNames;
@@ -26,7 +27,7 @@ impl FlatLayoutFixture for SequenceFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Sequence::ID]
+        vec![Sequence.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

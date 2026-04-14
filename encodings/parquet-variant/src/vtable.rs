@@ -30,6 +30,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_proto::dtype as pb;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::array::METADATA_SLOT;
 use crate::array::ParquetVariantArrayExt;
@@ -44,10 +45,6 @@ use crate::kernel::PARENT_KERNELS;
 /// VTable for [`ParquetVariantArray`].
 #[derive(Debug, Clone)]
 pub struct ParquetVariant;
-
-impl ParquetVariant {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.parquet.variant");
-}
 
 #[derive(Clone, prost::Message)]
 struct ParquetVariantMetadataProto {
@@ -71,7 +68,8 @@ impl VTable for ParquetVariant {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.parquet.variant");
+        *ID
     }
 
     fn validate(

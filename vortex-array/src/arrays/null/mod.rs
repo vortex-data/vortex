@@ -5,6 +5,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -36,7 +37,8 @@ impl VTable for Null {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.null");
+        *ID
     }
 
     fn validate(
@@ -138,10 +140,6 @@ impl VTable for Null {
 /// ```
 #[derive(Clone, Debug)]
 pub struct Null;
-
-impl Null {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.null");
-}
 
 impl Array<Null> {
     pub fn new(len: usize) -> Self {

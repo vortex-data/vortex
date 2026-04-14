@@ -4,8 +4,6 @@ pub struct vortex_datetime_parts::DateTimeParts
 
 impl vortex_datetime_parts::DateTimeParts
 
-pub const vortex_datetime_parts::DateTimeParts::ID: vortex_array::array::ArrayId
-
 pub fn vortex_datetime_parts::DateTimeParts::try_from_temporal(temporal: vortex_array::arrays::datetime::TemporalArray) -> vortex_error::VortexResult<vortex_datetime_parts::DateTimePartsArray>
 
 pub fn vortex_datetime_parts::DateTimeParts::try_new(dtype: vortex_array::dtype::DType, days: vortex_array::array::erased::ArrayRef, seconds: vortex_array::array::erased::ArrayRef, subseconds: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_datetime_parts::DateTimePartsArray>

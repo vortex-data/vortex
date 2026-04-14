@@ -52,7 +52,7 @@ impl ScalarFnVTable for Binary {
     type Options = Operator;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.binary")
+        ScalarFnId::new("vortex.binary")
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

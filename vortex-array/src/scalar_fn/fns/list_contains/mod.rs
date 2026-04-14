@@ -60,7 +60,7 @@ impl ScalarFnVTable for ListContains {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.list.contains")
+        ScalarFnId::new("vortex.list.contains")
     }
 
     fn serialize(&self, _instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

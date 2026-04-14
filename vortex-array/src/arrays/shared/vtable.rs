@@ -7,6 +7,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -37,10 +38,6 @@ pub type SharedArray = Array<Shared>;
 #[derive(Clone, Debug)]
 pub struct Shared;
 
-impl Shared {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.shared");
-}
-
 impl ArrayHash for SharedData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
 }
@@ -55,9 +52,9 @@ impl VTable for Shared {
     type ArrayData = SharedData;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.shared");
+        *ID
     }
 
     fn validate(

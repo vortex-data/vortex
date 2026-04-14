@@ -87,7 +87,7 @@ impl DType {
                 ))
             }
             DtypeType::Extension(e) => {
-                let id = ExtId::new_arc(e.id.as_str().to_string().into());
+                let id = ExtId::new(e.id.as_str());
                 let storage_dtype = DType::from_proto(
                     e.storage_dtype
                         .as_ref()

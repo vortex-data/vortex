@@ -6,9 +6,11 @@
 //!
 //! This enables zero-cost backward compatibility with previously written datasets.
 
+use vortex_array::Array;
 use vortex_array::ArrayId;
 use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayVTable;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Patched;
@@ -32,7 +34,8 @@ impl ArrayPlugin for ALPPatchedPlugin {
     fn id(&self) -> ArrayId {
         // We reuse the existing `ALP` ID so that we can take over its
         // deserialization pathway.
-        ALP::ID
+        // TODO(joe): dedup method name
+        ArrayVTable::id(&ALP)
     }
 
     fn serialize(
@@ -53,10 +56,10 @@ impl ArrayPlugin for ALPPatchedPlugin {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        let alp_array = ALP
-            .deserialize(dtype, len, metadata, buffers, children, session)?
-            .try_downcast::<ALP>()
-            .map_err(|_| vortex_err!("ALP plugin should only deserialize vortex.alp"))?;
+        let alp_array = Array::<ALP>::try_from_parts(ArrayVTable::deserialize(
+            &ALP, dtype, len, metadata, buffers, children, session,
+        )?)
+        .map_err(|_| vortex_err!("ALP plugin should only deserialize vortex.alp"))?;
 
         // Check if there are interior patches to externalize.
         let Some(patches) = alp_array.patches() else {
@@ -75,6 +78,11 @@ impl ArrayPlugin for ALPPatchedPlugin {
         )?;
 
         Ok(patched.into_array())
+    }
+
+    fn is_supported_encoding(&self, id: &ArrayId) -> bool {
+        // TODO(joe): dedup method name
+        id == ArrayVTable::id(&Patched) || id == ArrayVTable::id(&ALP)
     }
 }
 

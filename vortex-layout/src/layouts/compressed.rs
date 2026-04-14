@@ -54,6 +54,7 @@ impl CompressorPlugin for BtrBlocksCompressor {
 pub struct CompressingStrategy {
     child: Arc<dyn LayoutStrategy>,
     compressor: Arc<dyn CompressorPlugin>,
+    stats: Arc<[Stat]>,
     concurrency: usize,
 }
 
@@ -63,6 +64,7 @@ impl CompressingStrategy {
         Self {
             child: Arc::new(child),
             compressor: Arc::new(compressor),
+            stats: Stat::all().collect(),
             concurrency: std::thread::available_parallelism()
                 .map(|v| v.get())
                 .unwrap_or(1),
@@ -71,6 +73,13 @@ impl CompressingStrategy {
 
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         self.concurrency = concurrency;
+        self
+    }
+
+    /// Override the set of statistics computed on each chunk before compression.
+    /// Defaults to `Stat::all()`.
+    pub fn with_stats(mut self, stats: &[Stat]) -> Self {
+        self.stats = stats.into();
         self
     }
 }
@@ -87,17 +96,17 @@ impl LayoutStrategy for CompressingStrategy {
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let compressor = Arc::clone(&self.compressor);
+        let stats = Arc::clone(&self.stats);
 
         let handle = session.handle();
         let stream = stream
             .map(move |chunk| {
                 let compressor = Arc::clone(&compressor);
+                let stats = Arc::clone(&stats);
                 handle.spawn_cpu(move || {
                     let (sequence_id, chunk) = chunk?;
                     // Compute the stats for the chunk prior to compression
-                    chunk
-                        .statistics()
-                        .compute_all(&Stat::all().collect::<Vec<_>>())?;
+                    chunk.statistics().compute_all(&stats)?;
                     Ok((sequence_id, compressor.compress_chunk(&chunk)?))
                 })
             })

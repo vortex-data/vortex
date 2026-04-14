@@ -571,7 +571,7 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, ExtDTypeRef> {
                 }
 
                 let id = id.ok_or_else(|| de::Error::missing_field("id"))?;
-                let id = ExtId::new_arc(id);
+                let id = ExtId::new(&id);
                 let storage_dtype =
                     storage_dtype.ok_or_else(|| de::Error::missing_field("storage_dtype"))?;
                 let metadata = metadata.ok_or_else(|| de::Error::missing_field("metadata"))?;

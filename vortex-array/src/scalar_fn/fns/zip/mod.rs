@@ -46,7 +46,7 @@ impl ScalarFnVTable for Zip {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.zip")
+        ScalarFnId::new("vortex.zip")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

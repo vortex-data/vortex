@@ -37,6 +37,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::kernel::PARENT_KERNELS;
 
@@ -62,7 +63,8 @@ impl VTable for ByteBool {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.bytebool");
+        *ID
     }
 
     fn validate(
@@ -196,8 +198,6 @@ impl<T: TypedArrayRef<ByteBool>> ByteBoolArrayExt for T {}
 pub struct ByteBool;
 
 impl ByteBool {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.bytebool");
-
     pub fn new(buffer: BufferHandle, validity: Validity) -> ByteBoolArray {
         let dtype = DType::Bool(validity.nullability());
         let slots = ByteBoolData::make_slots(&validity, buffer.len());

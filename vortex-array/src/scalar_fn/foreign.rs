@@ -66,7 +66,7 @@ impl ScalarFnVTable for ForeignScalarFnVTable {
     type Options = ForeignScalarFnOptions;
 
     fn id(&self) -> ScalarFnId {
-        self.id.clone()
+        self.id
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

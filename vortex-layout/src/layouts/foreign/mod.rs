@@ -40,7 +40,7 @@ impl LayoutEncoding for ForeignLayoutEncoding {
     }
 
     fn id(&self) -> LayoutEncodingId {
-        self.id.clone()
+        self.id
     }
 
     fn build(
@@ -57,7 +57,7 @@ impl LayoutEncoding for ForeignLayoutEncoding {
             .collect::<VortexResult<Vec<_>>>()?;
 
         Ok(new_foreign_layout(
-            self.id.clone(),
+            self.id,
             dtype.clone(),
             row_count,
             metadata.to_vec(),

@@ -367,9 +367,9 @@ impl SerializedArray {
             decoded.dtype(),
             dtype,
         );
-        assert_eq!(
-            decoded.encoding_id(),
-            encoding_id,
+
+        assert!(
+            plugin.is_supported_encoding(&decoded.encoding_id()),
             "Array decoded from {} has incorrect encoding {}",
             encoding_id,
             decoded.encoding_id(),
@@ -762,8 +762,8 @@ mod tests {
 
         let ser = SerializedArray::from_array_tree(tree).unwrap();
         let ctx = ReadContext::new([
-            ArrayId::new_ref("vortex.test.foreign_array"),
-            ArrayId::new_ref("vortex.test.foreign_child"),
+            ArrayId::new("vortex.test.foreign_array"),
+            ArrayId::new("vortex.test.foreign_child"),
         ]);
         let session = VortexSession::empty()
             .with::<ArraySession>()

@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
-use arcref::ArcRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -38,11 +35,11 @@ impl AggregateFnRef {
     ///
     /// Note: the serialization format is not stable and may change between versions.
     pub fn from_proto(proto: &pb::AggregateFn, session: &VortexSession) -> VortexResult<Self> {
-        let agg_fn_id: AggregateFnId = ArcRef::new_arc(Arc::from(proto.id.as_str()));
+        let agg_fn_id: AggregateFnId = AggregateFnId::new(proto.id.as_str());
         let agg_fn = if let Some(plugin) = session.aggregate_fns().registry().find(&agg_fn_id) {
             plugin.deserialize(proto.metadata(), session)?
         } else if session.allows_unknown() {
-            new_foreign_aggregate_fn(agg_fn_id.clone(), proto.metadata().to_vec())
+            new_foreign_aggregate_fn(agg_fn_id, proto.metadata().to_vec())
         } else {
             return Err(vortex_err!("unknown aggregate function id: {}", proto.id));
         };
@@ -89,7 +86,7 @@ mod tests {
         type Partial = ();
 
         fn id(&self) -> AggregateFnId {
-            AggregateFnId::new_ref("vortex.test.proto")
+            AggregateFnId::new("vortex.test.proto")
         }
 
         fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

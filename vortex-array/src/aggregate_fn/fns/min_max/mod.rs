@@ -173,7 +173,7 @@ impl AggregateFnVTable for MinMax {
     type Partial = MinMaxPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new_ref("vortex.min_max")
+        AggregateFnId::new("vortex.min_max")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

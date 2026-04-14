@@ -11,6 +11,8 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::varbin::VarBinArrayExt;
 use vortex_compressor::estimate::CompressionEstimate;
+use vortex_compressor::estimate::DeferredEstimate;
+use vortex_compressor::estimate::EstimateVerdict;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::DescendantExclusion;
 use vortex_error::VortexResult;
@@ -73,7 +75,7 @@ impl Scheme for FSSTScheme {
         _data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> CompressionEstimate {
-        CompressionEstimate::Sample
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
     fn compress(
@@ -161,16 +163,16 @@ impl Scheme for NullDominatedSparseScheme {
 
         // All-null arrays should be compressed as constant instead anyways.
         if value_count == 0 {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         // If the majority (90%) of values is null, this will compress well.
         if stats.null_count() as f64 / len > 0.9 {
-            return CompressionEstimate::Ratio(len / value_count as f64);
+            return CompressionEstimate::Verdict(EstimateVerdict::Ratio(len / value_count as f64));
         }
 
         // Otherwise we don't go this route.
-        CompressionEstimate::Skip
+        CompressionEstimate::Verdict(EstimateVerdict::Skip)
     }
 
     fn compress(
@@ -216,7 +218,7 @@ impl Scheme for ZstdScheme {
         _data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> CompressionEstimate {
-        CompressionEstimate::Sample
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
     fn compress(
@@ -245,7 +247,7 @@ impl Scheme for ZstdBuffersScheme {
         _data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> CompressionEstimate {
-        CompressionEstimate::Sample
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
     fn compress(

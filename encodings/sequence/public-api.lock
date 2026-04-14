@@ -4,8 +4,6 @@ pub struct vortex_sequence::Sequence
 
 impl vortex_sequence::Sequence
 
-pub const vortex_sequence::Sequence::ID: vortex_array::array::ArrayId
-
 pub fn vortex_sequence::Sequence::try_new(base: vortex_array::scalar::typed_view::primitive::pvalue::PValue, multiplier: vortex_array::scalar::typed_view::primitive::pvalue::PValue, ptype: vortex_array::dtype::ptype::PType, nullability: vortex_array::dtype::nullability::Nullability, length: usize) -> vortex_error::VortexResult<vortex_sequence::SequenceArray>
 
 pub fn vortex_sequence::Sequence::try_new_typed<T: vortex_array::dtype::ptype::NativePType + core::convert::Into<vortex_array::scalar::typed_view::primitive::pvalue::PValue>>(base: T, multiplier: T, nullability: vortex_array::dtype::nullability::Nullability, length: usize) -> vortex_error::VortexResult<vortex_sequence::SequenceArray>

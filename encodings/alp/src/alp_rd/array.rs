@@ -44,6 +44,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::alp_rd::kernel::PARENT_KERNELS;
 use crate::alp_rd::rules::RULES;
@@ -92,7 +93,8 @@ impl VTable for ALPRD {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.alprd");
+        *ID
     }
 
     fn validate(
@@ -360,8 +362,6 @@ pub struct ALPRDDataParts {
 pub struct ALPRD;
 
 impl ALPRD {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.alprd");
-
     pub fn try_new(
         dtype: DType,
         left_parts: ArrayRef,

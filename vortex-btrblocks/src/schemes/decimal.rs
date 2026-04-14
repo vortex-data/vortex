@@ -11,6 +11,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::decimal::narrowed_decimal;
 use vortex_array::dtype::DecimalType;
 use vortex_compressor::estimate::CompressionEstimate;
+use vortex_compressor::estimate::EstimateVerdict;
 use vortex_decimal_byte_parts::DecimalByteParts;
 use vortex_error::VortexResult;
 
@@ -47,7 +48,7 @@ impl Scheme for DecimalScheme {
         _ctx: CompressorContext,
     ) -> CompressionEstimate {
         // Decimal compression is almost always beneficial (narrowing + primitive compression).
-        CompressionEstimate::AlwaysUse
+        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
     }
 
     fn compress(

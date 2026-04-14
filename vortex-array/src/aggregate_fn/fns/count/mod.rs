@@ -27,7 +27,7 @@ impl AggregateFnVTable for Count {
     type Partial = u64;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new_ref("vortex.count")
+        AggregateFnId::new("vortex.count")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

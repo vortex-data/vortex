@@ -22,7 +22,7 @@ impl ExtVTable for FixedShapeTensor {
     type NativeValue<'a> = &'a ScalarValue;
 
     fn id(&self) -> ExtId {
-        ExtId::new_ref("vortex.tensor.fixed_shape_tensor")
+        ExtId::new("vortex.fixed_shape_tensor")
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
