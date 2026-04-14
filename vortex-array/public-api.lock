@@ -2718,8 +2718,6 @@ pub fn vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt::fixed_size_
 
 pub fn vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt::fixed_size_list_validity(&self) -> vortex_array::validity::Validity
 
-pub fn vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt::fixed_size_list_validity_mask(&self) -> vortex_mask::Mask
-
 pub fn vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt::list_size(&self) -> u32
 
 impl<T: vortex_array::TypedArrayRef<vortex_array::arrays::FixedSizeList>> vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt for T
@@ -2731,8 +2729,6 @@ pub fn T::elements(&self) -> &vortex_array::ArrayRef
 pub fn T::fixed_size_list_elements_at(&self, index: usize) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn T::fixed_size_list_validity(&self) -> vortex_array::validity::Validity
-
-pub fn T::fixed_size_list_validity_mask(&self) -> vortex_mask::Mask
 
 pub fn T::list_size(&self) -> u32
 
@@ -2872,8 +2868,6 @@ pub fn vortex_array::arrays::list::ListArrayExt::list_elements_at(&self, index: 
 
 pub fn vortex_array::arrays::list::ListArrayExt::list_validity(&self) -> vortex_array::validity::Validity
 
-pub fn vortex_array::arrays::list::ListArrayExt::list_validity_mask(&self) -> vortex_mask::Mask
-
 pub fn vortex_array::arrays::list::ListArrayExt::nullability(&self) -> vortex_array::dtype::Nullability
 
 pub fn vortex_array::arrays::list::ListArrayExt::offset_at(&self, index: usize) -> vortex_error::VortexResult<usize>
@@ -2893,8 +2887,6 @@ pub fn T::elements(&self) -> &vortex_array::ArrayRef
 pub fn T::list_elements_at(&self, index: usize) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn T::list_validity(&self) -> vortex_array::validity::Validity
-
-pub fn T::list_validity_mask(&self) -> vortex_mask::Mask
 
 pub fn T::nullability(&self) -> vortex_array::dtype::Nullability
 
@@ -3054,8 +3046,6 @@ pub fn vortex_array::arrays::listview::ListViewArrayExt::list_elements_at(&self,
 
 pub fn vortex_array::arrays::listview::ListViewArrayExt::listview_validity(&self) -> vortex_array::validity::Validity
 
-pub fn vortex_array::arrays::listview::ListViewArrayExt::listview_validity_mask(&self) -> vortex_mask::Mask
-
 pub fn vortex_array::arrays::listview::ListViewArrayExt::nullability(&self) -> vortex_array::dtype::Nullability
 
 pub fn vortex_array::arrays::listview::ListViewArrayExt::offset_at(&self, index: usize) -> usize
@@ -3075,8 +3065,6 @@ pub fn T::elements(&self) -> &vortex_array::ArrayRef
 pub fn T::list_elements_at(&self, index: usize) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn T::listview_validity(&self) -> vortex_array::validity::Validity
-
-pub fn T::listview_validity_mask(&self) -> vortex_mask::Mask
 
 pub fn T::nullability(&self) -> vortex_array::dtype::Nullability
 
@@ -3202,8 +3190,6 @@ pub fn vortex_array::arrays::masked::MaskedArrayExt::child(&self) -> &vortex_arr
 
 pub fn vortex_array::arrays::masked::MaskedArrayExt::masked_validity(&self) -> vortex_array::validity::Validity
 
-pub fn vortex_array::arrays::masked::MaskedArrayExt::masked_validity_mask(&self) -> vortex_mask::Mask
-
 pub fn vortex_array::arrays::masked::MaskedArrayExt::validity_child(&self) -> core::option::Option<&vortex_array::ArrayRef>
 
 impl<T: vortex_array::TypedArrayRef<vortex_array::arrays::Masked>> vortex_array::arrays::masked::MaskedArrayExt for T
@@ -3211,8 +3197,6 @@ impl<T: vortex_array::TypedArrayRef<vortex_array::arrays::Masked>> vortex_array:
 pub fn T::child(&self) -> &vortex_array::ArrayRef
 
 pub fn T::masked_validity(&self) -> vortex_array::validity::Validity
-
-pub fn T::masked_validity_mask(&self) -> vortex_mask::Mask
 
 pub fn T::validity_child(&self) -> core::option::Option<&vortex_array::ArrayRef>
 
@@ -4650,8 +4634,6 @@ pub fn vortex_array::arrays::varbin::VarBinArrayExt::validity_child(&self) -> co
 
 pub fn vortex_array::arrays::varbin::VarBinArrayExt::varbin_validity(&self) -> vortex_array::validity::Validity
 
-pub fn vortex_array::arrays::varbin::VarBinArrayExt::varbin_validity_mask(&self) -> vortex_mask::Mask
-
 impl<T: vortex_array::TypedArrayRef<vortex_array::arrays::VarBin>> vortex_array::arrays::varbin::VarBinArrayExt for T
 
 pub fn T::bytes_at(&self, index: usize) -> vortex_buffer::ByteBuffer
@@ -4671,8 +4653,6 @@ pub fn T::sliced_bytes(&self) -> vortex_buffer::ByteBuffer
 pub fn T::validity_child(&self) -> core::option::Option<&vortex_array::ArrayRef>
 
 pub fn T::varbin_validity(&self) -> vortex_array::validity::Validity
-
-pub fn T::varbin_validity_mask(&self) -> vortex_mask::Mask
 
 pub fn vortex_array::arrays::varbin::varbin_scalar(value: vortex_buffer::ByteBuffer, dtype: &vortex_array::dtype::DType) -> vortex_array::scalar::Scalar
 
@@ -5034,15 +5014,11 @@ pub fn vortex_array::arrays::varbinview::VarBinViewArrayExt::dtype_parts(&self) 
 
 pub fn vortex_array::arrays::varbinview::VarBinViewArrayExt::varbinview_validity(&self) -> vortex_array::validity::Validity
 
-pub fn vortex_array::arrays::varbinview::VarBinViewArrayExt::varbinview_validity_mask(&self) -> vortex_mask::Mask
-
 impl<T: vortex_array::TypedArrayRef<vortex_array::arrays::VarBinView>> vortex_array::arrays::varbinview::VarBinViewArrayExt for T
 
 pub fn T::dtype_parts(&self) -> (bool, vortex_array::dtype::Nullability)
 
 pub fn T::varbinview_validity(&self) -> vortex_array::validity::Validity
-
-pub fn T::varbinview_validity_mask(&self) -> vortex_mask::Mask
 
 pub type vortex_array::arrays::varbinview::VarBinViewArray = vortex_array::Array<vortex_array::arrays::VarBinView>
 
