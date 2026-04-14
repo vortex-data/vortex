@@ -85,7 +85,7 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
     }
 
     fn is_supported_encoding(&self, id: &ArrayId) -> bool {
-        id == &ArrayPlugin::id(&BitPacked) || id == &ArrayPlugin::id(&Patched)
+        id == &BitPacked.id() || id == &Patched.id()
     }
 }
 
