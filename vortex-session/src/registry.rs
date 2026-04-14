@@ -125,18 +125,6 @@ impl Ord for Id {
     }
 }
 
-impl PartialEq<str> for Id {
-    fn eq(&self, other: &str) -> bool {
-        self.as_str() == other
-    }
-}
-
-impl PartialEq<&str> for Id {
-    fn eq(&self, other: &&str) -> bool {
-        self.as_str() == *other
-    }
-}
-
 impl AsRef<str> for Id {
     fn as_ref(&self) -> &str {
         self.as_str()

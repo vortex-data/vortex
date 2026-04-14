@@ -66,14 +66,14 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
     }
 
     let id = array.encoding_id();
-    if id == ALP::ID {
+    if id == ALP::array_id() {
         let arr = array.as_::<ALP>();
         return arr.patches().is_none() && arr.dtype().as_ptype() == PType::F32;
     }
-    if id == BitPacked::ID {
+    if id == BitPacked::array_id() {
         return array.as_::<BitPacked>().patches().is_none();
     }
-    if id == Dict::ID {
+    if id == Dict::array_id() {
         let arr = array.as_::<Dict>();
         // Nullable codes could hold garbage values at null positions, causing
         // out-of-bounds shared memory reads in the DICT gather scalar op.
@@ -91,7 +91,7 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
             _ => false,
         };
     }
-    if id == RunEnd::ID {
+    if id == RunEnd::array_id() {
         let arr = array.as_::<RunEnd>();
         // Nullable ends could hold garbage values at null positions, causing
         // unpredictable binary search / forward-scan behavior in the RUNEND
@@ -110,11 +110,11 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
             _ => false,
         };
     }
-    id == FoR::ID
-        || id == ZigZag::ID
-        || id == Primitive::ID
-        || id == Slice::ID
-        || id == Sequence::ID
+    id == FoR::array_id()
+        || id == ZigZag::array_id()
+        || id == Primitive::array_id()
+        || id == Slice::array_id()
+        || id == Sequence::array_id()
 }
 
 /// An unmaterialized stage: a source op, scalar ops, and optional source buffer reference.
@@ -435,23 +435,23 @@ impl FusedPlan {
 
         let id = array.encoding_id();
 
-        if id == BitPacked::ID {
+        if id == BitPacked::array_id() {
             self.walk_bitpacked(array)
-        } else if id == FoR::ID {
+        } else if id == FoR::array_id() {
             self.walk_for(array, pending_subtrees)
-        } else if id == ZigZag::ID {
+        } else if id == ZigZag::array_id() {
             self.walk_zigzag(array, pending_subtrees)
-        } else if id == ALP::ID {
+        } else if id == ALP::array_id() {
             self.walk_alp(array, pending_subtrees)
-        } else if id == Dict::ID {
+        } else if id == Dict::array_id() {
             self.walk_dict(array, pending_subtrees)
-        } else if id == RunEnd::ID {
+        } else if id == RunEnd::array_id() {
             self.walk_runend(array, pending_subtrees)
-        } else if id == Primitive::ID {
+        } else if id == Primitive::array_id() {
             self.walk_primitive(array)
-        } else if id == Slice::ID {
+        } else if id == Slice::array_id() {
             self.walk_slice(array, pending_subtrees)
-        } else if id == Sequence::ID {
+        } else if id == Sequence::array_id() {
             self.walk_sequence(array)
         } else {
             vortex_bail!(
@@ -597,7 +597,7 @@ impl FusedPlan {
         pending_subtrees: &mut Vec<ArrayRef>,
     ) -> VortexResult<Stage> {
         let ptype = PType::try_from(child.dtype())?;
-        if child.encoding_id() == Primitive::ID {
+        if child.encoding_id() == Primitive::array_id() {
             return self.walk_primitive(child);
         }
         let buf_idx = self.source_buffers.len();

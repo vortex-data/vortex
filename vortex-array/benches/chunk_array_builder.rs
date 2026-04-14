@@ -146,13 +146,15 @@ fn chunked_constant_utf8_append_to_builder(
 ) {
     let chunk = make_constant_utf8_chunks(value, len, chunk_count);
 
-    bencher.with_inputs(|| &chunk).bench_refs(|chunk| {
-        let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk
-            .append_to_builder(builder.as_mut(), &mut SESSION.create_execution_ctx())
-            .vortex_expect("append failed");
-        builder.finish()
-    })
+    bencher
+        .with_inputs(|| (&chunk, SESSION.create_execution_ctx()))
+        .bench_refs(|(chunk, ctx)| {
+            let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
+            chunk
+                .append_to_builder(builder.as_mut(), ctx)
+                .vortex_expect("append failed");
+            builder.finish()
+        })
 }
 
 fn make_constant_utf8_chunks(value: &str, len: usize, chunk_count: usize) -> ArrayRef {

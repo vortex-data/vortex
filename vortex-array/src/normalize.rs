@@ -203,22 +203,18 @@ mod tests {
 
         // Slice the dict array to get a SliceArray wrapping a DictArray.
         let sliced = SliceArray::new(dict, 1..4).into_array();
-        assert_eq!(sliced.encoding_id(), Slice::ID);
+        assert_eq!(sliced.encoding_id(), Slice::array_id());
 
         let allowed = HashSet::from_iter([Dict::array_id(), Primitive::array_id()]);
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
-
-        println!("sliced {}", sliced.display_tree());
 
         let normalized = sliced.normalize(&mut NormalizeOptions {
             allowed: &allowed,
             operation: Operation::Execute(&mut ctx),
         })?;
 
-        println!("after {}", normalized.display_tree());
-
         // The normalized result should be a DictArray, not a SliceArray.
-        assert_eq!(normalized.encoding_id(), Dict::ID);
+        assert_eq!(normalized.encoding_id(), Dict::array_id());
         assert_eq!(normalized.len(), 3);
 
         // Verify the data: codes [1,0,1] -> values [20, 10, 20]
