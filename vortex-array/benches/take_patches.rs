@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::cast_possible_truncation)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::cast_possible_truncation)]
 
 use divan::Bencher;
 use rand::RngExt;

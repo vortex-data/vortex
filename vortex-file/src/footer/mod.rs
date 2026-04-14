@@ -34,7 +34,7 @@ use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::footer as fb;
 use vortex_layout::LayoutEncodingId;
 use vortex_layout::LayoutRef;
-use vortex_layout::layout_from_flatbuffer;
+use vortex_layout::layout_from_flatbuffer_with_options;
 use vortex_layout::session::LayoutSessionExt;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
@@ -101,12 +101,13 @@ impl Footer {
             .collect();
         let array_read_ctx = ReadContext::new(array_ids);
 
-        let root_layout = layout_from_flatbuffer(
+        let root_layout = layout_from_flatbuffer_with_options(
             layout_bytes,
             &dtype,
             &layout_read_ctx,
             &array_read_ctx,
             session.layouts().registry(),
+            session.allows_unknown(),
         )?;
 
         let segments: Arc<[SegmentSpec]> = fb_footer

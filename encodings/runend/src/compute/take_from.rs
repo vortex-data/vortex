@@ -6,7 +6,7 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Dict;
-use vortex_array::arrays::dict::DictArrayExt;
+use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::dtype::DType;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_error::VortexResult;

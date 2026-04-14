@@ -7,8 +7,6 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use vortex_alp::ALP;
-// Compressed encodings from encoding crates
-// Canonical array encodings from vortex-array
 use vortex_alp::ALPRD;
 use vortex_array::ArrayId;
 use vortex_array::VTable;
@@ -23,10 +21,12 @@ use vortex_array::arrays::List;
 use vortex_array::arrays::ListView;
 use vortex_array::arrays::Masked;
 use vortex_array::arrays::Null;
+use vortex_array::arrays::Patched;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::Struct;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinView;
+use vortex_array::arrays::patched::USE_EXPERIMENTAL_PATCHES;
 use vortex_array::dtype::FieldPath;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
@@ -57,8 +57,6 @@ use vortex_pco::Pco;
 use vortex_runend::RunEnd;
 use vortex_sequence::Sequence;
 use vortex_sparse::Sparse;
-#[cfg(feature = "unstable_encodings")]
-use vortex_tensor::encodings::turboquant::TurboQuant;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 use vortex_zigzag::ZigZag;
@@ -93,6 +91,10 @@ pub static ALLOWED_ENCODINGS: LazyLock<HashSet<ArrayId>> = LazyLock::new(|| {
     allowed.insert(Masked.id());
     allowed.insert(Dict.id());
 
+    if *USE_EXPERIMENTAL_PATCHES {
+        allowed.insert(Patched.id());
+    }
+
     // Compressed encodings from encoding crates
     allowed.insert(ALP.id());
     allowed.insert(ALPRD.id());
@@ -108,8 +110,6 @@ pub static ALLOWED_ENCODINGS: LazyLock<HashSet<ArrayId>> = LazyLock::new(|| {
     allowed.insert(RunEnd.id());
     allowed.insert(Sequence.id());
     allowed.insert(Sparse.id());
-    #[cfg(feature = "unstable_encodings")]
-    allowed.insert(TurboQuant.id());
     allowed.insert(ZigZag.id());
 
     #[cfg(feature = "zstd")]

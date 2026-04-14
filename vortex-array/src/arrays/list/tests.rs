@@ -443,7 +443,7 @@ fn test_offset_to_0() {
 type OptVec<T> = Vec<Option<T>>;
 
 // Helper function to create a list of lists from a 3D vector with Option types.
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn create_list_of_lists_nullable(data: OptVec<OptVec<OptVec<i32>>>) -> ListArray {
     // Flatten all elements and track offsets and validity.
     let mut all_elements = Vec::new();

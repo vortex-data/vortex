@@ -165,7 +165,7 @@ impl<T> Task<T> {
 impl<T> Future for Task<T> {
     type Output = T;
 
-    #[allow(clippy::panic)]
+    #[expect(clippy::panic)]
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match ready!(self.recv.poll_unpin(cx)) {
             Ok(result) => Poll::Ready(result),

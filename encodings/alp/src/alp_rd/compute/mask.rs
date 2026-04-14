@@ -50,7 +50,7 @@ mod tests {
     fn test_mask_simple<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
         test_mask_conformance(
             &RDEncoder::new(&[a, b])
-                .encode(&PrimitiveArray::from_iter([a, b, outlier, b, outlier]))
+                .encode(PrimitiveArray::from_iter([a, b, outlier, b, outlier]).as_view())
                 .into_array(),
         );
     }
@@ -61,13 +61,10 @@ mod tests {
     fn test_mask_with_nulls<T: ALPRDFloat>(#[case] a: T, #[case] outlier: T) {
         test_mask_conformance(
             &RDEncoder::new(&[a])
-                .encode(&PrimitiveArray::from_option_iter([
-                    Some(a),
-                    None,
-                    Some(outlier),
-                    Some(a),
-                    None,
-                ]))
+                .encode(
+                    PrimitiveArray::from_option_iter([Some(a), None, Some(outlier), Some(a), None])
+                        .as_view(),
+                )
                 .into_array(),
         );
     }

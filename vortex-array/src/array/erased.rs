@@ -125,8 +125,6 @@ impl ArrayEq for ArrayRef {
         self.0.dyn_array_eq(other, precision)
     }
 }
-
-#[allow(clippy::same_name_method)]
 impl ArrayRef {
     /// Returns the length of the array.
     #[inline]

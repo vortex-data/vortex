@@ -203,7 +203,7 @@ pub struct PyArray;
 impl PyArray {
     #[new]
     #[pyo3(signature = (*args, **kwargs))]
-    #[allow(unused_variables)]
+    #[expect(unused_variables)]
     fn new(args: &Bound<'_, PyAny>, kwargs: Option<&Bound<'_, PyAny>>) -> Self {
         Self
     }

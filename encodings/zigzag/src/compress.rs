@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
@@ -14,9 +15,10 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 use zigzag::ZigZag as ExternalZigZag;
 
-use crate::array::zigzag_try_new;
-
-pub fn zigzag_encode(parray: PrimitiveArray) -> VortexResult<ArrayRef> {
+use crate::ZigZag;
+use crate::ZigZagArray;
+pub fn zigzag_encode(parray: ArrayView<'_, Primitive>) -> VortexResult<ZigZagArray> {
+    let parray = parray.into_owned();
     let validity = parray.validity()?;
     let encoded = match parray.ptype() {
         PType::I8 => zigzag_encode_primitive::<i8>(parray.into_buffer_mut(), validity),
@@ -28,7 +30,7 @@ pub fn zigzag_encode(parray: PrimitiveArray) -> VortexResult<ArrayRef> {
             parray.ptype()
         ),
     };
-    zigzag_try_new(encoded.into_array())
+    ZigZag::try_new(encoded.into_array())
 }
 
 fn zigzag_encode_primitive<T: ExternalZigZag + NativePType>(
@@ -75,15 +77,19 @@ where
 
 #[cfg(test)]
 mod test {
+    use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::assert_arrays_eq;
 
     use super::*;
+    use crate::ZigZag;
 
     #[test]
     fn test_compress_i8() {
-        let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i8..100)).unwrap();
-        assert_eq!(compressed.encoding_id().as_ref(), "vortex.zigzag");
+        let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i8..100).as_view())
+            .unwrap()
+            .into_array();
+        assert!(compressed.is::<ZigZag>());
         assert_arrays_eq!(
             compressed.to_primitive(),
             PrimitiveArray::from_iter(-100_i8..100)
@@ -91,8 +97,10 @@ mod test {
     }
     #[test]
     fn test_compress_i16() {
-        let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i16..100)).unwrap();
-        assert_eq!(compressed.encoding_id().as_ref(), "vortex.zigzag");
+        let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i16..100).as_view())
+            .unwrap()
+            .into_array();
+        assert!(compressed.is::<ZigZag>());
         assert_arrays_eq!(
             compressed.to_primitive(),
             PrimitiveArray::from_iter(-100_i16..100)
@@ -100,8 +108,10 @@ mod test {
     }
     #[test]
     fn test_compress_i32() {
-        let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i32..100)).unwrap();
-        assert_eq!(compressed.encoding_id().as_ref(), "vortex.zigzag");
+        let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i32..100).as_view())
+            .unwrap()
+            .into_array();
+        assert!(compressed.is::<ZigZag>());
         assert_arrays_eq!(
             compressed.to_primitive(),
             PrimitiveArray::from_iter(-100_i32..100)
@@ -109,8 +119,10 @@ mod test {
     }
     #[test]
     fn test_compress_i64() {
-        let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i64..100)).unwrap();
-        assert_eq!(compressed.encoding_id().as_ref(), "vortex.zigzag");
+        let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i64..100).as_view())
+            .unwrap()
+            .into_array();
+        assert!(compressed.is::<ZigZag>());
         assert_arrays_eq!(
             compressed.to_primitive(),
             PrimitiveArray::from_iter(-100_i64..100)

@@ -681,7 +681,7 @@ mod test {
         // Pick a seed that we know will trigger lots of patches.
         let encoder: alp_rd::RDEncoder = alp_rd::RDEncoder::new(&[seed.powi(-2)]);
 
-        let rd_array = encoder.encode(&real_array);
+        let rd_array = encoder.encode(real_array.as_view());
 
         let decoded = rd_array.as_array().to_primitive();
 

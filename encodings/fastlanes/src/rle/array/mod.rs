@@ -348,7 +348,7 @@ mod tests {
     #[test]
     fn test_rle_serialization() {
         let primitive = PrimitiveArray::from_iter((0..2048).map(|i| (i / 100) as u32));
-        let rle_array = RLEData::encode(&primitive).unwrap();
+        let rle_array = RLEData::encode(primitive.as_view()).unwrap();
         assert_eq!(rle_array.len(), 2048);
 
         let original_data = rle_array.as_array().to_primitive();
@@ -383,7 +383,7 @@ mod tests {
     #[test]
     fn test_rle_serialization_slice() {
         let primitive = PrimitiveArray::from_iter((0..2048).map(|i| (i / 100) as u32));
-        let rle_array = RLEData::encode(&primitive).unwrap();
+        let rle_array = RLEData::encode(primitive.as_view()).unwrap();
 
         let sliced = RLE::try_new(
             rle_array.values().clone(),
@@ -442,12 +442,12 @@ mod tests {
         // Chunk 1 (positions 1024..) is all-null.
 
         let original = PrimitiveArray::from_option_iter(values);
-        let rle = RLEData::encode(&original)?;
+        let rle = RLEData::encode(original.as_view())?;
 
-        // Simulate cascading compression: narrow u16→u8 then re-encode with RLE,
+        // Simulate cascading compression: narrow u16->u8 then re-encode with RLE,
         // matching the path taken by the BtrBlocks compressor.
         let indices_prim = rle.indices().to_primitive().narrow()?;
-        let re_encoded = RLEData::encode(&indices_prim)?;
+        let re_encoded = RLEData::encode(indices_prim.as_view())?;
 
         // Reconstruct the outer RLE with re-encoded indices.
         // SAFETY: we only replace the indices child; all other invariants hold.

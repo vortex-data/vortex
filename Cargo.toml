@@ -1,6 +1,7 @@
 [workspace]
 members = [
     # Core crates in dependency order
+    "vortex-array-macros",
     "vortex-error",
     "vortex-buffer",
     "vortex-mask",
@@ -201,7 +202,7 @@ pyo3-bytes = "0.6"
 pyo3-log = "0.13.0"
 pyo3-object_store = "0.9.0"
 quote = "1.0.44"
-rand = "0.10.0"
+rand = "0.10.1"
 rand_distr = "0.6"
 ratatui = { version = "0.30", default-features = false }
 regex = "1.11.0"
@@ -241,6 +242,7 @@ thiserror = "2.0.3"
 tokio = { version = "1.48" }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.17"
+vortex-array-macros = { version = "0.1.0", path = "./vortex-array-macros" }
 # Pull these into non-public crates to support DF 58
 tpchgen = { version = "2.0.2", git = "https://github.com/clflushopt/tpchgen-rs.git", rev = "438e9c2dbc25b2fff82c0efc08b3f13b5707874f" }
 tpchgen-arrow = { version = "2.0.2", git = "https://github.com/clflushopt/tpchgen-rs.git", rev = "438e9c2dbc25b2fff82c0efc08b3f13b5707874f" }
@@ -314,8 +316,6 @@ unused_lifetimes = "deny"
 unused_qualifications = "deny"
 unexpected_cfgs = { level = "deny", check-cfg = [
     "cfg(codspeed)",
-    "cfg(disable_loom)",
-    "cfg(vortex_nightly)",
     'cfg(target_os, values("unknown"))',
 ] }
 warnings = "warn"
@@ -382,3 +382,15 @@ lto = false
 [profile.bench_assert]
 debug-assertions = true
 inherits = "bench"
+
+[profile.ci]
+inherits = "dev"
+debug = "line-tables-only"
+incremental = false
+
+# This rule only applies to dependencies that are not members of the workspace.
+[profile.ci.package."*"]
+debug = false
+debug-assertions = false
+strip = "debuginfo"
+incremental = false

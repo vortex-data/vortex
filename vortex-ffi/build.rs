@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::exit)]
+#![expect(clippy::unwrap_used)]
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;

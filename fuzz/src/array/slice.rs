@@ -22,7 +22,6 @@ use vortex_array::match_each_native_ptype;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
-#[allow(clippy::unnecessary_fallible_conversions)]
 pub fn slice_canonical_array(
     array: &ArrayRef,
     start: usize,

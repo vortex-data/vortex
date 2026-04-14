@@ -79,7 +79,7 @@ mod test {
     #[case(0.1f64, 0.2f64, 3e100f64)]
     fn test_slice<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
         let array = PrimitiveArray::from_iter([a, b, outlier]);
-        let encoded = RDEncoder::new(&[a, b]).encode(&array);
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
 
         assert!(encoded.left_parts_patches().is_some());
         assert_arrays_eq!(encoded, array);
@@ -94,7 +94,7 @@ mod test {
         #[case] outlier: T,
     ) {
         let array = PrimitiveArray::from_iter([a, b, outlier]);
-        let encoded = RDEncoder::new(&[a, b]).encode(&array);
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
         assert!(encoded.left_parts_patches().is_some());
         assert_arrays_eq!(encoded, array);
     }
@@ -105,7 +105,7 @@ mod test {
         let b = 0.2f64;
         let outlier = 3e100f64;
         let array = PrimitiveArray::from_option_iter([Some(a), Some(b), Some(outlier)]);
-        let encoded = RDEncoder::new(&[a, b]).encode(&array);
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
         assert!(encoded.left_parts_patches().is_some());
         assert_arrays_eq!(
             encoded,

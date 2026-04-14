@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use pyo3::prelude::*;
+use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::Dict;
 use vortex::encodings::alp::ALP;
@@ -83,9 +84,9 @@ pub(crate) struct PyZigZagArray;
 impl PyZigZagArray {
     #[staticmethod]
     pub fn encode(array: PyArrayRef) -> PyVortexResult<PyArrayRef> {
-        Ok(PyVortex(zigzag_encode(
-            array.inner().clone().to_primitive(),
-        )?))
+        Ok(PyVortex(
+            zigzag_encode(array.inner().clone().to_primitive().as_view())?.into_array(),
+        ))
     }
 }
 

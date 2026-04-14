@@ -170,7 +170,7 @@ mod tests {
         let expected: Vec<u16> = (0..3000).map(|i| (i / 50) as u16).collect();
         let array = values.into_array();
 
-        let encoded = RLEData::encode(&array.to_primitive()).unwrap();
+        let encoded = RLEData::encode(array.to_primitive().as_view()).unwrap();
 
         // Access scalars from multiple chunks.
         for &idx in &[1023, 1024, 1025, 2047, 2048, 2049] {
@@ -276,7 +276,7 @@ mod tests {
         let expected: Vec<u32> = (0..2100).map(|i| (i / 100) as u32).collect();
         let array = values.into_array();
 
-        let encoded = RLEData::encode(&array.to_primitive()).unwrap();
+        let encoded = RLEData::encode(array.to_primitive().as_view()).unwrap();
 
         // Slice across first and second chunk.
         let slice = encoded.slice(500..1500).unwrap();

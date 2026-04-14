@@ -156,7 +156,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Collect execution plans for metrics if show_metrics is enabled
     // Structure: (query_idx, format, execution_plan)
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     let collected_plans: Arc<Mutex<Vec<(usize, Format, Arc<dyn ExecutionPlan>)>>> =
         Arc::new(Mutex::new(Vec::new()));
     let show_metrics = args.show_metrics;
@@ -317,8 +317,7 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
         };
 
         let multi_ds = MultiFileDataSource::new(SESSION.clone())
-            .with_filesystem(fs)
-            .with_glob(glob_pattern)
+            .with_glob(glob_pattern, Some(fs))
             .build()
             .await?;
 

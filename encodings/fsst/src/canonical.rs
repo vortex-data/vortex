@@ -59,7 +59,7 @@ pub(crate) fn fsst_decode_views(
         .clone()
         .execute::<PrimitiveArray>(ctx)?;
 
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     let total_size: usize = match_each_integer_ptype!(uncompressed_lens_array.ptype(), |P| {
         uncompressed_lens_array
             .as_slice::<P>()
@@ -148,7 +148,7 @@ mod tests {
     }
 
     fn make_data_chunked() -> (ChunkedArray, Vec<Option<Vec<u8>>>) {
-        #[allow(clippy::type_complexity)]
+        #[expect(clippy::type_complexity)]
         let (arr_vec, data_vec): (Vec<ArrayRef>, Vec<Vec<Option<Vec<u8>>>>) = (0..10)
             .map(|_| {
                 let (array, data) = make_data();

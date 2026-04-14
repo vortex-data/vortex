@@ -81,6 +81,7 @@ impl FlatLayoutFixture for ZigZagFixture {
                 "head_tail_nulls",
             ]),
             vec![
+<<<<<<< HEAD
                 zigzag_encode(alternating_i32)?,
                 zigzag_encode(small_i64)?,
                 zigzag_encode(deltas_i32)?,
@@ -92,6 +93,19 @@ impl FlatLayoutFixture for ZigZagFixture {
                 zigzag_encode(repeated_negative)?,
                 zigzag_encode(zero_crossing)?,
                 zigzag_encode(head_tail_nulls)?,
+=======
+                zigzag_encode(alternating_i32.as_view())?.into_array(),
+                zigzag_encode(small_i64.as_view())?.into_array(),
+                zigzag_encode(deltas_i32.as_view())?.into_array(),
+                zigzag_encode(small_i16.as_view())?.into_array(),
+                zigzag_encode(small_i8.as_view())?.into_array(),
+                zigzag_encode(nullable_zigzag.as_view())?.into_array(),
+                zigzag_encode(extremes_i32.as_view())?.into_array(),
+                zigzag_encode(zero_heavy_outliers.as_view())?.into_array(),
+                zigzag_encode(repeated_negative.as_view())?.into_array(),
+                zigzag_encode(zero_crossing.as_view())?.into_array(),
+                zigzag_encode(head_tail_nulls.as_view())?.into_array(),
+>>>>>>> develop
             ],
             N,
             Validity::NonNullable,

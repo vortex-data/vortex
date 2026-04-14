@@ -277,7 +277,7 @@ mod tests {
 
         // Push many small items
         for i in 0..10 {
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_possible_truncation)]
             stream.push(async move { vec![i as u8; 5] }, 5).await;
         }
 

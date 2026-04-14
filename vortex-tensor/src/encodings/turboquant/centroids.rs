@@ -15,7 +15,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_utils::aliases::dash_map::DashMap;
 
-use crate::encodings::turboquant::TurboQuant;
+use crate::encodings::turboquant::MAX_BIT_WIDTH;
+use crate::encodings::turboquant::MIN_DIMENSION;
 
 /// The maximum iterations for Max-Lloyd algorithm when computing centroids.
 const MAX_ITERATIONS: usize = 200;
@@ -37,14 +38,14 @@ static CENTROID_CACHE: LazyLock<DashMap<(u32, u8), Vec<f32>>> = LazyLock::new(Da
 /// `dimension`-dimensional space.
 pub fn get_centroids(dimension: u32, bit_width: u8) -> VortexResult<Vec<f32>> {
     vortex_ensure!(
-        (1..=TurboQuant::MAX_BIT_WIDTH).contains(&bit_width),
+        (1..=MAX_BIT_WIDTH).contains(&bit_width),
         "TurboQuant bit_width must be 1-{}, got {bit_width}",
-        TurboQuant::MAX_BIT_WIDTH
+        MAX_BIT_WIDTH
     );
     vortex_ensure!(
-        dimension >= TurboQuant::MIN_DIMENSION,
+        dimension >= MIN_DIMENSION,
         "TurboQuant dimension must be >= {}, got {dimension}",
-        TurboQuant::MIN_DIMENSION
+        MIN_DIMENSION
     );
 
     if let Some(centroids) = CENTROID_CACHE.get(&(dimension, bit_width)) {
@@ -92,7 +93,7 @@ impl HalfIntExponent {
 ///   `f(x) = C_d * (1 - x^2)^((d-3)/2)` on `[-1, 1]`
 /// where `C_d` is the normalizing constant.
 fn max_lloyd_centroids(dimension: u32, bit_width: u8) -> Vec<f32> {
-    debug_assert!((1..=TurboQuant::MAX_BIT_WIDTH).contains(&bit_width));
+    debug_assert!((1..=MAX_BIT_WIDTH).contains(&bit_width));
     let num_centroids = 1usize << bit_width;
 
     // For the marginal distribution on [-1, 1], we use the exponent (d-3)/2.
@@ -175,7 +176,6 @@ fn mean_between_centroids(lo: f64, hi: f64, exponent: HalfIntExponent) -> f64 {
 /// Uses `powi` + `sqrt` instead of `powf` for the half-integer exponents that arise from `(d-3)/2`.
 /// This is significantly faster than the general `powf` which goes through
 /// `exp(exponent * ln(base))`.
-#[inline]
 fn pdf_unnormalized(x_val: f64, exponent: HalfIntExponent) -> f64 {
     let base = (1.0 - x_val * x_val).max(0.0);
 
@@ -199,7 +199,7 @@ pub fn compute_centroid_boundaries(centroids: &[f32]) -> Vec<f32> {
 
 /// Find the index of the nearest centroid using precomputed decision boundaries.
 ///
-/// `boundaries` must be the output of [`compute_boundaries`] for the corresponding
+/// `boundaries` must be the output of [`compute_centroid_boundaries`] for the corresponding
 /// centroids. Uses binary search on the midpoints, avoiding distance comparisons
 /// in the inner loop.
 #[inline]
@@ -210,7 +210,7 @@ pub fn find_nearest_centroid(value: f32, boundaries: &[f32]) -> u8 {
     );
     debug_assert!(
         boundaries.len() <= 256, // 1 << 8
-        "boundaries must be sorted"
+        "too many boundaries"
     );
 
     #[expect(

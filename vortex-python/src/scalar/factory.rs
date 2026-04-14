@@ -26,7 +26,6 @@ use crate::error::PyVortexResult;
 use crate::scalar::PyScalar;
 use crate::scalar::bool;
 
-#[allow(unused_variables)]
 #[pyfunction(name = "scalar")]
 #[pyo3(signature = (value, *, dtype=None))]
 pub fn scalar<'py>(

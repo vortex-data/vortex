@@ -16,6 +16,7 @@ use crate::ToCanonical;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
+use crate::array_slots;
 use crate::arrays::Dict;
 use crate::dtype::DType;
 use crate::dtype::PType;
@@ -37,12 +38,13 @@ pub struct DictMetadata {
     pub(super) all_values_referenced: Option<bool>,
 }
 
-/// The codes array mapping each element to a dictionary entry.
-pub(super) const CODES_SLOT: usize = 0;
-/// The dictionary values array containing the unique values.
-pub(super) const VALUES_SLOT: usize = 1;
-pub(super) const NUM_SLOTS: usize = 2;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["codes", "values"];
+#[array_slots(Dict)]
+pub struct DictSlots {
+    /// The codes array mapping each element to a dictionary entry.
+    pub codes: ArrayRef,
+    /// The dictionary values array containing the unique values.
+    pub values: ArrayRef,
+}
 
 #[derive(Debug, Clone)]
 pub struct DictData {
@@ -115,19 +117,7 @@ impl DictData {
     }
 }
 
-pub trait DictArrayExt: TypedArrayRef<Dict> {
-    fn codes(&self) -> &ArrayRef {
-        self.as_ref().slots()[CODES_SLOT]
-            .as_ref()
-            .vortex_expect("DictArray codes slot")
-    }
-
-    fn values(&self) -> &ArrayRef {
-        self.as_ref().slots()[VALUES_SLOT]
-            .as_ref()
-            .vortex_expect("DictArray values slot")
-    }
-
+pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
     #[inline]
     fn has_all_values_referenced(&self) -> bool {
         self.all_values_referenced
@@ -148,10 +138,6 @@ pub trait DictArrayExt: TypedArrayRef<Dict> {
         Ok(())
     }
 
-    #[allow(
-        clippy::cognitive_complexity,
-        reason = "branching depends on validity representation and code type"
-    )]
     fn compute_referenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
         let codes_validity = self.codes().validity_mask()?;
         let codes_primitive = self.codes().to_primitive();
@@ -262,7 +248,7 @@ impl Array<Dict> {
 
 #[cfg(test)]
 mod test {
-    #[allow(unused_imports)]
+    #[expect(unused_imports)]
     use itertools::Itertools;
     use rand::RngExt;
     use rand::SeedableRng;

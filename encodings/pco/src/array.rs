@@ -255,9 +255,9 @@ pub(crate) fn number_type_from_ptype(ptype: PType) -> NumberType {
     }
 }
 
-fn collect_valid(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
-    let mask = parray.validity_mask()?;
-    Ok(parray.filter(mask)?.to_primitive())
+fn collect_valid(parray: ArrayView<'_, Primitive>) -> VortexResult<PrimitiveArray> {
+    let mask = parray.array().validity_mask()?;
+    Ok(parray.array().filter(mask)?.to_primitive())
 }
 
 pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
@@ -290,7 +290,7 @@ impl Pco {
 
     /// Compress a primitive array using pcodec.
     pub fn from_primitive(
-        parray: &PrimitiveArray,
+        parray: ArrayView<'_, Primitive>,
         level: usize,
         values_per_page: usize,
     ) -> VortexResult<PcoArray> {
@@ -399,7 +399,7 @@ impl PcoData {
     }
 
     pub fn from_primitive(
-        parray: &PrimitiveArray,
+        parray: ArrayView<'_, Primitive>,
         level: usize,
         values_per_page: usize,
     ) -> VortexResult<Self> {
@@ -407,7 +407,7 @@ impl PcoData {
     }
 
     pub(crate) fn from_primitive_with_values_per_chunk(
-        parray: &PrimitiveArray,
+        parray: ArrayView<'_, Primitive>,
         level: usize,
         values_per_chunk: usize,
         values_per_page: usize,
@@ -485,7 +485,7 @@ impl PcoData {
                 a.encoding_id()
             )
         })?;
-        Self::from_primitive(&parray, level, nums_per_page)
+        Self::from_primitive(parray.as_view(), level, nums_per_page)
     }
 
     pub fn decompress(
@@ -658,7 +658,7 @@ mod tests {
             buffer![10u32, 20, 30, 40, 50, 60],
             Validity::from_iter([false, true, true, true, true, false]),
         );
-        let pco = Pco::from_primitive(&values, 0, 128).unwrap();
+        let pco = Pco::from_primitive(values.as_view(), 0, 128).unwrap();
         assert_arrays_eq!(
             pco,
             PrimitiveArray::from_option_iter([

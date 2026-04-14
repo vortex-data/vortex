@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-
-#![cfg_attr(vortex_nightly, feature(portable_simd))]
 //! Vortex crate containing core logic for encoding and memory representation of [arrays](ArrayRef).
 //!
 //! At the heart of Vortex are [arrays](ArrayRef).
@@ -13,6 +11,8 @@
 //! Every data type recognized by Vortex also has a canonical physical encoding format, which
 //! arrays can be [canonicalized](Canonical) into for ease of access in compute functions.
 
+extern crate self as vortex_array;
+
 use std::sync::LazyLock;
 
 pub use array::*;
@@ -22,6 +22,7 @@ pub use executor::*;
 pub use hash::*;
 pub use mask_future::*;
 pub use metadata::*;
+pub use vortex_array_macros::array_slots;
 use vortex_session::VortexSession;
 use vortex_session::registry::Context;
 

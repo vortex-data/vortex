@@ -130,7 +130,7 @@ impl CudaExecute for DateTimePartsExecutor {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 async fn decode_datetimeparts_typed<DaysT, SecondsT, SubsecondsT>(
     days: PrimitiveArray,
     seconds: PrimitiveArray,

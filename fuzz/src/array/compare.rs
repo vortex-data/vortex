@@ -123,7 +123,7 @@ pub fn compare_canonical_array(
             let binary_value = value.as_binary();
             compare_to(
                 // Don't understand the lifetime problem here but identity map makes it go away
-                #[allow(clippy::map_identity)]
+                #[expect(clippy::map_identity)]
                 iter.map(|v| v),
                 binary_value.value().vortex_expect("nulls handled before"),
                 operator,

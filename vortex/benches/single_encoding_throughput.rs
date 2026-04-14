@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::cast_possible_truncation)]
-#![allow(unexpected_cfgs)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::cast_possible_truncation)]
 
 use std::sync::LazyLock;
 
@@ -85,7 +84,7 @@ fn setup_primitive_arrays() -> (PrimitiveArray, PrimitiveArray, PrimitiveArray) 
     (uint_array, int_array, float_array)
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn gen_varbin_words(len: usize, uniqueness: f64) -> Vec<String> {
     let mut rng = StdRng::seed_from_u64(0);
     let uniq_cnt = (len as f64 * uniqueness) as usize;
@@ -217,13 +216,13 @@ fn bench_zigzag_compress_i32(bencher: Bencher) {
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| int_array.clone())
-        .bench_values(|a| zigzag_encode(a).unwrap());
+        .bench_values(|a| zigzag_encode(a.as_view()).unwrap());
 }
 
 #[divan::bench(name = "zigzag_decompress_i32")]
 fn bench_zigzag_decompress_i32(bencher: Bencher) {
     let (_, int_array, _) = setup_primitive_arrays();
-    let compressed = zigzag_encode(int_array).unwrap();
+    let compressed = zigzag_encode(int_array.as_view()).unwrap().into_array();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| &compressed)
@@ -237,7 +236,7 @@ fn bench_sequence_compress_u32(bencher: Bencher) {
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| seq_array.clone())
-        .bench_values(|a| sequence_encode(&a).unwrap().unwrap());
+        .bench_values(|a| sequence_encode(a.as_view()).unwrap().unwrap());
 }
 
 #[expect(clippy::cast_possible_truncation)]
@@ -258,13 +257,13 @@ fn bench_alp_compress_f64(bencher: Bencher) {
 
     with_byte_counter(bencher, NUM_VALUES * 8)
         .with_inputs(|| &float_array)
-        .bench_refs(|a| alp_encode(a, None).unwrap());
+        .bench_refs(|a| alp_encode(a.as_view(), None).unwrap());
 }
 
 #[divan::bench(name = "alp_decompress_f64")]
 fn bench_alp_decompress_f64(bencher: Bencher) {
     let (_, _, float_array) = setup_primitive_arrays();
-    let compressed = alp_encode(&float_array, None).unwrap();
+    let compressed = alp_encode(float_array.as_view(), None).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 8)
         .with_inputs(|| &compressed)
@@ -279,7 +278,7 @@ fn bench_alp_rd_compress_f64(bencher: Bencher) {
         .with_inputs(|| &float_array)
         .bench_refs(|a| {
             let encoder = RDEncoder::new(a.as_slice::<f64>());
-            encoder.encode(a)
+            encoder.encode(a.as_view())
         });
 }
 
@@ -287,7 +286,7 @@ fn bench_alp_rd_compress_f64(bencher: Bencher) {
 fn bench_alp_rd_decompress_f64(bencher: Bencher) {
     let (_, _, float_array) = setup_primitive_arrays();
     let encoder = RDEncoder::new(float_array.as_slice::<f64>());
-    let compressed = encoder.encode(&float_array);
+    let compressed = encoder.encode(float_array.as_view());
 
     with_byte_counter(bencher, NUM_VALUES * 8)
         .with_inputs(|| &compressed)
@@ -300,13 +299,13 @@ fn bench_pcodec_compress_f64(bencher: Bencher) {
 
     with_byte_counter(bencher, NUM_VALUES * 8)
         .with_inputs(|| &float_array)
-        .bench_refs(|a| Pco::from_primitive(a, 3, 0).unwrap());
+        .bench_refs(|a| Pco::from_primitive(a.as_view(), 3, 0).unwrap());
 }
 
 #[divan::bench(name = "pcodec_decompress_f64")]
 fn bench_pcodec_decompress_f64(bencher: Bencher) {
     let (_, _, float_array) = setup_primitive_arrays();
-    let compressed = Pco::from_primitive(&float_array, 3, 0).unwrap();
+    let compressed = Pco::from_primitive(float_array.as_view(), 3, 0).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 8)
         .with_inputs(|| &compressed)
@@ -451,7 +450,6 @@ mod turboquant_benches {
     use vortex_buffer::BufferMut;
     use vortex_tensor::encodings::turboquant::TurboQuantConfig;
     use vortex_tensor::encodings::turboquant::turboquant_encode_unchecked;
-    use vortex_tensor::scalar_fns::ApproxOptions;
     use vortex_tensor::scalar_fns::l2_denorm::normalize_as_l2_denorm;
     use vortex_tensor::vector::Vector;
 
@@ -499,7 +497,7 @@ mod turboquant_benches {
     fn setup_normalized_vector_ext(dim: usize) -> ExtensionArray {
         let ext = setup_vector_ext(dim);
         let mut ctx = SESSION.create_execution_ctx();
-        let normalized = normalize_as_l2_denorm(&ApproxOptions::Exact, ext.into_array(), &mut ctx)
+        let normalized = normalize_as_l2_denorm(ext.into_array(), &mut ctx)
             .unwrap()
             .child_at(0)
             .clone();

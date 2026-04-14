@@ -149,16 +149,22 @@ impl FlatLayoutFixture for AlprdFixture {
                 "nullable_specials",
             ]),
             vec![
-                sensor_enc.encode(&sensor).into_array(),
-                drift_enc.encode(&drift).into_array(),
-                constant_enc.encode(&constant_series).into_array(),
-                decreasing_enc.encode(&decreasing).into_array(),
-                oscillating_enc.encode(&oscillating).into_array(),
-                periodic_resets_enc.encode(&periodic_resets).into_array(),
-                nullable_enc.encode(&sensor_nullable).into_array(),
-                special_enc.encode(&special_values).into_array(),
-                boundary_enc.encode(&boundary_specials).into_array(),
-                nullable_special_enc.encode(&nullable_specials).into_array(),
+                sensor_enc.encode(sensor.as_view()).into_array(),
+                drift_enc.encode(drift.as_view()).into_array(),
+                constant_enc.encode(constant_series.as_view()).into_array(),
+                decreasing_enc.encode(decreasing.as_view()).into_array(),
+                oscillating_enc.encode(oscillating.as_view()).into_array(),
+                periodic_resets_enc
+                    .encode(periodic_resets.as_view())
+                    .into_array(),
+                nullable_enc.encode(sensor_nullable.as_view()).into_array(),
+                special_enc.encode(special_values.as_view()).into_array(),
+                boundary_enc
+                    .encode(boundary_specials.as_view())
+                    .into_array(),
+                nullable_special_enc
+                    .encode(nullable_specials.as_view())
+                    .into_array(),
             ],
             N,
             Validity::NonNullable,
