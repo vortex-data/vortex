@@ -38,7 +38,6 @@ jobs:
           && format('runs-on={0}/runner=bench-dedicated/extras=s3-cache/tag={1}', github.run_id, matrix.benchmark.id)
           || 'ubuntu-latest' }}
     strategy:
-      fail-fast: false
       matrix:
         benchmark:
           - id: random-access-bench
