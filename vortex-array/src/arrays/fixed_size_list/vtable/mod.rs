@@ -41,13 +41,6 @@ pub type FixedSizeListArray = Array<FixedSizeList>;
 #[derive(Clone, Debug)]
 pub struct FixedSizeList;
 
-impl FixedSizeList {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.fixed_size_list");
-        *ID
-    }
-}
 
 impl ArrayHash for FixedSizeListData {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
@@ -69,7 +62,8 @@ impl VTable for FixedSizeList {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.fixed_size_list");
+        *ID
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

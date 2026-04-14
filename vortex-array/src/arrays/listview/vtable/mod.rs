@@ -43,13 +43,6 @@ pub type ListViewArray = Array<ListView>;
 #[derive(Clone, Debug)]
 pub struct ListView;
 
-impl ListView {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.listview");
-        *ID
-    }
-}
 
 #[derive(Clone, prost::Message)]
 pub struct ListViewMetadata {
@@ -79,7 +72,8 @@ impl VTable for ListView {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.listview");
+        *ID
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

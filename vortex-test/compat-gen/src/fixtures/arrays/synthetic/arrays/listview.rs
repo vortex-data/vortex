@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayId;
+use vortex_array::ArrayVTable;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ListView;
@@ -28,7 +29,7 @@ impl FlatLayoutFixture for ListViewFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![ListView::array_id()]
+        vec![ListView.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

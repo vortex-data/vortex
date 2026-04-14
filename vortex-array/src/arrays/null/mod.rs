@@ -37,7 +37,8 @@ impl VTable for Null {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.null");
+        *ID
     }
 
     fn validate(
@@ -139,14 +140,6 @@ impl VTable for Null {
 /// ```
 #[derive(Clone, Debug)]
 pub struct Null;
-
-impl Null {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.null");
-        *ID
-    }
-}
 
 impl Array<Null> {
     pub fn new(len: usize) -> Self {

@@ -89,7 +89,8 @@ impl VTable for Sparse {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.sparse");
+        *ID
     }
 
     fn validate(
@@ -228,12 +229,6 @@ impl Display for SparseData {
 pub struct Sparse;
 
 impl Sparse {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.sparse");
-        *ID
-    }
-
     /// Construct a new [`SparseArray`] from indices, values, length, and fill value.
     pub fn try_new(
         indices: ArrayRef,

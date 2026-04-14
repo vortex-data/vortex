@@ -67,7 +67,8 @@ impl VTable for FoR {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("fastlanes.for");
+        *ID
     }
 
     fn validate(
@@ -163,11 +164,6 @@ impl VTable for FoR {
 pub struct FoR;
 
 impl FoR {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("fastlanes.for");
-        *ID
-    }
     /// Construct a new FoR array from an encoded array and a reference scalar.
     pub fn try_new(encoded: ArrayRef, reference: Scalar) -> VortexResult<FoRArray> {
         vortex_ensure!(!reference.is_null(), "Reference value cannot be null");

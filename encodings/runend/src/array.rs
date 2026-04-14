@@ -80,7 +80,8 @@ impl VTable for RunEnd {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.runend");
+        *ID
     }
 
     fn validate(
@@ -242,11 +243,6 @@ impl<T: TypedArrayRef<RunEnd>> RunEndArrayExt for T {}
 pub struct RunEnd;
 
 impl RunEnd {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.runend");
-        *ID
-    }
     /// Build a new [`RunEndArray`] without validation.
     ///
     /// # Safety

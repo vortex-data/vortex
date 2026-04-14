@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt;
+use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
@@ -62,8 +65,8 @@ pub trait ArrayPlugin: 'static + Send + Sync {
     }
 }
 
-impl std::fmt::Debug for dyn ArrayPlugin {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for dyn ArrayPlugin {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_tuple("ArrayPlugin").field(&self.id()).finish()
     }
 }

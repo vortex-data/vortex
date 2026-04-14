@@ -45,11 +45,6 @@ pub type ZstdBuffersArray = Array<ZstdBuffers>;
 pub struct ZstdBuffers;
 
 impl ZstdBuffers {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.zstd_buffers");
-        *ID
-    }
     pub fn try_new(
         dtype: DType,
         len: usize,
@@ -373,7 +368,8 @@ impl VTable for ZstdBuffers {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.zstd_buffers");
+        *ID
     }
 
     fn validate(

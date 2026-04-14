@@ -46,13 +46,6 @@ use crate::kernel::PARENT_KERNELS;
 #[derive(Debug, Clone)]
 pub struct ParquetVariant;
 
-impl ParquetVariant {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.parquet.variant");
-        *ID
-    }
-}
 
 #[derive(Clone, prost::Message)]
 struct ParquetVariantMetadataProto {
@@ -76,7 +69,8 @@ impl VTable for ParquetVariant {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.parquet.variant");
+        *ID
     }
 
     fn validate(

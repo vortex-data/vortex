@@ -55,7 +55,8 @@ impl VTable for Extension {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.ext");
+        *ID
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -167,10 +168,3 @@ impl VTable for Extension {
 #[derive(Clone, Debug)]
 pub struct Extension;
 
-impl Extension {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.ext");
-        *ID
-    }
-}

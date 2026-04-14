@@ -22,6 +22,7 @@ use crate::aggregate_fn::fns::sum::Sum;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
 use crate::array::ArrayId;
+use crate::array::VTable;
 use crate::arrays::Chunked;
 use crate::arrays::Dict;
 use crate::arrays::chunked::compute::aggregate::ChunkedArrayAggregate;
@@ -62,17 +63,17 @@ impl Default for AggregateFnSession {
 
         // Register the built-in aggregate kernels.
         this.register_aggregate_kernel(
-            Chunked::array_id(),
+            Chunked.id(),
             None::<AggregateFnId>,
             &ChunkedArrayAggregate,
         );
-        this.register_aggregate_kernel(Dict::array_id(), Some(MinMax.id()), &DictMinMaxKernel);
+        this.register_aggregate_kernel(Dict.id(), Some(MinMax.id()), &DictMinMaxKernel);
         this.register_aggregate_kernel(
-            Dict::array_id(),
+            Dict.id(),
             Some(IsConstant.id()),
             &DictIsConstantKernel,
         );
-        this.register_aggregate_kernel(Dict::array_id(), Some(IsSorted.id()), &DictIsSortedKernel);
+        this.register_aggregate_kernel(Dict.id(), Some(IsSorted.id()), &DictIsSortedKernel);
 
         this
     }

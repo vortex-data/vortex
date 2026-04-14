@@ -130,7 +130,8 @@ impl VTable for Pco {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.pco");
+        *ID
     }
 
     fn validate(
@@ -274,12 +275,6 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
 pub struct Pco;
 
 impl Pco {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.pco");
-        *ID
-    }
-
     pub(crate) fn try_new(
         dtype: DType,
         data: PcoData,

@@ -232,7 +232,8 @@ impl VTable for Sequence {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.sequence");
+        *ID
     }
 
     fn validate(
@@ -370,12 +371,6 @@ impl ValidityVTable<Sequence> for Sequence {
 pub struct Sequence;
 
 impl Sequence {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.sequence");
-        *ID
-    }
-
     fn stats(multiplier: PValue) -> StatsSet {
         // A sequence A[i] = base + i * multiplier is sorted iff multiplier >= 0,
         // and strictly sorted iff multiplier > 0.

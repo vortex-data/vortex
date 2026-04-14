@@ -102,7 +102,8 @@ impl VTable for FSST {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.fsst");
+        *ID
     }
 
     fn validate(
@@ -364,12 +365,6 @@ impl Debug for FSSTData {
 pub struct FSST;
 
 impl FSST {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.fsst");
-        *ID
-    }
-
     /// Build an FSST array from a set of `symbols` and `codes`.
     ///
     /// The `codes` VarBinArray is decomposed: its bytes are stored in [`FSSTData`], while

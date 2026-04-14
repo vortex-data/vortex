@@ -3,6 +3,7 @@
 
 use vortex::VortexSessionDefault;
 use vortex::array::ArrayId;
+use vortex::array::ArrayVTable;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
@@ -12,6 +13,7 @@ use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
 use vortex::encodings::fastlanes::Delta;
 use vortex::error::VortexResult;
+use vortex_array::VTable;
 use vortex_session::VortexSession;
 
 use super::N;
@@ -30,7 +32,7 @@ impl FlatLayoutFixture for DeltaFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Delta::array_id()]
+        vec![Delta.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

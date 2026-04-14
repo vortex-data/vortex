@@ -70,7 +70,8 @@ impl VTable for Decimal {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.decimal");
+        *ID
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -205,13 +206,6 @@ impl VTable for Decimal {
 #[derive(Clone, Debug)]
 pub struct Decimal;
 
-impl Decimal {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.decimal");
-        *ID
-    }
-}
 
 #[cfg(test)]
 mod tests {

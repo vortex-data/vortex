@@ -58,7 +58,8 @@ impl VTable for Primitive {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.primitive");
+        *ID
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -204,13 +205,6 @@ impl VTable for Primitive {
 #[derive(Clone, Debug)]
 pub struct Primitive;
 
-impl Primitive {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.primitive");
-        *ID
-    }
-}
 
 #[cfg(test)]
 mod tests {

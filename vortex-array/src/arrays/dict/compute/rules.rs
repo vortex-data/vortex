@@ -4,6 +4,7 @@
 use vortex_error::VortexResult;
 
 use crate::ArrayEq;
+use crate::array::VTable;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::Precision;
@@ -80,7 +81,7 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
             tracing::trace!(
                 "Not pushing down fallible scalar function {} over dictionary with sparse codes {}",
                 parent.scalar_fn(),
-                Dict::array_id(),
+                Dict.id(),
             );
             return Ok(None);
         }
@@ -104,7 +105,7 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
             tracing::trace!(
                 "Not pushing down null-sensitive scalar function {} over dictionary with null codes {}",
                 parent.scalar_fn(),
-                Dict::array_id(),
+                Dict.id(),
             );
             return Ok(None);
         }

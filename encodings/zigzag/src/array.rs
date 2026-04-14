@@ -51,7 +51,8 @@ impl VTable for ZigZag {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.zigzag");
+        *ID
     }
 
     fn validate(
@@ -196,11 +197,6 @@ impl<T: TypedArrayRef<ZigZag>> ZigZagArrayExt for T {}
 pub struct ZigZag;
 
 impl ZigZag {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.zigzag");
-        *ID
-    }
     /// Construct a new [`ZigZagArray`] from an encoded unsigned integer array.
     pub fn try_new(encoded: ArrayRef) -> VortexResult<ZigZagArray> {
         let dtype = ZigZagData::dtype_from_encoded_dtype(encoded.dtype())?;

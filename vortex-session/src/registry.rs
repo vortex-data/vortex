@@ -87,6 +87,18 @@ impl AsRef<str> for Id {
     }
 }
 
+impl PartialEq<&Id> for Id {
+    fn eq(&self, other: &&Id) -> bool {
+        self == *other
+    }
+}
+
+impl PartialEq<Id> for &Id {
+    fn eq(&self, other: &Id) -> bool {
+        *self == other
+    }
+}
+
 /// A lazily-initialized, cached [`Id`] for use as a `static`.
 ///
 /// Avoids repeated interner write-lock acquisition by storing the interned [`Id`]

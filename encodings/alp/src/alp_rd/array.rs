@@ -93,7 +93,8 @@ impl VTable for ALPRD {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.alprd");
+        *ID
     }
 
     fn validate(
@@ -358,12 +359,6 @@ pub struct ALPRDDataParts {
 pub struct ALPRD;
 
 impl ALPRD {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.alprd");
-        *ID
-    }
-
     pub fn try_new(
         dtype: DType,
         left_parts: ArrayRef,

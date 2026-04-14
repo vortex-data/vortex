@@ -38,13 +38,6 @@ pub type SharedArray = Array<Shared>;
 #[derive(Clone, Debug)]
 pub struct Shared;
 
-impl Shared {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.shared");
-        *ID
-    }
-}
 
 impl ArrayHash for SharedData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
@@ -61,7 +54,8 @@ impl VTable for Shared {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.shared");
+        *ID
     }
 
     fn validate(

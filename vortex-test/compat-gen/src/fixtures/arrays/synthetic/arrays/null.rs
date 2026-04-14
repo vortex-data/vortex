@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayId;
+use vortex_array::ArrayVTable;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Null;
@@ -27,7 +28,7 @@ impl FlatLayoutFixture for NullFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Null::array_id()]
+        vec![Null.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

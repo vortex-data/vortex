@@ -59,6 +59,7 @@ pub use session::CudaSession;
 pub use session::CudaSessionExt;
 pub use stream::VortexCudaStream;
 pub use stream_pool::VortexCudaStreamPool;
+use vortex::array::ArrayVTable;
 use vortex::array::arrays::Constant;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::Filter;
@@ -93,22 +94,22 @@ pub fn cuda_available() -> bool {
 /// Registers CUDA kernels.
 pub fn initialize_cuda(session: &CudaSession) {
     info!("Registering CUDA kernels");
-    session.register_kernel(ALP::array_id(), &ALPExecutor);
-    session.register_kernel(BitPacked::array_id(), &BitPackedExecutor);
-    session.register_kernel(Constant::array_id(), &ConstantNumericExecutor);
-    session.register_kernel(DateTimeParts::array_id(), &DateTimePartsExecutor);
-    session.register_kernel(DecimalByteParts::array_id(), &DecimalBytePartsExecutor);
-    session.register_kernel(Dict::array_id(), &DictExecutor);
-    session.register_kernel(Shared::array_id(), &SharedExecutor);
-    session.register_kernel(FoR::array_id(), &FoRExecutor);
-    session.register_kernel(RunEnd::array_id(), &RunEndExecutor);
-    session.register_kernel(Sequence::array_id(), &SequenceExecutor);
-    session.register_kernel(ZigZag::array_id(), &ZigZagExecutor);
-    session.register_kernel(Zstd::array_id(), &ZstdExecutor);
+    session.register_kernel(ALP.id(), &ALPExecutor);
+    session.register_kernel(BitPacked.id(), &BitPackedExecutor);
+    session.register_kernel(Constant.id(), &ConstantNumericExecutor);
+    session.register_kernel(DateTimeParts.id(), &DateTimePartsExecutor);
+    session.register_kernel(DecimalByteParts.id(), &DecimalBytePartsExecutor);
+    session.register_kernel(Dict.id(), &DictExecutor);
+    session.register_kernel(Shared.id(), &SharedExecutor);
+    session.register_kernel(FoR.id(), &FoRExecutor);
+    session.register_kernel(RunEnd.id(), &RunEndExecutor);
+    session.register_kernel(Sequence.id(), &SequenceExecutor);
+    session.register_kernel(ZigZag.id(), &ZigZagExecutor);
+    session.register_kernel(Zstd.id(), &ZstdExecutor);
     #[cfg(feature = "unstable_encodings")]
-    session.register_kernel(ZstdBuffers::array_id(), &ZstdBuffersExecutor);
+    session.register_kernel(ZstdBuffers.id(), &ZstdBuffersExecutor);
 
     // Operation kernels
-    session.register_kernel(Filter::array_id(), &FilterExecutor);
-    session.register_kernel(Slice::array_id(), &SliceExecutor);
+    session.register_kernel(Filter.id(), &FilterExecutor);
+    session.register_kernel(Slice.id(), &SliceExecutor);
 }

@@ -93,7 +93,8 @@ impl VTable for DateTimeParts {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.datetimeparts");
+        *ID
     }
 
     fn validate(
@@ -251,12 +252,6 @@ impl<T: TypedArrayRef<DateTimeParts>> DateTimePartsArrayExt for T {}
 pub struct DateTimeParts;
 
 impl DateTimeParts {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.datetimeparts");
-        *ID
-    }
-
     /// Construct a new [`DateTimePartsArray`] from its components.
     pub fn try_new(
         dtype: DType,

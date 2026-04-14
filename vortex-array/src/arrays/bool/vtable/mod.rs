@@ -68,7 +68,8 @@ impl VTable for Bool {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.bool");
+        *ID
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -192,13 +193,6 @@ impl VTable for Bool {
 #[derive(Clone, Debug)]
 pub struct Bool;
 
-impl Bool {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.bool");
-        *ID
-    }
-}
 
 #[cfg(test)]
 mod tests {

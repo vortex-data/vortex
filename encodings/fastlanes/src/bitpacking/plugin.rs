@@ -6,9 +6,11 @@
 //!
 //! This enables zero-cost backward compatibility with previously written datasets.
 
+use vortex_array::Array;
 use vortex_array::ArrayId;
 use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayVTable;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Patched;
@@ -31,7 +33,8 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
     fn id(&self) -> ArrayId {
         // We reuse the existing `BitPacked` ID so that we can take over its
         // deserialization pathway.
-        BitPacked::array_id()
+        // TODO(joe): dedup method name
+        ArrayVTable::id(&BitPacked)
     }
 
     fn serialize(
@@ -52,12 +55,10 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        let bitpacked = BitPacked
-            .deserialize(dtype, len, metadata, buffers, children, session)?
-            .try_downcast::<BitPacked>()
-            .map_err(|_| {
-                vortex_err!("BitPacked plugin should only deserialize fastlanes.bitpacked")
-            })?;
+        let bitpacked = Array::<BitPacked>::try_from_parts(ArrayVTable::deserialize(
+            &BitPacked, dtype, len, metadata, buffers, children, session,
+        )?)
+        .map_err(|_| vortex_err!("BitPacked plugin should only deserialize fastlanes.bitpacked"))?;
 
         // Create a new BitPackedArray without the interior patches installed.
         let Some(patches) = bitpacked.patches() else {
@@ -84,7 +85,7 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
     }
 
     fn is_supported_encoding(&self, id: &ArrayId) -> bool {
-        id == &BitPacked::ID || id == &Patched.id()
+        id == &ArrayPlugin::id(&BitPacked) || id == &ArrayPlugin::id(&Patched)
     }
 }
 

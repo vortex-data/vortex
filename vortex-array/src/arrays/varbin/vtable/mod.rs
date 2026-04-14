@@ -70,7 +70,8 @@ impl VTable for VarBin {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.varbin");
+        *ID
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -199,10 +200,3 @@ impl VTable for VarBin {
 #[derive(Clone, Debug)]
 pub struct VarBin;
 
-impl VarBin {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.varbin");
-        *ID
-    }
-}

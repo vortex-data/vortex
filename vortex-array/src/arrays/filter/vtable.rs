@@ -49,13 +49,6 @@ pub type FilterArray = Array<Filter>;
 #[derive(Clone, Debug)]
 pub struct Filter;
 
-impl Filter {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.filter");
-        *ID
-    }
-}
 
 impl ArrayHash for FilterData {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
@@ -74,7 +67,8 @@ impl VTable for Filter {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.filter");
+        *ID
     }
 
     fn validate(

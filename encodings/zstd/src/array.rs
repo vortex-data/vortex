@@ -135,7 +135,8 @@ impl VTable for Zstd {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.zstd");
+        *ID
     }
 
     fn validate(
@@ -254,11 +255,6 @@ impl VTable for Zstd {
 pub struct Zstd;
 
 impl Zstd {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.zstd");
-        *ID
-    }
     pub fn try_new(dtype: DType, data: ZstdData, validity: Validity) -> VortexResult<ZstdArray> {
         let len = data.len();
         data.validate(&dtype, len, &validity)?;

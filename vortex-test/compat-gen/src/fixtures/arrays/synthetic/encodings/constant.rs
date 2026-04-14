@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex::array::ArrayId;
+use vortex::array::ArrayVTable;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::Constant;
@@ -18,6 +19,7 @@ use vortex::array::scalar::DecimalValue;
 use vortex::array::scalar::Scalar;
 use vortex::array::validity::Validity;
 use vortex::error::VortexResult;
+use vortex_array::VTable;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
@@ -34,7 +36,7 @@ impl FlatLayoutFixture for ConstantFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Constant::array_id()]
+        vec![Constant.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

@@ -49,13 +49,6 @@ pub type MaskedArray = Array<Masked>;
 #[derive(Clone, Debug)]
 pub struct Masked;
 
-impl Masked {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.masked");
-        *ID
-    }
-}
 
 impl ArrayHash for MaskedData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
@@ -74,7 +67,8 @@ impl VTable for Masked {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.masked");
+        *ID
     }
 
     fn validate(

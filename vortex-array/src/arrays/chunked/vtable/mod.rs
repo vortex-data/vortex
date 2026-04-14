@@ -49,13 +49,6 @@ pub type ChunkedArray = Array<Chunked>;
 #[derive(Clone, Debug)]
 pub struct Chunked;
 
-impl Chunked {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.chunked");
-        *ID
-    }
-}
 
 impl ArrayHash for ChunkedData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {
@@ -78,7 +71,8 @@ impl VTable for Chunked {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.chunked");
+        *ID
     }
 
     fn validate(

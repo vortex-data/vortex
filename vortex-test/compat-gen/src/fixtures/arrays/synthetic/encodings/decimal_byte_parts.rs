@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex::array::ArrayId;
+use vortex::array::ArrayVTable;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -27,7 +28,7 @@ impl FlatLayoutFixture for DecimalBytePartsFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![DecimalByteParts::array_id()]
+        vec![DecimalByteParts.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

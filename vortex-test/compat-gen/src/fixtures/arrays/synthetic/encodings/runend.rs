@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex::array::ArrayId;
+use vortex::array::ArrayVTable;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::BoolArray;
@@ -29,7 +30,7 @@ impl FlatLayoutFixture for RunEndFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![RunEnd::array_id()]
+        vec![RunEnd.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

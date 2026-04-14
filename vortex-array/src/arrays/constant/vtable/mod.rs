@@ -52,13 +52,6 @@ pub type ConstantArray = Array<Constant>;
 #[derive(Clone, Debug)]
 pub struct Constant;
 
-impl Constant {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.constant");
-        *ID
-    }
-}
 
 impl ArrayHash for ConstantData {
     fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
@@ -79,7 +72,8 @@ impl VTable for Constant {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.constant");
+        *ID
     }
 
     fn validate(

@@ -53,13 +53,6 @@ pub type DictArray = Array<Dict>;
 #[derive(Clone, Debug)]
 pub struct Dict;
 
-impl Dict {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.dict");
-        *ID
-    }
-}
 
 impl ArrayHash for DictData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
@@ -78,7 +71,8 @@ impl VTable for Dict {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.dict");
+        *ID
     }
 
     fn validate(

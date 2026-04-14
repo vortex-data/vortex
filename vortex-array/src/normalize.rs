@@ -105,6 +105,7 @@ mod tests {
     use crate::ArrayRef;
     use crate::ExecutionCtx;
     use crate::IntoArray;
+    use crate::array::VTable;
     use crate::arrays::Dict;
     use crate::arrays::DictArray;
     use crate::arrays::Primitive;
@@ -203,9 +204,9 @@ mod tests {
 
         // Slice the dict array to get a SliceArray wrapping a DictArray.
         let sliced = SliceArray::new(dict, 1..4).into_array();
-        assert_eq!(sliced.encoding_id(), Slice::array_id());
+        assert_eq!(sliced.encoding_id(), Slice.id());
 
-        let allowed = HashSet::from_iter([Dict::array_id(), Primitive::array_id()]);
+        let allowed = HashSet::from_iter([Dict.id(), Primitive.id()]);
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
         let normalized = sliced.normalize(&mut NormalizeOptions {
@@ -214,7 +215,7 @@ mod tests {
         })?;
 
         // The normalized result should be a DictArray, not a SliceArray.
-        assert_eq!(normalized.encoding_id(), Dict::array_id());
+        assert_eq!(normalized.encoding_id(), Dict.id());
         assert_eq!(normalized.len(), 3);
 
         // Verify the data: codes [1,0,1] -> values [20, 10, 20]

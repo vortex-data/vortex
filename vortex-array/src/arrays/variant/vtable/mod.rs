@@ -30,13 +30,6 @@ pub type VariantArray = Array<Variant>;
 #[derive(Clone, Debug)]
 pub struct Variant;
 
-impl Variant {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.variant");
-        *ID
-    }
-}
 
 impl VTable for Variant {
     type ArrayData = EmptyArrayData;
@@ -46,7 +39,8 @@ impl VTable for Variant {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.variant");
+        *ID
     }
 
     fn validate(

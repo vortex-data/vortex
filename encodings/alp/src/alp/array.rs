@@ -73,7 +73,8 @@ impl VTable for ALP {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.alp");
+        *ID
     }
 
     fn validate(
@@ -238,13 +239,6 @@ impl Display for ALPData {
 #[derive(Clone, Debug)]
 pub struct ALP;
 
-impl ALP {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.alp");
-        *ID
-    }
-}
 
 #[derive(Clone, prost::Message)]
 pub struct ALPMetadata {

@@ -76,7 +76,8 @@ impl VTable for DecimalByteParts {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.decimal_byte_parts");
+        *ID
     }
 
     fn validate(
@@ -254,11 +255,6 @@ impl DecimalBytePartsData {
 pub struct DecimalByteParts;
 
 impl DecimalByteParts {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.decimal_byte_parts");
-        *ID
-    }
     /// Construct a new [`DecimalBytePartsArray`] from an MSP array and decimal dtype.
     pub fn try_new(
         msp: ArrayRef,

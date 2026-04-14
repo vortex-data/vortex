@@ -63,7 +63,8 @@ impl VTable for ByteBool {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.bytebool");
+        *ID
     }
 
     fn validate(
@@ -201,11 +202,6 @@ impl<T: TypedArrayRef<ByteBool>> ByteBoolArrayExt for T {}
 pub struct ByteBool;
 
 impl ByteBool {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.bytebool");
-        *ID
-    }
     pub fn new(buffer: BufferHandle, validity: Validity) -> ByteBoolArray {
         let dtype = DType::Bool(validity.nullability());
         let slots = ByteBoolData::make_slots(&validity, buffer.len());

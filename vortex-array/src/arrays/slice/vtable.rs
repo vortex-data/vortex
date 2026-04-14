@@ -46,13 +46,6 @@ pub type SliceArray = Array<Slice>;
 #[derive(Clone, Debug)]
 pub struct Slice;
 
-impl Slice {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.slice");
-        *ID
-    }
-}
 
 impl ArrayHash for SliceData {
     fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
@@ -72,7 +65,8 @@ impl VTable for Slice {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     fn id(&self) -> ArrayId {
-        Slice::array_id()
+        static ID: CachedId = CachedId::new("vortex.slice");
+        *ID
     }
 
     fn validate(

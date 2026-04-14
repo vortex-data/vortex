@@ -43,13 +43,6 @@ pub type VarBinViewArray = Array<VarBinView>;
 #[derive(Clone, Debug)]
 pub struct VarBinView;
 
-impl VarBinView {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.varbinview");
-        *ID
-    }
-}
 
 impl ArrayHash for VarBinViewData {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
@@ -79,7 +72,8 @@ impl VTable for VarBinView {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.varbinview");
+        *ID
     }
 
     fn nbuffers(array: ArrayView<'_, Self>) -> usize {

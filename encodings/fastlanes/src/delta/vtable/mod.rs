@@ -76,7 +76,8 @@ impl VTable for Delta {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("fastlanes.delta");
+        *ID
     }
 
     fn validate(
@@ -181,12 +182,6 @@ impl VTable for Delta {
 pub struct Delta;
 
 impl Delta {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("fastlanes.delta");
-        *ID
-    }
-
     pub fn try_new(
         bases: ArrayRef,
         deltas: ArrayRef,

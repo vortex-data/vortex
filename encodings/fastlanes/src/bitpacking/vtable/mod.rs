@@ -92,7 +92,8 @@ impl VTable for BitPacked {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("fastlanes.bitpacked");
+        *ID
     }
 
     fn validate(
@@ -310,11 +311,6 @@ impl VTable for BitPacked {
 pub struct BitPacked;
 
 impl BitPacked {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("fastlanes.bitpacked");
-        *ID
-    }
     pub fn try_new(
         packed: BufferHandle,
         ptype: PType,

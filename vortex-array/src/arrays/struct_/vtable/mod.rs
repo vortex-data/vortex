@@ -42,7 +42,8 @@ impl VTable for Struct {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     fn id(&self) -> ArrayId {
-        Self::array_id()
+        static ID: CachedId = CachedId::new("vortex.struct");
+        *ID
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -207,10 +208,3 @@ impl VTable for Struct {
 #[derive(Clone, Debug)]
 pub struct Struct;
 
-impl Struct {
-    /// Returns the cached [`ArrayId`] for this encoding.
-    pub fn array_id() -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.struct");
-        *ID
-    }
-}
