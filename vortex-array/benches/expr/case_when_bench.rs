@@ -284,14 +284,13 @@ fn case_when_fragmented(bencher: Bencher, size: usize) {
     );
 
     bencher
-        .with_inputs(|| (&expr, &array))
-        .bench_refs(|(expr, array)| {
-            let mut ctx = SESSION.create_execution_ctx();
+        .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
+        .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
                 .apply(expr)
                 .unwrap()
-                .execute::<Canonical>(&mut ctx)
+                .execute::<Canonical>(ctx)
                 .unwrap()
         });
 }
