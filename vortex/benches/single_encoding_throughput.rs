@@ -430,6 +430,7 @@ fn bench_zstd_decompress_string(bencher: Bencher) {
         .bench_refs(|a| a.to_canonical());
 }
 
+// TODO(connor): Remove this.
 // TurboQuant vector quantization benchmarks.
 #[cfg(feature = "unstable_encodings")]
 mod turboquant_benches {
