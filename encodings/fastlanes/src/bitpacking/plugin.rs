@@ -82,6 +82,10 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
 
         Ok(patched.into_array())
     }
+
+    fn is_supported_encoding(&self, id: &ArrayId) -> bool {
+        id == &BitPacked::ID || id == &Patched.id()
+    }
 }
 
 #[cfg(test)]

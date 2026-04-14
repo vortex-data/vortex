@@ -19412,6 +19412,8 @@ pub fn vortex_array::vtable::ArrayPlugin::deserialize(&self, dtype: &vortex_arra
 
 pub fn vortex_array::vtable::ArrayPlugin::id(&self) -> vortex_array::ArrayId
 
+pub fn vortex_array::vtable::ArrayPlugin::is_supported_encoding(&self, id: &vortex_array::ArrayId) -> bool
+
 pub fn vortex_array::vtable::ArrayPlugin::serialize(&self, array: &vortex_array::ArrayRef, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 impl<V: vortex_array::VTable> vortex_array::ArrayPlugin for V
@@ -19419,6 +19421,8 @@ impl<V: vortex_array::VTable> vortex_array::ArrayPlugin for V
 pub fn V::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> core::result::Result<vortex_array::ArrayRef, vortex_error::VortexError>
 
 pub fn V::id(&self) -> arcref::ArcRef<str>
+
+pub fn V::is_supported_encoding(&self, id: &vortex_array::ArrayId) -> bool
 
 pub fn V::serialize(&self, array: &vortex_array::ArrayRef, session: &vortex_session::VortexSession) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, vortex_error::VortexError>
 
@@ -23056,6 +23060,10 @@ pub fn vortex_array::ArrayPlugin::id(&self) -> vortex_array::ArrayId
 
 pub fn vortex_array::ArrayPlugin::id(&self) -> vortex_array::ArrayId
 
+pub fn vortex_array::ArrayPlugin::is_supported_encoding(&self, id: &vortex_array::ArrayId) -> bool
+
+pub fn vortex_array::ArrayPlugin::is_supported_encoding(&self, id: &vortex_array::ArrayId) -> bool
+
 pub fn vortex_array::ArrayPlugin::serialize(&self, array: &vortex_array::ArrayRef, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::ArrayPlugin::serialize(&self, array: &vortex_array::ArrayRef, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
@@ -23071,6 +23079,10 @@ pub fn V::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, met
 pub fn V::id(&self) -> arcref::ArcRef<str>
 
 pub fn V::id(&self) -> arcref::ArcRef<str>
+
+pub fn V::is_supported_encoding(&self, id: &vortex_array::ArrayId) -> bool
+
+pub fn V::is_supported_encoding(&self, id: &vortex_array::ArrayId) -> bool
 
 pub fn V::serialize(&self, array: &vortex_array::ArrayRef, session: &vortex_session::VortexSession) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, vortex_error::VortexError>
 
