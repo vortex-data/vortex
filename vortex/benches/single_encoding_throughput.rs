@@ -154,7 +154,7 @@ fn bench_delta_compress_u32(bencher: Bencher) {
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| (&uint_array, SESSION.create_execution_ctx()))
         .bench_refs(|(a, ctx)| {
-            let (_bases, _deltas) = delta_compress(*a, ctx).unwrap();
+            let (_bases, _deltas) = delta_compress(a, ctx).unwrap();
             DeltaData::try_new(0).unwrap()
         });
 }
