@@ -86,7 +86,7 @@ impl VectorDataset {
                 "https://assets.zilliz.com/benchmark/openai_medium_500k/train.parquet"
             }
             VectorDataset::BioasqMedium => {
-                "https://assets.zilliz.com/benchmark/bioasq_medium_1m/train.parquet"
+                "https://assets.zilliz.com/benchmark/bioasq_medium_1m/shuffle_train.parquet"
             }
             VectorDataset::GloveMedium => {
                 "https://assets.zilliz.com/benchmark/glove_medium_1m/train.parquet"
