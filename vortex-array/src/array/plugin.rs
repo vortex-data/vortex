@@ -57,7 +57,7 @@ pub trait ArrayPlugin: 'static + Send + Sync {
     ///
     /// By default, this is just the [ID][Self::id] of the plugin, but
     /// can be overridden if this plugin instance supports reading/writing multiple arrays.
-    fn supported_encoding(&self, id: &ArrayId) -> bool {
+    fn is_supported_encoding(&self, id: &ArrayId) -> bool {
         self.id() == *id
     }
 }
