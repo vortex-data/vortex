@@ -90,6 +90,7 @@ mod tests {
     use vortex_array::search_sorted::SearchSorted;
     use vortex_array::search_sorted::SearchSortedSide;
     use vortex_array::session::ArraySession;
+    use vortex_array::session::ArraySessionExt;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
@@ -99,8 +100,11 @@ mod tests {
     use crate::RunEnd;
     use crate::ops::find_slice_end_index;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty().with::<ArraySession>();
+        session.arrays().register(RunEnd);
+        session
+    });
 
     fn decode_run_array<R: RunEndIndexType>(
         array: &RunArray<R>,

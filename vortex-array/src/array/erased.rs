@@ -15,7 +15,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_session::VortexSession;
 
 use crate::AnyCanonical;
 use crate::Array;
@@ -559,11 +558,6 @@ impl ArrayRef {
     /// Returns the name of the slot at the given index.
     pub fn slot_name(&self, idx: usize) -> String {
         self.0.slot_name(self, idx)
-    }
-
-    /// Returns the serialized metadata of the array.
-    pub fn metadata(&self, session: &VortexSession) -> VortexResult<Option<Vec<u8>>> {
-        self.0.metadata(self, session)
     }
 
     /// Formats a human-readable metadata description.

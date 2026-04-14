@@ -13,7 +13,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::Id;
 
 use crate::ExecutionCtx;
@@ -131,10 +130,6 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
 
     /// Returns the name of the slot at the given index.
     fn slot_name(&self, this: &ArrayRef, idx: usize) -> String;
-
-    /// Returns the serialized metadata of the array, or `None` if the array does not
-    /// support serialization.
-    fn metadata(&self, this: &ArrayRef, session: &VortexSession) -> VortexResult<Option<Vec<u8>>>;
 
     /// Formats a human-readable metadata description.
     fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
@@ -339,11 +334,6 @@ impl<V: VTable> DynArray for ArrayInner<V> {
     fn slot_name(&self, this: &ArrayRef, idx: usize) -> String {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         V::slot_name(view, idx)
-    }
-
-    fn metadata(&self, this: &ArrayRef, session: &VortexSession) -> VortexResult<Option<Vec<u8>>> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        V::serialize(view, session)
     }
 
     fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
