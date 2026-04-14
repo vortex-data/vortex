@@ -62,14 +62,13 @@ fn bench_dict_mask(bencher: Bencher, (fraction_valid, fraction_masked): (f64, f6
     let filter_mask = filter_mask(len, fraction_masked, &mut rng);
     let session = VortexSession::empty();
     bencher
-        .with_inputs(|| (&array, &filter_mask))
-        .bench_refs(|(array, filter_mask)| {
-            let mut ctx = session.create_execution_ctx();
+        .with_inputs(|| (&array, &filter_mask, session.create_execution_ctx()))
+        .bench_refs(|(array, filter_mask, ctx)| {
             array
                 .clone()
                 .mask(filter_mask.clone().into_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut ctx)
+                .execute::<RecursiveCanonical>(ctx)
                 .unwrap()
         });
 }

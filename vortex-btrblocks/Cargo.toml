@@ -14,7 +14,6 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
-getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
 pco = { workspace = true, optional = true }
@@ -64,6 +63,3 @@ test = false
 name = "compress_listview"
 harness = false
 test = false
-
-[package.metadata.cargo-machete]
-ignored = ["getrandom_v03"]

@@ -367,9 +367,9 @@ impl SerializedArray {
             decoded.dtype(),
             dtype,
         );
-        assert_eq!(
-            decoded.encoding_id(),
-            encoding_id,
+
+        assert!(
+            plugin.is_supported_encoding(&decoded.encoding_id()),
             "Array decoded from {} has incorrect encoding {}",
             encoding_id,
             decoded.encoding_id(),

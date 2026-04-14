@@ -152,9 +152,9 @@ fn bench_delta_compress_u32(bencher: Bencher) {
     let (uint_array, ..) = setup_primitive_arrays();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
-        .with_inputs(|| &uint_array)
-        .bench_refs(|a| {
-            let (_bases, _deltas) = delta_compress(a, &mut SESSION.create_execution_ctx()).unwrap();
+        .with_inputs(|| (&uint_array, SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| {
+            let (_bases, _deltas) = delta_compress(a, ctx).unwrap();
             DeltaData::try_new(0).unwrap()
         });
 }
@@ -512,16 +512,15 @@ mod turboquant_benches {
                     let normalized_ext = setup_normalized_vector_ext($dim);
                     let config = turboquant_config($bits);
                     with_byte_counter(bencher, (NUM_VECTORS * $dim * 4) as u64)
-                        .with_inputs(|| normalized_ext.clone())
-                        .bench_refs(|a| {
-                            let mut ctx = SESSION.create_execution_ctx();
+                        .with_inputs(|| (normalized_ext.clone(), SESSION.create_execution_ctx()))
+                        .bench_refs(|(a, ctx)| {
                             let normalized = a
                                 .as_ref()
                                 .as_opt::<Extension>()
                                 .expect("normalized benchmark input should be an Extension array");
                             // SAFETY: Benchmark inputs are normalized once up front so the timed
                             // region measures only TurboQuant encoding.
-                            unsafe { turboquant_encode_unchecked(normalized, &config, &mut ctx) }
+                            unsafe { turboquant_encode_unchecked(normalized, &config, ctx) }
                                 .unwrap()
                         });
                 }
@@ -539,12 +538,11 @@ mod turboquant_benches {
                     }
                     .unwrap();
                     with_byte_counter(bencher, (NUM_VECTORS * $dim * 4) as u64)
-                        .with_inputs(|| &compressed)
-                        .bench_refs(|a| {
-                            let mut ctx = SESSION.create_execution_ctx();
-                            a.clone()
+                        .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
+                        .bench_refs(|(a, ctx)| {
+                            (*a).clone()
                                 .into_array()
-                                .execute::<ExtensionArray>(&mut ctx)
+                                .execute::<ExtensionArray>(ctx)
                                 .unwrap()
                         });
                 }

@@ -18,35 +18,43 @@ use crate::sample::sample_count_approx_one_percent;
 use crate::scheme::Scheme;
 use crate::stats::ArrayAndStats;
 
-/// Closure type for [`CompressionEstimate::Estimate`]. The compressor calls this with the same
-/// arguments it would pass to sampling.
+/// Closure type for [`DeferredEstimate::Callback`].
+///
+/// The compressor calls this with the same arguments it would pass to sampling. The closure must
+/// resolve directly to a terminal [`EstimateVerdict`].
 #[rustfmt::skip]
 pub type EstimateFn = dyn FnOnce(
         &CascadingCompressor,
         &mut ArrayAndStats,
         CompressorContext,
-    ) -> VortexResult<CompressionEstimate>
+    ) -> VortexResult<EstimateVerdict>
     + Send
     + Sync;
 
-// TODO(connor): We should make use of the fact that some checks are cheap and some checks are
-// expensive (sample or estimate variants).
 /// The result of a [`Scheme`]'s compression ratio estimation.
 ///
 /// This type is returned by [`Scheme::expected_compression_ratio`] to tell the compressor how
 /// promising this scheme is for a given array without performing any expensive work.
 ///
-/// All expensive or fallible operations (sampling, trial encoding) are deferred to the compressor
-/// via the [`Sample`](CompressionEstimate::Sample) and [`Estimate`](CompressionEstimate::Estimate)
-/// variants.
-///
-/// [`Sample`]: CompressionEstimate::Sample
-/// [`Estimate`]: CompressionEstimate::Estimate
+/// [`CompressionEstimate::Verdict`] means the scheme already knows the terminal answer.
+/// [`CompressionEstimate::Deferred`] means the compressor must do extra work before the scheme can
+/// produce a terminal answer.
+#[derive(Debug)]
 pub enum CompressionEstimate {
+    /// The scheme already knows the terminal estimation verdict.
+    Verdict(EstimateVerdict),
+
+    /// The compressor must perform deferred work to resolve the terminal estimation verdict.
+    Deferred(DeferredEstimate),
+}
+
+/// The terminal answer to a compression estimate request.
+#[derive(Debug)]
+pub enum EstimateVerdict {
     /// Do not use this scheme for this array.
     Skip,
 
-    /// Always use this scheme, as we know it is definitively the best choice.
+    /// Always use this scheme, as it is definitively the best choice.
     ///
     /// Some examples include constant detection, decimal byte parts, and temporal decomposition.
     ///
@@ -60,21 +68,20 @@ pub enum CompressionEstimate {
     /// The estimated compression ratio. This must be greater than `1.0` to be considered by the
     /// compressor, otherwise it is worse than the canonical encoding.
     Ratio(f64),
+}
 
+/// Deferred work that can resolve to a terminal [`EstimateVerdict`].
+pub enum DeferredEstimate {
     /// The scheme cannot cheaply estimate its ratio, so the compressor should compress a small
     /// sample to determine effectiveness.
     Sample,
 
-    /// A fallible estimation requiring a custom expensive computation. The compressor will call the
-    /// closure and handle the result.
+    /// A fallible estimation requiring a custom expensive computation.
     ///
     /// Use this only when the scheme needs to perform trial encoding or other costly checks to
-    /// determine its compression ratio.
-    ///
-    /// The estimation function must **not** return a [`Sample`](CompressionEstimate::Sample) or
-    /// [`Estimate`](CompressionEstimate::Estimate) variant to ensure the estimation process is
-    /// bounded.
-    Estimate(Box<EstimateFn>),
+    /// determine its compression ratio. The callback returns an [`EstimateVerdict`] directly, so
+    /// it cannot request more sampling or another deferred callback.
+    Callback(Box<EstimateFn>),
 }
 
 /// Returns `true` if `ratio` is a valid compression ratio (> 1.0, finite, not subnormal) that
@@ -138,14 +145,11 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     Ok(ratio)
 }
 
-impl fmt::Debug for CompressionEstimate {
+impl fmt::Debug for DeferredEstimate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CompressionEstimate::Skip => write!(f, "Skip"),
-            CompressionEstimate::AlwaysUse => write!(f, "AlwaysUse"),
-            CompressionEstimate::Ratio(r) => f.debug_tuple("Ratio").field(r).finish(),
-            CompressionEstimate::Sample => write!(f, "Sample"),
-            CompressionEstimate::Estimate(_) => write!(f, "Estimate(..)"),
+            DeferredEstimate::Sample => write!(f, "Sample"),
+            DeferredEstimate::Callback(_) => write!(f, "Callback(..)"),
         }
     }
 }

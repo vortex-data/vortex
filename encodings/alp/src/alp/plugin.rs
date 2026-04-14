@@ -76,6 +76,10 @@ impl ArrayPlugin for ALPPatchedPlugin {
 
         Ok(patched.into_array())
     }
+
+    fn is_supported_encoding(&self, id: &ArrayId) -> bool {
+        id == &Patched.id() || id == &ALP.id()
+    }
 }
 
 #[cfg(test)]

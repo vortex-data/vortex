@@ -36,5 +36,3 @@ vortex-session = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 
-[package.metadata.cargo-machete]
-ignored = ["getrandom_v03"]

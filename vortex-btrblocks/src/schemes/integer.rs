@@ -17,6 +17,8 @@ use vortex_array::scalar::Scalar;
 use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
 use vortex_compressor::estimate::CompressionEstimate;
+use vortex_compressor::estimate::DeferredEstimate;
+use vortex_compressor::estimate::EstimateVerdict;
 use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::DescendantExclusion;
@@ -134,21 +136,21 @@ impl Scheme for FoRScheme {
         // FoR only subtracts the min. Without further compression (e.g. BitPacking), the output is
         // the same size.
         if ctx.finished_cascading() {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         let stats = data.integer_stats();
 
         // Only apply when the min is not already zero.
         if stats.erased().min_is_zero() {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         // Difference between max and min.
         let for_bitwidth = match stats.erased().max_minus_min().checked_ilog2() {
             Some(l) => l + 1,
             // If max-min == 0, the we should be compressing this as a constant array.
-            None => return CompressionEstimate::Skip,
+            None => return CompressionEstimate::Verdict(EstimateVerdict::Skip),
         };
 
         // If BitPacking can be applied (only non-negative values) and FoR doesn't reduce bit width
@@ -162,7 +164,7 @@ impl Scheme for FoRScheme {
         {
             let bitpack_bitwidth = max_log + 1;
             if for_bitwidth >= bitpack_bitwidth {
-                return CompressionEstimate::Skip;
+                return CompressionEstimate::Verdict(EstimateVerdict::Skip);
             }
         }
 
@@ -173,7 +175,9 @@ impl Scheme for FoRScheme {
             .try_into()
             .vortex_expect("bit width must fit in u32");
 
-        CompressionEstimate::Ratio(full_width as f64 / for_bitwidth as f64)
+        CompressionEstimate::Verdict(EstimateVerdict::Ratio(
+            full_width as f64 / for_bitwidth as f64,
+        ))
     }
 
     fn compress(
@@ -265,17 +269,17 @@ impl Scheme for ZigZagScheme {
         // ZigZag only transforms negative values to positive. Without further compression,
         // the output is the same size.
         if ctx.finished_cascading() {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         let stats = data.integer_stats();
 
         // ZigZag is only useful when there are negative values.
         if !stats.erased().min_is_negative() {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        CompressionEstimate::Sample
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
     fn compress(
@@ -314,10 +318,10 @@ impl Scheme for BitPackingScheme {
 
         // BitPacking only works for non-negative values.
         if stats.erased().min_is_negative() {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        CompressionEstimate::Sample
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
     fn compress(
@@ -443,12 +447,12 @@ impl Scheme for SparseScheme {
 
         // All-null arrays should be compressed as constant instead anyways.
         if value_count == 0 {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         // If the majority (90%) of values is null, this will compress well.
         if stats.null_count() as f64 / len > 0.9 {
-            return CompressionEstimate::Ratio(len / value_count as f64);
+            return CompressionEstimate::Verdict(EstimateVerdict::Ratio(len / value_count as f64));
         }
 
         let (_, most_frequent_count) = stats
@@ -460,18 +464,20 @@ impl Scheme for SparseScheme {
 
         // If the most frequent value is the only value, we should compress as constant instead.
         if most_frequent_count == value_count {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
         debug_assert!(value_count > most_frequent_count);
 
         // See if the most frequent value accounts for >= 90% of the set values.
         let freq = most_frequent_count as f64 / value_count as f64;
         if freq < 0.9 {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         // We only store the positions of the non-top values.
-        CompressionEstimate::Ratio(value_count as f64 / (value_count - most_frequent_count) as f64)
+        CompressionEstimate::Verdict(EstimateVerdict::Ratio(
+            value_count as f64 / (value_count - most_frequent_count) as f64,
+        ))
     }
 
     fn compress(
@@ -603,10 +609,10 @@ impl Scheme for RunEndScheme {
     ) -> CompressionEstimate {
         // If the run length is below the threshold, drop it.
         if data.integer_stats().average_run_length() < RUN_END_THRESHOLD {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        CompressionEstimate::Sample
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
     fn compress(
@@ -668,14 +674,14 @@ impl Scheme for SequenceScheme {
         // It is pointless checking if a sample is a sequence since it will not correspond to the
         // entire array.
         if ctx.is_sample() {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         let stats = data.integer_stats();
 
         // `SequenceArray` does not support nulls.
         if stats.null_count() > 0 {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         // If the distinct_values_count was computed, and not all values are unique, then this
@@ -684,23 +690,25 @@ impl Scheme for SequenceScheme {
             .distinct_count()
             .is_some_and(|count| count as usize != data.array_len())
         {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         // TODO(connor): Why do we sequence encode the whole thing and then throw it away? And then
         // why do we divide the ratio by 2???
 
-        CompressionEstimate::Estimate(Box::new(|_compressor, data, _ctx| {
-            let Some(encoded) = sequence_encode(data.array_as_primitive())? else {
-                // If we are unable to sequence encode this array, make sure we skip.
-                return Ok(CompressionEstimate::Skip);
-            };
+        CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
+            |_compressor, data, _ctx| {
+                let Some(encoded) = sequence_encode(data.array_as_primitive())? else {
+                    // If we are unable to sequence encode this array, make sure we skip.
+                    return Ok(EstimateVerdict::Skip);
+                };
 
-            // TODO(connor): This doesn't really make sense?
-            // Since two values are required to store base and multiplier the compression ratio is
-            // divided by 2.
-            Ok(CompressionEstimate::Ratio(encoded.len() as f64 / 2.0))
-        }))
+                // TODO(connor): This doesn't really make sense?
+                // Since two values are required to store base and multiplier the compression ratio is
+                // divided by 2.
+                Ok(EstimateVerdict::Ratio(encoded.len() as f64 / 2.0))
+            },
+        )))
     }
 
     fn compress(
@@ -738,10 +746,10 @@ impl Scheme for PcoScheme {
 
         // Pco does not support I8 or U8.
         if matches!(data.array_as_primitive().ptype(), PType::I8 | PType::U8) {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        CompressionEstimate::Sample
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
     fn compress(
@@ -865,14 +873,14 @@ impl Scheme for IntRLEScheme {
     ) -> CompressionEstimate {
         // RLE is only useful when we cascade it with another encoding.
         if ctx.finished_cascading() {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         if data.integer_stats().average_run_length() < RUN_LENGTH_THRESHOLD {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        CompressionEstimate::Sample
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
     fn compress(

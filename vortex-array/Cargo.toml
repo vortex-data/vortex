@@ -38,7 +38,6 @@ cudarc = { workspace = true, optional = true }
 enum-iterator = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "std"] }
-getrandom_v03 = { workspace = true }
 goldenfile = { workspace = true, optional = true }
 half = { workspace = true, features = ["num-traits"] }
 humansize = { workspace = true }
@@ -184,6 +183,3 @@ harness = false
 [[bench]]
 name = "listview_rebuild"
 harness = false
-
-[package.metadata.cargo-machete]
-ignored = ["getrandom_v03"]
