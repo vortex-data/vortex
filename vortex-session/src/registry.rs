@@ -14,71 +14,14 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::OnceLock;
 
-use arc_swap::ArcSwap;
-use parking_lot::Mutex;
+use lasso::Spur;
+use lasso::ThreadedRodeo;
 use parking_lot::RwLock;
-use string_interner::DefaultBackend;
-use string_interner::DefaultSymbol;
-use string_interner::StringInterner;
 use vortex_error::VortexExpect;
 use vortex_utils::aliases::dash_map::DashMap;
 
 /// Global string interner for [`Id`] values.
-static INTERNER: LazyLock<Interner> = LazyLock::new(Interner::default);
-
-struct Interner {
-    state: ArcSwap<StringInterner<DefaultBackend>>,
-    write_lock: Mutex<()>,
-}
-
-impl Default for Interner {
-    fn default() -> Self {
-        Self {
-            state: ArcSwap::from_pointee(StringInterner::with_capacity(200)),
-            write_lock: Mutex::new(()),
-        }
-    }
-}
-
-impl Interner {
-    fn intern_static(&self, s: &'static str) -> DefaultSymbol {
-        if let Some(symbol) = self.state.load().get(s) {
-            return symbol;
-        }
-
-        // Ensure if we need to add this we have the write lock and check again if its was
-        // added just now.
-        let _guard = self.write_lock.lock();
-        let state = self.state.load_full();
-        if let Some(symbol) = state.get(s) {
-            return symbol;
-        }
-
-        let mut next = (*state).clone();
-        let symbol = next.get_or_intern_static(s);
-        self.state.store(Arc::new(next));
-        symbol
-    }
-
-    fn intern(&self, s: &str) -> DefaultSymbol {
-        if let Some(symbol) = self.state.load().get(s) {
-            return symbol;
-        }
-
-        // Ensure if we need to add this we have the write lock and check again if its was
-        // added just now.
-        let _guard = self.write_lock.lock();
-        let state = self.state.load_full();
-        if let Some(symbol) = state.get(s) {
-            return symbol;
-        }
-
-        let mut next = (*state).clone();
-        let symbol = next.get_or_intern(s);
-        self.state.store(Arc::new(next));
-        symbol
-    }
-}
+static INTERNER: LazyLock<ThreadedRodeo> = LazyLock::new(ThreadedRodeo::new);
 
 /// A lightweight, copyable identifier backed by a global string interner.
 ///
@@ -86,29 +29,24 @@ impl Interner {
 /// globally-unique string identifiers throughout Vortex. Equality and hashing
 /// are O(1) symbol comparisons.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Id(DefaultSymbol);
+pub struct Id(Spur);
 
 impl Id {
     /// Intern a string and return its `Id`.
     pub fn new(s: &str) -> Self {
-        Self(INTERNER.intern(s))
+        Self(INTERNER.get_or_intern(s))
     }
 
     /// Intern a string and return its `Id`.
     pub fn new_static(s: &'static str) -> Self {
-        Self(INTERNER.intern_static(s))
+        Self(INTERNER.get_or_intern_static(s))
     }
 
     /// Returns the interned string.
     pub fn as_str(&self) -> &str {
-        // SAFETY: The interner is append-only (symbols are never removed), so the resolved
-        // string reference is valid for the lifetime of this borrow.
-        let interner = INTERNER.state.load();
-        let s = interner
-            .resolve(self.0)
-            .vortex_expect("Id symbol not found in interner");
-        // SAFETY: The interner is append-only and lives for 'static, so the &str is valid
-        // for the program's lifetime. We just can't express that through the RwLock borrow.
+        let s = INTERNER.resolve(&self.0);
+        // SAFETY: INTERNER is 'static and its arena is append-only, so resolved string
+        // pointers are stable for the lifetime of the program.
         unsafe { &*(s as *const str) }
     }
 }
