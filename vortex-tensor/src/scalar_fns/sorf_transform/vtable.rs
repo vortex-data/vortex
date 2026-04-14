@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use num_traits::Float;
 use num_traits::FromPrimitive;
+use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -17,6 +18,9 @@ use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
+use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts;
+use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
@@ -30,12 +34,14 @@ use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use super::SorfOptions;
 use super::SorfTransform;
@@ -185,6 +191,93 @@ impl ScalarFnVTable for SorfTransform {
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {
         false
+    }
+}
+
+/// Metadata for a serialized [`SorfTransform`] array.
+///
+/// Stores the full [`SorfOptions`] inline. The child [`DType`] is not serialized because it is
+/// fully determined by the options: the child is always a [`Vector`] extension wrapping
+/// `FSL<f32, dimension.next_power_of_two()>`. The child's nullability is recovered from the
+/// parent output dtype at deserialize time, since `SorfTransform::return_dtype` propagates child
+/// nullability into the output FSL (see `return_dtype` above).
+#[derive(Clone, prost::Message)]
+pub(super) struct SorfTransformMetadata {
+    #[prost(uint64, tag = "1")]
+    seed: u64,
+    /// Rust `u8` widened to `u32` for protobuf (no `u8` on the wire).
+    #[prost(uint32, tag = "2")]
+    num_rounds: u32,
+    #[prost(uint32, tag = "3")]
+    dimension: u32,
+    #[prost(enumeration = "PType", tag = "4")]
+    element_ptype: i32,
+}
+
+impl ScalarFnArrayVTable for SorfTransform {
+    fn serialize(
+        &self,
+        view: &ScalarFnArrayView<Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
+        let options = view.options;
+        Ok(Some(
+            SorfTransformMetadata {
+                seed: options.seed,
+                num_rounds: u32::from(options.num_rounds),
+                dimension: options.dimension,
+                element_ptype: options.element_ptype as i32,
+            }
+            .encode_to_vec(),
+        ))
+    }
+
+    fn deserialize(
+        &self,
+        dtype: &DType,
+        len: usize,
+        metadata: &[u8],
+        children: &dyn ArrayChildren,
+        _session: &VortexSession,
+    ) -> VortexResult<ScalarFnArrayParts<Self>> {
+        let metadata = SorfTransformMetadata::decode(metadata)
+            .map_err(|e| vortex_err!("Failed to decode SorfTransformMetadata: {e}"))?;
+        let options = SorfOptions {
+            seed: metadata.seed,
+            num_rounds: u8::try_from(metadata.num_rounds).map_err(|_| {
+                vortex_err!(
+                    "SorfTransform num_rounds {} does not fit in u8",
+                    metadata.num_rounds
+                )
+            })?,
+            dimension: metadata.dimension,
+            element_ptype: metadata.element_ptype(),
+        };
+        validate_sorf_options(&options)?;
+
+        // `return_dtype` sets the output FSL's nullability to the child's nullability (see
+        // `return_dtype` above), so we read the child nullability back from the parent dtype.
+        let child_nullability = dtype
+            .as_extension_opt()
+            .ok_or_else(|| {
+                vortex_err!("SorfTransform parent dtype must be a Vector extension, got {dtype}")
+            })?
+            .storage_dtype()
+            .nullability();
+        let padded_dim = options.dimension.next_power_of_two();
+        let child_storage = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F32, Nullability::NonNullable)),
+            padded_dim,
+            child_nullability,
+        );
+        let child_ext = ExtDType::<Vector>::try_new(EmptyMetadata, child_storage)?.erased();
+        let child_dtype = DType::Extension(child_ext);
+        let child = children.get(0, &child_dtype, len)?;
+
+        Ok(ScalarFnArrayParts {
+            options,
+            children: vec![child],
+        })
     }
 }
 

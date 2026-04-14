@@ -5,8 +5,10 @@
 //! including unit vectors, spherical coordinates, and similarity measures such as cosine
 //! similarity.
 
+use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
+use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
 use crate::fixed_shape::FixedShapeTensor;
@@ -34,9 +36,18 @@ pub fn initialize(session: &VortexSession) {
     session.dtypes().register(Vector);
     session.dtypes().register(FixedShapeTensor);
 
-    session.scalar_fns().register(CosineSimilarity);
-    session.scalar_fns().register(InnerProduct);
-    session.scalar_fns().register(L2Denorm);
-    session.scalar_fns().register(L2Norm);
-    session.scalar_fns().register(SorfTransform);
+    let session_fns = session.scalar_fns();
+    let session_arrays = session.arrays();
+
+    session_fns.register(CosineSimilarity);
+    session_fns.register(InnerProduct);
+    session_fns.register(L2Denorm);
+    session_fns.register(L2Norm);
+    session_fns.register(SorfTransform);
+
+    session_arrays.register(ScalarFnArrayPlugin::new(CosineSimilarity));
+    session_arrays.register(ScalarFnArrayPlugin::new(InnerProduct));
+    session_arrays.register(ScalarFnArrayPlugin::new(L2Denorm));
+    session_arrays.register(ScalarFnArrayPlugin::new(L2Norm));
+    session_arrays.register(ScalarFnArrayPlugin::new(SorfTransform));
 }

@@ -248,6 +248,12 @@ impl core::clone::Clone for vortex_tensor::scalar_fns::cosine_similarity::Cosine
 
 pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::clone(&self) -> vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity
 
+impl vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable for vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity
+
+pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::deserialize(&self, _dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts<Self>>
+
+pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::serialize(&self, view: &vortex_array::arrays::scalar_fn::vtable::ScalarFnArrayView<'_, Self>, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
 impl vortex_array::scalar_fn::vtable::ScalarFnVTable for vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity
 
 pub type vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::Options = vortex_array::scalar_fn::vtable::EmptyOptions
@@ -283,6 +289,12 @@ pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::try_new_array(lhs
 impl core::clone::Clone for vortex_tensor::scalar_fns::inner_product::InnerProduct
 
 pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::clone(&self) -> vortex_tensor::scalar_fns::inner_product::InnerProduct
+
+impl vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable for vortex_tensor::scalar_fns::inner_product::InnerProduct
+
+pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::deserialize(&self, _dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts<Self>>
+
+pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::serialize(&self, view: &vortex_array::arrays::scalar_fn::vtable::ScalarFnArrayView<'_, Self>, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 impl vortex_array::scalar_fn::vtable::ScalarFnVTable for vortex_tensor::scalar_fns::inner_product::InnerProduct
 
@@ -321,6 +333,12 @@ pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::try_new_array(normalized:
 impl core::clone::Clone for vortex_tensor::scalar_fns::l2_denorm::L2Denorm
 
 pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::clone(&self) -> vortex_tensor::scalar_fns::l2_denorm::L2Denorm
+
+impl vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable for vortex_tensor::scalar_fns::l2_denorm::L2Denorm
+
+pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::deserialize(&self, _dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts<Self>>
+
+pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::serialize(&self, view: &vortex_array::arrays::scalar_fn::vtable::ScalarFnArrayView<'_, Self>, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 impl vortex_array::scalar_fn::vtable::ScalarFnVTable for vortex_tensor::scalar_fns::l2_denorm::L2Denorm
 
@@ -361,6 +379,12 @@ pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::try_new_array(child: vortex_a
 impl core::clone::Clone for vortex_tensor::scalar_fns::l2_norm::L2Norm
 
 pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::clone(&self) -> vortex_tensor::scalar_fns::l2_norm::L2Norm
+
+impl vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable for vortex_tensor::scalar_fns::l2_norm::L2Norm
+
+pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::deserialize(&self, _dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts<Self>>
+
+pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::serialize(&self, view: &vortex_array::arrays::scalar_fn::vtable::ScalarFnArrayView<'_, Self>, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 impl vortex_array::scalar_fn::vtable::ScalarFnVTable for vortex_tensor::scalar_fns::l2_norm::L2Norm
 
@@ -443,6 +467,12 @@ pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::try_new_array(o
 impl core::clone::Clone for vortex_tensor::scalar_fns::sorf_transform::SorfTransform
 
 pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::clone(&self) -> vortex_tensor::scalar_fns::sorf_transform::SorfTransform
+
+impl vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable for vortex_tensor::scalar_fns::sorf_transform::SorfTransform
+
+pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts<Self>>
+
+pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::serialize(&self, view: &vortex_array::arrays::scalar_fn::vtable::ScalarFnArrayView<'_, Self>, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 impl vortex_array::scalar_fn::vtable::ScalarFnVTable for vortex_tensor::scalar_fns::sorf_transform::SorfTransform
 
