@@ -4,6 +4,9 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build ${{ matrix.target }}
@@ -52,8 +55,6 @@ jobs:
           zip ../../../vx-${{ matrix.target }}.zip vx.exe
 
       - name: Upload release asset
-        uses: softprops/action-gh-release@v2
-        with:
-          files: vx-${{ matrix.target }}.${{ matrix.archive == 'tgz' && 'tar.gz' || 'zip' }}
+        run: gh release upload "${{ github.event.release.tag_name }}" vx-${{ matrix.target }}.${{ matrix.archive == 'tgz' && 'tar.gz' || 'zip' }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
