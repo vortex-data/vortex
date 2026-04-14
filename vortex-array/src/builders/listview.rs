@@ -296,33 +296,15 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
             return;
         }
 
-        // If we do not have the guarantee that the array is zero-copyable to a list, then we have
-        // to manually append each scalar.
-        if !listview.is_zero_copy_to_list() {
-            for i in 0..listview.len() {
-                let list = listview
-                    .scalar_at(i)
-                    .vortex_expect("scalar_at failed in extend_from_array_unchecked");
-
-                self.append_scalar(&list)
-                    .vortex_expect("was unable to extend the `ListViewBuilder`")
-            }
-
-            return;
-        }
-
-        // Otherwise, after removing any leading and trailing elements, we can simply bulk append
-        // the entire array.
+        // Normalize to an exact zero-copy-to-list layout and then bulk append. This avoids the
+        // very expensive scalar_at-per-list path for overlapping / out-of-order list views.
         let listview = listview
             .rebuild(ListViewRebuildMode::MakeExact)
             .vortex_expect("ListViewArray::rebuild(MakeExact) failed in extend_from_array");
         debug_assert!(listview.is_zero_copy_to_list());
 
-        self.nulls.append_validity_mask(
-            array
-                .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
-        );
+        self.nulls
+            .append_validity_mask(listview.listview_validity_mask());
 
         // Bulk append the new elements (which should have no gaps or overlaps).
         let old_elements_len = self.elements_builder.len();
@@ -429,11 +411,13 @@ fn adjust_and_extend_offsets<'a, O: IntegerPType, A: IntegerPType>(
 mod tests {
     use std::sync::Arc;
 
+    use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
 
     use super::ListViewBuilder;
     use crate::IntoArray;
     use crate::arrays::ListArray;
+    use crate::arrays::ListViewArray;
     use crate::arrays::listview::ListViewArrayExt;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
@@ -443,6 +427,7 @@ mod tests {
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType::I32;
     use crate::scalar::Scalar;
+    use crate::validity::Validity;
 
     #[test]
     fn test_empty() {
@@ -697,6 +682,50 @@ mod tests {
     }
 
     #[test]
+    fn test_extend_from_array_overlapping_listview() {
+        let dtype: Arc<DType> = Arc::new(I32.into());
+
+        // Non-ZCTL source:
+        // - List 0: [10, 20]
+        // - List 1: null (size is intentionally non-zero in source metadata)
+        // - List 2: [10]
+        let source = unsafe {
+            ListViewArray::new_unchecked(
+                buffer![10i32, 20, 30].into_array(),
+                buffer![0u32, 1, 0].into_array(),
+                buffer![2u8, 2, 1].into_array(),
+                Validity::from_iter([true, false, true]),
+            )
+        };
+        assert!(!source.is_zero_copy_to_list());
+
+        let mut builder =
+            ListViewBuilder::<u32, u8>::with_capacity(Arc::clone(&dtype), Nullable, 0, 0);
+        builder.extend_from_array(&source.into_array());
+
+        let listview = builder.finish_into_listview();
+        assert_eq!(listview.len(), 3);
+        assert!(listview.is_zero_copy_to_list());
+
+        assert_arrays_eq!(
+            listview.list_elements_at(0).unwrap(),
+            PrimitiveArray::from_iter([10i32, 20])
+        );
+        assert!(
+            !listview
+                .validity()
+                .vortex_expect("listview validity should be derivable")
+                .is_valid(1)
+                .unwrap()
+        );
+        assert_eq!(listview.list_elements_at(1).unwrap().len(), 0);
+        assert_arrays_eq!(
+            listview.list_elements_at(2).unwrap(),
+            PrimitiveArray::from_iter([10i32])
+        );
+    }
+
+    #[test]
     fn test_error_append_null_to_non_nullable() {
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder =
@@ -719,8 +748,6 @@ mod tests {
 
     #[test]
     fn test_append_array_as_list() {
-        use vortex_buffer::buffer;
-
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder =
             ListViewBuilder::<u32, u32>::with_capacity(Arc::clone(&dtype), NonNullable, 20, 10);
