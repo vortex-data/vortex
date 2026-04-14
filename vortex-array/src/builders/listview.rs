@@ -20,7 +20,9 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
 use crate::array::IntoArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
@@ -301,7 +303,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         if !listview.is_zero_copy_to_list() {
             for i in 0..listview.len() {
                 let list = listview
-                    .scalar_at(i)
+                    .scalar_at(i, &mut LEGACY_SESSION.create_execution_ctx())
                     .vortex_expect("scalar_at failed in extend_from_array_unchecked");
 
                 self.append_scalar(&list)

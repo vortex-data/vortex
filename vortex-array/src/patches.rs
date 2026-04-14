@@ -21,7 +21,9 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -172,7 +174,7 @@ impl Patches {
         // Perform validation of components when they are host-resident.
         // This is not possible to do eagerly when the data is on GPU memory.
         if indices.is_host() && values.is_host() {
-            let max = usize::try_from(&indices.scalar_at(indices.len() - 1)?)
+            let max = usize::try_from(&indices.scalar_at(indices.len() - 1, &mut LEGACY_SESSION.create_execution_ctx())?)
                 .map_err(|_| vortex_err!("indices must be a number"))?;
             vortex_ensure!(
                 max - offset < array_len,
@@ -181,8 +183,7 @@ impl Patches {
 
             #[cfg(debug_assertions)]
             {
-                use crate::VortexSessionExecute;
-                let mut ctx = crate::LEGACY_SESSION.create_execution_ctx();
+                let mut ctx = LEGACY_SESSION.create_execution_ctx();
                 assert!(
                     crate::aggregate_fn::fns::is_sorted::is_sorted(&indices, &mut ctx)
                         .unwrap_or(false),
@@ -292,7 +293,7 @@ impl Patches {
         };
 
         chunk_offsets
-            .scalar_at(idx)?
+            .scalar_at(idx, &mut LEGACY_SESSION.create_execution_ctx())?
             .as_primitive()
             .as_::<usize>()
             .ok_or_else(|| vortex_err!("chunk offset does not fit in usize"))
@@ -363,7 +364,7 @@ impl Patches {
     pub fn get_patched(&self, index: usize) -> VortexResult<Option<Scalar>> {
         self.search_index(index)?
             .to_found()
-            .map(|patch_idx| self.values().scalar_at(patch_idx))
+            .map(|patch_idx| self.values().scalar_at(patch_idx, &mut LEGACY_SESSION.create_execution_ctx()))
             .transpose()
     }
 
@@ -545,7 +546,7 @@ impl Patches {
     pub fn min_index(&self) -> VortexResult<usize> {
         let first = self
             .indices
-            .scalar_at(0)?
+            .scalar_at(0, &mut LEGACY_SESSION.create_execution_ctx())?
             .as_primitive()
             .as_::<usize>()
             .ok_or_else(|| vortex_err!("index does not fit in usize"))?;
@@ -556,7 +557,7 @@ impl Patches {
     pub fn max_index(&self) -> VortexResult<usize> {
         let last = self
             .indices
-            .scalar_at(self.indices.len() - 1)?
+            .scalar_at(self.indices.len() - 1, &mut LEGACY_SESSION.create_execution_ctx())?
             .as_primitive()
             .as_::<usize>()
             .ok_or_else(|| vortex_err!("index does not fit in usize"))?;
@@ -665,7 +666,7 @@ impl Patches {
             .as_ref()
             .map(|new_chunk_offsets| -> VortexResult<usize> {
                 let new_chunk_base = new_chunk_offsets
-                    .scalar_at(0)?
+                    .scalar_at(0, &mut LEGACY_SESSION.create_execution_ctx())?
                     .as_primitive()
                     .as_::<usize>()
                     .ok_or_else(|| vortex_err!("chunk offset does not fit in usize"))?;

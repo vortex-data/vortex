@@ -13,7 +13,9 @@ use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -211,7 +213,7 @@ impl VarBinData {
         // Skip host-only validation when offsets/bytes are not host-resident.
         if offsets.is_host() && bytes.is_on_host() {
             let last_offset = offsets
-                .scalar_at(offsets.len() - 1)?
+                .scalar_at(offsets.len() - 1, &mut LEGACY_SESSION.create_execution_ctx())?
                 .as_primitive()
                 .as_::<usize>()
                 .ok_or_else(
@@ -249,7 +251,7 @@ impl VarBinData {
                     .map(|o| (o[0].as_(), o[1].as_()))
                     .enumerate()
                 {
-                    if validity.is_null(i)? {
+                    if validity.is_null(i, &mut LEGACY_SESSION.create_execution_ctx())? {
                         continue;
                     }
 
@@ -330,7 +332,7 @@ pub trait VarBinArrayExt: TypedArrayRef<VarBin> {
 
         (&self
             .offsets()
-            .scalar_at(index)
+            .scalar_at(index, &mut LEGACY_SESSION.create_execution_ctx())
             .vortex_expect("offsets must support scalar_at"))
             .try_into()
             .vortex_expect("Failed to convert offset to usize")

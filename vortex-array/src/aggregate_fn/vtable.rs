@@ -15,6 +15,8 @@ use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
@@ -142,7 +144,7 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
         let scalar = self.to_scalar(partial)?;
         let array = ConstantArray::new(scalar, 1).into_array();
         let result = self.finalize(array)?;
-        result.scalar_at(0)
+        result.scalar_at(0, &mut LEGACY_SESSION.create_execution_ctx())
     }
 }
 

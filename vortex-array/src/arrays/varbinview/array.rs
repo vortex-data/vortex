@@ -18,6 +18,8 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -317,7 +319,7 @@ impl VarBinViewData {
         F: Fn(&[u8]) -> bool,
     {
         for (idx, &view) in views.iter().enumerate() {
-            if validity.is_null(idx)? {
+            if validity.is_null(idx, &mut LEGACY_SESSION.create_execution_ctx())? {
                 continue;
             }
 

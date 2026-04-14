@@ -17,6 +17,8 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::ConstantArray;
 use crate::arrays::Decimal;
 use crate::arrays::Primitive;
@@ -107,7 +109,7 @@ pub(super) fn precondition(
     }
 
     // A quick check to see if either bound is a null constant array.
-    if (lower.is_invalid(0)? || upper.is_invalid(0)?)
+    if (lower.is_invalid(0, &mut LEGACY_SESSION.create_execution_ctx())? || upper.is_invalid(0, &mut LEGACY_SESSION.create_execution_ctx())?)
         && let (Some(c_lower), Some(c_upper)) = (lower.as_constant(), upper.as_constant())
         && (c_lower.is_null() || c_upper.is_null())
     {

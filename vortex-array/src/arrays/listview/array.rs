@@ -13,7 +13,9 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -349,7 +351,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
             .map(|p| match_each_integer_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
             .unwrap_or_else(|| {
                 self.offsets()
-                    .scalar_at(index)
+                    .scalar_at(index, &mut LEGACY_SESSION.create_execution_ctx())
                     .vortex_expect("offsets must support scalar_at")
                     .as_primitive()
                     .as_::<usize>()
@@ -369,7 +371,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
             .map(|p| match_each_integer_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
             .unwrap_or_else(|| {
                 self.sizes()
-                    .scalar_at(index)
+                    .scalar_at(index, &mut LEGACY_SESSION.create_execution_ctx())
                     .vortex_expect("sizes must support scalar_at")
                     .as_primitive()
                     .as_::<usize>()

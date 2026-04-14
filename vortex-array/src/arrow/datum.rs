@@ -11,6 +11,8 @@ use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrow::FromArrowArray;
@@ -103,7 +105,7 @@ where
 
     Ok(ConstantArray::new(
         array
-            .scalar_at(0)
+            .scalar_at(0, &mut LEGACY_SESSION.create_execution_ctx())
             .vortex_expect("array of length 1 must support scalar_at(0)"),
         len,
     )

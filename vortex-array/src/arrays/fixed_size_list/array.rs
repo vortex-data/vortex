@@ -10,6 +10,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -244,7 +246,7 @@ pub trait FixedSizeListArrayExt: TypedArrayRef<FixedSizeList> {
         );
         debug_assert!(
             self.fixed_size_list_validity()
-                .is_valid(index)
+                .is_valid(index, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap_or(false)
         );
 

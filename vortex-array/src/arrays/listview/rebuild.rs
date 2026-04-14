@@ -162,7 +162,7 @@ impl ListViewArray {
 
         let mut n_elements = NewOffset::zero();
         for index in 0..len {
-            if !self.validity()?.is_valid(index)? {
+            if !self.validity()?.is_valid(index, &mut LEGACY_SESSION.create_execution_ctx())? {
                 new_offsets.push(n_elements);
                 new_sizes.push(S::zero());
                 continue;
@@ -230,7 +230,7 @@ impl ListViewArray {
 
         let mut n_elements = NewOffset::zero();
         for index in 0..len {
-            if !self.validity()?.is_valid(index)? {
+            if !self.validity()?.is_valid(index, &mut LEGACY_SESSION.create_execution_ctx())? {
                 // For NULL lists, place them after the previous item's data to maintain the
                 // no-overlap invariant for zero-copy to `ListArray` arrays.
                 new_offsets.push(n_elements);
@@ -440,9 +440,9 @@ mod tests {
 
         // Verify nullability is preserved
         assert_eq!(flattened.dtype().nullability(), Nullability::Nullable);
-        assert!(flattened.validity()?.is_valid(0).unwrap());
-        assert!(!flattened.validity()?.is_valid(1).unwrap());
-        assert!(flattened.validity()?.is_valid(2).unwrap());
+        assert!(flattened.validity()?.is_valid(0, &mut LEGACY_SESSION.create_execution_ctx()).unwrap());
+        assert!(!flattened.validity()?.is_valid(1, &mut LEGACY_SESSION.create_execution_ctx()).unwrap());
+        assert!(flattened.validity()?.is_valid(2, &mut LEGACY_SESSION.create_execution_ctx()).unwrap());
 
         // Verify valid lists contain correct data
         assert_arrays_eq!(

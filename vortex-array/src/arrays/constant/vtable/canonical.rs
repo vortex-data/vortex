@@ -338,6 +338,8 @@ mod tests {
     use crate::dtype::half::f16;
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProvider;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
@@ -659,14 +661,14 @@ mod tests {
         let element_validity = elements
             .validity()
             .vortex_expect("constant canonical element validity should be derivable");
-        assert!(element_validity.is_valid(0).unwrap());
-        assert!(!element_validity.is_valid(1).unwrap());
-        assert!(element_validity.is_valid(2).unwrap());
+        assert!(element_validity.is_valid(0, &mut LEGACY_SESSION.create_execution_ctx()).unwrap());
+        assert!(!element_validity.is_valid(1, &mut LEGACY_SESSION.create_execution_ctx()).unwrap());
+        assert!(element_validity.is_valid(2, &mut LEGACY_SESSION.create_execution_ctx()).unwrap());
 
         // Pattern should repeat.
-        assert!(element_validity.is_valid(3).unwrap());
-        assert!(!element_validity.is_valid(4).unwrap());
-        assert!(element_validity.is_valid(5).unwrap());
+        assert!(element_validity.is_valid(3, &mut LEGACY_SESSION.create_execution_ctx()).unwrap());
+        assert!(!element_validity.is_valid(4, &mut LEGACY_SESSION.create_execution_ctx()).unwrap());
+        assert!(element_validity.is_valid(5, &mut LEGACY_SESSION.create_execution_ctx()).unwrap());
     }
 
     #[test]

@@ -19,6 +19,8 @@ use itertools::Itertools as _;
 pub use tree_display::TreeDisplay;
 
 use crate::ArrayRef;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 
 /// Describe how to convert an array to a string.
 ///
@@ -531,10 +533,11 @@ impl ArrayRef {
                 let sep = if *omit_comma_after_space { "," } else { ", " };
                 let sep = if f.alternate() { ",\n" } else { sep };
                 let limit = self.len().min(f.precision().unwrap_or(DISPLAY_LIMIT));
+
                 let is_truncated = self.len() > limit;
 
                 let fmt_scalar = |i| {
-                    self.scalar_at(i)
+                    self.scalar_at(i, &mut LEGACY_SESSION.create_execution_ctx())
                         .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string())
                 };
                 write!(

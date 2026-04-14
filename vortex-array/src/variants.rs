@@ -133,7 +133,7 @@ impl PrimitiveTyped<'_> {
     /// Return the primitive value at the given index.
     pub fn value(&self, idx: usize) -> VortexResult<Option<PValue>> {
         self.0
-            .is_valid(idx)?
+            .is_valid(idx, &mut LEGACY_SESSION.create_execution_ctx())?
             .then(|| self.value_unchecked(idx))
             .transpose()
     }
@@ -142,7 +142,7 @@ impl PrimitiveTyped<'_> {
     pub fn value_unchecked(&self, idx: usize) -> VortexResult<PValue> {
         Ok(self
             .0
-            .scalar_at(idx)?
+            .scalar_at(idx, &mut LEGACY_SESSION.create_execution_ctx())?
             .as_primitive()
             .pvalue()
             .unwrap_or_else(|| PValue::zero(&self.ptype())))

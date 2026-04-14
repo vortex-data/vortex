@@ -15,6 +15,8 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -113,10 +115,10 @@ pub trait PatchedArrayExt: PatchedArraySlotsExt {
 
         let start = self
             .lane_offsets()
-            .scalar_at(chunk * self.n_lanes() + lane)?;
+            .scalar_at(chunk * self.n_lanes() + lane, &mut LEGACY_SESSION.create_execution_ctx())?;
         let stop = self
             .lane_offsets()
-            .scalar_at(chunk * self.n_lanes() + lane + 1)?;
+            .scalar_at(chunk * self.n_lanes() + lane + 1, &mut LEGACY_SESSION.create_execution_ctx())?;
 
         let start = start
             .as_primitive()

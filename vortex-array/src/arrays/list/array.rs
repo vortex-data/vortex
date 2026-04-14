@@ -305,7 +305,7 @@ pub trait ListArrayExt: TypedArrayRef<List> {
             }))
         } else {
             self.offsets()
-                .scalar_at(index)?
+                .scalar_at(index, &mut LEGACY_SESSION.create_execution_ctx())?
                 .as_primitive()
                 .as_::<usize>()
                 .ok_or_else(|| vortex_error::vortex_err!("offset value does not fit in usize"))
@@ -340,7 +340,7 @@ pub trait ListArrayExt: TypedArrayRef<List> {
         }
 
         let offsets = self.offsets();
-        let first_offset = offsets.scalar_at(0)?;
+        let first_offset = offsets.scalar_at(0, &mut LEGACY_SESSION.create_execution_ctx())?;
         let adjusted_offsets = offsets.clone().binary(
             ConstantArray::new(first_offset, offsets.len()).into_array(),
             Operator::Sub,
