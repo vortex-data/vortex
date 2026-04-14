@@ -111,7 +111,7 @@ pub struct MaterializedStage {
     /// Device pointer to the input buffer for this stage.
     pub input_ptr: u64,
     /// Byte offset into shared memory where this stage's data is stored.
-    pub smem_byte_offset: u32,
+    pub smem_byte_offset: u16,
     /// Number of elements in this stage.
     pub len: u32,
     /// PType tag for the source op's output type.
@@ -127,7 +127,7 @@ pub struct MaterializedStage {
 impl MaterializedStage {
     pub fn new(
         input_ptr: u64,
-        smem_byte_offset: u32,
+        smem_byte_offset: u16,
         len: u32,
         source_ptype: PTypeTag,
         source: SourceOp,
@@ -152,7 +152,7 @@ impl MaterializedStage {
 #[derive(Clone)]
 pub struct ParsedStage {
     pub input_ptr: u64,
-    pub smem_byte_offset: u32,
+    pub smem_byte_offset: u16,
     pub len: u32,
     pub source_ptype: PTypeTag,
     pub source: SourceOp,
@@ -316,7 +316,7 @@ impl SourceOp {
             params: SourceParams {
                 bitunpack: SourceParams_BitunpackParams {
                     bit_width,
-                    element_offset: u32::from(element_offset),
+                    element_offset,
                 },
             },
         }
@@ -339,10 +339,10 @@ impl SourceOp {
     /// * `num_runs` - number of runs (length of ends/values)
     /// * `offset` - logical offset for sliced arrays
     pub fn runend(
-        ends_smem_byte_offset: u32,
-        values_smem_byte_offset: u32,
-        num_runs: u64,
-        offset: u64,
+        ends_smem_byte_offset: u16,
+        values_smem_byte_offset: u16,
+        num_runs: u32,
+        offset: u32,
     ) -> Self {
         Self {
             op_code: SourceOp_SourceOpCode_RUNEND,
@@ -404,7 +404,7 @@ impl ScalarOp {
 
     /// Dictionary gather: use current value as index into decoded values
     /// in shared memory (populated by an earlier input stage).
-    pub fn dict(values_smem_byte_offset: u32, output_ptype: PTypeTag) -> Self {
+    pub fn dict(values_smem_byte_offset: u16, output_ptype: PTypeTag) -> Self {
         Self {
             op_code: ScalarOp_ScalarOpCode_DICT,
             output_ptype,
@@ -604,7 +604,7 @@ mod tests {
     fn test_plan_structure() {
         // Stage 0: input dict values (BP→FoR), 256 u32 elements → smem bytes [0..1024)
         // Stage 1: output codes (BP→FoR→DICT), 1024 elements, gather from smem byte 0
-        let values_smem_bytes: u32 = 256 * 4; // 256 u32 elements × 4 bytes
+        let values_smem_bytes: u16 = 256 * 4; // 256 u32 elements × 4 bytes
         let plan = CudaDispatchPlan::new(
             [
                 MaterializedStage::new(

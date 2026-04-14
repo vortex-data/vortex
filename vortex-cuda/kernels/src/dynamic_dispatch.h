@@ -107,7 +107,7 @@ union SourceParams {
     /// Unpack FastLanes bit-packed data.
     struct BitunpackParams {
         uint8_t bit_width;
-        uint32_t element_offset; // Sub-byte offset
+        uint16_t element_offset; // Sub-block offset (0..1023)
     } bitunpack;
 
     /// Copy from global to shared memory.
@@ -120,10 +120,10 @@ union SourceParams {
     /// The smem offsets are byte offsets so that ends and values can have
     /// different element widths.
     struct RunEndParams {
-        uint32_t ends_smem_byte_offset;   // byte offset to decoded ends in smem
-        uint32_t values_smem_byte_offset; // byte offset to decoded values in smem
-        uint64_t num_runs;
-        uint64_t offset; // slice offset into the run-end encoded array
+        uint16_t ends_smem_byte_offset;   // byte offset to decoded ends in smem
+        uint16_t values_smem_byte_offset; // byte offset to decoded values in smem
+        uint32_t num_runs;
+        uint32_t offset; // slice offset into the run-end encoded array
     } runend;
 
     /// Generate a linear sequence: `value[i] = base + i * multiplier`.
@@ -134,8 +134,8 @@ union SourceParams {
 };
 
 struct SourceOp {
-    enum SourceOpCode { BITUNPACK, LOAD, RUNEND, SEQUENCE } op_code;
     union SourceParams params;
+    enum SourceOpCode : uint8_t { BITUNPACK, LOAD, RUNEND, SEQUENCE } op_code;
 };
 
 /// Scalar ops: element-wise transforms in registers.
@@ -166,17 +166,17 @@ union ScalarParams {
     /// `output_ptype` (on the enclosing ScalarOp) to determine the values'
     /// element type.
     struct DictParams {
-        uint32_t values_smem_byte_offset; // byte offset to decoded dict values in smem
+        uint16_t values_smem_byte_offset; // byte offset to decoded dict values in smem
     } dict;
 };
 
 struct ScalarOp {
-    enum ScalarOpCode { FOR, ZIGZAG, ALP, DICT } op_code;
+    union ScalarParams params;
+    enum ScalarOpCode : uint8_t { FOR, ZIGZAG, ALP, DICT } op_code;
     /// The PType this op produces. For type-preserving ops (FOR, ZIGZAG)
     /// this equals the input PType. For type-changing ops (ALP, DICT) this
     /// is the new output PType.
     enum PTypeTag output_ptype;
-    union ScalarParams params;
 };
 
 /// Packed stage header, followed by `num_scalar_ops` inline ScalarOps.
@@ -189,13 +189,12 @@ struct ScalarOp {
 /// pool so that stages with different element widths can coexist.
 struct PackedStage {
     uint64_t input_ptr;        // global memory pointer to this stage's encoded input
-    uint32_t smem_byte_offset; // byte offset within dynamic shared memory for output
-    uint32_t len;              // number of elements this stage produces
-
+    uint64_t patches_ptr;      // device ptr to packed source patches (0 = none)
     struct SourceOp source;
+    uint32_t len;              // number of elements this stage produces
+    uint16_t smem_byte_offset; // byte offset within dynamic shared memory for output
     uint8_t num_scalar_ops;
     enum PTypeTag source_ptype; // PType produced by the source op
-    uint64_t patches_ptr;       // device ptr to packed source patches (0 = none)
 };
 
 /// Header for the packed plan byte buffer.
@@ -222,13 +221,13 @@ struct __attribute__((aligned(8))) PlanHeader {
 /// `output_ptype` (or `source_ptype` if there are no scalar ops).
 struct Stage {
     uint64_t input_ptr;                // encoded input in global memory
-    uint32_t smem_byte_offset;         // byte offset within dynamic shared memory
-    uint32_t len;                      // elements produced
-    enum PTypeTag source_ptype;        // PType produced by the source op
-    struct SourceOp source;            // source decode op
-    uint8_t num_scalar_ops;            // number of scalar ops
-    const struct ScalarOp *scalar_ops; // scalar decode ops
+    const struct ScalarOp *scalar_ops; // pointer into packed plan buffer
     uint64_t patches_ptr;              // device ptr to packed source patches (0 = none)
+    uint32_t len;                      // elements produced
+    uint16_t smem_byte_offset;         // byte offset within dynamic shared memory
+    enum PTypeTag source_ptype;        // PType produced by the source op
+    uint8_t num_scalar_ops;            // number of scalar ops
+    struct SourceOp source;            // source decode op (packed, align 1)
 };
 
 /// Parse a single stage from the packed plan byte buffer and advance the cursor.
@@ -245,13 +244,13 @@ __device__ inline Stage parse_stage(const uint8_t *&cursor) {
 
     return Stage {
         .input_ptr = packed_stage->input_ptr,
-        .smem_byte_offset = packed_stage->smem_byte_offset,
-        .len = packed_stage->len,
-        .source_ptype = packed_stage->source_ptype,
-        .source = packed_stage->source,
-        .num_scalar_ops = packed_stage->num_scalar_ops,
         .scalar_ops = ops,
         .patches_ptr = packed_stage->patches_ptr,
+        .len = packed_stage->len,
+        .smem_byte_offset = packed_stage->smem_byte_offset,
+        .source_ptype = packed_stage->source_ptype,
+        .num_scalar_ops = packed_stage->num_scalar_ops,
+        .source = packed_stage->source,
     };
 }
 

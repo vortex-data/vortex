@@ -144,7 +144,7 @@ impl Stage {
     }
 }
 
-type SmemByteOffset = u32;
+type SmemByteOffset = u16;
 type OutputLen = u32;
 
 /// A dispatch plan before device materialization.
@@ -304,7 +304,7 @@ impl FusedPlan {
         let mut pending_subtrees: Vec<ArrayRef> = Vec::new();
         let mut plan = Self {
             stages: Vec::new(),
-            smem_byte_cursor: 0u32,
+            smem_byte_cursor: 0,
             source_buffers: Vec::new(),
             output_elem_bytes,
             output_ptype,
@@ -320,7 +320,7 @@ impl FusedPlan {
 
     /// Dynamic shared memory bytes passed to the CUDA launch config.
     fn dynamic_shared_mem_bytes(&self) -> u32 {
-        self.smem_byte_cursor + SMEM_TILE_SIZE * self.output_elem_bytes
+        u32::from(self.smem_byte_cursor) + SMEM_TILE_SIZE * self.output_elem_bytes
     }
 
     /// Total shared memory (fixed + dynamic) for limit checking.
@@ -642,9 +642,12 @@ impl FusedPlan {
 
         let values_ptype = PType::try_from(values.dtype())?;
 
-        let values_len = values.len() as u32;
+        let values_len: u32 = values
+            .len()
+            .try_into()
+            .map_err(|_| vortex_err!("Dict values length {} exceeds u32::MAX", values.len()))?;
         let values_spec = self.walk_child(values, pending_subtrees)?;
-        let values_smem_byte_offset = self.push_smem_stage(values_spec, values_len);
+        let values_smem_byte_offset = self.push_smem_stage(values_spec, values_len)?;
 
         let mut pipeline = self.walk_child(codes, pending_subtrees)?;
         // DICT scalar op: pass byte offset directly (C ABI uses byte offsets).
@@ -672,17 +675,26 @@ impl FusedPlan {
         pending_subtrees: &mut Vec<ArrayRef>,
     ) -> VortexResult<Stage> {
         let re = array.as_::<RunEnd>();
-        let offset = re.offset() as u64;
+        let offset: u32 = re
+            .offset()
+            .try_into()
+            .map_err(|_| vortex_err!("RunEnd offset {} exceeds u32::MAX", re.offset()))?;
         let ends = re.ends().clone();
         let values = re.values().clone();
-        let num_runs = ends.len() as u32;
-        let num_values = values.len() as u32;
+        let num_runs: u32 = ends
+            .len()
+            .try_into()
+            .map_err(|_| vortex_err!("RunEnd num_runs {} exceeds u32::MAX", ends.len()))?;
+        let num_values: u32 = values
+            .len()
+            .try_into()
+            .map_err(|_| vortex_err!("RunEnd num_values {} exceeds u32::MAX", values.len()))?;
 
         let ends_spec = self.walk_child(ends, pending_subtrees)?;
-        let ends_smem_byte_offset = self.push_smem_stage(ends_spec, num_runs);
+        let ends_smem_byte_offset = self.push_smem_stage(ends_spec, num_runs)?;
 
         let values_spec = self.walk_child(values, pending_subtrees)?;
-        let values_smem_byte_offset = self.push_smem_stage(values_spec, num_values);
+        let values_smem_byte_offset = self.push_smem_stage(values_spec, num_values)?;
 
         // Pass byte offsets and PTypeTags directly — the C ABI now uses
         // byte offsets and per-field ptype tags for cross-stage references.
@@ -690,7 +702,7 @@ impl FusedPlan {
             SourceOp::runend(
                 ends_smem_byte_offset,
                 values_smem_byte_offset,
-                num_runs as u64,
+                num_runs,
                 offset,
             ),
             None,
@@ -706,7 +718,7 @@ impl FusedPlan {
     /// type-changing scalar ops (e.g. dict values with FoR→ALP), the final
     /// smem footprint is `len × final_ptype_byte_width`. If there are no
     /// scalar ops, the source_ptype determines the width.
-    fn push_smem_stage(&mut self, spec: Stage, len: u32) -> u32 {
+    fn push_smem_stage(&mut self, spec: Stage, len: u32) -> VortexResult<SmemByteOffset> {
         let smem_byte_offset = self.smem_byte_cursor;
         // The kernel's execute_input_stage<T> always writes T-wide elements
         // into smem (reinterpret_cast<T*>), so we must allocate at least
@@ -720,8 +732,12 @@ impl FusedPlan {
         let final_elem_bytes = tag_to_ptype(final_ptype).byte_width() as u32;
         let elem_bytes = final_elem_bytes.max(self.output_elem_bytes);
         let stage_bytes = len * elem_bytes;
+        let new_cursor = u32::from(self.smem_byte_cursor) + stage_bytes;
+        if new_cursor > u16::MAX as u32 {
+            vortex_bail!("shared memory byte offset {new_cursor} exceeds u16::MAX (65535)");
+        }
         self.stages.push((spec, smem_byte_offset, len));
-        self.smem_byte_cursor += stage_bytes;
-        smem_byte_offset
+        self.smem_byte_cursor = new_cursor as u16;
+        Ok(smem_byte_offset)
     }
 }

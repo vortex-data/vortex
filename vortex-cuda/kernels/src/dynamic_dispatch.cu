@@ -195,9 +195,7 @@ template <typename T>
 __device__ inline GPUPatches unpack_source_patches(uint64_t patches_ptr,
                                                     uint32_t stage_len,
                                                     uint32_t element_offset) {
-    if (patches_ptr == 0) {
-        return { nullptr, nullptr, nullptr };
-    }
+    static_assert((sizeof(T) & (sizeof(T) - 1)) == 0, "sizeof(T) must be a power of two");
     uint8_t *base = reinterpret_cast<uint8_t *>(patches_ptr);
     constexpr uint32_t FL_CHUNK = 1024;
     constexpr uint32_t N_LANES = (sizeof(T) < 8) ? 32 : 16;
