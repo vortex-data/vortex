@@ -13,7 +13,6 @@ use session::MultiFileSessionExt;
 use tracing::debug;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_io::filesystem::FileListing;
 use vortex_io::filesystem::FileSystemRef;
 use vortex_layout::LayoutReaderRef;
@@ -26,33 +25,41 @@ use crate::OpenOptionsSessionExt;
 use crate::VortexOpenOptions;
 use crate::v2::FileStatsLayoutReader;
 
-/// A builder that discovers multiple Vortex files from a glob pattern and constructs a
+/// A builder that discovers multiple Vortex files from glob patterns and constructs a
 /// [`MultiLayoutDataSource`] to scan them as a single data source.
 ///
-/// The primary interface is [`Self::with_glob`], which accepts a glob
-/// pattern (optionally prefixed with `file://`). For non-local filesystems (S3, GCS, etc.),
-/// callers must also provide a [`FileSystemRef`] via [`Self::with_filesystem`]).
+/// The primary interface is [`Self::with_glob`], which accepts a glob pattern and an optional
+/// filesystem. For non-local filesystems (S3, GCS, etc.), callers must provide a [`FileSystemRef`].
+/// For local files, pass `None` and a local filesystem will be created automatically.
 ///
 /// # Examples
 ///
 /// ```ignore
 /// // Local files — filesystem is auto-created:
 /// let ds = MultiFileDataSource::new(session)
-///     .with_glob("/data/warehouse/*.vortex")
+///     .with_glob("/data/warehouse/*.vortex", None)
 ///     .build()
 ///     .await?;
 ///
 /// // S3 — caller provides the filesystem:
 /// let ds = MultiFileDataSource::new(session)
-///     .with_filesystem(s3_fs)
-///     .with_glob("prefix/*.vortex")
+///     .with_glob("prefix/*.vortex", Some(s3_fs))
+///     .build()
+///     .await?;
+///
+/// // Mixed filesystems — multiple globs with different filesystems:
+/// let ds = MultiFileDataSource::new(session)
+///     .with_glob("bucket-a/*.vortex", Some(s3_fs.clone()))
+///     .with_glob("bucket-b/*.vortex", Some(s3_fs))
+///     .with_glob("gcs-bucket/*.vortex", Some(gcs_fs))
 ///     .build()
 ///     .await?;
 /// ```
 pub struct MultiFileDataSource {
     session: VortexSession,
-    fs: Option<FileSystemRef>,
-    glob: Option<String>,
+    /// List of (glob, optional filesystem) pairs to resolve.
+    /// When the filesystem is None, a local filesystem will be created in build().
+    glob_sources: Vec<(String, Option<FileSystemRef>)>,
     open_options_fn: Arc<dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync>,
 }
 
@@ -61,26 +68,18 @@ impl MultiFileDataSource {
     pub fn new(session: VortexSession) -> Self {
         Self {
             session,
-            fs: None,
-            glob: None,
+            glob_sources: Vec::new(),
             open_options_fn: Arc::new(|opts| opts),
         }
     }
 
-    /// Set the path glob for file discovery.
+    /// Add a path glob for file discovery.
     ///
-    /// This path should be relative to the filesystem's base URL.
-    pub fn with_glob(mut self, glob: impl Into<String>) -> Self {
-        self.glob = Some(glob.into().trim_start_matches("/").to_string());
-        self
-    }
-
-    /// Set the filesystem to use for file discovery and reading.
-    ///
-    /// Required for non-local URLs (S3, GCS, etc.). For `file://` or bare path URLs,
-    /// a local filesystem is created automatically if none is provided.
-    pub fn with_filesystem(mut self, fs: FileSystemRef) -> Self {
-        self.fs = Some(fs);
+    /// The glob path should be relative to the filesystem's base URL. Pass `None` for the
+    /// filesystem to use the local filesystem (auto-created in [`Self::build`]).
+    pub fn with_glob(mut self, glob: impl Into<String>, fs: Option<FileSystemRef>) -> Self {
+        let glob_str = glob.into().trim_start_matches('/').to_string();
+        self.glob_sources.push((glob_str, fs));
         self
     }
 
@@ -99,36 +98,63 @@ impl MultiFileDataSource {
     ///
     /// Discovers files via glob, opens the first file eagerly to determine the schema,
     /// and creates lazy factories for the remaining files.
-    pub async fn build(mut self) -> VortexResult<impl DataSource> {
-        let glob = self
-            .glob
-            .take()
-            .ok_or_else(|| vortex_err!("MultiFileDataSource requires a glob URL"))?;
-
-        let fs = match self.fs {
-            Some(fs) => fs,
-            None => create_local_filesystem(&self.session)?,
-        };
-        let files: Vec<FileListing> = fs.glob(&glob)?.try_collect().await?;
-
-        if files.is_empty() {
-            vortex_bail!("No files matched the glob pattern '{}'", glob);
+    pub async fn build(self) -> VortexResult<impl DataSource> {
+        if self.glob_sources.is_empty() {
+            vortex_bail!("MultiFileDataSource requires at least one glob pattern");
         }
 
-        let file_count = files.len();
-        debug!(file_count, glob = %glob, "discovered files");
+        // Create local filesystem lazily if needed (only if any glob lacks a filesystem).
+        let local_fs: Option<FileSystemRef> = self
+            .glob_sources
+            .iter()
+            .any(|(_, fs)| fs.is_none())
+            .then(|| create_local_filesystem(&self.session))
+            .transpose()?;
+
+        // Collect files from all glob sources.
+        let mut all_files: Vec<(FileListing, FileSystemRef)> = Vec::new();
+        for (glob, maybe_fs) in &self.glob_sources {
+            // Use the provided filesystem, or fall back to the local filesystem.
+            // We know local_fs is Some when maybe_fs is None (by construction above).
+            let fs = maybe_fs
+                .as_ref()
+                .or(local_fs.as_ref())
+                .map(Arc::clone)
+                .unwrap_or_else(|| {
+                    unreachable!("local_fs is set when any glob lacks a filesystem")
+                });
+            let files: Vec<FileListing> = fs.glob(glob)?.try_collect().await?;
+            for file in files {
+                all_files.push((file, Arc::clone(&fs)));
+            }
+        }
+
+        if all_files.is_empty() {
+            let globs: Vec<_> = self.glob_sources.iter().map(|(g, _)| g.as_str()).collect();
+            vortex_bail!("No files matched the glob pattern(s): {:?}", globs);
+        }
+
+        let file_count = all_files.len();
+        let globs: Vec<_> = self.glob_sources.iter().map(|(g, _)| g.as_str()).collect();
+        debug!(file_count, glob = ?globs, "discovered files");
 
         // Open first file eagerly for dtype.
-        let first_file =
-            open_file(&fs, &files[0], &self.session, self.open_options_fn.as_ref()).await?;
+        let (first_file_listing, first_fs) = &all_files[0];
+        let first_file = open_file(
+            first_fs,
+            first_file_listing,
+            &self.session,
+            self.open_options_fn.as_ref(),
+        )
+        .await?;
         let first_reader = layout_reader_with_stats(&first_file)?;
 
-        let factories: Vec<Arc<dyn LayoutReaderFactory>> = files[1..]
+        let factories: Vec<Arc<dyn LayoutReaderFactory>> = all_files[1..]
             .iter()
-            .map(|f| {
+            .map(|(file, fs)| {
                 Arc::new(VortexFileReaderFactory {
-                    fs: Arc::clone(&fs),
-                    file: f.clone(),
+                    fs: Arc::clone(fs),
+                    file: file.clone(),
                     session: self.session.clone(),
                     open_options_fn: Arc::clone(&self.open_options_fn),
                 }) as Arc<dyn LayoutReaderFactory>

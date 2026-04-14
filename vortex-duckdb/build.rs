@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
+#![expect(clippy::unwrap_used)]
 // exit(1) + cargo:error= doesn't provide a double-traceback like panic!()
-#![allow(clippy::exit)]
+#![expect(clippy::exit)]
 
 use std::env;
 use std::fs;

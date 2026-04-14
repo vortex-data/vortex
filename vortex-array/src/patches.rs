@@ -887,7 +887,7 @@ impl Patches {
     }
 }
 
-#[allow(clippy::too_many_arguments)] // private function, can clean up one day
+#[expect(clippy::too_many_arguments)] // private function, can clean up one day
 fn take_map<I: NativePType + Hash + Eq + TryFrom<usize>, T: NativePType>(
     indices: &[I],
     take_indices: &[T],

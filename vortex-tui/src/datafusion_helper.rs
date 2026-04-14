@@ -76,7 +76,7 @@ pub async fn create_vortex_context(
 ///
 /// Panics if the array type doesn't match the expected Arrow array type during downcast.
 /// This should not happen for well-formed Arrow arrays.
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 pub fn arrow_value_to_json(array: &dyn ArrowArray, idx: usize) -> serde_json::Value {
     use arrow_array::*;
     use arrow_schema::DataType;

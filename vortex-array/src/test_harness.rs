@@ -14,7 +14,7 @@ use crate::arrays::bool::BoolArrayExt;
 /// Check that a named metadata matches its previous versioning.
 ///
 /// Goldenfile takes care of checking for equality against a checked-in file.
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 pub fn check_metadata(name: &str, metadata: &[u8]) {
     let mut mint = Mint::new("goldenfiles/");
     let mut f = mint

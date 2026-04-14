@@ -32,7 +32,7 @@ fn filter_bitbuffer_by_indices(bb: &BitBuffer, indices: &[usize]) -> BitBuffer {
     .freeze()
 }
 
-#[allow(unused)]
+#[expect(unused)]
 fn filter_bitbuffer_by_slices(bb: &BitBuffer, slices: &[(usize, usize)]) -> BitBuffer {
     let bools = bb.inner().as_ref();
     let bit_offset = bb.offset();

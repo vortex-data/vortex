@@ -121,7 +121,6 @@ Filters are automatically optimized using:
 
 All concurrent code has been verified using:
 
-- **Loom Testing**: Exhaustive verification of all possible thread interleavings
 - **Address Sanitizer**: Memory safety verification in CI
 - **Debug Assertions**: Runtime checks for invariants in debug builds
 
@@ -134,23 +133,6 @@ Run the standard test suite:
 ```bash
 cargo test -p vortex-scan --all-features
 ```
-
-### Loom Concurrency Tests
-
-The crate includes comprehensive Loom tests that exhaustively verify concurrent behavior.
-These tests run by default but can be disabled if need be:
-
-```rust
-# Skip Loom tests when using incompatible tools like address sanitizer
-RUSTFLAGS="--cfg disable_loom" cargo test -p vortex-scan 
-```
-
-Loom tests verify:
-
-- Memory ordering correctness in the work-stealing queue
-- Absence of data races in filter expression evaluation
-- Proper synchronization in concurrent task factories
-- Thread termination conditions and cleanup
 
 ## Performance Considerations
 

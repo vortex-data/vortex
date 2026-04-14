@@ -173,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::approx_constant)] // Clippy objects to 2.718, an approximation of e, the base of the natural logarithm.
+    #[expect(clippy::approx_constant)] // Clippy objects to 2.718, an approximation of e, the base of the natural logarithm.
     fn test_patched_compress() {
         let values = buffer![1.234f64, 2.718, PI, 4.0];
         let array = PrimitiveArray::new(values.clone(), Validity::NonNullable);
@@ -190,7 +190,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::approx_constant)] // Clippy objects to 2.718, an approximation of e, the base of the natural logarithm.
+    #[expect(clippy::approx_constant)] // Clippy objects to 2.718, an approximation of e, the base of the natural logarithm.
     fn test_compress_ignores_invalid_exceptional_values() {
         let values = buffer![1.234f64, 2.718, PI, 4.0];
         let array = PrimitiveArray::new(values, Validity::from_iter([true, true, false, true]));
@@ -207,7 +207,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::approx_constant)] // ALP doesn't like E
+    #[expect(clippy::approx_constant)] // ALP doesn't like E
     fn test_nullable_patched_scalar_at() {
         let array = PrimitiveArray::from_option_iter([
             Some(1.234f64),

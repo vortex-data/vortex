@@ -27,6 +27,9 @@ pub type ArrayPluginRef = Arc<dyn ArrayPlugin>;
 /// [`deserialize`]: ArrayPlugin::deserialize
 pub trait ArrayPlugin: 'static + Send + Sync {
     /// Returns the ID for this array encoding.
+    ///
+    /// During serde, this is the key the registry uses to find
+    /// this plugin instance and call the appropriate method on it.
     fn id(&self) -> ArrayId;
 
     /// Serialize the array metadata.
@@ -40,7 +43,6 @@ pub trait ArrayPlugin: 'static + Send + Sync {
     ///
     /// The returned array doesn't necessary have to match this plugin's encoding ID. This is
     /// useful for implementing back-compat logic and deserializing arrays into the new version.
-    #[allow(clippy::too_many_arguments)]
     fn deserialize(
         &self,
         dtype: &DType,
@@ -50,6 +52,14 @@ pub trait ArrayPlugin: 'static + Send + Sync {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef>;
+
+    /// Can this plugin emit an array with the given encoding.
+    ///
+    /// By default, this is just the [ID][Self::id] of the plugin, but
+    /// can be overridden if this plugin instance supports reading/writing multiple arrays.
+    fn is_supported_encoding(&self, id: &ArrayId) -> bool {
+        self.id() == *id
+    }
 }
 
 impl std::fmt::Debug for dyn ArrayPlugin {

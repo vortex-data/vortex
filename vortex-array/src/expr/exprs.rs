@@ -29,6 +29,7 @@ use crate::scalar_fn::fns::dynamic::DynamicComparisonExpr;
 use crate::scalar_fn::fns::dynamic::Rhs;
 use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::get_item::GetItem;
+use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::fns::is_null::IsNull;
 use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeOptions;
@@ -553,6 +554,20 @@ pub fn fill_null(child: Expression, fill_value: Expression) -> Expression {
 /// ```
 pub fn is_null(child: Expression) -> Expression {
     IsNull.new_expr(EmptyOptions, vec![child])
+}
+
+// ---- IsNotNull ----
+
+/// Creates an expression that checks for non-null values.
+///
+/// Returns a boolean array indicating which positions contain non-null values.
+///
+/// ```rust
+/// # use vortex_array::expr::{is_not_null, root};
+/// let expr = is_not_null(root());
+/// ```
+pub fn is_not_null(child: Expression) -> Expression {
+    IsNotNull.new_expr(EmptyOptions, vec![child])
 }
 
 // ---- Like ----

@@ -146,7 +146,7 @@ fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSu
 
 #[cfg(test)]
 mod tests {
-    #[allow(unused_imports)]
+    #[expect(unused_imports)]
     use itertools::Itertools;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;

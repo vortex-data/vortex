@@ -159,7 +159,7 @@ mod private {
     impl Sealed for BufferString {}
 
     impl StringLike for BufferString {
-        #[allow(clippy::unwrap_in_result, clippy::expect_used)]
+        #[expect(clippy::unwrap_in_result, clippy::expect_used)]
         fn increment(self) -> Result<BufferString, BufferString> {
             if self.is_empty() {
                 return Err(self);

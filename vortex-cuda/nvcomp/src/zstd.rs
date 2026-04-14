@@ -134,7 +134,7 @@ pub fn get_decompress_temp_size_with_opts(
 /// - Each output buffer must have at least the corresponding `device_uncompressed_bytes` size
 /// - `device_temp_ptr` must have at least `temp_bytes` allocated
 /// - The stream must be valid
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub unsafe fn decompress_async(
     device_compressed_ptrs: *const *const c_void,
     device_compressed_bytes: *const usize,
@@ -170,7 +170,7 @@ pub unsafe fn decompress_async(
 /// # Safety
 ///
 /// Same requirements as [`decompress_async`].
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub unsafe fn decompress_async_with_opts(
     device_compressed_ptrs: *const *const c_void,
     device_compressed_bytes: *const usize,

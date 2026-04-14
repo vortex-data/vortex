@@ -43,7 +43,6 @@ impl ScalarFnData {
     }
 
     /// Get the scalar function bound to this array.
-    #[allow(clippy::same_name_method)]
     #[inline(always)]
     pub fn scalar_fn(&self) -> &ScalarFnRef {
         &self.scalar_fn
@@ -65,12 +64,10 @@ pub trait ScalarFnArrayExt: TypedArrayRef<ScalarFnVTable> {
         self.as_ref().slots().len()
     }
 
-    #[allow(clippy::same_name_method)]
     fn nchildren(&self) -> usize {
         self.child_count()
     }
 
-    #[allow(clippy::same_name_method)]
     fn get_child(&self, idx: usize) -> &ArrayRef {
         self.child_at(idx)
     }

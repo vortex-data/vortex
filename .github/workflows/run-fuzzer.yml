@@ -124,7 +124,7 @@ jobs:
           if [ "${{ inputs.jobs }}" -gt 1 ]; then
             FORK_FLAG="-fork=${{ inputs.jobs }}"
           fi
-          ${{ inputs.extra_env }} RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=1 \
+          ${{ inputs.extra_env }} RUST_BACKTRACE=1 \
             cargo +$NIGHTLY_TOOLCHAIN fuzz run --release --debug-assertions \
             $FEATURES_FLAG \
             ${{ inputs.fuzz_target }} -- \
@@ -163,7 +163,7 @@ jobs:
           if [ -n "${{ inputs.extra_features }}" ]; then
             FEATURES_FLAG="--features ${{ inputs.extra_features }}"
           fi
-          RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=1 \
+          RUST_BACKTRACE=1 \
             cargo +$NIGHTLY_TOOLCHAIN fuzz run --release --debug-assertions \
             $FEATURES_FLAG \
             ${{ inputs.fuzz_target }} \

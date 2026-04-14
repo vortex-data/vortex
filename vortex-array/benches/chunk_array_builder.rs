@@ -39,26 +39,30 @@ static SESSION: LazyLock<VortexSession> =
 fn chunked_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunk = make_bool_chunks(len, chunk_count);
 
-    bencher.with_inputs(|| &chunk).bench_refs(|chunk| {
-        let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk
-            .append_to_builder(builder.as_mut(), &mut SESSION.create_execution_ctx())
-            .vortex_expect("append failed");
-        builder.finish()
-    })
+    bencher
+        .with_inputs(|| (&chunk, SESSION.create_execution_ctx()))
+        .bench_refs(|(chunk, ctx)| {
+            let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
+            chunk
+                .append_to_builder(builder.as_mut(), ctx)
+                .vortex_expect("append failed");
+            builder.finish()
+        })
 }
 
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_opt_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunk = make_opt_bool_chunks(len, chunk_count);
 
-    bencher.with_inputs(|| &chunk).bench_refs(|chunk| {
-        let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk
-            .append_to_builder(builder.as_mut(), &mut SESSION.create_execution_ctx())
-            .vortex_expect("append failed");
-        builder.finish()
-    })
+    bencher
+        .with_inputs(|| (&chunk, SESSION.create_execution_ctx()))
+        .bench_refs(|(chunk, ctx)| {
+            let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
+            chunk
+                .append_to_builder(builder.as_mut(), ctx)
+                .vortex_expect("append failed");
+            builder.finish()
+        })
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -74,16 +78,18 @@ fn chunked_opt_bool_into_canonical(bencher: Bencher, (len, chunk_count): (usize,
 fn chunked_varbinview_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_string_chunks(false, len, chunk_count);
 
-    bencher.with_inputs(|| &chunks).bench_refs(|chunk| {
-        let mut builder = VarBinViewBuilder::with_capacity(
-            DType::Utf8(chunk.dtype().nullability()),
-            len * chunk_count,
-        );
-        chunk
-            .append_to_builder(&mut builder, &mut SESSION.create_execution_ctx())
-            .vortex_expect("append failed");
-        builder.finish()
-    })
+    bencher
+        .with_inputs(|| (&chunks, SESSION.create_execution_ctx()))
+        .bench_refs(|(chunk, ctx)| {
+            let mut builder = VarBinViewBuilder::with_capacity(
+                DType::Utf8(chunk.dtype().nullability()),
+                len * chunk_count,
+            );
+            chunk
+                .append_to_builder(&mut builder, ctx)
+                .vortex_expect("append failed");
+            builder.finish()
+        })
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -99,16 +105,18 @@ fn chunked_varbinview_into_canonical(bencher: Bencher, (len, chunk_count): (usiz
 fn chunked_varbinview_opt_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_string_chunks(true, len, chunk_count);
 
-    bencher.with_inputs(|| &chunks).bench_refs(|chunk| {
-        let mut builder = VarBinViewBuilder::with_capacity(
-            DType::Utf8(chunk.dtype().nullability()),
-            len * chunk_count,
-        );
-        chunk
-            .append_to_builder(&mut builder, &mut SESSION.create_execution_ctx())
-            .vortex_expect("append failed");
-        builder.finish()
-    })
+    bencher
+        .with_inputs(|| (&chunks, SESSION.create_execution_ctx()))
+        .bench_refs(|(chunk, ctx)| {
+            let mut builder = VarBinViewBuilder::with_capacity(
+                DType::Utf8(chunk.dtype().nullability()),
+                len * chunk_count,
+            );
+            chunk
+                .append_to_builder(&mut builder, ctx)
+                .vortex_expect("append failed");
+            builder.finish()
+        })
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -124,13 +132,15 @@ fn chunked_varbinview_opt_into_canonical(bencher: Bencher, (len, chunk_count): (
 fn chunked_constant_i32_append_to_builder(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunk = make_constant_i32_chunks(len, chunk_count);
 
-    bencher.with_inputs(|| &chunk).bench_refs(|chunk| {
-        let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk
-            .append_to_builder(builder.as_mut(), &mut SESSION.create_execution_ctx())
-            .vortex_expect("append failed");
-        builder.finish()
-    })
+    bencher
+        .with_inputs(|| (&chunk, SESSION.create_execution_ctx()))
+        .bench_refs(|(chunk, ctx)| {
+            let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
+            chunk
+                .append_to_builder(builder.as_mut(), ctx)
+                .vortex_expect("append failed");
+            builder.finish()
+        })
 }
 
 const CONSTANT_UTF8_BENCH_ARGS: &[(&str, usize, usize)] = &[
@@ -146,13 +156,15 @@ fn chunked_constant_utf8_append_to_builder(
 ) {
     let chunk = make_constant_utf8_chunks(value, len, chunk_count);
 
-    bencher.with_inputs(|| &chunk).bench_refs(|chunk| {
-        let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk
-            .append_to_builder(builder.as_mut(), &mut SESSION.create_execution_ctx())
-            .vortex_expect("append failed");
-        builder.finish()
-    })
+    bencher
+        .with_inputs(|| (&chunk, SESSION.create_execution_ctx()))
+        .bench_refs(|(chunk, ctx)| {
+            let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
+            chunk
+                .append_to_builder(builder.as_mut(), ctx)
+                .vortex_expect("append failed");
+            builder.finish()
+        })
 }
 
 fn make_constant_utf8_chunks(value: &str, len: usize, chunk_count: usize) -> ArrayRef {

@@ -94,7 +94,7 @@ fn test_masked_child_preserves_length(#[case] validity: Validity) {
         _ => 3,
     };
 
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     let child = PrimitiveArray::from_iter(0..len as i32).into_array();
     let array = MaskedArray::try_new(child, validity.clone()).unwrap();
 

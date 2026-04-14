@@ -270,9 +270,8 @@ mod tests {
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
     use vortex_array::expr::eq;
-    use vortex_array::expr::is_null;
+    use vortex_array::expr::is_not_null;
     use vortex_array::expr::lit;
-    use vortex_array::expr::not;
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
     use vortex_array::scalar_fn::session::ScalarFnSession;
@@ -504,7 +503,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            let expression = not(is_null(root())); // easier to test not_is_null b/c that's the validity array
+            let expression = is_not_null(root());
             assert_eq!(layout.encoding_id(), LayoutId::new_ref("vortex.dict"));
             let actual = layout
                 .new_reader("".into(), segments, &session)

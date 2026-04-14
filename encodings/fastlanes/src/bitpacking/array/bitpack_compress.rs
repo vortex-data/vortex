@@ -36,7 +36,7 @@ pub fn bitpack_to_best_bit_width(array: &PrimitiveArray) -> VortexResult<BitPack
     bitpack_encode(array, best_bit_width, Some(&bit_width_freq))
 }
 
-#[allow(unused_comparisons, clippy::absurd_extreme_comparisons)]
+#[expect(unused_comparisons, clippy::absurd_extreme_comparisons)]
 pub fn bitpack_encode(
     array: &PrimitiveArray,
     bit_width: u8,

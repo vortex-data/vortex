@@ -123,7 +123,7 @@ impl<V: Copy> HostPatches<V> {
 }
 
 /// Transpose a set of patches from the default sorted layout into the data parallel layout.
-#[allow(clippy::cognitive_complexity)]
+#[expect(clippy::cognitive_complexity)]
 pub async fn transpose_patches(
     patches: &Patches,
     ctx: &mut CudaExecutionCtx,
@@ -161,7 +161,7 @@ pub async fn transpose_patches(
     })
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn transpose<I: IntegerPType, V: NativePType>(
     indices_in: &[I],
     values_in: &[V],
@@ -305,7 +305,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     fn test_transpose_complex() -> VortexResult<()> {
         test_case(1024, 0, &[0], &[0f32])?;
         test_case(512, 512, &[512, 513, 514], &[10i8, 20, 30])?;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
+#![expect(clippy::unwrap_used)]
 
 use std::fmt;
 use std::sync::LazyLock;
@@ -109,13 +109,15 @@ fn bench_like(bencher: Bencher, fsst: &FSSTArray, pattern: &str) {
     let len = fsst.len();
     let arr = fsst.clone().into_array();
     let pattern = ConstantArray::new(pattern, len).into_array();
-    bencher.bench_local(|| {
-        Like.try_new_array(len, LikeOptions::default(), [arr.clone(), pattern.clone()])
-            .unwrap()
-            .into_array()
-            .execute::<Canonical>(&mut SESSION.create_execution_ctx())
-            .unwrap()
-    });
+    bencher
+        .with_inputs(|| SESSION.create_execution_ctx())
+        .bench_refs(|ctx| {
+            Like.try_new_array(len, LikeOptions::default(), [arr.clone(), pattern.clone()])
+                .unwrap()
+                .into_array()
+                .execute::<Canonical>(ctx)
+                .unwrap()
+        });
 }
 
 #[divan::bench(args = [

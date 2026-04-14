@@ -255,7 +255,7 @@ impl VarBinData {
 
                     let string_bytes = &bytes.as_ref()[start..end];
                     simdutf8::basic::from_utf8(string_bytes).map_err(|_| {
-                        #[allow(clippy::unwrap_used)]
+                        #[expect(clippy::unwrap_used)]
                         // run validation using `compat` package to get more detailed error message
                         let err = simdutf8::compat::from_utf8(string_bytes).unwrap_err();
                         vortex_err!("invalid utf-8: {err} at index {i}")

@@ -87,7 +87,7 @@ impl TakeExecute for Patched {
 ///
 /// First, builds a hashmap from index to patch value, then uses the hashmap in a loop to collect
 /// the values.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn take_map<I: IntegerPType, V: NativePType>(
     output: &mut [V],
     indices: &[I],

@@ -28,7 +28,7 @@ arc_wrapper!(
 );
 
 /// The variant tag for a Vortex data type.
-#[allow(non_camel_case_types)]
+#[expect(non_camel_case_types)]
 #[non_exhaustive]
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -324,7 +324,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(dtype: *const DType) -> *cons
 }
 
 #[cfg(test)]
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 mod tests {
     use std::slice;
 

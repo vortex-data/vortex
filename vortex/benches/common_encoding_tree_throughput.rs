@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
-#![allow(unexpected_cfgs)]
+#![expect(clippy::unwrap_used)]
 
 use std::fmt;
 use std::ops::Deref;
@@ -122,7 +121,7 @@ mod setup {
     }
 
     /// Create Dict <- VarBinView encoding tree for strings with BitPacked codes
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     pub fn dict_varbinview_string() -> ArrayRef {
         let mut rng = StdRng::seed_from_u64(42);
 
@@ -156,7 +155,7 @@ mod setup {
     }
 
     /// Create RunEnd <- FoR <- BitPacked encoding tree for u32
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     pub fn runend_for_bp_u32() -> ArrayRef {
         let mut rng = StdRng::seed_from_u64(42);
         // Create data with runs of repeated values
@@ -198,7 +197,7 @@ mod setup {
     }
 
     /// Create Dict <- FSST <- VarBin encoding tree for strings
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     pub fn dict_fsst_varbin_string() -> ArrayRef {
         let mut rng = StdRng::seed_from_u64(43);
 
@@ -235,7 +234,7 @@ mod setup {
 
     /// Create Dict <- FSST <- VarBin <- BitPacked encoding tree for strings
     /// Compress the VarBin offsets inside FSST with BitPacked
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     pub fn dict_fsst_varbin_bp_string() -> ArrayRef {
         let mut rng = StdRng::seed_from_u64(45);
 

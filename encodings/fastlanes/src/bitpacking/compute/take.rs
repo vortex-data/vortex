@@ -158,7 +158,7 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
 }
 
 #[cfg(test)]
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 mod test {
     use rand::RngExt;
     use rand::distr::Uniform;

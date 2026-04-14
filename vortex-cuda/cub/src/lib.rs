@@ -18,13 +18,7 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 /// Raw FFI type definitions and dynamically-loaded function pointers from bindgen.
-#[allow(
-    non_upper_case_globals,
-    non_camel_case_types,
-    non_snake_case,
-    dead_code,
-    clippy::all
-)]
+#[allow(non_camel_case_types, dead_code, clippy::all)]
 pub mod sys;
 
 mod error;

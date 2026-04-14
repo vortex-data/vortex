@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::missing_safety_doc)]
+#![expect(clippy::missing_safety_doc)]
 
 use std::ffi::CStr;
 use std::ffi::c_char;
@@ -21,6 +21,7 @@ use crate::duckdb::DatabaseRef;
 use crate::duckdb::LogicalType;
 use crate::duckdb::Value;
 use crate::multi_file::VortexMultiFileScan;
+use crate::multi_file::VortexMultiFileScanList;
 
 mod convert;
 mod datasource;
@@ -56,6 +57,9 @@ pub fn initialize(db: &DatabaseRef) -> VortexResult<()> {
     )?;
     db.register_table_function::<VortexMultiFileScan>(c"vortex_scan")?;
     db.register_table_function::<VortexMultiFileScan>(c"read_vortex")?;
+    // Register list overloads for multi-glob scanning (e.g., read_vortex(['a.vortex', 'b.vortex']))
+    db.register_table_function::<VortexMultiFileScanList>(c"vortex_scan")?;
+    db.register_table_function::<VortexMultiFileScanList>(c"read_vortex")?;
     db.register_copy_function::<VortexCopyFunction>(c"vortex", c"vortex")
 }
 

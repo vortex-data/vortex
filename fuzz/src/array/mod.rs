@@ -564,7 +564,7 @@ pub fn compress_array(array: &ArrayRef, _strategy: CompressorStrategy) -> ArrayR
 /// - `Ok(true)` - keep in corpus
 /// - `Ok(false)` - reject from corpus
 /// - `Err(_)` - a bug was found
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err)]
 pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
     let FuzzArrayAction { array, actions } = fuzz_action;
     let mut current_array = array;
@@ -678,7 +678,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
     Ok(true) // Keep in corpus
 }
 
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err)]
 fn assert_search_sorted(
     array: ArrayRef,
     s: Scalar,
@@ -705,7 +705,7 @@ fn assert_search_sorted(
 }
 
 /// Assert two arrays are equal.
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err)]
 pub fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuzzResult<()> {
     if lhs.dtype() != rhs.dtype() {
         return Err(VortexFuzzError::DTypeMismatch(
@@ -746,7 +746,7 @@ pub fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuz
 }
 
 /// Assert two scalars are equal.
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err)]
 pub fn assert_scalar_eq(lhs: &Scalar, rhs: &Scalar, step: usize) -> VortexFuzzResult<()> {
     if lhs != rhs {
         return Err(VortexFuzzError::ScalarMismatch(
@@ -760,7 +760,7 @@ pub fn assert_scalar_eq(lhs: &Scalar, rhs: &Scalar, step: usize) -> VortexFuzzRe
 }
 
 /// Assert two min/max results are equal.
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err)]
 pub fn assert_min_max_eq(
     lhs: &Option<MinMaxResult>,
     rhs: &Option<MinMaxResult>,

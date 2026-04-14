@@ -105,9 +105,7 @@ macro_rules! assert_arrays_eq {
             right.display_values()
         );
 
-        #[allow(deprecated)]
         let left = left.clone();
-        #[allow(deprecated)]
         let right = right.clone();
         $crate::arrays::assert_arrays_eq_impl(&left, &right);
     }};
@@ -116,7 +114,7 @@ macro_rules! assert_arrays_eq {
 /// Implementation of `assert_arrays_eq!` — called by the macro after converting inputs to
 /// `ArrayRef`.
 #[track_caller]
-#[allow(clippy::panic)]
+#[expect(clippy::panic)]
 pub fn assert_arrays_eq_impl(left: &ArrayRef, right: &ArrayRef) {
     let executed = execute_to_canonical(left.clone(), &mut LEGACY_SESSION.create_execution_ctx());
 
