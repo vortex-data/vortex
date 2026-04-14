@@ -107,7 +107,11 @@ impl Scheme for ALPScheme {
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let alp_encoded = alp_encode(data.array_as_primitive(), None)?;
+        let alp_encoded = alp_encode(
+            data.array_as_primitive(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
 
         // Compress the ALP ints.
         let compressed_alp_ints =

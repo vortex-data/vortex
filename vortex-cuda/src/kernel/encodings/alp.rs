@@ -127,6 +127,8 @@ mod tests {
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
+    use vortex::array::LEGACY_SESSION;
+    use vortex::array::VortexSessionExecute;
     use vortex::encodings::alp::ALP;
     use vortex::encodings::alp::Exponents;
     use vortex::encodings::alp::alp_encode;
@@ -205,7 +207,7 @@ mod tests {
             Some(5.0),
         ];
         let prim = PrimitiveArray::from_option_iter(values);
-        let alp_array = alp_encode(prim.as_view(), None)?;
+        let alp_array = alp_encode(prim.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx())?;
 
         let cpu_result = alp_array.to_canonical()?.into_array();
 
@@ -232,7 +234,7 @@ mod tests {
             Buffer::from(vec![1.0f32, 2.0, 3.0, 4.0, 5.0]),
             Validity::AllValid,
         );
-        let alp_array = alp_encode(values.as_view(), None)?;
+        let alp_array = alp_encode(values.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx())?;
 
         let cpu_result = alp_array.to_canonical()?.into_array();
 

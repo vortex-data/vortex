@@ -30,6 +30,8 @@ use vortex::encodings::alp::ALPArrayExt;
 use vortex::encodings::alp::ALPArraySlotsExt;
 use vortex::encodings::alp::ALPFloat;
 use vortex::encodings::alp::Exponents;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
 use vortex::encodings::alp::alp_encode;
 use vortex::encodings::fastlanes::BitPackedData;
 use vortex::encodings::fastlanes::FoR;
@@ -382,7 +384,7 @@ fn bench_alp_for_bitpacked(c: &mut Criterion) {
         let float_prim = PrimitiveArray::new(Buffer::from(floats), NonNullable);
 
         // Encode: ALP → FoR → BitPacked
-        let alp = alp_encode(float_prim.as_view(), Some(exponents)).vortex_expect("alp_encode");
+        let alp = alp_encode(float_prim.as_view(), Some(exponents), &mut LEGACY_SESSION.create_execution_ctx()).vortex_expect("alp_encode");
         assert!(alp.patches().is_none());
         let for_arr = FoRData::encode(alp.encoded().to_primitive()).vortex_expect("for encode");
         let bp =

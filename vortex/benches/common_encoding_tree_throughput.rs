@@ -24,6 +24,8 @@ use vortex::array::arrays::varbin::VarBinArrayExt;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::dtype::DType;
 use vortex::dtype::PType;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPArrayExt;
 use vortex::encodings::alp::ALPArraySlotsExt;
@@ -102,7 +104,7 @@ mod setup {
     /// Create ALP <- FoR <- BitPacked encoding tree for f64
     pub fn alp_for_bp_f64() -> ArrayRef {
         let (_, _, float_array) = setup_primitive_arrays();
-        let alp_compressed = alp_encode(float_array.as_view(), None).unwrap();
+        let alp_compressed = alp_encode(float_array.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
 
         // Manually construct ALP <- FoR <- BitPacked tree
         let for_array = FoR::encode(alp_compressed.encoded().to_primitive()).unwrap();

@@ -519,6 +519,8 @@ mod tests {
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::CanonicalCudaExt;
@@ -874,7 +876,7 @@ mod tests {
             .collect();
         let float_prim = PrimitiveArray::new(Buffer::from(floats.clone()), NonNullable);
 
-        let alp = alp_encode(float_prim.as_view(), Some(exponents))?;
+        let alp = alp_encode(float_prim.as_view(), Some(exponents), &mut LEGACY_SESSION.create_execution_ctx())?;
         assert!(alp.patches().is_none());
         let for_arr = FoR::encode(alp.encoded().to_primitive())?;
         let bp = BitPacked::encode(for_arr.encoded(), 6)?;

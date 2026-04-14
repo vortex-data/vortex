@@ -93,6 +93,7 @@ mod tests {
 
     use vortex_array::ArrayPlugin;
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PatchedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::patched::PatchedArraySlotsExt;
@@ -124,7 +125,7 @@ mod tests {
             .collect();
 
         let parray = PrimitiveArray::from_iter(values);
-        let alp_encoded = alp_encode(parray.as_view(), None)?;
+        let alp_encoded = alp_encode(parray.as_view(), None, &mut SESSION.create_execution_ctx())?;
 
         assert!(
             alp_encoded.patches().is_some(),
@@ -173,7 +174,7 @@ mod tests {
         // Values that encode cleanly without patches.
         let values: Vec<f64> = (0..100).map(|i| i as f64).collect();
         let parray = PrimitiveArray::from_iter(values);
-        let alp_encoded = alp_encode(parray.as_view(), None)?;
+        let alp_encoded = alp_encode(parray.as_view(), None, &mut SESSION.create_execution_ctx())?;
 
         assert!(
             alp_encoded.patches().is_none(),

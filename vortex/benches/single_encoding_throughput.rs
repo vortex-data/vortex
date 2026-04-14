@@ -23,6 +23,7 @@ use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::dtype::Nullability;
 use vortex::array::session::ArraySession;
 use vortex::dtype::PType;
+use vortex::array::LEGACY_SESSION;
 use vortex::encodings::alp::RDEncoder;
 use vortex::encodings::alp::alp_encode;
 use vortex::encodings::fastlanes::Delta;
@@ -257,13 +258,13 @@ fn bench_alp_compress_f64(bencher: Bencher) {
 
     with_byte_counter(bencher, NUM_VALUES * 8)
         .with_inputs(|| &float_array)
-        .bench_refs(|a| alp_encode(a.as_view(), None).unwrap());
+        .bench_refs(|a| alp_encode(a.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap());
 }
 
 #[divan::bench(name = "alp_decompress_f64")]
 fn bench_alp_decompress_f64(bencher: Bencher) {
     let (_, _, float_array) = setup_primitive_arrays();
-    let compressed = alp_encode(float_array.as_view(), None).unwrap();
+    let compressed = alp_encode(float_array.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 8)
         .with_inputs(|| &compressed)

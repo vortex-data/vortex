@@ -78,8 +78,6 @@ impl CastKernel for Primitive {
             }));
         }
 
-        let mask = array.validity()?.to_mask(array.as_ref().len(), ctx)?;
-
         // Otherwise, we need to cast the values one-by-one.
         Ok(Some(match_each_native_ptype!(new_ptype, |T| {
             match_each_native_ptype!(array.ptype(), |F| {
