@@ -59,7 +59,6 @@ pub use session::CudaSession;
 pub use session::CudaSessionExt;
 pub use stream::VortexCudaStream;
 pub use stream_pool::VortexCudaStreamPool;
-use vortex::array::ArrayId;
 use vortex::array::arrays::Constant;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::Filter;

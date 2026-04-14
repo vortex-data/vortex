@@ -8,7 +8,6 @@
 
 use itertools::zip_eq;
 use tracing::trace;
-use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::Primitive;
@@ -30,6 +29,7 @@ use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::RunEndArrayExt;
 use vortex::encodings::sequence::Sequence;
 use vortex::encodings::zigzag::ZigZag;
+use vortex::encodings::zigzag::ZigZagArrayExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
@@ -545,7 +545,8 @@ impl FusedPlan {
         array: ArrayRef,
         pending_subtrees: &mut Vec<ArrayRef>,
     ) -> VortexResult<Stage> {
-        let encoded = array.nth_child(0).unwrap();
+        let zz = array.as_::<ZigZag>();
+        let encoded = zz.encoded().clone();
         let output_ptype = ptype_to_tag(PType::try_from(array.dtype()).map_err(|_| {
             vortex_err!("ZigZag must have primitive dtype, got {:?}", array.dtype())
         })?);

@@ -10,15 +10,13 @@ use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::arrays::PrimitiveArray;
-use vortex::array::arrays::ScalarFnVTable;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
-use vortex::array::arrays::scalar_fn::ExactScalarFn;
-use vortex::array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex::array::match_each_unsigned_integer_ptype;
-use vortex::array::matcher::Matcher;
 use vortex::dtype::NativePType;
 use vortex::dtype::PType;
 use vortex::encodings::zigzag::ZigZag;
+use vortex::encodings::zigzag::ZigZagArray;
+use vortex::encodings::zigzag::ZigZagArrayExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
@@ -33,8 +31,8 @@ use crate::executor::CudaExecutionCtx;
 pub(crate) struct ZigZagExecutor;
 
 impl ZigZagExecutor {
-    fn try_specialize(array: &ArrayRef) -> bool {
-        ExactScalarFn::<ZigZag>::matches(array)
+    fn try_specialize(array: ArrayRef) -> Option<ZigZagArray> {
+        array.try_downcast::<ZigZag>().ok()
     }
 }
 
@@ -46,36 +44,32 @@ impl CudaExecute for ZigZagExecutor {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
-        if !Self::try_specialize(&array) {
-            return Err(vortex_err!("Expected ZigZag ScalarFnArray"));
-        }
-
-        let sfn_view = array.as_::<ScalarFnVTable>();
+        let array =
+            Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected ZigZagArray"))?;
 
         // The encoded array is unsigned, we decode to signed of the same width.
-        let encoded = sfn_view.child_at(0);
-        let encoded_ptype = encoded.dtype().as_ptype();
+        let encoded_ptype = array.encoded().dtype().as_ptype();
         let output_ptype = PType::try_from(array.dtype())?;
 
         match_each_unsigned_integer_ptype!(encoded_ptype, |U| {
-            decode_zigzag::<U>(encoded, output_ptype, ctx).await
+            decode_zigzag::<U>(array, output_ptype, ctx).await
         })
     }
 }
 
 async fn decode_zigzag<U>(
-    encoded: &ArrayRef,
+    array: ZigZagArray,
     output_ptype: PType,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical>
 where
     U: NativePType + DeviceRepr + Send + Sync + 'static,
 {
-    let array_len = encoded.len();
+    let array_len = array.encoded().len();
     vortex_ensure!(array_len > 0, "ZigZag array must not be empty");
 
     // Execute child and copy to device
-    let canonical = encoded.clone().execute_cuda(ctx).await?;
+    let canonical = array.encoded().clone().execute_cuda(ctx).await?;
     let primitive = canonical.into_primitive();
     let PrimitiveDataParts {
         buffer, validity, ..
@@ -109,7 +103,7 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
-    use vortex::encodings::zigzag::zigzag_try_new;
+    use vortex::encodings::zigzag::ZigZag;
     use vortex::error::VortexExpect;
     use vortex::session::VortexSession;
 
@@ -126,14 +120,14 @@ mod tests {
         // So encoded [0, 2, 4, 1, 3] should decode to [0, 1, 2, -1, -2]
         let encoded_data: Vec<u32> = vec![0, 2, 4, 1, 3];
 
-        let zigzag_array = zigzag_try_new(
+        let zigzag_array = ZigZag::try_new(
             PrimitiveArray::new(Buffer::from(encoded_data), NonNullable).into_array(),
         )?;
 
         let cpu_result = zigzag_array.to_canonical()?;
 
         let gpu_result = ZigZagExecutor
-            .execute(zigzag_array, &mut cuda_ctx)
+            .execute(zigzag_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()

@@ -110,7 +110,6 @@ pub use forever_constant::*;
 pub use open::*;
 pub use strategy::*;
 use vortex_array::arrays::Dict;
-use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
 use vortex_array::session::ArraySessionExt;
 use vortex_bytebool::ByteBool;
 use vortex_fsst::FSST;
@@ -164,7 +163,7 @@ pub fn register_default_encodings(session: &VortexSession) {
         arrays.register(FSST);
         arrays.register(Pco);
         arrays.register(Sparse);
-        arrays.register(ScalarFnArrayPlugin::new(ZigZag));
+        arrays.register(ZigZag);
         #[cfg(feature = "zstd")]
         arrays.register(vortex_zstd::Zstd);
         #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]

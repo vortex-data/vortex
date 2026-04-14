@@ -28,7 +28,6 @@ use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::patched::USE_EXPERIMENTAL_PATCHES;
 use vortex_array::dtype::FieldPath;
-use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::schemes::integer::IntDictScheme;

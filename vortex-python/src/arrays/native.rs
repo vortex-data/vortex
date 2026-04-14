@@ -31,6 +31,7 @@ use vortex::encodings::fsst::FSST;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence::Sequence;
 use vortex::encodings::sparse::Sparse;
+use vortex::encodings::zigzag::ZigZag;
 use vortex::error::VortexExpect;
 
 use crate::arrays::PyArray;
@@ -55,6 +56,7 @@ use crate::arrays::compressed::PyFsstArray;
 use crate::arrays::compressed::PyRunEndArray;
 use crate::arrays::compressed::PySequenceArray;
 use crate::arrays::compressed::PySparseArray;
+use crate::arrays::compressed::PyZigZagArray;
 use crate::arrays::fastlanes::PyFastLanesBitPackedArray;
 use crate::arrays::fastlanes::PyFastLanesDeltaArray;
 use crate::arrays::fastlanes::PyFastLanesFoRArray;
@@ -149,6 +151,10 @@ impl PyNativeArray {
 
         if array.is::<RunEnd>() {
             return Self::with_subclass(py, array, PyRunEndArray);
+        }
+
+        if array.is::<ZigZag>() {
+            return Self::with_subclass(py, array, PyZigZagArray);
         }
 
         if array.is::<BitPacked>() {

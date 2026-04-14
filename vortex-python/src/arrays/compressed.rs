@@ -12,6 +12,7 @@ use vortex::encodings::fsst::FSST;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence::Sequence;
 use vortex::encodings::sparse::Sparse;
+use vortex::encodings::zigzag::ZigZag;
 use vortex::encodings::zigzag::zigzag_encode;
 
 use crate::PyVortex;
@@ -79,6 +80,10 @@ impl EncodingSubclass for PySparseArray {
 /// Concrete class for arrays with `vortex.zigzag` encoding.
 #[pyclass(name = "ZigZagArray", module = "vortex", extends=PyNativeArray, frozen)]
 pub(crate) struct PyZigZagArray;
+
+impl EncodingSubclass for PyZigZagArray {
+    type VTable = ZigZag;
+}
 
 #[pymethods]
 impl PyZigZagArray {
