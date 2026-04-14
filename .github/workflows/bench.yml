@@ -74,7 +74,7 @@ jobs:
         env:
           RUSTFLAGS: "-C target-cpu=native"
         run: |
-          cargo build --bin ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }}
+          cargo build --bin ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }} --features unstable_encodings
 
       - name: Setup Polar Signals
         uses: polarsignals/gh-actions-ps-profiling@v0.8.1
