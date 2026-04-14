@@ -4,8 +4,6 @@ pub struct vortex_zigzag::ZigZag
 
 impl vortex_zigzag::ZigZag
 
-pub const vortex_zigzag::ZigZag::ID: &'static str
-
 pub fn vortex_zigzag::ZigZag::array_id() -> vortex_array::array::ArrayId
 
 pub fn vortex_zigzag::ZigZag::try_new(encoded: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_zigzag::ZigZagArray>

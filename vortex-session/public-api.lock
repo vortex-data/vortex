@@ -48,6 +48,8 @@ pub fn vortex_session::registry::Id::as_str(&self) -> &str
 
 pub fn vortex_session::registry::Id::new(s: &str) -> Self
 
+pub fn vortex_session::registry::Id::new_static(s: &'static str) -> Self
+
 impl core::clone::Clone for vortex_session::registry::Id
 
 pub fn vortex_session::registry::Id::clone(&self) -> vortex_session::registry::Id
@@ -61,14 +63,6 @@ pub fn vortex_session::registry::Id::cmp(&self, other: &Self) -> core::cmp::Orde
 impl core::cmp::PartialEq for vortex_session::registry::Id
 
 pub fn vortex_session::registry::Id::eq(&self, other: &vortex_session::registry::Id) -> bool
-
-impl core::cmp::PartialEq<&str> for vortex_session::registry::Id
-
-pub fn vortex_session::registry::Id::eq(&self, other: &&str) -> bool
-
-impl core::cmp::PartialEq<str> for vortex_session::registry::Id
-
-pub fn vortex_session::registry::Id::eq(&self, other: &str) -> bool
 
 impl core::cmp::PartialOrd for vortex_session::registry::Id
 

@@ -4,8 +4,6 @@ pub struct vortex_sparse::Sparse
 
 impl vortex_sparse::Sparse
 
-pub const vortex_sparse::Sparse::ID: &'static str
-
 pub fn vortex_sparse::Sparse::array_id() -> vortex_array::array::ArrayId
 
 pub fn vortex_sparse::Sparse::encode(array: &vortex_array::array::erased::ArrayRef, fill_value: core::option::Option<vortex_array::scalar::Scalar>) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>

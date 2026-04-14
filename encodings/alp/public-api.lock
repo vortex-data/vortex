@@ -6,8 +6,6 @@ pub struct vortex_alp::ALP
 
 impl vortex_alp::ALP
 
-pub const vortex_alp::ALP::ID: &'static str
-
 pub fn vortex_alp::ALP::array_id() -> vortex_array::array::ArrayId
 
 impl vortex_alp::ALP
@@ -149,8 +147,6 @@ pub fn vortex_alp::ALPMetadata::encoded_len(&self) -> usize
 pub struct vortex_alp::ALPRD
 
 impl vortex_alp::ALPRD
-
-pub const vortex_alp::ALPRD::ID: &'static str
 
 pub fn vortex_alp::ALPRD::array_id() -> vortex_array::array::ArrayId
 
