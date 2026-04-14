@@ -121,9 +121,9 @@ impl OperationsVTable<Shared> for Shared {
     fn scalar_at(
         array: ArrayView<'_, Shared>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        array.current_array_ref().scalar_at(index)
+        array.current_array_ref().scalar_at(index, ctx)
     }
 }
 

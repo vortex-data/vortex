@@ -43,12 +43,12 @@ impl OperationsVTable<Patched> for Patched {
         //  be slower.
         for (&patch_index, idx) in std::iter::zip(patch_indices.as_slice::<u16>(), range) {
             if patch_index == chunk_index {
-                return array.patch_values().scalar_at(idx)?.cast(array.dtype());
+                return array.patch_values().scalar_at(idx, ctx)?.cast(array.dtype());
             }
         }
 
         // Otherwise, access the underlying value.
-        array.inner().scalar_at(index)
+        array.inner().scalar_at(index, ctx)
     }
 }
 

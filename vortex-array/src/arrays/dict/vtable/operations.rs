@@ -15,11 +15,11 @@ impl OperationsVTable<Dict> for Dict {
     fn scalar_at(
         array: ArrayView<'_, Dict>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let Some(dict_index) = array
             .codes()
-            .scalar_at(index)?
+            .scalar_at(index, ctx)?
             .as_primitive()
             .as_::<usize>()
         else {
@@ -28,7 +28,7 @@ impl OperationsVTable<Dict> for Dict {
 
         Ok(array
             .values()
-            .scalar_at(dict_index)?
+            .scalar_at(dict_index, ctx)?
             .cast(array.dtype())
             .vortex_expect("Array dtype will only differ by nullability"))
     }

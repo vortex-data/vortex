@@ -209,24 +209,24 @@ impl ArrayRef {
     }
 
     /// Fetch the scalar at the given index.
-    pub fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+    pub fn scalar_at(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
         vortex_ensure!(index < self.len(), OutOfBounds: index, 0, self.len());
-        if self.is_invalid(index)? {
+        if self.is_invalid(index, ctx)? {
             return Ok(Scalar::null(self.dtype().clone()));
         }
-        let scalar = self.0.scalar_at(self, index)?;
+        let scalar = self.0.scalar_at(self, index, ctx)?;
         vortex_ensure!(self.dtype() == scalar.dtype(), "Scalar dtype mismatch");
         Ok(scalar)
     }
 
     /// Returns whether the item at `index` is valid.
-    pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
+    pub fn is_valid(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
         vortex_ensure!(index < self.len(), OutOfBounds: index, 0, self.len());
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(true),
             Validity::AllInvalid => Ok(false),
             Validity::Array(a) => a
-                .scalar_at(index)?
+                .scalar_at(index, ctx)?
                 .as_bool()
                 .value()
                 .ok_or_else(|| vortex_err!("validity value at index {} is null", index)),
@@ -234,8 +234,8 @@ impl ArrayRef {
     }
 
     /// Returns whether the item at `index` is invalid.
-    pub fn is_invalid(&self, index: usize) -> VortexResult<bool> {
-        Ok(!self.is_valid(index)?)
+    pub fn is_invalid(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+        Ok(!self.is_valid(index, ctx)?)
     }
 
     /// Returns whether all items in the array are valid.

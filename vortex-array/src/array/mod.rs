@@ -77,7 +77,12 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
     /// Fetch the scalar at the given index.
     ///
     /// This method panics if the index is out of bounds for the array.
-    fn scalar_at(&self, this: &ArrayRef, index: usize) -> VortexResult<Scalar>;
+    fn scalar_at(
+        &self,
+        this: &ArrayRef,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar>;
 
     /// Returns the [`Validity`] of the array.
     fn validity(&self, this: &ArrayRef) -> VortexResult<Validity>;
@@ -218,13 +223,14 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         self.vtable.id()
     }
 
-    fn scalar_at(&self, this: &ArrayRef, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        &self,
+        this: &ArrayRef,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        <V::OperationsVTable as OperationsVTable<V>>::scalar_at(
-            view,
-            index,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
+        <V::OperationsVTable as OperationsVTable<V>>::scalar_at(view, index, ctx)
     }
 
     fn validity(&self, this: &ArrayRef) -> VortexResult<Validity> {

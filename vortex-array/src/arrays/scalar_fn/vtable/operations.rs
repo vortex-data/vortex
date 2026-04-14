@@ -20,12 +20,12 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
     fn scalar_at(
         array: ArrayView<'_, ScalarFnVTable>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let inputs: Vec<_> = array
             .children()
             .iter()
-            .map(|child| Ok(ConstantArray::new(child.scalar_at(index)?, 1).into_array()))
+            .map(|child| Ok(ConstantArray::new(child.scalar_at(index, ctx)?, 1).into_array()))
             .collect::<VortexResult<_>>()?;
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
@@ -38,7 +38,7 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
                     "Scalar function {} returned non-constant array from execution over all scalar inputs",
                     array.scalar_fn(),
                 );
-                arr.into_array().scalar_at(0)?
+                arr.into_array().scalar_at(0, &mut ctx)?
             }
             Columnar::Constant(constant) => constant.scalar().clone(),
         };

@@ -166,9 +166,9 @@ impl OperationsVTable<Slice> for Slice {
     fn scalar_at(
         array: ArrayView<'_, Slice>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        array.child().scalar_at(array.range.start + index)
+        array.child().scalar_at(array.range.start + index, ctx)
     }
 }
 

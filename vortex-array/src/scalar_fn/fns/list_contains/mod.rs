@@ -280,7 +280,7 @@ fn list_contains_scalar(
     // If the list array is constant, we perform a single comparison.
     if array.len() > 1 && array.is::<Constant>() {
         let contains = list_contains_scalar(&array.slice(0..1)?, value, nullability, ctx)?;
-        return Ok(ConstantArray::new(contains.scalar_at(0)?, array.len()).into_array());
+        return Ok(ConstantArray::new(contains.scalar_at(0, ctx)?, array.len()).into_array());
     }
 
     let list_array = array.clone().execute::<ListViewArray>(ctx)?;

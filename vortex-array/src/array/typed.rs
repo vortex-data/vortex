@@ -15,6 +15,7 @@ use std::sync::Arc;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
@@ -344,8 +345,12 @@ impl<V: VTable> Array<V> {
         self.inner.slice(range)
     }
 
-    pub fn scalar_at(&self, index: usize) -> VortexResult<crate::scalar::Scalar> {
-        self.inner.scalar_at(index)
+    pub fn scalar_at(
+        &self,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<crate::scalar::Scalar> {
+        self.inner.scalar_at(index, ctx)
     }
 
     pub fn filter(&self, mask: vortex_mask::Mask) -> VortexResult<ArrayRef> {
@@ -360,12 +365,12 @@ impl<V: VTable> Array<V> {
         self.inner.validity()
     }
 
-    pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
-        self.inner.is_valid(index)
+    pub fn is_valid(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+        self.inner.is_valid(index, ctx)
     }
 
-    pub fn is_invalid(&self, index: usize) -> VortexResult<bool> {
-        self.inner.is_invalid(index)
+    pub fn is_invalid(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+        self.inner.is_invalid(index, ctx)
     }
 
     pub fn all_valid(&self) -> VortexResult<bool> {
@@ -403,7 +408,7 @@ impl<V: VTable> Array<V> {
     pub fn append_to_builder(
         &self,
         builder: &mut dyn crate::builders::ArrayBuilder,
-        ctx: &mut crate::ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         self.inner.append_to_builder(builder, ctx)
     }

@@ -123,12 +123,12 @@ impl Validity {
 
     /// Returns whether the `index` item is valid.
     #[inline]
-    pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
+    pub fn is_valid(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
         Ok(match self {
             Self::NonNullable | Self::AllValid => true,
             Self::AllInvalid => false,
             Self::Array(a) => a
-                .scalar_at(index)
+                .scalar_at(index, ctx)
                 .vortex_expect("Validity array must support scalar_at")
                 .as_bool()
                 .value()
@@ -137,8 +137,8 @@ impl Validity {
     }
 
     #[inline]
-    pub fn is_null(&self, index: usize) -> VortexResult<bool> {
-        Ok(!self.is_valid(index)?)
+    pub fn is_null(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+        Ok(!self.is_valid(index, ctx)?)
     }
 
     #[inline]
