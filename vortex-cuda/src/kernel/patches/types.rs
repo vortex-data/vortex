@@ -170,7 +170,7 @@ pub fn pack_patches_for_fused(
             let lo_byte_len = size_of_val(lo_bytes);
             let idx_byte_len = size_of_val(idx_bytes);
             let pre_pad = lo_byte_len + idx_byte_len;
-            let val_align = size_of::<V>().max(1);
+            let val_align = size_of::<V>();
             let padded = pre_pad.next_multiple_of(val_align);
             let pad_len = padded - pre_pad;
             let val_byte_len = size_of_val(val_bytes);
