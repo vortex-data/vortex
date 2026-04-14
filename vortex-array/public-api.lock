@@ -3898,6 +3898,8 @@ pub fn vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin<V>::deserial
 
 pub fn vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin<V>::id(&self) -> vortex_array::ArrayId
 
+pub fn vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin<V>::is_supported_encoding(&self, id: &vortex_array::ArrayId) -> bool
+
 pub fn vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin<V>::serialize(&self, array: &vortex_array::ArrayRef, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub trait vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable: vortex_array::scalar_fn::ScalarFnVTable
@@ -19432,6 +19434,8 @@ pub fn vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin<V>::deserial
 
 pub fn vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin<V>::id(&self) -> vortex_array::ArrayId
 
+pub fn vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin<V>::is_supported_encoding(&self, id: &vortex_array::ArrayId) -> bool
+
 pub fn vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin<V>::serialize(&self, array: &vortex_array::ArrayRef, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub trait vortex_array::vtable::ArrayVTable: 'static + core::clone::Clone + core::marker::Sized + core::marker::Send + core::marker::Sync + core::fmt::Debug
@@ -23099,6 +23103,10 @@ pub fn vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin<V>::deserial
 pub fn vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin<V>::id(&self) -> vortex_array::ArrayId
 
 pub fn vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin<V>::id(&self) -> vortex_array::ArrayId
+
+pub fn vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin<V>::is_supported_encoding(&self, id: &vortex_array::ArrayId) -> bool
+
+pub fn vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin<V>::is_supported_encoding(&self, id: &vortex_array::ArrayId) -> bool
 
 pub fn vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin<V>::serialize(&self, array: &vortex_array::ArrayRef, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
