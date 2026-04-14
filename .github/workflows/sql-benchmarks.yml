@@ -144,7 +144,7 @@ jobs:
           if [ "${{ matrix.build_lance }}" = "true" ]; then
             packages="$packages --bin lance-bench"
           fi
-          cargo build $packages --profile release_debug
+          cargo build $packages --profile release_debug --features unstable_encodings
 
       - name: Generate data
         shell: bash

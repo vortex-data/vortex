@@ -63,3 +63,6 @@ vortex = { workspace = true, features = [
     "tokio",
     "zstd",
 ] }
+
+[features]
+unstable_encodings = ["vortex/unstable_encodings"]
