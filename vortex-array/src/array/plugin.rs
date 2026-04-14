@@ -29,7 +29,7 @@ pub trait ArrayPlugin: 'static + Send + Sync {
     /// Returns the ID for this array encoding.
     ///
     /// During serde, this is the key the registry uses to find
-    /// this plugin instance call the appropriate method on it.
+    /// this plugin instance and call the appropriate method on it.
     fn id(&self) -> ArrayId;
 
     /// Serialize the array metadata.
