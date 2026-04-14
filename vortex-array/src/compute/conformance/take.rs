@@ -7,6 +7,8 @@ use vortex_error::VortexExpect;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray as _;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute as _;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::Nullability;
 
@@ -61,6 +63,8 @@ fn test_take_all(array: &ArrayRef) {
     assert_eq!(result.len(), len);
     assert_eq!(result.dtype(), array.dtype());
 
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
     // Verify elements match
     match (
         array
@@ -81,10 +85,10 @@ fn test_take_all(array: &ArrayRef) {
             for i in 0..len {
                 assert_eq!(
                     array
-                        .scalar_at(i)
+                        .scalar_at(i, &mut ctx)
                         .vortex_expect("scalar_at should succeed in conformance test"),
                     result
-                        .scalar_at(i)
+                        .scalar_at(i, &mut ctx)
                         .vortex_expect("scalar_at should succeed in conformance test")
                 );
             }
@@ -116,14 +120,16 @@ fn test_take_selective(array: &ArrayRef) {
         .vortex_expect("take should succeed in conformance test");
     assert_eq!(result.len(), expected_len);
 
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
     // Verify the taken elements
     for (result_idx, &original_idx) in indices.iter().enumerate() {
         assert_eq!(
             array
-                .scalar_at(original_idx as usize)
+                .scalar_at(original_idx as usize, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
             result
-                .scalar_at(result_idx)
+                .scalar_at(result_idx, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
     }
@@ -136,21 +142,23 @@ fn test_take_first_and_last(array: &ArrayRef) {
         .take(indices.into_array())
         .vortex_expect("take should succeed in conformance test");
 
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
     assert_eq!(result.len(), 2);
     assert_eq!(
         array
-            .scalar_at(0)
+            .scalar_at(0, &mut ctx)
             .vortex_expect("scalar_at should succeed in conformance test"),
         result
-            .scalar_at(0)
+            .scalar_at(0, &mut ctx)
             .vortex_expect("scalar_at should succeed in conformance test")
     );
     assert_eq!(
         array
-            .scalar_at(len - 1)
+            .scalar_at(len - 1, &mut ctx)
             .vortex_expect("scalar_at should succeed in conformance test"),
         result
-            .scalar_at(1)
+            .scalar_at(1, &mut ctx)
             .vortex_expect("scalar_at should succeed in conformance test")
     );
 }
@@ -179,22 +187,24 @@ fn test_take_with_nullable_indices(array: &ArrayRef) {
         &array.dtype().with_nullability(Nullability::Nullable)
     );
 
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
     // Verify values
     for (i, idx_opt) in indices_vec.iter().enumerate() {
         match idx_opt {
             Some(idx) => {
                 let expected = array
-                    .scalar_at(*idx as usize)
+                    .scalar_at(*idx as usize, &mut ctx)
                     .vortex_expect("scalar_at should succeed in conformance test");
                 let actual = result
-                    .scalar_at(i)
+                    .scalar_at(i, &mut ctx)
                     .vortex_expect("scalar_at should succeed in conformance test");
                 assert_eq!(expected, actual);
             }
             None => {
                 assert!(
                     result
-                        .scalar_at(i)
+                        .scalar_at(i, &mut ctx)
                         .vortex_expect("scalar_at should succeed in conformance test")
                         .is_null()
                 );
@@ -214,14 +224,16 @@ fn test_take_repeated_indices(array: &ArrayRef) {
         .take(indices)
         .vortex_expect("take should succeed in conformance test");
 
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
     assert_eq!(result.len(), 3);
     let first_elem = array
-        .scalar_at(0)
+        .scalar_at(0, &mut ctx)
         .vortex_expect("scalar_at should succeed in conformance test");
     for i in 0..3 {
         assert_eq!(
             result
-                .scalar_at(i)
+                .scalar_at(i, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
             first_elem
         );
@@ -248,14 +260,16 @@ fn test_take_reverse(array: &ArrayRef) {
 
     assert_eq!(result.len(), len);
 
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
     // Verify elements are in reverse order
     for i in 0..len {
         assert_eq!(
             array
-                .scalar_at(len - 1 - i)
+                .scalar_at(len - 1 - i, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
             result
-                .scalar_at(i)
+                .scalar_at(i, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
     }
@@ -270,13 +284,15 @@ fn test_take_single_middle(array: &ArrayRef) {
         .take(indices.into_array())
         .vortex_expect("take should succeed in conformance test");
 
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
     assert_eq!(result.len(), 1);
     assert_eq!(
         array
-            .scalar_at(middle_idx)
+            .scalar_at(middle_idx, &mut ctx)
             .vortex_expect("scalar_at should succeed in conformance test"),
         result
-            .scalar_at(0)
+            .scalar_at(0, &mut ctx)
             .vortex_expect("scalar_at should succeed in conformance test")
     );
 }
@@ -300,14 +316,16 @@ fn test_take_random_unsorted(array: &ArrayRef) {
 
     assert_eq!(result.len(), indices.len());
 
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
     // Verify elements match
     for (i, &idx) in indices.iter().enumerate() {
         assert_eq!(
             array
-                .scalar_at(idx as usize)
+                .scalar_at(idx as usize, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
             result
-                .scalar_at(i)
+                .scalar_at(i, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
     }
@@ -326,14 +344,16 @@ fn test_take_contiguous_range(array: &ArrayRef) {
 
     assert_eq!(result.len(), end - start);
 
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
     // Verify elements
     for i in 0..(end - start) {
         assert_eq!(
             array
-                .scalar_at(start + i)
+                .scalar_at(start + i, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
             result
-                .scalar_at(i)
+                .scalar_at(i, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
     }
@@ -362,14 +382,16 @@ fn test_take_mixed_repeated(array: &ArrayRef) {
 
     assert_eq!(result.len(), indices.len());
 
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
     // Verify elements
     for (i, &idx) in indices.iter().enumerate() {
         assert_eq!(
             array
-                .scalar_at(idx as usize)
+                .scalar_at(idx as usize, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
             result
-                .scalar_at(i)
+                .scalar_at(i, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
     }
@@ -393,15 +415,16 @@ fn test_take_large_indices(array: &ArrayRef) {
 
     assert_eq!(result.len(), num_indices);
 
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // Spot check a few elements
     for i in (0..num_indices).step_by(1000) {
         let expected_idx = indices[i] as usize;
         assert_eq!(
             array
-                .scalar_at(expected_idx)
+                .scalar_at(expected_idx, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
             result
-                .scalar_at(i)
+                .scalar_at(i, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
     }

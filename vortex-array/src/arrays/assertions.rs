@@ -30,8 +30,9 @@ fn execute_to_canonical(array: ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
 #[expect(clippy::unwrap_used)]
 fn find_mismatched_indices(left: &ArrayRef, right: &ArrayRef) -> Vec<usize> {
     assert_eq!(left.len(), right.len());
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     (0..left.len())
-        .filter(|i| left.scalar_at(*i).unwrap() != right.scalar_at(*i).unwrap())
+        .filter(|i| left.scalar_at(*i, &mut ctx).unwrap() != right.scalar_at(*i, &mut ctx).unwrap())
         .collect()
 }
 
