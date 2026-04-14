@@ -64,6 +64,14 @@ impl core::cmp::PartialEq for vortex_session::registry::Id
 
 pub fn vortex_session::registry::Id::eq(&self, other: &vortex_session::registry::Id) -> bool
 
+impl core::cmp::PartialEq<&vortex_session::registry::Id> for vortex_session::registry::Id
+
+pub fn vortex_session::registry::Id::eq(&self, other: &&vortex_session::registry::Id) -> bool
+
+impl core::cmp::PartialEq<vortex_session::registry::Id> for &vortex_session::registry::Id
+
+pub fn &vortex_session::registry::Id::eq(&self, other: &vortex_session::registry::Id) -> bool
+
 impl core::cmp::PartialOrd for vortex_session::registry::Id
 
 pub fn vortex_session::registry::Id::partial_cmp(&self, other: &Self) -> core::option::Option<core::cmp::Ordering>
