@@ -300,7 +300,7 @@ mod tests {
             .vortex_expect("RLEData is always valid");
 
         let sliced_array = rle_array.slice(1..4).unwrap();
-        let validity_mask = sliced_array.validity_mask().unwrap();
+        let validity_mask = sliced_array.validity().unwrap().to_mask(sliced_array.len());
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let expected_mask = Validity::from_iter([false, true, false])

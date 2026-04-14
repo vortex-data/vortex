@@ -28,7 +28,9 @@ use jni::sys::jshort;
 use jni::sys::jstring;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayView;
+use vortex::array::LEGACY_SESSION;
 use vortex::array::ToCanonical;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::VarBin;
 use vortex::array::arrays::VarBinView;
 use vortex::array::arrays::extension::ExtensionArrayExt;
@@ -280,7 +282,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getNullCount(
 ) -> jint {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |_| {
-        let count = array_ref.inner.invalid_count()?;
+        let count = array_ref
+            .inner
+            .invalid_count(&mut LEGACY_SESSION.create_execution_ctx())?;
         Ok(jint::try_from(count).unwrap_or(-1))
     })
 }

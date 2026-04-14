@@ -151,7 +151,7 @@ impl Validity {
 
     pub fn take(&self, indices: &ArrayRef) -> VortexResult<Self> {
         match self {
-            Self::NonNullable => match indices.validity_mask()?.bit_buffer() {
+            Self::NonNullable => match indices.validity()?.to_mask(indices.len()).bit_buffer() {
                 AllOr::All => {
                     if indices.dtype().is_nullable() {
                         Ok(Self::AllValid)
@@ -162,7 +162,7 @@ impl Validity {
                 AllOr::None => Ok(Self::AllInvalid),
                 AllOr::Some(buf) => Ok(Validity::from(buf.clone())),
             },
-            Self::AllValid => match indices.validity_mask()?.bit_buffer() {
+            Self::AllValid => match indices.validity()?.to_mask(indices.len()).bit_buffer() {
                 AllOr::All => Ok(Self::AllValid),
                 AllOr::None => Ok(Self::AllInvalid),
                 AllOr::Some(buf) => Ok(Validity::from(buf.clone())),
@@ -377,7 +377,7 @@ impl Validity {
     #[inline]
     pub fn copy_from_array(array: &ArrayRef) -> VortexResult<Self> {
         Ok(Validity::from_mask(
-            array.validity_mask()?,
+            array.validity()?.to_mask(array.len()),
             array.dtype().nullability(),
         ))
     }

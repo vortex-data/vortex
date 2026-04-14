@@ -7,6 +7,8 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::MaskedArray;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::Nullability;
@@ -49,7 +51,8 @@ mod tests {
         let prim = canonical.into_primitive();
 
         // Check that null positions match validity.
-        assert_eq!(prim.valid_count().unwrap(), 3);
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        assert_eq!(prim.valid_count(&mut ctx).unwrap(), 3);
         assert!(prim.is_valid(0).unwrap());
         assert!(!prim.is_valid(1).unwrap());
         assert!(prim.is_valid(2).unwrap());
@@ -68,7 +71,13 @@ mod tests {
 
         let canonical = array.to_canonical()?;
         assert_eq!(canonical.dtype().nullability(), Nullability::Nullable);
-        assert_eq!(canonical.into_array().valid_count().unwrap(), 3);
+        assert_eq!(
+            canonical
+                .into_array()
+                .valid_count(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            3
+        );
         Ok(())
     }
 }

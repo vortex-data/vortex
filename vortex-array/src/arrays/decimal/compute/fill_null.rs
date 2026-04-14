@@ -123,7 +123,13 @@ mod tests {
             p.buffer::<i128>().as_slice(),
             vec![4200, 800, 4200, 1000, 4200]
         );
-        assert!(p.validity_mask().unwrap().all_true());
+        assert!(
+            p.as_ref()
+                .validity()
+                .unwrap()
+                .to_mask(p.as_ref().len())
+                .all_true()
+        );
     }
 
     #[test]

@@ -392,12 +392,12 @@ impl<V: VTable> Array<V> {
         self.inner.as_constant()
     }
 
-    pub fn valid_count(&self) -> VortexResult<usize> {
-        self.inner.valid_count()
+    pub fn valid_count(&self, ctx: &mut crate::ExecutionCtx) -> VortexResult<usize> {
+        self.inner.valid_count(ctx)
     }
 
-    pub fn invalid_count(&self) -> VortexResult<usize> {
-        self.inner.invalid_count()
+    pub fn invalid_count(&self, ctx: &mut crate::ExecutionCtx) -> VortexResult<usize> {
+        self.inner.invalid_count(ctx)
     }
 
     pub fn append_to_builder(
@@ -406,10 +406,6 @@ impl<V: VTable> Array<V> {
         ctx: &mut crate::ExecutionCtx,
     ) -> VortexResult<()> {
         self.inner.append_to_builder(builder, ctx)
-    }
-
-    pub fn validity_mask(&self) -> VortexResult<vortex_mask::Mask> {
-        self.inner.validity_mask()
     }
 }
 

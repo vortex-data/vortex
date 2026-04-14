@@ -148,7 +148,10 @@ fn execute_sparse_lists(
     let n_filled = array.len() - resolved_patches.num_patches();
     let total_canonical_values = values.elements().len() + fill_value.len() * n_filled;
 
-    let validity = Validity::from_mask(array.as_array().validity_mask()?, nullability);
+    let validity = {
+        let arr = array.as_array();
+        Validity::from_mask(arr.validity()?.to_mask(arr.len()), nullability)
+    };
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {
         match_smallest_offset_type!(total_canonical_values, |O| {
@@ -233,7 +236,10 @@ fn execute_sparse_fixed_size_list(
         .execute::<FixedSizeListArray>(ctx)?;
     let fill_value = array.fill_scalar().as_list();
 
-    let validity = Validity::from_mask(array.as_array().validity_mask()?, nullability);
+    let validity = {
+        let arr = array.as_array();
+        Validity::from_mask(arr.validity()?.to_mask(arr.len()), nullability)
+    };
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {
         execute_sparse_fixed_size_list_inner::<I>(
@@ -420,10 +426,10 @@ fn execute_sparse_struct(
             unresolved_patches.offset(),
             unresolved_patches.indices(),
             &Validity::from_mask(
-                unresolved_patches
-                    .values()
-                    .validity_mask()
-                    .vortex_expect("validity_mask"),
+                {
+                    let v = unresolved_patches.values();
+                    v.validity().vortex_expect("validity_mask").to_mask(v.len())
+                },
                 Nullability::Nullable,
             ),
             ctx,
@@ -490,7 +496,10 @@ fn execute_varbin(
     let patches = array.resolved_patches()?;
     let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
     let values = patches.values().clone().execute::<VarBinViewArray>(ctx)?;
-    let validity = Validity::from_mask(array.as_array().validity_mask()?, dtype.nullability());
+    let validity = {
+        let arr = array.as_array();
+        Validity::from_mask(arr.validity()?.to_mask(arr.len()), dtype.nullability())
+    };
     let len = array.len();
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {

@@ -29,8 +29,9 @@ mod test {
         let sliced = nulls.slice(0..4).unwrap().to_null();
 
         assert_eq!(sliced.len(), 4);
+        let sliced_arr = sliced.as_array();
         assert!(matches!(
-            sliced.as_array().validity_mask().unwrap(),
+            sliced_arr.validity().unwrap().to_mask(sliced_arr.len()),
             Mask::AllFalse(4)
         ));
     }
@@ -44,8 +45,9 @@ mod test {
             .to_null();
 
         assert_eq!(taken.len(), 5);
+        let taken_arr = taken.as_array();
         assert!(matches!(
-            taken.as_array().validity_mask().unwrap(),
+            taken_arr.validity().unwrap().to_mask(taken_arr.len()),
             Mask::AllFalse(5)
         ));
     }

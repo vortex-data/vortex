@@ -15,7 +15,7 @@ use crate::arrays::PrimitiveArray;
 use crate::match_each_native_ptype;
 
 pub(super) fn accumulate_primitive(inner: &mut SumState, p: &PrimitiveArray) -> VortexResult<bool> {
-    let mask = p.validity_mask()?;
+    let mask = p.as_ref().validity()?.to_mask(p.as_ref().len());
     match mask.bit_buffer() {
         AllOr::None => Ok(false),
         AllOr::All => accumulate_primitive_all(inner, p),

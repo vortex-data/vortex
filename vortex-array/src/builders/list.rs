@@ -223,8 +223,9 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
         // Append validity information.
         self.nulls.append_validity_mask(
             array
-                .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+                .validity()
+                .vortex_expect("validity_mask in extend_from_array_unchecked")
+                .to_mask(array.len()),
         );
 
         // Note that `ListViewArray` has `n` offsets and sizes, not `n+1` offsets like `ListArray`.

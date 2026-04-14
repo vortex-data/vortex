@@ -124,12 +124,8 @@ pub trait vortex_bytebool::ByteBoolArrayExt: vortex_array::array::typed::TypedAr
 
 pub fn vortex_bytebool::ByteBoolArrayExt::validity(&self) -> vortex_array::validity::Validity
 
-pub fn vortex_bytebool::ByteBoolArrayExt::validity_mask(&self) -> vortex_mask::Mask
-
 impl<T: vortex_array::array::typed::TypedArrayRef<vortex_bytebool::ByteBool>> vortex_bytebool::ByteBoolArrayExt for T
 
 pub fn T::validity(&self) -> vortex_array::validity::Validity
-
-pub fn T::validity_mask(&self) -> vortex_mask::Mask
 
 pub type vortex_bytebool::ByteBoolArray = vortex_array::array::typed::Array<vortex_bytebool::ByteBool>

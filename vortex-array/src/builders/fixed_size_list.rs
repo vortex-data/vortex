@@ -243,8 +243,9 @@ impl ArrayBuilder for FixedSizeListBuilder {
         self.elements_builder.extend_from_array(fsl.elements());
         self.nulls.append_validity_mask(
             array
-                .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+                .validity()
+                .vortex_expect("validity_mask in extend_from_array_unchecked")
+                .to_mask(array.len()),
         );
     }
 

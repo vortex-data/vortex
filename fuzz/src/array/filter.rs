@@ -24,7 +24,7 @@ use crate::array::take_canonical_array_non_nullable_indices;
 
 pub fn filter_canonical_array(array: &ArrayRef, filter: &[bool]) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
-        let validity_buff = array.validity_mask()?.to_bit_buffer();
+        let validity_buff = array.validity()?.to_mask(array.len()).to_bit_buffer();
         Validity::from_iter(
             filter
                 .iter()

@@ -188,10 +188,6 @@ pub trait ByteBoolArrayExt: TypedArrayRef<ByteBool> {
             self.as_ref().dtype().nullability(),
         )
     }
-
-    fn validity_mask(&self) -> Mask {
-        self.validity().to_mask(self.as_ref().len())
-    }
 }
 
 impl<T: TypedArrayRef<ByteBool>> ByteBoolArrayExt for T {}

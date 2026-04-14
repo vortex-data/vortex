@@ -17,7 +17,7 @@ pub(super) fn accumulate_bool(inner: &mut SumState, b: &BoolArray) -> VortexResu
         vortex_panic!("expected unsigned sum state for bool input");
     };
 
-    let mask = b.validity_mask()?;
+    let mask = b.as_ref().validity()?.to_mask(b.as_ref().len());
     let true_count = match mask.bit_buffer() {
         AllOr::None => return Ok(false),
         AllOr::All => b.to_bit_buffer().true_count() as u64,

@@ -18,7 +18,7 @@ use crate::validity::Validity;
 
 impl TakeReduce for Constant {
     fn take(array: ArrayView<'_, Constant>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        let result = match indices.validity_mask()?.bit_buffer() {
+        let result = match indices.validity()?.to_mask(indices.len()).bit_buffer() {
             AllOr::All => {
                 let scalar = Scalar::try_new(
                     array
@@ -98,7 +98,7 @@ mod tests {
             )
         );
         assert_eq!(
-            taken.validity_mask().unwrap().indices(),
+            taken.validity().unwrap().to_mask(taken.len()).indices(),
             AllOr::Some(valid_indices)
         );
     }
@@ -117,7 +117,10 @@ mod tests {
             taken.to_primitive(),
             PrimitiveArray::new(buffer![42i32, 42, 42], Validity::AllValid)
         );
-        assert_eq!(taken.validity_mask().unwrap().indices(), AllOr::All);
+        assert_eq!(
+            taken.validity().unwrap().to_mask(taken.len()).indices(),
+            AllOr::All
+        );
     }
 
     #[rstest]

@@ -186,7 +186,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
 
         self.values.extend_from_slice(array.as_slice::<T>());
         self.nulls
-            .append_validity_mask(array.validity_mask().vortex_expect("validity_mask"));
+            .append_validity_mask(array.as_ref().validity().vortex_expect("validity_mask").to_mask(array.as_ref().len()));
     }
 
     fn reserve_exact(&mut self, additional: usize) {

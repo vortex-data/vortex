@@ -63,7 +63,7 @@ impl VarBinViewArray {
     where
         F: FnMut(&Ref),
     {
-        match self.validity_mask()? {
+        match self.as_ref().validity()?.to_mask(self.as_ref().len()) {
             Mask::AllTrue(_) => {
                 for &view in self.views().iter() {
                     if !view.is_inlined() {

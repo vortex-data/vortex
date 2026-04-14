@@ -9,8 +9,9 @@ use crate::arrays::bool::BoolArrayExt;
 
 impl BoolArray {
     pub fn opt_bool_vec(&self) -> Vec<Option<bool>> {
-        self.validity_mask()
-            .vortex_expect("validity_mask")
+        self.validity()
+            .vortex_expect("failed to get validity")
+            .to_mask(self.as_ref().len())
             .to_bit_buffer()
             .iter()
             .zip(self.to_bit_buffer().iter())
@@ -19,8 +20,9 @@ impl BoolArray {
     }
 
     pub fn bool_vec(&self) -> Vec<bool> {
-        self.validity_mask()
-            .vortex_expect("validity_mask")
+        self.validity()
+            .vortex_expect("failed to get validity")
+            .to_mask(self.as_ref().len())
             .to_bit_buffer()
             .iter()
             .zip(self.to_bit_buffer().iter())

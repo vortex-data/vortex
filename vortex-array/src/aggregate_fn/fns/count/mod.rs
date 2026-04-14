@@ -76,9 +76,9 @@ impl AggregateFnVTable for Count {
         &self,
         state: &mut Self::Partial,
         batch: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
-        *state += batch.valid_count()? as u64;
+        *state += batch.valid_count(ctx)? as u64;
         Ok(true)
     }
 

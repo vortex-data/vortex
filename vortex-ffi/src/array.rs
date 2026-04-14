@@ -10,7 +10,9 @@ use std::sync::Arc;
 use paste::paste;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
 use vortex::array::ToCanonical;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::NullArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::struct_::StructArrayExt;
@@ -251,7 +253,7 @@ pub unsafe extern "C-unwind" fn vx_array_invalid_count(
     try_or_default(error_out, || {
         vortex_ensure!(!array.is_null());
         let array = vx_array::as_ref(array);
-        array.invalid_count()
+        array.invalid_count(&mut LEGACY_SESSION.create_execution_ctx())
     })
 }
 

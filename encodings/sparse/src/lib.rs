@@ -402,7 +402,7 @@ impl SparseData {
                 fill_value.dtype()
             )
         }
-        let mask = array.validity_mask()?;
+        let mask = array.validity()?.to_mask(array.len());
 
         if mask.all_false() {
             // Array is constant NULL
@@ -592,7 +592,7 @@ mod test {
     pub fn validity_mask_sliced_null_fill() {
         let sliced = sparse_array(nullable_fill()).slice(2..7).unwrap();
         assert_eq!(
-            sliced.validity_mask().unwrap(),
+            sliced.validity().unwrap().to_mask(sliced.len()),
             Mask::from_iter(vec![true, false, false, true, false])
         );
     }
@@ -614,7 +614,7 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            sliced.validity_mask().unwrap(),
+            sliced.validity().unwrap().to_mask(sliced.len()),
             Mask::from_iter(vec![false, true, true, false, true])
         );
     }
@@ -639,8 +639,10 @@ mod test {
         let array = sparse_array(nullable_fill());
         assert_eq!(
             array
-                .validity_mask()
+                .as_ref()
+                .validity()
                 .unwrap()
+                .to_mask(array.as_ref().len())
                 .to_bit_buffer()
                 .iter()
                 .collect_vec(),
@@ -653,7 +655,14 @@ mod test {
     #[test]
     fn sparse_validity_mask_non_null_fill() {
         let array = sparse_array(non_nullable_fill());
-        assert!(array.validity_mask().unwrap().all_true());
+        assert!(
+            array
+                .as_ref()
+                .validity()
+                .unwrap()
+                .to_mask(array.as_ref().len())
+                .all_true()
+        );
     }
 
     #[test]
@@ -684,7 +693,11 @@ mod test {
         let sparse = Sparse::encode(&original.clone().into_array(), None)
             .vortex_expect("Sparse::encode should succeed for test data");
         assert_eq!(
-            sparse.validity_mask().unwrap(),
+            sparse
+                .as_ref()
+                .validity()
+                .unwrap()
+                .to_mask(sparse.as_ref().len()),
             Mask::from_iter(vec![
                 true, true, false, true, false, true, false, true, true, false, true, false,
             ])
@@ -698,7 +711,11 @@ mod test {
         let values = PrimitiveArray::from_option_iter([Some(0i16), Some(1), None, None, Some(4)])
             .into_array();
         let array = Sparse::try_new(indices, values, 10, Scalar::null_native::<i16>()).unwrap();
-        let actual = array.validity_mask().unwrap();
+        let actual = array
+            .as_ref()
+            .validity()
+            .unwrap()
+            .to_mask(array.as_ref().len());
         let expected = Mask::from_iter([
             true, false, true, false, false, false, false, false, true, false,
         ]);

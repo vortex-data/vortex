@@ -393,7 +393,11 @@ mod tests {
                 .unwrap();
 
             assert_eq!(
-                result.validity_mask().unwrap().bit_buffer(),
+                result
+                    .validity()
+                    .unwrap()
+                    .to_mask(result.len())
+                    .bit_buffer(),
                 AllOr::Some(&validity_boolean_buffer)
             );
             assert_eq!(

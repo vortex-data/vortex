@@ -295,7 +295,7 @@ impl ArrayBuilder for VarBinViewBuilder {
         let array = array.to_varbinview();
         self.flush_in_progress();
 
-        self.push_only_validity_mask(array.validity_mask().vortex_expect("validity_mask"));
+        self.push_only_validity_mask(array.as_ref().validity().vortex_expect("validity_mask").to_mask(array.as_ref().len()));
 
         let view_adjustment =
             self.completed
@@ -312,7 +312,7 @@ impl ArrayBuilder for VarBinViewBuilder {
                     .map(|view| adjustment.adjust_view(view)),
             ),
             ViewAdjustment::Rewriting(adjustment) => {
-                match array.validity_mask().vortex_expect("validity_mask") {
+                match array.as_ref().validity().vortex_expect("validity_mask").to_mask(array.as_ref().len()) {
                     Mask::AllTrue(_) => {
                         for (idx, &view) in array.views().iter().enumerate() {
                             let new_view = self.push_view(view, &adjustment, &array, idx);

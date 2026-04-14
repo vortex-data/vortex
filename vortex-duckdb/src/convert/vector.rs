@@ -506,7 +506,11 @@ mod tests {
 
         assert_eq!(values_slice, values);
         assert_eq!(
-            vortex_values.validity_mask().unwrap(),
+            vortex_values
+                .as_ref()
+                .validity()
+                .unwrap()
+                .to_mask(vortex_values.as_ref().len()),
             Mask::from_indices(3, vec![0, 2])
         );
     }
@@ -611,7 +615,11 @@ mod tests {
 
         assert_eq!(vortex_slice, values);
         assert_eq!(
-            vortex_array.validity_mask().unwrap(),
+            vortex_array
+                .as_ref()
+                .validity()
+                .unwrap()
+                .to_mask(vortex_array.as_ref().len()),
             Mask::from_indices(3, vec![0, 2])
         );
     }
@@ -778,7 +786,11 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)])
         );
         assert_eq!(
-            vortex_array.validity_mask().unwrap(),
+            vortex_array
+                .as_ref()
+                .validity()
+                .unwrap()
+                .to_mask(vortex_array.as_ref().len()),
             Mask::from_indices(2, vec![0])
         );
     }
@@ -891,7 +903,11 @@ mod tests {
         assert_eq!(sizes.as_slice::<i64>()[1], 0);
 
         assert_eq!(
-            vortex_array.validity_mask().unwrap(),
+            vortex_array
+                .as_ref()
+                .validity()
+                .unwrap()
+                .to_mask(vortex_array.as_ref().len()),
             Mask::from_indices(3, vec![0, 2])
         );
     }

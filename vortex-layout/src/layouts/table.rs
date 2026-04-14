@@ -239,7 +239,7 @@ impl LayoutStrategy for TableStrategy {
             if is_nullable {
                 columns.push((
                     sequence_pointer.advance(),
-                    chunk.validity_mask()?.into_array(),
+                    chunk.validity()?.to_mask(chunk.len()).into_array(),
                 ));
             }
 

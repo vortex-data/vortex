@@ -46,7 +46,7 @@ pub fn nan_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize
     }
 
     // Short-circuit for empty arrays or all-null arrays.
-    if array.is_empty() || array.valid_count()? == 0 {
+    if array.is_empty() || array.valid_count(ctx)? == 0 {
         return Ok(0);
     }
 

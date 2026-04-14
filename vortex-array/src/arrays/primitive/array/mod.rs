@@ -123,10 +123,6 @@ pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
         child_to_validity(&self.as_ref().slots()[VALIDITY_SLOT], self.nullability())
     }
 
-    fn validity_mask(&self) -> vortex_mask::Mask {
-        self.validity().to_mask(self.as_ref().len())
-    }
-
     fn buffer_handle(&self) -> &BufferHandle {
         &self.buffer
     }

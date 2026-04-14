@@ -586,8 +586,6 @@ pub fn vortex_fastlanes::BitPackedArrayExt::unpacked_chunks<T: vortex_fastlanes:
 
 pub fn vortex_fastlanes::BitPackedArrayExt::validity(&self) -> vortex_array::validity::Validity
 
-pub fn vortex_fastlanes::BitPackedArrayExt::validity_mask(&self) -> vortex_mask::Mask
-
 impl<T: vortex_array::array::typed::TypedArrayRef<vortex_fastlanes::BitPacked>> vortex_fastlanes::BitPackedArrayExt for T
 
 pub fn T::bit_width(&self) -> u8
@@ -603,8 +601,6 @@ pub fn T::patches(&self) -> core::option::Option<vortex_array::patches::Patches>
 pub fn T::unpacked_chunks<T: vortex_fastlanes::unpack_iter::BitPacked>(&self) -> vortex_error::VortexResult<vortex_fastlanes::unpack_iter::BitUnpackedChunks<T>>
 
 pub fn T::validity(&self) -> vortex_array::validity::Validity
-
-pub fn T::validity_mask(&self) -> vortex_mask::Mask
 
 pub trait vortex_fastlanes::BitPackedArraySlotsExt: vortex_array::array::typed::TypedArrayRef<vortex_fastlanes::BitPacked>
 

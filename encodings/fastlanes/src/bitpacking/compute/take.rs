@@ -280,7 +280,13 @@ mod test {
             taken_primitive,
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), None, Some(4)])
         );
-        assert_eq!(taken_primitive.to_primitive().invalid_count().unwrap(), 1);
+        assert_eq!(
+            taken_primitive
+                .to_primitive()
+                .invalid_count(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            1
+        );
     }
 
     #[rstest]

@@ -129,7 +129,7 @@ fn test_cast_from_null(array: &ArrayRef) {
 
 fn test_cast_to_non_nullable(array: &ArrayRef) {
     if array
-        .invalid_count()
+        .invalid_count(&mut LEGACY_SESSION.create_execution_ctx())
         .vortex_expect("invalid_count should succeed in conformance test")
         == 0
     {
@@ -286,11 +286,13 @@ fn test_cast_to_primitive(array: &ArrayRef, target_ptype: PType, test_round_trip
     });
     assert_eq!(
         array
-            .validity_mask()
-            .vortex_expect("validity_mask should succeed in conformance test"),
-        casted
-            .validity_mask()
+            .validity()
             .vortex_expect("validity_mask should succeed in conformance test")
+            .to_mask(array.len()),
+        casted
+            .validity()
+            .vortex_expect("validity_mask should succeed in conformance test")
+            .to_mask(casted.len())
     );
     for i in 0..array.len().min(10) {
         let original = array

@@ -63,7 +63,7 @@ pub fn min_max(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<
     }
 
     // Short-circuit for empty arrays or all-null arrays.
-    if array.is_empty() || array.valid_count()? == 0 {
+    if array.is_empty() || array.valid_count(ctx)? == 0 {
         return Ok(None);
     }
 

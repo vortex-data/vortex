@@ -785,7 +785,12 @@ mod tests {
         for idx in 0..slice_len {
             let expected_value = values[slice_start + idx];
 
-            let result_valid = result_primitive.validity_mask().unwrap().value(idx);
+            let result_valid = result_primitive
+                .as_ref()
+                .validity()
+                .unwrap()
+                .to_mask(result_primitive.as_ref().len())
+                .value(idx);
             assert_eq!(
                 result_valid,
                 expected_value.is_some(),

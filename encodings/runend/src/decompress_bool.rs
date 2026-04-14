@@ -36,7 +36,7 @@ pub fn runend_decode_bools(
     offset: usize,
     length: usize,
 ) -> VortexResult<ArrayRef> {
-    let validity = values.validity_mask()?;
+    let validity = values.as_ref().validity()?.to_mask(values.as_ref().len());
     let values_buf = values.to_bit_buffer();
     let nullability = values.dtype().nullability();
 
@@ -371,12 +371,30 @@ mod tests {
         // Check length and a few values
         assert_eq!(decoded.len(), 10000);
         // First run: valid true
-        assert!(decoded.validity_mask()?.value(0));
+        assert!(
+            decoded
+                .as_ref()
+                .validity()?
+                .to_mask(decoded.as_ref().len())
+                .value(0)
+        );
         assert!(decoded.to_bit_buffer().value(0));
         // Second run: null (validity false)
-        assert!(!decoded.validity_mask()?.value(2000));
+        assert!(
+            !decoded
+                .as_ref()
+                .validity()?
+                .to_mask(decoded.as_ref().len())
+                .value(2000)
+        );
         // Third run: valid true
-        assert!(decoded.validity_mask()?.value(4000));
+        assert!(
+            decoded
+                .as_ref()
+                .validity()?
+                .to_mask(decoded.as_ref().len())
+                .value(4000)
+        );
         assert!(decoded.to_bit_buffer().value(4000));
         Ok(())
     }

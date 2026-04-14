@@ -323,6 +323,8 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
@@ -475,7 +477,12 @@ mod tests {
 
         let struct_array = array.as_array().to_struct();
         assert_eq!(struct_array.len(), 3);
-        assert_eq!(struct_array.valid_count().unwrap(), 0);
+        assert_eq!(
+            struct_array
+                .valid_count(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            0
+        );
 
         let field = struct_array
             .unmasked_field_by_name("non_null_field")

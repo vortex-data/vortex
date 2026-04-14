@@ -108,7 +108,7 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
 
     // Enforce strictness before we even try to check if the array is sorted.
     if strict {
-        let invalid_count = array.invalid_count()?;
+        let invalid_count = array.invalid_count(ctx)?;
         match invalid_count {
             // We can keep going
             0 => {}

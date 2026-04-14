@@ -30,17 +30,19 @@ where
     T: NativePType,
     PValue: From<T>,
 {
-    Ok(match array.validity_mask()? {
-        Mask::AllTrue(_) => compute_min_max(array.as_slice::<T>().iter()),
-        Mask::AllFalse(_) => None,
-        Mask::Values(v) => compute_min_max(
-            array
-                .as_slice::<T>()
-                .iter()
-                .zip(v.bit_buffer().iter())
-                .filter_map(|(v, m)| m.then_some(v)),
-        ),
-    })
+    Ok(
+        match array.as_ref().validity()?.to_mask(array.as_ref().len()) {
+            Mask::AllTrue(_) => compute_min_max(array.as_slice::<T>().iter()),
+            Mask::AllFalse(_) => None,
+            Mask::Values(v) => compute_min_max(
+                array
+                    .as_slice::<T>()
+                    .iter()
+                    .zip(v.bit_buffer().iter())
+                    .filter_map(|(v, m)| m.then_some(v)),
+            ),
+        },
+    )
 }
 
 fn compute_min_max<'a, T>(iter: impl Iterator<Item = &'a T>) -> Option<MinMaxResult>

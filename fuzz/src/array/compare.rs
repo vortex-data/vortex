@@ -45,8 +45,9 @@ pub fn compare_canonical_array(
                     .iter()
                     .zip(
                         array
-                            .validity_mask()
+                            .validity()
                             .vortex_expect("validity_mask")
+                            .to_mask(array.len())
                             .to_bit_buffer()
                             .iter(),
                     )
@@ -70,8 +71,9 @@ pub fn compare_canonical_array(
                         .copied()
                         .zip(
                             array
-                                .validity_mask()
+                                .validity()
                                 .vortex_expect("validity_mask")
+                                .to_mask(array.len())
                                 .to_bit_buffer()
                                 .iter(),
                         )
@@ -98,8 +100,9 @@ pub fn compare_canonical_array(
                         .copied()
                         .zip(
                             array
-                                .validity_mask()
+                                .validity()
                                 .vortex_expect("validity_mask")
+                                .to_mask(array.len())
                                 .to_bit_buffer()
                                 .iter(),
                         )

@@ -286,7 +286,11 @@ impl VTable for FSST {
         let next_buffer_index = builder.completed_block_count() + u32::from(builder.in_progress());
         let (buffers, views) = fsst_decode_views(array, next_buffer_index, ctx)?;
 
-        builder.push_buffer_and_adjusted_views(&buffers, &views, array.array().validity_mask()?);
+        builder.push_buffer_and_adjusted_views(
+            &buffers,
+            &views,
+            array.array().validity()?.to_mask(array.array().len()),
+        );
         Ok(())
     }
 

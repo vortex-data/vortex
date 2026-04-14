@@ -16,7 +16,6 @@ use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
-use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::dtype::IntegerPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
@@ -149,7 +148,7 @@ fn take_nullable_fsl<I: IntegerPType, E: IntegerPType>(
     let new_len = indices.len();
 
     let array_validity = array.fixed_size_list_validity_mask();
-    let indices_validity = indices_array.validity_mask();
+    let indices_validity = indices_array.validity().vortex_expect("Failed to compute validity mask").to_mask(indices_array.as_ref().len());
 
     // We must use placeholder zeros for null lists to maintain the array length without
     // propagating nullability to the element array's take operation.

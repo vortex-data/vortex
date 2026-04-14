@@ -61,7 +61,8 @@ fn test_masked_child_with_validity() {
     let prim = array.as_array().to_primitive();
 
     // Positions where validity is false should be null in masked_child.
-    assert_eq!(prim.valid_count().unwrap(), 3);
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    assert_eq!(prim.valid_count(&mut ctx).unwrap(), 3);
     assert!(prim.is_valid(0).unwrap());
     assert!(!prim.is_valid(1).unwrap());
     assert!(prim.is_valid(2).unwrap());
@@ -76,7 +77,12 @@ fn test_masked_child_all_valid() {
     let array = MaskedArray::try_new(child, Validity::AllValid).unwrap();
 
     assert_eq!(array.len(), 3);
-    assert_eq!(array.valid_count().unwrap(), 3);
+    assert_eq!(
+        array
+            .valid_count(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap(),
+        3
+    );
     assert_arrays_eq!(
         PrimitiveArray::from_option_iter([10i32, 20, 30].map(Some)),
         array

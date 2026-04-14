@@ -30,7 +30,7 @@ pub fn canonical_varbinview_to_arrow<T: ByteViewType>(
         .iter()
         .map(|buffer| buffer.as_host().clone().into_arrow_buffer())
         .collect();
-    let nulls = to_null_buffer(array.validity_mask()?);
+    let nulls = to_null_buffer(array.as_ref().validity()?.to_mask(array.as_ref().len()));
 
     // SAFETY: our own VarBinView array is considered safe.
     Ok(Arc::new(unsafe {

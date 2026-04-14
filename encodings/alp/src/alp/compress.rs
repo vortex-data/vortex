@@ -73,7 +73,7 @@ where
 
     let encoded_array = PrimitiveArray::new(encoded, values.validity()?).into_array();
 
-    let validity = values.array().validity_mask()?;
+    let validity = values.array().validity()?.to_mask(values.array().len());
     // exceptional_positions may contain exceptions at invalid positions (which contain garbage
     // data). We remove null exceptions in order to keep the Patches small.
     let (valid_exceptional_positions, valid_exceptional_values): (Buffer<u64>, Buffer<T>) =

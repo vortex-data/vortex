@@ -203,7 +203,7 @@ where
         HashSet::with_hasher(FxBuildHasher)
     };
 
-    let validity = array.validity_mask()?;
+    let validity = array.as_ref().validity()?.to_mask(array.as_ref().len());
 
     let mut runs = 1;
     let head_idx = validity

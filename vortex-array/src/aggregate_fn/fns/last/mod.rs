@@ -97,7 +97,7 @@ impl AggregateFnVTable for Last {
         batch: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
-        if let Some(idx) = batch.validity_mask()?.last() {
+        if let Some(idx) = batch.validity()?.to_mask(batch.len()).last() {
             let scalar = batch.scalar_at(idx)?;
             partial.value = Some(scalar.into_nullable());
         }

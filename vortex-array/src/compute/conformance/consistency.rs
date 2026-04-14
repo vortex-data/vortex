@@ -1037,10 +1037,10 @@ fn test_slice_aggregate_consistency(array: &ArrayRef) {
 
     // Test null count through invalid_count
     let sliced_invalid_count = sliced
-        .invalid_count()
+        .invalid_count(&mut ctx)
         .vortex_expect("invalid_count should succeed in conformance test");
     let canonical_invalid_count = canonical_sliced
-        .invalid_count()
+        .invalid_count(&mut ctx)
         .vortex_expect("invalid_count should succeed in conformance test");
     assert_eq!(
         sliced_invalid_count, canonical_invalid_count,

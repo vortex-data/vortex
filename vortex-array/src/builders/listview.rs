@@ -320,8 +320,9 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
 
         self.nulls.append_validity_mask(
             array
-                .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+                .validity()
+                .vortex_expect("validity_mask in extend_from_array_unchecked")
+                .to_mask(array.len()),
         );
 
         // Bulk append the new elements (which should have no gaps or overlaps).

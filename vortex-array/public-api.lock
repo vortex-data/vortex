@@ -78,7 +78,7 @@ pub fn vortex_array::aggregate_fn::fns::count::Count::serialize(&self, _options:
 
 pub fn vortex_array::aggregate_fn::fns::count::Count::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
-pub fn vortex_array::aggregate_fn::fns::count::Count::try_accumulate(&self, state: &mut Self::Partial, batch: &vortex_array::ArrayRef, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+pub fn vortex_array::aggregate_fn::fns::count::Count::try_accumulate(&self, state: &mut Self::Partial, batch: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
 pub mod vortex_array::aggregate_fn::fns::first
 
@@ -816,7 +816,7 @@ pub fn vortex_array::aggregate_fn::fns::count::Count::serialize(&self, _options:
 
 pub fn vortex_array::aggregate_fn::fns::count::Count::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
-pub fn vortex_array::aggregate_fn::fns::count::Count::try_accumulate(&self, state: &mut Self::Partial, batch: &vortex_array::ArrayRef, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+pub fn vortex_array::aggregate_fn::fns::count::Count::try_accumulate(&self, state: &mut Self::Partial, batch: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
 impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::first::First
 
@@ -1270,8 +1270,6 @@ pub fn vortex_array::arrays::bool::BoolMaskedValidityRule::reduce_parent(&self, 
 
 pub trait vortex_array::arrays::bool::BoolArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::Bool>
 
-pub fn vortex_array::arrays::bool::BoolArrayExt::bool_validity_mask(&self) -> vortex_mask::Mask
-
 pub fn vortex_array::arrays::bool::BoolArrayExt::maybe_to_mask(&self) -> vortex_error::VortexResult<core::option::Option<vortex_mask::Mask>>
 
 pub fn vortex_array::arrays::bool::BoolArrayExt::nullability(&self) -> vortex_array::dtype::Nullability
@@ -1285,8 +1283,6 @@ pub fn vortex_array::arrays::bool::BoolArrayExt::to_mask_fill_null_false(&self) 
 pub fn vortex_array::arrays::bool::BoolArrayExt::validity(&self) -> vortex_array::validity::Validity
 
 impl<T: vortex_array::TypedArrayRef<vortex_array::arrays::Bool>> vortex_array::arrays::bool::BoolArrayExt for T
-
-pub fn T::bool_validity_mask(&self) -> vortex_mask::Mask
 
 pub fn T::maybe_to_mask(&self) -> vortex_error::VortexResult<core::option::Option<vortex_mask::Mask>>
 
@@ -3850,8 +3846,6 @@ pub fn vortex_array::arrays::primitive::PrimitiveArrayExt::validity(&self) -> vo
 
 pub fn vortex_array::arrays::primitive::PrimitiveArrayExt::validity_child(&self) -> core::option::Option<&vortex_array::ArrayRef>
 
-pub fn vortex_array::arrays::primitive::PrimitiveArrayExt::validity_mask(&self) -> vortex_mask::Mask
-
 impl<T: vortex_array::TypedArrayRef<vortex_array::arrays::Primitive>> vortex_array::arrays::primitive::PrimitiveArrayExt for T
 
 pub fn T::buffer_handle(&self) -> &vortex_array::buffer::BufferHandle
@@ -3867,8 +3861,6 @@ pub fn T::reinterpret_cast(&self, ptype: vortex_array::dtype::PType) -> vortex_a
 pub fn T::validity(&self) -> vortex_array::validity::Validity
 
 pub fn T::validity_child(&self) -> core::option::Option<&vortex_array::ArrayRef>
-
-pub fn T::validity_mask(&self) -> vortex_mask::Mask
 
 pub fn vortex_array::arrays::primitive::chunk_range(chunk_idx: usize, offset: usize, array_len: usize) -> core::ops::range::Range<usize>
 
@@ -21928,7 +21920,7 @@ pub fn vortex_array::Array<V>::as_constant(&self) -> core::option::Option<vortex
 
 pub fn vortex_array::Array<V>::filter(&self, mask: vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::Array<V>::invalid_count(&self) -> vortex_error::VortexResult<usize>
+pub fn vortex_array::Array<V>::invalid_count(&self, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<usize>
 
 pub fn vortex_array::Array<V>::is_invalid(&self, index: usize) -> vortex_error::VortexResult<bool>
 
@@ -21946,7 +21938,7 @@ pub fn vortex_array::Array<V>::take(&self, indices: vortex_array::ArrayRef) -> v
 
 pub fn vortex_array::Array<V>::to_canonical(&self) -> vortex_error::VortexResult<vortex_array::Canonical>
 
-pub fn vortex_array::Array<V>::valid_count(&self) -> vortex_error::VortexResult<usize>
+pub fn vortex_array::Array<V>::valid_count(&self, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<usize>
 
 pub fn vortex_array::Array<V>::validity(&self) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
@@ -22146,7 +22138,7 @@ pub fn vortex_array::ArrayRef::filter(&self, mask: vortex_mask::Mask) -> vortex_
 
 pub fn vortex_array::ArrayRef::into_canonical(self) -> vortex_error::VortexResult<vortex_array::Canonical>
 
-pub fn vortex_array::ArrayRef::invalid_count(&self) -> vortex_error::VortexResult<usize>
+pub fn vortex_array::ArrayRef::invalid_count(&self, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<usize>
 
 pub fn vortex_array::ArrayRef::is<M: vortex_array::matcher::Matcher>(&self) -> bool
 
@@ -22202,7 +22194,7 @@ pub fn vortex_array::ArrayRef::to_canonical(&self) -> vortex_error::VortexResult
 
 pub fn vortex_array::ArrayRef::try_downcast<V: vortex_array::VTable>(self) -> core::result::Result<vortex_array::Array<V>, vortex_array::ArrayRef>
 
-pub fn vortex_array::ArrayRef::valid_count(&self) -> vortex_error::VortexResult<usize>
+pub fn vortex_array::ArrayRef::valid_count(&self, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<usize>
 
 pub fn vortex_array::ArrayRef::validity(&self) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
@@ -22601,6 +22593,8 @@ pub fn vortex_array::ArrayView<'a, V>::slots(&self) -> &'a [core::option::Option
 pub fn vortex_array::ArrayView<'a, V>::statistics(&self) -> vortex_array::stats::StatsSetRef<'_>
 
 pub fn vortex_array::ArrayView<'a, V>::validity(&self) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
+pub fn vortex_array::ArrayView<'a, V>::validity_mask(&self) -> vortex_mask::Mask
 
 impl<V: vortex_array::VTable> core::clone::Clone for vortex_array::ArrayView<'_, V>
 

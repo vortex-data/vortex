@@ -26,7 +26,6 @@ use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
-use crate::ToCanonical;
 use crate::VTable;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::sum::sum;
@@ -42,7 +41,6 @@ use crate::arrays::Primitive;
 use crate::arrays::SliceArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinView;
-use crate::arrays::bool::BoolArrayExt;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -257,7 +255,7 @@ impl ArrayRef {
     }
 
     /// Returns the number of valid elements in the array.
-    pub fn valid_count(&self) -> VortexResult<usize> {
+    pub fn valid_count(&self, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
         let len = self.len();
         if let Some(Precision::Exact(invalid_count)) =
             self.statistics().get_as::<usize>(Stat::NullCount)
@@ -269,8 +267,7 @@ impl ArrayRef {
             Validity::NonNullable | Validity::AllValid => len,
             Validity::AllInvalid => 0,
             Validity::Array(a) => {
-                let mut ctx = LEGACY_SESSION.create_execution_ctx();
-                let array_sum = sum(&a, &mut ctx)?;
+                let array_sum = sum(&a, ctx)?;
                 array_sum
                     .as_primitive()
                     .as_::<usize>()
@@ -286,22 +283,13 @@ impl ArrayRef {
     }
 
     /// Returns the number of invalid elements in the array.
-    pub fn invalid_count(&self) -> VortexResult<usize> {
-        Ok(self.len() - self.valid_count()?)
+    pub fn invalid_count(&self, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
+        Ok(self.len() - self.valid_count(ctx)?)
     }
 
     /// Returns the [`Validity`] of the array.
     pub fn validity(&self) -> VortexResult<Validity> {
         self.0.validity(self)
-    }
-
-    /// Returns the canonical validity mask for the array.
-    pub fn validity_mask(&self) -> VortexResult<Mask> {
-        match self.validity()? {
-            Validity::NonNullable | Validity::AllValid => Ok(Mask::new_true(self.len())),
-            Validity::AllInvalid => Ok(Mask::new_false(self.len())),
-            Validity::Array(a) => Ok(a.to_bool().to_mask()),
-        }
     }
 
     /// Returns the canonical representation of the array.
