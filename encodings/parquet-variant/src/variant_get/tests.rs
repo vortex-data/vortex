@@ -8,9 +8,13 @@ use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::StringArray;
 use arrow_array::StructArray;
 use arrow_buffer::NullBuffer;
+use arrow_schema::DataType as ArrowDataType;
+use arrow_schema::Field as ArrowField;
+use arrow_schema::FieldRef;
 use parquet_variant::Variant as PqVariant;
 use parquet_variant::VariantBuilderExt;
 use parquet_variant::VariantPath;
+use parquet_variant::VariantPathElement;
 use parquet_variant_compute::GetOptions;
 use parquet_variant_compute::VariantArray as ArrowVariantArray;
 use parquet_variant_compute::VariantArrayBuilder;
@@ -20,8 +24,15 @@ use vortex_array::ArrayRef;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::variant::VariantArrayExt;
+use vortex_array::arrow::FromArrowArray;
+use vortex_array::assert_arrays_eq;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::expr::root;
 use vortex_array::expr::variant_get;
+use vortex_array::expr::variant_get_as;
+use vortex_array::scalar_fn::fns::variant_get::VariantPath as VortexVariantPath;
 use vortex_error::VortexResult;
 
 use crate::ParquetVariant;
@@ -29,8 +40,20 @@ use crate::ParquetVariantArrayExt;
 use crate::ParquetVariantData;
 
 /// Apply variant_get and execute through the full pipeline (including execute_parent).
-fn apply_variant_get(arr: &ArrayRef, field: &str) -> VortexResult<ArrayRef> {
-    let expr = variant_get(field, root());
+fn apply_variant_get(arr: &ArrayRef, path: impl Into<VortexVariantPath>) -> VortexResult<ArrayRef> {
+    let expr = variant_get(path, root());
+    let array = arr.clone().apply(&expr)?;
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    array.execute::<ArrayRef>(&mut ctx)
+}
+
+/// Apply typed variant_get and execute through the full pipeline.
+fn apply_variant_get_as(
+    arr: &ArrayRef,
+    path: impl Into<VortexVariantPath>,
+    as_dtype: DType,
+) -> VortexResult<ArrayRef> {
+    let expr = variant_get_as(path, as_dtype, root());
     let array = arr.clone().apply(&expr)?;
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     array.execute::<ArrayRef>(&mut ctx)
@@ -47,7 +70,6 @@ fn vortex_to_arrow_variant(arr: &ArrayRef) -> ArrowVariantArray {
 /// Run variant_get through both Arrow and Vortex on the same input, and assert
 /// the per-row results (value + validity) are identical by comparing at the Arrow level.
 fn assert_matches_arrow(json_rows: &[&str], field: &str) {
-    // --- Arrow side ---
     let arrow_strings: ArrowArrayRef = Arc::new(StringArray::from(
         json_rows.iter().map(|s| Some(*s)).collect::<Vec<_>>(),
     ));
@@ -62,12 +84,10 @@ fn assert_matches_arrow(json_rows: &[&str], field: &str) {
         ArrowVariantArray::try_new(arrow_result.as_any().downcast_ref::<StructArray>().unwrap())
             .unwrap();
 
-    // --- Vortex side ---
     let vortex_input = ParquetVariantData::from_arrow_variant(&arrow_variant).unwrap();
     let vortex_result = apply_variant_get(&vortex_input, field).unwrap();
     let vortex_as_arrow = vortex_to_arrow_variant(&vortex_result);
 
-    // --- Compare row-by-row at Arrow Variant level ---
     assert_eq!(
         vortex_as_arrow.len(),
         arrow_result_variant.len(),
@@ -94,10 +114,90 @@ fn assert_matches_arrow(json_rows: &[&str], field: &str) {
     }
 }
 
+/// Run variant_get through both Arrow and Vortex for an explicit nested/index path,
+/// and assert the per-row results match at the Arrow variant level.
+fn assert_matches_arrow_with_path(
+    json_rows: &[&str],
+    path: VortexVariantPath,
+    arrow_path: VariantPath<'static>,
+) {
+    let arrow_strings: ArrowArrayRef = Arc::new(StringArray::from(
+        json_rows.iter().map(|s| Some(*s)).collect::<Vec<_>>(),
+    ));
+    let arrow_variant = json_to_variant(&arrow_strings).unwrap();
+    let arrow_result = parquet_variant_compute::variant_get(
+        &arrow_variant.clone().into(),
+        GetOptions::new_with_path(arrow_path),
+    )
+    .unwrap();
+    let arrow_result_variant =
+        ArrowVariantArray::try_new(arrow_result.as_any().downcast_ref::<StructArray>().unwrap())
+            .unwrap();
+
+    let vortex_input = ParquetVariantData::from_arrow_variant(&arrow_variant).unwrap();
+    let vortex_result = apply_variant_get(&vortex_input, path).unwrap();
+    let vortex_as_arrow = vortex_to_arrow_variant(&vortex_result);
+
+    assert_eq!(
+        vortex_as_arrow.len(),
+        arrow_result_variant.len(),
+        "length mismatch"
+    );
+
+    for i in 0..arrow_result_variant.len() {
+        let arrow_is_null = arrow_result_variant.is_null(i);
+        let vortex_is_null = vortex_as_arrow.is_null(i);
+
+        assert_eq!(
+            vortex_is_null, arrow_is_null,
+            "row {i}: null mismatch (vortex={vortex_is_null}, arrow={arrow_is_null})"
+        );
+
+        if !arrow_is_null {
+            let arrow_value = arrow_result_variant.value(i);
+            let vortex_value = vortex_as_arrow.value(i);
+            assert_eq!(
+                vortex_value, arrow_value,
+                "row {i}: value mismatch\n  vortex: {vortex_value:?}\n  arrow:  {arrow_value:?}"
+            );
+        }
+    }
+}
+
+/// Run typed variant_get through both Arrow and Vortex for an explicit path,
+/// and assert the typed nullable result matches.
+fn assert_typed_matches_arrow_with_path(
+    json_rows: &[&str],
+    path: VortexVariantPath,
+    arrow_path: VariantPath<'static>,
+    as_dtype: DType,
+    arrow_dtype: ArrowDataType,
+) -> VortexResult<()> {
+    let arrow_strings: ArrowArrayRef = Arc::new(StringArray::from(
+        json_rows.iter().map(|s| Some(*s)).collect::<Vec<_>>(),
+    ));
+    let arrow_variant = json_to_variant(&arrow_strings).unwrap();
+    let arrow_result =
+        parquet_variant_compute::variant_get(
+            &arrow_variant.clone().into(),
+            GetOptions::new_with_path(arrow_path).with_as_type(Some(FieldRef::new(
+                ArrowField::new("result", arrow_dtype, true),
+            ))),
+        )
+        .unwrap();
+    let expected = ArrayRef::from_arrow(arrow_result.as_ref(), true)?;
+
+    let vortex_input = ParquetVariantData::from_arrow_variant(&arrow_variant).unwrap();
+    let vortex_result = apply_variant_get_as(&vortex_input, path, as_dtype.clone())?;
+
+    assert_eq!(vortex_result.dtype(), &as_dtype.as_nullable());
+    assert_arrays_eq!(vortex_result, expected);
+    Ok(())
+}
+
 /// Run variant_get through both Arrow and Vortex on nullable input (with NullBuffer),
 /// and assert the results match.
 fn assert_matches_arrow_nullable(json_rows: &[&str], validity: &[bool], field: &str) {
-    // --- Arrow side ---
     let arrow_strings: ArrowArrayRef = Arc::new(StringArray::from(
         json_rows.iter().map(|s| Some(*s)).collect::<Vec<_>>(),
     ));
@@ -121,12 +221,10 @@ fn assert_matches_arrow_nullable(json_rows: &[&str], validity: &[bool], field: &
         ArrowVariantArray::try_new(arrow_result.as_any().downcast_ref::<StructArray>().unwrap())
             .unwrap();
 
-    // --- Vortex side ---
     let vortex_input = ParquetVariantData::from_arrow_variant(&arrow_variant).unwrap();
     let vortex_result = apply_variant_get(&vortex_input, field).unwrap();
     let vortex_as_arrow = vortex_to_arrow_variant(&vortex_result);
 
-    // --- Compare ---
     assert_eq!(
         vortex_as_arrow.len(),
         arrow_result_variant.len(),
@@ -221,6 +319,60 @@ fn test_variant_get_matches_arrow_nested_object_result() {
     );
 }
 
+#[test]
+fn test_variant_get_matches_arrow_nested_path() {
+    let path = VortexVariantPath::from_name("outer").join("inner");
+    let arrow_path = VariantPath::from_iter([
+        VariantPathElement::field("outer".to_string()),
+        VariantPathElement::field("inner".to_string()),
+    ]);
+    assert_matches_arrow_with_path(
+        &[
+            r#"{"outer": {"inner": 42}}"#,
+            r#"{"outer": {"inner": "x"}}"#,
+            r#"{"outer": {"other": true}}"#,
+        ],
+        path,
+        arrow_path,
+    );
+}
+
+#[test]
+fn test_variant_get_matches_arrow_index_path() {
+    let path = VortexVariantPath::from_name("arr").join(1usize);
+    let arrow_path = VariantPath::from_iter([
+        VariantPathElement::field("arr".to_string()),
+        VariantPathElement::index(1),
+    ]);
+    assert_matches_arrow_with_path(
+        &[
+            r#"{"arr": [1, 2, 3]}"#,
+            r#"{"arr": ["a", "b"]}"#,
+            r#"{"arr": [true]}"#,
+        ],
+        path,
+        arrow_path,
+    );
+}
+
+#[test]
+fn test_variant_get_matches_arrow_typed_path() -> VortexResult<()> {
+    assert_typed_matches_arrow_with_path(
+        &[
+            r#"{"outer": {"inner": 42}}"#,
+            r#"{"outer": {"inner": "x"}}"#,
+            r#"{"outer": {"other": true}}"#,
+        ],
+        VortexVariantPath::from_name("outer").join("inner"),
+        VariantPath::from_iter([
+            VariantPathElement::field("outer".to_string()),
+            VariantPathElement::field("inner".to_string()),
+        ]),
+        DType::Primitive(PType::I64, Nullability::NonNullable),
+        ArrowDataType::Int64,
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Original standalone tests
 // ---------------------------------------------------------------------------
@@ -310,6 +462,7 @@ fn test_variant_get_different_field() -> VortexResult<()> {
 // Test data helpers
 // ---------------------------------------------------------------------------
 
+/// Build a small non-null object variant array used by the standalone tests.
 fn make_object_array() -> VortexResult<ArrayRef> {
     let mut builder = VariantArrayBuilder::new(3);
 
@@ -330,6 +483,7 @@ fn make_object_array() -> VortexResult<ArrayRef> {
     ParquetVariantData::from_arrow_variant(&builder.build())
 }
 
+/// Build the same object array shape with an explicit top-level validity bitmap.
 fn make_nullable_object_array() -> VortexResult<ArrayRef> {
     let mut builder = VariantArrayBuilder::new(3);
 

@@ -47,6 +47,8 @@ use crate::scalar_fn::fns::root::Root;
 use crate::scalar_fn::fns::select::FieldSelection;
 use crate::scalar_fn::fns::select::Select;
 use crate::scalar_fn::fns::variant_get::VariantGet;
+use crate::scalar_fn::fns::variant_get::VariantGetOptions;
+use crate::scalar_fn::fns::variant_get::VariantPath;
 use crate::scalar_fn::fns::zip::Zip;
 
 // ---- Root ----
@@ -703,14 +705,37 @@ pub fn list_contains(list: Expression, value: Expression) -> Expression {
 
 // ---- VariantGet ----
 
-/// Creates an expression that extracts a field from a variant object by name.
+/// Creates an expression that extracts a nested path from a variant value.
 ///
-/// Returns a new variant containing the field's value, or null if the field does not exist.
+/// Returns a new variant containing the nested value, or null if the path does not exist.
 ///
 /// ```rust
 /// # use vortex_array::expr::{variant_get, root};
 /// let expr = variant_get("field_name", root());
 /// ```
-pub fn variant_get(field: impl Into<FieldName>, child: Expression) -> Expression {
-    VariantGet.new_expr(field.into(), vec![child])
+pub fn variant_get(options: impl Into<VariantGetOptions>, child: Expression) -> Expression {
+    VariantGet.new_expr(options.into(), vec![child])
+}
+
+/// Creates an expression that extracts a nested path from a variant value and materializes it as a
+/// specific type.
+///
+/// ```rust
+/// # use vortex_array::dtype::{DType, Nullability, PType};
+/// # use vortex_array::expr::{root, variant_get_as};
+/// let expr = variant_get_as(
+///     "field_name",
+///     DType::Primitive(PType::I64, Nullability::NonNullable),
+///     root(),
+/// );
+/// ```
+pub fn variant_get_as(
+    path: impl Into<VariantPath>,
+    as_dtype: DType,
+    child: Expression,
+) -> Expression {
+    VariantGet.new_expr(
+        VariantGetOptions::new(path).with_as_dtype(Some(as_dtype)),
+        vec![child],
+    )
 }

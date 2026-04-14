@@ -7,7 +7,10 @@
 
 use std::sync::Arc;
 
-use parquet_variant::VariantPathElement;
+use arrow_schema::Field;
+use arrow_schema::FieldRef;
+use parquet_variant::VariantPath;
+use parquet_variant::VariantPathElement as ArrowVariantPathElement;
 use parquet_variant_compute::GetOptions;
 use parquet_variant_compute::VariantArray as ArrowVariantArray;
 use vortex_array::ArrayRef;
@@ -19,10 +22,11 @@ use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::arrow::FromArrowArray;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::scalar_fn::fns::variant_get::VariantGet;
+use vortex_array::scalar_fn::fns::variant_get::VariantGetOptions;
+use vortex_array::scalar_fn::fns::variant_get::VariantPathElement as VortexVariantPathElement;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
@@ -47,30 +51,47 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetExecuteParent {
         _child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let field_name: &FieldName = parent.options;
-        variant_get_impl(array, field_name, ctx).map(Some)
+        variant_get_impl(array, parent.options, ctx).map(Some)
     }
 }
 
 fn variant_get_impl(
     array: ArrayView<'_, ParquetVariant>,
-    field_name: &FieldName,
+    options: &VariantGetOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     // Convert to Arrow VariantArray
     let arrow_variant = array.to_arrow(ctx)?;
 
-    // Build path for a single field access
-    let path_element = VariantPathElement::Field {
-        name: field_name.as_ref().into(),
-    };
-    let options = GetOptions::new_with_path(vec![path_element].into());
+    let path = options
+        .path()
+        .iter()
+        .cloned()
+        .map(|element| match element {
+            VortexVariantPathElement::Field(name) => ArrowVariantPathElement::Field {
+                name: name.to_string().into(),
+            },
+            VortexVariantPathElement::Index(index) => ArrowVariantPathElement::Index { index },
+        })
+        .collect::<Vec<_>>();
+    let mut arrow_options = GetOptions::new_with_path(VariantPath::new(path));
+    if let Some(as_dtype) = options.effective_as_dtype() {
+        arrow_options = arrow_options.with_as_type(Some(FieldRef::new(Field::new(
+            "result",
+            as_dtype.to_arrow_dtype()?,
+            as_dtype.is_nullable(),
+        ))));
+    }
 
     // Delegate to the parquet-variant-compute kernel.
     // With as_type = None, the result is itself a VariantArray.
     let inner: Arc<dyn arrow_array::Array> = Arc::new(arrow_variant.into_inner());
-    let arrow_result = parquet_variant_compute::variant_get(&inner, options)
+    let arrow_result = parquet_variant_compute::variant_get(&inner, arrow_options)
         .map_err(|e| vortex_err!("variant_get failed: {e}"))?;
+
+    if options.effective_as_dtype().is_some() {
+        return ArrayRef::from_arrow(arrow_result.as_ref(), true);
+    }
 
     // Convert back to Vortex.
     let result_variant = ArrowVariantArray::try_new(

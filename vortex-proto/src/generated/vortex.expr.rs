@@ -154,10 +154,27 @@ pub mod select_opts {
     }
 }
 /// Options for `vortex.variant_get`
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VariantGetOpts {
-    #[prost(string, tag = "1")]
-    pub path: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "1")]
+    pub path: ::prost::alloc::vec::Vec<VariantPathElement>,
+    #[prost(message, optional, tag = "2")]
+    pub as_dtype: ::core::option::Option<super::dtype::DType>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct VariantPathElement {
+    #[prost(oneof = "variant_path_element::PathElement", tags = "1, 2")]
+    pub path_element: ::core::option::Option<variant_path_element::PathElement>,
+}
+/// Nested message and enum types in `VariantPathElement`.
+pub mod variant_path_element {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum PathElement {
+        #[prost(string, tag = "1")]
+        Field(::prost::alloc::string::String),
+        #[prost(uint32, tag = "2")]
+        Index(u32),
+    }
 }
 /// Options for `vortex.case_when`
 /// Encodes num_when_then_pairs and has_else into a single u32 (num_children).
