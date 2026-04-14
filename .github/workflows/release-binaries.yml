@@ -1,0 +1,60 @@
+name: Release Binaries
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runs-on: macos-latest
+            archive: tgz
+          - target: x86_64-apple-darwin
+            runs-on: macos-15-intel
+            archive: tgz
+          - target: aarch64-unknown-linux-gnu
+            runs-on: ubuntu-24.04-arm
+            archive: tgz
+          - target: x86_64-unknown-linux-gnu
+            runs-on: ubuntu-24.04
+            archive: tgz
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          targets: ${{ matrix.target }}
+          enable-sccache: "false"
+
+      - name: Build release binary
+        run: cargo build --release --package vortex-tui --bin vx --target ${{ matrix.target }}
+
+      - name: Create archive (tgz)
+        if: matrix.archive == 'tgz'
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar -czvf ../../../vx-${{ matrix.target }}.tar.gz vx
+
+      - name: Create archive (zip)
+        if: matrix.archive == 'zip'
+        run: |
+          cd target/${{ matrix.target }}/release
+          zip ../../../vx-${{ matrix.target }}.zip vx.exe
+
+      - name: Upload release asset
+        run: gh release upload "${{ github.event.release.tag_name }}" vx-${{ matrix.target }}.${{ matrix.archive == 'tgz' && 'tar.gz' || 'zip' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
