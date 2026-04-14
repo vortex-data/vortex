@@ -32,6 +32,7 @@ use vortex_error::vortex_ensure;
 
 use crate::scalar_fns::inner_product::InnerProduct;
 use crate::scalar_fns::l2_denorm::L2Denorm;
+use crate::scalar_fns::l2_denorm::try_build_constant_l2_denorm;
 use crate::scalar_fns::l2_norm::L2Norm;
 use crate::utils::extract_l2_denorm_children;
 use crate::utils::validate_tensor_float_input;
@@ -132,6 +133,20 @@ impl ScalarFnVTable for CosineSimilarity {
         let mut lhs_ref = args.get(0)?;
         let mut rhs_ref = args.get(1)?;
         let len = args.row_count();
+
+        // If either side is a constant tensor-like extension array, eagerly normalize the single
+        // stored row and re-wrap it as an `L2Denorm` whose children are both [`ConstantArray`]s.
+        // The L2Denorm fast path below then picks it up.
+        if let Some(lhs_constant) =
+            try_build_constant_l2_denorm(&lhs_ref, len, ctx)?.map(|sfn| sfn.into_array())
+        {
+            lhs_ref = lhs_constant;
+        }
+        if let Some(rhs_constant) =
+            try_build_constant_l2_denorm(&rhs_ref, len, ctx)?.map(|sfn| sfn.into_array())
+        {
+            rhs_ref = rhs_constant;
+        }
 
         // Check if any of our children have be already normalized.
         {
@@ -249,8 +264,9 @@ impl CosineSimilarity {
         let (normalized, _) = extract_l2_denorm_children(denorm_ref);
 
         let dot_arr = InnerProduct::try_new_array(normalized, plain_ref.clone(), len)?;
-        let norm_arr = L2Norm::try_new_array(plain_ref.clone(), len)?;
         let dot: PrimitiveArray = dot_arr.into_array().execute(ctx)?;
+
+        let norm_arr = L2Norm::try_new_array(plain_ref.clone(), len)?;
         let plain_norm: PrimitiveArray = norm_arr.into_array().execute(ctx)?;
 
         // TODO(connor): Ideally we would have a `SafeDiv` binary numeric operation.
@@ -573,6 +589,108 @@ mod tests {
         assert!(prim.is_valid(0)?);
         assert!(!prim.is_valid(1)?);
         assert_close(&[prim.as_slice::<f64>()[0]], &[1.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn constant_lhs_matches_plain_tensor() -> VortexResult<()> {
+        // The constant query `[1, 2, 2]` has norm 3, so its normalized form is `[1/3, 2/3, 2/3]`.
+        // Expected cosine similarity against each row is `dot([1, 2, 2], row) / (3 * ||row||)`.
+        let lhs = constant_tensor_array(&[3], &[1.0, 2.0, 2.0], 4)?;
+        let rhs = tensor_array(
+            &[3],
+            &[
+                1.0, 0.0, 0.0, // dot=1, ||rhs||=1, expected=1/3
+                1.0, 2.0, 2.0, // dot=9, ||rhs||=3, expected=1
+                0.0, 0.0, 1.0, // dot=2, ||rhs||=1, expected=2/3
+                2.0, 1.0, 2.0, // dot=8, ||rhs||=3, expected=8/9
+            ],
+        )?;
+        assert_close(
+            &eval_cosine_similarity(lhs, rhs, 4)?,
+            &[1.0 / 3.0, 1.0, 2.0 / 3.0, 8.0 / 9.0],
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn constant_rhs_matches_plain_tensor() -> VortexResult<()> {
+        // Mirror of `constant_lhs_matches_plain_tensor` with the constant on the right.
+        let lhs = tensor_array(
+            &[3],
+            &[
+                1.0, 0.0, 0.0, //
+                1.0, 2.0, 2.0, //
+                0.0, 0.0, 1.0, //
+                2.0, 1.0, 2.0, //
+            ],
+        )?;
+        let rhs = constant_tensor_array(&[3], &[1.0, 2.0, 2.0], 4)?;
+        assert_close(
+            &eval_cosine_similarity(lhs, rhs, 4)?,
+            &[1.0 / 3.0, 1.0, 2.0 / 3.0, 8.0 / 9.0],
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn both_constant_tensors() -> VortexResult<()> {
+        // `[1, 0, 0]` vs `[1, 1, 0]`. dot=1, ||lhs||=1, ||rhs||=sqrt(2), expected=1/sqrt(2).
+        let lhs = constant_tensor_array(&[3], &[1.0, 0.0, 0.0], 3)?;
+        let rhs = constant_tensor_array(&[3], &[1.0, 1.0, 0.0], 3)?;
+        let expected = 1.0 / 2.0_f64.sqrt();
+        assert_close(
+            &eval_cosine_similarity(lhs, rhs, 3)?,
+            &[expected, expected, expected],
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn constant_zero_norm_query() -> VortexResult<()> {
+        // A zero-norm constant query must produce `0.0` for every row via the zero-norm guard in
+        // `execute_one_denorm` and `execute_both_denorm`.
+        let lhs = constant_tensor_array(&[3], &[0.0, 0.0, 0.0], 3)?;
+        let rhs = tensor_array(
+            &[3],
+            &[
+                1.0, 2.0, 3.0, //
+                4.0, 5.0, 6.0, //
+                7.0, 8.0, 9.0, //
+            ],
+        )?;
+        assert_close(&eval_cosine_similarity(lhs, rhs, 3)?, &[0.0, 0.0, 0.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn constant_self_similarity_nonunit() -> VortexResult<()> {
+        // A non-unit constant query compared to itself must produce `1.0`. This exercises the
+        // helper's division: after normalization, both sides must be exactly unit so the
+        // L2Denorm fast path's inner product yields 1.
+        let lhs = constant_tensor_array(&[3], &[3.0, 4.0, 0.0], 5)?;
+        let rhs = constant_tensor_array(&[3], &[3.0, 4.0, 0.0], 5)?;
+        assert_close(&eval_cosine_similarity(lhs, rhs, 5)?, &[1.0; 5]);
+        Ok(())
+    }
+
+    #[test]
+    fn vector_constant_matches_plain() -> VortexResult<()> {
+        // Exercise the `Vector` extension variant through the new pre-pass.
+        let lhs = constant_vector_array(&[1.0, 2.0, 2.0], 4)?;
+        let rhs = vector_array(
+            3,
+            &[
+                1.0, 0.0, 0.0, //
+                1.0, 2.0, 2.0, //
+                0.0, 0.0, 1.0, //
+                2.0, 1.0, 2.0, //
+            ],
+        )?;
+        assert_close(
+            &eval_cosine_similarity(lhs, rhs, 4)?,
+            &[1.0 / 3.0, 1.0, 2.0 / 3.0, 8.0 / 9.0],
+        );
         Ok(())
     }
 }

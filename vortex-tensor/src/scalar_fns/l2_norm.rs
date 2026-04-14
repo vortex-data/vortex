@@ -12,9 +12,8 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFnArray;
-use vortex_array::arrays::ScalarFnVTable as ScalarFnArrayVTable;
 use vortex_array::arrays::extension::ExtensionArrayExt;
-use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
@@ -125,17 +124,17 @@ impl ScalarFnVTable for L2Norm {
         // L2Norm(L2Denorm(normalized, norms)) is defined to read back the authoritative stored
         // norms. Exact callers of lossy encodings like TurboQuant opt into that storage semantics
         // instead of forcing a decode-and-recompute path here.
-        if let Some(sfn) = input_ref.as_opt::<ScalarFnArrayVTable>()
-            && sfn.scalar_fn().as_opt::<L2Denorm>().is_some()
-        {
-            let norms: PrimitiveArray = sfn.child_at(1).clone().execute(ctx)?;
+        if let Some(sfn) = input_ref.as_opt::<ExactScalarFn<L2Denorm>>() {
+            let norms = sfn
+                .nth_child(1)
+                .vortex_expect("L2Denom must have at 2 children");
 
             vortex_ensure_eq!(
                 norms.dtype(),
                 &DType::Primitive(element_ptype, input_ref.dtype().nullability())
             );
 
-            return Ok(norms.into_array());
+            return Ok(norms);
         }
 
         let input: ExtensionArray = input_ref.execute(ctx)?;

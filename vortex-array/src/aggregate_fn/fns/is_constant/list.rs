@@ -4,6 +4,7 @@
 use vortex_error::VortexResult;
 
 use super::arrays_value_equal;
+use super::is_constant;
 use crate::ExecutionCtx;
 use crate::arrays::ListViewArray;
 use crate::arrays::listview::ListViewArrayExt;
@@ -20,16 +21,24 @@ pub(super) fn check_listview_constant(
         return Ok(true);
     }
 
-    let first_size = l.size_at(0);
-    let first_elements = l.list_elements_at(0)?;
+    if !is_constant(l.sizes(), ctx)? {
+        // If sizes aren't all equal, can't be constant.
+        return Ok(false);
+    }
 
+    let first_size = l.size_at(0);
+    if first_size == 0 {
+        return Ok(true);
+    }
+
+    if is_constant(l.offsets(), ctx)? {
+        // If all offsets are identical, every list references the same slice.
+        return Ok(true);
+    }
+
+    // Check each list individually, this can be expensive.
+    let first_elements = l.list_elements_at(0)?;
     for i in 1..l.len() {
-        if l.size_at(i) != first_size {
-            return Ok(false);
-        }
-        if first_size == 0 {
-            continue;
-        }
         let current_elements = l.list_elements_at(i)?;
         if !arrays_value_equal(&first_elements, &current_elements, ctx)? {
             return Ok(false);

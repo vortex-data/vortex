@@ -203,7 +203,7 @@ jobs:
             runner: amd64-medium
             target: wasm32-unknown-unknown
             env:
-              rustflags: "RUSTFLAGS='-A warnings'"
+              rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"unsupported\"'"
             args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd --exclude vortex-test-e2e-cuda --exclude vortex-sqllogictest"
     steps:
       - uses: runs-on/action@v2

@@ -308,21 +308,37 @@ pub mod vortex_compressor::estimate
 
 pub enum vortex_compressor::estimate::CompressionEstimate
 
-pub vortex_compressor::estimate::CompressionEstimate::AlwaysUse
+pub vortex_compressor::estimate::CompressionEstimate::Deferred(vortex_compressor::estimate::DeferredEstimate)
 
-pub vortex_compressor::estimate::CompressionEstimate::Estimate(alloc::boxed::Box<vortex_compressor::estimate::EstimateFn>)
-
-pub vortex_compressor::estimate::CompressionEstimate::Ratio(f64)
-
-pub vortex_compressor::estimate::CompressionEstimate::Sample
-
-pub vortex_compressor::estimate::CompressionEstimate::Skip
+pub vortex_compressor::estimate::CompressionEstimate::Verdict(vortex_compressor::estimate::EstimateVerdict)
 
 impl core::fmt::Debug for vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_compressor::estimate::CompressionEstimate::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-pub type vortex_compressor::estimate::EstimateFn = (dyn core::ops::function::FnOnce(&vortex_compressor::CascadingCompressor, &mut vortex_compressor::stats::ArrayAndStats, vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_compressor::estimate::CompressionEstimate> + core::marker::Send + core::marker::Sync)
+pub enum vortex_compressor::estimate::DeferredEstimate
+
+pub vortex_compressor::estimate::DeferredEstimate::Callback(alloc::boxed::Box<vortex_compressor::estimate::EstimateFn>)
+
+pub vortex_compressor::estimate::DeferredEstimate::Sample
+
+impl core::fmt::Debug for vortex_compressor::estimate::DeferredEstimate
+
+pub fn vortex_compressor::estimate::DeferredEstimate::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub enum vortex_compressor::estimate::EstimateVerdict
+
+pub vortex_compressor::estimate::EstimateVerdict::AlwaysUse
+
+pub vortex_compressor::estimate::EstimateVerdict::Ratio(f64)
+
+pub vortex_compressor::estimate::EstimateVerdict::Skip
+
+impl core::fmt::Debug for vortex_compressor::estimate::EstimateVerdict
+
+pub fn vortex_compressor::estimate::EstimateVerdict::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub type vortex_compressor::estimate::EstimateFn = (dyn core::ops::function::FnOnce(&vortex_compressor::CascadingCompressor, &mut vortex_compressor::stats::ArrayAndStats, vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_compressor::estimate::EstimateVerdict> + core::marker::Send + core::marker::Sync)
 
 pub mod vortex_compressor::scheme
 

@@ -21,7 +21,6 @@ async-trait = { workspace = true }
 bytes = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["std", "async-await"] }
-getrandom_v03 = { workspace = true }                              # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 itertools = { workspace = true }
 kanal = { workspace = true }
 moka = { workspace = true, features = ["sync"] }
@@ -31,7 +30,6 @@ parking_lot = { workspace = true }
 pin-project-lite = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 tracing = { workspace = true }
-uuid = { workspace = true }                                       # Needed to pickup the "js" feature for wasm targets from the workspace configuration
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
@@ -84,6 +82,3 @@ unstable_encodings = [
     "vortex-zstd?/unstable_encodings",
     "vortex-btrblocks/unstable_encodings",
 ]
-
-[package.metadata.cargo-machete]
-ignored = ["getrandom_v03", "uuid"]

@@ -28,6 +28,8 @@ use crate::builtins::IntDictScheme;
 use crate::builtins::is_float_primitive;
 use crate::ctx::CompressorContext;
 use crate::estimate::CompressionEstimate;
+use crate::estimate::DeferredEstimate;
+use crate::estimate::EstimateVerdict;
 use crate::scheme::ChildSelection;
 use crate::scheme::DescendantExclusion;
 use crate::scheme::Scheme;
@@ -86,7 +88,7 @@ impl Scheme for FloatDictScheme {
         let stats = data.float_stats();
 
         if stats.value_count() == 0 {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         let distinct_values_count = stats.distinct_count().vortex_expect(
@@ -95,11 +97,11 @@ impl Scheme for FloatDictScheme {
 
         // If > 50% of the values are distinct, skip dictionary scheme.
         if distinct_values_count > stats.value_count() / 2 {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         // Let sampling determine the expected ratio.
-        CompressionEstimate::Sample
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
     fn compress(

@@ -26,6 +26,7 @@ use crate::builtins::IntDictScheme;
 use crate::builtins::is_integer_primitive;
 use crate::ctx::CompressorContext;
 use crate::estimate::CompressionEstimate;
+use crate::estimate::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
 use crate::stats::ArrayAndStats;
@@ -62,7 +63,7 @@ impl Scheme for IntDictScheme {
         let stats = data.integer_stats();
 
         if stats.value_count() == 0 {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         let distinct_values_count = stats.distinct_count().vortex_expect(
@@ -71,7 +72,7 @@ impl Scheme for IntDictScheme {
 
         // If > 50% of the values are distinct, skip dictionary scheme.
         if distinct_values_count > stats.value_count() / 2 {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         // Ignore nulls encoding for the estimate. We only focus on values.
@@ -92,7 +93,9 @@ impl Scheme for IntDictScheme {
 
         let before = stats.value_count() as usize * bit_width;
 
-        CompressionEstimate::Ratio(before as f64 / (values_size + codes_size) as f64)
+        CompressionEstimate::Verdict(EstimateVerdict::Ratio(
+            before as f64 / (values_size + codes_size) as f64,
+        ))
     }
 
     fn compress(

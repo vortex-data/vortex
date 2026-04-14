@@ -3,9 +3,6 @@ rustflags = [
     "-C", "force-frame-pointers=yes",
 ]
 
-[target.wasm32-unknown-unknown]
-rustflags = ['--cfg', 'getrandom_backend="wasm_js"', '-C', 'target-feature=+atomics']
-
 [alias]
 xtask = "run -p xtask --"
 vx = "run -p vortex-tui --"

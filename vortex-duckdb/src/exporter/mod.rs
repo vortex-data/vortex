@@ -37,7 +37,6 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 
 use crate::duckdb::DataChunkRef;
-use crate::duckdb::LogicalType;
 use crate::duckdb::VectorRef;
 use crate::duckdb::duckdb_vector_size;
 
@@ -166,7 +165,7 @@ fn new_array_exporter_with_flatten(
 
     // Otherwise, we fall back to canonical
     match array.execute::<Canonical>(ctx)? {
-        Canonical::Null(array) => Ok(all_invalid::new_exporter(array.len(), &LogicalType::null())),
+        Canonical::Null(_) => Ok(all_invalid::new_exporter()),
         Canonical::Bool(array) => bool::new_exporter(array, ctx),
         Canonical::Primitive(array) => primitive::new_exporter(array, ctx),
         Canonical::Decimal(array) => decimal::new_exporter(array, ctx),

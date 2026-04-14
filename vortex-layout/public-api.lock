@@ -172,6 +172,8 @@ pub fn vortex_layout::layouts::compressed::CompressingStrategy::new<S: vortex_la
 
 pub fn vortex_layout::layouts::compressed::CompressingStrategy::with_concurrency(self, concurrency: usize) -> Self
 
+pub fn vortex_layout::layouts::compressed::CompressingStrategy::with_stats(self, stats: &[vortex_array::expr::stats::Stat]) -> Self
+
 impl core::clone::Clone for vortex_layout::layouts::compressed::CompressingStrategy
 
 pub fn vortex_layout::layouts::compressed::CompressingStrategy::clone(&self) -> vortex_layout::layouts::compressed::CompressingStrategy

@@ -22,7 +22,6 @@ async-stream = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true, features = ["std", "executor"] }
-getrandom_v03 = { workspace = true } # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 glob = { workspace = true }
 handle = "1.0.2"
 kanal = { workspace = true }
@@ -67,6 +66,3 @@ tokio = ["tokio/fs", "tokio/rt-multi-thread"]
 
 [lints]
 workspace = true
-
-[package.metadata.cargo-machete]
-ignored = ["getrandom_v03"]

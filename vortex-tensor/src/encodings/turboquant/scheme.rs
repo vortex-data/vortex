@@ -29,6 +29,7 @@ use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_compressor::CascadingCompressor;
 use vortex_compressor::ctx::CompressorContext;
 use vortex_compressor::estimate::CompressionEstimate;
+use vortex_compressor::estimate::EstimateVerdict;
 use vortex_compressor::scheme::Scheme;
 use vortex_compressor::stats::ArrayAndStats;
 use vortex_error::VortexExpect;
@@ -91,11 +92,11 @@ impl Scheme for TurboQuantScheme {
             .vortex_expect("invalid bit width for TurboQuant");
         let dimension = vector_metadata.dimensions();
 
-        CompressionEstimate::Ratio(estimate_compression_ratio(
+        CompressionEstimate::Verdict(EstimateVerdict::Ratio(estimate_compression_ratio(
             element_bit_width,
             dimension,
             len,
-        ))
+        )))
     }
 
     fn compress(
