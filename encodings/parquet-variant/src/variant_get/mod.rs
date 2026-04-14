@@ -101,6 +101,20 @@ fn variant_get_impl(
             .ok_or_else(|| vortex_err!("variant_get did not return a StructArray"))?,
     )
     .map_err(|e| vortex_err!("failed to create VariantArray from result: {e}"))?;
+    let value_nullable = result_variant
+        .inner()
+        .fields()
+        .iter()
+        .find(|field| field.name() == "value")
+        .map(|field| field.is_nullable())
+        .unwrap_or(false);
+    let typed_value_nullable = result_variant
+        .inner()
+        .fields()
+        .iter()
+        .find(|field| field.name() == "typed_value")
+        .map(|field| field.is_nullable())
+        .unwrap_or(false);
 
     // Ensure the result is always nullable (matching variant_get's return_dtype).
     // Arrow may return a non-nullable result when no nulls are present.
@@ -121,11 +135,11 @@ fn variant_get_impl(
     )?;
     let value = result_variant
         .value_field()
-        .map(|v| ArrayRef::from_arrow(v as &dyn arrow_array::Array, true))
+        .map(|v| ArrayRef::from_arrow(v as &dyn arrow_array::Array, value_nullable))
         .transpose()?;
     let typed_value = result_variant
         .typed_value_field()
-        .map(|tv| ArrayRef::from_arrow(tv.as_ref(), true))
+        .map(|tv| ArrayRef::from_arrow(tv.as_ref(), typed_value_nullable))
         .transpose()?;
 
     let pv = ParquetVariant::try_new(validity, metadata, value, typed_value)?;

@@ -9,6 +9,7 @@
 //! [`ArrayParentReduceRule`] and [`ExecuteParentKernel`] respectively.
 
 mod array;
+mod parent_kernels;
 mod rules;
 mod slice_;
 mod vtable;

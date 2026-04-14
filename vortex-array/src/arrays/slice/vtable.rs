@@ -30,6 +30,7 @@ use crate::arrays::slice::SliceArrayExt;
 use crate::arrays::slice::array::CHILD_SLOT;
 use crate::arrays::slice::array::SLOT_NAMES;
 use crate::arrays::slice::array::SliceData;
+use crate::arrays::slice::parent_kernels::PARENT_KERNELS;
 use crate::arrays::slice::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -157,6 +158,15 @@ impl VTable for Slice {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute_parent(
+        array: ArrayView<'_, Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 impl OperationsVTable<Slice> for Slice {

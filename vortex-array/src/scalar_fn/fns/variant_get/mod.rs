@@ -41,8 +41,11 @@ pub use path::VariantPathElement;
 /// requested path may not exist in every row.
 ///
 /// Execution is handled by variant encodings (e.g. `ParquetVariantArray`) via `execute_parent`.
-/// The canonical `VariantArray` does not support direct execution; a `reduce` rule unwraps
-/// the `VariantArray` wrapper to expose the underlying encoding.
+/// The canonical `VariantArray` does not support direct execution, so `VariantGet` keeps a small
+/// `reduce` rule that unwraps a direct `VariantArray` child to expose the underlying encoding.
+/// Wrapper arrays such as `Slice` and `Filter` forward `VariantGet` from their own
+/// `execute_parent` hooks so the expression can still reach the underlying variant encoding
+/// without teaching `VariantGet` about wrapper-specific array shapes.
 #[derive(Clone)]
 pub struct VariantGet;
 
@@ -213,14 +216,12 @@ impl ScalarFnVTable for VariantGet {
 
     fn execute(
         &self,
-        _options: &VariantGetOptions,
-        _args: &dyn ExecutionArgs,
-        _ctx: &mut ExecutionCtx,
+        options: &VariantGetOptions,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        vortex_bail!(
-            "variant_get cannot be executed directly; \
-             it must be pushed down to a variant encoding via execute_parent"
-        )
+        let _ = (options, args, ctx);
+        vortex_bail!("variant_get cannot be executed directly")
     }
 
     fn reduce(
