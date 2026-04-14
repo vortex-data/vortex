@@ -188,8 +188,8 @@ struct ScalarOp {
 /// `smem_byte_offset` is a byte offset into the dynamic shared memory
 /// pool so that stages with different element widths can coexist.
 struct PackedStage {
-    uint64_t input_ptr;        // global memory pointer to this stage's encoded input
-    uint64_t patches_ptr;      // device ptr to packed source patches (0 = none)
+    uint64_t input_ptr;   // global memory pointer to this stage's encoded input
+    uint64_t patches_ptr; // device ptr to packed source patches (0 = none)
     struct SourceOp source;
     uint32_t len;              // number of elements this stage produces
     uint16_t smem_byte_offset; // byte offset within dynamic shared memory for output

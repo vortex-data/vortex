@@ -192,9 +192,8 @@ __device__ inline void bitunpack(const T *__restrict packed,
 /// The packed layout is: [lane_offsets (uint32 × lo_count)] [indices (uint16 × num_patches)]
 /// [values (T × num_patches, aligned)].  Returns null pointers when patches_ptr == 0.
 template <typename T>
-__device__ inline GPUPatches unpack_source_patches(uint64_t patches_ptr,
-                                                    uint32_t stage_len,
-                                                    uint32_t element_offset) {
+__device__ inline GPUPatches
+unpack_source_patches(uint64_t patches_ptr, uint32_t stage_len, uint32_t element_offset) {
     static_assert((sizeof(T) & (sizeof(T) - 1)) == 0, "sizeof(T) must be a power of two");
     uint8_t *base = reinterpret_cast<uint8_t *>(patches_ptr);
     constexpr uint32_t FL_CHUNK = 1024;
@@ -208,17 +207,17 @@ __device__ inline GPUPatches unpack_source_patches(uint64_t patches_ptr,
     uint32_t values_byte_start = indices_byte_start + num_patches * sizeof(uint16_t);
     values_byte_start = (values_byte_start + sizeof(T) - 1) & ~(sizeof(T) - 1);
     void *values = base + values_byte_start;
-    return { lane_offsets, indices, values };
+    return {lane_offsets, indices, values};
 }
 
 /// Apply source patches for a single FL chunk (used in the output stage).
 /// Overwrites patched positions in `scratch` and issues __syncthreads().
 template <typename T>
 __device__ inline void apply_source_patches_chunk(uint64_t patches_ptr,
-                                                   T *__restrict scratch,
-                                                   uint32_t stage_len,
-                                                   uint32_t element_offset,
-                                                   uint32_t fl_chunk) {
+                                                  T *__restrict scratch,
+                                                  uint32_t stage_len,
+                                                  uint32_t element_offset,
+                                                  uint32_t fl_chunk) {
     const GPUPatches patches = unpack_source_patches<T>(patches_ptr, stage_len, element_offset);
     constexpr uint32_t N_LANES = (sizeof(T) < 8) ? 32 : 16;
     for (uint32_t lane = threadIdx.x; lane < N_LANES; lane += blockDim.x) {
@@ -236,9 +235,9 @@ __device__ inline void apply_source_patches_chunk(uint64_t patches_ptr,
 /// Overwrites patched positions in `smem_out` and issues __syncthreads().
 template <typename T>
 __device__ inline void apply_source_patches_all(uint64_t patches_ptr,
-                                                 T *__restrict smem_out,
-                                                 uint32_t stage_len,
-                                                 uint32_t element_offset) {
+                                                T *__restrict smem_out,
+                                                uint32_t stage_len,
+                                                uint32_t element_offset) {
     const GPUPatches patches = unpack_source_patches<T>(patches_ptr, stage_len, element_offset);
     constexpr uint32_t FL_CHUNK = 1024;
     constexpr uint32_t N_LANES = (sizeof(T) < 8) ? 32 : 16;
@@ -397,8 +396,11 @@ __device__ void execute_output_stage(T *__restrict output,
             if (stage.patches_ptr != 0) {
                 const uint32_t fl_chunk = static_cast<uint32_t>(
                     (block_start + elem_idx + src.params.bitunpack.element_offset) / 1024);
-                apply_source_patches_chunk<T>(stage.patches_ptr, scratch,
-                                              stage.len, src.params.bitunpack.element_offset, fl_chunk);
+                apply_source_patches_chunk<T>(stage.patches_ptr,
+                                              scratch,
+                                              stage.len,
+                                              src.params.bitunpack.element_offset,
+                                              fl_chunk);
             }
         } else {
             chunk_len = block_len;
@@ -482,7 +484,8 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
 
         // Merge source patches into the decoded smem region.
         if (stage.patches_ptr != 0) {
-            apply_source_patches_all<T>(stage.patches_ptr, raw_smem,
+            apply_source_patches_all<T>(stage.patches_ptr,
+                                        raw_smem,
                                         stage.len,
                                         src.params.bitunpack.element_offset);
         }
