@@ -13,7 +13,6 @@ use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
 use vortex::encodings::fastlanes::Delta;
 use vortex::error::VortexResult;
-use vortex_array::VTable;
 use vortex_session::VortexSession;
 
 use super::N;

@@ -19,7 +19,6 @@ use vortex::array::scalar::DecimalValue;
 use vortex::array::scalar::Scalar;
 use vortex::array::validity::Validity;
 use vortex::error::VortexResult;
-use vortex_array::VTable;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
