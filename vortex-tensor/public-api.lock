@@ -550,4 +550,12 @@ impl core::marker::Copy for vortex_tensor::vector::VectorMatcherMetadata
 
 impl core::marker::StructuralPartialEq for vortex_tensor::vector::VectorMatcherMetadata
 
+pub mod vortex_tensor::vector_search
+
+pub fn vortex_tensor::vector_search::build_constant_query_vector<T: vortex_array::dtype::ptype::NativePType + core::convert::Into<vortex_array::scalar::typed_view::primitive::pvalue::PValue>>(query: &[T], num_rows: usize) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_tensor::vector_search::build_similarity_search_tree<T: vortex_array::dtype::ptype::NativePType + core::convert::Into<vortex_array::scalar::typed_view::primitive::pvalue::PValue>>(data: vortex_array::array::erased::ArrayRef, query: &[T], threshold: T) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_tensor::vector_search::compress_turboquant(data: vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
 pub fn vortex_tensor::initialize(session: &vortex_session::VortexSession)

@@ -527,18 +527,9 @@ impl InnerProduct {
         let values: &[f32] = values_prim.as_slice::<f32>();
         debug_assert_eq!(codes.len(), len * padded_dim);
 
-        // Direct codebook lookup in the hot loop. See the function doc comment for why this
-        // beats an explicit product table here.
-        let mut out = BufferMut::<f32>::with_capacity(len);
-        for row in 0..len {
-            let row_codes = &codes[row * padded_dim..(row + 1) * padded_dim];
-            let mut acc = 0.0f32;
-            for j in 0..padded_dim {
-                acc += q[j] * values[row_codes[j] as usize];
-            }
-            // SAFETY: we reserved `len` slots above and push exactly once per row.
-            unsafe { out.push_unchecked(acc) };
-        }
+        // The hot loop is extracted into [`execute_dict_constant_inner_product`] with
+        // unchecked indexing so the compiler can vectorize the inner gather-accumulate.
+        let out = execute_dict_constant_inner_product(q, values, codes, len, padded_dim);
 
         // SAFETY: the buffer length equals `len`, which matches the validity length.
         let result = unsafe { PrimitiveArray::new_unchecked(out.freeze(), validity) }.into_array();
@@ -554,6 +545,49 @@ fn inner_product_row<T: Float + NativePType>(a: &[T], b: &[T]) -> T {
         .zip(b.iter())
         .map(|(&x, &y)| x * y)
         .fold(T::zero(), |acc, v| acc + v)
+}
+
+/// Compute inner products between a constant query vector and dictionary-encoded rows.
+///
+/// For each row, computes `sum(q[j] * values[codes[row * dim + j]])` using the codebook
+/// `values` directly instead of decoding the dictionary into dense vectors.
+///
+/// The inner loop uses four independent accumulators so the CPU can pipeline FP additions
+/// instead of waiting for each `fadd` to retire before starting the next.
+fn execute_dict_constant_inner_product(
+    q: &[f32],
+    values: &[f32],
+    codes: &[u8],
+    num_rows: usize,
+    dim: usize,
+) -> BufferMut<f32> {
+    let mut out = BufferMut::<f32>::with_capacity(num_rows);
+
+    const PARTIAL_SUMS: usize = 8;
+
+    for row_codes in codes.chunks_exact(dim) {
+        let mut acc = [0.0f32; PARTIAL_SUMS];
+
+        let code_chunks = row_codes.chunks_exact(PARTIAL_SUMS);
+        let q_chunks = q.chunks_exact(PARTIAL_SUMS);
+        let code_rem = code_chunks.remainder();
+        let q_rem = q_chunks.remainder();
+
+        for (cc, qd) in code_chunks.zip(q_chunks) {
+            for i in 0..PARTIAL_SUMS {
+                acc[i] = qd[i].mul_add(values[cc[i] as usize], acc[i]);
+            }
+        }
+
+        for (&code, &q_val) in code_rem.iter().zip(q_rem.iter()) {
+            acc[0] = q_val.mul_add(values[code as usize], acc[0]);
+        }
+
+        // SAFETY: we reserved `num_rows` slots and push exactly once per row.
+        unsafe { out.push_unchecked(acc.iter().sum::<f32>()) };
+    }
+
+    out
 }
 
 #[cfg(test)]

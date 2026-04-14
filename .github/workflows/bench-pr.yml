@@ -60,7 +60,7 @@ jobs:
         env:
           RUSTFLAGS: "-C target-cpu=native"
         run: |
-          cargo build --package ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }}
+          cargo build --package ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }} --features unstable_encodings
 
       - name: Setup Polar Signals
         if: github.event.pull_request.head.repo.fork == false
@@ -76,6 +76,8 @@ jobs:
         shell: bash
         env:
           RUST_BACKTRACE: full
+          VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
+          FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
           bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} -d gh-json -o results.json
 
