@@ -71,7 +71,7 @@ impl VTable for ScalarFnVTable {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        self.id.clone()
+        self.id
     }
 
     fn validate(
