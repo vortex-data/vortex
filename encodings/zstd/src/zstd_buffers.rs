@@ -59,9 +59,9 @@ impl ZstdBuffers {
         session: &VortexSession,
     ) -> VortexResult<ZstdBuffersArray> {
         let encoding_id = array.encoding_id();
-        let metadata = array
-            .metadata(session)?
-            .ok_or_else(|| vortex_err!("Array does not support serialization"))?;
+        let metadata = session
+            .array_serialize(array)?
+            .ok_or_else(|| vortex_err!("[ZstdBuffers]: Array does not support serialization"))?;
         let buffer_handles = array.buffer_handles();
         let children = array.children();
 

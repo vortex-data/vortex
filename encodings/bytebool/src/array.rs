@@ -347,7 +347,6 @@ impl From<Vec<Option<bool>>> for ByteBoolData {
 mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::assert_arrays_eq;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
@@ -402,7 +401,7 @@ mod tests {
         let serialized = array
             .clone()
             .into_array()
-            .serialize(&ctx, &LEGACY_SESSION, &SerializeOptions::default())
+            .serialize(&ctx, &session, &SerializeOptions::default())
             .unwrap();
 
         let mut concat = ByteBufferMut::empty();

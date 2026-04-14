@@ -134,7 +134,7 @@ mod tests {
 
         let array = alp_encoded.as_array();
 
-        let metadata = array.metadata(&SESSION)?.unwrap_or_default();
+        let metadata = SESSION.array_serialize(array)?.unwrap();
         let children = array.children();
         let buffers = array
             .buffers()
@@ -183,7 +183,7 @@ mod tests {
 
         let array = alp_encoded.as_array();
 
-        let metadata = array.metadata(&SESSION)?.unwrap_or_default();
+        let metadata = SESSION.array_serialize(array)?.unwrap();
         let children = array.children();
         let buffers = array
             .buffers()
@@ -214,7 +214,7 @@ mod tests {
     fn primitive_array_returns_error() {
         let array = PrimitiveArray::from_iter([1.0f64, 2.0, 3.0]).into_array();
 
-        let metadata = array.metadata(&SESSION).unwrap().unwrap_or_default();
+        let metadata = SESSION.array_serialize(&array).unwrap().unwrap();
         let children = array.children();
         let buffers = array
             .buffers()

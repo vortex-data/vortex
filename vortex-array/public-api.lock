@@ -22014,8 +22014,6 @@ pub fn vortex_array::ArrayRef::is_valid(&self, index: usize) -> vortex_error::Vo
 
 pub fn vortex_array::ArrayRef::len(&self) -> usize
 
-pub fn vortex_array::ArrayRef::metadata(&self, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
-
 pub fn vortex_array::ArrayRef::metadata_fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_array::ArrayRef::named_buffers(&self) -> alloc::vec::Vec<(alloc::string::String, vortex_array::buffer::BufferHandle)>

@@ -193,7 +193,7 @@ fn test_serde() -> VortexResult<()> {
     let bytes = pco
         .serialize(
             &context,
-            &LEGACY_SESSION,
+            &SESSION,
             &SerializeOptions {
                 offset: 0,
                 include_padding: true,

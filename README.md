@@ -86,11 +86,14 @@ uv add vortex-data
 For browsing the structure of Vortex files, you can use the `vx` command-line tool.
 
 ```bash
-# Install latest release
-cargo install vortex-tui --locked
+# Install pre-built binary (fast, recommended)
+cargo binstall vortex-tui
 
 # Or build from source
-cargo install --path vortex-tui --locked
+cargo install vortex-tui --locked
+
+# Or run via Python without installing
+uvx --from vortex-data vx --help
 
 # Usage
 vx browse <file>
