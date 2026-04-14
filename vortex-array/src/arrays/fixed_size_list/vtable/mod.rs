@@ -41,7 +41,6 @@ pub type FixedSizeListArray = Array<FixedSizeList>;
 #[derive(Clone, Debug)]
 pub struct FixedSizeList;
 
-
 impl ArrayHash for FixedSizeListData {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
         let _precision = precision;

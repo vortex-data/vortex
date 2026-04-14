@@ -199,4 +199,3 @@ impl VTable for VarBin {
 
 #[derive(Clone, Debug)]
 pub struct VarBin;
-

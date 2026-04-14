@@ -30,7 +30,6 @@ pub type VariantArray = Array<Variant>;
 #[derive(Clone, Debug)]
 pub struct Variant;
 
-
 impl VTable for Variant {
     type ArrayData = EmptyArrayData;
 

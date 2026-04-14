@@ -49,7 +49,6 @@ pub type MaskedArray = Array<Masked>;
 #[derive(Clone, Debug)]
 pub struct Masked;
 
-
 impl ArrayHash for MaskedData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
 }

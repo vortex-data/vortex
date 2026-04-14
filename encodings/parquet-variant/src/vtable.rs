@@ -46,7 +46,6 @@ use crate::kernel::PARENT_KERNELS;
 #[derive(Debug, Clone)]
 pub struct ParquetVariant;
 
-
 #[derive(Clone, prost::Message)]
 struct ParquetVariantMetadataProto {
     /// Whether the un-shredded `value` child is present.

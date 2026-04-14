@@ -193,7 +193,6 @@ impl VTable for Bool {
 #[derive(Clone, Debug)]
 pub struct Bool;
 
-
 #[cfg(test)]
 mod tests {
     use vortex_buffer::ByteBufferMut;

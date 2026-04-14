@@ -167,4 +167,3 @@ impl VTable for Extension {
 
 #[derive(Clone, Debug)]
 pub struct Extension;
-

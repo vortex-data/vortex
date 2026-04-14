@@ -207,4 +207,3 @@ impl VTable for Struct {
 
 #[derive(Clone, Debug)]
 pub struct Struct;
-

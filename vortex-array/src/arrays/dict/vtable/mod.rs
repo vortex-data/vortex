@@ -53,7 +53,6 @@ pub type DictArray = Array<Dict>;
 #[derive(Clone, Debug)]
 pub struct Dict;
 
-
 impl ArrayHash for DictData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
 }

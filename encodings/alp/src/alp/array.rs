@@ -239,7 +239,6 @@ impl Display for ALPData {
 #[derive(Clone, Debug)]
 pub struct ALP;
 
-
 #[derive(Clone, prost::Message)]
 pub struct ALPMetadata {
     #[prost(uint32, tag = "1")]

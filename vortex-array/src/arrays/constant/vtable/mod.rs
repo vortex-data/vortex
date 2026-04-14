@@ -52,7 +52,6 @@ pub type ConstantArray = Array<Constant>;
 #[derive(Clone, Debug)]
 pub struct Constant;
 
-
 impl ArrayHash for ConstantData {
     fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
         self.scalar.hash(state);

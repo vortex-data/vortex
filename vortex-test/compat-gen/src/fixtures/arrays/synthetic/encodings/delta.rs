@@ -3,8 +3,8 @@
 
 use vortex::VortexSessionDefault;
 use vortex::array::ArrayId;
-use vortex::array::ArrayVTable;
 use vortex::array::ArrayRef;
+use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;

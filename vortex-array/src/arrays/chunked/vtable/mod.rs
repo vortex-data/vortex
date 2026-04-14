@@ -49,7 +49,6 @@ pub type ChunkedArray = Array<Chunked>;
 #[derive(Clone, Debug)]
 pub struct Chunked;
 
-
 impl ArrayHash for ChunkedData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {
         // Chunk offsets are cached derived data. Slot 0 already stores the logical offsets array,

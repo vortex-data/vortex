@@ -38,7 +38,6 @@ pub type SharedArray = Array<Shared>;
 #[derive(Clone, Debug)]
 pub struct Shared;
 
-
 impl ArrayHash for SharedData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
 }

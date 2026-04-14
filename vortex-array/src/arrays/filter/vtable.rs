@@ -49,7 +49,6 @@ pub type FilterArray = Array<Filter>;
 #[derive(Clone, Debug)]
 pub struct Filter;
 
-
 impl ArrayHash for FilterData {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
         self.mask.array_hash(state, precision);

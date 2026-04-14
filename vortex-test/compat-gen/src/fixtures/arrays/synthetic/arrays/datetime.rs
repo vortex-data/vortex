@@ -4,8 +4,8 @@
 use std::sync::Arc;
 
 use vortex_array::ArrayId;
-use vortex_array::ArrayVTable;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayVTable;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Extension;
 use vortex_array::arrays::PrimitiveArray;

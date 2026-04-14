@@ -43,7 +43,6 @@ pub type VarBinViewArray = Array<VarBinView>;
 #[derive(Clone, Debug)]
 pub struct VarBinView;
 
-
 impl ArrayHash for VarBinViewData {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
         for buffer in self.buffers.iter() {

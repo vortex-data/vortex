@@ -43,7 +43,6 @@ pub type ListViewArray = Array<ListView>;
 #[derive(Clone, Debug)]
 pub struct ListView;
 
-
 #[derive(Clone, prost::Message)]
 pub struct ListViewMetadata {
     #[prost(uint64, tag = "1")]

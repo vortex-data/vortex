@@ -206,7 +206,6 @@ impl VTable for Decimal {
 #[derive(Clone, Debug)]
 pub struct Decimal;
 
-
 #[cfg(test)]
 mod tests {
     use vortex_buffer::ByteBufferMut;

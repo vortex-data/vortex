@@ -205,7 +205,6 @@ impl VTable for Primitive {
 #[derive(Clone, Debug)]
 pub struct Primitive;
 
-
 #[cfg(test)]
 mod tests {
     use vortex_buffer::ByteBufferMut;

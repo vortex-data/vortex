@@ -62,17 +62,9 @@ impl Default for AggregateFnSession {
         this.register(Sum);
 
         // Register the built-in aggregate kernels.
-        this.register_aggregate_kernel(
-            Chunked.id(),
-            None::<AggregateFnId>,
-            &ChunkedArrayAggregate,
-        );
+        this.register_aggregate_kernel(Chunked.id(), None::<AggregateFnId>, &ChunkedArrayAggregate);
         this.register_aggregate_kernel(Dict.id(), Some(MinMax.id()), &DictMinMaxKernel);
-        this.register_aggregate_kernel(
-            Dict.id(),
-            Some(IsConstant.id()),
-            &DictIsConstantKernel,
-        );
+        this.register_aggregate_kernel(Dict.id(), Some(IsConstant.id()), &DictIsConstantKernel);
         this.register_aggregate_kernel(Dict.id(), Some(IsSorted.id()), &DictIsSortedKernel);
 
         this

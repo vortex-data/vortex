@@ -46,7 +46,6 @@ pub type SliceArray = Array<Slice>;
 #[derive(Clone, Debug)]
 pub struct Slice;
 
-
 impl ArrayHash for SliceData {
     fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
         self.range.start.hash(state);

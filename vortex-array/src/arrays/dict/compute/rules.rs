@@ -4,11 +4,11 @@
 use vortex_error::VortexResult;
 
 use crate::ArrayEq;
-use crate::array::VTable;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::Precision;
 use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
