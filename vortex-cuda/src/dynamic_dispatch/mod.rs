@@ -1059,7 +1059,7 @@ mod tests {
         let array = dict.into_array();
 
         // Mixed-width Dict (u8 codes, u32 values): both are Primitive, so
-        // walk_mixed_width_child grabs the codes buffer directly as a LOAD
+        // walk_child grabs the codes buffer directly as a LOAD
         // source. No pending subtrees → Fused.
         let plan = DispatchPlan::new(&array)?;
         assert!(
@@ -1091,7 +1091,7 @@ mod tests {
         let array = dict.into_array();
 
         // Mixed-width Dict (u16 codes, u32 values): both are Primitive, so
-        // walk_mixed_width_child grabs the codes buffer directly as a LOAD
+        // walk_child grabs the codes buffer directly as a LOAD
         // source. No pending subtrees → Fused.
         let plan = DispatchPlan::new(&array)?;
         assert!(

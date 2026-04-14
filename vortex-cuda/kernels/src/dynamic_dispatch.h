@@ -227,7 +227,7 @@ struct Stage {
     uint16_t smem_byte_offset;         // byte offset within dynamic shared memory
     enum PTypeTag source_ptype;        // PType produced by the source op
     uint8_t num_scalar_ops;            // number of scalar ops
-    struct SourceOp source;            // source decode op (packed, align 1)
+    struct SourceOp source;            // source decode op
 };
 
 /// Parse a single stage from the packed plan byte buffer and advance the cursor.

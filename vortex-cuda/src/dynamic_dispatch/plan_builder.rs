@@ -490,10 +490,10 @@ impl FusedPlan {
         }
     }
 
-    /// SliceArray → resolve the slice via reduce/execute rules.
+    /// SliceArray → resolve the slice via `reduce_parent`.
     ///
     /// When the plan builder encounters a `SliceArray`, it resolves the slice
-    /// by invoking the child's `reduce_parent`, `execute_parent`.
+    /// by invoking the child's `reduce_parent`.
     fn walk_slice(
         &mut self,
         array: ArrayRef,
@@ -696,7 +696,7 @@ impl FusedPlan {
         let values_spec = self.walk_child(values, pending_subtrees)?;
         let values_smem_byte_offset = self.push_smem_stage(values_spec, num_values)?;
 
-        // Pass byte offsets and PTypeTags directly — the C ABI now uses
+        // Pass byte offsets and PTypeTags directly — the C ABI uses
         // byte offsets and per-field ptype tags for cross-stage references.
         Ok(Stage::new(
             SourceOp::runend(
