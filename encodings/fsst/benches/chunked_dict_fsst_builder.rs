@@ -49,13 +49,15 @@ fn chunked_dict_fsst_canonical_into(
 ) {
     let chunk = make_dict_fsst_chunks::<u16>(len, unique_values, chunk_count);
 
-    bencher.with_inputs(|| &chunk).bench_refs(|chunk| {
-        let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk
-            .append_to_builder(builder.as_mut(), &mut SESSION.create_execution_ctx())
-            .vortex_expect("append failed");
-        builder.finish()
-    })
+    bencher
+        .with_inputs(|| (&chunk, SESSION.create_execution_ctx()))
+        .bench_refs(|(chunk, ctx)| {
+            let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
+            chunk
+                .append_to_builder(builder.as_mut(), ctx)
+                .vortex_expect("append failed");
+            builder.finish()
+        })
 }
 
 #[divan::bench(args = BENCH_ARGS)]

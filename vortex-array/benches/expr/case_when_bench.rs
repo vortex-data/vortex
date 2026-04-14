@@ -70,14 +70,13 @@ fn case_when_simple(bencher: Bencher, size: usize) {
     );
 
     bencher
-        .with_inputs(|| (&expr, &array))
-        .bench_refs(|(expr, array)| {
-            let mut ctx = SESSION.create_execution_ctx();
+        .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
+        .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
                 .apply(expr)
                 .unwrap()
-                .execute::<Canonical>(&mut ctx)
+                .execute::<Canonical>(ctx)
                 .unwrap()
         });
 }
@@ -98,14 +97,13 @@ fn case_when_nary_3_conditions(bencher: Bencher, size: usize) {
     );
 
     bencher
-        .with_inputs(|| (&expr, &array))
-        .bench_refs(|(expr, array)| {
-            let mut ctx = SESSION.create_execution_ctx();
+        .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
+        .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
                 .apply(expr)
                 .unwrap()
-                .execute::<Canonical>(&mut ctx)
+                .execute::<Canonical>(ctx)
                 .unwrap()
         });
 }
@@ -127,14 +125,13 @@ fn case_when_nary_10_conditions(bencher: Bencher, size: usize) {
     let expr = nested_case_when(pairs, Some(lit(0i32)));
 
     bencher
-        .with_inputs(|| (&expr, &array))
-        .bench_refs(|(expr, array)| {
-            let mut ctx = SESSION.create_execution_ctx();
+        .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
+        .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
                 .apply(expr)
                 .unwrap()
-                .execute::<Canonical>(&mut ctx)
+                .execute::<Canonical>(ctx)
                 .unwrap()
         });
 }
@@ -151,14 +148,13 @@ fn case_when_nary_equality_lookup(bencher: Bencher, size: usize) {
     let expr = nested_case_when(pairs, Some(lit(-1i32)));
 
     bencher
-        .with_inputs(|| (&expr, &array))
-        .bench_refs(|(expr, array)| {
-            let mut ctx = SESSION.create_execution_ctx();
+        .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
+        .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
                 .apply(expr)
                 .unwrap()
-                .execute::<Canonical>(&mut ctx)
+                .execute::<Canonical>(ctx)
                 .unwrap()
         });
 }
@@ -172,14 +168,13 @@ fn case_when_without_else(bencher: Bencher, size: usize) {
     let expr = case_when_no_else(gt(get_item("value", root()), lit(500i32)), lit(100i32));
 
     bencher
-        .with_inputs(|| (&expr, &array))
-        .bench_refs(|(expr, array)| {
-            let mut ctx = SESSION.create_execution_ctx();
+        .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
+        .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
                 .apply(expr)
                 .unwrap()
-                .execute::<Canonical>(&mut ctx)
+                .execute::<Canonical>(ctx)
                 .unwrap()
         });
 }
@@ -197,14 +192,13 @@ fn case_when_all_true(bencher: Bencher, size: usize) {
     );
 
     bencher
-        .with_inputs(|| (&expr, &array))
-        .bench_refs(|(expr, array)| {
-            let mut ctx = SESSION.create_execution_ctx();
+        .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
+        .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
                 .apply(expr)
                 .unwrap()
-                .execute::<Canonical>(&mut ctx)
+                .execute::<Canonical>(ctx)
                 .unwrap()
         });
 }
@@ -231,14 +225,13 @@ fn case_when_nary_early_dominant(bencher: Bencher, size: usize) {
     );
 
     bencher
-        .with_inputs(|| (&expr, &array))
-        .bench_refs(|(expr, array)| {
-            let mut ctx = SESSION.create_execution_ctx();
+        .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
+        .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
                 .apply(expr)
                 .unwrap()
-                .execute::<Canonical>(&mut ctx)
+                .execute::<Canonical>(ctx)
                 .unwrap()
         });
 }
@@ -256,14 +249,13 @@ fn case_when_all_false(bencher: Bencher, size: usize) {
     );
 
     bencher
-        .with_inputs(|| (&expr, &array))
-        .bench_refs(|(expr, array)| {
-            let mut ctx = SESSION.create_execution_ctx();
+        .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
+        .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
                 .apply(expr)
                 .unwrap()
-                .execute::<Canonical>(&mut ctx)
+                .execute::<Canonical>(ctx)
                 .unwrap()
         });
 }
@@ -284,14 +276,13 @@ fn case_when_fragmented(bencher: Bencher, size: usize) {
     );
 
     bencher
-        .with_inputs(|| (&expr, &array))
-        .bench_refs(|(expr, array)| {
-            let mut ctx = SESSION.create_execution_ctx();
+        .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
+        .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
                 .apply(expr)
                 .unwrap()
-                .execute::<Canonical>(&mut ctx)
+                .execute::<Canonical>(ctx)
                 .unwrap()
         });
 }
