@@ -51,7 +51,12 @@ fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast>(
         .map(|_| T::from_usize(rng.random_range(0..10_000)).vortex_expect(""))
         .collect::<PrimitiveArray>();
 
-    let alp = alp_encode(a.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).vortex_expect("");
+    let alp = alp_encode(
+        a.as_view(),
+        None,
+        &mut LEGACY_SESSION.create_execution_ctx(),
+    )
+    .vortex_expect("");
 
     let encoded = alp.encoded().to_primitive();
 

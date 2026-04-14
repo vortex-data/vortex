@@ -37,9 +37,7 @@ impl TakeExecute for VarBin {
             .dtype()
             .clone()
             .union_nullability(indices.dtype().nullability());
-        let array_validity = array
-            .varbin_validity()
-            .to_mask(array.as_ref().len(), ctx)?;
+        let array_validity = array.varbin_validity().to_mask(array.as_ref().len(), ctx)?;
         let indices_validity = indices
             .as_ref()
             .validity()?

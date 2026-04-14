@@ -152,7 +152,12 @@ mod tests {
     #[test]
     fn test_compress() {
         let array = PrimitiveArray::new(buffer![1.234f32; 1025], Validity::NonNullable);
-        let encoded = alp_encode(array.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         assert!(encoded.patches().is_none());
         let expected_encoded = PrimitiveArray::from_iter(vec![1234i32; 1025]);
         assert_arrays_eq!(encoded.encoded(), expected_encoded);
@@ -166,7 +171,12 @@ mod tests {
     #[test]
     fn test_nullable_compress() {
         let array = PrimitiveArray::from_option_iter([None, Some(1.234f32), None]);
-        let encoded = alp_encode(array.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         assert!(encoded.patches().is_none());
         let expected_encoded = PrimitiveArray::from_option_iter([None, Some(1234i32), None]);
         assert_arrays_eq!(encoded.encoded(), expected_encoded);
@@ -183,7 +193,12 @@ mod tests {
     fn test_patched_compress() {
         let values = buffer![1.234f64, 2.718, PI, 4.0];
         let array = PrimitiveArray::new(values.clone(), Validity::NonNullable);
-        let encoded = alp_encode(array.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         assert!(encoded.patches().is_some());
         let expected_encoded = PrimitiveArray::from_iter(vec![1234i64, 2718, 1234, 4000]);
         assert_arrays_eq!(encoded.encoded(), expected_encoded);
@@ -200,7 +215,12 @@ mod tests {
     fn test_compress_ignores_invalid_exceptional_values() {
         let values = buffer![1.234f64, 2.718, PI, 4.0];
         let array = PrimitiveArray::new(values, Validity::from_iter([true, true, false, true]));
-        let encoded = alp_encode(array.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         assert!(encoded.patches().is_none());
         let expected_encoded =
             PrimitiveArray::from_option_iter(buffer![Some(1234i64), Some(2718), None, Some(4000)]);
@@ -222,7 +242,12 @@ mod tests {
             Some(4.0),
             None,
         ]);
-        let encoded = alp_encode(array.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         assert!(encoded.patches().is_some());
 
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
@@ -236,7 +261,12 @@ mod tests {
     #[test]
     fn roundtrips_close_fractional() {
         let original = PrimitiveArray::from_iter([195.26274f32, 195.27837, -48.815685]);
-        let alp_arr = alp_encode(original.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let alp_arr = alp_encode(
+            original.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         assert_arrays_eq!(alp_arr, original);
     }
 
@@ -244,7 +274,12 @@ mod tests {
     fn roundtrips_all_null() {
         let original =
             PrimitiveArray::new(buffer![195.26274f64, PI, -48.815685], Validity::AllInvalid);
-        let alp_arr = alp_encode(original.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let alp_arr = alp_encode(
+            original.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         let decompressed = alp_arr.into_array().to_primitive();
 
         assert_eq!(
@@ -262,7 +297,12 @@ mod tests {
             buffer![0.0f32, -0.0, f32::NAN, f32::NEG_INFINITY, f32::INFINITY],
             Validity::NonNullable,
         );
-        let encoded = alp_encode(original.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            original.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         let decoded = encoded.as_array().to_primitive();
         for idx in 0..original.len() {
             let decoded_val = decoded.as_slice::<f32>()[idx];
@@ -283,7 +323,12 @@ mod tests {
         values[1025] = PI;
 
         let array = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
-        let encoded = alp_encode(array.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         let patches = encoded.patches().unwrap();
 
         let chunk_offsets = patches.chunk_offsets().clone().unwrap().to_primitive();
@@ -306,7 +351,12 @@ mod tests {
         values[2048] = E;
 
         let array = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
-        let encoded = alp_encode(array.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         let patches = encoded.patches().unwrap();
 
         let chunk_offsets = patches.chunk_offsets().clone().unwrap().to_primitive();
@@ -328,7 +378,12 @@ mod tests {
         values[0] = PI;
 
         let array = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
-        let encoded = alp_encode(array.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         let patches = encoded.patches().unwrap();
 
         let chunk_offsets = patches.chunk_offsets().clone().unwrap().to_primitive();
@@ -351,7 +406,12 @@ mod tests {
         values[100] = E;
 
         let array = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
-        let encoded = alp_encode(array.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         let patches = encoded.patches().unwrap();
 
         let chunk_offsets = patches.chunk_offsets().clone().unwrap().to_primitive();
@@ -372,7 +432,12 @@ mod tests {
         // Create 1024 elements, encode, slice to first 512, then decode
         let values = vec![1.234f32; 1024];
         let original = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
-        let encoded = alp_encode(original.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            original.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         let sliced_alp = encoded.slice(512..1024).unwrap();
 
@@ -384,7 +449,12 @@ mod tests {
     fn test_slice_half_chunk_f64_roundtrip() {
         let values = vec![5.678f64; 1024];
         let original = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
-        let encoded = alp_encode(original.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            original.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         let sliced_alp = encoded.slice(512..1024).unwrap();
 
@@ -400,7 +470,12 @@ mod tests {
         values[600] = 42.42;
 
         let original = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
-        let encoded = alp_encode(original.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            original.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         let sliced_alp = encoded.slice(512..1024).unwrap();
 
@@ -420,7 +495,12 @@ mod tests {
         values[1023] = 42.42;
 
         let original = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
-        let encoded = alp_encode(original.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            original.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         let sliced_alp = encoded.slice(1023..1025).unwrap();
 
@@ -436,7 +516,12 @@ mod tests {
             .collect::<Vec<_>>();
 
         let original = PrimitiveArray::from_option_iter(values);
-        let encoded = alp_encode(original.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            original.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         let sliced_alp = encoded.slice(512..1024).unwrap();
         let decoded = sliced_alp.to_primitive();
@@ -449,7 +534,12 @@ mod tests {
     fn test_large_f32_array_uniform_values() {
         let size = 10_000;
         let array = PrimitiveArray::new(buffer![42.125f32; size], Validity::NonNullable);
-        let encoded = alp_encode(array.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         assert!(encoded.patches().is_none());
         let decoded =
@@ -461,7 +551,12 @@ mod tests {
     fn test_large_f64_array_uniform_values() {
         let size = 50_000;
         let array = PrimitiveArray::new(buffer![123.456789f64; size], Validity::NonNullable);
-        let encoded = alp_encode(array.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         assert!(encoded.patches().is_none());
         let decoded =
@@ -479,7 +574,12 @@ mod tests {
         values[4500] = f32::INFINITY;
 
         let array = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
-        let encoded = alp_encode(array.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         assert!(encoded.patches().is_some());
         let decoded =
@@ -501,7 +601,12 @@ mod tests {
         values[7000] = 999.999999999;
 
         let array = PrimitiveArray::new(Buffer::from(values.clone()), Validity::NonNullable);
-        let encoded = alp_encode(array.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         assert!(encoded.patches().is_some());
         let decoded =
@@ -531,7 +636,12 @@ mod tests {
             .collect();
 
         let array = PrimitiveArray::from_option_iter(values);
-        let encoded = alp_encode(array.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         let decoded =
             decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
 
@@ -552,7 +662,12 @@ mod tests {
         let validity = Validity::from_iter((0..size).map(|i| !matches!(i, 500 | 2500)));
 
         let array = PrimitiveArray::new(Buffer::from(values), validity);
-        let encoded = alp_encode(array.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         let decoded =
             decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
 
@@ -583,7 +698,12 @@ mod tests {
         values[2900] = PI;
 
         let original = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
-        let encoded = alp_encode(original.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            original.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         assert!(encoded.patches().is_some());
 
         // Slice ending mid-chunk-2 (element 2500 is inside chunk 2 = 2048..3072).

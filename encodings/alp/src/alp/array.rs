@@ -582,7 +582,12 @@ mod tests {
     #[case(2049)]
     fn test_execute_f64(#[case] size: usize) {
         let values = PrimitiveArray::from_iter((0..size).map(|i| i as f64));
-        let encoded = alp_encode(values.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            values.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
@@ -616,7 +621,12 @@ mod tests {
             .collect();
 
         let array = PrimitiveArray::from_iter(values);
-        let encoded = alp_encode(array.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         assert!(encoded.patches().unwrap().array_len() > 0);
 
         let result_canonical = {
@@ -650,7 +660,12 @@ mod tests {
             .collect();
 
         let array = PrimitiveArray::from_option_iter(values);
-        let encoded = alp_encode(array.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
@@ -685,7 +700,12 @@ mod tests {
             .collect();
 
         let array = PrimitiveArray::from_option_iter(values);
-        let encoded = alp_encode(array.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         assert!(encoded.patches().unwrap().array_len() > 0);
 
         let result_canonical = {
@@ -721,7 +741,12 @@ mod tests {
             .collect();
 
         let array = PrimitiveArray::from_option_iter(values.clone());
-        let encoded = alp_encode(array.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         let slice_end = size - slice_start;
         let slice_len = slice_end - slice_start;
@@ -772,7 +797,12 @@ mod tests {
             .collect();
 
         let array = PrimitiveArray::from_option_iter(values.clone());
-        let encoded = alp_encode(array.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         let slice_end = size - slice_start;
         let slice_len = slice_end - slice_start;
@@ -822,7 +852,12 @@ mod tests {
         let original = PrimitiveArray::from_iter(values);
 
         // First encode normally to get a properly formed ALPArray with patches.
-        let normally_encoded = alp_encode(original.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let normally_encoded = alp_encode(
+            original.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         assert!(
             normally_encoded.patches().is_some(),
             "Test requires patches to be present"

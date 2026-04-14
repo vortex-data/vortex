@@ -66,9 +66,14 @@ fn compress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64, 
     let values = values.freeze();
     let array = PrimitiveArray::new(values, validity);
 
-    bencher
-        .with_inputs(|| &array)
-        .bench_values(|array| alp_encode(array.as_view(), None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap())
+    bencher.with_inputs(|| &array).bench_values(|array| {
+        alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap()
+    })
 }
 
 #[divan::bench(types = [f32, f64], args = BENCH_ARGS)]
