@@ -10,8 +10,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -231,15 +229,6 @@ pub trait FixedSizeListArrayExt: TypedArrayRef<FixedSizeList> {
     fn fixed_size_list_validity(&self) -> Validity {
         let (_, _, nullability) = self.dtype_parts();
         child_to_validity(&self.as_ref().slots()[VALIDITY_SLOT], nullability)
-    }
-
-    fn fixed_size_list_validity_mask(&self) -> vortex_mask::Mask {
-        self.fixed_size_list_validity()
-            .to_mask(
-                self.as_ref().len(),
-                &mut LEGACY_SESSION.create_execution_ctx(),
-            )
-            .vortex_expect("Failed to compute validity mask")
     }
 
     fn fixed_size_list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {

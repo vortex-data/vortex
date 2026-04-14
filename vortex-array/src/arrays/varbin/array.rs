@@ -10,12 +10,9 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
-use crate::LEGACY_SESSION;
 use crate::ToCanonical;
-use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -317,15 +314,6 @@ pub trait VarBinArrayExt: TypedArrayRef<VarBin> {
 
     fn varbin_validity(&self) -> Validity {
         child_to_validity(&self.as_ref().slots()[VALIDITY_SLOT], self.nullability())
-    }
-
-    fn varbin_validity_mask(&self) -> Mask {
-        self.varbin_validity()
-            .to_mask(
-                self.as_ref().len(),
-                &mut LEGACY_SESSION.create_execution_ctx(),
-            )
-            .vortex_expect("Failed to compute validity mask")
     }
 
     fn offset_at(&self, index: usize) -> usize {

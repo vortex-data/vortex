@@ -59,7 +59,9 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     indices_array: ArrayView<'_, Primitive>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let data_validity = array.list_validity_mask();
+    let data_validity = array
+        .list_validity()
+        .to_mask(array.as_ref().len(), ctx)?;
     let indices_validity = indices_array
         .validity()
         .vortex_expect("Failed to compute validity mask")
@@ -127,7 +129,9 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPTy
     let offsets_array = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
     let offsets: &[O] = offsets_array.as_slice();
     let indices: &[I] = indices_array.as_slice();
-    let data_validity = array.list_validity_mask();
+    let data_validity = array
+        .list_validity()
+        .to_mask(array.as_ref().len(), ctx)?;
     let indices_validity = indices_array
         .validity()
         .vortex_expect("Failed to compute validity mask")

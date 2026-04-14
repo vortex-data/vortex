@@ -19230,8 +19230,6 @@ pub fn vortex_array::validity::Validity::to_array(&self, len: usize) -> vortex_a
 
 pub fn vortex_array::validity::Validity::to_mask(&self, length: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_mask::Mask>
 
-pub fn vortex_array::validity::Validity::to_mask_sync(&self, length: usize) -> vortex_mask::Mask
-
 pub fn vortex_array::validity::Validity::uncompressed_size(&self) -> usize
 
 pub fn vortex_array::validity::Validity::union_nullability(self, nullability: vortex_array::dtype::Nullability) -> Self
