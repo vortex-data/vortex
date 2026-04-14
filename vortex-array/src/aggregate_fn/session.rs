@@ -72,11 +72,7 @@ impl Default for AggregateFnSession {
             Some(IsConstant.id()),
             &DictIsConstantKernel,
         );
-        this.register_aggregate_kernel(
-            Dict::array_id(),
-            Some(IsSorted.id()),
-            &DictIsSortedKernel,
-        );
+        this.register_aggregate_kernel(Dict::array_id(), Some(IsSorted.id()), &DictIsSortedKernel);
 
         this
     }
