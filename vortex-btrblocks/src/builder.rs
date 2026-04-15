@@ -97,6 +97,30 @@ impl Default for BtrBlocksCompressorBuilder {
 }
 
 impl BtrBlocksCompressorBuilder {
+    /// Creates a builder with no schemes registered.
+    ///
+    /// Useful when the caller wants explicit, scheme-by-scheme control over the compressor —
+    /// for example, registering only [`with_turboquant`](Self::with_turboquant) to compress
+    /// vector data with TurboQuant and nothing else, or starting from a known-empty state
+    /// before adding a single experimental scheme.
+    ///
+    /// With no schemes, primitives and strings have no candidates to evaluate and pass through
+    /// in their canonical encoding.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use vortex_btrblocks::BtrBlocksCompressorBuilder;
+    ///
+    /// // Identity compressor — inputs pass through unencoded.
+    /// let _ = BtrBlocksCompressorBuilder::empty().build();
+    /// ```
+    pub fn empty() -> Self {
+        Self {
+            schemes: Vec::new(),
+        }
+    }
+
     /// Adds an external compression scheme not in [`ALL_SCHEMES`].
     ///
     /// This allows encoding crates outside of `vortex-btrblocks` to register their own schemes
@@ -186,5 +210,22 @@ impl BtrBlocksCompressorBuilder {
     /// Builds the configured [`BtrBlocksCompressor`].
     pub fn build(self) -> BtrBlocksCompressor {
         BtrBlocksCompressor(CascadingCompressor::new(self.schemes))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_starts_with_no_schemes() {
+        let builder = BtrBlocksCompressorBuilder::empty();
+        assert!(builder.schemes.is_empty());
+    }
+
+    #[test]
+    fn default_includes_all_schemes() {
+        let builder = BtrBlocksCompressorBuilder::default();
+        assert_eq!(builder.schemes.len(), ALL_SCHEMES.len());
     }
 }
