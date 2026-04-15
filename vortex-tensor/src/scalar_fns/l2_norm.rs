@@ -6,17 +6,24 @@
 use std::fmt::Formatter;
 
 use num_traits::Float;
+use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFnArray;
+use vortex_array::arrays::ScalarFnVTable as ScalarFnArrayEncoding;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::scalar_fn::ExactScalarFn;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
+use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts;
+use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::proto::dtype as pb;
 use vortex_array::expr::Expression;
 use vortex_array::match_each_float_ptype;
 use vortex_array::scalar_fn::Arity;
@@ -26,10 +33,13 @@ use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFn;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::serde::ArrayChildren;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_denorm::L2Denorm;
@@ -172,6 +182,49 @@ impl ScalarFnVTable for L2Norm {
     }
 }
 
+/// Metadata for a serialized [`L2Norm`] array: the single `input` child's [`DType`], which carries
+/// the extension type (`FixedShapeTensor` vs `Vector`), dimension, and nullability that are not
+/// recoverable from the parent's primitive-float output.
+#[derive(Clone, prost::Message)]
+pub(super) struct L2NormMetadata {
+    #[prost(message, optional, tag = "1")]
+    input_dtype: Option<pb::DType>,
+}
+
+impl ScalarFnArrayVTable for L2Norm {
+    fn serialize(
+        &self,
+        view: &ScalarFnArrayView<Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
+        let scalar_fn_array = view.as_::<ScalarFnArrayEncoding>();
+        let input_dtype = Some(scalar_fn_array.child_at(0).dtype().try_into()?);
+        Ok(Some(L2NormMetadata { input_dtype }.encode_to_vec()))
+    }
+
+    fn deserialize(
+        &self,
+        _dtype: &DType,
+        len: usize,
+        metadata: &[u8],
+        children: &dyn ArrayChildren,
+        session: &VortexSession,
+    ) -> VortexResult<ScalarFnArrayParts<Self>> {
+        let metadata = L2NormMetadata::decode(metadata)
+            .map_err(|e| vortex_err!("Failed to decode L2NormMetadata: {e}"))?;
+        let input_pb = metadata
+            .input_dtype
+            .as_ref()
+            .ok_or_else(|| vortex_err!("L2NormMetadata missing input_dtype"))?;
+        let input_dtype = DType::from_proto(input_pb, session)?;
+        let child = children.get(0, &input_dtype, len)?;
+        Ok(ScalarFnArrayParts {
+            options: EmptyOptions,
+            children: vec![child],
+        })
+    }
+}
+
 /// Computes the L2 norm (Euclidean norm) of a float slice.
 ///
 /// Returns `sqrt(sum(v_i^2))`. A zero-length or all-zero input produces `0.0`.
@@ -185,27 +238,24 @@ fn l2_norm_row<T: Float + NativePType>(v: &[T]) -> T {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_array::ArrayPlugin;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::MaskedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::ScalarFnArray;
-    use vortex_array::session::ArraySession;
+    use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
     use crate::scalar_fns::l2_norm::L2Norm;
+    use crate::tests::SESSION;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
-
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     /// Evaluates L2 norm on a tensor/vector array and returns the result as `Vec<f64>`.
     fn eval_l2_norm(input: ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
@@ -273,6 +323,33 @@ mod tests {
         assert!(prim.is_valid(0)?);
         assert!(!prim.is_valid(1)?);
         assert_close(&[prim.as_slice::<f64>()[0]], &[5.0]);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::fixed_shape_tensor(tensor_array(&[3], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap(), 2)]
+    #[case::vector(vector_array(3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap(), 2)]
+    fn serde_round_trip(#[case] child: ArrayRef, #[case] len: usize) -> VortexResult<()> {
+        let original = L2Norm::try_new_array(child.clone(), len)?.into_array();
+
+        let plugin = ScalarFnArrayPlugin::new(L2Norm);
+        let metadata = plugin
+            .serialize(&original, &SESSION)?
+            .expect("L2Norm serialize must produce metadata");
+
+        let children = vec![child];
+        let recovered = plugin.deserialize(
+            original.dtype(),
+            original.len(),
+            &metadata,
+            &[],
+            &children,
+            &SESSION,
+        )?;
+
+        assert_eq!(recovered.dtype(), original.dtype());
+        assert_eq!(recovered.len(), original.len());
+        assert_eq!(recovered.encoding_id(), original.encoding_id());
         Ok(())
     }
 }

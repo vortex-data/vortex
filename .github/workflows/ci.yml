@@ -21,7 +21,7 @@ permissions:
   issues: write  # audit-check creates issues
 
 env:
-  CARGO_TERM_COLOR: auto
+  CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   NIGHTLY_TOOLCHAIN: nightly-2026-02-05
 
@@ -277,6 +277,7 @@ jobs:
           git ls-files vortex-cuda vortex-cxx vortex-duckdb vortex-ffi \
             | grep -E '\.(cpp|hpp|cu|cuh|h)$' \
             | grep -v 'kernels/src/bit_unpack_.*\.cu$' \
+            | grep -v 'kernels/src/bit_unpack_.*_lanes\.cuh$' \
             | xargs clang-format --dry-run --Werror --style=file
 
   rust-lint-no-default:

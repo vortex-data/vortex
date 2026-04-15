@@ -8,6 +8,7 @@ use std::fmt::Formatter;
 use num_traits::Float;
 use num_traits::ToPrimitive;
 use num_traits::Zero;
+use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -18,13 +19,19 @@ use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFnArray;
+use vortex_array::arrays::ScalarFnVTable as ScalarFnArrayEncoding;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
+use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts;
+use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::dtype::proto::dtype as pb;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
 use vortex_array::match_each_float_ptype;
@@ -38,6 +45,7 @@ use vortex_array::scalar_fn::ScalarFn;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -46,6 +54,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_norm::L2Norm;
@@ -269,6 +279,64 @@ impl ScalarFnVTable for L2Denorm {
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {
         false
+    }
+}
+
+/// Metadata for a serialized [`L2Denorm`] array: both children's full [`DType`]s. The parent's
+/// dtype is `normalized.union_nullability(norms.nullability())`, which loses both children's
+/// individual nullabilities, so we persist them directly.
+#[derive(Clone, prost::Message)]
+pub(super) struct L2DenormMetadata {
+    #[prost(message, optional, tag = "1")]
+    normalized_dtype: Option<pb::DType>,
+    #[prost(message, optional, tag = "2")]
+    norms_dtype: Option<pb::DType>,
+}
+
+impl ScalarFnArrayVTable for L2Denorm {
+    fn serialize(
+        &self,
+        view: &ScalarFnArrayView<Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
+        let scalar_fn_array = view.as_::<ScalarFnArrayEncoding>();
+        let normalized_dtype = Some(scalar_fn_array.child_at(0).dtype().try_into()?);
+        let norms_dtype = Some(scalar_fn_array.child_at(1).dtype().try_into()?);
+        Ok(Some(
+            L2DenormMetadata {
+                normalized_dtype,
+                norms_dtype,
+            }
+            .encode_to_vec(),
+        ))
+    }
+
+    fn deserialize(
+        &self,
+        _dtype: &DType,
+        len: usize,
+        metadata: &[u8],
+        children: &dyn ArrayChildren,
+        session: &VortexSession,
+    ) -> VortexResult<ScalarFnArrayParts<Self>> {
+        let metadata = L2DenormMetadata::decode(metadata)
+            .map_err(|e| vortex_err!("Failed to decode L2DenormMetadata: {e}"))?;
+        let normalized_pb = metadata
+            .normalized_dtype
+            .as_ref()
+            .ok_or_else(|| vortex_err!("L2DenormMetadata missing normalized_dtype"))?;
+        let norms_pb = metadata
+            .norms_dtype
+            .as_ref()
+            .ok_or_else(|| vortex_err!("L2DenormMetadata missing norms_dtype"))?;
+        let normalized_dtype = DType::from_proto(normalized_pb, session)?;
+        let norms_dtype = DType::from_proto(norms_pb, session)?;
+        let normalized = children.get(0, &normalized_dtype, len)?;
+        let norms = children.get(1, &norms_dtype, len)?;
+        Ok(ScalarFnArrayParts {
+            options: EmptyOptions,
+            children: vec![normalized, norms],
+        })
     }
 }
 
@@ -631,8 +699,9 @@ fn validate_l2_normalized_rows_impl(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::LazyLock;
 
+    use rstest::rstest;
+    use vortex_array::ArrayPlugin;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -646,6 +715,7 @@ mod tests {
     use vortex_array::arrays::extension::ExtensionArrayExt;
     use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
     use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+    use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::extension::ExtDType;
@@ -653,26 +723,22 @@ mod tests {
     use vortex_array::extension::datetime::Date;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::scalar::Scalar;
-    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
     use crate::fixed_shape::FixedShapeTensor;
     use crate::fixed_shape::FixedShapeTensorMetadata;
     use crate::scalar_fns::l2_denorm::L2Denorm;
     use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
     use crate::scalar_fns::l2_denorm::validate_l2_normalized_rows;
+    use crate::tests::SESSION;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::constant_tensor_array;
     use crate::utils::test_helpers::constant_vector_array;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
     use crate::vector::Vector;
-
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     /// Evaluates L2 denorm on a tensor/vector array and returns the executed array.
     fn eval_l2_denorm(normalized: ArrayRef, norms: ArrayRef, len: usize) -> VortexResult<ArrayRef> {
@@ -1030,6 +1096,40 @@ mod tests {
         let actual = eval_l2_denorm(normalized, norms, 2)?;
         let expected = tensor_array(&[2, 2], &[2.0, 2.0, 2.0, 2.0, 4.0, 0.0, 0.0, 0.0])?;
         assert_tensor_arrays_eq(actual, expected)?;
+        Ok(())
+    }
+
+    /// Build an `L2Denorm` array from a raw input (which may have nullable storage) by running
+    /// `normalize_as_l2_denorm`. The normalized child ends up non-nullable, and the norms child
+    /// inherits the input's nullability, giving us two different per-child nullabilities to
+    /// round-trip.
+    #[rstest]
+    #[case::vector(vector_array(3, &[3.0, 4.0, 0.0, 0.0, 0.0, 0.0]).unwrap())]
+    #[case::fixed_shape_tensor(tensor_array(&[2, 2], &[1.0, 2.0, 3.0, 4.0, 0.0, 0.0, 0.0, 0.0]).unwrap())]
+    fn serde_round_trip(#[case] input: ArrayRef) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let original = normalize_as_l2_denorm(input, &mut ctx)?.into_array();
+
+        let scalar_fn_array = original.as_::<vortex_array::arrays::ScalarFnVTable>();
+        let children = scalar_fn_array.children();
+
+        let plugin = ScalarFnArrayPlugin::new(L2Denorm);
+        let metadata = plugin
+            .serialize(&original, &SESSION)?
+            .expect("L2Denorm serialize must produce metadata");
+
+        let recovered = plugin.deserialize(
+            original.dtype(),
+            original.len(),
+            &metadata,
+            &[],
+            &children,
+            &SESSION,
+        )?;
+
+        assert_eq!(recovered.dtype(), original.dtype());
+        assert_eq!(recovered.len(), original.len());
+        assert_eq!(recovered.encoding_id(), original.encoding_id());
         Ok(())
     }
 }

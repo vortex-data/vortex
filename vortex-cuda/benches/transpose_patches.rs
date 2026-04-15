@@ -66,7 +66,13 @@ fn benchmark_transpose(c: &mut Criterion) {
     );
 }
 
-criterion::criterion_group!(benches, benchmark_transpose);
+criterion::criterion_group! {
+    name = benches;
+    config = Criterion::default().without_plots()
+        .warm_up_time(Duration::from_nanos(1))
+        .nresamples(10);
+    targets = benchmark_transpose
+}
 
 #[cuda_available]
 criterion::criterion_main!(benches);

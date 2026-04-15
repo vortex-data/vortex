@@ -66,7 +66,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 10
     needs: build
     steps:
       # Note, since we provide the job with a CloudFlare scoped API token, we run it in a separate job that doesn't

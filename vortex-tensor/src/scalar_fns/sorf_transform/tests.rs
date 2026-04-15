@@ -6,8 +6,9 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use std::sync::Arc;
-use std::sync::LazyLock;
 
+use vortex_array::ArrayPlugin;
+use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ExtensionArray;
@@ -16,16 +17,17 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::DictArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::extension::EmptyMetadata;
-use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_session::VortexSession;
 
 use super::SorfOptions;
 use super::SorfTransform;
@@ -33,10 +35,8 @@ use super::rotation::SorfMatrix;
 use crate::encodings::turboquant::centroids::compute_centroid_boundaries;
 use crate::encodings::turboquant::centroids::find_nearest_centroid;
 use crate::encodings::turboquant::centroids::get_centroids;
+use crate::tests::SESSION;
 use crate::vector::Vector;
-
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 /// Build a unit-normalized input vector array and forward-transform + quantize it, returning
 /// `(input_f32, Vector<padded_dim>(FSL(Dict(codes, centroids))), padded_dim)`.
@@ -434,5 +434,59 @@ fn f64_output_type() -> VortexResult<()> {
     assert_eq!(result_prim.ptype(), PType::F64);
     assert_eq!(result_prim.as_slice::<f64>().len(), num_rows * dim);
 
+    Ok(())
+}
+
+/// Build a trivial `Vector<FSL<f32, padded_dim, validity>>` child populated with zeroes. The values
+/// are irrelevant for the serde round-trip test; only the dtype shape matters.
+fn trivial_padded_vector(padded_dim: u32, num_rows: usize, validity: Validity) -> ArrayRef {
+    let elements = PrimitiveArray::new(
+        Buffer::<f32>::zeroed(num_rows * padded_dim as usize),
+        Validity::NonNullable,
+    );
+    let fsl = FixedSizeListArray::try_new(elements.into_array(), padded_dim, validity, num_rows)
+        .vortex_expect("fsl must build");
+    let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())
+        .vortex_expect("ext dtype must build")
+        .erased();
+    ExtensionArray::new(ext_dtype, fsl.into_array()).into_array()
+}
+
+#[rstest::rstest]
+// Non-power-of-two dimension to exercise `padded_dim = dim.next_power_of_two()`.
+#[case::power_of_two_dim(128, Validity::NonNullable)]
+#[case::non_power_of_two_dim(100, Validity::NonNullable)]
+// Nullable top-level Vector to verify child nullability is reconstructed from the parent output.
+#[case::nullable_child(100, Validity::AllValid)]
+fn serde_round_trip(#[case] dimension: u32, #[case] validity: Validity) -> VortexResult<()> {
+    let padded_dim = dimension.next_power_of_two();
+    let num_rows = 4;
+    let options = SorfOptions {
+        seed: 42,
+        num_rounds: 3,
+        dimension,
+        element_ptype: PType::F32,
+    };
+    let child = trivial_padded_vector(padded_dim, num_rows, validity);
+    let original = SorfTransform::try_new_array(&options, child.clone(), num_rows)?.into_array();
+
+    let plugin = ScalarFnArrayPlugin::new(SorfTransform);
+    let metadata = plugin
+        .serialize(&original, &SESSION)?
+        .expect("SorfTransform serialize must produce metadata");
+
+    let children = vec![child];
+    let recovered = plugin.deserialize(
+        original.dtype(),
+        original.len(),
+        &metadata,
+        &[],
+        &children,
+        &SESSION,
+    )?;
+
+    assert_eq!(recovered.dtype(), original.dtype());
+    assert_eq!(recovered.len(), original.len());
+    assert_eq!(recovered.encoding_id(), original.encoding_id());
     Ok(())
 }
