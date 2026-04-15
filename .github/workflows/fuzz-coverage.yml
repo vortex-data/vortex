@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         fuzz_target: [array_ops, file_io, compress_roundtrip]
-    timeout-minutes: 60
+    timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=arm64-medium/disk=large', github.run_id)

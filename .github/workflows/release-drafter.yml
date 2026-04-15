@@ -25,6 +25,7 @@ jobs:
       # write permission is required to create a github release
       contents: write
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: release-drafter/release-drafter@v7.1.1
         with:

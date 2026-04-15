@@ -43,6 +43,7 @@ jobs:
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=arm64-medium/disk=large/tag={1}-minimize', github.run_id, inputs.fuzz_target)
           || 'ubuntu-latest' }}
+    timeout-minutes: 240
     steps:
       - name: Bail if not on develop
         if: github.ref != 'refs/heads/develop'
