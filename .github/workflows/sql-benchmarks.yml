@@ -27,7 +27,8 @@ on:
               "subcommand": "tpch",
               "name": "TPC-H SF=1 on NVME",
               "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
-              "scale_factor": "1.0"
+              "scale_factor": "1.0",
+              "iterations": "10"
             },
             {
               "id": "tpch-s3",
@@ -44,7 +45,8 @@ on:
               "subcommand": "tpch",
               "name": "TPC-H SF=10 on NVME",
               "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
-              "scale_factor": "10.0"
+              "scale_factor": "10.0",
+              "iterations": "10"
             },
             {
               "id": "tpch-s3-10",
@@ -76,7 +78,7 @@ on:
               "subcommand": "fineweb",
               "name": "FineWeb NVMe",
               "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
-              "iterations": "10"
+              "scale_factor": "100"
             },
             {
               "id": "fineweb-s3",
@@ -85,7 +87,7 @@ on:
               "local_dir": "vortex-bench/data/fineweb",
               "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/fineweb/",
               "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
-              "iterations": "10"
+              "scale_factor": "100"
             },
             {
               "id": "polarsignals",
