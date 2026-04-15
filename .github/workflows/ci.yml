@@ -21,7 +21,7 @@ permissions:
   issues: write  # audit-check creates issues
 
 env:
-  CARGO_TERM_COLOR: auto
+  CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   NIGHTLY_TOOLCHAIN: nightly-2026-02-05
 
