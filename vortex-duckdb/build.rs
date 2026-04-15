@@ -383,7 +383,7 @@ fn main() {
     // e.g. reordering fields in C++ structs.
     let version = env::var("DUCKDB_VERSION")
         // You can also change this version to a commit hash
-        .unwrap_or_else(|_| "1.5.0".to_owned());
+        .unwrap_or_else(|_| "1.5.2".to_owned());
     let version = DuckDBVersion::from(&version);
     match &version {
         DuckDBVersion::Release(v) => println!("cargo:info=Using DuckDB release version: {v}"),
