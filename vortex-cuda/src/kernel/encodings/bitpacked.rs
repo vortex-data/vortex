@@ -154,6 +154,8 @@ where
             indices: p.indices.cuda_device_ptr()? as _,
             values: p.values.cuda_device_ptr()? as _,
             offset: p.offset as u32,
+            num_patches: p.num_patches as u32,
+            n_chunks: p.n_chunks as u32,
         }
     } else {
         // NULL chunk_offsets signals no patches to the kernel
@@ -163,6 +165,8 @@ where
             indices: std::ptr::null_mut(),
             values: std::ptr::null_mut(),
             offset: 0,
+            num_patches: 0,
+            n_chunks: 0,
         }
     };
 

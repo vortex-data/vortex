@@ -51,9 +51,12 @@ public:
             return;
         }
 
-        // Get patch range for this chunk
+        // Get patch range for this chunk.
+        // chunk_offsets has n_chunks elements; the final offset is implicit (num_patches).
         uint32_t chunk_start = load_chunk_offset(patches, chunk);
-        uint32_t chunk_end = load_chunk_offset(patches, chunk + 1);
+        uint32_t chunk_end = (chunk + 1 < patches.n_chunks)
+            ? load_chunk_offset(patches, chunk + 1)
+            : patches.num_patches;
         uint32_t num_patches = chunk_end - chunk_start;
 
         // Divide patches among threads (ceil division)

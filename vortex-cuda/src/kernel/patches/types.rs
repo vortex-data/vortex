@@ -23,6 +23,8 @@ pub struct DevicePatches {
     pub(crate) indices: BufferHandle,
     pub(crate) values: BufferHandle,
     pub(crate) offset: usize,
+    pub(crate) num_patches: usize,
+    pub(crate) n_chunks: usize,
 }
 
 /// Load patches for GPU use.
@@ -89,12 +91,17 @@ pub async fn load_patches(
     let indices = ctx.ensure_on_device(indices).await?;
     let values = ctx.ensure_on_device(values.buffer_handle().clone()).await?;
 
+    let num_patches = patches.num_patches();
+    let n_chunks = array_len.div_ceil(1024);
+
     Ok(DevicePatches {
         chunk_offsets,
         chunk_offset_ptype,
         indices,
         values,
         offset,
+        num_patches,
+        n_chunks,
     })
 }
 
