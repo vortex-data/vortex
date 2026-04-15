@@ -392,8 +392,10 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
@@ -719,12 +721,7 @@ mod tests {
         // ...and the result is masked with the validity of the parent StructArray
         assert_eq!(
             result
-                .execute_scalar(
-                    0,
-                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                        &*vortex_array::LEGACY_SESSION
-                    )
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::null(result.dtype().clone()),
         );
@@ -767,12 +764,7 @@ mod tests {
         // Row 0: struct is valid, field "c" is 4.
         assert_eq!(
             result
-                .execute_scalar(
-                    0,
-                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                        &*vortex_array::LEGACY_SESSION
-                    )
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .as_struct()
                 .field_by_idx(0)
@@ -783,12 +775,7 @@ mod tests {
         // Row 1: struct is null (because root.a.b was null at this row).
         assert!(
             result
-                .execute_scalar(
-                    1,
-                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                        &*vortex_array::LEGACY_SESSION
-                    )
-                )
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .as_struct()
                 .is_null()
@@ -797,12 +784,7 @@ mod tests {
         // Row 2: struct is valid, field "c" is 6.
         assert_eq!(
             result
-                .execute_scalar(
-                    2,
-                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                        &*vortex_array::LEGACY_SESSION
-                    )
-                )
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .as_struct()
                 .field_by_idx(0)

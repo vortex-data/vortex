@@ -42,7 +42,9 @@ impl OperationsVTable<RLE> for RLE {
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
@@ -179,12 +181,7 @@ mod tests {
             if idx < encoded.len() {
                 let original_value = expected[idx];
                 let encoded_value = encoded
-                    .execute_scalar(
-                        idx,
-                        &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                            &*vortex_array::LEGACY_SESSION,
-                        ),
-                    )
+                    .execute_scalar(idx, &mut LEGACY_SESSION.create_execution_ctx())
                     .unwrap()
                     .as_primitive()
                     .as_::<u16>()
@@ -199,12 +196,7 @@ mod tests {
     fn test_scalar_at_out_of_bounds() {
         let array = fixture::rle_array();
         array
-            .execute_scalar(
-                1025,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION,
-                ),
-            )
+            .execute_scalar(1025, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
     }
 
@@ -213,12 +205,7 @@ mod tests {
     fn test_scalar_at_slice_out_of_bounds() {
         let array = fixture::rle_array().slice(0..1).unwrap();
         array
-            .execute_scalar(
-                1,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION,
-                ),
-            )
+            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
     }
 

@@ -451,6 +451,8 @@ impl Sequence {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::Nullability;
@@ -488,12 +490,7 @@ mod tests {
     fn test_sequence_scalar_at() {
         let scalar = Sequence::try_new_typed(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
-            .execute_scalar(
-                2,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION,
-                ),
-            )
+            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
 
         assert_eq!(

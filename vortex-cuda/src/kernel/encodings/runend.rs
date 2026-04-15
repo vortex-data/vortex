@@ -78,7 +78,7 @@ impl CudaExecute for RunEndExecutor {
         if matches!(values.validity()?, Validity::AllInvalid) {
             return ConstantArray::new(Scalar::null(values.dtype().clone()), output_len)
                 .into_array()
-                .to_canonical();
+                .execute::<Canonical>(ctx.execution_ctx());
         }
 
         let ends = ends.execute_cuda(ctx).await?.into_primitive();
@@ -205,7 +205,7 @@ mod tests {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let cpu_result = runend_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(runend_array.clone())?;
 
         let gpu_result = RunEndExecutor
             .execute(runend_array.into_array(), &mut cuda_ctx)
@@ -235,7 +235,7 @@ mod tests {
         let runend_array = make_runend_array(ends, values);
         assert_eq!(runend_array.len(), total_len);
 
-        let cpu_result = runend_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(runend_array.clone())?;
 
         let gpu_result = RunEndExecutor
             .execute(runend_array.into_array(), &mut cuda_ctx)
@@ -257,7 +257,7 @@ mod tests {
 
         let runend_array = make_runend_array(vec![100u32], vec![42i32]);
 
-        let cpu_result = runend_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(runend_array.clone())?;
 
         let gpu_result = RunEndExecutor
             .execute(runend_array.into_array(), &mut cuda_ctx)
@@ -284,7 +284,7 @@ mod tests {
 
         let runend_array = make_runend_array(ends, values);
 
-        let cpu_result = runend_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(runend_array.clone())?;
 
         let gpu_result = RunEndExecutor
             .execute(runend_array.into_array(), &mut cuda_ctx)
@@ -314,7 +314,7 @@ mod tests {
             PrimitiveArray::new(Buffer::from(vec![10i32, 0, 30]), validity).into_array();
         let runend_array = RunEnd::new(ends_array, values_array);
 
-        let cpu_result = runend_array.to_canonical()?.into_array();
+        let cpu_result = crate::canonicalize_cpu(runend_array.clone())?.into_array();
 
         // execute_cuda should fall back to CPU and still produce the correct result.
         let gpu_result = runend_array

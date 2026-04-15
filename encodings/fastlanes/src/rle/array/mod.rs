@@ -5,7 +5,9 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use vortex_array::ArrayRef;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::TypedArrayRef;
+use vortex_array::VortexSessionExecute;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -111,24 +113,14 @@ pub trait RLEArrayExt: TypedArrayRef<crate::RLE> {
     )]
     fn values_idx_offset(&self, chunk_idx: usize) -> usize {
         self.values_idx_offsets()
-            .execute_scalar(
-                chunk_idx,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION,
-                ),
-            )
+            .execute_scalar(chunk_idx, &mut LEGACY_SESSION.create_execution_ctx())
             .expect("index must be in bounds")
             .as_primitive()
             .as_::<usize>()
             .expect("index must be of type usize")
             - self
                 .values_idx_offsets()
-                .execute_scalar(
-                    0,
-                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                        &*vortex_array::LEGACY_SESSION,
-                    ),
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .expect("index must be in bounds")
                 .as_primitive()
                 .as_::<usize>()
@@ -147,6 +139,7 @@ impl<T: TypedArrayRef<crate::RLE>> RLEArrayExt for T {}
 #[cfg(test)]
 mod tests {
     use vortex_array::ArrayContext;
+    use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::ToCanonical;
@@ -279,7 +272,7 @@ mod tests {
         let invalid_slice = rle_array
             .slice(2..5)
             .unwrap()
-            .to_canonical()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .into_primitive();
         let mut ctx = SESSION.create_execution_ctx();

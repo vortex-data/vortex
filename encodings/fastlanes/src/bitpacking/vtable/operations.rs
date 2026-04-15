@@ -34,6 +34,8 @@ mod test {
 
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::SliceArray;
     use vortex_array::assert_arrays_eq;
@@ -203,12 +205,7 @@ mod test {
         .into_array();
         assert_eq!(
             packed_array
-                .execute_scalar(
-                    1,
-                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                        &*vortex_array::LEGACY_SESSION
-                    )
-                )
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::null(DType::Primitive(PType::U32, Nullability::Nullable))
         );
@@ -225,12 +222,7 @@ mod test {
         assert_eq!(
             usize::try_from(
                 &patches
-                    .execute_scalar(
-                        0,
-                        &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                            &*vortex_array::LEGACY_SESSION
-                        )
-                    )
+                    .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                     .unwrap()
             )
             .unwrap(),

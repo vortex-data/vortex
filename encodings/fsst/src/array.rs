@@ -23,8 +23,10 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
 use vortex_array::TypedArrayRef;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::varbin::VarBinArrayExt;
@@ -582,9 +584,7 @@ impl FSSTData {
             let last_offset: usize = (&codes_offsets
                 .execute_scalar(
                     codes_offsets.len() - 1,
-                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                        &*vortex_array::LEGACY_SESSION,
-                    ),
+                    &mut LEGACY_SESSION.create_execution_ctx(),
                 )
                 .vortex_expect("offsets must support scalar_at"))
                 .try_into()

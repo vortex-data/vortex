@@ -3,6 +3,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
@@ -93,18 +94,9 @@ fn scalar_at_matches_decompress() -> VortexResult<()> {
     let full_decoded = encoded.clone().execute::<ExtensionArray>(&mut ctx)?;
 
     for i in [0, 1, 5, 9] {
-        let expected = full_decoded.execute_scalar(
-            i,
-            &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                &*vortex_array::LEGACY_SESSION,
-            ),
-        )?;
-        let actual = encoded.execute_scalar(
-            i,
-            &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                &*vortex_array::LEGACY_SESSION,
-            ),
-        )?;
+        let expected =
+            full_decoded.execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let actual = encoded.execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())?;
         assert_eq!(expected, actual, "scalar_at mismatch at index {i}");
     }
     Ok(())

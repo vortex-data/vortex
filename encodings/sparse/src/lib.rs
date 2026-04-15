@@ -16,6 +16,7 @@ use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
@@ -416,7 +417,10 @@ impl SparseData {
         } else if mask.false_count() as f64 > (0.9 * mask.len() as f64) {
             // Array is dominated by NULL but has non-NULL values
             // TODO(joe): use exe ctx?
-            let non_null_values = array.filter(mask.clone())?.to_canonical()?.into_array();
+            let non_null_values = array
+                .filter(mask.clone())?
+                .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+                .into_array();
             let non_null_indices = match mask.indices() {
                 AllOr::All => {
                     // We already know that the mask is 90%+ false
@@ -468,7 +472,7 @@ impl SparseData {
 
         let non_top_values = array
             .filter(non_top_mask.clone())?
-            .to_canonical()?
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
             .into_array();
 
         let indices: Buffer<u64> = match non_top_mask {
@@ -557,34 +561,19 @@ mod test {
 
         assert_eq!(
             array
-                .execute_scalar(
-                    0,
-                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                        &*vortex_array::LEGACY_SESSION
-                    )
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             nullable_fill()
         );
         assert_eq!(
             array
-                .execute_scalar(
-                    2,
-                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                        &*vortex_array::LEGACY_SESSION
-                    )
-                )
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::from(Some(100_i32))
         );
         assert_eq!(
             array
-                .execute_scalar(
-                    5,
-                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                        &*vortex_array::LEGACY_SESSION
-                    )
-                )
+                .execute_scalar(5, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::from(Some(200_i32))
         );
@@ -595,12 +584,7 @@ mod test {
     fn test_scalar_at_oob() {
         let array = sparse_array(nullable_fill());
         array
-            .execute_scalar(
-                10,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION,
-                ),
-            )
+            .execute_scalar(10, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
     }
 
@@ -615,36 +599,21 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            arr.execute_scalar(
-                10,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION
-                )
-            )
-            .unwrap()
-            .as_primitive()
-            .typed_value::<u32>(),
+            arr.execute_scalar(10, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .as_primitive()
+                .typed_value::<u32>(),
             Some(1234)
         );
         assert!(
-            arr.execute_scalar(
-                0,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION
-                )
-            )
-            .unwrap()
-            .is_null()
+            arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .is_null()
         );
         assert!(
-            arr.execute_scalar(
-                99,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION
-                )
-            )
-            .unwrap()
-            .is_null()
+            arr.execute_scalar(99, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .is_null()
         );
     }
 
@@ -654,12 +623,7 @@ mod test {
         assert_eq!(
             usize::try_from(
                 &sliced
-                    .execute_scalar(
-                        0,
-                        &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                            &*vortex_array::LEGACY_SESSION
-                        )
-                    )
+                    .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                     .unwrap()
             )
             .unwrap(),
@@ -712,12 +676,7 @@ mod test {
         assert_eq!(
             usize::try_from(
                 &sliced_once
-                    .execute_scalar(
-                        1,
-                        &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                            &*vortex_array::LEGACY_SESSION
-                        )
-                    )
+                    .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
                     .unwrap()
             )
             .unwrap(),
@@ -728,12 +687,7 @@ mod test {
         assert_eq!(
             usize::try_from(
                 &sliced_twice
-                    .execute_scalar(
-                        3,
-                        &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                            &*vortex_array::LEGACY_SESSION
-                        )
-                    )
+                    .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
                     .unwrap()
             )
             .unwrap(),

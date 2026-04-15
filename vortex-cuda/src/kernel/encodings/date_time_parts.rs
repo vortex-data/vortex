@@ -284,7 +284,7 @@ mod tests {
             .vortex_expect("failed to create execution context");
 
         let dtp_array = make_datetimeparts_array(days, seconds, subseconds, time_unit);
-        let cpu_result = dtp_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(dtp_array.clone())?;
 
         let gpu_result = DateTimePartsExecutor
             .execute(dtp_array.into_array(), &mut cuda_ctx)
@@ -310,7 +310,7 @@ mod tests {
         let subseconds: Vec<i64> = (0..len).map(|i| (i % 1000) as i64).collect();
 
         let dtp_array = make_datetimeparts_array(days, seconds, subseconds, TimeUnit::Milliseconds);
-        let cpu_result = dtp_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(dtp_array.clone())?;
 
         let gpu_result = DateTimePartsExecutor
             .execute(dtp_array.into_array(), &mut cuda_ctx)
@@ -358,7 +358,7 @@ mod tests {
         )
         .vortex_expect("Failed to create DateTimePartsArray");
 
-        let cpu_result = dtp_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(dtp_array.clone())?;
 
         let gpu_result = DateTimePartsExecutor
             .execute(dtp_array.into_array(), &mut cuda_ctx)

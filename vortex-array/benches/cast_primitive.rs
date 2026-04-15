@@ -3,6 +3,7 @@
 
 use divan::Bencher;
 use rand::prelude::*;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
@@ -42,6 +43,6 @@ fn cast_u16_to_u32(bencher: Bencher) {
         #[expect(clippy::unwrap_used)]
         a.cast(DType::Primitive(PType::U32, Nullability::Nullable))
             .unwrap()
-            .to_canonical()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
     });
 }

@@ -35,7 +35,9 @@ impl CastReduce for RunEnd {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -73,12 +75,7 @@ mod tests {
         assert_eq!(
             TryInto::<i64>::try_into(
                 &decoded
-                    .execute_scalar(
-                        0,
-                        &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                            &*vortex_array::LEGACY_SESSION
-                        )
-                    )
+                    .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                     .unwrap()
             )
             .unwrap(),
@@ -87,12 +84,7 @@ mod tests {
         assert_eq!(
             TryInto::<i64>::try_into(
                 &decoded
-                    .execute_scalar(
-                        3,
-                        &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                            &*vortex_array::LEGACY_SESSION
-                        )
-                    )
+                    .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
                     .unwrap()
             )
             .unwrap(),
@@ -101,12 +93,7 @@ mod tests {
         assert_eq!(
             TryInto::<i64>::try_into(
                 &decoded
-                    .execute_scalar(
-                        5,
-                        &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                            &*vortex_array::LEGACY_SESSION
-                        )
-                    )
+                    .execute_scalar(5, &mut LEGACY_SESSION.create_execution_ctx())
                     .unwrap()
             )
             .unwrap(),
@@ -115,12 +102,7 @@ mod tests {
         assert_eq!(
             TryInto::<i64>::try_into(
                 &decoded
-                    .execute_scalar(
-                        8,
-                        &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                            &*vortex_array::LEGACY_SESSION
-                        )
-                    )
+                    .execute_scalar(8, &mut LEGACY_SESSION.create_execution_ctx())
                     .unwrap()
             )
             .unwrap(),

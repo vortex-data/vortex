@@ -106,6 +106,8 @@ mod tests {
     use parquet_variant_compute::VariantArrayBuilder;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
@@ -146,32 +148,12 @@ mod tests {
 
         assert_eq!(sliced.len(), 2);
         assert_eq!(
-            sliced.execute_scalar(
-                0,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION
-                )
-            )?,
-            arr.execute_scalar(
-                1,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION
-                )
-            )?
+            sliced.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
+            arr.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?
         );
         assert_eq!(
-            sliced.execute_scalar(
-                1,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION
-                )
-            )?,
-            arr.execute_scalar(
-                2,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION
-                )
-            )?
+            sliced.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
+            arr.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
         );
 
         Ok(())
@@ -185,32 +167,17 @@ mod tests {
         assert_eq!(sliced.len(), 3);
         assert!(
             !sliced
-                .execute_scalar(
-                    0,
-                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                        &*vortex_array::LEGACY_SESSION
-                    )
-                )?
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
                 .is_null()
         );
         assert!(
             sliced
-                .execute_scalar(
-                    1,
-                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                        &*vortex_array::LEGACY_SESSION
-                    )
-                )?
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?
                 .is_null()
         );
         assert!(
             !sliced
-                .execute_scalar(
-                    2,
-                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                        &*vortex_array::LEGACY_SESSION
-                    )
-                )?
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
                 .is_null()
         );
 
@@ -225,32 +192,12 @@ mod tests {
 
         assert_eq!(filtered.len(), 2);
         assert_eq!(
-            filtered.execute_scalar(
-                0,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION
-                )
-            )?,
-            arr.execute_scalar(
-                0,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION
-                )
-            )?
+            filtered.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
+            arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
         );
         assert_eq!(
-            filtered.execute_scalar(
-                1,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION
-                )
-            )?,
-            arr.execute_scalar(
-                2,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION
-                )
-            )?
+            filtered.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
+            arr.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
         );
 
         Ok(())
@@ -266,32 +213,17 @@ mod tests {
         assert_eq!(filtered.len(), 3);
         assert!(
             !filtered
-                .execute_scalar(
-                    0,
-                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                        &*vortex_array::LEGACY_SESSION
-                    )
-                )?
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
                 .is_null()
         );
         assert!(
             filtered
-                .execute_scalar(
-                    1,
-                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                        &*vortex_array::LEGACY_SESSION
-                    )
-                )?
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?
                 .is_null()
         );
         assert!(
             filtered
-                .execute_scalar(
-                    2,
-                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                        &*vortex_array::LEGACY_SESSION
-                    )
-                )?
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
                 .is_null()
         );
 
@@ -306,46 +238,16 @@ mod tests {
 
         assert_eq!(taken.len(), 3);
         assert_eq!(
-            taken.execute_scalar(
-                0,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION
-                )
-            )?,
-            arr.execute_scalar(
-                2,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION
-                )
-            )?
+            taken.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
+            arr.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
         );
         assert_eq!(
-            taken.execute_scalar(
-                1,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION
-                )
-            )?,
-            arr.execute_scalar(
-                0,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION
-                )
-            )?
+            taken.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
+            arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
         );
         assert_eq!(
-            taken.execute_scalar(
-                2,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION
-                )
-            )?,
-            arr.execute_scalar(
-                3,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION
-                )
-            )?
+            taken.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?,
+            arr.execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())?
         );
 
         Ok(())
@@ -361,42 +263,22 @@ mod tests {
         assert_eq!(taken.len(), 4);
         assert!(
             !taken
-                .execute_scalar(
-                    0,
-                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                        &*vortex_array::LEGACY_SESSION
-                    )
-                )?
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
                 .is_null()
         );
         assert!(
             taken
-                .execute_scalar(
-                    1,
-                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                        &*vortex_array::LEGACY_SESSION
-                    )
-                )?
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?
                 .is_null()
         );
         assert!(
             taken
-                .execute_scalar(
-                    2,
-                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                        &*vortex_array::LEGACY_SESSION
-                    )
-                )?
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
                 .is_null()
         );
         assert!(
             !taken
-                .execute_scalar(
-                    3,
-                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                        &*vortex_array::LEGACY_SESSION
-                    )
-                )?
+                .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())?
                 .is_null()
         );
 
@@ -432,32 +314,12 @@ mod tests {
         let sliced = arr.slice(1..3)?;
         assert_eq!(sliced.len(), 2);
         assert_eq!(
-            sliced.execute_scalar(
-                0,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION
-                )
-            )?,
-            arr.execute_scalar(
-                1,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION
-                )
-            )?
+            sliced.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
+            arr.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?
         );
         assert_eq!(
-            sliced.execute_scalar(
-                1,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION
-                )
-            )?,
-            arr.execute_scalar(
-                2,
-                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
-                    &*vortex_array::LEGACY_SESSION
-                )
-            )?
+            sliced.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
+            arr.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
         );
 
         Ok(())

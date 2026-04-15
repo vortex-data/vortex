@@ -53,8 +53,13 @@ fn into_canonical_non_nullable(
         .collect::<Vec<_>>();
 
     bencher
-        .with_inputs(|| ChunkedArray::from_iter(chunks.clone()).into_array())
-        .bench_refs(|chunked| chunked.to_canonical());
+        .with_inputs(|| {
+            (
+                ChunkedArray::from_iter(chunks.clone()).into_array(),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(chunked, ctx)| chunked.clone().execute::<Canonical>(ctx));
 }
 
 #[cfg(not(codspeed))]

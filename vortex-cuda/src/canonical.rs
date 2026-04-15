@@ -7,6 +7,8 @@ use async_trait::async_trait;
 use futures::future::try_join_all;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::ExtensionArray;
@@ -50,7 +52,14 @@ impl CanonicalCudaExt for Canonical {
 
                 let mut host_fields = vec![];
                 for field in fields.iter() {
-                    host_fields.push(field.to_canonical()?.into_host().await?.into_array());
+                    host_fields.push(
+                        field
+                            .clone()
+                            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+                            .into_host()
+                            .await?
+                            .into_array(),
+                    );
                 }
 
                 Ok(Canonical::Struct(StructArray::new(
@@ -132,7 +141,8 @@ impl CanonicalCudaExt for Canonical {
                 // Copy the storage array to host and rewrap in ExtensionArray.
                 let host_storage = ext
                     .storage_array()
-                    .to_canonical()?
+                    .clone()
+                    .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
                     .into_host()
                     .await?
                     .into_array();
