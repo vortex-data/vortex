@@ -13,6 +13,7 @@ pub mod ingest;
 pub mod paths;
 pub mod prepare;
 pub mod query;
+pub mod recall;
 pub mod scan;
 pub mod scan_util;
 pub mod session;

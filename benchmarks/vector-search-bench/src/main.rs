@@ -25,6 +25,9 @@ use vector_search_bench::handrolled::run_handrolled_scan;
 use vector_search_bench::prepare::CompressionResult;
 use vector_search_bench::prepare::prepare_all;
 use vector_search_bench::query::sample_query;
+use vector_search_bench::recall::RecallConfig;
+use vector_search_bench::recall::RecallResult;
+use vector_search_bench::recall::measure_recall;
 use vector_search_bench::scan::ScanConfig;
 use vector_search_bench::scan::ScanTiming;
 use vector_search_bench::scan::run_scan;
@@ -67,6 +70,25 @@ struct Args {
     /// Seed for the test-parquet query sampler.
     #[arg(long, default_value_t = 42)]
     query_seed: u64,
+
+    /// Measure Recall@K for lossy flavors against `neighbors.parquet`. Bails if the
+    /// dataset doesn't host neighbors.
+    #[arg(long, default_value_t = false)]
+    recall: bool,
+
+    /// Number of query rows sampled when computing Recall@K. Distinct from --query-seed
+    /// so the recall sampler can pick a different seeded set.
+    #[arg(long, default_value_t = 100, value_parser = parse_positive_usize)]
+    recall_queries: usize,
+
+    /// K in Recall@K. Defaults to 10 (matches VectorDBBench convention).
+    #[arg(long, default_value_t = 10, value_parser = parse_positive_usize)]
+    recall_k: usize,
+
+    /// Seed for the recall query sampler. Distinct from --query-seed so the throughput
+    /// scan and the recall pass can pick non-correlated query sets.
+    #[arg(long, default_value_t = 1234)]
+    recall_seed: u64,
 
     /// Optional path to write the rendered table to instead of stdout.
     #[arg(long)]
@@ -178,6 +200,50 @@ async fn main() -> Result<()> {
         })
         .transpose()?;
 
+    let recall_results = if args.recall {
+        let neighbors_path = paths.neighbors.as_ref().with_context(|| {
+            format!(
+                "--recall requested but dataset {} does not host neighbors.parquet",
+                dataset.name()
+            )
+        })?;
+        let recall_config = RecallConfig {
+            k: args.recall_k,
+            num_queries: args.recall_queries,
+            query_seed: args.recall_seed,
+        };
+        let mut out: Vec<RecallResult> = Vec::with_capacity(prepared.len());
+        for prep in &prepared {
+            // Lossless flavors are trivially 1.0; only TurboQuant needs measurement.
+            if prep.flavor == VortexCompression::Uncompressed {
+                tracing::info!(
+                    "skipping recall for lossless flavor {} (trivially 1.0)",
+                    prep.flavor.label()
+                );
+                continue;
+            }
+            let r = measure_recall(
+                prep,
+                &paths.test,
+                neighbors_path,
+                dataset.element_ptype(),
+                &recall_config,
+            )
+            .await?;
+            tracing::info!(
+                "recall@{} for {}: mean={:.4}, p05={:.4}",
+                r.k,
+                r.flavor.label(),
+                r.mean_recall,
+                r.p05_recall,
+            );
+            out.push(r);
+        }
+        out
+    } else {
+        Vec::new()
+    };
+
     let pairs: Vec<(VortexCompression, &CompressionResult, &ScanTiming)> = prepared
         .iter()
         .zip(scan_timings.iter())
@@ -187,6 +253,7 @@ async fn main() -> Result<()> {
         dataset_name: dataset.name(),
         vortex_results: &pairs,
         handrolled: handrolled_timing.as_ref(),
+        recall: &recall_results,
     };
 
     if let Some(path) = args.output_path {

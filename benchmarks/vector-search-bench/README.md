@@ -1,120 +1,108 @@
 # vector-search-bench
 
-Brute-force cosine-similarity benchmark for Vortex on public VectorDBBench
-embedding corpora.
+On-disk cosine-similarity scan benchmark for Vortex on public VectorDBBench
+embedding corpora. The benchmark writes one `.vortex` file per train shard per
+flavor and then issues filtered scans against the resulting files, so the
+numbers reflect realistic out-of-memory workloads — not in-memory `ArrayRef`
+manipulation.
 
-The current benchmark pipeline supports source embedding columns with `f32`
-or `f64` elements. The lower-level `list_to_vector_ext` conversion helper can
-rewrap `f16` lists as `Vector` extension arrays, but `vector-search-bench`
-itself does not yet support `f16` query extraction or the hand-rolled parquet
-baseline.
-
-## What it measures
-
-For each `(dataset, format)` pair, the benchmark records:
-
-1. **`nbytes`** — in-memory footprint of the variant's array tree, in bytes.
-   Reporting the in-memory `.nbytes()` instead of an on-disk file size is
-   deliberate: the Vortex default write path runs BtrBlocks on every tree
-   regardless of whether it's already compressed, so "on-disk size" would
-   collapse `vortex-uncompressed` and `vortex-default` to the same bytes
-   even though their in-memory trees are different. The `nbytes()`
-   number is consistent with what the *compute* measurements actually
-   operate on.
-   - The `handrolled` baseline reports the canonical parquet file size
-     on disk — that's the only encoded representation it has.
-2. **Compress time** — wall time to build the variant tree from the
-   materialized uncompressed source. ~0 for `vortex-uncompressed` (identity),
-   meaningful for the two compressed variants.
-3. **Decompress time** — wall time to execute the variant tree all the way
-   back into a canonical `FixedSizeListArray<f32>` with a materialized f32
-   element buffer. For `vortex-uncompressed` this is a no-op; for
-   `vortex-default` it includes ALP-RD bit-unpacking; for
-   `vortex-turboquant` it includes the inverse SORF rotation and
-   dictionary lookup.
-4. **Cosine-similarity time** — `CosineSimilarity(data, const_query)`
-   executed to a materialized f32 array.
-5. **Cosine-filter time** — `Binary(Gt, [CosineSimilarity, threshold])`
-   executed to a `BoolArray`.
-6. **Recall@10** (TurboQuant only) — the fraction of the exact top-10
-   nearest neighbours that TurboQuant recovers, using the uncompressed
-   Vortex scan as local ground truth.
-
-Before any timing starts, the benchmark runs a **correctness verification
-pass**: cosine scores for a single query are computed against every
-variant and compared to the uncompressed baseline. Lossless variants must
-match within `1e-4` max-abs-diff; TurboQuant must stay within `0.2`. A
-mismatch bails the run — you cannot publish throughput numbers for a
-variant that returns wrong answers.
-
-## Formats
-
-- `handrolled` — Hand-rolled Rust scalar cosine loop over a flat
-  `Vec<f32>` that was decoded from the canonical parquet file via
-  `parquet-rs` / `arrow-rs`. The **decompress** phase does the parquet
-  read, downcasts to `Float32Array`, and memcpies into a plain `Vec<f32>`.
-  The **compute** phase is a plain scalar loop over `&[f32]` — no Arrow
-  compute kernels, no scalar-function dispatch, no SIMD annotations.
-
-  This is a **compute-cost floor**, not a realistic parquet-on-DBMS
-  baseline. It answers the question "what's the minimum cost you could
-  get away with if you wrote a vector-search scan by hand with no query
-  engine?" Real parquet users would pay substantially more (DuckDB
-  `list_cosine_similarity`, DataFusion with a vector UDF, etc.) —
-  adding those as additional baselines is a natural v2 direction.
-- `vortex-uncompressed` — Raw `Vector<dim, f32>` extension array, no
-  encoding-level compression applied.
-- `vortex-default` — `BtrBlocksCompressor::default()` applied to the FSL
-  storage child. On float vectors this typically finds ~15% lossless
-  savings via ALP-RD (mantissa/exponent split + bitpacking).
-- `vortex-turboquant` — The full
-  `L2Denorm(SorfTransform(FSL(Dict(codes, centroids))), norms)` pipeline.
-  Lossy; recall@10 is reported alongside throughput. At the default 8-bit
-  config this typically gives ~3× storage reduction at >90% top-10
-  recall.
-
-## Datasets
-
-The smallest built-in dataset is **Cohere-100K** (`cohere-small`): 100K
-rows × 768 dims, cosine metric, ~150 MB zstd-parquet. It's the smallest
-VectorDBBench-supplied corpus that still exercises every encoding path.
-Larger variants (`cohere-medium`, `openai-small`, `openai-medium`,
-`bioasq-medium`, `glove-medium`) are wired up for local / on-demand
-experiments; see `vortex-bench/src/vector_dataset.rs` for the full list.
-
-The upstream URL for Cohere-100K is
-`https://assets.zilliz.com/benchmark/cohere_small_100k/train.parquet`.
-The public Zilliz bucket is anonymous-readable so the code can hit it
-directly.
-
-## Running locally
+## Quick start
 
 ```bash
 cargo run -p vector-search-bench --release -- \
-    --datasets cohere-small \
-    --formats handrolled,vortex-uncompressed,vortex-default,vortex-turboquant \
-    --iterations 5 \
-    -d table
+    --dataset cohere-small-100k \
+    --flavors vortex-uncompressed,vortex-turboquant,handrolled \
+    --iterations 3 \
+    --threshold 0.8
 ```
 
-The first run downloads the parquet file into
-`vortex-bench/data/cohere-small/cohere-small.parquet` and caches it
-idempotently for subsequent runs.
+The first run downloads the parquet shards into
+`vortex-bench/data/vector-search/<dataset>/<layout>/train/...`, ingests them
+into per-flavor `.vortex` files in sibling directories, samples a query row
+from `test.parquet`, and runs the timed scan loop.
 
-## CI note: dataset mirror
+A datasets that publishes more than one layout (e.g. `cohere-large-10m`
+hosts both `partitioned` and `partitioned-shuffled`) requires `--layout` to
+disambiguate.
 
-CI runs after every develop-branch merge. Hitting `assets.zilliz.com`
-from every merge would create recurring egress traffic on a third-party
-bucket — the same courtesy reason `RPlace` / `AirQuality` are excluded
-from CI in `compress-bench`.
+## What it measures
 
-Before enabling the `vector-search-bench` entry in `.github/workflows/bench.yml`
-on a fork, either:
+Per `(dataset, flavor)`:
 
-1. **Mirror the file into an internal bucket** and swap the URL in
-   `vortex-bench/src/vector_dataset.rs::VectorDataset::parquet_url`, or
-2. **Accept the upstream egress cost** and leave the URL as-is.
+| Metric              | What it is                                              |
+|---------------------|---------------------------------------------------------|
+| compress wall       | Sum of per-shard write time (parquet → `.vortex`).      |
+| input bytes         | Sum of input parquet shard sizes.                       |
+| output bytes        | Sum of output `.vortex` shard sizes.                    |
+| compression ratio   | input bytes / output bytes.                             |
+| scan wall (best)    | Best-of-N wall-clock for the per-iteration scan.        |
+| scan wall (median)  | Median wall-clock for the per-iteration scan.           |
+| matches             | Rows that survived `cosine(emb, query) > threshold`.    |
+| rows scanned        | Total rows in the `.vortex` files (sanity check).       |
+| rows / sec          | rows scanned / scan wall (best).                        |
+| recall@K (mean/p05) | Only emitted when `--recall` is passed (lossy flavors). |
 
-The mirror step is a one-off `aws s3 cp` and is documented here rather
-than automated in the build because the destination bucket is
-organization-specific.
+## Flavors
+
+- **`vortex-uncompressed`** — `BtrBlocksCompressorBuilder::empty()`. Vortex
+  framing with no compression schemes registered, so the `emb` column lands
+  as canonical `FixedSizeList<f32>` on disk. Lossless ceiling on the size
+  axis.
+- **`vortex-turboquant`** — `BtrBlocksCompressorBuilder::empty().with_turboquant()`.
+  Only the TurboQuant scheme is registered, so the `emb` column ends up
+  wrapped as `L2Denorm(SorfTransform(FixedSizeList(Dict)))`. Lossy; significant
+  size win.
+- **`handrolled`** — Sequential parquet scan + 4-way unrolled scalar cosine
+  loop over a flat `Vec<f32>` (decoded via `parquet-rs` / `arrow-rs`). This
+  is a *compute-cost floor*, not a realistic parquet-on-DBMS baseline. Real
+  parquet users would pay substantially more (DuckDB
+  `list_cosine_similarity`, DataFusion with a vector UDF, etc.) — adding
+  those as additional baselines is a natural future direction.
+
+The benchmark always operates in `f32`. The ingest pipeline casts `f64`
+sources (e.g. OpenAI corpora) to `f32` once at write time, so all downstream
+code is uniformly `f32`.
+
+## Datasets
+
+All 16 published VectorDBBench corpora are wired into the catalog, with
+explicit declarations of which train-split layouts upstream actually hosts.
+See `vortex-bench/src/vector_dataset/catalog.rs` for the full table. CLI
+helpfully lists choices when run with `--help`.
+
+| Dataset            | dim  | rows | layouts                                     |
+|--------------------|------|------|---------------------------------------------|
+| cohere-small-100k  | 768  | 100K | single, single-shuffled                     |
+| cohere-medium-1m   | 768  | 1M   | single, single-shuffled                     |
+| cohere-large-10m   | 768  | 10M  | partitioned (10), partitioned-shuffled (10) |
+| openai-small-50k   | 1536 | 50K  | single, single-shuffled                     |
+| openai-medium-500k | 1536 | 500K | single, single-shuffled                     |
+| openai-large-5m    | 1536 | 5M   | partitioned (10), partitioned-shuffled (10) |
+| bioasq-medium-1m   | 1024 | 1M   | single-shuffled                             |
+| bioasq-large-10m   | 1024 | 10M  | partitioned-shuffled (10)                   |
+| glove-{small,medium}, gist-{small,medium} | varies | varies | single only |
+| sift-small-500k    | 128  | 500K | single                                      |
+| sift-medium-5m     | 128  | 5M   | single                                      |
+| sift-large-50m     | 128  | 50M  | partitioned (50)                            |
+| laion-large-100m   | 768  | 100M | partitioned (100)                           |
+
+## Recall@K
+
+Pass `--recall --recall-k 10 --recall-queries 100` to measure recall against
+`neighbors.parquet`. The lossless `vortex-uncompressed` flavor is skipped
+because its recall is 1.0 by construction; only `vortex-turboquant` is
+measured. Datasets that don't host `neighbors.parquet` (sift, glove, gist)
+bail out when `--recall` is set.
+
+## Future work
+
+1. Native `f64` flavor — drop the prepare-time downcast for OpenAI datasets.
+2. `--decompress-only` mode — project + drain, no filter — for pure decode
+   timing.
+3. Filtered scans via `scalar_labels` (already projected through the ingest
+   pipeline; the `neighbors_int_*p.parquet` and `neighbors_labels_*.parquet`
+   ground-truth files exist for verification).
+4. DuckDB / DataFusion parquet baselines — real engines, not just hand-rolled.
+5. MSE-vs-ground-truth correctness mode (catches "right top-K, wrong scores").
+6. Promote the cosine-filter expression helpers from `expression.rs` into
+   `vortex-tensor::vector_search` if a second caller materializes.

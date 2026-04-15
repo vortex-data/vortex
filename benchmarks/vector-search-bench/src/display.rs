@@ -30,6 +30,7 @@ use tabled::settings::Style;
 use crate::compression::VortexCompression;
 use crate::handrolled::HandrolledTiming;
 use crate::prepare::CompressionResult;
+use crate::recall::RecallResult;
 use crate::scan::ScanTiming;
 
 /// Final column-per-flavor row set for one dataset.
@@ -37,6 +38,8 @@ pub struct DatasetReport<'a> {
     pub dataset_name: &'a str,
     pub vortex_results: &'a [(VortexCompression, &'a CompressionResult, &'a ScanTiming)],
     pub handrolled: Option<&'a HandrolledTiming>,
+    /// Per-flavor recall results when `--recall` was requested. Empty otherwise.
+    pub recall: &'a [RecallResult],
 }
 
 /// Render the full report into the given writer as a tabled table.
@@ -114,6 +117,36 @@ pub fn render(report: &DatasetReport<'_>, writer: &mut dyn Write) -> Result<()> 
         |_, _, scan| format_throughput_rows(scan.rows_scanned, scan.best_of),
         |h| format_throughput_rows(h.rows_scanned, h.best_of),
     ));
+
+    if !report.recall.is_empty() {
+        let k = report.recall[0].k;
+        rows.push(make_row(
+            &format!("recall@{k} (mean)"),
+            report,
+            |flavor, _, _| {
+                report
+                    .recall
+                    .iter()
+                    .find(|r| r.flavor == flavor)
+                    .map(|r| format!("{:.3}", r.mean_recall))
+                    .unwrap_or_else(|| "—".to_owned())
+            },
+            |_| "—".to_owned(),
+        ));
+        rows.push(make_row(
+            &format!("recall@{k} (p05)"),
+            report,
+            |flavor, _, _| {
+                report
+                    .recall
+                    .iter()
+                    .find(|r| r.flavor == flavor)
+                    .map(|r| format!("{:.3}", r.p05_recall))
+                    .unwrap_or_else(|| "—".to_owned())
+            },
+            |_| "—".to_owned(),
+        ));
+    }
 
     writeln!(writer, "## {}", report.dataset_name)?;
     let mut builder = tabled::builder::Builder::new();

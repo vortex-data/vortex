@@ -15,13 +15,12 @@ use anyhow::bail;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ExtensionArray;
 use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::PrimitiveArray;
-use vortex::array::arrays::Struct;
+use vortex::array::arrays::StructArray;
 use vortex::array::arrays::extension::ExtensionArrayExt;
 use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex::array::arrays::struct_::StructArrayExt;
@@ -57,11 +56,10 @@ pub async fn sample_query(
         .await
         .with_context(|| format!("read test parquet {}", test_parquet.display()))?;
     let mut ctx = SESSION.create_execution_ctx();
-    let arr: ArrayRef = chunked.into_array();
-    let struct_view = arr
-        .as_opt::<Struct>()
-        .context("test parquet root is not a struct")?;
-    let emb = struct_view
+    // The chunked array's chunks each carry the parquet struct dtype; materialize into
+    // a single non-chunked `StructArray` so we can project the `emb` column once.
+    let materialized: StructArray = chunked.into_array().execute(&mut ctx)?;
+    let emb = materialized
         .unmasked_field_by_name("emb")
         .context("test parquet missing `emb` column")?
         .clone();
