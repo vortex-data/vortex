@@ -14,7 +14,7 @@ permissions:
 jobs:
   commit-metadata:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
       - name: Setup AWS CLI
