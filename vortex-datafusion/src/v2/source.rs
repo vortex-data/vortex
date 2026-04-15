@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Direct [`DataSource`] integration for an existing Vortex [`DataSourceRef`].
-//!
-//! Use [`VortexDataSource`] when you already have a Vortex source and want to
-//! hand DataFusion a physical scan node without going through file discovery.
+//! Use [`VortexDataSource`] to adapt an existing Vortex [`DataSourceRef`] into
+//! a DataFusion [`DataSource`] without going through file discovery.
 //!
 //! [`VortexDataSource`] is responsible for:
 //!
