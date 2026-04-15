@@ -102,7 +102,7 @@ jobs:
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
         run: |
           CORPUS_KEY="${FUZZ_NAME}_corpus.tar.zst"
-          CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}-${{ inputs.extra_features }}"
+          CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
 
           # Try to download corpus
           if python3 scripts/s3-download.py "s3://vortex-fuzz-corpus/$CORPUS_KEY" "$CORPUS_KEY"; then
