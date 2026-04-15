@@ -5,8 +5,14 @@
 //! VectorDBBench corpora.
 
 pub mod compression;
+pub mod display;
 pub mod expression;
+pub mod handrolled;
+pub mod handrolled_decode;
 pub mod ingest;
 pub mod paths;
 pub mod prepare;
+pub mod query;
+pub mod scan;
+pub mod scan_util;
 pub mod session;
