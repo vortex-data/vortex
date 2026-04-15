@@ -73,7 +73,7 @@ fn make_sparse_fixed_size_list(len: usize, patch_stride: usize, list_size: u32) 
         FixedSizeListArray::new(patch_elements, list_size, Validity::NonNullable, n_patches)
             .into_array();
 
-    let fill_value = Scalar::list(
+    let fill_value = Scalar::fixed_size_list(
         Arc::new(I32.into()),
         (0..list_size as i32).map(Scalar::from).collect(),
         NonNullable,
