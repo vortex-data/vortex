@@ -98,6 +98,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use vortex_array::ArrayPlugin;
+    use vortex_array::ArrayPluginRef;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PatchedArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -118,7 +119,9 @@ mod tests {
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty().with::<ArraySession>();
-        session.arrays().register(ArrayPluginRef::new(BitPackedPatchedPlugin));
+        session
+            .arrays()
+            .register(ArrayPluginRef::new(BitPackedPatchedPlugin));
         session
     });
 
