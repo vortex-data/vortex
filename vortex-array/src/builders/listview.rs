@@ -307,7 +307,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
 
         self.nulls.append_validity_mask(
             array
-                .listview_validity_mask()
+                .validity()
                 .vortex_expect("validity_mask in extend_from_array_unchecked")
                 .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("Failed to compute validity mask"),
