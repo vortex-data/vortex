@@ -6,7 +6,6 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use std::sync::Arc;
-use std::sync::LazyLock;
 
 use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
@@ -24,13 +23,11 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::extension::EmptyMetadata;
-use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_session::VortexSession;
 
 use super::SorfOptions;
 use super::SorfTransform;
@@ -38,13 +35,8 @@ use super::rotation::SorfMatrix;
 use crate::encodings::turboquant::centroids::compute_centroid_boundaries;
 use crate::encodings::turboquant::centroids::find_nearest_centroid;
 use crate::encodings::turboquant::centroids::get_centroids;
+use crate::tests::SESSION;
 use crate::vector::Vector;
-
-static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::empty().with::<ArraySession>();
-    crate::initialize(&session);
-    session
-});
 
 /// Build a unit-normalized input vector array and forward-transform + quantize it, returning
 /// `(input_f32, Vector<padded_dim>(FSL(Dict(codes, centroids))), padded_dim)`.

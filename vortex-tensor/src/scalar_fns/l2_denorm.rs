@@ -699,7 +699,6 @@ fn validate_l2_normalized_rows_impl(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::LazyLock;
 
     use rstest::rstest;
     use vortex_array::ArrayPlugin;
@@ -724,29 +723,22 @@ mod tests {
     use vortex_array::extension::datetime::Date;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::scalar::Scalar;
-    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
     use crate::fixed_shape::FixedShapeTensor;
     use crate::fixed_shape::FixedShapeTensorMetadata;
     use crate::scalar_fns::l2_denorm::L2Denorm;
     use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
     use crate::scalar_fns::l2_denorm::validate_l2_normalized_rows;
+    use crate::tests::SESSION;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::constant_tensor_array;
     use crate::utils::test_helpers::constant_vector_array;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
     use crate::vector::Vector;
-
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty().with::<ArraySession>();
-        crate::initialize(&session);
-        session
-    });
 
     /// Evaluates L2 denorm on a tensor/vector array and returns the executed array.
     fn eval_l2_denorm(normalized: ArrayRef, norms: ArrayRef, len: usize) -> VortexResult<ArrayRef> {

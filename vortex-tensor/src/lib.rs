@@ -51,3 +51,17 @@ pub fn initialize(session: &VortexSession) {
     session_arrays.register(ScalarFnArrayPlugin::new(L2Norm));
     session_arrays.register(ScalarFnArrayPlugin::new(SorfTransform));
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use vortex_array::session::ArraySession;
+    use vortex_session::VortexSession;
+
+    pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty().with::<ArraySession>();
+        crate::initialize(&session);
+        session
+    });
+}
