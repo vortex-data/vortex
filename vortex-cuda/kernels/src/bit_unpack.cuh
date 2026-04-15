@@ -7,10 +7,10 @@
 #include <cuda_runtime.h>
 #include <stdint.h>
 
-#include "bit_unpack_8.cu"
-#include "bit_unpack_16.cu"
-#include "bit_unpack_32.cu"
-#include "bit_unpack_64.cu"
+#include "bit_unpack_8_lanes.cuh"
+#include "bit_unpack_16_lanes.cuh"
+#include "bit_unpack_32_lanes.cuh"
+#include "bit_unpack_64_lanes.cuh"
 #include "patches.h"
 
 /// Decodes a single lane of packed data.
@@ -26,22 +26,22 @@
 /// * `lane` - Lane index within the block (used to determine which packed words to process)
 /// * `bit_width` - Number of bits with which each value is encoded
 template <typename T>
-__device__ inline void bit_unpack_lane(const T *__restrict packed_chunk,
-                                       T *__restrict output_buffer,
-                                       T reference,
-                                       unsigned int lane,
-                                       uint32_t bit_width);
+__device__ __noinline__ void bit_unpack_lane(const T *__restrict packed_chunk,
+                                             T *__restrict output_buffer,
+                                             T reference,
+                                             unsigned int lane,
+                                             uint32_t bit_width);
 
 /// Template specializations for `bitunpack_lane_to_smem` for different integer types.
 ///
 /// Generates template specializations for each supported integer size (8, 16, 32, 64 bits).
 #define BIT_UNPACK_LANE(bits)                                                                                \
     template <>                                                                                              \
-    __device__ inline void bit_unpack_lane<uint##bits##_t>(const uint##bits##_t *in,                         \
-                                                           uint##bits##_t *out,                              \
-                                                           uint##bits##_t reference,                         \
-                                                           unsigned int lane,                                \
-                                                           uint32_t bw) {                                    \
+    __device__ __noinline__ void bit_unpack_lane<uint##bits##_t>(const uint##bits##_t *in,                   \
+                                                                 uint##bits##_t *out,                        \
+                                                                 uint##bits##_t reference,                   \
+                                                                 unsigned int lane,                          \
+                                                                 uint32_t bw) {                              \
         bit_unpack_##bits##_lane(in, out, reference, lane, bw);                                              \
     }
 
