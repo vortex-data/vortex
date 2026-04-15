@@ -14,7 +14,8 @@ use std::process::Command;
 
 use fastlanes::FastLanes;
 
-use crate::bit_unpack_gen::generate_cuda_unpack;
+use crate::bit_unpack_gen::generate_cuda_unpack_kernels;
+use crate::bit_unpack_gen::generate_cuda_unpack_lanes;
 
 #[path = "src/bit_unpack_gen.rs"]
 pub mod bit_unpack_gen;
@@ -94,10 +95,19 @@ fn main() {
 }
 
 fn generate_unpack<T: FastLanes>(output_dir: &Path, thread_count: usize) -> io::Result<PathBuf> {
-    let path = output_dir.join(format!("bit_unpack_{}.cu", T::T));
-    let mut cu_file = File::create(&path)?;
-    generate_cuda_unpack::<T>(&mut cu_file, thread_count)?;
-    Ok(path)
+    // Generate the lanes header (.cuh) — device functions only, no __global__ kernels.
+    // This is what dynamic_dispatch.cu includes (via bit_unpack.cuh).
+    let cuh_path = output_dir.join(format!("bit_unpack_{}_lanes.cuh", T::T));
+    let mut cuh_file = File::create(&cuh_path)?;
+    generate_cuda_unpack_lanes::<T>(&mut cuh_file)?;
+
+    // Generate the standalone kernels (.cu) — includes the lanes header,
+    // adds _device template + __global__ wrappers. Compiled to its own PTX.
+    let cu_path = output_dir.join(format!("bit_unpack_{}.cu", T::T));
+    let mut cu_file = File::create(&cu_path)?;
+    generate_cuda_unpack_kernels::<T>(&mut cu_file, thread_count)?;
+
+    Ok(cu_path)
 }
 
 fn nvcc_compile_ptx(
