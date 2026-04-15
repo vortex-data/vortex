@@ -31,13 +31,19 @@ pub mod vector_search;
 
 mod utils;
 
+/// Environment variable that gates registration of the tensor scalar-fn array plugins (the array
+/// encodings that let [`CosineSimilarity`], [`InnerProduct`], [`L2Denorm`], [`L2Norm`], and
+/// [`SorfTransform`] persist in a Vortex file). When unset, only the scalar functions themselves
+/// are registered; readers of files containing serialized tensor scalar-fn arrays will fail to
+/// deserialize. Opt-in by setting the variable to any non-empty value.
+pub const SCALAR_FN_ARRAY_TENSOR_PLUGIN_ENV: &str = "VX_SCALAR_FN_ARRAY_TENSOR_PLUGIN";
+
 /// Initialize the Vortex tensor library with a Vortex session.
 pub fn initialize(session: &VortexSession) {
     session.dtypes().register(Vector);
     session.dtypes().register(FixedShapeTensor);
 
     let session_fns = session.scalar_fns();
-    let session_arrays = session.arrays();
 
     session_fns.register(CosineSimilarity);
     session_fns.register(InnerProduct);
@@ -45,11 +51,19 @@ pub fn initialize(session: &VortexSession) {
     session_fns.register(L2Norm);
     session_fns.register(SorfTransform);
 
-    session_arrays.register(ScalarFnArrayPlugin::new(CosineSimilarity));
-    session_arrays.register(ScalarFnArrayPlugin::new(InnerProduct));
-    session_arrays.register(ScalarFnArrayPlugin::new(L2Denorm));
-    session_arrays.register(ScalarFnArrayPlugin::new(L2Norm));
-    session_arrays.register(ScalarFnArrayPlugin::new(SorfTransform));
+    // Registering the scalar-fn array plugins lets the tensor scalar fns be serialized as array
+    // encodings inside Vortex files. Gate this on an env var so applications that do not intend
+    // to persist these encodings do not pay the registry cost or widen their stable-encoding
+    // surface unintentionally.
+    if std::env::var_os(SCALAR_FN_ARRAY_TENSOR_PLUGIN_ENV).is_some_and(|v| !v.is_empty()) {
+        let session_arrays = session.arrays();
+
+        session_arrays.register(ScalarFnArrayPlugin::new(CosineSimilarity));
+        session_arrays.register(ScalarFnArrayPlugin::new(InnerProduct));
+        session_arrays.register(ScalarFnArrayPlugin::new(L2Denorm));
+        session_arrays.register(ScalarFnArrayPlugin::new(L2Norm));
+        session_arrays.register(ScalarFnArrayPlugin::new(SorfTransform));
+    }
 }
 
 #[cfg(test)]
