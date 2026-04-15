@@ -18686,7 +18686,7 @@ impl vortex_array::session::ArraySession
 
 pub fn vortex_array::session::ArraySession::empty() -> vortex_array::session::ArraySession
 
-pub fn vortex_array::session::ArraySession::register<P: vortex_array::ArrayPlugin>(&self, plugin: P)
+pub fn vortex_array::session::ArraySession::register(&self, plugin: impl core::convert::Into<vortex_array::ArrayPluginRef>)
 
 pub fn vortex_array::session::ArraySession::registry(&self) -> &vortex_array::session::ArrayRegistry
 
@@ -19176,6 +19176,30 @@ pub struct vortex_array::variants::Utf8Typed<'a>(_)
 
 pub mod vortex_array::vtable
 
+pub struct vortex_array::vtable::ArrayPluginRef(_)
+
+impl vortex_array::ArrayPluginRef
+
+pub fn vortex_array::ArrayPluginRef::new(plugin: impl vortex_array::ArrayPlugin) -> Self
+
+impl core::clone::Clone for vortex_array::ArrayPluginRef
+
+pub fn vortex_array::ArrayPluginRef::clone(&self) -> vortex_array::ArrayPluginRef
+
+impl core::fmt::Debug for vortex_array::ArrayPluginRef
+
+pub fn vortex_array::ArrayPluginRef::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::ops::deref::Deref for vortex_array::ArrayPluginRef
+
+pub type vortex_array::ArrayPluginRef::Target = dyn vortex_array::ArrayPlugin
+
+pub fn vortex_array::ArrayPluginRef::deref(&self) -> &Self::Target
+
+impl<V: vortex_array::VTable> core::convert::From<V> for vortex_array::ArrayPluginRef
+
+pub fn vortex_array::ArrayPluginRef::from(v: V) -> Self
+
 pub struct vortex_array::vtable::EmptyArrayData
 
 impl core::clone::Clone for vortex_array::EmptyArrayData
@@ -19229,16 +19253,6 @@ pub fn vortex_array::vtable::ArrayPlugin::id(&self) -> vortex_array::ArrayId
 pub fn vortex_array::vtable::ArrayPlugin::is_supported_encoding(&self, id: &vortex_array::ArrayId) -> bool
 
 pub fn vortex_array::vtable::ArrayPlugin::serialize(&self, array: &vortex_array::ArrayRef, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
-
-impl<V: vortex_array::VTable> vortex_array::ArrayPlugin for V
-
-pub fn V::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> core::result::Result<vortex_array::ArrayRef, vortex_error::VortexError>
-
-pub fn V::id(&self) -> vortex_session::registry::Id
-
-pub fn V::is_supported_encoding(&self, id: &vortex_array::ArrayId) -> bool
-
-pub fn V::serialize(&self, array: &vortex_array::ArrayRef, session: &vortex_session::VortexSession) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, vortex_error::VortexError>
 
 impl<V: vortex_array::scalar_fn::ScalarFnVTable + vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable> vortex_array::ArrayPlugin for vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin<V>
 
@@ -21220,8 +21234,6 @@ pub fn vortex_array::vtable::validity_nchildren(validity: &vortex_array::validit
 
 pub fn vortex_array::vtable::validity_to_child(validity: &vortex_array::validity::Validity, len: usize) -> core::option::Option<vortex_array::ArrayRef>
 
-pub type vortex_array::vtable::ArrayPluginRef = alloc::sync::Arc<dyn vortex_array::ArrayPlugin>
-
 pub macro vortex_array::field_path!
 
 pub macro vortex_array::match_each_decimal_value!
@@ -21929,6 +21941,54 @@ impl<V: vortex_array::VTable> vortex_array::ArrayParts<V>
 pub fn vortex_array::ArrayParts<V>::new(vtable: V, dtype: vortex_array::dtype::DType, len: usize, data: <V as vortex_array::VTable>::ArrayData) -> Self
 
 pub fn vortex_array::ArrayParts<V>::with_slots(self, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> Self
+
+pub struct vortex_array::ArrayPluginRef(_)
+
+pub struct vortex_array::ArrayPluginRef(_)
+
+impl vortex_array::ArrayPluginRef
+
+impl vortex_array::ArrayPluginRef
+
+pub fn vortex_array::ArrayPluginRef::new(plugin: impl vortex_array::ArrayPlugin) -> Self
+
+pub fn vortex_array::ArrayPluginRef::new(plugin: impl vortex_array::ArrayPlugin) -> Self
+
+impl core::clone::Clone for vortex_array::ArrayPluginRef
+
+impl core::clone::Clone for vortex_array::ArrayPluginRef
+
+pub fn vortex_array::ArrayPluginRef::clone(&self) -> vortex_array::ArrayPluginRef
+
+pub fn vortex_array::ArrayPluginRef::clone(&self) -> vortex_array::ArrayPluginRef
+
+impl core::fmt::Debug for vortex_array::ArrayPluginRef
+
+impl core::fmt::Debug for vortex_array::ArrayPluginRef
+
+pub fn vortex_array::ArrayPluginRef::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn vortex_array::ArrayPluginRef::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::ops::deref::Deref for vortex_array::ArrayPluginRef
+
+impl core::ops::deref::Deref for vortex_array::ArrayPluginRef
+
+pub type vortex_array::ArrayPluginRef::Target = dyn vortex_array::ArrayPlugin
+
+pub type vortex_array::ArrayPluginRef::Target = dyn vortex_array::ArrayPlugin
+
+pub fn vortex_array::ArrayPluginRef::deref(&self) -> &Self::Target
+
+pub fn vortex_array::ArrayPluginRef::deref(&self) -> &Self::Target
+
+impl<V: vortex_array::VTable> core::convert::From<V> for vortex_array::ArrayPluginRef
+
+impl<V: vortex_array::VTable> core::convert::From<V> for vortex_array::ArrayPluginRef
+
+pub fn vortex_array::ArrayPluginRef::from(v: V) -> Self
+
+pub fn vortex_array::ArrayPluginRef::from(v: V) -> Self
 
 pub struct vortex_array::ArrayRef(_)
 
@@ -22877,26 +22937,6 @@ pub fn vortex_array::ArrayPlugin::is_supported_encoding(&self, id: &vortex_array
 pub fn vortex_array::ArrayPlugin::serialize(&self, array: &vortex_array::ArrayRef, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::ArrayPlugin::serialize(&self, array: &vortex_array::ArrayRef, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
-
-impl<V: vortex_array::VTable> vortex_array::ArrayPlugin for V
-
-impl<V: vortex_array::VTable> vortex_array::ArrayPlugin for V
-
-pub fn V::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> core::result::Result<vortex_array::ArrayRef, vortex_error::VortexError>
-
-pub fn V::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> core::result::Result<vortex_array::ArrayRef, vortex_error::VortexError>
-
-pub fn V::id(&self) -> vortex_session::registry::Id
-
-pub fn V::id(&self) -> vortex_session::registry::Id
-
-pub fn V::is_supported_encoding(&self, id: &vortex_array::ArrayId) -> bool
-
-pub fn V::is_supported_encoding(&self, id: &vortex_array::ArrayId) -> bool
-
-pub fn V::serialize(&self, array: &vortex_array::ArrayRef, session: &vortex_session::VortexSession) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, vortex_error::VortexError>
-
-pub fn V::serialize(&self, array: &vortex_array::ArrayRef, session: &vortex_session::VortexSession) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, vortex_error::VortexError>
 
 impl<V: vortex_array::scalar_fn::ScalarFnVTable + vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable> vortex_array::ArrayPlugin for vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin<V>
 
@@ -25147,9 +25187,5 @@ pub fn vortex_array::validity_to_child(validity: &vortex_array::validity::Validi
 pub type vortex_array::ArrayContext = vortex_session::registry::Context<vortex_array::ArrayPluginRef>
 
 pub type vortex_array::ArrayId = vortex_session::registry::Id
-
-pub type vortex_array::ArrayPluginRef = alloc::sync::Arc<dyn vortex_array::ArrayPlugin>
-
-pub type vortex_array::ArrayPluginRef = alloc::sync::Arc<dyn vortex_array::ArrayPlugin>
 
 pub type vortex_array::DonePredicate = fn(&vortex_array::ArrayRef) -> bool

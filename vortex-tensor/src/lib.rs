@@ -5,6 +5,7 @@
 //! including unit vectors, spherical coordinates, and similarity measures such as cosine
 //! similarity.
 
+use vortex_array::ArrayPluginRef;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
@@ -58,11 +59,13 @@ pub fn initialize(session: &VortexSession) {
     if std::env::var_os(SCALAR_FN_ARRAY_TENSOR_PLUGIN_ENV).is_some_and(|v| !v.is_empty()) {
         let session_arrays = session.arrays();
 
-        session_arrays.register(ScalarFnArrayPlugin::new(CosineSimilarity));
-        session_arrays.register(ScalarFnArrayPlugin::new(InnerProduct));
-        session_arrays.register(ScalarFnArrayPlugin::new(L2Denorm));
-        session_arrays.register(ScalarFnArrayPlugin::new(L2Norm));
-        session_arrays.register(ScalarFnArrayPlugin::new(SorfTransform));
+        session_arrays.register(ArrayPluginRef::new(ScalarFnArrayPlugin::new(
+            CosineSimilarity,
+        )));
+        session_arrays.register(ArrayPluginRef::new(ScalarFnArrayPlugin::new(InnerProduct)));
+        session_arrays.register(ArrayPluginRef::new(ScalarFnArrayPlugin::new(L2Denorm)));
+        session_arrays.register(ArrayPluginRef::new(ScalarFnArrayPlugin::new(L2Norm)));
+        session_arrays.register(ArrayPluginRef::new(ScalarFnArrayPlugin::new(SorfTransform)));
     }
 }
 

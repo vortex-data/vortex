@@ -39,7 +39,9 @@ pub fn initialize(session: &VortexSession) {
     // If we're using the experimental Patched encoding, register a shim
     // for BitPacked with interior patches decode as Patched array.
     if *USE_EXPERIMENTAL_PATCHES {
-        session.arrays().register(ArrayPluginRef::new(BitPackedPatchedPlugin));
+        session
+            .arrays()
+            .register(ArrayPluginRef::new(BitPackedPatchedPlugin));
     } else {
         session.arrays().register(BitPacked);
     }

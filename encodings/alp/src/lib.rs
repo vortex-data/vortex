@@ -35,7 +35,9 @@ pub fn initialize(session: &VortexSession) {
     // If we're using the experimental Patched encoding, register a shim
     // for ALP with interior patches to decode as Patched array.
     if *USE_EXPERIMENTAL_PATCHES {
-        session.arrays().register(ArrayPluginRef::new(ALPPatchedPlugin));
+        session
+            .arrays()
+            .register(ArrayPluginRef::new(ALPPatchedPlugin));
     } else {
         session.arrays().register(ALP);
     }

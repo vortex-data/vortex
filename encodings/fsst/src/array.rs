@@ -812,24 +812,25 @@ mod test {
             fsst_array.uncompressed_lengths().clone(),
         ];
 
-        let fsst = ArrayPluginRef::from(FSST).deserialize(
-            &DType::Utf8(Nullability::NonNullable),
-            2,
-            &FSSTMetadata {
-                uncompressed_lengths_ptype: fsst_array
-                    .uncompressed_lengths()
-                    .dtype()
-                    .as_ptype()
-                    .into(),
-                // Legacy array did not store this field, use Protobuf default of 0.
-                codes_offsets_ptype: 0,
-            }
-            .encode_to_vec(),
-            &buffers,
-            &children.as_slice(),
-            &LEGACY_SESSION,
-        )
-        .unwrap();
+        let fsst = ArrayPluginRef::from(FSST)
+            .deserialize(
+                &DType::Utf8(Nullability::NonNullable),
+                2,
+                &FSSTMetadata {
+                    uncompressed_lengths_ptype: fsst_array
+                        .uncompressed_lengths()
+                        .dtype()
+                        .as_ptype()
+                        .into(),
+                    // Legacy array did not store this field, use Protobuf default of 0.
+                    codes_offsets_ptype: 0,
+                }
+                .encode_to_vec(),
+                &buffers,
+                &children.as_slice(),
+                &LEGACY_SESSION,
+            )
+            .unwrap();
 
         let decompressed = fsst
             .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
