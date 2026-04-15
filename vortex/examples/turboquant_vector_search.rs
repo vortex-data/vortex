@@ -61,8 +61,8 @@ use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 use vortex_bench::conversions::list_to_vector_ext;
 use vortex_bench::conversions::parquet_to_vortex_chunks;
-use vortex_bench::datasets::Dataset;
 use vortex_bench::vector_dataset::VectorDataset;
+use vortex_bench::vector_dataset::download;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity;
 use vortex_tensor::scalar_fns::l2_denorm::L2Denorm;
@@ -89,7 +89,7 @@ async fn main() -> Result<()> {
     let session = VortexSession::default().with_tokio();
     vortex_tensor::initialize(&session);
 
-    let dataset = VectorDataset::CohereSmall;
+    let dataset = VectorDataset::CohereSmall100k;
     println!(
         "loading {} ({} rows × {} dims)",
         dataset.name(),
@@ -126,10 +126,15 @@ async fn load_vector_dataset(
     session: &VortexSession,
     dataset: &VectorDataset,
 ) -> Result<LoadedVectorDataset> {
-    let parquet_path = dataset
-        .to_parquet_path()
+    let layout = dataset.default_layout().layout;
+    let paths = download(*dataset, layout)
         .await
         .with_context(|| format!("download {} parquet", dataset.name()))?;
+    let parquet_path = paths
+        .train_files
+        .first()
+        .cloned()
+        .with_context(|| format!("dataset {} has no train files", dataset.name()))?;
     let chunked = parquet_to_vortex_chunks(parquet_path).await?;
 
     let mut ctx = session.create_execution_ctx();
