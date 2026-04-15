@@ -22692,7 +22692,7 @@ impl vortex_array::ExecutionCtx
 
 pub fn vortex_array::ExecutionCtx::allocator(&self) -> vortex_array::memory::HostAllocatorRef
 
-pub fn vortex_array::ExecutionCtx::log(&mut self, msg: core::fmt::Arguments<'_>)
+pub fn vortex_array::ExecutionCtx::log(&mut self, _msg: core::fmt::Arguments<'_>)
 
 pub fn vortex_array::ExecutionCtx::new(session: vortex_session::VortexSession) -> Self
 
