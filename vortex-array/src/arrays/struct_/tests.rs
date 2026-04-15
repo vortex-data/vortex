@@ -4,7 +4,10 @@
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
+use crate::Canonical;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
@@ -140,10 +143,15 @@ fn test_uncompressed_size_in_bytes() -> VortexResult<()> {
         Validity::NonNullable,
     );
 
-    let canonical_size = struct_array.to_canonical()?.into_array().nbytes();
+    let canonical_size = struct_array
+        .clone()
+        .into_array()
+        .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+        .into_array()
+        .nbytes();
     let uncompressed_size = struct_array
         .statistics()
-        .compute_uncompressed_size_in_bytes();
+        .compute_uncompressed_size_in_bytes(&mut LEGACY_SESSION.create_execution_ctx());
 
     assert_eq!(canonical_size, 2);
     assert_eq!(uncompressed_size, Some(4000));

@@ -148,6 +148,8 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::FixedSizeListArray;
@@ -174,7 +176,11 @@ mod tests {
         assert_eq!(result.len(), 5);
         // All values should still be null
         for i in 0..5 {
-            assert!(!result.is_valid(i).unwrap());
+            assert!(
+                !result
+                    .is_valid(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap()
+            );
         }
     }
 
@@ -254,9 +260,21 @@ mod tests {
         let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
         assert_eq!(result.len(), 3);
-        assert!(result.is_valid(0).unwrap());
-        assert!(!result.is_valid(1).unwrap());
-        assert!(result.is_valid(2).unwrap());
+        assert!(
+            result
+                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
+        assert!(
+            !result
+                .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
+        assert!(
+            result
+                .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
     }
 
     #[test]
@@ -270,9 +288,21 @@ mod tests {
         let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
         assert_eq!(result.len(), 3);
-        assert!(!result.is_valid(0).unwrap());
-        assert!(result.is_valid(1).unwrap());
-        assert!(!result.is_valid(2).unwrap());
+        assert!(
+            !result
+                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
+        assert!(
+            result
+                .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
+        assert!(
+            !result
+                .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
     }
 
     #[test]
@@ -294,9 +324,21 @@ mod tests {
         let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
         assert_eq!(result.len(), 3);
-        assert!(result.is_valid(0).unwrap());
-        assert!(!result.is_valid(1).unwrap());
-        assert!(result.is_valid(2).unwrap());
+        assert!(
+            result
+                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
+        assert!(
+            !result
+                .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
+        assert!(
+            result
+                .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
     }
 
     #[test]

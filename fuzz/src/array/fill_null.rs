@@ -207,7 +207,7 @@ fn fill_varbinview_array(
                         .map(|i| {
                             if validity_bits.value(i) {
                                 array_ref
-                                    .scalar_at(i)
+                                    .execute_scalar(i, &mut vortex_array::VortexSessionExecute::create_execution_ctx(&*vortex_array::LEGACY_SESSION))
                                     .vortex_expect("scalar_at")
                                     .as_utf8()
                                     .value()
@@ -241,7 +241,7 @@ fn fill_varbinview_array(
                         .map(|i| {
                             if validity_bits.value(i) {
                                 array_ref
-                                    .scalar_at(i)
+                                    .execute_scalar(i, &mut vortex_array::VortexSessionExecute::create_execution_ctx(&*vortex_array::LEGACY_SESSION))
                                     .vortex_expect("scalar_at")
                                     .as_binary()
                                     .value()

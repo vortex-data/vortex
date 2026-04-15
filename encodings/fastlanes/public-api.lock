@@ -320,7 +320,7 @@ pub fn vortex_fastlanes::Delta::validate(&self, data: &Self::ArrayData, dtype: &
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_fastlanes::Delta> for vortex_fastlanes::Delta
 
-pub fn vortex_fastlanes::Delta::scalar_at(array: vortex_array::array::view::ArrayView<'_, vortex_fastlanes::Delta>, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_fastlanes::Delta::scalar_at(array: vortex_array::array::view::ArrayView<'_, vortex_fastlanes::Delta>, index: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::array::vtable::validity::ValidityVTable<vortex_fastlanes::Delta> for vortex_fastlanes::Delta
 
@@ -408,7 +408,7 @@ pub fn vortex_fastlanes::FoR::validate(&self, data: &Self::ArrayData, dtype: &vo
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_fastlanes::FoR> for vortex_fastlanes::FoR
 
-pub fn vortex_fastlanes::FoR::scalar_at(array: vortex_array::array::view::ArrayView<'_, vortex_fastlanes::FoR>, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_fastlanes::FoR::scalar_at(array: vortex_array::array::view::ArrayView<'_, vortex_fastlanes::FoR>, index: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::array::vtable::validity::ValidityChild<vortex_fastlanes::FoR> for vortex_fastlanes::FoR
 
@@ -514,7 +514,7 @@ pub fn vortex_fastlanes::RLE::validate(&self, data: &Self::ArrayData, dtype: &vo
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_fastlanes::RLE> for vortex_fastlanes::RLE
 
-pub fn vortex_fastlanes::RLE::scalar_at(array: vortex_array::array::view::ArrayView<'_, vortex_fastlanes::RLE>, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_fastlanes::RLE::scalar_at(array: vortex_array::array::view::ArrayView<'_, vortex_fastlanes::RLE>, index: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::array::vtable::validity::ValidityVTable<vortex_fastlanes::RLE> for vortex_fastlanes::RLE
 

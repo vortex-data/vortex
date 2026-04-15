@@ -162,17 +162,32 @@ mod test {
         );
         let actual = values.take(indices.into_array()).unwrap();
         assert_eq!(
-            actual.scalar_at(0).vortex_expect("no fail"),
+            actual
+                .execute_scalar(
+                    0,
+                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+                )
+                .vortex_expect("no fail"),
             Scalar::from(Some(1))
         );
         // position 3 is null
         assert_eq!(
-            actual.scalar_at(1).vortex_expect("no fail"),
+            actual
+                .execute_scalar(
+                    1,
+                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+                )
+                .vortex_expect("no fail"),
             Scalar::null_native::<i32>()
         );
         // the third index is null
         assert_eq!(
-            actual.scalar_at(2).vortex_expect("no fail"),
+            actual
+                .execute_scalar(
+                    2,
+                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+                )
+                .vortex_expect("no fail"),
             Scalar::null_native::<i32>()
         );
     }

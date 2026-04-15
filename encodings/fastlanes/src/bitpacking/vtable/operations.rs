@@ -202,7 +202,14 @@ mod test {
         .unwrap()
         .into_array();
         assert_eq!(
-            packed_array.scalar_at(1).unwrap(),
+            packed_array
+                .execute_scalar(
+                    1,
+                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                        &*vortex_array::LEGACY_SESSION
+                    )
+                )
+                .unwrap(),
             Scalar::null(DType::Primitive(PType::U32, Nullability::Nullable))
         );
     }
@@ -216,7 +223,17 @@ mod test {
 
         let patches = packed.patches().unwrap().indices().clone();
         assert_eq!(
-            usize::try_from(&patches.scalar_at(0).unwrap()).unwrap(),
+            usize::try_from(
+                &patches
+                    .execute_scalar(
+                        0,
+                        &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                            &*vortex_array::LEGACY_SESSION
+                        )
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
             256
         );
 

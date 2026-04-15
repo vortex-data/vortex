@@ -159,10 +159,20 @@ pub async fn run_compress_gpu(fuzz: FuzzCompressGpu) -> VortexFuzzResult<bool> {
 
     for i in 0..original_len {
         let cpu_scalar = cpu_array
-            .scalar_at(i)
+            .execute_scalar(
+                i,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION,
+                ),
+            )
             .map_err(|e| VortexFuzzError::VortexError(e, Backtrace::capture()))?;
         let gpu_scalar = gpu_array
-            .scalar_at(i)
+            .execute_scalar(
+                i,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION,
+                ),
+            )
             .map_err(|e| VortexFuzzError::VortexError(e, Backtrace::capture()))?;
 
         if cpu_scalar != gpu_scalar {

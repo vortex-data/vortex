@@ -202,7 +202,12 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
             builder
                 .append_value(
                     patch_values
-                        .scalar_at(patch_idx)
+                        .execute_scalar(
+                            patch_idx,
+                            &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                                &*vortex_array::LEGACY_SESSION,
+                            ),
+                        )
                         .vortex_expect("scalar_at")
                         .as_list(),
                 )
@@ -298,7 +303,16 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
                 .vortex_expect("fixed_size_list_elements_at");
             for i in 0..list_size as usize {
                 builder
-                    .append_scalar(&patch_list.scalar_at(i).vortex_expect("scalar_at"))
+                    .append_scalar(
+                        &patch_list
+                            .execute_scalar(
+                                i,
+                                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                                    &*vortex_array::LEGACY_SESSION,
+                                ),
+                            )
+                            .vortex_expect("scalar_at"),
+                    )
                     .vortex_expect("element dtype must match");
             }
         } else {

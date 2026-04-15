@@ -70,7 +70,7 @@ pub fn vortex_runend::RunEnd::validate(&self, data: &Self::ArrayData, dtype: &vo
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_runend::RunEnd> for vortex_runend::RunEnd
 
-pub fn vortex_runend::RunEnd::scalar_at(array: vortex_array::array::view::ArrayView<'_, vortex_runend::RunEnd>, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_runend::RunEnd::scalar_at(array: vortex_array::array::view::ArrayView<'_, vortex_runend::RunEnd>, index: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::array::vtable::validity::ValidityVTable<vortex_runend::RunEnd> for vortex_runend::RunEnd
 

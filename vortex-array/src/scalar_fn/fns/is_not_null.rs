@@ -169,7 +169,14 @@ mod tests {
 
         for (i, expected_value) in expected.iter().enumerate() {
             assert_eq!(
-                result.scalar_at(i).unwrap(),
+                result
+                    .execute_scalar(
+                        i,
+                        &mut crate::VortexSessionExecute::create_execution_ctx(
+                            &*crate::LEGACY_SESSION
+                        )
+                    )
+                    .unwrap(),
                 Scalar::bool(*expected_value, Nullability::NonNullable)
             );
         }
@@ -184,7 +191,14 @@ mod tests {
         assert_eq!(result.len(), test_array.len());
         for i in 0..result.len() {
             assert_eq!(
-                result.scalar_at(i).unwrap(),
+                result
+                    .execute_scalar(
+                        i,
+                        &mut crate::VortexSessionExecute::create_execution_ctx(
+                            &*crate::LEGACY_SESSION
+                        )
+                    )
+                    .unwrap(),
                 Scalar::bool(true, Nullability::NonNullable)
             );
         }
@@ -201,7 +215,14 @@ mod tests {
         assert_eq!(result.len(), test_array.len());
         for i in 0..result.len() {
             assert_eq!(
-                result.scalar_at(i).unwrap(),
+                result
+                    .execute_scalar(
+                        i,
+                        &mut crate::VortexSessionExecute::create_execution_ctx(
+                            &*crate::LEGACY_SESSION
+                        )
+                    )
+                    .unwrap(),
                 Scalar::bool(false, Nullability::NonNullable)
             );
         }
@@ -228,7 +249,14 @@ mod tests {
 
         for (i, expected_value) in expected.iter().enumerate() {
             assert_eq!(
-                result.scalar_at(i).unwrap(),
+                result
+                    .execute_scalar(
+                        i,
+                        &mut crate::VortexSessionExecute::create_execution_ctx(
+                            &*crate::LEGACY_SESSION
+                        )
+                    )
+                    .unwrap(),
                 Scalar::bool(*expected_value, Nullability::NonNullable)
             );
         }

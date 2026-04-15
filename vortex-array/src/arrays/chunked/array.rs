@@ -269,6 +269,8 @@ mod test {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::chunked::ChunkedArrayExt;
@@ -358,8 +360,17 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be all_valid since all non-empty chunks are all_valid
-        assert!(chunked.all_valid().unwrap());
-        assert!(!chunked.into_array().all_invalid().unwrap());
+        assert!(
+            chunked
+                .all_valid(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
+        assert!(
+            !chunked
+                .into_array()
+                .all_invalid(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
 
         Ok(())
     }
@@ -378,8 +389,17 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be all_invalid since all non-empty chunks are all_invalid
-        assert!(!chunked.all_valid().unwrap());
-        assert!(chunked.into_array().all_invalid().unwrap());
+        assert!(
+            !chunked
+                .all_valid(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
+        assert!(
+            chunked
+                .into_array()
+                .all_invalid(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
 
         Ok(())
     }
@@ -398,8 +418,17 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be neither all_valid nor all_invalid
-        assert!(!chunked.all_valid().unwrap());
-        assert!(!chunked.into_array().all_invalid().unwrap());
+        assert!(
+            !chunked
+                .all_valid(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
+        assert!(
+            !chunked
+                .into_array()
+                .all_invalid(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
 
         Ok(())
     }

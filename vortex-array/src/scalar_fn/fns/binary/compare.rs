@@ -348,7 +348,12 @@ mod tests {
             .binary(right.into_array(), Operator::Gt)
             .unwrap();
         assert_eq!(result.len(), 10);
-        let scalar = result.scalar_at(0).unwrap();
+        let scalar = result
+            .execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
+            )
+            .unwrap();
         assert_eq!(scalar.as_bool().value(), Some(false));
     }
 
@@ -540,8 +545,32 @@ mod tests {
             .into_array()
             .binary(list.into_array(), Operator::Eq)
             .unwrap();
-        assert!(result.scalar_at(0).unwrap().is_valid());
-        assert!(result.scalar_at(1).unwrap().is_valid());
-        assert!(result.scalar_at(2).unwrap().is_valid());
+        assert!(
+            result
+                .execute_scalar(
+                    0,
+                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+                )
+                .unwrap()
+                .is_valid()
+        );
+        assert!(
+            result
+                .execute_scalar(
+                    1,
+                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+                )
+                .unwrap()
+                .is_valid()
+        );
+        assert!(
+            result
+                .execute_scalar(
+                    2,
+                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+                )
+                .unwrap()
+                .is_valid()
+        );
     }
 }

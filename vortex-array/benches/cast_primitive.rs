@@ -4,6 +4,8 @@
 use divan::Bencher;
 use rand::prelude::*;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -30,7 +32,12 @@ fn cast_u16_to_u32(bencher: Bencher) {
     }))
     .into_array();
     // Pre-compute min/max so values_fit_in is a cache hit during the benchmark.
-    arr.statistics().compute_all(&[Stat::Min, Stat::Max]).ok();
+    arr.statistics()
+        .compute_all(
+            &[Stat::Min, Stat::Max],
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .ok();
     bencher.with_inputs(|| arr.clone()).bench_refs(|a| {
         #[expect(clippy::unwrap_used)]
         a.cast(DType::Primitive(PType::U32, Nullability::Nullable))

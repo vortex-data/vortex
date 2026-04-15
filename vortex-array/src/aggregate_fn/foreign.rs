@@ -111,6 +111,10 @@ impl AggregateFnVTable for ForeignAggregateFnVTable {
     fn finalize(&self, _states: ArrayRef) -> VortexResult<ArrayRef> {
         vortex_bail!("Cannot execute unknown aggregate function '{}'", self.id)
     }
+
+    fn finalize_scalar(&self, _partial: &Self::Partial) -> VortexResult<Scalar> {
+        vortex_bail!("Cannot execute unknown aggregate function '{}'", self.id)
+    }
 }
 
 pub fn new_foreign_aggregate_fn(id: AggregateFnId, metadata: Vec<u8>) -> AggregateFnRef {

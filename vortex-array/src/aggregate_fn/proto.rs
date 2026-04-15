@@ -147,6 +147,10 @@ mod tests {
         fn finalize(&self, partials: ArrayRef) -> VortexResult<ArrayRef> {
             Ok(partials)
         }
+
+        fn finalize_scalar(&self, _partial: &Self::Partial) -> VortexResult<Scalar> {
+            vortex_panic!("TestAgg is for serde tests only");
+        }
     }
 
     #[test]

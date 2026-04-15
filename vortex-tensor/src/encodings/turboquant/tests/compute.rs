@@ -93,8 +93,18 @@ fn scalar_at_matches_decompress() -> VortexResult<()> {
     let full_decoded = encoded.clone().execute::<ExtensionArray>(&mut ctx)?;
 
     for i in [0, 1, 5, 9] {
-        let expected = full_decoded.scalar_at(i)?;
-        let actual = encoded.scalar_at(i)?;
+        let expected = full_decoded.execute_scalar(
+            i,
+            &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                &*vortex_array::LEGACY_SESSION,
+            ),
+        )?;
+        let actual = encoded.execute_scalar(
+            i,
+            &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                &*vortex_array::LEGACY_SESSION,
+            ),
+        )?;
         assert_eq!(expected, actual, "scalar_at mismatch at index {i}");
     }
     Ok(())

@@ -49,7 +49,12 @@ impl DynAggregateKernel for FoRIsSortedKernel {
             is_sorted(&unsigned_array, ctx)?
         };
 
-        Ok(Some(IsSorted::make_partial(batch, result, options.strict)?))
+        Ok(Some(IsSorted::make_partial(
+            batch,
+            result,
+            options.strict,
+            ctx,
+        )?))
     }
 }
 

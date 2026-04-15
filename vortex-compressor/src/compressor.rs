@@ -304,7 +304,7 @@ impl CascadingCompressor {
         if array.is_empty() {
             return Ok(array);
         }
-        if array.all_invalid()? {
+        if array.all_invalid(&mut LEGACY_SESSION.create_execution_ctx())? {
             return Ok(
                 ConstantArray::new(Scalar::null(array.dtype().clone()), array.len()).into_array(),
             );

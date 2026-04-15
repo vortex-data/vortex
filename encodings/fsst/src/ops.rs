@@ -17,9 +17,9 @@ impl OperationsVTable<FSST> for FSST {
     fn scalar_at(
         array: ArrayView<'_, FSST>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let compressed = array.codes().scalar_at(index)?;
+        let compressed = array.codes().execute_scalar(index, ctx)?;
         let binary_datum = compressed.as_binary().value().vortex_expect("non-null");
 
         let decoded_buffer = ByteBuffer::from(array.decompressor().decompress(binary_datum));

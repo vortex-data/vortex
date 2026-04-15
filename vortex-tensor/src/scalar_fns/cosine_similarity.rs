@@ -530,8 +530,8 @@ mod tests {
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
 
         // Row 0: self-similarity = 1.0, row 1: null.
-        assert!(prim.is_valid(0)?);
-        assert!(!prim.is_valid(1)?);
+        assert!(prim.is_valid(0, &mut ctx)?);
+        assert!(!prim.is_valid(1, &mut ctx)?);
         assert_close(&[prim.as_slice::<f64>()[0]], &[1.0]);
         Ok(())
     }
@@ -620,8 +620,8 @@ mod tests {
         let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 2)?;
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
 
-        assert!(prim.is_valid(0)?);
-        assert!(!prim.is_valid(1)?);
+        assert!(prim.is_valid(0, &mut ctx)?);
+        assert!(!prim.is_valid(1, &mut ctx)?);
         assert_close(&[prim.as_slice::<f64>()[0]], &[1.0]);
         Ok(())
     }

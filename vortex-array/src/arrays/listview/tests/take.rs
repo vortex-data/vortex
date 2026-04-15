@@ -173,7 +173,10 @@ fn test_take_extreme_offsets() {
     let list0 = result_list.list_elements_at(0).unwrap();
     assert_eq!(
         list0
-            .scalar_at(0)
+            .execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
             .unwrap()
             .as_primitive()
             .as_::<i32>()
@@ -182,7 +185,10 @@ fn test_take_extreme_offsets() {
     );
     assert_eq!(
         list0
-            .scalar_at(1)
+            .execute_scalar(
+                1,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
             .unwrap()
             .as_primitive()
             .as_::<i32>()

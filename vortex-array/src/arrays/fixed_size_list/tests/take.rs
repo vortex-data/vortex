@@ -93,7 +93,16 @@ fn test_take_degenerate_lists(
 
     assert_eq!(result.len(), expected_len);
     for (i, expected_null) in expected_nulls.iter().enumerate() {
-        assert_eq!(result.scalar_at(i).unwrap().is_null(), *expected_null);
+        assert_eq!(
+            result
+                .execute_scalar(
+                    i,
+                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+                )
+                .unwrap()
+                .is_null(),
+            *expected_null
+        );
     }
 }
 
@@ -221,6 +230,15 @@ fn test_take_nullable_arrays_fsl_specific(
 
     assert_eq!(result.len(), indices.len());
     for (i, expected_null) in expected_nulls.iter().enumerate() {
-        assert_eq!(result.scalar_at(i).unwrap().is_null(), *expected_null);
+        assert_eq!(
+            result
+                .execute_scalar(
+                    i,
+                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+                )
+                .unwrap()
+                .is_null(),
+            *expected_null
+        );
     }
 }

@@ -72,7 +72,10 @@ fn test_listview_of_listview_with_overlapping() {
     // inner[0] should be [1, 2, 3].
     assert_eq!(
         inner0
-            .scalar_at(0)
+            .execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
             .unwrap()
             .as_primitive()
             .as_::<i32>()
@@ -81,7 +84,10 @@ fn test_listview_of_listview_with_overlapping() {
     );
     assert_eq!(
         inner0
-            .scalar_at(2)
+            .execute_scalar(
+                2,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
             .unwrap()
             .as_primitive()
             .as_::<i32>()
@@ -92,7 +98,10 @@ fn test_listview_of_listview_with_overlapping() {
     // inner[1] should be [3, 4, 5] - shares element 3 with inner[0].
     assert_eq!(
         inner1
-            .scalar_at(0)
+            .execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
             .unwrap()
             .as_primitive()
             .as_::<i32>()
@@ -101,7 +110,10 @@ fn test_listview_of_listview_with_overlapping() {
     );
     assert_eq!(
         inner1
-            .scalar_at(1)
+            .execute_scalar(
+                1,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
             .unwrap()
             .as_primitive()
             .as_::<i32>()
@@ -285,7 +297,10 @@ fn test_listview_zero_and_overlapping() {
     assert_eq!(inner1.len(), 3); // [1, 2, 3]
     assert_eq!(
         inner1
-            .scalar_at(0)
+            .execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
             .unwrap()
             .as_primitive()
             .as_::<i32>()
@@ -304,7 +319,10 @@ fn test_listview_zero_and_overlapping() {
     assert_eq!(inner3.len(), 3); // [2, 3, 4]
     assert_eq!(
         inner3
-            .scalar_at(0)
+            .execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
             .unwrap()
             .as_primitive()
             .as_::<i32>()
@@ -381,7 +399,15 @@ fn test_listview_of_struct_with_nulls() {
     assert_eq!(list1.len(), 3);
 
     // The middle element (struct[2]) should be null.
-    assert!(list1.scalar_at(1).unwrap().is_null());
+    assert!(
+        list1
+            .execute_scalar(
+                1,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap()
+            .is_null()
+    );
 
     // Test slicing preserves null handling.
     let sliced = listview.slice(1..3).unwrap();

@@ -13,6 +13,7 @@ use crate::arrays::dict::DictArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
+use crate::validity::Validity;
 
 impl CastReduce for Dict {
     fn cast(array: ArrayView<'_, Dict>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -20,7 +21,7 @@ impl CastReduce for Dict {
         // TODO(joe): optimize this, could look at accessible values and fill_null not those?
         if !dtype.is_nullable()
             && array.values().dtype().is_nullable()
-            && !array.values().all_valid()?
+            && matches!(array.values().validity()?, Validity::AllValid)
         {
             return Ok(None);
         }

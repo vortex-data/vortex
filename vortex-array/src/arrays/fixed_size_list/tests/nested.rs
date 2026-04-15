@@ -72,7 +72,12 @@ fn test_fsl_of_fsl_basic() {
 
     // The first outer list should contain 3 inner lists.
     // We can check by slicing and examining scalars.
-    let first_scalar = outer_fsl.scalar_at(0).unwrap();
+    let first_scalar = outer_fsl
+        .execute_scalar(
+            0,
+            &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
+        )
+        .unwrap();
     assert!(!first_scalar.is_null());
 
     // Check the actual values in the nested structure.
@@ -84,24 +89,72 @@ fn test_fsl_of_fsl_basic() {
         .to_fixed_size_list()
         .fixed_size_list_elements_at(0)
         .unwrap();
-    assert_eq!(inner_list_0.scalar_at(0).unwrap(), 1i32.into());
-    assert_eq!(inner_list_0.scalar_at(1).unwrap(), 2i32.into());
+    assert_eq!(
+        inner_list_0
+            .execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        1i32.into()
+    );
+    assert_eq!(
+        inner_list_0
+            .execute_scalar(
+                1,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        2i32.into()
+    );
 
     // Check second inner list [3,4].
     let inner_list_1 = first_outer_list
         .to_fixed_size_list()
         .fixed_size_list_elements_at(1)
         .unwrap();
-    assert_eq!(inner_list_1.scalar_at(0).unwrap(), 3i32.into());
-    assert_eq!(inner_list_1.scalar_at(1).unwrap(), 4i32.into());
+    assert_eq!(
+        inner_list_1
+            .execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        3i32.into()
+    );
+    assert_eq!(
+        inner_list_1
+            .execute_scalar(
+                1,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        4i32.into()
+    );
 
     // Check third inner list [5,6].
     let inner_list_2 = first_outer_list
         .to_fixed_size_list()
         .fixed_size_list_elements_at(2)
         .unwrap();
-    assert_eq!(inner_list_2.scalar_at(0).unwrap(), 5i32.into());
-    assert_eq!(inner_list_2.scalar_at(1).unwrap(), 6i32.into());
+    assert_eq!(
+        inner_list_2
+            .execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        5i32.into()
+    );
+    assert_eq!(
+        inner_list_2
+            .execute_scalar(
+                1,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        6i32.into()
+    );
 
     // Second outer list contains: [[7,8], [9,10], [11,12]].
     let second_outer_list = outer_fsl.fixed_size_list_elements_at(1).unwrap();
@@ -111,24 +164,72 @@ fn test_fsl_of_fsl_basic() {
         .to_fixed_size_list()
         .fixed_size_list_elements_at(0)
         .unwrap();
-    assert_eq!(inner_list_0.scalar_at(0).unwrap(), 7i32.into());
-    assert_eq!(inner_list_0.scalar_at(1).unwrap(), 8i32.into());
+    assert_eq!(
+        inner_list_0
+            .execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        7i32.into()
+    );
+    assert_eq!(
+        inner_list_0
+            .execute_scalar(
+                1,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        8i32.into()
+    );
 
     // Check second inner list [9,10].
     let inner_list_1 = second_outer_list
         .to_fixed_size_list()
         .fixed_size_list_elements_at(1)
         .unwrap();
-    assert_eq!(inner_list_1.scalar_at(0).unwrap(), 9i32.into());
-    assert_eq!(inner_list_1.scalar_at(1).unwrap(), 10i32.into());
+    assert_eq!(
+        inner_list_1
+            .execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        9i32.into()
+    );
+    assert_eq!(
+        inner_list_1
+            .execute_scalar(
+                1,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        10i32.into()
+    );
 
     // Check third inner list [11,12].
     let inner_list_2 = second_outer_list
         .to_fixed_size_list()
         .fixed_size_list_elements_at(2)
         .unwrap();
-    assert_eq!(inner_list_2.scalar_at(0).unwrap(), 11i32.into());
-    assert_eq!(inner_list_2.scalar_at(1).unwrap(), 12i32.into());
+    assert_eq!(
+        inner_list_2
+            .execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        11i32.into()
+    );
+    assert_eq!(
+        inner_list_2
+            .execute_scalar(
+                1,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        12i32.into()
+    );
 }
 
 #[test]
@@ -173,13 +274,37 @@ fn test_fsl_of_fsl_with_nulls() {
     assert_eq!(outer_fsl.len(), outer_len);
 
     // First outer list is valid.
-    assert!(!outer_fsl.scalar_at(0).unwrap().is_null());
+    assert!(
+        !outer_fsl
+            .execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap()
+            .is_null()
+    );
 
     // Second outer list is null.
-    assert!(outer_fsl.scalar_at(1).unwrap().is_null());
+    assert!(
+        outer_fsl
+            .execute_scalar(
+                1,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap()
+            .is_null()
+    );
 
     // Third outer list is valid.
-    assert!(!outer_fsl.scalar_at(2).unwrap().is_null());
+    assert!(
+        !outer_fsl
+            .execute_scalar(
+                2,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap()
+            .is_null()
+    );
 }
 
 #[test]
@@ -236,30 +361,94 @@ fn test_deeply_nested_fsl() {
         .to_fixed_size_list()
         .fixed_size_list_elements_at(0)
         .unwrap();
-    assert_eq!(level1_0_0.scalar_at(0).unwrap(), 1i32.into());
-    assert_eq!(level1_0_0.scalar_at(1).unwrap(), 2i32.into());
+    assert_eq!(
+        level1_0_0
+            .execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        1i32.into()
+    );
+    assert_eq!(
+        level1_0_0
+            .execute_scalar(
+                1,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        2i32.into()
+    );
 
     let level1_0_1 = level2_0
         .to_fixed_size_list()
         .fixed_size_list_elements_at(1)
         .unwrap();
-    assert_eq!(level1_0_1.scalar_at(0).unwrap(), 3i32.into());
-    assert_eq!(level1_0_1.scalar_at(1).unwrap(), 4i32.into());
+    assert_eq!(
+        level1_0_1
+            .execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        3i32.into()
+    );
+    assert_eq!(
+        level1_0_1
+            .execute_scalar(
+                1,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        4i32.into()
+    );
 
     // Second level-2 list: [[5,6],[7,8]].
     let level1_1_0 = level2_1
         .to_fixed_size_list()
         .fixed_size_list_elements_at(0)
         .unwrap();
-    assert_eq!(level1_1_0.scalar_at(0).unwrap(), 5i32.into());
-    assert_eq!(level1_1_0.scalar_at(1).unwrap(), 6i32.into());
+    assert_eq!(
+        level1_1_0
+            .execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        5i32.into()
+    );
+    assert_eq!(
+        level1_1_0
+            .execute_scalar(
+                1,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        6i32.into()
+    );
 
     let level1_1_1 = level2_1
         .to_fixed_size_list()
         .fixed_size_list_elements_at(1)
         .unwrap();
-    assert_eq!(level1_1_1.scalar_at(0).unwrap(), 7i32.into());
-    assert_eq!(level1_1_1.scalar_at(1).unwrap(), 8i32.into());
+    assert_eq!(
+        level1_1_1
+            .execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        7i32.into()
+    );
+    assert_eq!(
+        level1_1_1
+            .execute_scalar(
+                1,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        8i32.into()
+    );
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

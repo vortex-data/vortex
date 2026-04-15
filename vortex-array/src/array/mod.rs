@@ -16,8 +16,6 @@ use vortex_error::vortex_panic;
 use vortex_session::registry::Id;
 
 use crate::ExecutionCtx;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -72,11 +70,6 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
 
     /// Returns the encoding ID of the array.
     fn encoding_id(&self) -> ArrayId;
-
-    /// Fetch the scalar at the given index.
-    ///
-    /// This method panics if the index is out of bounds for the array.
-    fn scalar_at(&self, this: &ArrayRef, index: usize) -> VortexResult<Scalar>;
 
     /// Returns the [`Validity`] of the array.
     fn validity(&self, this: &ArrayRef) -> VortexResult<Validity>;
@@ -165,6 +158,16 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
+
+    /// Execute the scalar at the given index.
+    ///
+    /// This method panics if the index is out of bounds for the array.
+    fn execute_scalar(
+        &self,
+        this: &ArrayRef,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar>;
 }
 
 /// Trait for converting a type into a Vortex [`ArrayRef`].
@@ -211,15 +214,6 @@ impl<V: VTable> DynArray for ArrayInner<V> {
 
     fn encoding_id(&self) -> ArrayId {
         self.vtable.id()
-    }
-
-    fn scalar_at(&self, this: &ArrayRef, index: usize) -> VortexResult<Scalar> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        <V::OperationsVTable as OperationsVTable<V>>::scalar_at(
-            view,
-            index,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
     }
 
     fn validity(&self, this: &ArrayRef) -> VortexResult<Validity> {
@@ -483,6 +477,16 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         }
 
         Ok(Some(result))
+    }
+
+    fn execute_scalar(
+        &self,
+        this: &ArrayRef,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        <V::OperationsVTable as OperationsVTable<V>>::scalar_at(view, index, ctx)
     }
 }
 

@@ -115,12 +115,15 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         .vortex_expect("compare operation should succeed in fuzz test")
         .to_bool();
     let true_count = bool_result.to_bit_buffer().true_count();
+    let mut ctx = SESSION.create_execution_ctx();
     if true_count != expected_array.len()
         && (bool_result
             .into_array()
-            .all_valid()
+            .all_valid(&mut ctx)
             .vortex_expect("all_valid")
-            || expected_array.all_valid().vortex_expect("all_valid"))
+            || expected_array
+                .all_valid(&mut ctx)
+                .vortex_expect("all_valid"))
     {
         vortex_panic!(
             "Failed to match original array {}with{}",

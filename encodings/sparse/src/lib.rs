@@ -555,16 +555,53 @@ mod test {
     pub fn test_scalar_at() {
         let array = sparse_array(nullable_fill());
 
-        assert_eq!(array.scalar_at(0).unwrap(), nullable_fill());
-        assert_eq!(array.scalar_at(2).unwrap(), Scalar::from(Some(100_i32)));
-        assert_eq!(array.scalar_at(5).unwrap(), Scalar::from(Some(200_i32)));
+        assert_eq!(
+            array
+                .execute_scalar(
+                    0,
+                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                        &*vortex_array::LEGACY_SESSION
+                    )
+                )
+                .unwrap(),
+            nullable_fill()
+        );
+        assert_eq!(
+            array
+                .execute_scalar(
+                    2,
+                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                        &*vortex_array::LEGACY_SESSION
+                    )
+                )
+                .unwrap(),
+            Scalar::from(Some(100_i32))
+        );
+        assert_eq!(
+            array
+                .execute_scalar(
+                    5,
+                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                        &*vortex_array::LEGACY_SESSION
+                    )
+                )
+                .unwrap(),
+            Scalar::from(Some(200_i32))
+        );
     }
 
     #[test]
     #[should_panic(expected = "out of bounds")]
     fn test_scalar_at_oob() {
         let array = sparse_array(nullable_fill());
-        array.scalar_at(10).unwrap();
+        array
+            .execute_scalar(
+                10,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION,
+                ),
+            )
+            .unwrap();
     }
 
     #[test]
@@ -578,20 +615,56 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            arr.scalar_at(10)
-                .unwrap()
-                .as_primitive()
-                .typed_value::<u32>(),
+            arr.execute_scalar(
+                10,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION
+                )
+            )
+            .unwrap()
+            .as_primitive()
+            .typed_value::<u32>(),
             Some(1234)
         );
-        assert!(arr.scalar_at(0).unwrap().is_null());
-        assert!(arr.scalar_at(99).unwrap().is_null());
+        assert!(
+            arr.execute_scalar(
+                0,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION
+                )
+            )
+            .unwrap()
+            .is_null()
+        );
+        assert!(
+            arr.execute_scalar(
+                99,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION
+                )
+            )
+            .unwrap()
+            .is_null()
+        );
     }
 
     #[test]
     pub fn scalar_at_sliced() {
         let sliced = sparse_array(nullable_fill()).slice(2..7).unwrap();
-        assert_eq!(usize::try_from(&sliced.scalar_at(0).unwrap()).unwrap(), 100);
+        assert_eq!(
+            usize::try_from(
+                &sliced
+                    .execute_scalar(
+                        0,
+                        &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                            &*vortex_array::LEGACY_SESSION
+                        )
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
+            100
+        );
     }
 
     #[test]
@@ -637,13 +710,33 @@ mod test {
     pub fn scalar_at_sliced_twice() {
         let sliced_once = sparse_array(nullable_fill()).slice(1..8).unwrap();
         assert_eq!(
-            usize::try_from(&sliced_once.scalar_at(1).unwrap()).unwrap(),
+            usize::try_from(
+                &sliced_once
+                    .execute_scalar(
+                        1,
+                        &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                            &*vortex_array::LEGACY_SESSION
+                        )
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
             100
         );
 
         let sliced_twice = sliced_once.slice(1..6).unwrap();
         assert_eq!(
-            usize::try_from(&sliced_twice.scalar_at(3).unwrap()).unwrap(),
+            usize::try_from(
+                &sliced_twice
+                    .execute_scalar(
+                        3,
+                        &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                            &*vortex_array::LEGACY_SESSION
+                        )
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
             200
         );
     }

@@ -162,7 +162,7 @@ fn take_nullable_fsl<I: IntegerPType, E: IntegerPType>(
     {
         Validity::NonNullable | Validity::AllValid => Mask::new_true(indices_len),
         Validity::AllInvalid => Mask::new_false(indices_len),
-        Validity::Array(a) => a.to_bool().to_mask(),
+        Validity::Array(a) => a.to_bool().to_mask(ctx),
     };
 
     // We must use placeholder zeros for null lists to maintain the array length without

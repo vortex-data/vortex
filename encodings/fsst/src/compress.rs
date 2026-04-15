@@ -133,7 +133,14 @@ mod tests {
             &compressor,
         );
 
-        let decoded = compressed.scalar_at(0).unwrap();
+        let decoded = compressed
+            .execute_scalar(
+                0,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION,
+                ),
+            )
+            .unwrap();
 
         let expected = Scalar::utf8(big_string, Nullability::NonNullable);
 

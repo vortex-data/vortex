@@ -250,7 +250,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
 
                     let scalar = if u.arbitrary()? {
                         current_array
-                            .scalar_at(u.choose_index(current_array.len())?)
+                            .execute_scalar(u.choose_index(current_array.len())?, &mut ctx)
                             .vortex_expect("scalar_at")
                     } else {
                         random_scalar(u, current_array.dtype())?
@@ -291,7 +291,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                 ActionType::Compare => {
                     let scalar = if u.arbitrary()? {
                         current_array
-                            .scalar_at(u.choose_index(current_array.len())?)
+                            .execute_scalar(u.choose_index(current_array.len())?, &mut ctx)
                             .vortex_expect("scalar_at")
                     } else {
                         // We can compare arrays with different nullability
@@ -354,7 +354,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     }
                     let fill_value = if u.arbitrary()? && !current_array.is_empty() {
                         current_array
-                            .scalar_at(u.choose_index(current_array.len())?)
+                            .execute_scalar(u.choose_index(current_array.len())?, &mut ctx)
                             .vortex_expect("scalar_at")
                     } else {
                         random_scalar(
@@ -669,7 +669,9 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
             Action::ScalarAt(indices) => {
                 let expected_scalars = expected.scalar_vec();
                 for (j, &idx) in indices.iter().enumerate() {
-                    let scalar = current_array.scalar_at(idx).vortex_expect("scalar_at");
+                    let scalar = current_array
+                        .execute_scalar(idx, &mut ctx)
+                        .vortex_expect("scalar_at");
                     assert_scalar_eq(&expected_scalars[j], &scalar, i)?;
                 }
             }
@@ -726,9 +728,10 @@ pub fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuz
             Backtrace::capture(),
         ));
     }
+    let mut ctx = SESSION.create_execution_ctx();
     for idx in 0..lhs.len() {
-        let l = lhs.scalar_at(idx).vortex_expect("scalar_at");
-        let r = rhs.scalar_at(idx).vortex_expect("scalar_at");
+        let l = lhs.execute_scalar(idx, &mut ctx).vortex_expect("scalar_at");
+        let r = rhs.execute_scalar(idx, &mut ctx).vortex_expect("scalar_at");
 
         if l != r {
             return Err(VortexFuzzError::ArrayNotEqual(

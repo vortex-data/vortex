@@ -234,17 +234,18 @@ mod test {
         let taken = packed.take(random_indices.clone().into_array()).unwrap();
 
         // sanity check
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         random_indices
             .as_slice::<u32>()
             .iter()
             .enumerate()
             .for_each(|(ti, i)| {
                 assert_eq!(
-                    u32::try_from(&packed.scalar_at(*i as usize).unwrap()).unwrap(),
+                    u32::try_from(&packed.execute_scalar(*i as usize, &mut ctx).unwrap()).unwrap(),
                     values[*i as usize]
                 );
                 assert_eq!(
-                    u32::try_from(&taken.scalar_at(ti).unwrap()).unwrap(),
+                    u32::try_from(&taken.execute_scalar(ti, &mut ctx).unwrap()).unwrap(),
                     values[*i as usize]
                 );
             });

@@ -494,7 +494,12 @@ mod tests {
         // Test using binary method directly
         let result_equal = lhs_struct.binary(rhs_struct_equal, Operator::Eq).unwrap();
         assert_eq!(
-            result_equal.scalar_at(0).vortex_expect("value"),
+            result_equal
+                .execute_scalar(
+                    0,
+                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+                )
+                .vortex_expect("value"),
             Scalar::bool(true, Nullability::NonNullable),
             "Equal structs should be equal"
         );
@@ -503,7 +508,12 @@ mod tests {
             .binary(rhs_struct_different, Operator::Eq)
             .unwrap();
         assert_eq!(
-            result_different.scalar_at(0).vortex_expect("value"),
+            result_different
+                .execute_scalar(
+                    0,
+                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+                )
+                .vortex_expect("value"),
             Scalar::bool(false, Nullability::NonNullable),
             "Different structs should not be equal"
         );

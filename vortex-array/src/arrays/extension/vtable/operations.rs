@@ -14,11 +14,11 @@ impl OperationsVTable<Extension> for Extension {
     fn scalar_at(
         array: ArrayView<'_, Extension>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         Ok(Scalar::extension_ref(
             array.ext_dtype().clone(),
-            array.storage_array().scalar_at(index)?,
+            array.storage_array().execute_scalar(index, ctx)?,
         ))
     }
 }

@@ -44,7 +44,7 @@ pub fn vortex_pco::Pco::validate(&self, data: &vortex_pco::PcoData, dtype: &vort
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_pco::Pco> for vortex_pco::Pco
 
-pub fn vortex_pco::Pco::scalar_at(array: vortex_array::array::view::ArrayView<'_, vortex_pco::Pco>, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_pco::Pco::scalar_at(array: vortex_array::array::view::ArrayView<'_, vortex_pco::Pco>, index: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::array::vtable::validity::ValidityVTable<vortex_pco::Pco> for vortex_pco::Pco
 

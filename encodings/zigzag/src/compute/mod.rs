@@ -94,7 +94,12 @@ mod tests {
             PrimitiveArray::new(buffer![-189, -160, 1], Validity::AllValid).as_view(),
         )?;
         assert_eq!(
-            zigzag.scalar_at(1)?,
+            zigzag.execute_scalar(
+                1,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION
+                )
+            )?,
             Scalar::primitive(-160, Nullability::Nullable)
         );
         Ok(())

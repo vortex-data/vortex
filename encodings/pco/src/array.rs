@@ -632,15 +632,14 @@ impl OperationsVTable<Pco> for Pco {
     fn scalar_at(
         array: ArrayView<'_, Pco>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let unsliced_validity = child_to_validity(&array.slots()[0], array.dtype().nullability());
         array
             ._slice(index, index + 1)
-            .decompress(&unsliced_validity, &mut ctx)?
+            .decompress(&unsliced_validity, ctx)?
             .into_array()
-            .scalar_at(0)
+            .execute_scalar(0, ctx)
     }
 }
 

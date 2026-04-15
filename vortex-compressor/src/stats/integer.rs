@@ -332,7 +332,8 @@ where
         });
     }
 
-    if array.all_invalid()? {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    if array.all_invalid(&mut ctx)? {
         return Ok(IntegerStats {
             null_count: u32::try_from(array.len())?,
             value_count: 0,
@@ -436,12 +437,12 @@ where
     let array_ref = array.as_ref();
     let min = array_ref
         .statistics()
-        .compute_as::<T>(Stat::Min)
+        .compute_as::<T>(Stat::Min, &mut ctx)
         .vortex_expect("min should be computed");
 
     let max = array_ref
         .statistics()
-        .compute_as::<T>(Stat::Max)
+        .compute_as::<T>(Stat::Max, &mut ctx)
         .vortex_expect("max should be computed");
 
     let distinct = count_distinct_values.then(|| {

@@ -76,7 +76,12 @@ impl FlatLayoutFixture for ConstantFixture {
             Some("UTC".into()),
         )
         .into_array()
-        .scalar_at(0)?;
+        .execute_scalar(
+            0,
+            &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                &*vortex_array::LEGACY_SESSION,
+            ),
+        )?;
         let const_timestamp = ConstantArray::new(timestamp_scalar, N);
 
         let arr = StructArray::try_new(

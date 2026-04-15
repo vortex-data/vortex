@@ -64,7 +64,17 @@ mod tests {
 
         // Verify all values are null
         for i in 0..5 {
-            assert!(result.scalar_at(i).unwrap().is_null());
+            assert!(
+                result
+                    .execute_scalar(
+                        i,
+                        &mut crate::VortexSessionExecute::create_execution_ctx(
+                            &*crate::LEGACY_SESSION
+                        )
+                    )
+                    .unwrap()
+                    .is_null()
+            );
         }
     }
 

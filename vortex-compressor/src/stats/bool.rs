@@ -36,7 +36,8 @@ impl BoolStats {
             });
         }
 
-        if input.all_invalid()? {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        if input.all_invalid(&mut ctx)? {
             return Ok(Self {
                 null_count: u32::try_from(input.len())?,
                 value_count: 0,
@@ -44,10 +45,10 @@ impl BoolStats {
             });
         }
 
-        let validity = input.as_ref().validity()?.to_mask(
-            input.as_ref().len(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )?;
+        let validity = input
+            .as_ref()
+            .validity()?
+            .to_mask(input.as_ref().len(), &mut ctx)?;
         let null_count = validity.false_count();
         let value_count = validity.true_count();
 

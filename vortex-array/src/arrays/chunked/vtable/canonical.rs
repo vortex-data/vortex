@@ -305,8 +305,32 @@ mod tests {
 
         let canon_values = chunked_list.unwrap().as_array().to_listview();
 
-        assert_eq!(l1.scalar_at(0).unwrap(), canon_values.scalar_at(0).unwrap());
-        assert_eq!(l2.scalar_at(0).unwrap(), canon_values.scalar_at(1).unwrap());
+        assert_eq!(
+            l1.execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+            canon_values
+                .execute_scalar(
+                    0,
+                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+                )
+                .unwrap()
+        );
+        assert_eq!(
+            l2.execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+            canon_values
+                .execute_scalar(
+                    1,
+                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+                )
+                .unwrap()
+        );
     }
 
     #[test]

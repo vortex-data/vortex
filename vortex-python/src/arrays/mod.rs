@@ -614,7 +614,10 @@ impl PyArray {
             ))
             .into());
         }
-        Ok(PyScalar::init(py, slf.scalar_at(index)?)?)
+        Ok(PyScalar::init(
+            py,
+            slf.execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())?,
+        )?)
     }
 
     /// Filter, permute, and/or repeat elements by their index.

@@ -488,7 +488,12 @@ mod tests {
     fn test_sequence_scalar_at() {
         let scalar = Sequence::try_new_typed(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
-            .scalar_at(2)
+            .execute_scalar(
+                2,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION,
+                ),
+            )
             .unwrap();
 
         assert_eq!(

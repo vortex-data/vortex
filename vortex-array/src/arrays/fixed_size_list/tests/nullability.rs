@@ -30,7 +30,12 @@ fn test_nullable_fsl_with_nulls() {
     assert_eq!(fsl.list_size(), list_size);
 
     // First list is valid: [1, 2].
-    let first = fsl.scalar_at(0).unwrap();
+    let first = fsl
+        .execute_scalar(
+            0,
+            &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
+        )
+        .unwrap();
     assert!(!first.is_null());
     assert_eq!(
         first,
@@ -43,15 +48,41 @@ fn test_nullable_fsl_with_nulls() {
 
     // Check individual elements of the first list.
     let first_list = fsl.fixed_size_list_elements_at(0).unwrap();
-    assert_eq!(first_list.scalar_at(0).unwrap(), 1i32.into());
-    assert_eq!(first_list.scalar_at(1).unwrap(), 2i32.into());
+    assert_eq!(
+        first_list
+            .execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        1i32.into()
+    );
+    assert_eq!(
+        first_list
+            .execute_scalar(
+                1,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        2i32.into()
+    );
 
     // Second list is null.
-    let second = fsl.scalar_at(1).unwrap();
+    let second = fsl
+        .execute_scalar(
+            1,
+            &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
+        )
+        .unwrap();
     assert!(second.is_null());
 
     // Third list is valid: [5, 6].
-    let third = fsl.scalar_at(2).unwrap();
+    let third = fsl
+        .execute_scalar(
+            2,
+            &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
+        )
+        .unwrap();
     assert!(!third.is_null());
     assert_eq!(
         third,
@@ -64,11 +95,32 @@ fn test_nullable_fsl_with_nulls() {
 
     // Check individual elements of the third list.
     let third_list = fsl.fixed_size_list_elements_at(2).unwrap();
-    assert_eq!(third_list.scalar_at(0).unwrap(), 5i32.into());
-    assert_eq!(third_list.scalar_at(1).unwrap(), 6i32.into());
+    assert_eq!(
+        third_list
+            .execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        5i32.into()
+    );
+    assert_eq!(
+        third_list
+            .execute_scalar(
+                1,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        6i32.into()
+    );
 
     // Fourth list is null.
-    let fourth = fsl.scalar_at(3).unwrap();
+    let fourth = fsl
+        .execute_scalar(
+            3,
+            &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
+        )
+        .unwrap();
     assert!(fourth.is_null());
 }
 
@@ -92,7 +144,12 @@ fn test_nullable_elements_non_nullable_lists() {
     ));
 
     // First list: [Some(1), None, Some(3)].
-    let first = fsl.scalar_at(0).unwrap();
+    let first = fsl
+        .execute_scalar(
+            0,
+            &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
+        )
+        .unwrap();
     assert!(!first.is_null());
     assert_eq!(
         first,
@@ -104,7 +161,12 @@ fn test_nullable_elements_non_nullable_lists() {
     );
 
     // Second list: [Some(4), Some(5), None].
-    let second = fsl.scalar_at(1).unwrap();
+    let second = fsl
+        .execute_scalar(
+            1,
+            &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
+        )
+        .unwrap();
     assert!(!second.is_null());
     assert_eq!(
         second,
@@ -130,7 +192,12 @@ fn test_nullable_elements_and_nullable_lists() {
     assert_eq!(fsl.len(), len);
 
     // First list is valid: [Some(10), None].
-    let first = fsl.scalar_at(0).unwrap();
+    let first = fsl
+        .execute_scalar(
+            0,
+            &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
+        )
+        .unwrap();
     assert!(!first.is_null());
     assert_eq!(
         first,
@@ -143,15 +210,41 @@ fn test_nullable_elements_and_nullable_lists() {
 
     // Check individual elements of the first list.
     let first_list = fsl.fixed_size_list_elements_at(0).unwrap();
-    assert_eq!(first_list.scalar_at(0).unwrap(), Some(10u16).into());
-    assert_eq!(first_list.scalar_at(1).unwrap(), None::<u16>.into());
+    assert_eq!(
+        first_list
+            .execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        Some(10u16).into()
+    );
+    assert_eq!(
+        first_list
+            .execute_scalar(
+                1,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        None::<u16>.into()
+    );
 
     // Second list is null (but elements would be [Some(20), Some(30)]).
-    let second = fsl.scalar_at(1).unwrap();
+    let second = fsl
+        .execute_scalar(
+            1,
+            &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
+        )
+        .unwrap();
     assert!(second.is_null());
 
     // Third list is valid: [None, None].
-    let third = fsl.scalar_at(2).unwrap();
+    let third = fsl
+        .execute_scalar(
+            2,
+            &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
+        )
+        .unwrap();
     assert!(!third.is_null());
     assert_eq!(
         third,
@@ -164,8 +257,24 @@ fn test_nullable_elements_and_nullable_lists() {
 
     // Check individual elements of the third list.
     let third_list = fsl.fixed_size_list_elements_at(2).unwrap();
-    assert_eq!(third_list.scalar_at(0).unwrap(), None::<u16>.into());
-    assert_eq!(third_list.scalar_at(1).unwrap(), None::<u16>.into());
+    assert_eq!(
+        third_list
+            .execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        None::<u16>.into()
+    );
+    assert_eq!(
+        third_list
+            .execute_scalar(
+                1,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap(),
+        None::<u16>.into()
+    );
 }
 
 #[test]
@@ -182,7 +291,12 @@ fn test_alternating_nulls() {
 
     // Check alternating pattern.
     for i in 0..len {
-        let scalar = fsl.scalar_at(i).unwrap();
+        let scalar = fsl
+            .execute_scalar(
+                i,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
+            )
+            .unwrap();
         if i % 2 == 0 {
             assert!(!scalar.is_null());
             let expected_value = u8::try_from(i + 1).unwrap();
@@ -212,7 +326,14 @@ fn test_validity_types() {
     {
         let fsl = FixedSizeListArray::new(elements.clone(), list_size, Validity::AllInvalid, len);
         for i in 0..len {
-            assert!(fsl.scalar_at(i).unwrap().is_null());
+            assert!(
+                fsl.execute_scalar(
+                    i,
+                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+                )
+                .unwrap()
+                .is_null()
+            );
         }
     }
 
@@ -226,10 +347,38 @@ fn test_validity_types() {
             len,
         );
 
-        assert!(!fsl.scalar_at(0).unwrap().is_null());
-        assert!(!fsl.scalar_at(1).unwrap().is_null());
-        assert!(fsl.scalar_at(2).unwrap().is_null());
-        assert!(!fsl.scalar_at(3).unwrap().is_null());
+        assert!(
+            !fsl.execute_scalar(
+                0,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap()
+            .is_null()
+        );
+        assert!(
+            !fsl.execute_scalar(
+                1,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap()
+            .is_null()
+        );
+        assert!(
+            fsl.execute_scalar(
+                2,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap()
+            .is_null()
+        );
+        assert!(
+            !fsl.execute_scalar(
+                3,
+                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+            )
+            .unwrap()
+            .is_null()
+        );
     }
 }
 
@@ -255,22 +404,47 @@ fn test_mixed_nullability_patterns() {
     let fsl = FixedSizeListArray::new(elements.into_array(), list_size, validity, len);
 
     // List 0: valid with [Some(1), None].
-    let list0 = fsl.scalar_at(0).unwrap();
+    let list0 = fsl
+        .execute_scalar(
+            0,
+            &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
+        )
+        .unwrap();
     assert!(!list0.is_null());
 
     // List 1: null.
-    let list1 = fsl.scalar_at(1).unwrap();
+    let list1 = fsl
+        .execute_scalar(
+            1,
+            &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
+        )
+        .unwrap();
     assert!(list1.is_null());
 
     // List 2: valid with [Some(5), Some(6)].
-    let list2 = fsl.scalar_at(2).unwrap();
+    let list2 = fsl
+        .execute_scalar(
+            2,
+            &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
+        )
+        .unwrap();
     assert!(!list2.is_null());
 
     // List 3: valid with [Some(7), None].
-    let list3 = fsl.scalar_at(3).unwrap();
+    let list3 = fsl
+        .execute_scalar(
+            3,
+            &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
+        )
+        .unwrap();
     assert!(!list3.is_null());
 
     // List 4: valid with [None, Some(10)].
-    let list4 = fsl.scalar_at(4).unwrap();
+    let list4 = fsl
+        .execute_scalar(
+            4,
+            &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
+        )
+        .unwrap();
     assert!(!list4.is_null());
 }

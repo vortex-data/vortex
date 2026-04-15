@@ -78,7 +78,12 @@ mod tests {
         );
 
         assert_eq!(
-            array.scalar_at(0).unwrap(),
+            array
+                .execute_scalar(
+                    0,
+                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
+                )
+                .unwrap(),
             Scalar::decimal(
                 DecimalValue::I128(100),
                 DecimalDType::new(3, 2),

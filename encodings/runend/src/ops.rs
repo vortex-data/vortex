@@ -19,9 +19,11 @@ impl OperationsVTable<RunEnd> for RunEnd {
     fn scalar_at(
         array: ArrayView<'_, RunEnd>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        array.values().scalar_at(array.find_physical_index(index)?)
+        array
+            .values()
+            .execute_scalar(array.find_physical_index(index)?, ctx)
     }
 }
 
@@ -150,7 +152,7 @@ mod tests {
     fn ree_scalar_at_end() {
         let scalar = RunEnd::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array())
             .unwrap()
-            .scalar_at(11)
+            .execute_scalar(11, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
         assert_eq!(scalar, 5.into());
     }

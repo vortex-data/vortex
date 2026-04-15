@@ -30,8 +30,12 @@ fn execute_to_canonical(array: ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
 #[expect(clippy::unwrap_used)]
 fn find_mismatched_indices(left: &ArrayRef, right: &ArrayRef) -> Vec<usize> {
     assert_eq!(left.len(), right.len());
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     (0..left.len())
-        .filter(|i| left.scalar_at(*i).unwrap() != right.scalar_at(*i).unwrap())
+        .filter(|i| {
+            left.execute_scalar(*i, &mut ctx).unwrap()
+                != right.execute_scalar(*i, &mut ctx).unwrap()
+        })
         .collect()
 }
 
@@ -51,7 +55,14 @@ macro_rules! assert_nth_scalar {
         use $crate::IntoArray as _;
         let arr_ref: $crate::ArrayRef = $crate::IntoArray::into_array($arr.clone());
         assert_eq!(
-            arr_ref.scalar_at($n).unwrap(),
+            arr_ref
+                .execute_scalar(
+                    $n,
+                    &mut $crate::VortexSessionExecute::create_execution_ctx(
+                        &*$crate::LEGACY_SESSION
+                    ),
+                )
+                .unwrap(),
             $expected.try_into().unwrap()
         );
     }};
@@ -70,10 +81,25 @@ macro_rules! assert_nth_scalar_is_null {
     ($arr:expr, $n:expr) => {{
         let arr_ref: $crate::ArrayRef = $crate::IntoArray::into_array($arr.clone());
         assert!(
-            arr_ref.scalar_at($n).unwrap().is_null(),
+            arr_ref
+                .execute_scalar(
+                    $n,
+                    &mut $crate::VortexSessionExecute::create_execution_ctx(
+                        &*$crate::LEGACY_SESSION
+                    ),
+                )
+                .unwrap()
+                .is_null(),
             "expected scalar at index {} to be null, but was {:?}",
             $n,
-            arr_ref.scalar_at($n).unwrap()
+            arr_ref
+                .execute_scalar(
+                    $n,
+                    &mut $crate::VortexSessionExecute::create_execution_ctx(
+                        &*$crate::LEGACY_SESSION
+                    ),
+                )
+                .unwrap()
         );
     }};
 }

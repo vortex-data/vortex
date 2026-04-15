@@ -4,6 +4,8 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_array::vtable::child_to_validity;
@@ -13,7 +15,11 @@ use crate::Pco;
 use crate::PcoData;
 impl CastReduce for Pco {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        if !dtype.is_nullable() || !array.array().all_valid()? {
+        if !dtype.is_nullable()
+            || !array
+                .array()
+                .all_valid(&mut LEGACY_SESSION.create_execution_ctx())?
+        {
             // TODO(joe): fixme
             // We cannot cast to non-nullable since the validity containing nulls is used to decode
             // the PCO array, this would require rewriting tables.

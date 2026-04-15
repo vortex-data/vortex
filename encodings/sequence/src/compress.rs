@@ -8,6 +8,8 @@ use num_traits::CheckedSub;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
@@ -94,7 +96,10 @@ pub fn sequence_encode(
         return Ok(None);
     }
 
-    if !primitive_array.array().all_valid()? {
+    if !primitive_array
+        .array()
+        .all_valid(&mut LEGACY_SESSION.create_execution_ctx())?
+    {
         return Ok(None);
     }
 

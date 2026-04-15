@@ -13,6 +13,7 @@ use futures::pin_mut;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
@@ -1244,12 +1245,13 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
 
     assert_eq!(result.len(), 3);
     assert_eq!(result.struct_fields().nfields(), 1);
-    assert!(result.all_valid()?);
+    let mut ctx = SESSION.create_execution_ctx();
+    assert!(result.all_valid(&mut ctx)?);
 
     let nested_struct = result.unmasked_field_by_name("struct")?.to_struct();
     assert_eq!(nested_struct.dtype(), &nested_dtype);
     assert_eq!(nested_struct.len(), 3);
-    assert!(nested_struct.all_invalid()?);
+    assert!(nested_struct.all_invalid(&mut ctx)?);
 
     Ok(())
 }

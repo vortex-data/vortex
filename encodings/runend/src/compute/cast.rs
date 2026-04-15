@@ -71,19 +71,59 @@ mod tests {
         // RunEnd encoding should expand to [100, 100, 100, 200, 200, 100, 100, 100, 300, 300]
         assert_eq!(decoded.len(), 10);
         assert_eq!(
-            TryInto::<i64>::try_into(&decoded.scalar_at(0).unwrap()).unwrap(),
+            TryInto::<i64>::try_into(
+                &decoded
+                    .execute_scalar(
+                        0,
+                        &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                            &*vortex_array::LEGACY_SESSION
+                        )
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
             100i64
         );
         assert_eq!(
-            TryInto::<i64>::try_into(&decoded.scalar_at(3).unwrap()).unwrap(),
+            TryInto::<i64>::try_into(
+                &decoded
+                    .execute_scalar(
+                        3,
+                        &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                            &*vortex_array::LEGACY_SESSION
+                        )
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
             200i64
         );
         assert_eq!(
-            TryInto::<i64>::try_into(&decoded.scalar_at(5).unwrap()).unwrap(),
+            TryInto::<i64>::try_into(
+                &decoded
+                    .execute_scalar(
+                        5,
+                        &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                            &*vortex_array::LEGACY_SESSION
+                        )
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
             100i64
         );
         assert_eq!(
-            TryInto::<i64>::try_into(&decoded.scalar_at(8).unwrap()).unwrap(),
+            TryInto::<i64>::try_into(
+                &decoded
+                    .execute_scalar(
+                        8,
+                        &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                            &*vortex_array::LEGACY_SESSION
+                        )
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
             300i64
         );
     }

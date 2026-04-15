@@ -347,6 +347,8 @@ impl From<Vec<Option<bool>>> for ByteBoolData {
 mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
@@ -366,15 +368,16 @@ mod tests {
         let arr = ByteBool::from_vec(v, Validity::AllValid);
         assert_eq!(v_len, arr.len());
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         for idx in 0..arr.len() {
-            assert!(arr.is_valid(idx).unwrap());
+            assert!(arr.is_valid(idx, &mut ctx).unwrap());
         }
 
         let v = vec![Some(true), None, Some(false)];
         let arr = ByteBool::from_option_vec(v);
-        assert!(arr.is_valid(0).unwrap());
-        assert!(!arr.is_valid(1).unwrap());
-        assert!(arr.is_valid(2).unwrap());
+        assert!(arr.is_valid(0, &mut ctx).unwrap());
+        assert!(!arr.is_valid(1, &mut ctx).unwrap());
+        assert!(arr.is_valid(2, &mut ctx).unwrap());
         assert_eq!(arr.len(), 3);
 
         let v: Vec<Option<bool>> = vec![None, None];
@@ -384,7 +387,7 @@ mod tests {
         assert_eq!(v_len, arr.len());
 
         for idx in 0..arr.len() {
-            assert!(!arr.is_valid(idx).unwrap());
+            assert!(!arr.is_valid(idx, &mut ctx).unwrap());
         }
         assert_eq!(arr.len(), 2);
     }

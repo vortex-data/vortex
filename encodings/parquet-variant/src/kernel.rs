@@ -145,8 +145,34 @@ mod tests {
         let sliced = arr.slice(1..3)?;
 
         assert_eq!(sliced.len(), 2);
-        assert_eq!(sliced.scalar_at(0)?, arr.scalar_at(1)?);
-        assert_eq!(sliced.scalar_at(1)?, arr.scalar_at(2)?);
+        assert_eq!(
+            sliced.execute_scalar(
+                0,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION
+                )
+            )?,
+            arr.execute_scalar(
+                1,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION
+                )
+            )?
+        );
+        assert_eq!(
+            sliced.execute_scalar(
+                1,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION
+                )
+            )?,
+            arr.execute_scalar(
+                2,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION
+                )
+            )?
+        );
 
         Ok(())
     }
@@ -157,9 +183,36 @@ mod tests {
         let sliced = arr.slice(0..3)?;
 
         assert_eq!(sliced.len(), 3);
-        assert!(!sliced.scalar_at(0)?.is_null());
-        assert!(sliced.scalar_at(1)?.is_null());
-        assert!(!sliced.scalar_at(2)?.is_null());
+        assert!(
+            !sliced
+                .execute_scalar(
+                    0,
+                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                        &*vortex_array::LEGACY_SESSION
+                    )
+                )?
+                .is_null()
+        );
+        assert!(
+            sliced
+                .execute_scalar(
+                    1,
+                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                        &*vortex_array::LEGACY_SESSION
+                    )
+                )?
+                .is_null()
+        );
+        assert!(
+            !sliced
+                .execute_scalar(
+                    2,
+                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                        &*vortex_array::LEGACY_SESSION
+                    )
+                )?
+                .is_null()
+        );
 
         Ok(())
     }
@@ -171,8 +224,34 @@ mod tests {
         let filtered = arr.filter(mask)?;
 
         assert_eq!(filtered.len(), 2);
-        assert_eq!(filtered.scalar_at(0)?, arr.scalar_at(0)?);
-        assert_eq!(filtered.scalar_at(1)?, arr.scalar_at(2)?);
+        assert_eq!(
+            filtered.execute_scalar(
+                0,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION
+                )
+            )?,
+            arr.execute_scalar(
+                0,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION
+                )
+            )?
+        );
+        assert_eq!(
+            filtered.execute_scalar(
+                1,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION
+                )
+            )?,
+            arr.execute_scalar(
+                2,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION
+                )
+            )?
+        );
 
         Ok(())
     }
@@ -185,9 +264,36 @@ mod tests {
         let filtered = arr.filter(mask)?;
 
         assert_eq!(filtered.len(), 3);
-        assert!(!filtered.scalar_at(0)?.is_null());
-        assert!(filtered.scalar_at(1)?.is_null());
-        assert!(filtered.scalar_at(2)?.is_null());
+        assert!(
+            !filtered
+                .execute_scalar(
+                    0,
+                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                        &*vortex_array::LEGACY_SESSION
+                    )
+                )?
+                .is_null()
+        );
+        assert!(
+            filtered
+                .execute_scalar(
+                    1,
+                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                        &*vortex_array::LEGACY_SESSION
+                    )
+                )?
+                .is_null()
+        );
+        assert!(
+            filtered
+                .execute_scalar(
+                    2,
+                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                        &*vortex_array::LEGACY_SESSION
+                    )
+                )?
+                .is_null()
+        );
 
         Ok(())
     }
@@ -199,9 +305,48 @@ mod tests {
         let taken = arr.take(indices.into_array())?;
 
         assert_eq!(taken.len(), 3);
-        assert_eq!(taken.scalar_at(0)?, arr.scalar_at(2)?);
-        assert_eq!(taken.scalar_at(1)?, arr.scalar_at(0)?);
-        assert_eq!(taken.scalar_at(2)?, arr.scalar_at(3)?);
+        assert_eq!(
+            taken.execute_scalar(
+                0,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION
+                )
+            )?,
+            arr.execute_scalar(
+                2,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION
+                )
+            )?
+        );
+        assert_eq!(
+            taken.execute_scalar(
+                1,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION
+                )
+            )?,
+            arr.execute_scalar(
+                0,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION
+                )
+            )?
+        );
+        assert_eq!(
+            taken.execute_scalar(
+                2,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION
+                )
+            )?,
+            arr.execute_scalar(
+                3,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION
+                )
+            )?
+        );
 
         Ok(())
     }
@@ -214,10 +359,46 @@ mod tests {
         let taken = arr.take(indices.into_array())?;
 
         assert_eq!(taken.len(), 4);
-        assert!(!taken.scalar_at(0)?.is_null());
-        assert!(taken.scalar_at(1)?.is_null());
-        assert!(taken.scalar_at(2)?.is_null());
-        assert!(!taken.scalar_at(3)?.is_null());
+        assert!(
+            !taken
+                .execute_scalar(
+                    0,
+                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                        &*vortex_array::LEGACY_SESSION
+                    )
+                )?
+                .is_null()
+        );
+        assert!(
+            taken
+                .execute_scalar(
+                    1,
+                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                        &*vortex_array::LEGACY_SESSION
+                    )
+                )?
+                .is_null()
+        );
+        assert!(
+            taken
+                .execute_scalar(
+                    2,
+                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                        &*vortex_array::LEGACY_SESSION
+                    )
+                )?
+                .is_null()
+        );
+        assert!(
+            !taken
+                .execute_scalar(
+                    3,
+                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                        &*vortex_array::LEGACY_SESSION
+                    )
+                )?
+                .is_null()
+        );
 
         Ok(())
     }
@@ -250,8 +431,34 @@ mod tests {
 
         let sliced = arr.slice(1..3)?;
         assert_eq!(sliced.len(), 2);
-        assert_eq!(sliced.scalar_at(0)?, arr.scalar_at(1)?);
-        assert_eq!(sliced.scalar_at(1)?, arr.scalar_at(2)?);
+        assert_eq!(
+            sliced.execute_scalar(
+                0,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION
+                )
+            )?,
+            arr.execute_scalar(
+                1,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION
+                )
+            )?
+        );
+        assert_eq!(
+            sliced.execute_scalar(
+                1,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION
+                )
+            )?,
+            arr.execute_scalar(
+                2,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION
+                )
+            )?
+        );
 
         Ok(())
     }

@@ -19,8 +19,10 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
 use vortex_array::TypedArrayRef;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
@@ -405,7 +407,10 @@ impl ALPRDData {
     ) -> VortexResult<Option<Patches>> {
         left_parts_patches
             .map(|patches| {
-                if !patches.values().all_valid()? {
+                if !patches
+                    .values()
+                    .all_valid(&mut LEGACY_SESSION.create_execution_ctx())?
+                {
                     vortex_bail!("patches must be all valid: {}", patches.values());
                 }
                 // TODO(ngates): assert the DType, don't cast it.
@@ -586,7 +591,9 @@ fn validate_parts(
             left_parts.dtype(),
         );
         vortex_ensure!(
-            patches.values().all_valid()?,
+            patches
+                .values()
+                .all_valid(&mut LEGACY_SESSION.create_execution_ctx())?,
             "patches must be all valid: {}",
             patches.values()
         );

@@ -129,11 +129,12 @@ pub fn take_canonical_array(array: &ArrayRef, indices: &[Option<usize>]) -> Vort
                 &array.dtype().union_nullability(nullable),
                 indices_slice_non_opt.len(),
             );
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
             for idx in indices {
                 if let Some(idx) = idx {
                     builder.append_scalar(
                         &array
-                            .scalar_at(*idx)?
+                            .execute_scalar(*idx, &mut ctx)?
                             .cast(&array.dtype().union_nullability(nullable))
                             .vortex_expect("cannot cast scalar nullability"),
                     )?;

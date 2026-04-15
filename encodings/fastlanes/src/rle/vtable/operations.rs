@@ -16,10 +16,12 @@ impl OperationsVTable<RLE> for RLE {
     fn scalar_at(
         array: ArrayView<'_, RLE>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let offset_in_chunk = array.offset();
-        let chunk_relative_idx = array.indices().scalar_at(offset_in_chunk + index)?;
+        let chunk_relative_idx = array
+            .indices()
+            .execute_scalar(offset_in_chunk + index, ctx)?;
 
         let chunk_relative_idx = chunk_relative_idx
             .as_primitive()
@@ -31,7 +33,7 @@ impl OperationsVTable<RLE> for RLE {
 
         let scalar = array
             .values()
-            .scalar_at(value_idx_offset + chunk_relative_idx)?;
+            .execute_scalar(value_idx_offset + chunk_relative_idx, ctx)?;
 
         Scalar::try_new(array.dtype().clone(), scalar.into_value())
     }
@@ -177,7 +179,12 @@ mod tests {
             if idx < encoded.len() {
                 let original_value = expected[idx];
                 let encoded_value = encoded
-                    .scalar_at(idx)
+                    .execute_scalar(
+                        idx,
+                        &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                            &*vortex_array::LEGACY_SESSION,
+                        ),
+                    )
                     .unwrap()
                     .as_primitive()
                     .as_::<u16>()
@@ -191,14 +198,28 @@ mod tests {
     #[should_panic]
     fn test_scalar_at_out_of_bounds() {
         let array = fixture::rle_array();
-        array.scalar_at(1025).unwrap();
+        array
+            .execute_scalar(
+                1025,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION,
+                ),
+            )
+            .unwrap();
     }
 
     #[test]
     #[should_panic]
     fn test_scalar_at_slice_out_of_bounds() {
         let array = fixture::rle_array().slice(0..1).unwrap();
-        array.scalar_at(1).unwrap();
+        array
+            .execute_scalar(
+                1,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION,
+                ),
+            )
+            .unwrap();
     }
 
     #[test]

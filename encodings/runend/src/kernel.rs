@@ -57,7 +57,12 @@ fn slice(array: ArrayView<'_, RunEnd>, range: Range<usize>) -> VortexResult<Arra
 
     // If the sliced range contains only a single run, opt to return a ConstantArray.
     if slice_begin + 1 == slice_end {
-        let value = array.values().scalar_at(slice_begin)?;
+        let value = array.values().execute_scalar(
+            slice_begin,
+            &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                &*vortex_array::LEGACY_SESSION,
+            ),
+        )?;
         return Ok(ConstantArray::new(value, new_length).into_array());
     }
 

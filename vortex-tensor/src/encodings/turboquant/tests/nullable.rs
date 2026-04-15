@@ -127,7 +127,7 @@ fn nullable_l2_norm_readthrough() -> VortexResult<()> {
     let orig_f32 = orig_prim.as_slice::<f32>();
     for row in 0..5 {
         if row % 2 == 0 {
-            assert!(norms.is_valid(row)?, "row {row} should be valid");
+            assert!(norms.is_valid(row, &mut ctx)?, "row {row} should be valid");
             let expected: f32 = orig_f32[row * 128..(row + 1) * 128]
                 .iter()
                 .map(|&v| v * v)
@@ -139,7 +139,7 @@ fn nullable_l2_norm_readthrough() -> VortexResult<()> {
                 "norm mismatch at valid row {row}: actual={actual}, expected={expected}"
             );
         } else {
-            assert!(!norms.is_valid(row)?, "row {row} should be null");
+            assert!(!norms.is_valid(row, &mut ctx)?, "row {row} should be null");
         }
     }
     Ok(())

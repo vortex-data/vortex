@@ -782,7 +782,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let ext: ExtensionArray = array.execute(&mut ctx)?;
         let validity = (0..ext.len())
-            .map(|i| ext.is_valid(i))
+            .map(|i| ext.is_valid(i, &mut ctx))
             .collect::<VortexResult<Vec<_>>>()?;
         let storage: FixedSizeListArray = ext.storage_array().clone().execute(&mut ctx)?;
         let elements: PrimitiveArray = storage.elements().clone().execute(&mut ctx)?;
@@ -836,9 +836,9 @@ mod tests {
         let storage: FixedSizeListArray = actual.storage_array().clone().execute(&mut ctx)?;
         let elements: PrimitiveArray = storage.elements().clone().execute(&mut ctx)?;
 
-        assert!(actual.is_valid(0)?);
-        assert!(!actual.is_valid(1)?);
-        assert!(!actual.is_valid(2)?);
+        assert!(actual.is_valid(0, &mut ctx)?);
+        assert!(!actual.is_valid(1, &mut ctx)?);
+        assert!(!actual.is_valid(2, &mut ctx)?);
         assert_close(&elements.as_slice::<f64>()[..2], &[3.0, 4.0]);
         Ok(())
     }

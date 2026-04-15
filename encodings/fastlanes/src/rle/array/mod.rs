@@ -111,14 +111,24 @@ pub trait RLEArrayExt: TypedArrayRef<crate::RLE> {
     )]
     fn values_idx_offset(&self, chunk_idx: usize) -> usize {
         self.values_idx_offsets()
-            .scalar_at(chunk_idx)
+            .execute_scalar(
+                chunk_idx,
+                &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                    &*vortex_array::LEGACY_SESSION,
+                ),
+            )
             .expect("index must be in bounds")
             .as_primitive()
             .as_::<usize>()
             .expect("index must be of type usize")
             - self
                 .values_idx_offsets()
-                .scalar_at(0)
+                .execute_scalar(
+                    0,
+                    &mut vortex_array::VortexSessionExecute::create_execution_ctx(
+                        &*vortex_array::LEGACY_SESSION,
+                    ),
+                )
                 .expect("index must be in bounds")
                 .as_primitive()
                 .as_::<usize>()
@@ -204,9 +214,10 @@ mod tests {
 
         assert_eq!(rle_array.len(), 3);
         assert_eq!(rle_array.values().len(), 2);
-        assert!(rle_array.is_valid(0).unwrap());
-        assert!(!rle_array.is_valid(1).unwrap());
-        assert!(rle_array.is_valid(2).unwrap());
+        let mut ctx = SESSION.create_execution_ctx();
+        assert!(rle_array.is_valid(0, &mut ctx).unwrap());
+        assert!(!rle_array.is_valid(1, &mut ctx).unwrap());
+        assert!(rle_array.is_valid(2, &mut ctx).unwrap());
     }
 
     #[test]
@@ -234,10 +245,11 @@ mod tests {
 
         let valid_slice = rle_array.slice(0..3).unwrap().to_primitive();
         // TODO(joe): replace with compute null count
-        assert!(valid_slice.all_valid().unwrap());
+        let mut ctx = SESSION.create_execution_ctx();
+        assert!(valid_slice.all_valid(&mut ctx).unwrap());
 
         let mixed_slice = rle_array.slice(1..5).unwrap();
-        assert!(!mixed_slice.all_valid().unwrap());
+        assert!(!mixed_slice.all_valid(&mut ctx).unwrap());
     }
 
     #[test]
@@ -270,10 +282,11 @@ mod tests {
             .to_canonical()
             .unwrap()
             .into_primitive();
-        assert!(invalid_slice.all_invalid().unwrap());
+        let mut ctx = SESSION.create_execution_ctx();
+        assert!(invalid_slice.all_invalid(&mut ctx).unwrap());
 
         let mixed_slice = rle_array.slice(1..4).unwrap();
-        assert!(!mixed_slice.all_invalid().unwrap());
+        assert!(!mixed_slice.all_invalid(&mut ctx).unwrap());
     }
 
     #[test]

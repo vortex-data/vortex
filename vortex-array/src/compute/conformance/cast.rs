@@ -74,10 +74,16 @@ fn test_cast_identity(array: &ArrayRef) {
     for i in 0..array.len().min(10) {
         assert_eq!(
             array
-                .scalar_at(i)
+                .execute_scalar(
+                    i,
+                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
+                )
                 .vortex_expect("scalar_at should succeed in conformance test"),
             result
-                .scalar_at(i)
+                .execute_scalar(
+                    i,
+                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
+                )
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
     }
@@ -109,7 +115,10 @@ fn test_cast_from_null(array: &ArrayRef) {
         for i in 0..array.len().min(10) {
             assert!(
                 result
-                    .scalar_at(i)
+                    .execute_scalar(
+                        i,
+                        &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
+                    )
                     .vortex_expect("scalar_at should succeed in conformance test")
                     .is_null()
             );
@@ -141,10 +150,16 @@ fn test_cast_to_non_nullable(array: &ArrayRef) {
         for i in 0..array.len().min(10) {
             assert_eq!(
                 array
-                    .scalar_at(i)
+                    .execute_scalar(
+                        i,
+                        &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
+                    )
                     .vortex_expect("scalar_at should succeed in conformance test"),
                 non_nullable
-                    .scalar_at(i)
+                    .execute_scalar(
+                        i,
+                        &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
+                    )
                     .vortex_expect("scalar_at should succeed in conformance test")
             );
         }
@@ -157,10 +172,16 @@ fn test_cast_to_non_nullable(array: &ArrayRef) {
         for i in 0..array.len().min(10) {
             assert_eq!(
                 array
-                    .scalar_at(i)
+                    .execute_scalar(
+                        i,
+                        &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
+                    )
                     .vortex_expect("scalar_at should succeed in conformance test"),
                 back_to_nullable
-                    .scalar_at(i)
+                    .execute_scalar(
+                        i,
+                        &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
+                    )
                     .vortex_expect("scalar_at should succeed in conformance test")
             );
         }
@@ -190,10 +211,16 @@ fn test_cast_to_nullable(array: &ArrayRef) {
     for i in 0..array.len().min(10) {
         assert_eq!(
             array
-                .scalar_at(i)
+                .execute_scalar(
+                    i,
+                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
+                )
                 .vortex_expect("scalar_at should succeed in conformance test"),
             nullable
-                .scalar_at(i)
+                .execute_scalar(
+                    i,
+                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
+                )
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
     }
@@ -206,10 +233,16 @@ fn test_cast_to_nullable(array: &ArrayRef) {
     for i in 0..array.len().min(10) {
         assert_eq!(
             array
-                .scalar_at(i)
+                .execute_scalar(
+                    i,
+                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
+                )
                 .vortex_expect("scalar_at should succeed in conformance test"),
-            back.scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test")
+            back.execute_scalar(
+                i,
+                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
+            )
+            .vortex_expect("scalar_at should succeed in conformance test")
         );
     }
 }
@@ -298,10 +331,16 @@ fn test_cast_to_primitive(array: &ArrayRef, target_ptype: PType, test_round_trip
     );
     for i in 0..array.len().min(10) {
         let original = array
-            .scalar_at(i)
+            .execute_scalar(
+                i,
+                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION),
+            )
             .vortex_expect("scalar_at should succeed in conformance test");
         let casted = casted
-            .scalar_at(i)
+            .execute_scalar(
+                i,
+                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION),
+            )
             .vortex_expect("scalar_at should succeed in conformance test");
         assert_eq!(
             original

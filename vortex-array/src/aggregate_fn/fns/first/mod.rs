@@ -100,7 +100,7 @@ impl AggregateFnVTable for First {
             return Ok(true);
         }
         if let Some(idx) = batch.validity()?.to_mask(batch.len(), ctx)?.first() {
-            let scalar = batch.scalar_at(idx)?;
+            let scalar = batch.execute_scalar(idx, ctx)?;
             partial.value = Some(scalar.into_nullable());
         }
         Ok(true)

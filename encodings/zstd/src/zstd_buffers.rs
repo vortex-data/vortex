@@ -456,7 +456,7 @@ impl OperationsVTable<ZstdBuffers> for ZstdBuffers {
     fn scalar_at(
         array: ArrayView<'_, ZstdBuffers>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         // TODO(os): maybe we should not support scalar_at, it is really slow, and adding a cache
         // layer here is weird. Valid use of zstd buffers array would be by executing it first into
@@ -465,7 +465,7 @@ impl OperationsVTable<ZstdBuffers> for ZstdBuffers {
             &array.into_owned(),
             &vortex_array::LEGACY_SESSION,
         )?;
-        inner_array.scalar_at(index)
+        inner_array.execute_scalar(index, ctx)
     }
 }
 
@@ -570,11 +570,18 @@ mod tests {
         let input = make_nullable_primitive_array();
         let compressed = ZstdBuffers::compress(&input, 3, &LEGACY_SESSION)?.into_array();
 
-        assert_eq!(compressed.all_valid()?, input.all_valid()?);
-        assert_eq!(compressed.all_invalid()?, input.all_invalid()?);
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        assert_eq!(compressed.all_valid(&mut ctx)?, input.all_valid(&mut ctx)?);
+        assert_eq!(
+            compressed.all_invalid(&mut ctx)?,
+            input.all_invalid(&mut ctx)?
+        );
 
         for i in 0..input.len() {
-            assert_eq!(compressed.is_valid(i)?, input.is_valid(i)?);
+            assert_eq!(
+                compressed.is_valid(i, &mut ctx)?,
+                input.is_valid(i, &mut ctx)?
+            );
         }
 
         Ok(())

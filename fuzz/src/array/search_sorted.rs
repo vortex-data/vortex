@@ -149,8 +149,9 @@ pub fn search_sorted_canonical_array(
             SearchNullableSlice(opt_values).search_sorted(&Some(to_find), side)
         }
         DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => {
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
             let scalar_vals = (0..array.len())
-                .map(|i| array.scalar_at(i))
+                .map(|i| array.execute_scalar(i, &mut ctx))
                 .collect::<VortexResult<Vec<_>>>()?;
             scalar_vals.search_sorted(&scalar.cast(array.dtype())?, side)
         }
