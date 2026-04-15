@@ -5,3 +5,7 @@
 //! VectorDBBench corpora.
 
 pub mod compression;
+pub mod ingest;
+pub mod paths;
+pub mod prepare;
+pub mod session;

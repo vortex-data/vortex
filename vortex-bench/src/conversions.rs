@@ -217,6 +217,50 @@ pub async fn convert_parquet_directory_to_vortex(
     Ok(())
 }
 
+/// Stream a parquet file into a Vortex file using the caller-provided
+/// [`vortex::file::VortexWriteOptions`].
+///
+/// Unlike [`write_parquet_as_vortex`], the caller is fully in charge of the write strategy
+/// (compressor, allowed encodings, etc.) — typical when the output needs a non-default
+/// compressor (e.g. only TurboQuant) and a specific extended `ALLOWED_ENCODINGS` set.
+///
+/// Streaming throughout: the parquet file is read row-group by row-group via
+/// [`parquet_to_vortex_stream`], so the whole file is never resident in memory at once.
+///
+/// Returns the on-disk byte size of the produced `.vortex` file.
+pub async fn write_parquet_as_vortex_with_options(
+    parquet_path: &Path,
+    vortex_path: &Path,
+    write_options: vortex::file::VortexWriteOptions,
+) -> anyhow::Result<u64> {
+    let file = File::open(parquet_path).await?;
+    let builder = ParquetRecordBatchStreamBuilder::new(file).await?;
+    let dtype = DType::from_arrow(builder.schema().as_ref());
+
+    let stream = parquet_to_vortex_stream(builder.build()?);
+
+    if let Some(parent) = vortex_path.parent() {
+        create_dir_all(parent).await?;
+    }
+    let mut output_file = OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .create(true)
+        .open(vortex_path)
+        .await?;
+
+    write_options
+        .write(
+            &mut output_file,
+            ArrayStreamExt::boxed(ArrayStreamAdapter::new(dtype, stream)),
+        )
+        .await?;
+    output_file.flush().await?;
+
+    let size = tokio::fs::metadata(vortex_path).await?.len();
+    Ok(size)
+}
+
 /// Convert a Parquet file to Vortex format with the specified compaction strategy.
 ///
 /// Uses `idempotent_async` to skip conversion if the output file already exists.
