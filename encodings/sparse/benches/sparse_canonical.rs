@@ -94,7 +94,11 @@ fn canonicalize_sparse_list(
     bencher
         .with_inputs(|| sparse.clone())
         .bench_values(|array| {
-            divan::black_box(array.to_canonical().vortex_expect("sparse list canonicalization"))
+            divan::black_box(
+                array
+                    .to_canonical()
+                    .vortex_expect("sparse list canonicalization"),
+            )
         });
 }
 
