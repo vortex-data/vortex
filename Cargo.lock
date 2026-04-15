@@ -10881,6 +10881,7 @@ dependencies = [
 name = "vortex-sparse"
 version = "0.1.0"
 dependencies = [
+ "codspeed-divan-compat",
  "itertools 0.14.0",
  "num-traits",
  "prost 0.14.3",

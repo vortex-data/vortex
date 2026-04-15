@@ -187,6 +187,10 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
         total_canonical_values,
         len,
     );
+    let patch_values_validity = patch_values
+        .listview_validity()
+        .execute_mask(len, ctx)
+        .vortex_expect("sparse list validity mask failed to execute");
 
     let mut patch_idx = 0;
 
@@ -200,15 +204,17 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
                 == position;
 
         if position_is_patched {
-            // Set with the patch value.
-            builder
-                .append_value(
-                    patch_values
-                        .execute_scalar(patch_idx, ctx)
-                        .vortex_expect("scalar_at")
-                        .as_list(),
-                )
-                .vortex_expect("Failed to append sparse value");
+            if patch_values_validity.value(patch_idx) {
+                // Bulk-append the list value to avoid per-element scalar_at.
+                let patch_list = patch_values
+                    .list_elements_at(patch_idx)
+                    .vortex_expect("list_elements_at");
+                builder
+                    .append_array_as_list(&patch_list)
+                    .vortex_expect("Failed to append sparse value");
+            } else {
+                builder.append_null();
+            }
             patch_idx += 1;
         } else {
             // Set with the fill value.
@@ -275,6 +281,11 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
     let total_elements = array_len * list_size as usize;
     let mut builder = builder_with_capacity(element_dtype, total_elements);
     let fill_elements = fill_value.elements();
+    let values_validity = values
+        .validity()
+        .vortex_expect("sparse fixed-size-list validity should be derivable")
+        .execute_mask(values.len(), ctx)
+        .vortex_expect("sparse fixed-size-list validity mask failed to execute");
 
     let mut next_index = 0;
     let indices = indices
@@ -291,20 +302,11 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
         );
 
         // Append the patch value, handling null patches by appending defaults.
-        if values
-            .validity()
-            .vortex_expect("sparse fixed-size-list validity should be derivable")
-            .is_valid(patch_idx)
-            .vortex_expect("is_valid")
-        {
+        if values_validity.value(patch_idx) {
             let patch_list = values
                 .fixed_size_list_elements_at(patch_idx)
                 .vortex_expect("fixed_size_list_elements_at");
-            for i in 0..list_size as usize {
-                builder
-                    .append_scalar(&patch_list.execute_scalar(i, ctx).vortex_expect("scalar_at"))
-                    .vortex_expect("element dtype must match");
-            }
+            builder.extend_from_array(&patch_list);
         } else {
             builder.append_defaults(list_size as usize);
         }
