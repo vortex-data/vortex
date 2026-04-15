@@ -248,9 +248,10 @@ impl WriteStrategyBuilder {
                 // sufficient read concurrency for the desired throughput. One megabyte is small
                 // enough to achieve this for S3 (Durner et al., "Exploiting Cloud Object Storage for
                 // High-Performance Analytics", VLDB Vol 16, Iss 11).
-                block_size_minimum: ONE_MEG,
+                // 2026.04.15: try 2MB instead of 1MB.
+                block_size_minimum: ONE_MEG * 2,
                 block_len_multiple: self.row_block_size,
-                block_size_target: Some(ONE_MEG),
+                block_size_target: Some(ONE_MEG * 2),
                 canonicalize: true,
             },
         );
