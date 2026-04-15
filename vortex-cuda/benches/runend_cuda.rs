@@ -64,16 +64,11 @@ where
     T: NativePType + DeviceRepr + From<u8>,
 {
     let mut group = c.benchmark_group("runend_cuda");
-    group.sample_size(10);
 
-    for (len, len_str) in [
-        (1_000_000usize, "1M"),
-        (10_000_000usize, "10M"),
-        (100_000_000usize, "100M"),
-    ] {
+    for (len, len_str) in [(10_000_000usize, "10M"), (100_000_000usize, "100M")] {
         group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
 
-        for run_len in [10, 100, 1000, 10000, 100000] {
+        for run_len in [10, 1000, 100000] {
             let runend_array = make_runend_array_typed::<T>(len, run_len);
 
             group.bench_with_input(
@@ -114,7 +109,15 @@ fn benchmark_runend(c: &mut Criterion) {
     benchmark_runend_typed::<i32>(c, "i32");
 }
 
-criterion::criterion_group!(benches, benchmark_runend);
+criterion::criterion_group! {
+    name = benches;
+    config = Criterion::default().without_plots()
+        .sample_size(10)
+        .warm_up_time(Duration::from_nanos(1))
+        .measurement_time(Duration::from_nanos(1))
+        .nresamples(10);
+    targets = benchmark_runend
+}
 
 #[cuda_available]
 criterion::criterion_main!(benches);
