@@ -118,7 +118,6 @@ async fn execute_zstd_kernel(
 /// Benchmark ZSTD CUDA decompression kernel performance
 fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
     let mut group = c.benchmark_group("ZSTD_cuda");
-    group.sample_size(10);
 
     for (num_strings, label) in BENCH_ARGS {
         let (zstd_array, uncompressed_size) =
@@ -162,7 +161,15 @@ fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
     group.finish();
 }
 
-criterion::criterion_group!(benches, benchmark_zstd_cuda_decompress);
+criterion::criterion_group! {
+    name = benches;
+    config = Criterion::default().without_plots()
+        .sample_size(10)
+        .warm_up_time(Duration::from_nanos(1))
+        .measurement_time(Duration::from_nanos(1))
+        .nresamples(10);
+    targets = benchmark_zstd_cuda_decompress
+}
 
 #[cuda_available]
 criterion::criterion_main!(benches);

@@ -49,11 +49,7 @@ use vortex_cuda::dynamic_dispatch::MaterializedPlan;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
-const BENCH_ARGS: &[(usize, &str)] = &[
-    (1_000_000, "1M"),
-    (10_000_000, "10M"),
-    (100_000_000, "100M"),
-];
+const BENCH_ARGS: &[(usize, &str)] = &[(10_000_000, "10M"), (100_000_000, "100M")];
 
 /// Launch the dynamic_dispatch kernel and return GPU-timed duration.
 ///
@@ -177,7 +173,6 @@ impl BenchRunner {
 // ---------------------------------------------------------------------------
 fn bench_for_bitpacked(c: &mut Criterion) {
     let mut group = c.benchmark_group("for_bitpacked_6bw");
-    group.sample_size(10);
 
     let bit_width: u8 = 6;
     let reference = 100_000u32;
@@ -224,7 +219,6 @@ fn bench_for_bitpacked(c: &mut Criterion) {
 // ---------------------------------------------------------------------------
 fn bench_dict_bp_codes(c: &mut Criterion) {
     let mut group = c.benchmark_group("dict_256vals_bp8bw_codes");
-    group.sample_size(10);
 
     let dict_size: usize = 256;
     let dict_bit_width: u8 = 8;
@@ -269,7 +263,6 @@ fn bench_dict_bp_codes(c: &mut Criterion) {
 // ---------------------------------------------------------------------------
 fn bench_runend(c: &mut Criterion) {
     let mut group = c.benchmark_group("runend_100runs");
-    group.sample_size(10);
 
     let num_runs: usize = 100;
 
@@ -313,7 +306,6 @@ fn bench_runend(c: &mut Criterion) {
 // ---------------------------------------------------------------------------
 fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
     let mut group = c.benchmark_group("dict_64vals_bp6bw_codes_for_bp6bw_values");
-    group.sample_size(10);
 
     let dict_size: usize = 64;
     let dict_bit_width: u8 = 6;
@@ -367,7 +359,6 @@ fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
 // ---------------------------------------------------------------------------
 fn bench_alp_for_bitpacked(c: &mut Criterion) {
     let mut group = c.benchmark_group("alp_for_bp_6bw_f32");
-    group.sample_size(10);
 
     let exponents = Exponents { e: 2, f: 0 };
     let bit_width: u8 = 6;
@@ -428,7 +419,15 @@ fn benchmark_dynamic_dispatch(c: &mut Criterion) {
     bench_alp_for_bitpacked(c);
 }
 
-criterion::criterion_group!(benches, benchmark_dynamic_dispatch);
+criterion::criterion_group! {
+    name = benches;
+    config = Criterion::default().without_plots()
+        .sample_size(10)
+        .warm_up_time(Duration::from_nanos(1))
+        .measurement_time(Duration::from_nanos(1))
+        .nresamples(10);
+    targets = benchmark_dynamic_dispatch
+}
 
 #[cuda_available]
 criterion::criterion_main!(benches);

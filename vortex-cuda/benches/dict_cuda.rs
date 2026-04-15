@@ -73,7 +73,6 @@ where
     <C as TryFrom<usize>>::Error: std::fmt::Debug,
 {
     let mut group = c.benchmark_group("dict_cuda");
-    group.sample_size(10);
 
     for (len, len_str) in BENCH_ARGS {
         // Throughput is based on output size (values read from dictionary)
@@ -156,7 +155,15 @@ fn benchmark_dict(c: &mut Criterion) {
     );
 }
 
-criterion::criterion_group!(benches, benchmark_dict);
+criterion::criterion_group! {
+    name = benches;
+    config = Criterion::default().without_plots()
+        .sample_size(10)
+        .warm_up_time(Duration::from_nanos(1))
+        .measurement_time(Duration::from_nanos(1))
+        .nresamples(10);
+    targets = benchmark_dict
+}
 
 #[cuda_available]
 criterion::criterion_main!(benches);
