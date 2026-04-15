@@ -21,7 +21,10 @@ impl CastReduce for Dict {
         // TODO(joe): optimize this, could look at accessible values and fill_null not those?
         if !dtype.is_nullable()
             && array.values().dtype().is_nullable()
-            && matches!(array.values().validity()?, Validity::AllValid)
+            && !matches!(
+                array.values().validity()?,
+                Validity::NonNullable | Validity::AllValid
+            )
         {
             return Ok(None);
         }

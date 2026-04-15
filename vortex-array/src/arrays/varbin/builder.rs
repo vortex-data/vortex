@@ -7,7 +7,9 @@ use vortex_buffer::BufferMut;
 use vortex_error::vortex_panic;
 
 use crate::IntoArray;
+#[cfg(debug_assertions)]
 use crate::LEGACY_SESSION;
+#[cfg(debug_assertions)]
 use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinArray;
@@ -151,19 +153,13 @@ mod tests {
         assert_eq!(array.dtype().nullability(), Nullable);
         assert_eq!(
             array
-                .execute_scalar(
-                    0,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::utf8("hello".to_string(), Nullable)
         );
         assert!(
             array
-                .execute_scalar(
-                    1,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .is_null()
         );
