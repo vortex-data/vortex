@@ -388,7 +388,8 @@ mod tests {
     use super::*;
     use crate::Canonical;
     use crate::IntoArray;
-    use crate::VortexSessionExecute as _;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
@@ -1133,31 +1134,19 @@ mod tests {
 
         let result = evaluate_expr(&expr, &test_array);
         assert_eq!(
-            result.execute_scalar(
-                0,
-                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-            )?,
+            result.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
             Scalar::utf8("low", Nullability::NonNullable)
         );
         assert_eq!(
-            result.execute_scalar(
-                1,
-                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-            )?,
+            result.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
             Scalar::utf8("low", Nullability::NonNullable)
         );
         assert_eq!(
-            result.execute_scalar(
-                2,
-                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-            )?,
+            result.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?,
             Scalar::utf8("high", Nullability::NonNullable)
         );
         assert_eq!(
-            result.execute_scalar(
-                3,
-                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-            )?,
+            result.execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())?,
             Scalar::utf8("high", Nullability::NonNullable)
         );
         Ok(())

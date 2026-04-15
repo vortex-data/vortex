@@ -440,28 +440,19 @@ mod tests {
         // Check validity using scalar_at - nulls will return is_null() = true.
         assert!(
             !array
-                .execute_scalar(
-                    0,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .is_null()
         );
         assert!(
             array
-                .execute_scalar(
-                    1,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .is_null()
         );
         assert!(
             !array
-                .execute_scalar(
-                    2,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .is_null()
         );
@@ -554,19 +545,13 @@ mod tests {
         // Check validity - the first two should be valid (from append_value).
         assert!(
             !array
-                .execute_scalar(
-                    0,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .is_null()
         ); // initial value 100
         assert!(
             !array
-                .execute_scalar(
-                    1,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .is_null()
         ); // initial value 200
@@ -574,28 +559,19 @@ mod tests {
         // Check the range items with modified validity.
         assert!(
             !array
-                .execute_scalar(
-                    2,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .is_null()
         ); // range index 0 - set to valid
         assert!(
             array
-                .execute_scalar(
-                    3,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .is_null()
         ); // range index 1 - left as null
         assert!(
             !array
-                .execute_scalar(
-                    4,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(4, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .is_null()
         ); // range index 2 - set to valid

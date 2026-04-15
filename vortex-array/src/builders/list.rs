@@ -528,30 +528,18 @@ mod tests {
 
         assert_eq!(
             one_trailing_unused_element
-                .execute_scalar(
-                    0,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             canon_values
-                .execute_scalar(
-                    0,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert_eq!(
             second_array
-                .execute_scalar(
-                    0,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             canon_values
-                .execute_scalar(
-                    1,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
     }
@@ -584,10 +572,7 @@ mod tests {
         // Check actual values using scalar_at.
 
         let scalar0 = array
-            .execute_scalar(
-                0,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION),
-            )
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
         let list0 = scalar0.as_list();
         assert_eq!(list0.len(), 2);
@@ -597,10 +582,7 @@ mod tests {
         }
 
         let scalar1 = array
-            .execute_scalar(
-                1,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION),
-            )
+            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
         let list1 = scalar1.as_list();
         assert_eq!(list1.len(), 3);
@@ -611,10 +593,7 @@ mod tests {
         }
 
         let scalar2 = array
-            .execute_scalar(
-                2,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION),
-            )
+            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
         let list2 = scalar2.as_list();
         assert!(list2.is_null()); // This should be null.

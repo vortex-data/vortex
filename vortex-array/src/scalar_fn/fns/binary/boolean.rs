@@ -106,6 +106,8 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
@@ -125,34 +127,22 @@ mod tests {
         let r = r.to_bool().into_array();
 
         let v0 = r
-            .execute_scalar(
-                0,
-                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
-            )
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .as_bool()
             .value();
         let v1 = r
-            .execute_scalar(
-                1,
-                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
-            )
+            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .as_bool()
             .value();
         let v2 = r
-            .execute_scalar(
-                2,
-                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
-            )
+            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .as_bool()
             .value();
         let v3 = r
-            .execute_scalar(
-                3,
-                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
-            )
+            .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .as_bool()
             .value();
@@ -180,34 +170,22 @@ mod tests {
             .into_array();
 
         let v0 = r
-            .execute_scalar(
-                0,
-                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
-            )
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .as_bool()
             .value();
         let v1 = r
-            .execute_scalar(
-                1,
-                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
-            )
+            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .as_bool()
             .value();
         let v2 = r
-            .execute_scalar(
-                2,
-                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
-            )
+            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .as_bool()
             .value();
         let v3 = r
-            .execute_scalar(
-                3,
-                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
-            )
+            .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .as_bool()
             .value();

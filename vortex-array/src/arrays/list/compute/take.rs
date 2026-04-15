@@ -248,10 +248,7 @@ mod test {
         );
         assert_eq!(
             result
-                .execute_scalar(
-                    0,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::list(
                 Arc::clone(&element_dtype),
@@ -273,10 +270,7 @@ mod test {
         );
         assert_eq!(
             result
-                .execute_scalar(
-                    2,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::list(
                 Arc::clone(&element_dtype),
@@ -292,10 +286,7 @@ mod test {
         );
         assert_eq!(
             result
-                .execute_scalar(
-                    3,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::list(element_dtype, vec![], Nullability::Nullable)
         );
@@ -359,10 +350,7 @@ mod test {
         );
         assert_eq!(
             result
-                .execute_scalar(
-                    0,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::list(
                 Arc::clone(&element_dtype),
@@ -378,10 +366,7 @@ mod test {
         );
         assert_eq!(
             result
-                .execute_scalar(
-                    1,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::list(
                 Arc::clone(&element_dtype),
@@ -397,10 +382,7 @@ mod test {
         );
         assert_eq!(
             result
-                .execute_scalar(
-                    2,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::list(element_dtype, vec![], Nullability::NonNullable)
         );

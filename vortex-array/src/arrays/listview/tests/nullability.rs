@@ -60,10 +60,7 @@ fn test_nullable_listview_comprehensive() {
 
     // Test scalar_at with nulls.
     let first = listview
-        .execute_scalar(
-            0,
-            &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION),
-        )
+        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
         .unwrap();
     assert!(!first.is_null());
     assert_eq!(
@@ -76,18 +73,12 @@ fn test_nullable_listview_comprehensive() {
     );
 
     let second = listview
-        .execute_scalar(
-            1,
-            &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION),
-        )
+        .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
         .unwrap();
     assert!(second.is_null());
 
     let third = listview
-        .execute_scalar(
-            2,
-            &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION),
-        )
+        .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
         .unwrap();
     assert!(!third.is_null());
     assert_eq!(
@@ -104,19 +95,13 @@ fn test_nullable_listview_comprehensive() {
     assert_eq!(null_list_data.len(), 2);
     assert_eq!(
         null_list_data
-            .execute_scalar(
-                0,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-            )
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap(),
         3i32.into()
     );
     assert_eq!(
         null_list_data
-            .execute_scalar(
-                1,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-            )
+            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap(),
         4i32.into()
     );
@@ -165,28 +150,19 @@ fn test_nullable_elements() {
     assert_eq!(first_list.len(), 2);
     assert!(
         !first_list
-            .execute_scalar(
-                0,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-            )
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .is_null()
     );
     assert_eq!(
         first_list
-            .execute_scalar(
-                0,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-            )
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap(),
         1i32.into()
     );
     assert!(
         first_list
-            .execute_scalar(
-                1,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-            )
+            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .is_null()
     );
@@ -195,28 +171,19 @@ fn test_nullable_elements() {
     let second_list = listview.list_elements_at(1).unwrap();
     assert!(
         !second_list
-            .execute_scalar(
-                0,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-            )
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .is_null()
     );
     assert_eq!(
         second_list
-            .execute_scalar(
-                0,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-            )
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap(),
         3i32.into()
     );
     assert!(
         second_list
-            .execute_scalar(
-                1,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-            )
+            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .is_null()
     );
@@ -225,37 +192,25 @@ fn test_nullable_elements() {
     let third_list = listview.list_elements_at(2).unwrap();
     assert!(
         !third_list
-            .execute_scalar(
-                0,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-            )
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .is_null()
     );
     assert_eq!(
         third_list
-            .execute_scalar(
-                0,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-            )
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap(),
         5i32.into()
     );
     assert!(
         !third_list
-            .execute_scalar(
-                1,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-            )
+            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .is_null()
     );
     assert_eq!(
         third_list
-            .execute_scalar(
-                1,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-            )
+            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap(),
         6i32.into()
     );

@@ -371,11 +371,8 @@ mod tests {
     fn bool_array() {
         let arr = BoolArray::from_iter([true, false, true]);
         let scalar = bool::try_from(
-            &arr.execute_scalar(
-                0,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION),
-            )
-            .unwrap(),
+            &arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
         )
         .unwrap();
         assert!(scalar);
@@ -388,20 +385,14 @@ mod tests {
         assert!(matches!(arr.validity(), Ok(Validity::AllValid)));
 
         let scalar = bool::try_from(
-            &arr.execute_scalar(
-                0,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION),
-            )
-            .unwrap(),
+            &arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
         )
         .unwrap();
         assert!(scalar);
         let scalar = bool::try_from(
-            &arr.execute_scalar(
-                1,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION),
-            )
-            .unwrap(),
+            &arr.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
         )
         .unwrap();
         assert!(!scalar);
@@ -412,48 +403,33 @@ mod tests {
         let arr = BoolArray::from_iter([Some(true), Some(true), None, Some(false), None]);
 
         let scalar = bool::try_from(
-            &arr.execute_scalar(
-                0,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION),
-            )
-            .unwrap(),
+            &arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
         )
         .unwrap();
         assert!(scalar);
 
         let scalar = bool::try_from(
-            &arr.execute_scalar(
-                1,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION),
-            )
-            .unwrap(),
+            &arr.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
         )
         .unwrap();
         assert!(scalar);
 
         let scalar = arr
-            .execute_scalar(
-                2,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION),
-            )
+            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
         assert!(scalar.is_null());
 
         let scalar = bool::try_from(
-            &arr.execute_scalar(
-                3,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION),
-            )
-            .unwrap(),
+            &arr.execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
         )
         .unwrap();
         assert!(!scalar);
 
         let scalar = arr
-            .execute_scalar(
-                4,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION),
-            )
+            .execute_scalar(4, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
         assert!(scalar.is_null());
     }

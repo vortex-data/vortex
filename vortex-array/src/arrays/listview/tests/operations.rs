@@ -61,16 +61,10 @@ fn test_slice_comprehensive() {
         assert_eq!(
             full_list
                 .array()
-                .execute_scalar(
-                    i,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             listview
-                .execute_scalar(
-                    i,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             "Mismatch at index {}",
             i

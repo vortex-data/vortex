@@ -314,6 +314,8 @@ mod tests {
     use vortex_error::VortexExpect;
 
     use super::*;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
@@ -495,10 +497,7 @@ mod tests {
         let result_equal = lhs_struct.binary(rhs_struct_equal, Operator::Eq).unwrap();
         assert_eq!(
             result_equal
-                .execute_scalar(
-                    0,
-                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("value"),
             Scalar::bool(true, Nullability::NonNullable),
             "Equal structs should be equal"
@@ -509,10 +508,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             result_different
-                .execute_scalar(
-                    0,
-                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("value"),
             Scalar::bool(false, Nullability::NonNullable),
             "Different structs should not be equal"

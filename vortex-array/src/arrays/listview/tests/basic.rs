@@ -55,10 +55,7 @@ fn test_basic_listview_comprehensive() {
 
     // Test scalar_at which returns entire lists as Scalar values.
     let first_scalar = listview
-        .execute_scalar(
-            0,
-            &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION),
-        )
+        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
         .unwrap();
     assert_eq!(
         first_scalar,
@@ -218,10 +215,7 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
             listview
                 .list_elements_at(0)
                 .unwrap()
-                .execute_scalar(
-                    0,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             1i32.into()
         );
@@ -229,10 +223,7 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
             listview
                 .list_elements_at(1)
                 .unwrap()
-                .execute_scalar(
-                    0,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             1i32.into()
         );
@@ -240,10 +231,7 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
             listview
                 .list_elements_at(2)
                 .unwrap()
-                .execute_scalar(
-                    0,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             1i32.into()
         );

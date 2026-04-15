@@ -53,15 +53,12 @@ fn find_mismatched_indices(left: &ArrayRef, right: &ArrayRef) -> Vec<usize> {
 macro_rules! assert_nth_scalar {
     ($arr:expr, $n:expr, $expected:expr) => {{
         use $crate::IntoArray as _;
+        use $crate::LEGACY_SESSION;
+        use $crate::VortexSessionExecute as _;
         let arr_ref: $crate::ArrayRef = $crate::IntoArray::into_array($arr.clone());
         assert_eq!(
             arr_ref
-                .execute_scalar(
-                    $n,
-                    &mut $crate::VortexSessionExecute::create_execution_ctx(
-                        &*$crate::LEGACY_SESSION
-                    ),
-                )
+                .execute_scalar($n, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             $expected.try_into().unwrap()
         );
@@ -79,26 +76,18 @@ macro_rules! assert_nth_scalar {
 #[macro_export]
 macro_rules! assert_nth_scalar_is_null {
     ($arr:expr, $n:expr) => {{
+        use $crate::LEGACY_SESSION;
+        use $crate::VortexSessionExecute as _;
         let arr_ref: $crate::ArrayRef = $crate::IntoArray::into_array($arr.clone());
         assert!(
             arr_ref
-                .execute_scalar(
-                    $n,
-                    &mut $crate::VortexSessionExecute::create_execution_ctx(
-                        &*$crate::LEGACY_SESSION
-                    ),
-                )
+                .execute_scalar($n, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .is_null(),
             "expected scalar at index {} to be null, but was {:?}",
             $n,
             arr_ref
-                .execute_scalar(
-                    $n,
-                    &mut $crate::VortexSessionExecute::create_execution_ctx(
-                        &*$crate::LEGACY_SESSION
-                    ),
-                )
+                .execute_scalar($n, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
     }};

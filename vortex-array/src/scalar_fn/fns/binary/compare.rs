@@ -249,7 +249,9 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
     use crate::ToCanonical;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
@@ -349,10 +351,7 @@ mod tests {
             .unwrap();
         assert_eq!(result.len(), 10);
         let scalar = result
-            .execute_scalar(
-                0,
-                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION),
-            )
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
         assert_eq!(scalar.as_bool().value(), Some(false));
     }
@@ -547,28 +546,19 @@ mod tests {
             .unwrap();
         assert!(
             result
-                .execute_scalar(
-                    0,
-                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .is_valid()
         );
         assert!(
             result
-                .execute_scalar(
-                    1,
-                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-                )
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .is_valid()
         );
         assert!(
             result
-                .execute_scalar(
-                    2,
-                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-                )
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .is_valid()
         );

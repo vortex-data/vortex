@@ -926,10 +926,7 @@ mod tests {
         // Check actual values using scalar_at.
 
         let scalar0 = array
-            .execute_scalar(
-                0,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION),
-            )
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
         let list0 = scalar0.as_list();
         assert_eq!(list0.len(), 2);
@@ -939,10 +936,7 @@ mod tests {
         }
 
         let scalar1 = array
-            .execute_scalar(
-                1,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION),
-            )
+            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
         let list1 = scalar1.as_list();
         assert_eq!(list1.len(), 2);

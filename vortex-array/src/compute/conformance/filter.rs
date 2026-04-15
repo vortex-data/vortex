@@ -6,6 +6,8 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
 
@@ -98,16 +100,10 @@ fn test_selective_filter(array: &ArrayRef) {
     for (filtered_idx, i) in (0..len).step_by(2).enumerate() {
         assert_eq!(
             filtered
-                .execute_scalar(
-                    filtered_idx,
-                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-                )
+                .execute_scalar(filtered_idx, &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("scalar_at should succeed in conformance test"),
             array
-                .execute_scalar(
-                    i,
-                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-                )
+                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
     }
@@ -124,30 +120,18 @@ fn test_selective_filter(array: &ArrayRef) {
         assert_eq!(filtered.len(), 2);
         assert_eq!(
             filtered
-                .execute_scalar(
-                    0,
-                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("scalar_at should succeed in conformance test"),
             array
-                .execute_scalar(
-                    0,
-                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
         assert_eq!(
             filtered
-                .execute_scalar(
-                    1,
-                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-                )
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("scalar_at should succeed in conformance test"),
             array
-                .execute_scalar(
-                    len - 1,
-                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-                )
+                .execute_scalar(len - 1, &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
     }
@@ -169,16 +153,10 @@ fn test_single_element_filter(array: &ArrayRef) {
     assert_eq!(filtered.len(), 1);
     assert_eq!(
         filtered
-            .execute_scalar(
-                0,
-                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-            )
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
             .vortex_expect("scalar_at should succeed in conformance test"),
         array
-            .execute_scalar(
-                0,
-                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-            )
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
             .vortex_expect("scalar_at should succeed in conformance test")
     );
 
@@ -193,16 +171,10 @@ fn test_single_element_filter(array: &ArrayRef) {
         assert_eq!(filtered.len(), 1);
         assert_eq!(
             filtered
-                .execute_scalar(
-                    0,
-                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("scalar_at should succeed in conformance test"),
             array
-                .execute_scalar(
-                    len - 1,
-                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-                )
+                .execute_scalar(len - 1, &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
     }
@@ -265,20 +237,10 @@ fn test_alternating_pattern_filter(array: &ArrayRef) {
         if keep {
             assert_eq!(
                 filtered
-                    .execute_scalar(
-                        filtered_idx,
-                        &mut crate::VortexSessionExecute::create_execution_ctx(
-                            &*crate::LEGACY_SESSION
-                        )
-                    )
+                    .execute_scalar(filtered_idx, &mut LEGACY_SESSION.create_execution_ctx())
                     .vortex_expect("scalar_at should succeed in conformance test"),
                 array
-                    .execute_scalar(
-                        i,
-                        &mut crate::VortexSessionExecute::create_execution_ctx(
-                            &*crate::LEGACY_SESSION
-                        )
-                    )
+                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
                     .vortex_expect("scalar_at should succeed in conformance test")
             );
             filtered_idx += 1;

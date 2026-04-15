@@ -1058,10 +1058,7 @@ mod tests {
 
         // Verify the value was stored correctly
         let retrieved = array
-            .execute_scalar(
-                0,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION),
-            )
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .as_binary()
             .value()

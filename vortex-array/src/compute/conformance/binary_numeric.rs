@@ -47,10 +47,7 @@ fn to_vec_of_scalar(array: &ArrayRef) -> Vec<Scalar> {
     (0..array.len())
         .map(|index| {
             array
-                .execute_scalar(
-                    index,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION),
-                )
+                .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("scalar_at should succeed in conformance test")
         })
         .collect_vec()

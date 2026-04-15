@@ -85,7 +85,9 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
     use crate::ToCanonical;
+    use crate::VortexSessionExecute;
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::filter::execute::ConstantArray;
@@ -333,10 +335,7 @@ mod test {
         let list0 = result_list.list_elements_at(0).unwrap();
         assert_eq!(
             list0
-                .execute_scalar(
-                    0,
-                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .as_primitive()
                 .as_::<i32>()
@@ -345,10 +344,7 @@ mod test {
         );
         assert_eq!(
             list0
-                .execute_scalar(
-                    1,
-                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-                )
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .as_primitive()
                 .as_::<i32>()

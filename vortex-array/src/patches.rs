@@ -1514,10 +1514,7 @@ mod test {
         assert_eq!(
             i32::try_from(
                 &masked_values
-                    .execute_scalar(
-                        1,
-                        &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                    )
+                    .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
                     .unwrap()
             )
             .unwrap(),
@@ -1681,10 +1678,7 @@ mod test {
         assert_eq!(
             i32::try_from(
                 &values
-                    .execute_scalar(
-                        0,
-                        &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                    )
+                    .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                     .unwrap()
             )
             .unwrap(),
@@ -1693,10 +1687,7 @@ mod test {
         assert_eq!(
             i32::try_from(
                 &values
-                    .execute_scalar(
-                        1,
-                        &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                    )
+                    .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
                     .unwrap()
             )
             .unwrap(),
@@ -1705,10 +1696,7 @@ mod test {
         assert_eq!(
             i32::try_from(
                 &values
-                    .execute_scalar(
-                        2,
-                        &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                    )
+                    .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
                     .unwrap()
             )
             .unwrap(),

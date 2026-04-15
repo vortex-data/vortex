@@ -350,10 +350,7 @@ mod tests {
         assert_eq!(actual.len(), 42);
         assert_eq!(
             actual
-                .execute_scalar(
-                    33,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(33, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::null(DType::Null)
         );
@@ -408,10 +405,7 @@ mod tests {
         // Verify the scalar value is preserved through canonicalization
         assert_eq!(
             canonical_const
-                .execute_scalar(
-                    0,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             f16_scalar
         );
@@ -629,37 +623,25 @@ mod tests {
         let elements = canonical.elements().to_varbinview();
         assert_eq!(
             elements
-                .execute_scalar(
-                    0,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             "hello".into()
         );
         assert_eq!(
             elements
-                .execute_scalar(
-                    1,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             "world".into()
         );
         assert_eq!(
             elements
-                .execute_scalar(
-                    2,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             "hello".into()
         );
         assert_eq!(
             elements
-                .execute_scalar(
-                    3,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             "world".into()
         );
@@ -708,28 +690,19 @@ mod tests {
         let elements = canonical.elements().to_primitive();
         assert_eq!(
             elements
-                .execute_scalar(
-                    0,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::from(100i32)
         );
         assert_eq!(
             elements
-                .execute_scalar(
-                    1,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
         );
         assert_eq!(
             elements
-                .execute_scalar(
-                    2,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::from(200i32)
         );
@@ -777,46 +750,31 @@ mod tests {
             let base = i * 5;
             assert_eq!(
                 elements
-                    .execute_scalar(
-                        base,
-                        &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                    )
+                    .execute_scalar(base, &mut LEGACY_SESSION.create_execution_ctx())
                     .unwrap(),
                 Scalar::from(1u8)
             );
             assert_eq!(
                 elements
-                    .execute_scalar(
-                        base + 1,
-                        &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                    )
+                    .execute_scalar(base + 1, &mut LEGACY_SESSION.create_execution_ctx())
                     .unwrap(),
                 Scalar::from(2u8)
             );
             assert_eq!(
                 elements
-                    .execute_scalar(
-                        base + 2,
-                        &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                    )
+                    .execute_scalar(base + 2, &mut LEGACY_SESSION.create_execution_ctx())
                     .unwrap(),
                 Scalar::from(3u8)
             );
             assert_eq!(
                 elements
-                    .execute_scalar(
-                        base + 3,
-                        &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                    )
+                    .execute_scalar(base + 3, &mut LEGACY_SESSION.create_execution_ctx())
                     .unwrap(),
                 Scalar::from(4u8)
             );
             assert_eq!(
                 elements
-                    .execute_scalar(
-                        base + 4,
-                        &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                    )
+                    .execute_scalar(base + 4, &mut LEGACY_SESSION.create_execution_ctx())
                     .unwrap(),
                 Scalar::from(5u8)
             );

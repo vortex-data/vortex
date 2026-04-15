@@ -219,7 +219,9 @@ mod tests {
     use crate::Canonical;
     use crate::ExecutionCtx;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
     use crate::ToCanonical;
+    use crate::VortexSessionExecute;
     use crate::accessor::ArrayAccessor;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ListArray;
@@ -306,29 +308,17 @@ mod tests {
         let canon_values = chunked_list.unwrap().as_array().to_listview();
 
         assert_eq!(
-            l1.execute_scalar(
-                0,
-                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-            )
-            .unwrap(),
+            l1.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             canon_values
-                .execute_scalar(
-                    0,
-                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert_eq!(
-            l2.execute_scalar(
-                0,
-                &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-            )
-            .unwrap(),
+            l2.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             canon_values
-                .execute_scalar(
-                    1,
-                    &mut crate::VortexSessionExecute::create_execution_ctx(&*crate::LEGACY_SESSION)
-                )
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
     }

@@ -17,6 +17,7 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
@@ -352,7 +353,7 @@ impl<V: VTable> Array<V> {
     )]
     pub fn scalar_at(&self, index: usize) -> VortexResult<crate::scalar::Scalar> {
         self.inner
-            .execute_scalar(index, &mut crate::LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
     }
 
     /// Execute the array to extract a scalar at the given index.

@@ -332,16 +332,10 @@ mod tests {
 
         for i in 0..i8s.len() {
             assert_eq!(
-                i8s.execute_scalar(
-                    i,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
-                .unwrap(),
+                i8s.execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap(),
                 i128s
-                    .execute_scalar(
-                        i,
-                        &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                    )
+                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
                     .unwrap()
             );
         }
@@ -368,10 +362,7 @@ mod tests {
         let mut builder2 = DecimalBuilder::new::<i64>(DecimalDType::new(10, 2), true.into());
         for i in 0..array.len() {
             let scalar = array
-                .execute_scalar(
-                    i,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION),
-                )
+                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap();
             builder2.append_scalar(&scalar).unwrap();
         }

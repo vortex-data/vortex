@@ -506,19 +506,13 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(
-                0,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-            )
-            .unwrap(),
+            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
         assert_eq!(
-            item.execute_scalar(
-                1,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-            )
-            .unwrap(),
+            item.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
     }
@@ -531,19 +525,13 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(
-                0,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-            )
-            .unwrap(),
+            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
         assert_eq!(
-            item.execute_scalar(
-                1,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-            )
-            .unwrap(),
+            item.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
     }
@@ -556,19 +544,13 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(
-                0,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-            )
-            .unwrap(),
+            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
         assert_eq!(
-            item.execute_scalar(
-                1,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-            )
-            .unwrap(),
+            item.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
     }
@@ -587,19 +569,13 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(
-                0,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-            )
-            .unwrap(),
+            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
         assert_eq!(
-            item.execute_scalar(
-                1,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-            )
-            .unwrap(),
+            item.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
     }
@@ -618,11 +594,8 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(
-                0,
-                &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-            )
-            .unwrap(),
+            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
         assert!(
@@ -719,10 +692,7 @@ mod tests {
         let result = arr.clone().apply(&expr).unwrap();
         assert_eq!(
             result
-                .execute_scalar(
-                    0,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::bool(true, Nullability::NonNullable)
         );
@@ -732,10 +702,7 @@ mod tests {
         let result = arr.apply(&expr).unwrap();
         assert_eq!(
             result
-                .execute_scalar(
-                    0,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::bool(false, Nullability::NonNullable)
         );

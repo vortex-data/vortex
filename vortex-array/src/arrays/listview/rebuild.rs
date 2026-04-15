@@ -505,10 +505,7 @@ mod tests {
         let all_elements = trimmed.elements().to_primitive();
         assert_eq!(
             all_elements
-                .execute_scalar(
-                    2,
-                    &mut VortexSessionExecute::create_execution_ctx(&*LEGACY_SESSION)
-                )
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             97i32.into()
         );
