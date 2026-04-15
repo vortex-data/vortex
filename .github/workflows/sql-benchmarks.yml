@@ -14,7 +14,6 @@ on:
         required: false
         type: string
         description: "JSON string containing the matrix configuration"
-        # We do not include lance in the default configuration.
         default: |
           [
             {
@@ -68,6 +67,7 @@ on:
               "id": "statpopgen",
               "subcommand": "statpopgen",
               "name": "Statistical and Population Genetics",
+              "local_dir": "vortex-bench/data/statpopgen",
               "targets": "duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
               "scale_factor": "100"
             },
@@ -135,13 +135,26 @@ jobs:
 
       - uses: ./.github/actions/system-info
 
+      - name: Resolve targets
+        id: resolve
+        shell: bash
+        run: |
+          targets="${{ matrix.targets }}"
+          # Non-PR modes include lance comparisons for clickbench and tpch
+          if [ "${{ inputs.mode }}" != "pr" ]; then
+            case "${{ matrix.subcommand }}" in
+              clickbench|tpch) targets="$targets,datafusion:lance" ;;
+            esac
+          fi
+          echo "targets=$targets" >> $GITHUB_OUTPUT
+
       - name: Build binaries
         shell: bash
         env:
           RUSTFLAGS: "-C target-cpu=native"
         run: |
           packages="--bin data-gen --bin datafusion-bench --bin duckdb-bench"
-          if [ "${{ matrix.build_lance }}" = "true" ]; then
+          if [ "${{ inputs.mode }}" != "pr" ]; then
             packages="$packages --bin lance-bench"
           fi
           cargo build $packages --profile release_debug --features unstable_encodings
@@ -152,7 +165,7 @@ jobs:
           RUST_BACKTRACE: full
         run: |
           # Extract all unique formats from targets (e.g., "datafusion:parquet,duckdb:vortex" -> "parquet,vortex")
-          all_formats=$(echo "${{ matrix.targets }}" | tr ',' '\n' | sed 's/^[^:]*://' | sort -u | tr '\n' ',' | sed 's/,$//')
+          all_formats=$(echo "${{ steps.resolve.outputs.targets }}" | tr ',' '\n' | sed 's/^[^:]*://' | sort -u | tr '\n' ',' | sed 's/,$//')
 
           # Append extra data formats if specified (for file size tracking without benchmarking)
           if [ -n "${{ matrix.extra_data_formats }}" ]; then
@@ -206,7 +219,7 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
-          bash scripts/bench-taskset.sh .github/scripts/run-sql-bench.sh "${{ matrix.subcommand }}" "${{ matrix.targets }}" \
+          bash scripts/bench-taskset.sh .github/scripts/run-sql-bench.sh "${{ matrix.subcommand }}" "${{ steps.resolve.outputs.targets }}" \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
             ${{ matrix.scale_factor && format('--scale-factor {0}', matrix.scale_factor) || '' }}
 
@@ -221,7 +234,7 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
-          bash scripts/bench-taskset.sh .github/scripts/run-sql-bench.sh "${{ matrix.subcommand }}" "${{ matrix.targets }}" \
+          bash scripts/bench-taskset.sh .github/scripts/run-sql-bench.sh "${{ matrix.subcommand }}" "${{ steps.resolve.outputs.targets }}" \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
             --remote-storage "${{ matrix.remote_storage }}" \
             --benchmark-id "${{ matrix.id }}" \
