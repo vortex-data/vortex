@@ -739,7 +739,7 @@ mod test {
     use fsst::Compressor;
     use fsst::Symbol;
     use prost::Message;
-    use vortex_array::ArrayPlugin;
+    use vortex_array::ArrayPluginRef;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
@@ -812,8 +812,7 @@ mod test {
             fsst_array.uncompressed_lengths().clone(),
         ];
 
-        let fsst = ArrayPlugin::deserialize(
-            &FSST,
+        let fsst = ArrayPluginRef::from(FSST).deserialize(
             &DType::Utf8(Nullability::NonNullable),
             2,
             &FSSTMetadata {

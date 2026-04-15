@@ -42,8 +42,12 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         array: &ArrayRef,
         session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        // delegate to BitPacked VTable for serialization
-        BitPacked.serialize(array, session)
+        assert_eq!(
+            self.id(),
+            array.encoding_id(),
+            "Invoked for incorrect array ID"
+        );
+        BitPacked::serialize(array.as_::<BitPacked>(), session)
     }
 
     fn deserialize(
@@ -114,7 +118,7 @@ mod tests {
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty().with::<ArraySession>();
-        session.arrays().register(BitPackedPatchedPlugin);
+        session.arrays().register(ArrayPluginRef::new(BitPackedPatchedPlugin));
         session
     });
 

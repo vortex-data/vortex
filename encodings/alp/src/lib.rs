@@ -18,6 +18,7 @@
 
 pub use alp::*;
 pub use alp_rd::*;
+use vortex_array::ArrayPluginRef;
 use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
@@ -34,7 +35,7 @@ pub fn initialize(session: &VortexSession) {
     // If we're using the experimental Patched encoding, register a shim
     // for ALP with interior patches to decode as Patched array.
     if *USE_EXPERIMENTAL_PATCHES {
-        session.arrays().register(ALPPatchedPlugin);
+        session.arrays().register(ArrayPluginRef::new(ALPPatchedPlugin));
     } else {
         session.arrays().register(ALP);
     }

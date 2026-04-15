@@ -24,6 +24,7 @@ pub(crate) const FL_CHUNK_SIZE: usize = 1024;
 use bitpacking::compute::is_constant::BitPackedIsConstantKernel;
 use r#for::compute::is_constant::FoRIsConstantKernel;
 use r#for::compute::is_sorted::FoRIsSortedKernel;
+use vortex_array::ArrayPluginRef;
 use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
@@ -38,7 +39,7 @@ pub fn initialize(session: &VortexSession) {
     // If we're using the experimental Patched encoding, register a shim
     // for BitPacked with interior patches decode as Patched array.
     if *USE_EXPERIMENTAL_PATCHES {
-        session.arrays().register(BitPackedPatchedPlugin);
+        session.arrays().register(ArrayPluginRef::new(BitPackedPatchedPlugin));
     } else {
         session.arrays().register(BitPacked);
     }

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::Ref;
@@ -10,7 +8,6 @@ use vortex_session::SessionExt;
 use vortex_session::registry::Registry;
 
 use crate::ArrayRef;
-use crate::array::ArrayPlugin;
 use crate::array::ArrayPluginRef;
 use crate::arrays::Bool;
 use crate::arrays::Chunked;
@@ -50,9 +47,9 @@ impl ArraySession {
     }
 
     /// Register a new array encoding, replacing any existing encoding with the same ID.
-    pub fn register<P: ArrayPlugin>(&self, plugin: P) {
-        self.registry
-            .register(plugin.id(), Arc::new(plugin) as ArrayPluginRef);
+    pub fn register(&self, plugin: impl Into<ArrayPluginRef>) {
+        let plugin = plugin.into();
+        self.registry.register(plugin.id(), plugin);
     }
 }
 

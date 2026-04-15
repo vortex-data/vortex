@@ -43,8 +43,12 @@ impl ArrayPlugin for ALPPatchedPlugin {
         array: &ArrayRef,
         session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        // Delegate to ALP's metadata serde
-        ALP.serialize(array, session)
+        assert_eq!(
+            self.id(),
+            array.encoding_id(),
+            "Invoked for incorrect array ID"
+        );
+        ALP::serialize(array.as_::<ALP>(), session)
     }
 
     fn deserialize(
@@ -112,7 +116,7 @@ mod tests {
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty().with::<ArraySession>();
-        session.arrays().register(ALPPatchedPlugin);
+        session.arrays().register(ArrayPluginRef::new(ALPPatchedPlugin));
         session
     });
 

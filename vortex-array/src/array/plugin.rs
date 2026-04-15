@@ -4,6 +4,7 @@
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
+use std::ops::Deref;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
@@ -19,7 +20,35 @@ use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 
 /// Reference-counted array plugin.
-pub type ArrayPluginRef = Arc<dyn ArrayPlugin>;
+#[derive(Clone)]
+pub struct ArrayPluginRef(Arc<dyn ArrayPlugin>);
+
+impl ArrayPluginRef {
+    /// Wrap an [`ArrayPlugin`] in an [`ArrayPluginRef`].
+    pub fn new(plugin: impl ArrayPlugin) -> Self {
+        Self(Arc::new(plugin))
+    }
+}
+
+impl Deref for ArrayPluginRef {
+    type Target = dyn ArrayPlugin;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref()
+    }
+}
+
+impl Debug for ArrayPluginRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl<V: VTable> From<V> for ArrayPluginRef {
+    fn from(v: V) -> Self {
+        Self(Arc::new(ArrayVTablePluginAdaptor(v)))
+    }
+}
 
 /// Registry trait for ID-based deserialization of arrays.
 ///
@@ -71,9 +100,11 @@ impl Debug for dyn ArrayPlugin {
     }
 }
 
-impl<V: VTable> ArrayPlugin for V {
+pub(crate) struct ArrayVTablePluginAdaptor<V>(pub(crate) V);
+
+impl<V: VTable> ArrayPlugin for ArrayVTablePluginAdaptor<V> {
     fn id(&self) -> ArrayId {
-        VTable::id(self)
+        self.0.id()
     }
 
     fn serialize(
@@ -99,7 +130,7 @@ impl<V: VTable> ArrayPlugin for V {
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
         Ok(Array::<V>::try_from_parts(V::deserialize(
-            self, dtype, len, metadata, buffers, children, session,
+            &self.0, dtype, len, metadata, buffers, children, session,
         )?)?
         .into_array())
     }
