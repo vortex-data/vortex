@@ -11,7 +11,6 @@ use async_trait::async_trait;
 use futures::TryStreamExt;
 use session::MultiFileSessionExt;
 use tracing::debug;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::filesystem::FileListing;
@@ -22,7 +21,6 @@ use vortex_layout::scan::multi::MultiLayoutDataSource;
 use vortex_scan::DataSource;
 use vortex_session::VortexSession;
 
-use crate::FileStatistics;
 use crate::OpenOptionsSessionExt;
 use crate::VortexOpenOptions;
 use crate::v2::FileStatsLayoutReader;
@@ -63,11 +61,7 @@ pub struct MultiFileDataSource {
     /// When the filesystem is None, a local filesystem will be created in build().
     glob_sources: Vec<(String, Option<FileSystemRef>)>,
     open_options_fn: Arc<dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync>,
-    open_all: bool,
 }
-
-type FileWithFs = (FileListing, FileSystemRef);
-type DataSourceWithStats = (MultiLayoutDataSource, Option<FileStatistics>);
 
 impl MultiFileDataSource {
     /// Create a new [`MultiFileDataSource`] builder.
@@ -76,16 +70,6 @@ impl MultiFileDataSource {
             session,
             glob_sources: Vec::new(),
             open_options_fn: Arc::new(|opts| opts),
-            open_all: false,
-        }
-    }
-
-    pub fn new_eager(session: VortexSession) -> Self {
-        Self {
-            session,
-            glob_sources: Vec::new(),
-            open_options_fn: Arc::new(|opts| opts),
-            open_all: true,
         }
     }
 
@@ -114,7 +98,7 @@ impl MultiFileDataSource {
     ///
     /// Discovers files via glob, opens the first file eagerly to determine the schema,
     /// and creates lazy factories for the remaining files.
-    pub async fn build(mut self) -> VortexResult<(impl DataSource, Option<FileStatistics>)> {
+    pub async fn build(self) -> VortexResult<MultiLayoutDataSource> {
         if self.glob_sources.is_empty() {
             vortex_bail!("MultiFileDataSource requires at least one glob pattern");
         }
@@ -154,65 +138,13 @@ impl MultiFileDataSource {
         let globs: Vec<_> = self.glob_sources.iter().map(|(g, _)| g.as_str()).collect();
         debug!(file_count, glob = ?globs, "discovered files");
 
-        if self.open_all {
-            self.build_eager(all_files).await
-        } else {
-            Ok((self.build_lazy(all_files).await?, None))
-        }
-    }
-
-    async fn build_eager(&mut self, files: Vec<FileWithFs>) -> VortexResult<DataSourceWithStats> {
-        let mut all_files_have_stats = true;
-        let mut stats: Option<FileStatistics> = None;
-
-        let open_fn = self.open_options_fn.as_ref();
-        let files_len = files.len();
-        let mut readers = Vec::with_capacity(files_len);
-
-        for (file, fs) in files {
-            let mut file = open_file(&fs, &file, &self.session, open_fn).await?;
-            let mut reader = file.layout_reader()?;
-
-            let file_stats = file.take_file_stats();
-            if file_stats.is_none() {
-                all_files_have_stats = false;
-                readers.push(reader);
-                continue;
-            }
-            let file_stats = file_stats.vortex_expect("no stats");
-
-            if all_files_have_stats {
-                stats = Some(match stats.take() {
-                    None => file_stats.clone(),
-                    Some(st) => st.merge(&file_stats)?,
-                })
-            }
-
-            reader = Arc::new(FileStatsLayoutReader::new(
-                reader,
-                file_stats,
-                self.session.clone(),
-            ));
-            readers.push(reader);
-        }
-
-        let inner = MultiLayoutDataSource::new_eager(readers, &self.session);
-        debug!(file_count = files_len, dtype = %inner.dtype(), "built MultiFileDataSource");
-
-        if !all_files_have_stats {
-            stats = None
-        }
-        Ok((inner, stats))
-    }
-
-    async fn build_lazy(&self, files: Vec<FileWithFs>) -> VortexResult<MultiLayoutDataSource> {
         // Open first file eagerly for dtype.
-        let (first_file_listing, first_fs) = &files[0];
+        let (first_file_listing, first_fs) = &all_files[0];
         let open_fn = self.open_options_fn.as_ref();
         let first_file = open_file(first_fs, first_file_listing, &self.session, open_fn).await?;
         let first_reader = layout_reader_with_stats(&first_file)?;
 
-        let factories: Vec<Arc<dyn LayoutReaderFactory>> = files[1..]
+        let factories: Vec<Arc<dyn LayoutReaderFactory>> = all_files[1..]
             .iter()
             .map(|(f, fs)| {
                 Arc::new(VortexFileReaderFactory {
@@ -225,7 +157,7 @@ impl MultiFileDataSource {
             .collect();
 
         let inner = MultiLayoutDataSource::new_with_first(first_reader, factories, &self.session);
-        debug!(file_count = files.len(), dtype = %inner.dtype(), "built MultiFileDataSource");
+        debug!(file_count = all_files.len(), dtype = %inner.dtype(), "built MultiFileDataSource");
         Ok(inner)
     }
 }

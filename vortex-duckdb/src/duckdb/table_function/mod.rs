@@ -7,7 +7,6 @@ use std::ffi::c_void;
 use std::fmt::Debug;
 use std::ptr;
 
-use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 mod bind;
@@ -23,10 +22,6 @@ pub use bind::*;
 pub use init::*;
 pub use virtual_columns::VirtualColumnsResult;
 pub use virtual_columns::VirtualColumnsResultRef;
-use vortex::array::stats::StatsSet;
-use vortex::expr::stats::Precision;
-use vortex::expr::stats::Stat;
-use vortex::scalar::ScalarValue;
 
 use crate::cpp;
 use crate::cpp::duckdb_client_context;
@@ -34,6 +29,7 @@ use crate::duckdb::ClientContext;
 use crate::duckdb::DataChunk;
 use crate::duckdb::DatabaseRef;
 use crate::duckdb::LogicalType;
+use crate::duckdb::Value;
 use crate::duckdb::client_context::ClientContextRef;
 use crate::duckdb::data_chunk::DataChunkRef;
 use crate::duckdb::expr::ExpressionRef;
@@ -45,54 +41,12 @@ use crate::duckdb::table_function::table_scan_progress::table_scan_progress_call
 use crate::duckdb::table_function::virtual_columns::get_virtual_columns_callback;
 use crate::duckdb_try;
 
-#[derive(Clone)]
-#[cfg_attr(test, derive(Debug))]
+#[derive(Debug, Default)]
 pub struct ColumnStatistics {
-    pub dtype: DType,
-    pub min: Option<ScalarValue>,
-    pub max: Option<ScalarValue>,
-    pub max_string_length: Option<u32>,
-}
-
-// Needed for absent file stats in data source
-impl Default for ColumnStatistics {
-    fn default() -> Self {
-        Self {
-            dtype: DType::Null,
-            min: None,
-            max: None,
-            max_string_length: None,
-        }
-    }
-}
-
-impl ColumnStatistics {
-    pub fn new(stats: &StatsSet, dtype: DType) -> Self {
-        let min = match stats.get(Stat::Min) {
-            Some(Precision::Exact(min)) => Some(min),
-            _ => None,
-        };
-        let max = match stats.get(Stat::Max) {
-            Some(Precision::Exact(max)) => Some(max),
-            _ => None,
-        };
-
-        let max_string_length =
-            if let Some(Precision::Exact(value)) = stats.get(Stat::UncompressedSizeInBytes) {
-                // DuckDB's string length is u32
-                #[allow(clippy::cast_possible_truncation)]
-                Some(value.as_primitive().as_u64().vortex_expect("not a u64") as u32)
-            } else {
-                None
-            };
-
-        Self {
-            dtype,
-            min,
-            max,
-            max_string_length,
-        }
-    }
+    pub min: Option<Value>,
+    pub max: Option<Value>,
+    pub max_string_length: u64,
+    pub has_null: bool,
 }
 
 /// A trait that defines the supported operations for a table function in DuckDB.
@@ -141,11 +95,11 @@ pub trait TableFunction: Sized + Debug {
         result: &mut BindResultRef,
     ) -> VortexResult<Self::BindData>;
 
-    fn statistics<'a>(
+    fn statistics(
         client_context: &ClientContextRef,
-        bind_data: &'a Self::BindData,
+        bind_data: &Self::BindData,
         column_index: usize,
-    ) -> &'a ColumnStatistics;
+    ) -> Option<ColumnStatistics>;
 
     /// The function is called during query execution and is responsible for producing the output
     fn scan(

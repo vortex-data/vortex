@@ -146,22 +146,6 @@ impl FileStatistics {
     pub fn get(&self, field_idx: usize) -> (&StatsSet, &DType) {
         (&self.stats[field_idx], &self.dtypes[field_idx])
     }
-
-    pub fn merge(self, other: &FileStatistics) -> VortexResult<FileStatistics> {
-        vortex_ensure_eq!(self.stats.len(), other.stats_sets().len());
-
-        let FileStatistics { mut stats, dtypes } = self;
-        for (this, other_stat, dtype) in itertools::izip!(
-            Arc::make_mut(&mut stats).iter_mut(),
-            other.stats_sets().iter(),
-            dtypes.iter()
-        ) {
-            let owned = std::mem::take(this);
-            *this = owned.merge_unordered(other_stat, dtype);
-        }
-
-        Ok(FileStatistics::new(stats, dtypes))
-    }
 }
 
 impl<'a> IntoIterator for &'a FileStatistics {

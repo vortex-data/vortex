@@ -249,6 +249,10 @@ impl LayoutReader for RowIdxLayoutReader {
             }
         }
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        todo!()
+    }
 }
 
 // Returns a SequenceArray representing the row indices for the given row range,

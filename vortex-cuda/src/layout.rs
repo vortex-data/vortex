@@ -381,6 +381,10 @@ impl LayoutReader for CudaFlatReader {
         }
         .boxed())
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 /// A [`LayoutStrategy`] that writes a [`CudaFlatLayout`] with constant array buffers inlined

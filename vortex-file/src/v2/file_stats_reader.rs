@@ -46,7 +46,7 @@ use crate::FileStatistics;
 /// (the result is the same regardless of which row range is requested).
 pub struct FileStatsLayoutReader {
     child: LayoutReaderRef,
-    file_stats: FileStatistics,
+    pub file_stats: FileStatistics,
     struct_fields: StructFields,
     session: VortexSession,
     prune_cache: DashMap<Expression, bool>,
@@ -191,6 +191,10 @@ impl LayoutReader for FileStatsLayoutReader {
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         self.child.projection_evaluation(row_range, expr, mask)
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 

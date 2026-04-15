@@ -7,6 +7,8 @@
 //! to get a blanket [`TableFunction`] implementation covering init, scan, progress, filter
 //! pushdown, cardinality, partitioning, and virtual columns.
 
+use std::cmp::max;
+use std::collections::HashSet;
 use std::ffi::CString;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -26,29 +28,37 @@ use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex::array::optimizer::ArrayOptimizer;
+use vortex::array::stats::StatsSet;
 use vortex::dtype::DType;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
+use vortex::error::vortex_panic;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::col;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::expr::stats::Precision;
-use vortex::file::FileStatistics;
+use vortex::expr::stats::Stat;
+use vortex::file::v2::FileStatsLayoutReader;
 use vortex::io::kanal_ext::KanalExt;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::ThreadSafeIterator;
+use vortex::layout::scan::multi::MultiLayoutChild;
+use vortex::layout::scan::multi::MultiLayoutDataSource;
 use vortex::metrics::tracing::get_global_labels;
+use vortex::scalar::Scalar;
+use vortex::scalar::ScalarValue;
 use vortex::scalar_fn::fns::pack::Pack;
-use vortex::scan::DataSourceRef;
+use vortex::scan::DataSource;
 use vortex::scan::ScanRequest;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::RUNTIME;
 use crate::SESSION;
+use crate::convert::ToDuckDBScalar;
 use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_table_filter;
 use crate::duckdb::BindInputRef;
@@ -82,8 +92,6 @@ use crate::exporter::ConversionCache;
 static EMPTY_COLUMN_IDX: u64 = 18446744073709551614;
 static EMPTY_COLUMN_NAME: &str = "";
 
-pub type DataSourceWithStats = (DataSourceRef, Option<FileStatistics>);
-
 /// A trait for table functions that resolve to a [`DataSourceRef`].
 ///
 /// Implementors only need to define how parameters are declared and how binding produces a
@@ -101,23 +109,19 @@ pub(crate) trait DataSourceTableFunction: Sized + Debug {
     }
 
     /// Bind the table function and return a [`DataSourceRef`].
-    fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<DataSourceWithStats>;
+    fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<MultiLayoutDataSource>;
 }
 
-#[derive(Clone)]
-pub enum DataSourceStatistics {
-    All(Vec<ColumnStatistics>),
-    /// Dummy column to return a reference to
-    None(ColumnStatistics),
-}
+/// Stats set reference for a file from FileStatistics.
+type FileStatRef = Arc<[StatsSet]>;
 
 /// Bind data produced by a [`DataSourceTableFunction`].
 pub struct DataSourceBindData {
-    data_source: DataSourceRef,
+    data_source: Arc<MultiLayoutDataSource>,
     filter_exprs: Vec<Expression>,
     column_names: Vec<String>,
     column_types: Vec<LogicalType>,
-    stats: DataSourceStatistics,
+    column_dtypes: Vec<DType>,
 }
 
 impl Clone for DataSourceBindData {
@@ -128,7 +132,7 @@ impl Clone for DataSourceBindData {
             filter_exprs: vec![],
             column_names: self.column_names.clone(),
             column_types: self.column_types.clone(),
-            stats: self.stats.clone(),
+            column_dtypes: self.column_dtypes.clone(),
         }
     }
 }
@@ -176,6 +180,86 @@ fn progress(bytes_read: &AtomicU64, bytes_total: &AtomicU64) -> f64 {
     read as f64 / total as f64 * 100.
 }
 
+impl ColumnStatistics {
+    fn from(stats: &ColumnStatisticsAggregate, dtype: DType) -> Self {
+        let min = stats.min.as_ref().map(|value| {
+            let value = value.clone();
+            Scalar::try_new(dtype.clone(), Some(value))
+                .vortex_expect("scalar dtype and value are incompatible")
+                .try_to_duckdb_scalar()
+                .vortex_expect("can't convert Scalar to duckdb Value")
+        });
+        let max = stats.max.as_ref().map(|value| {
+            Scalar::try_new(dtype.clone(), Some(value.clone()))
+                .vortex_expect("scalar dtype and value are incompatible")
+                .try_to_duckdb_scalar()
+                .vortex_expect("can't convert Scalar to duckdb Value")
+        });
+
+        let max_string_length = stats
+            .max_string_length
+            .map_or(0, |len| (1u64 << 63) | (len as u64));
+        let has_null = dtype.is_nullable();
+
+        Self {
+            min,
+            max,
+            max_string_length,
+            has_null,
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct ColumnStatisticsAggregate {
+    pub min: Option<ScalarValue>,
+    pub max: Option<ScalarValue>,
+    pub max_string_length: Option<u32>,
+}
+
+impl ColumnStatisticsAggregate {
+    pub fn new(stats: &StatsSet) -> Self {
+        let min = match stats.get(Stat::Min) {
+            Some(Precision::Exact(min)) => Some(min),
+            _ => None,
+        };
+        let max = match stats.get(Stat::Max) {
+            Some(Precision::Exact(max)) => Some(max),
+            _ => None,
+        };
+
+        let max_string_length =
+            if let Some(Precision::Exact(value)) = stats.get(Stat::UncompressedSizeInBytes) {
+                // DuckDB's string length is u32
+                #[allow(clippy::cast_possible_truncation)]
+                Some(value.as_primitive().as_u64().vortex_expect("not a u64") as u32)
+            } else {
+                None
+            };
+
+        Self {
+            min,
+            max,
+            max_string_length,
+        }
+    }
+
+    pub fn merge(&mut self, mut other: Self) {
+        self.min = match (self.min.take(), other.min.take()) {
+            (Some(left), Some(right)) => Some(if left.lt(&right) { left } else { right }),
+            _ => None,
+        };
+        self.max = match (self.max.take(), other.max.take()) {
+            (Some(left), Some(right)) => Some(if left.gt(&right) { left } else { right }),
+            _ => None,
+        };
+        self.max_string_length = match (self.max_string_length, other.max_string_length) {
+            (Some(left), Some(right)) => Some(max(left, right)),
+            _ => None,
+        };
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Blanket TableFunction implementation for any DataSourceTableFunction
 // ---------------------------------------------------------------------------
@@ -202,39 +286,36 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         input: &BindInputRef,
         result: &mut BindResultRef,
     ) -> VortexResult<Self::BindData> {
-        let (data_source, file_stats) = T::bind(ctx, input)?;
-        let (column_names, column_types) = extract_schema_from_dtype(data_source.dtype())?;
+        let data_source = T::bind(ctx, input)?;
+        let (column_names, column_types, column_dtypes) =
+            extract_schema_from_dtype(data_source.dtype())?;
+        for (column_name, column_type) in column_names.iter().zip(&column_types) {
+            result.add_result_column(column_name, column_type);
+        }
 
-        if file_stats.is_none() {
-            for i in 0..column_names.len() {
-                result.add_result_column(&column_names[i], &column_types[i]);
+        let len = column_names.len();
+        let mut stats = Vec::with_capacity(len);
+        for child in data_source.children() {
+            let MultiLayoutChild::Opened(reader) = child else {
+                vortex_bail!("Got deferred file in table function bind");
+            };
+            match reader.as_any().downcast_ref::<FileStatsLayoutReader>() {
+                Some(reader_inner) => {
+                    stats.push(reader_inner.file_stats.stats_sets().clone());
+                }
+                None => {
+                    stats.clear();
+                    break;
+                }
             }
-
-            let stats = DataSourceStatistics::None(ColumnStatistics::default());
-            return Ok(DataSourceBindData {
-                data_source,
-                filter_exprs: vec![],
-                column_names,
-                column_types,
-                stats,
-            });
         }
-        let file_stats = file_stats.vortex_expect("no stats");
-
-        let mut stats = Vec::with_capacity(column_names.len());
-        for i in 0..column_names.len() {
-            result.add_result_column(&column_names[i], &column_types[i]);
-            let (stats_set, dtype) = file_stats.get(i);
-            stats.push(ColumnStatistics::new(stats_set, dtype.clone()));
-        }
-        let stats = DataSourceStatistics::All(stats);
 
         Ok(DataSourceBindData {
-            data_source,
+            data_source: Arc::new(data_source),
             filter_exprs: vec![],
             column_names,
             column_types,
-            stats,
+            column_dtypes,
         })
     }
 
@@ -445,15 +526,33 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         Ok(false)
     }
 
-    fn statistics<'a>(
+    /// Get column-wise statistics. Available only if we're reading a single
+    /// file.
+    ///
+    /// Otherwise we'd have to open all files eagerly which is a performance
+    /// regression. Duckdb's Parquet reader only gets metadata for multiple
+    /// files with a UNION BY NAME
+    /// https://github.com/duckdb/duckdb/blob/471de9f0e0e157ae672e56710e8c43b132a5ddc4/src/include/duckdb/common/multi_file/multi_file_function.hpp#L691
+    /// and we don't support it (yet).
+    fn statistics(
         _client_context: &ClientContextRef,
-        bind_data: &'a Self::BindData,
+        bind_data: &Self::BindData,
         column_index: usize,
-    ) -> &'a ColumnStatistics {
-        match &bind_data.stats {
-            DataSourceStatistics::All(items) => &items[column_index],
-            DataSourceStatistics::None(dummy) => dummy,
+    ) -> Option<ColumnStatistics> {
+        let children = bind_data.data_source.children();
+        if children.len() != 1 {
+            return None;
         }
+        let MultiLayoutChild::Opened(ref reader) = children[0] else {
+            vortex_panic!("A single file should be opened eagerly");
+        };
+        let stats_sets = match reader.as_any().downcast_ref::<FileStatsLayoutReader>() {
+            Some(inner) => inner.file_stats.stats_sets(),
+            None => return None,
+        };
+        let stats_aggregate = ColumnStatisticsAggregate::new(&stats_sets[column_index]);
+        let dtype = bind_data.column_dtypes[column_index].clone();
+        Some(ColumnStatistics::from(&stats_aggregate, dtype))
     }
 
     fn cardinality(bind_data: &Self::BindData) -> Cardinality {
@@ -497,21 +596,26 @@ impl<T: DataSourceTableFunction> TableFunction for T {
 // ---------------------------------------------------------------------------
 
 /// Extracts DuckDB column names and logical types from a Vortex struct DType.
-fn extract_schema_from_dtype(dtype: &DType) -> VortexResult<(Vec<String>, Vec<LogicalType>)> {
+fn extract_schema_from_dtype(
+    dtype: &DType,
+) -> VortexResult<(Vec<String>, Vec<LogicalType>, Vec<DType>)> {
     let struct_dtype = dtype
         .as_struct_fields_opt()
         .ok_or_else(|| vortex_err!("Vortex file must contain a struct array at the top level"))?;
 
-    let mut column_names = Vec::new();
-    let mut column_types = Vec::new();
+    let len = struct_dtype.names().len();
+    let mut column_names = Vec::with_capacity(len);
+    let mut column_types = Vec::with_capacity(len);
+    let mut column_dtypes = Vec::with_capacity(len);
 
     for (field_name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
         let logical_type = LogicalType::try_from(&field_dtype)?;
         column_names.push(field_name.to_string());
         column_types.push(logical_type);
+        column_dtypes.push(field_dtype);
     }
 
-    Ok((column_names, column_types))
+    Ok((column_names, column_types, column_dtypes))
 }
 
 /// Creates a projection expression from raw projection/column ID slices and column names.

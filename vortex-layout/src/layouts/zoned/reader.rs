@@ -330,6 +330,10 @@ impl LayoutReader for ZonedReader {
         self.data_child()?
             .projection_evaluation(row_range, expr, mask)
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 /// A wrapper for the result of pruning an expression against a zone map such that we can refresh

@@ -84,7 +84,7 @@ pub struct MultiLayoutDataSource {
     concurrency: usize,
 }
 
-enum MultiLayoutChild {
+pub enum MultiLayoutChild {
     Opened(LayoutReaderRef),
     Deferred(Arc<dyn LayoutReaderFactory>),
 }
@@ -107,23 +107,6 @@ impl MultiLayoutDataSource {
         let mut children = Vec::with_capacity(1 + remaining.len());
         children.push(MultiLayoutChild::Opened(first));
         children.extend(remaining.into_iter().map(MultiLayoutChild::Deferred));
-
-        Self {
-            dtype,
-            session: session.clone(),
-            children,
-            concurrency,
-        }
-    }
-
-    pub fn new_eager(readers: Vec<LayoutReaderRef>, session: &VortexSession) -> Self {
-        let dtype = readers[0].dtype().clone();
-        let concurrency = std::thread::available_parallelism()
-            .map(|v| v.get())
-            .unwrap_or(DEFAULT_CONCURRENCY);
-
-        let mut children = Vec::with_capacity(readers.len());
-        children.extend(readers.into_iter().map(MultiLayoutChild::Opened));
 
         Self {
             dtype,
@@ -156,6 +139,10 @@ impl MultiLayoutDataSource {
                 .collect(),
             concurrency,
         }
+    }
+
+    pub fn children(&self) -> &Vec<MultiLayoutChild> {
+        &self.children
     }
 
     /// Sets the concurrency for opening deferred readers.

@@ -378,6 +378,7 @@ impl From<&[u8]> for Value {
 }
 
 /// An enum for extracting the underlying typed value from a `Value`.
+#[derive(Debug)]
 pub enum ExtractedValue {
     Null,
     TinyInt(i8),
