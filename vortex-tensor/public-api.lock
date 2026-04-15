@@ -588,4 +588,6 @@ pub fn vortex_tensor::vector_search::build_similarity_search_tree<T: vortex_arra
 
 pub fn vortex_tensor::vector_search::compress_turboquant(data: vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
+pub const vortex_tensor::SCALAR_FN_ARRAY_TENSOR_PLUGIN_ENV: &str
+
 pub fn vortex_tensor::initialize(session: &vortex_session::VortexSession)
