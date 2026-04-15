@@ -25,10 +25,10 @@
 //! [Arrow canonical extension type]: https://arrow.apache.org/docs/format/CanonicalExtensions.html#parquet-variant
 
 mod array;
+mod compute;
 mod kernel;
 mod operations;
 mod validity;
-mod variant_get;
 mod vtable;
 
 pub use array::ParquetVariantArrayExt;

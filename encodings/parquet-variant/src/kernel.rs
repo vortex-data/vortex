@@ -19,7 +19,7 @@ use vortex_mask::Mask;
 
 use crate::ParquetVariant;
 use crate::ParquetVariantArrayExt;
-use crate::variant_get::VariantGetExecuteParent;
+use crate::compute::variant_get::VariantGetExecuteParent;
 
 pub(crate) static PARENT_KERNELS: ParentKernelSet<ParquetVariant> = ParentKernelSet::new(&[
     ParentKernelSet::lift(&FilterExecuteAdaptor(ParquetVariant)),
