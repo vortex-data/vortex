@@ -202,7 +202,7 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::array::dtype::NativePType;
     use vortex::array::validity::Validity::NonNullable;
-    use vortex::buffer::Buffer;
+    use vortex::buffer::{Buffer, buffer};
     use vortex::encodings::fastlanes::BitPackedArrayExt;
     use vortex::error::VortexExpect;
     use vortex::session::VortexSession;
@@ -575,30 +575,16 @@ mod tests {
         // Create an array with values that will generate patches.
         // We use values 0-511 (fits in 9 bits) but include some larger values
         // that will become patches.
-        let mut values: Vec<u16> = Vec::with_capacity(3072);
-        for i in 0u16..3072 {
-            if i == 100 || i == 200 || i == 300 || i == 1100 || i == 1200 || i == 2100 {
-                // These will be patches (values > 511)
-                values.push(600);
-            } else {
-                values.push(i % 512);
-            }
-        }
+        let primitive_array = PrimitiveArray::new(buffer![100u8, 101, 102, 3, 4, 5], NonNullable);
 
-        let primitive_array =
-            PrimitiveArray::new(Buffer::from_iter(values.iter().copied()), NonNullable);
-
-        // Encode with bit width 9 (max value 511)
-        let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), 9)?;
+        // Encode with bit width 4. First 3 elements patched, remainder will pack.
+        let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), 4)?;
         assert!(
             bitpacked_array.patches().is_some(),
             "Expected patches to be present"
         );
 
-        // Slice to create non-zero offset_within_chunk.
-        // The first chunk (0-1023) has patches at indices 100, 200, 300.
-        // Slicing from 150 should skip the patch at 100, creating offset_within_chunk=1.
-        let sliced_array = bitpacked_array.into_array().slice(150..2500)?;
+        let sliced_array = bitpacked_array.into_array().slice(2..6)?;
         assert!(sliced_array.is::<BitPacked>());
 
         let cpu_result = sliced_array.to_canonical()?;
