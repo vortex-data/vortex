@@ -33,10 +33,12 @@ jobs:
             const authorType = pr.user.type;        // 'Bot' vs 'User'
             const authorLogin = pr.user.login;       // e.g. 'github-actions[bot]'
             const isBot = authorType === 'Bot' || authorLogin.endsWith('[bot]');
+            const oneApprovalBotAuthors = new Set(['renovate[bot]']);
 
-            const required = isBot ? 2 : 1;
+            const required = isBot && !oneApprovalBotAuthors.has(authorLogin) ? 2 : 1;
 
             console.log(`PR author: ${authorLogin} (${authorType}), isBot: ${isBot}`);
+            console.log(`One-approval bot allowlist: ${oneApprovalBotAuthors.has(authorLogin)}`);
             console.log(`Approvals: ${approvalCount} / ${required} required`);
 
             if (approvalCount < required) {
