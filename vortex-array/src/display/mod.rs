@@ -21,8 +21,6 @@ pub use tree_display::TreeDisplay;
 use crate::ArrayRef;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
-#[expect(deprecated)]
-use crate::canonical::ToCanonical as _;
 
 /// Describe how to convert an array to a string.
 ///
@@ -581,6 +579,8 @@ impl ArrayRef {
             }
             #[cfg(feature = "table-display")]
             DisplayOptions::TableDisplay => {
+                #[expect(deprecated)]
+                use crate::canonical::ToCanonical as _;
                 use crate::dtype::DType;
 
                 let mut builder = tabled::builder::Builder::default();
