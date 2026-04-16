@@ -202,7 +202,8 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::array::dtype::NativePType;
     use vortex::array::validity::Validity::NonNullable;
-    use vortex::buffer::{Buffer, buffer};
+    use vortex::buffer::Buffer;
+    use vortex::buffer::buffer;
     use vortex::encodings::fastlanes::BitPackedArrayExt;
     use vortex::error::VortexExpect;
     use vortex::session::VortexSession;

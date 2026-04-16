@@ -55,25 +55,33 @@ public:
             return;
         }
 
-        // get index into patch indices/values for `chunk`.
-        uint32_t chunk_start = load_chunk_offset(patches, chunk);
+        // mirrors the logic from vortex-array/src/arrays/primitive/array/patch.rs
 
-        // IF this is chunk 0, we need to apply the offset_within_chunk to
-        // the iteration start. This does not affect where the iteration ends.
-        if (chunk == 0) {
-            chunk_start += patches.offset_within_chunk;
+        // Compute base_offset from the first chunk offset.
+        uint32_t base_offset = load_chunk_offset(patches, 0);
+
+        uint32_t patches_start_idx = load_chunk_offset(patches, chunk) - base_offset;
+        patches_start_idx -= min(patches_start_idx, patches.offset_within_chunk);
+
+        // calculate the ending index.
+        uint32_t patches_end_idx;
+        if ((chunk + 1) < patches.n_chunks) {
+            patches_end_idx = load_chunk_offset(patches, chunk + 1) - base_offset;
+            // if this is the end of times, we should drop it out here...
+            patches_end_idx -= min(patches_end_idx, patches.offset_within_chunk);
+        } else {
+            patches_end_idx = patches.num_patches;
         }
 
-        uint32_t chunk_end =
-            (chunk + 1 < patches.n_chunks) ? load_chunk_offset(patches, chunk + 1) : patches.num_patches;
-        uint32_t num_patches = chunk_end - chunk_start;
+        // calculate how many patches are in the chunk
+        uint32_t num_patches = patches_end_idx - patches_start_idx;
 
         // Divide patches among threads (ceil division)
         uint32_t patches_per_thread = (num_patches + n_threads - 1) / n_threads;
         uint32_t my_start = min(thread_idx * patches_per_thread, num_patches);
         uint32_t my_end = min((thread_idx + 1) * patches_per_thread, num_patches);
 
-        uint32_t start = chunk_start + my_start;
+        uint32_t start = patches_start_idx + my_start;
         remaining = my_end - my_start;
         indices = patches.indices + start;
         values = reinterpret_cast<const T *>(patches.values) + start;
