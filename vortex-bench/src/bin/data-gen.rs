@@ -67,7 +67,11 @@ async fn main() -> anyhow::Result<()> {
     let parquet_dir = base_path.join(Format::Parquet.name());
     idempotent_dir_async(&parquet_dir, || benchmark.generate_base_data()).await?;
 
-    if args.formats.iter().any(|f| matches!(f, Format::OnDiskVortex)) {
+    if args
+        .formats
+        .iter()
+        .any(|f| matches!(f, Format::OnDiskVortex))
+    {
         let vortex_dir = base_path.join(Format::OnDiskVortex.name());
         idempotent_dir_async(&vortex_dir, || {
             convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::Default)
@@ -75,7 +79,11 @@ async fn main() -> anyhow::Result<()> {
         .await?;
     }
 
-    if args.formats.iter().any(|f| matches!(f, Format::VortexCompact)) {
+    if args
+        .formats
+        .iter()
+        .any(|f| matches!(f, Format::VortexCompact))
+    {
         let compact_dir = base_path.join(Format::VortexCompact.name());
         idempotent_dir_async(&compact_dir, || {
             convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::Compact)
@@ -83,7 +91,11 @@ async fn main() -> anyhow::Result<()> {
         .await?;
     }
 
-    if args.formats.iter().any(|f| matches!(f, Format::OnDiskDuckDB)) {
+    if args
+        .formats
+        .iter()
+        .any(|f| matches!(f, Format::OnDiskDuckDB))
+    {
         let duckdb_dir = base_path.join(Format::OnDiskDuckDB.name());
         idempotent_dir(&duckdb_dir, || generate_duckdb(&base_path, &*benchmark))?;
     }
