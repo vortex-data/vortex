@@ -352,6 +352,8 @@ mod tests {
     use arrow_schema::Field;
     use parquet_variant::Variant as PqVariant;
     use parquet_variant::VariantBuilder;
+    use parquet_variant::VariantPath;
+    use parquet_variant_compute::GetOptions;
     use parquet_variant_compute::VariantArray as ArrowVariantArray;
     use parquet_variant_compute::VariantArrayBuilder;
     use vortex_array::LEGACY_SESSION;
@@ -468,8 +470,10 @@ mod tests {
         );
 
         let variant_view = vortex_arr.as_opt::<Variant>().unwrap();
-        let child = variant_view.child();
-        let inner_pv = child.as_opt::<ParquetVariant>().unwrap();
+        let inner_pv = variant_view
+            .core_storage()
+            .as_opt::<ParquetVariant>()
+            .unwrap();
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let roundtripped = inner_pv.to_arrow(&mut ctx)?;
         assert_eq!(roundtripped.inner().null_count(), 2);
@@ -505,8 +509,9 @@ mod tests {
         Ok(())
     }
 
+    // Explicit Arrow parity coverage for the three Parquet Variant storage modes.
     #[test]
-    fn test_scalar_at_matches_arrow_try_value_unshredded_mixed_values() -> VortexResult<()> {
+    fn test_scalar_at_matches_arrow_try_value_unshredded_values() -> VortexResult<()> {
         let mut builder = VariantArrayBuilder::new(3);
         builder.append_variant(PqVariant::from(42i32));
         builder.append_variant(PqVariant::from("hello"));
@@ -517,7 +522,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scalar_at_matches_arrow_try_value_shredded_primitive() -> VortexResult<()> {
+    fn test_scalar_at_matches_arrow_try_value_perfectly_shredded_primitive() -> VortexResult<()> {
         let struct_array = StructArray::try_new(
             vec![
                 Arc::new(Field::new("metadata", DataType::BinaryView, false)),
@@ -536,7 +541,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scalar_at_matches_arrow_try_value_imperfectly_shredded_primitive() -> VortexResult<()> {
+    fn test_scalar_at_matches_arrow_try_value_partially_shredded_primitive() -> VortexResult<()> {
         let (metadata0, value0) = VariantBuilder::new().with_value("fallback-0").finish();
         let (metadata1, _value1) = VariantBuilder::new().with_value(20i32).finish();
         let (metadata2, value2) = VariantBuilder::new().with_value("fallback-2").finish();
@@ -649,7 +654,8 @@ mod tests {
     }
 
     #[test]
-    fn test_scalar_at_partially_shredded_object_merges_fields() -> VortexResult<()> {
+    fn test_scalar_at_matches_arrow_try_value_partially_shredded_object_merges_fields()
+    -> VortexResult<()> {
         // Spec basis: non-null `value` + non-null `typed_value` means a "partially shredded
         // object", so reconstruction must merge the shredded object with the fallback object.
         // Source: https://github.com/apache/parquet-format/blob/master/VariantShredding.md
@@ -700,6 +706,17 @@ mod tests {
         let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
         let object = vortex_arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?;
         let object = object.as_variant().value().unwrap().as_struct();
+        let arrow_input: ArrowArrayRef = Arc::new(arrow_variant.into_inner());
+
+        let arrow_a = parquet_variant_compute::variant_get(
+            &arrow_input,
+            GetOptions::new_with_path(VariantPath::try_from("a").unwrap()),
+        )
+        .unwrap();
+        let arrow_a =
+            ArrowVariantArray::try_new(arrow_a.as_any().downcast_ref::<StructArray>().unwrap())
+                .unwrap();
+        let expected_a = parquet_variant_to_scalar(arrow_a.try_value(0).unwrap())?;
 
         assert_eq!(
             object
@@ -710,8 +727,19 @@ mod tests {
                 .unwrap()
                 .as_primitive()
                 .typed_value::<i32>(),
-            Some(7)
+            expected_a.as_primitive().typed_value::<i32>()
         );
+
+        let arrow_b = parquet_variant_compute::variant_get(
+            &arrow_input,
+            GetOptions::new_with_path(VariantPath::try_from("b").unwrap()),
+        )
+        .unwrap();
+        let arrow_b =
+            ArrowVariantArray::try_new(arrow_b.as_any().downcast_ref::<StructArray>().unwrap())
+                .unwrap();
+        let expected_b = parquet_variant_to_scalar(arrow_b.try_value(0).unwrap())?;
+
         assert_eq!(
             object
                 .field("b")
@@ -722,7 +750,7 @@ mod tests {
                 .as_utf8()
                 .value()
                 .map(|value| value.as_str()),
-            Some("leftover")
+            expected_b.as_utf8().value().map(|value| value.as_str())
         );
 
         Ok(())

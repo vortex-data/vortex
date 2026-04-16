@@ -48,6 +48,7 @@ use crate::arrays::primitive::PrimitiveDataParts;
 use crate::arrays::struct_::StructDataParts;
 use crate::arrays::varbinview::VarBinViewDataParts;
 use crate::arrays::variant::VariantArrayExt;
+use crate::arrays::variant::rebuild_variant_array;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
@@ -654,14 +655,20 @@ impl Executable for CanonicalValidity {
                 ),
             ))),
             Canonical::Variant(variant) => {
-                Ok(CanonicalValidity(Canonical::Variant(VariantArray::new(
-                    variant
-                        .child()
-                        .clone()
-                        .execute::<CanonicalValidity>(ctx)?
-                        .0
-                        .into_array(),
-                ))))
+                let rebuilt =
+                    rebuild_variant_array(&variant, variant.core_storage().clone(), || {
+                        variant
+                            .shredded()
+                            .map(|shredded| {
+                                shredded
+                                    .execute::<CanonicalValidity>(ctx)
+                                    .map(|canonical| canonical.0.into_array())
+                            })
+                            .transpose()
+                    });
+                Ok(CanonicalValidity(Canonical::Variant(
+                    rebuilt.vortex_expect("valid VariantArray rebuild"),
+                )))
             }
         }
     }
@@ -793,14 +800,20 @@ impl Executable for RecursiveCanonical {
                 ),
             ))),
             Canonical::Variant(variant) => {
-                Ok(RecursiveCanonical(Canonical::Variant(VariantArray::new(
-                    variant
-                        .child()
-                        .clone()
-                        .execute::<RecursiveCanonical>(ctx)?
-                        .0
-                        .into_array(),
-                ))))
+                let rebuilt =
+                    rebuild_variant_array(&variant, variant.core_storage().clone(), || {
+                        variant
+                            .shredded()
+                            .map(|shredded| {
+                                shredded
+                                    .execute::<RecursiveCanonical>(ctx)
+                                    .map(|canonical| canonical.0.into_array())
+                            })
+                            .transpose()
+                    });
+                Ok(RecursiveCanonical(Canonical::Variant(
+                    rebuilt.vortex_expect("valid VariantArray rebuild"),
+                )))
             }
         }
     }

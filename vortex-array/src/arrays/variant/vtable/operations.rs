@@ -16,6 +16,6 @@ impl OperationsVTable<Variant> for Variant {
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        array.child().execute_scalar(index, ctx)
+        array.core_storage().execute_scalar(index, ctx)
     }
 }

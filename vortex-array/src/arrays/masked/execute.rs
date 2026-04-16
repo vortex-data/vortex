@@ -25,6 +25,7 @@ use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::struct_::StructArrayExt;
 use crate::arrays::variant::VariantArrayExt;
+use crate::arrays::variant::rebuild_variant_array;
 use crate::executor::ExecutionCtx;
 use crate::validity::Validity;
 
@@ -50,7 +51,7 @@ pub fn mask_validity_canonical(
         }
         Canonical::Struct(a) => Canonical::Struct(mask_validity_struct(a, validity)?),
         Canonical::Extension(a) => Canonical::Extension(mask_validity_extension(a, validity, ctx)?),
-        Canonical::Variant(a) => Canonical::Variant(mask_validity_variant(a, validity)?),
+        Canonical::Variant(a) => Canonical::Variant(mask_validity_variant(a, validity, ctx)?),
     })
 }
 
@@ -158,27 +159,47 @@ fn mask_validity_extension(
     ))
 }
 
-fn mask_validity_variant(array: VariantArray, validity: Validity) -> VortexResult<VariantArray> {
-    let child = array.child().clone();
-    let len = child.len();
-    let child_validity = child.validity()?;
+fn mask_validity_variant(
+    array: VariantArray,
+    validity: Validity,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<VariantArray> {
+    let core_storage = array.core_storage().clone();
+    let len = core_storage.len();
+    let core_storage_validity = core_storage.validity()?;
+    let shredded = if array.shredded_is_derived() {
+        None
+    } else {
+        array
+            .shredded()
+            .map(|shredded| {
+                let canonical = shredded.execute::<Canonical>(ctx)?;
+                mask_validity_canonical(canonical, validity.clone(), ctx)
+                    .map(|masked| masked.into_array())
+            })
+            .transpose()?
+    };
 
-    match child_validity {
+    match core_storage_validity {
         Validity::NonNullable | Validity::AllValid => {
-            // Child has no nulls — wrap in MaskedArray to apply the mask.
-            let masked_child = MaskedArray::try_new(child, validity)?;
-            Ok(VariantArray::new(masked_child.into_array()))
+            let combined = core_storage_validity.and(validity)?;
+            let new_core_storage = if matches!(combined, Validity::NonNullable) {
+                core_storage
+            } else {
+                MaskedArray::try_new(core_storage, combined)?.into_array()
+            };
+            rebuild_variant_array(&array, new_core_storage, || Ok(shredded))
         }
         Validity::AllInvalid => {
             // Already all-null, ANDing with any mask is still all-null.
-            Ok(array)
+            rebuild_variant_array(&array, core_storage, || Ok(shredded))
         }
         Validity::Array(_) => {
-            // Child has an array-backed validity stored as its first child.
-            // Combine with the mask and replace that child via with_children.
-            let combined = Validity::and(child_validity, validity)?;
-            let new_child = child.with_slot(0, combined.to_array(len))?;
-            Ok(VariantArray::new(new_child))
+            // Core storage has an array-backed validity stored as its first child.
+            // Combine with the mask and replace that child via with_slot.
+            let combined = core_storage_validity.and(validity)?;
+            let new_core_storage = core_storage.with_slot(0, combined.to_array(len))?;
+            rebuild_variant_array(&array, new_core_storage, || Ok(shredded))
         }
     }
 }

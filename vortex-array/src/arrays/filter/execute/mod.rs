@@ -21,10 +21,10 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::Filter;
 use crate::arrays::NullArray;
-use crate::arrays::VariantArray;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::filter::FilterArrayExt;
 use crate::arrays::variant::VariantArrayExt;
+use crate::arrays::variant::rebuild_variant_array;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
@@ -101,11 +101,17 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Ca
             Canonical::Extension(ExtensionArray::new(a.ext_dtype().clone(), filtered_storage))
         }
         Canonical::Variant(a) => {
-            let filtered_child = a
-                .child()
+            let filtered_core_storage = a
+                .core_storage()
                 .filter(Mask::Values(Arc::clone(mask)))
-                .vortex_expect("VariantArray child could not be filtered");
-            Canonical::Variant(VariantArray::new(filtered_child))
+                .vortex_expect("VariantArray core storage could not be filtered");
+            let rebuilt = rebuild_variant_array(&a, filtered_core_storage, || {
+                a.shredded()
+                    .map(|shredded| shredded.filter(Mask::Values(Arc::clone(mask))))
+                    .transpose()
+            })
+            .vortex_expect("valid VariantArray rebuild");
+            Canonical::Variant(rebuilt)
         }
     }
 }

@@ -69,6 +69,10 @@ pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity", "metadata", "value
 ///
 /// 3. **Typed-value child nullability**: the `typed_value` child carries its own `DType`
 ///    (which includes nullability).
+///
+/// When this encoding is executed or imported into the canonical Vortex variant representation,
+/// it becomes a [`vortex_array::arrays::VariantArray`] whose `core_storage` is
+/// `ParquetVariantArray` and whose canonical `shredded` child delegates to `typed_value`.
 #[derive(Clone, Debug)]
 pub struct ParquetVariantData;
 
@@ -79,6 +83,12 @@ impl Display for ParquetVariantData {
 }
 
 impl ParquetVariant {
+    /// Creates a self-contained Parquet Variant encoding.
+    ///
+    /// The returned array owns its `value` and `typed_value` children directly. When this array is
+    /// wrapped in a canonical [`vortex_array::arrays::VariantArray`], callers should use the
+    /// derived canonical form so the outer `shredded` child delegates to `typed_value` instead of
+    /// introducing a second independent copy.
     pub fn try_new(
         validity: Validity,
         metadata: ArrayRef,
@@ -107,6 +117,7 @@ impl ParquetVariant {
 }
 
 impl ParquetVariantData {
+    /// Validates the storage invariants of a Parquet Variant encoding.
     pub(crate) fn validate_parts(
         validity: &Validity,
         metadata: &ArrayRef,
@@ -157,8 +168,11 @@ impl ParquetVariantData {
         Ok(())
     }
 
-    /// Converts an Arrow `parquet_variant_compute::VariantArray` into a Vortex `ArrayRef`
-    /// wrapping `VariantArray(ParquetVariantArray(...))`.
+    /// Converts an Arrow `parquet_variant_compute::VariantArray` into a canonical Vortex variant.
+    ///
+    /// The returned array is a [`vortex_array::arrays::VariantArray`] whose `core_storage` is a
+    /// [`ParquetVariantArray`] and whose canonical `shredded` child delegates to the inner
+    /// `typed_value` child when one is present.
     pub fn from_arrow_variant(arrow_variant: &ArrowVariantArray) -> VortexResult<ArrayRef> {
         let storage = arrow_variant.inner();
         let value_nullable = storage
@@ -196,8 +210,13 @@ impl ParquetVariantData {
             .map(|tv| ArrayRef::from_arrow(tv.as_ref(), typed_value_nullable))
             .transpose()?;
 
+        let has_typed_value = typed_value.is_some();
         let pv = ParquetVariant::try_new(validity, metadata, value, typed_value)?;
-        Ok(VariantArray::new(pv.into_array()).into_array())
+        if has_typed_value {
+            Ok(VariantArray::try_new_derived(pv.into_array(), "typed_value")?.into_array())
+        } else {
+            Ok(VariantArray::try_new(pv.into_array(), None)?.into_array())
+        }
     }
 }
 
@@ -212,13 +231,20 @@ pub(crate) fn validate_parts(
     ParquetVariantData::validate_parts(validity, metadata, value, typed_value, dtype, len)
 }
 
+/// Accessors for the physical children of a [`ParquetVariantArray`].
+///
+/// These expose the Parquet encoding's own storage. The canonical outer
+/// [`vortex_array::arrays::VariantArray`] may additionally delegate its logical `shredded` child
+/// to `typed_value` via [`vortex_array::arrays::VariantArrayExt::shredded`].
 pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
+    /// Returns the non-nullable Parquet metadata child.
     fn metadata_array(&self) -> &ArrayRef {
         self.as_ref().slots()[METADATA_SLOT]
             .as_ref()
             .vortex_expect("ParquetVariantArray metadata slot")
     }
 
+    /// Returns the row-level validity for the Parquet Variant column.
     fn validity(&self) -> Validity {
         child_to_validity(
             &self.as_ref().slots()[VALIDITY_SLOT],
@@ -226,14 +252,21 @@ pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
         )
     }
 
+    /// Returns the optional unshredded `value` child.
     fn value_array(&self) -> Option<&ArrayRef> {
         self.as_ref().slots()[VALUE_SLOT].as_ref()
     }
 
+    /// Returns the optional shredded `typed_value` child.
+    ///
+    /// When this encoding is wrapped in canonical [`vortex_array::arrays::VariantArray`] form, the
+    /// outer logical `shredded` child is derived from this array.
     fn typed_value_array(&self) -> Option<&ArrayRef> {
         self.as_ref().slots()[TYPED_VALUE_SLOT].as_ref()
     }
 
+    /// Converts this Parquet Variant encoding to Arrow's canonical `arrow.parquet.variant`
+    /// extension array.
     fn to_arrow(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrowVariantArray> {
         let metadata = self.metadata_array();
         let len = metadata.len();
@@ -293,14 +326,18 @@ mod tests {
     use parquet_variant::Variant as PqVariant;
     use parquet_variant_compute::VariantArray as ArrowVariantArray;
     use parquet_variant_compute::VariantArrayBuilder;
+    use vortex_array::Canonical;
+    use vortex_array::Executable;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
+    use vortex_array::RecursiveCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::Variant;
     use vortex_array::arrays::variant::VariantArrayExt;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
@@ -316,10 +353,10 @@ mod tests {
         let variant_view = vortex_arr
             .as_opt::<Variant>()
             .ok_or_else(|| vortex_err!("expected variant array"))?;
-        let child = variant_view.child();
-        let inner = child
+        let inner = variant_view
+            .core_storage()
             .as_opt::<ParquetVariant>()
-            .ok_or_else(|| vortex_err!("expected parquet variant child"))?;
+            .ok_or_else(|| vortex_err!("expected variant array"))?;
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let roundtripped = inner.to_arrow(&mut ctx)?;
@@ -410,10 +447,48 @@ mod tests {
             .as_opt::<Variant>()
             .ok_or_else(|| vortex_err!("expected variant array"))?;
         let inner = variant_arr
-            .child()
+            .core_storage()
             .as_opt::<ParquetVariant>()
-            .ok_or_else(|| vortex_err!("expected parquet variant child"))?;
+            .ok_or_else(|| vortex_err!("expected variant array"))?;
         assert!(inner.typed_value_array().is_some());
+        assert!(variant_arr.shredded().is_some());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_recursive_canonical_preserves_parquet_variant_core_storage() -> VortexResult<()> {
+        let mut metadata_builder = BinaryViewBuilder::new();
+        let min_metadata = [1u8, 0];
+        for _ in 0..3 {
+            metadata_builder.append_value(min_metadata);
+        }
+        let metadata = metadata_builder.finish();
+
+        let typed_value: ArrowArrayRef = Arc::new(Int32Array::from(vec![10, 20, 30]));
+        let struct_fields: Fields = vec![
+            Arc::new(Field::new("metadata", DataType::BinaryView, false)),
+            Arc::new(Field::new("typed_value", DataType::Int32, false)),
+        ]
+        .into();
+        let struct_array =
+            StructArray::try_new(struct_fields, vec![Arc::new(metadata), typed_value], None)
+                .unwrap();
+
+        let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
+        let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let recursive = RecursiveCanonical::execute(vortex_arr, &mut ctx)?.0;
+        let Canonical::Variant(variant_arr) = recursive else {
+            panic!("expected canonical variant");
+        };
+
+        assert!(variant_arr.core_storage().is::<ParquetVariant>());
+        assert_eq!(
+            variant_arr.shredded().unwrap().dtype(),
+            &DType::Primitive(PType::I32, Nullability::NonNullable)
+        );
 
         Ok(())
     }

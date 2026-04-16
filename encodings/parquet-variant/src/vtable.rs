@@ -43,6 +43,10 @@ use crate::array::validate_parts;
 use crate::kernel::PARENT_KERNELS;
 
 /// VTable for [`ParquetVariantArray`].
+///
+/// Executing this encoding produces a canonical [`vortex_array::arrays::VariantArray`] whose
+/// `core_storage` is the original `ParquetVariantArray` and whose logical `shredded` child
+/// delegates to `typed_value` when that child exists.
 #[derive(Debug, Clone)]
 pub struct ParquetVariant;
 
@@ -60,6 +64,10 @@ struct ParquetVariantMetadataProto {
 }
 
 /// A [`ParquetVariant`]-encoded Vortex array.
+///
+/// This type is the authoritative storage for Parquet Variant data. Canonical
+/// [`vortex_array::arrays::VariantArray`] wrappers expose its `typed_value` child as a delegated
+/// logical `shredded` child rather than storing a second independent copy.
 pub type ParquetVariantArray = Array<ParquetVariant>;
 
 impl VTable for ParquetVariant {
@@ -211,9 +219,12 @@ impl VTable for ParquetVariant {
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done(
-            VariantArray::new(array.as_ref().clone().into_array()).into_array(),
-        ))
+        let canonical = if array.typed_value_array().is_some() {
+            VariantArray::try_new_derived(array.as_ref().clone().into_array(), "typed_value")?
+        } else {
+            VariantArray::try_new(array.as_ref().clone().into_array(), None)?
+        };
+        Ok(ExecutionResult::done(canonical.into_array()))
     }
 
     fn execute_parent(
@@ -244,7 +255,9 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::Precision;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::Variant;
     use vortex_array::arrays::VariantArray;
+    use vortex_array::arrays::variant::VariantArrayExt;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -262,10 +275,7 @@ mod tests {
     use crate::ParquetVariant;
     use crate::array::ParquetVariantArrayExt;
 
-    fn roundtrip(array: ArrayRef) -> ArrayRef {
-        let dtype = array.dtype().clone();
-        let len = array.len();
-
+    fn serialize(array: &ArrayRef) -> (SerializedArray, ArrayContext) {
         let session = VortexSession::empty().with::<ArraySession>();
         session.arrays().register(ParquetVariant);
 
@@ -280,7 +290,16 @@ mod tests {
         }
         let concat = concat.freeze();
 
-        let parts = SerializedArray::try_from(concat).unwrap();
+        (SerializedArray::try_from(concat).unwrap(), ctx)
+    }
+
+    fn roundtrip(array: ArrayRef) -> ArrayRef {
+        let dtype = array.dtype().clone();
+        let len = array.len();
+
+        let session = VortexSession::empty().with::<ArraySession>();
+        session.arrays().register(ParquetVariant);
+        let (parts, ctx) = serialize(&array);
         parts
             .decode(&dtype, len, &ReadContext::new(ctx.to_ids()), &session)
             .unwrap()
@@ -301,7 +320,9 @@ mod tests {
             None,
         )
         .unwrap();
-        let typed_value = VariantArray::new(inner_pv.into_array()).into_array();
+        let typed_value = VariantArray::try_new(inner_pv.into_array(), None)
+            .unwrap()
+            .into_array();
 
         let outer_pv = ParquetVariant::try_new(
             Validity::NonNullable,
@@ -360,5 +381,34 @@ mod tests {
             typed.dtype(),
             &DType::Primitive(PType::I32, Nullability::NonNullable)
         );
+    }
+
+    #[test]
+    fn test_canonical_variant_derived_shredded_is_not_serialized_twice() {
+        let metadata =
+            VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00", b"\x01\x00"]).into_array();
+        let typed_value = buffer![10i32, 20, 30].into_array();
+        let pv = ParquetVariant::try_new(Validity::NonNullable, metadata, None, Some(typed_value))
+            .unwrap();
+        let canonical = VariantArray::try_new_derived(pv.into_array(), "typed_value")
+            .unwrap()
+            .into_array();
+
+        let (parts, _) = serialize(&canonical);
+        assert_eq!(parts.nchildren(), 1);
+
+        let decoded = roundtrip(canonical);
+        let decoded_variant = decoded.as_opt::<Variant>().unwrap();
+        let decoded_core = decoded_variant
+            .core_storage()
+            .as_opt::<ParquetVariant>()
+            .unwrap();
+
+        assert!(decoded_variant.shredded_is_derived());
+        assert!(decoded_variant.shredded().is_some());
+        assert!(ArrayRef::ptr_eq(
+            &decoded_variant.shredded().unwrap(),
+            decoded_core.typed_value_array().unwrap(),
+        ));
     }
 }

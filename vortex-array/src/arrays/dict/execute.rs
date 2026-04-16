@@ -27,10 +27,10 @@ use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::VariantArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::dict::TakeReduce;
 use crate::arrays::variant::VariantArrayExt;
+use crate::arrays::variant::rebuild_variant_array;
 
 /// Take from a canonical array using indices (codes), returning a new canonical array.
 ///
@@ -55,11 +55,17 @@ pub(crate) fn take_canonical(
         Canonical::Struct(a) => Canonical::Struct(take_struct(&a, codes)),
         Canonical::Extension(a) => Canonical::Extension(take_extension(&a, codes, ctx)),
         Canonical::Variant(a) => {
-            let taken_child = a
-                .child()
+            let taken_core_storage = a
+                .core_storage()
                 .take(codes.clone().into_array())
-                .vortex_expect("VariantArray child could not be taken");
-            Canonical::Variant(VariantArray::new(taken_child))
+                .vortex_expect("VariantArray core storage could not be taken");
+            let rebuilt = rebuild_variant_array(&a, taken_core_storage, || {
+                a.shredded()
+                    .map(|shredded| shredded.take(codes.clone().into_array()))
+                    .transpose()
+            })
+            .vortex_expect("valid VariantArray rebuild");
+            Canonical::Variant(rebuilt)
         }
     })
 }

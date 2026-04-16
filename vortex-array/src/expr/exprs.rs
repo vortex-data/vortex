@@ -46,6 +46,8 @@ use crate::scalar_fn::fns::pack::PackOptions;
 use crate::scalar_fn::fns::root::Root;
 use crate::scalar_fn::fns::select::FieldSelection;
 use crate::scalar_fn::fns::select::Select;
+use crate::scalar_fn::fns::variant_get::VariantGet;
+use crate::scalar_fn::fns::variant_get::VariantPath;
 use crate::scalar_fn::fns::zip::Zip;
 
 // ---- Root ----
@@ -700,4 +702,18 @@ pub fn dynamic(
 /// ```
 pub fn list_contains(list: Expression, value: Expression) -> Expression {
     ListContains.new_expr(EmptyOptions, [list, value])
+}
+
+// ---- VariantGet ----
+
+/// Creates an expression that extracts a nested path from a variant value.
+///
+/// Returns a new nullable variant containing the nested value, or null if the path does not exist.
+///
+/// ```rust
+/// # use vortex_array::expr::{root, variant_get};
+/// let expr = variant_get("field_name", root());
+/// ```
+pub fn variant_get(path: impl Into<VariantPath>, child: Expression) -> Expression {
+    VariantGet.new_expr(path.into(), vec![child])
 }

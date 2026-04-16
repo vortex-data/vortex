@@ -19,11 +19,13 @@ use vortex_mask::Mask;
 
 use crate::ParquetVariant;
 use crate::ParquetVariantArrayExt;
+use crate::compute::variant_get::VariantGetExecuteParent;
 
 pub(crate) static PARENT_KERNELS: ParentKernelSet<ParquetVariant> = ParentKernelSet::new(&[
     ParentKernelSet::lift(&FilterExecuteAdaptor(ParquetVariant)),
     ParentKernelSet::lift(&SliceExecuteAdaptor(ParquetVariant)),
     ParentKernelSet::lift(&TakeExecuteAdaptor(ParquetVariant)),
+    ParentKernelSet::lift(&VariantGetExecuteParent),
 ]);
 
 impl SliceKernel for ParquetVariant {
