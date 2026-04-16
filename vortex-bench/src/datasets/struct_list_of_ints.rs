@@ -5,7 +5,6 @@ use std::fs::File;
 use std::path::PathBuf;
 
 use anyhow::Result;
-use arrow_array::RecordBatch;
 use async_trait::async_trait;
 use parquet::arrow::ArrowWriter;
 use rand::RngExt;
@@ -18,8 +17,10 @@ use vortex::array::arrays::ListArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::chunked::ChunkedArrayExt;
+use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::array::arrays::listview::recursive_list_from_list_view;
 use vortex::array::validity::Validity;
+use vortex::array::{LEGACY_SESSION, VortexSessionExecute};
 use vortex::dtype::FieldNames;
 
 use crate::IdempotentPath;
@@ -123,7 +124,8 @@ impl Dataset for StructListOfInts {
 
             for chunk in chunked.iter_chunks() {
                 let converted = recursive_list_from_list_view(chunk.clone())?;
-                let batch = RecordBatch::try_from(&converted)?;
+                let schema = converted.dtype().to_arrow_schema()?;
+                let batch = converted.execute_record_batch(&schema, &mut LEGACY_SESSION.create_execution_ctx())?;
 
                 if writer.is_none() {
                     writer = Some(ArrowWriter::try_new(
