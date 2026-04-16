@@ -22120,12 +22120,6 @@ impl core::convert::From<vortex_array::arrays::datetime::TemporalData> for vorte
 
 pub fn vortex_array::ArrayRef::from(value: vortex_array::arrays::datetime::TemporalData) -> Self
 
-impl core::convert::TryFrom<&vortex_array::ArrayRef> for arrow_array::record_batch::RecordBatch
-
-pub type arrow_array::record_batch::RecordBatch::Error = vortex_error::VortexError
-
-pub fn arrow_array::record_batch::RecordBatch::try_from(value: &vortex_array::ArrayRef) -> vortex_error::VortexResult<Self>
-
 impl core::convert::TryFrom<vortex_array::ArrayRef> for vortex_array::arrays::datetime::TemporalData
 
 pub type vortex_array::arrays::datetime::TemporalData::Error = vortex_error::VortexError
