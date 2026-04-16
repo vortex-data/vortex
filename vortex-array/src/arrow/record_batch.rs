@@ -29,7 +29,7 @@ impl TryFrom<&ArrayRef> for RecordBatch {
         };
 
         vortex_ensure!(
-            matches!(struct_array.validity()?, Validity::AllValid),
+            struct_array.validity()?.no_nulls(),
             "RecordBatch can only be constructed from StructArray with no nulls"
         );
 

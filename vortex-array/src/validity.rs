@@ -112,6 +112,13 @@ impl Validity {
         }
     }
 
+    /// Returns `true` if this validity guarantees no null values, i.e. it is either
+    /// [`Validity::NonNullable`] or [`Validity::AllValid`].
+    #[inline]
+    pub fn no_nulls(&self) -> bool {
+        matches!(self, Self::NonNullable | Self::AllValid)
+    }
+
     /// The union nullability and validity.
     #[inline]
     pub fn union_nullability(self, nullability: Nullability) -> Self {
