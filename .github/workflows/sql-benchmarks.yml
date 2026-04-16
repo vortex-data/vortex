@@ -309,7 +309,11 @@ jobs:
           else
             targets='${{ toJSON(matrix.develop_targets) }}'
           fi
-          echo "targets_json=$targets" >> "$GITHUB_OUTPUT"
+          {
+            echo 'targets_json<<__TARGETS_JSON__'
+            echo "$targets"
+            echo '__TARGETS_JSON__'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build binaries
         shell: bash
