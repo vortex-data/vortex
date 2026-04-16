@@ -29,7 +29,6 @@ pub const MAX_BUFFER_LEN: usize = i32::MAX as usize;
 /// When total data exceeds `max_buffer_len` (2 GiB), buffers are split to ensure
 /// offsets fit in `u32`. When data fits in a single buffer, per-element split checks
 /// are skipped entirely.
-#[allow(clippy::cast_possible_truncation)]
 pub fn build_views<P: NativePType + AsPrimitive<usize>>(
     start_buf_index: u32,
     max_buffer_len: usize,
@@ -52,6 +51,7 @@ pub fn build_views<P: NativePType + AsPrimitive<usize>>(
             // SAFETY: the sum of all lengths equals bytes.len() and we process them
             // sequentially, so offset + len <= bytes.len() at every iteration.
             let value = unsafe { std::slice::from_raw_parts(bytes_ptr.add(offset), len) };
+            #[allow(clippy::cast_possible_truncation)]
             let view = BinaryView::make_view(value, start_buf_index, offset as u32);
             // SAFETY: we reserved capacity for lens.len() views and i < lens.len().
             unsafe { views_dst.add(i).write(view) };
