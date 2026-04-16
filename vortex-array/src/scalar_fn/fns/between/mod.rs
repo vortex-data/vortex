@@ -384,6 +384,7 @@ mod tests {
         #[case] upper_strict: StrictComparison,
         #[case] expected: Vec<u64>,
     ) {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let lower = buffer![0, 0, 0, 0, 2].into_array();
         let array = buffer![1, 0, 1, 0, 1].into_array();
         let upper = buffer![2, 1, 1, 0, 0].into_array();
@@ -397,7 +398,7 @@ mod tests {
                 lower_strict,
                 upper_strict,
             },
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )
         .unwrap()
         .to_bool();
@@ -408,6 +409,7 @@ mod tests {
 
     #[test]
     fn test_constants() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let lower = buffer![0, 0, 2, 0, 2].into_array();
         let array = buffer![1, 0, 1, 0, 1].into_array();
 
@@ -427,7 +429,7 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::NonStrict,
             },
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )
         .unwrap()
         .to_bool();
@@ -446,7 +448,7 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::NonStrict,
             },
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )
         .unwrap()
         .to_bool();
@@ -465,7 +467,7 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::NonStrict,
             },
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )
         .unwrap()
         .to_bool();
@@ -475,6 +477,7 @@ mod tests {
 
     #[test]
     fn test_between_decimal() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = buffer![100i128, 200i128, 300i128, 400i128];
         let decimal_type = DecimalDType::new(3, 2);
         let array = DecimalArray::new(values, decimal_type, Validity::NonNullable).into_array();
@@ -507,7 +510,7 @@ mod tests {
                 lower_strict: StrictComparison::Strict,
                 upper_strict: StrictComparison::NonStrict,
             },
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )
         .unwrap();
         assert_arrays_eq!(
@@ -524,7 +527,7 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::Strict,
             },
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )
         .unwrap();
         assert_arrays_eq!(

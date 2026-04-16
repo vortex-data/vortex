@@ -501,18 +501,19 @@ mod tests {
 
     #[test]
     pub fn test_one() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = test_array();
 
         let expr = list_contains(root(), lit(1));
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(0, &mut ctx)
                 .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
         assert_eq!(
-            item.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(1, &mut ctx)
                 .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
@@ -520,18 +521,19 @@ mod tests {
 
     #[test]
     pub fn test_all() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = test_array();
 
         let expr = list_contains(root(), lit(2));
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(0, &mut ctx)
                 .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
         assert_eq!(
-            item.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(1, &mut ctx)
                 .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
@@ -539,18 +541,19 @@ mod tests {
 
     #[test]
     pub fn test_none() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = test_array();
 
         let expr = list_contains(root(), lit(4));
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(0, &mut ctx)
                 .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
         assert_eq!(
-            item.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(1, &mut ctx)
                 .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
@@ -558,6 +561,7 @@ mod tests {
 
     #[test]
     pub fn test_empty() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = ListArray::try_new(
             PrimitiveArray::from_iter(vec![1, 1, 2, 2, 2]).into_array(),
             PrimitiveArray::from_iter(vec![0, 5, 5]).into_array(),
@@ -570,12 +574,12 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(0, &mut ctx)
                 .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
         assert_eq!(
-            item.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(1, &mut ctx)
                 .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
@@ -583,6 +587,7 @@ mod tests {
 
     #[test]
     pub fn test_nullable() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = ListArray::try_new(
             PrimitiveArray::from_iter(vec![1, 1, 2, 2, 2]).into_array(),
             PrimitiveArray::from_iter(vec![0, 5, 5]).into_array(),
@@ -595,13 +600,13 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(0, &mut ctx)
                 .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
         assert!(
             !item
-                .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(1, &mut ctx)
                 .unwrap()
         );
     }
@@ -679,6 +684,7 @@ mod tests {
 
     #[test]
     pub fn test_constant_scalars() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = test_array();
 
         // Both list and needle are constants - should use scalar optimization
@@ -693,7 +699,7 @@ mod tests {
         let result = arr.clone().apply(&expr).unwrap();
         assert_eq!(
             result
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut ctx)
                 .unwrap(),
             Scalar::bool(true, Nullability::NonNullable)
         );
@@ -703,7 +709,7 @@ mod tests {
         let result = arr.apply(&expr).unwrap();
         assert_eq!(
             result
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut ctx)
                 .unwrap(),
             Scalar::bool(false, Nullability::NonNullable)
         );

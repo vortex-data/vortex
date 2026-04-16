@@ -18,10 +18,11 @@ impl StructArray {
         self,
         schema: impl AsRef<Schema>,
     ) -> VortexResult<RecordBatch> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let data_type = DataType::Struct(schema.as_ref().fields.clone());
         let array_ref = self
             .into_array()
-            .execute_arrow(Some(&data_type), &mut LEGACY_SESSION.create_execution_ctx())?;
+            .execute_arrow(Some(&data_type), &mut ctx)?;
         Ok(RecordBatch::from(array_ref.as_struct()))
     }
 }

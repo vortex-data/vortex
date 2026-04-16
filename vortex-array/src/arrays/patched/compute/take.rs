@@ -171,6 +171,7 @@ mod tests {
 
     #[test]
     fn test_take_basic() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Array with base values [0, 0, 0, 0, 0] patched at indices [1, 3] with values [10, 30]
         let array = make_patched_array(&[0; 5], &[1, 3], &[10, 30], 0..5)?;
 
@@ -178,7 +179,7 @@ mod tests {
         let indices = buffer![0u32, 1, 2, 3, 4].into_array();
         let result = array
             .take(indices)?
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .execute::<Canonical>(&mut ctx)?
             .into_array();
 
         let expected = PrimitiveArray::from_iter([0u16, 10, 0, 30, 0]).into_array();
@@ -189,12 +190,13 @@ mod tests {
 
     #[test]
     fn test_take_sliced() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = make_patched_array(&[0; 10], &[1, 3], &[100, 200], 2..10)?;
 
         let indices = buffer![0u32, 1, 2, 3, 7].into_array();
         let result = array
             .take(indices)?
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .execute::<Canonical>(&mut ctx)?
             .into_array();
 
         let expected = PrimitiveArray::from_iter([0u16, 200, 0, 0, 0]).into_array();
@@ -205,6 +207,7 @@ mod tests {
 
     #[test]
     fn test_take_out_of_order() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Array with base values [0, 0, 0, 0, 0] patched at indices [1, 3] with values [10, 30]
         let array = make_patched_array(&[0; 5], &[1, 3], &[10, 30], 0..5)?;
 
@@ -212,7 +215,7 @@ mod tests {
         let indices = buffer![4u32, 3, 2, 1, 0].into_array();
         let result = array
             .take(indices)?
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .execute::<Canonical>(&mut ctx)?
             .into_array();
 
         let expected = PrimitiveArray::from_iter([0u16, 30, 0, 10, 0]).into_array();
@@ -248,6 +251,7 @@ mod tests {
 
     #[test]
     fn test_take_with_null_indices() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         use crate::arrays::BoolArray;
         use crate::validity::Validity;
 
@@ -269,10 +273,9 @@ mod tests {
                 .into_array(),
             ),
         );
-        #[expect(deprecated)]
         let result = array
             .take(indices.into_array())?
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .execute::<Canonical>(&mut ctx)?
             .into_array();
 
         // Expected: [0, 20, null, 50, 80, null, 50, 80, null, 0]

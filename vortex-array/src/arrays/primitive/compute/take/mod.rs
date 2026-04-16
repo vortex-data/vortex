@@ -154,6 +154,7 @@ mod test {
 
     #[test]
     fn test_take_with_null_indices() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = PrimitiveArray::new(
             buffer![1i32, 2, 3, 4, 5],
             Validity::Array(BoolArray::from_iter([true, true, false, false, true]).into_array()),
@@ -165,21 +166,21 @@ mod test {
         let actual = values.take(indices.into_array()).unwrap();
         assert_eq!(
             actual
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut ctx)
                 .vortex_expect("no fail"),
             Scalar::from(Some(1))
         );
         // position 3 is null
         assert_eq!(
             actual
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(1, &mut ctx)
                 .vortex_expect("no fail"),
             Scalar::null_native::<i32>()
         );
         // the third index is null
         assert_eq!(
             actual
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(2, &mut ctx)
                 .vortex_expect("no fail"),
             Scalar::null_native::<i32>()
         );

@@ -110,16 +110,17 @@ pub trait PatchedArrayExt: PatchedArraySlotsExt {
 
     #[inline]
     fn lane_range(&self, chunk: usize, lane: usize) -> VortexResult<Range<usize>> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert!(chunk * 1024 <= self.as_ref().len() + self.offset());
         assert!(lane < self.n_lanes());
 
         let start = self.lane_offsets().execute_scalar(
             chunk * self.n_lanes() + lane,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )?;
         let stop = self.lane_offsets().execute_scalar(
             chunk * self.n_lanes() + lane + 1,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )?;
 
         let start = start

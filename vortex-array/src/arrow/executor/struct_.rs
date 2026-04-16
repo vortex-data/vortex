@@ -278,6 +278,7 @@ mod tests {
 
     #[test]
     fn test_to_arrow() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = StructArray::from_fields(
             vec![
                 (
@@ -313,7 +314,7 @@ mod tests {
         assert_eq!(
             &array.into_array().execute_arrow(
                 Some(&arrow_dtype),
-                &mut LEGACY_SESSION.create_execution_ctx()
+                &mut ctx
             )?,
             &arrow_array
         );

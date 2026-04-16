@@ -73,6 +73,7 @@ mod tests {
 
     #[test]
     fn test_scalar_at() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = DecimalArray::new(
             buffer![100i128],
             DecimalDType::new(3, 2),
@@ -81,7 +82,7 @@ mod tests {
 
         assert_eq!(
             array
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut ctx)
                 .unwrap(),
             Scalar::decimal(
                 DecimalValue::I128(100),

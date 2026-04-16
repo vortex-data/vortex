@@ -477,6 +477,7 @@ mod tests {
 
     #[test]
     fn sum_stats() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = ChunkedArray::try_new(
             vec![
                 PrimitiveArray::from_iter([1, 1, 1]).into_array(),
@@ -489,7 +490,7 @@ mod tests {
         // compute sum with accumulator to populate stats
         sum_with_accumulator(&array, &Scalar::primitive(2i64, Nullable))?;
 
-        let sum_without_acc = sum(&array, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let sum_without_acc = sum(&array, &mut ctx)?;
         assert_eq!(sum_without_acc, Scalar::primitive(9i64, Nullable));
         Ok(())
     }
@@ -512,8 +513,9 @@ mod tests {
     // Grouped sum tests
 
     fn run_grouped_sum(groups: &ArrayRef, elem_dtype: &DType) -> VortexResult<ArrayRef> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut acc = GroupedAccumulator::try_new(Sum, EmptyOptions, elem_dtype.clone())?;
-        acc.accumulate_list(groups, &mut LEGACY_SESSION.create_execution_ctx())?;
+        acc.accumulate_list(groups, &mut ctx)?;
         acc.finish()
     }
 
@@ -620,6 +622,7 @@ mod tests {
 
     #[test]
     fn sum_chunked_floats_with_nulls() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let chunk1 =
             PrimitiveArray::from_option_iter(vec![Some(1.5f64), None, Some(3.2), Some(4.8)]);
         let chunk2 = PrimitiveArray::from_option_iter(vec![Some(2.1f64), Some(5.7), None]);
@@ -636,7 +639,7 @@ mod tests {
 
         let result = sum(
             &chunked.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(20.8));
         Ok(())
@@ -644,13 +647,14 @@ mod tests {
 
     #[test]
     fn sum_chunked_floats_all_nulls_is_zero() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let chunk1 = PrimitiveArray::from_option_iter::<f32, _>(vec![None, None, None]);
         let chunk2 = PrimitiveArray::from_option_iter::<f32, _>(vec![None, None]);
         let dtype = chunk1.dtype().clone();
         let chunked = ChunkedArray::try_new(vec![chunk1.into_array(), chunk2.into_array()], dtype)?;
         let result = sum(
             &chunked.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )?;
         assert_eq!(result, Scalar::primitive(0f64, Nullable));
         Ok(())
@@ -658,6 +662,7 @@ mod tests {
 
     #[test]
     fn sum_chunked_floats_empty_chunks() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let chunk1 = PrimitiveArray::from_option_iter(vec![Some(10.5f64), Some(20.3)]);
         let chunk2 = ConstantArray::new(Scalar::primitive(0f64, Nullable), 0);
         let chunk3 = PrimitiveArray::from_option_iter(vec![Some(5.2f64)]);
@@ -673,7 +678,7 @@ mod tests {
 
         let result = sum(
             &chunked.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(36.0));
         Ok(())
@@ -681,6 +686,7 @@ mod tests {
 
     #[test]
     fn sum_chunked_int_almost_all_null() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let chunk1 = PrimitiveArray::from_option_iter::<u32, _>(vec![Some(1)]);
         let chunk2 = PrimitiveArray::from_option_iter::<u32, _>(vec![None]);
         let dtype = chunk1.dtype().clone();
@@ -688,7 +694,7 @@ mod tests {
 
         let result = sum(
             &chunked.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )?;
         assert_eq!(result.as_primitive().as_::<u64>(), Some(1));
         Ok(())
@@ -696,6 +702,7 @@ mod tests {
 
     #[test]
     fn sum_chunked_decimals() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(10, 2);
         let chunk1 = DecimalArray::new(
             buffer![100i32, 100i32, 100i32, 100i32, 100i32],
@@ -720,7 +727,7 @@ mod tests {
 
         let result = sum(
             &chunked.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )?;
         let decimal_result = result.as_decimal();
         assert_eq!(
@@ -732,6 +739,7 @@ mod tests {
 
     #[test]
     fn sum_chunked_decimals_with_nulls() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(10, 2);
         let chunk1 = DecimalArray::new(
             buffer![100i32, 100i32, 100i32],
@@ -756,7 +764,7 @@ mod tests {
 
         let result = sum(
             &chunked.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )?;
         let decimal_result = result.as_decimal();
         assert_eq!(
@@ -768,6 +776,7 @@ mod tests {
 
     #[test]
     fn sum_chunked_decimals_large() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(3, 0);
         let chunk1 = ConstantArray::new(
             Scalar::decimal(
@@ -790,7 +799,7 @@ mod tests {
 
         let result = sum(
             &chunked.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )?;
         let decimal_result = result.as_decimal();
         assert_eq!(

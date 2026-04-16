@@ -160,6 +160,7 @@ mod tests {
 
     #[test]
     fn evaluate_mask() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let test_array =
             PrimitiveArray::from_option_iter(vec![Some(1), None, Some(2), None, Some(3)])
                 .into_array();
@@ -173,7 +174,7 @@ mod tests {
         for (i, expected_value) in expected.iter().enumerate() {
             assert_eq!(
                 result
-                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(i, &mut ctx)
                     .unwrap(),
                 Scalar::bool(*expected_value, Nullability::NonNullable)
             );
@@ -182,6 +183,7 @@ mod tests {
 
     #[test]
     fn evaluate_all_false() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let test_array = buffer![1, 2, 3, 4, 5].into_array();
 
         let result = test_array.clone().apply(&is_null(root())).unwrap();
@@ -191,7 +193,7 @@ mod tests {
         for i in 0..result.len() {
             assert_eq!(
                 result
-                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(i, &mut ctx)
                     .unwrap(),
                 Scalar::bool(false, Nullability::NonNullable)
             );
@@ -200,6 +202,7 @@ mod tests {
 
     #[test]
     fn evaluate_all_true() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let test_array =
             PrimitiveArray::from_option_iter(vec![None::<i32>, None, None, None, None])
                 .into_array();
@@ -211,7 +214,7 @@ mod tests {
         for i in 0..result.len() {
             assert_eq!(
                 result
-                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(i, &mut ctx)
                     .unwrap(),
                 Scalar::bool(true, Nullability::NonNullable)
             );
@@ -220,6 +223,7 @@ mod tests {
 
     #[test]
     fn evaluate_struct() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let test_array = StructArray::from_fields(&[(
             "a",
             PrimitiveArray::from_option_iter(vec![Some(1), None, Some(2), None, Some(3)])
@@ -240,7 +244,7 @@ mod tests {
         for (i, expected_value) in expected.iter().enumerate() {
             assert_eq!(
                 result
-                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(i, &mut ctx)
                     .unwrap(),
                 Scalar::bool(*expected_value, Nullability::NonNullable)
             );

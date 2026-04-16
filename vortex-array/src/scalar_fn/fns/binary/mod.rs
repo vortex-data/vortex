@@ -450,6 +450,7 @@ mod tests {
     /// using `make_comparator` instead of Arrow's `cmp` functions which don't support nested types.
     #[test]
     fn test_struct_comparison() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         use crate::IntoArray;
         use crate::arrays::StructArray;
 
@@ -497,7 +498,7 @@ mod tests {
         let result_equal = lhs_struct.binary(rhs_struct_equal, Operator::Eq).unwrap();
         assert_eq!(
             result_equal
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut ctx)
                 .vortex_expect("value"),
             Scalar::bool(true, Nullability::NonNullable),
             "Equal structs should be equal"
@@ -508,7 +509,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             result_different
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut ctx)
                 .vortex_expect("value"),
             Scalar::bool(false, Nullability::NonNullable),
             "Different structs should not be equal"

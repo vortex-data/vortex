@@ -28,8 +28,6 @@ use crate::arrays::varbinview::compact::BufferUtilization;
 use crate::builders::ArrayBuilder;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
-#[expect(deprecated)]
-use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 
@@ -295,8 +293,11 @@ impl ArrayBuilder for VarBinViewBuilder {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        #[expect(deprecated)]
-        let array = array.to_varbinview();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let array = array
+            .clone()
+            .execute::<VarBinViewArray>(&mut ctx)
+            .vortex_expect("extend_from_array_unchecked: failed to canonicalize");
         self.flush_in_progress();
 
         self.push_only_validity_mask(
@@ -306,7 +307,7 @@ impl ArrayBuilder for VarBinViewBuilder {
                 .vortex_expect("validity_mask")
                 .to_mask(
                     array.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
+                    &mut ctx,
                 )
                 .vortex_expect("Failed to compute validity mask"),
         );
@@ -332,7 +333,7 @@ impl ArrayBuilder for VarBinViewBuilder {
                     .vortex_expect("validity_mask")
                     .to_mask(
                         array.as_ref().len(),
-                        &mut LEGACY_SESSION.create_execution_ctx(),
+                        &mut ctx,
                     )
                     .vortex_expect("Failed to compute validity mask")
                 {
@@ -1038,6 +1039,7 @@ mod tests {
 
     #[test]
     fn test_large_value_allocation() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         use super::BufferGrowthStrategy;
         use super::VarBinViewBuilder;
 
@@ -1060,7 +1062,7 @@ mod tests {
 
         // Verify the value was stored correctly
         let retrieved = array
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap()
             .as_binary()
             .value()

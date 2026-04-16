@@ -58,6 +58,7 @@ mod tests {
 
     #[test]
     fn take_empty_struct_with_nullable_indices() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let struct_arr = StructArray::try_from_iter_with_validity(
             [("a", BoolArray::from_iter(Vec::<bool>::new()).into_array())],
             Validity::AllValid,
@@ -67,25 +68,26 @@ mod tests {
         let taken = struct_arr
             .take(indices.into_array())
             .unwrap()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<Canonical>(&mut ctx)
             .unwrap();
         assert_eq!(taken.len(), 1);
         assert!(
             taken
                 .into_array()
-                .all_invalid(&mut LEGACY_SESSION.create_execution_ctx())
+                .all_invalid(&mut ctx)
                 .unwrap()
         );
     }
 
     #[test]
     fn take_empty_primitive_with_nullable_indices() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = PrimitiveArray::from_iter(Vec::<u64>::new());
         let indices = PrimitiveArray::from_option_iter([Option::<u64>::None]);
         let taken = arr
             .take(indices.into_array())
             .unwrap()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<Canonical>(&mut ctx)
             .unwrap();
         assert_eq!(taken.len(), 1);
     }

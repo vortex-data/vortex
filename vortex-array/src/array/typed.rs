@@ -352,8 +352,9 @@ impl<V: VTable> Array<V> {
         efficient execution when fetching multiple scalars from the same array."
     )]
     pub fn scalar_at(&self, index: usize) -> VortexResult<crate::scalar::Scalar> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         self.inner
-            .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(index, &mut ctx)
     }
 
     /// Execute the array to extract a scalar at the given index.

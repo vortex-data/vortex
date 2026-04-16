@@ -100,6 +100,7 @@ mod tests {
 
     #[test]
     fn cast_different_ext_dtype() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let original_dtype =
             Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
         // Note NS here instead of MS
@@ -112,7 +113,7 @@ mod tests {
             arr.into_array()
                 .cast(DType::Extension(target_dtype))
                 .and_then(|a| {
-                    a.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                    a.execute::<Canonical>(&mut ctx)
                         .map(|c| c.into_array())
                 })
                 .is_err()

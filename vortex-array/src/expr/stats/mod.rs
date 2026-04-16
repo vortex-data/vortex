@@ -220,9 +220,10 @@ mod test {
 
     #[test]
     fn min_of_nulls_is_not_panic() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let min = PrimitiveArray::from_option_iter::<i32, _>([None, None, None, None])
             .statistics()
-            .compute_as::<i64>(Stat::Min, &mut LEGACY_SESSION.create_execution_ctx());
+            .compute_as::<i64>(Stat::Min, &mut ctx);
 
         assert_eq!(min, None);
     }

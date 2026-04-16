@@ -84,12 +84,13 @@ impl MaskedData {
 impl Array<Masked> {
     /// Constructs a new `MaskedArray`.
     pub fn try_new(child: ArrayRef, validity: Validity) -> VortexResult<Self> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype = child.dtype().as_nullable();
         let len = child.len();
         let validity_slot = validity_to_child(&validity, len);
         let data = MaskedData::try_new(
             len,
-            child.all_valid(&mut LEGACY_SESSION.create_execution_ctx())?,
+            child.all_valid(&mut ctx)?,
             validity,
         )?;
         Ok(unsafe {

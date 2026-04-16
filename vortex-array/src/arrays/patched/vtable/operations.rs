@@ -62,8 +62,6 @@ mod tests {
 
     use crate::ExecutionCtx;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
-    use crate::VortexSessionExecute;
     use crate::arrays::Patched;
     use crate::dtype::Nullability;
     use crate::optimizer::ArrayOptimizer;
@@ -91,25 +89,25 @@ mod tests {
 
         assert_eq!(
             array
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut ctx)
                 .unwrap(),
             Scalar::primitive(0u16, Nullability::NonNullable)
         );
         assert_eq!(
             array
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(1, &mut ctx)
                 .unwrap(),
             Scalar::primitive(1u16, Nullability::NonNullable)
         );
         assert_eq!(
             array
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(2, &mut ctx)
                 .unwrap(),
             Scalar::primitive(1u16, Nullability::NonNullable)
         );
         assert_eq!(
             array
-                .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(3, &mut ctx)
                 .unwrap(),
             Scalar::primitive(1u16, Nullability::NonNullable)
         );
@@ -136,7 +134,7 @@ mod tests {
 
         for index in 0..array.len() {
             let value = array
-                .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(index, &mut ctx)
                 .unwrap();
 
             if [1, 2, 3].contains(&index) {
@@ -174,14 +172,14 @@ mod tests {
 
         assert_eq!(
             array
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut ctx)
                 .unwrap(),
             1u16.into()
         );
         for index in 1..array.len() {
             assert_eq!(
                 array
-                    .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(index, &mut ctx)
                     .unwrap(),
                 0u16.into()
             );

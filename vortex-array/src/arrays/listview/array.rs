@@ -340,6 +340,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
     }
 
     fn offset_at(&self, index: usize) -> usize {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert!(
             index < self.as_ref().len(),
             "Index {index} out of bounds 0..{}",
@@ -350,7 +351,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
             .map(|p| match_each_integer_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
             .unwrap_or_else(|| {
                 self.offsets()
-                    .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(index, &mut ctx)
                     .vortex_expect("offsets must support execute_scalar")
                     .as_primitive()
                     .as_::<usize>()
@@ -359,6 +360,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
     }
 
     fn size_at(&self, index: usize) -> usize {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert!(
             index < self.as_ref().len(),
             "Index {} out of bounds 0..{}",
@@ -370,7 +372,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
             .map(|p| match_each_integer_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
             .unwrap_or_else(|| {
                 self.sizes()
-                    .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(index, &mut ctx)
                     .vortex_expect("sizes must support execute_scalar")
                     .as_primitive()
                     .as_::<usize>()

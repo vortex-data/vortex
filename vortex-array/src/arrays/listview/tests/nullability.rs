@@ -21,6 +21,7 @@ use crate::validity::Validity;
 
 #[test]
 fn test_nullable_listview_comprehensive() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // Comprehensive test for nullable ListView including scalar_at with nulls.
     // Logical lists: [[1,2], null, [5,6]]
     let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
@@ -38,17 +39,17 @@ fn test_nullable_listview_comprehensive() {
     // Check validity.
     assert!(
         listview
-            .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(0, &mut ctx)
             .unwrap()
     );
     assert!(
         listview
-            .is_invalid(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_invalid(1, &mut ctx)
             .unwrap()
     );
     assert!(
         listview
-            .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(2, &mut ctx)
             .unwrap()
     );
 
@@ -60,7 +61,7 @@ fn test_nullable_listview_comprehensive() {
 
     // Test scalar_at with nulls.
     let first = listview
-        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(0, &mut ctx)
         .unwrap();
     assert!(!first.is_null());
     assert_eq!(
@@ -73,12 +74,12 @@ fn test_nullable_listview_comprehensive() {
     );
 
     let second = listview
-        .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(1, &mut ctx)
         .unwrap();
     assert!(second.is_null());
 
     let third = listview
-        .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(2, &mut ctx)
         .unwrap();
     assert!(!third.is_null());
     assert_eq!(
@@ -95,13 +96,13 @@ fn test_nullable_listview_comprehensive() {
     assert_eq!(null_list_data.len(), 2);
     assert_eq!(
         null_list_data
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap(),
         3i32.into()
     );
     assert_eq!(
         null_list_data
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(1, &mut ctx)
             .unwrap(),
         4i32.into()
     );
@@ -113,6 +114,7 @@ fn test_nullable_listview_comprehensive() {
 #[case::all_valid(Validity::AllValid, vec![true, true, true])]
 #[case::mixed(Validity::from_iter([false, true, false]), vec![false, true, false])]
 fn test_nullable_patterns(#[case] validity: Validity, #[case] expected_validity: Vec<bool>) {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // Logical lists: [[1,2], [3,4], [5,6]] with varying validity
     let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let offsets = buffer![0i32, 2, 4].into_array();
@@ -123,7 +125,7 @@ fn test_nullable_patterns(#[case] validity: Validity, #[case] expected_validity:
     for (i, &expected) in expected_validity.iter().enumerate() {
         assert_eq!(
             listview
-                .is_valid(i, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(i, &mut ctx)
                 .unwrap(),
             expected
         );
@@ -132,6 +134,7 @@ fn test_nullable_patterns(#[case] validity: Validity, #[case] expected_validity:
 
 #[test]
 fn test_nullable_elements() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // Test with nullable elements inside the lists.
     // Logical lists: [[Some(1), None], [Some(3), None], [Some(5), Some(6)]]
     let elements =
@@ -150,19 +153,19 @@ fn test_nullable_elements() {
     assert_eq!(first_list.len(), 2);
     assert!(
         !first_list
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap()
             .is_null()
     );
     assert_eq!(
         first_list
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap(),
         1i32.into()
     );
     assert!(
         first_list
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(1, &mut ctx)
             .unwrap()
             .is_null()
     );
@@ -171,19 +174,19 @@ fn test_nullable_elements() {
     let second_list = listview.list_elements_at(1).unwrap();
     assert!(
         !second_list
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap()
             .is_null()
     );
     assert_eq!(
         second_list
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap(),
         3i32.into()
     );
     assert!(
         second_list
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(1, &mut ctx)
             .unwrap()
             .is_null()
     );
@@ -192,25 +195,25 @@ fn test_nullable_elements() {
     let third_list = listview.list_elements_at(2).unwrap();
     assert!(
         !third_list
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap()
             .is_null()
     );
     assert_eq!(
         third_list
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap(),
         5i32.into()
     );
     assert!(
         !third_list
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(1, &mut ctx)
             .unwrap()
             .is_null()
     );
     assert_eq!(
         third_list
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(1, &mut ctx)
             .unwrap(),
         6i32.into()
     );

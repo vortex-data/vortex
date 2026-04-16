@@ -85,6 +85,7 @@ mod tests {
 
     #[test]
     fn take_nullable_indices() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = ConstantArray::new(42, 10).into_array();
         let taken = array
             .take(
@@ -112,7 +113,7 @@ mod tests {
             taken
                 .validity()
                 .unwrap()
-                .to_mask(taken.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .to_mask(taken.len(), &mut ctx)
                 .unwrap()
                 .indices(),
             AllOr::Some(valid_indices)
@@ -121,6 +122,7 @@ mod tests {
 
     #[test]
     fn take_all_valid_indices() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = ConstantArray::new(42, 10).into_array();
         let taken = array
             .take(PrimitiveArray::new(buffer![0, 5, 7], Validity::AllValid).into_array())
@@ -138,7 +140,7 @@ mod tests {
             taken
                 .validity()
                 .unwrap()
-                .to_mask(taken.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .to_mask(taken.len(), &mut ctx)
                 .unwrap()
                 .indices(),
             AllOr::All

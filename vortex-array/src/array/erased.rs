@@ -211,7 +211,8 @@ impl ArrayRef {
         efficient execution when fetching multiple scalars from the same array."
     )]
     pub fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        self.execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        self.execute_scalar(index, &mut ctx)
     }
 
     /// Execute the array to extract a scalar at the given index.
@@ -303,7 +304,8 @@ impl ArrayRef {
     /// Returns the canonical representation of the array.
     #[deprecated(note = "use `array.execute::<Canonical>(ctx)` instead")]
     pub fn into_canonical(self) -> VortexResult<Canonical> {
-        self.execute(&mut LEGACY_SESSION.create_execution_ctx())
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        self.execute(&mut ctx)
     }
 
     /// Returns the canonical representation of the array.

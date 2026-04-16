@@ -349,6 +349,7 @@ mod tests {
 
     #[test]
     fn constant_compare() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let left = ConstantArray::new(Scalar::from(2u32), 10);
         let right = ConstantArray::new(Scalar::from(10u32), 10);
 
@@ -358,7 +359,7 @@ mod tests {
             .unwrap();
         assert_eq!(result.len(), 10);
         let scalar = result
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap();
         assert_eq!(scalar.as_bool().value(), Some(false));
     }
@@ -539,6 +540,7 @@ mod tests {
 
     #[test]
     fn test_empty_list() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let list = ListViewArray::new(
             BoolArray::from_iter(Vec::<bool>::new()).into_array(),
             buffer![0i32, 0i32, 0i32].into_array(),
@@ -553,19 +555,19 @@ mod tests {
             .unwrap();
         assert!(
             result
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut ctx)
                 .unwrap()
                 .is_valid()
         );
         assert!(
             result
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(1, &mut ctx)
                 .unwrap()
                 .is_valid()
         );
         assert!(
             result
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(2, &mut ctx)
                 .unwrap()
                 .is_valid()
         );

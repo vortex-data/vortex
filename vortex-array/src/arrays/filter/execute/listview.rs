@@ -301,6 +301,7 @@ mod test {
     #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `filter`"]
     #[test]
     fn test_filter_extreme_offsets() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // ListView-specific: Test with very large offsets.
         let elements = PrimitiveArray::from_iter(0i32..10000).into_array();
 
@@ -331,7 +332,7 @@ mod test {
         let list0 = result_list.list_elements_at(0).unwrap();
         assert_eq!(
             list0
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut ctx)
                 .unwrap()
                 .as_primitive()
                 .as_::<i32>()
@@ -340,7 +341,7 @@ mod test {
         );
         assert_eq!(
             list0
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(1, &mut ctx)
                 .unwrap()
                 .as_primitive()
                 .as_::<i32>()

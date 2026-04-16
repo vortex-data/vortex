@@ -22,6 +22,7 @@ use crate::validity::Validity;
 impl PrimitiveArray {
     /// Compute most common present value of this array
     pub fn top_value(&self) -> VortexResult<Option<(PValue, usize)>> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         if self.is_empty() {
             return Ok(None);
         }
@@ -35,7 +36,7 @@ impl PrimitiveArray {
                 self.as_slice::<P>(),
                 self.as_ref().validity()?.to_mask(
                     self.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
+                    &mut ctx,
                 )?,
             );
             Ok(Some((top.into(), count)))

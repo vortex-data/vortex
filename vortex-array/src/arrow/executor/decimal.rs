@@ -236,6 +236,7 @@ mod tests {
 
     #[test]
     fn decimal_to_arrow() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Make a very simple i128 and i256 array.
         let decimal_vortex = DecimalArray::new(
             buffer![1i128, 2i128, 3i128, 4i128, 5i128],
@@ -244,7 +245,7 @@ mod tests {
         );
         let arrow = decimal_vortex.into_array().execute_arrow(
             Some(&DataType::Decimal128(19, 2)),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )?;
         assert_eq!(arrow.data_type(), &DataType::Decimal128(19, 2));
         let decimal_array = arrow.as_any().downcast_ref::<Decimal128Array>().unwrap();

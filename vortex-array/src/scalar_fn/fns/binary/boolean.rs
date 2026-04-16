@@ -124,27 +124,28 @@ mod tests {
         BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)]).into_array(),
     )]
     fn test_or(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let r = lhs.binary(rhs, Operator::Or).unwrap();
         #[expect(deprecated)]
         let r = r.to_bool().into_array();
 
         let v0 = r
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap()
             .as_bool()
             .value();
         let v1 = r
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(1, &mut ctx)
             .unwrap()
             .as_bool()
             .value();
         let v2 = r
-            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(2, &mut ctx)
             .unwrap()
             .as_bool()
             .value();
         let v3 = r
-            .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(3, &mut ctx)
             .unwrap()
             .as_bool()
             .value();
@@ -165,30 +166,31 @@ mod tests {
         BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)]).into_array(),
     )]
     fn test_and(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
-        #[expect(deprecated)]
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let r = lhs
             .binary(rhs, Operator::And)
             .unwrap()
-            .to_bool()
+            .execute::<BoolArray>(&mut ctx)
+            .unwrap()
             .into_array();
 
         let v0 = r
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap()
             .as_bool()
             .value();
         let v1 = r
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(1, &mut ctx)
             .unwrap()
             .as_bool()
             .value();
         let v2 = r
-            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(2, &mut ctx)
             .unwrap()
             .as_bool()
             .value();
         let v3 = r
-            .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(3, &mut ctx)
             .unwrap()
             .as_bool()
             .value();

@@ -206,6 +206,7 @@ pub fn pack_nested_structs() {
 
 #[test]
 pub fn pack_nested_lists() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let l1 = ListArray::try_new(
         buffer![1, 2, 3, 4].into_array(),
         buffer![0, 3].into_array(),
@@ -232,17 +233,17 @@ pub fn pack_nested_lists() {
     let canon_values = chunked_list.unwrap().as_array().to_listview();
 
     assert_eq!(
-        l1.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+        l1.execute_scalar(0, &mut ctx)
             .unwrap(),
         canon_values
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap()
     );
     assert_eq!(
-        l2.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+        l2.execute_scalar(0, &mut ctx)
             .unwrap(),
         canon_values
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(1, &mut ctx)
             .unwrap()
     );
 }

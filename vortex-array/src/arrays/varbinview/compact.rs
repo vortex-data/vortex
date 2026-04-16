@@ -65,9 +65,10 @@ impl VarBinViewArray {
     where
         F: FnMut(&Ref),
     {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         match self.as_ref().validity()?.to_mask(
             self.as_ref().len(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )? {
             Mask::AllTrue(_) => {
                 for &view in self.views().iter() {
@@ -202,6 +203,7 @@ mod tests {
     use crate::dtype::Nullability;
     #[test]
     fn test_optimize_compacts_buffers() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create a VarBinViewArray with some long strings that will create multiple buffers
         let original = VarBinViewArray::from_iter_nullable_str([
             Some("short"),
@@ -219,7 +221,7 @@ mod tests {
         let indices = buffer![0u32, 4u32].into_array();
         let taken = original.take(indices).unwrap();
         let taken = taken
-            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<VarBinViewArray>(&mut ctx)
             .unwrap();
         // The taken array should still have the same number of buffers
         assert_eq!(taken.data_buffers().len(), original_buffers);
@@ -241,6 +243,7 @@ mod tests {
 
     #[test]
     fn test_optimize_with_long_strings() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create strings that are definitely longer than 12 bytes
         let long_string_1 = "this is definitely a very long string that exceeds the inline limit";
         let long_string_2 = "another extremely long string that also needs external buffer storage";
@@ -258,7 +261,7 @@ mod tests {
         let indices = buffer![0u32, 2u32].into_array();
         let taken = original.take(indices).unwrap();
         let taken_array = taken
-            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<VarBinViewArray>(&mut ctx)
             .unwrap();
 
         // Optimize the taken array
@@ -311,6 +314,7 @@ mod tests {
 
     #[test]
     fn test_selective_compaction_with_threshold_zero() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // threshold=0 should keep all buffers (no compaction)
         let original = VarBinViewArray::from_iter_str([
             "this is a longer string that will be stored in a buffer",
@@ -324,7 +328,7 @@ mod tests {
         let indices = buffer![0u32].into_array();
         let taken = original.take(indices).unwrap();
         let taken = taken
-            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<VarBinViewArray>(&mut ctx)
             .unwrap();
         // Compact with threshold=0 (should not compact)
         let compacted = taken.compact_with_threshold(0.0).unwrap();
@@ -338,6 +342,7 @@ mod tests {
 
     #[test]
     fn test_selective_compaction_with_high_threshold() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // threshold=1.0 should compact any buffer with waste
         let original = VarBinViewArray::from_iter_str([
             "this is a longer string that will be stored in a buffer",
@@ -349,7 +354,7 @@ mod tests {
         let indices = buffer![0u32, 2u32].into_array();
         let taken = original.take(indices).unwrap();
         let taken = taken
-            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<VarBinViewArray>(&mut ctx)
             .unwrap();
 
         let original_buffers = taken.data_buffers().len();
@@ -388,6 +393,7 @@ mod tests {
 
     #[test]
     fn test_selective_compaction_with_mixed_utilization() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create array with some long strings
         let strings: Vec<String> = (0..10)
             .map(|i| {
@@ -404,7 +410,7 @@ mod tests {
         let indices_array = buffer![0u32, 2u32, 4u32, 6u32, 8u32].into_array();
         let taken = original.take(indices_array).unwrap();
         let taken = taken
-            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<VarBinViewArray>(&mut ctx)
             .unwrap();
 
         // Compact with moderate threshold
@@ -419,6 +425,7 @@ mod tests {
 
     #[test]
     fn test_slice_strategy_with_contiguous_range() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create array with strings that will be in one buffer
         let strings: Vec<String> = (0..20)
             .map(|i| format!("this is a long string number {} for slice test", i))
@@ -430,7 +437,7 @@ mod tests {
         let indices_array = buffer![0u32, 1u32, 2u32, 3u32, 4u32].into_array();
         let taken = original.take(indices_array).unwrap();
         let taken = taken
-            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<VarBinViewArray>(&mut ctx)
             .unwrap();
         // Get buffer stats before compaction
         let utils_before = taken.buffer_utilizations().unwrap();

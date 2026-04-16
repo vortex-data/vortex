@@ -40,10 +40,12 @@ impl IntoArrowArray for ArrayRef {
     /// Convert this [`crate::ArrayRef`] into an Arrow [`crate::ArrayRef`] by using the array's
     /// preferred (cheapest) Arrow [`DataType`].
     fn into_arrow_preferred(self) -> VortexResult<ArrowArrayRef> {
-        self.execute_arrow(None, &mut LEGACY_SESSION.create_execution_ctx())
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        self.execute_arrow(None, &mut ctx)
     }
 
     fn into_arrow(self, data_type: &DataType) -> VortexResult<ArrowArrayRef> {
-        self.execute_arrow(Some(data_type), &mut LEGACY_SESSION.create_execution_ctx())
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        self.execute_arrow(Some(data_type), &mut ctx)
     }
 }

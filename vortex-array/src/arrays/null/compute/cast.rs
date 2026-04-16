@@ -51,6 +51,7 @@ mod tests {
 
     #[test]
     fn test_cast_null_to_nullable_succeeds() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let null_array = NullArray::new(5);
         let result = null_array
             .into_array()
@@ -68,7 +69,7 @@ mod tests {
         for i in 0..5 {
             assert!(
                 result
-                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(i, &mut ctx)
                     .unwrap()
                     .is_null()
             );

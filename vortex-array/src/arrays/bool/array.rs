@@ -369,9 +369,10 @@ mod tests {
 
     #[test]
     fn bool_array() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = BoolArray::from_iter([true, false, true]);
         let scalar = bool::try_from(
-            &arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            &arr.execute_scalar(0, &mut ctx)
                 .unwrap(),
         )
         .unwrap();
@@ -380,18 +381,19 @@ mod tests {
 
     #[test]
     fn test_all_some_iter() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = BoolArray::from_iter([Some(true), Some(false)]);
 
         assert!(matches!(arr.validity(), Ok(Validity::AllValid)));
 
         let scalar = bool::try_from(
-            &arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            &arr.execute_scalar(0, &mut ctx)
                 .unwrap(),
         )
         .unwrap();
         assert!(scalar);
         let scalar = bool::try_from(
-            &arr.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            &arr.execute_scalar(1, &mut ctx)
                 .unwrap(),
         )
         .unwrap();
@@ -400,42 +402,44 @@ mod tests {
 
     #[test]
     fn test_bool_from_iter() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = BoolArray::from_iter([Some(true), Some(true), None, Some(false), None]);
 
         let scalar = bool::try_from(
-            &arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            &arr.execute_scalar(0, &mut ctx)
                 .unwrap(),
         )
         .unwrap();
         assert!(scalar);
 
         let scalar = bool::try_from(
-            &arr.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            &arr.execute_scalar(1, &mut ctx)
                 .unwrap(),
         )
         .unwrap();
         assert!(scalar);
 
         let scalar = arr
-            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(2, &mut ctx)
             .unwrap();
         assert!(scalar.is_null());
 
         let scalar = bool::try_from(
-            &arr.execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+            &arr.execute_scalar(3, &mut ctx)
                 .unwrap(),
         )
         .unwrap();
         assert!(!scalar);
 
         let scalar = arr
-            .execute_scalar(4, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(4, &mut ctx)
             .unwrap();
         assert!(scalar.is_null());
     }
 
     #[test]
     fn patch_sliced_bools() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = BoolArray::from(BitBuffer::new_set(12));
         let sliced = arr.slice(4..12).unwrap();
         assert_arrays_eq!(sliced, BoolArray::from_iter([true; 8]));
@@ -459,7 +463,7 @@ mod tests {
         )
         .unwrap();
         let arr = arr
-            .patch(&patches, &mut LEGACY_SESSION.create_execution_ctx())
+            .patch(&patches, &mut ctx)
             .unwrap();
         // After patching index 4 to false: indices 1-3 and 5-11 are true, index 0 and 4 are false
         let expected_patched: Vec<bool> = (0..12).map(|i| (1..12).contains(&i) && i != 4).collect();
@@ -478,6 +482,7 @@ mod tests {
 
     #[test]
     fn patch_bools_owned() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = BoolArray::from(BitBuffer::new_set(16));
         let buf_ptr = arr.to_bit_buffer().inner().as_ptr();
 
@@ -490,7 +495,7 @@ mod tests {
         )
         .unwrap();
         let arr = arr
-            .patch(&patches, &mut LEGACY_SESSION.create_execution_ctx())
+            .patch(&patches, &mut ctx)
             .unwrap();
         // Verify buffer was reused in place
         assert_eq!(arr.to_bit_buffer().inner().as_ptr(), buf_ptr);

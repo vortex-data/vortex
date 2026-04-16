@@ -131,11 +131,12 @@ impl Validity {
     /// Returns whether the `index` item is valid.
     #[inline]
     pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         Ok(match self {
             Self::NonNullable | Self::AllValid => true,
             Self::AllInvalid => false,
             Self::Array(a) => a
-                .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(index, &mut ctx)
                 .vortex_expect("Validity array must support execute_scalar")
                 .as_bool()
                 .value()
@@ -157,12 +158,13 @@ impl Validity {
     }
 
     pub fn take(&self, indices: &ArrayRef) -> VortexResult<Self> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         match self {
             Self::NonNullable => {
                 let len = indices.len();
                 let indices_mask = indices
                     .validity()?
-                    .to_mask(len, &mut LEGACY_SESSION.create_execution_ctx())?;
+                    .to_mask(len, &mut ctx)?;
                 match indices_mask.bit_buffer() {
                     AllOr::All => {
                         if indices.dtype().is_nullable() {
@@ -179,7 +181,7 @@ impl Validity {
                 let len = indices.len();
                 let indices_mask = indices
                     .validity()?
-                    .to_mask(len, &mut LEGACY_SESSION.create_execution_ctx())?;
+                    .to_mask(len, &mut ctx)?;
                 match indices_mask.bit_buffer() {
                     AllOr::All => Ok(Self::AllValid),
                     AllOr::None => Ok(Self::AllInvalid),
@@ -363,6 +365,7 @@ impl Validity {
     /// Convert into a non-nullable variant
     #[inline]
     pub fn into_non_nullable(self, len: usize) -> Option<Validity> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         match self {
             _ if len == 0 => Some(Validity::NonNullable),
             Self::NonNullable => Some(Self::NonNullable),
@@ -371,7 +374,7 @@ impl Validity {
             Self::Array(is_valid) => {
                 is_valid
                     .statistics()
-                    .compute_min::<bool>(&mut LEGACY_SESSION.create_execution_ctx())
+                    .compute_min::<bool>(&mut ctx)
                     .vortex_expect("validity array must support min")
                     .then(|| {
                         // min true => all true
@@ -395,10 +398,11 @@ impl Validity {
     /// Create Validity by copying the given array's validity.
     #[inline]
     pub fn copy_from_array(array: &ArrayRef) -> VortexResult<Self> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let len = array.len();
         let mask = array
             .validity()?
-            .to_mask(len, &mut LEGACY_SESSION.create_execution_ctx())?;
+            .to_mask(len, &mut ctx)?;
         Ok(Validity::from_mask(mask, array.dtype().nullability()))
     }
 
@@ -613,7 +617,7 @@ mod tests {
                     0,
                     &indices,
                     &patches,
-                    &mut LEGACY_SESSION.create_execution_ctx(),
+                    &mut ctx,
                 )
                 .unwrap()
                 .mask_eq(&expected, &mut ctx)
@@ -624,13 +628,14 @@ mod tests {
     #[test]
     #[should_panic]
     fn out_of_bounds_patch() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         Validity::NonNullable
             .patch(
                 2,
                 0,
                 &buffer![4].into_array(),
                 &Validity::AllInvalid,
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut ctx,
             )
             .unwrap();
     }

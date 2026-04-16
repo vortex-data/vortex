@@ -20,6 +20,7 @@ use crate::validity::Validity;
 
 #[test]
 fn test_nullable_fsl_with_nulls() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let len = 4;
     let list_size = 2;
 
@@ -33,7 +34,7 @@ fn test_nullable_fsl_with_nulls() {
 
     // First list is valid: [1, 2].
     let first = fsl
-        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(0, &mut ctx)
         .unwrap();
     assert!(!first.is_null());
     assert_eq!(
@@ -49,26 +50,26 @@ fn test_nullable_fsl_with_nulls() {
     let first_list = fsl.fixed_size_list_elements_at(0).unwrap();
     assert_eq!(
         first_list
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap(),
         1i32.into()
     );
     assert_eq!(
         first_list
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(1, &mut ctx)
             .unwrap(),
         2i32.into()
     );
 
     // Second list is null.
     let second = fsl
-        .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(1, &mut ctx)
         .unwrap();
     assert!(second.is_null());
 
     // Third list is valid: [5, 6].
     let third = fsl
-        .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(2, &mut ctx)
         .unwrap();
     assert!(!third.is_null());
     assert_eq!(
@@ -84,26 +85,27 @@ fn test_nullable_fsl_with_nulls() {
     let third_list = fsl.fixed_size_list_elements_at(2).unwrap();
     assert_eq!(
         third_list
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap(),
         5i32.into()
     );
     assert_eq!(
         third_list
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(1, &mut ctx)
             .unwrap(),
         6i32.into()
     );
 
     // Fourth list is null.
     let fourth = fsl
-        .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(3, &mut ctx)
         .unwrap();
     assert!(fourth.is_null());
 }
 
 #[test]
 fn test_nullable_elements_non_nullable_lists() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let len = 2;
     let list_size = 3;
 
@@ -123,7 +125,7 @@ fn test_nullable_elements_non_nullable_lists() {
 
     // First list: [Some(1), None, Some(3)].
     let first = fsl
-        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(0, &mut ctx)
         .unwrap();
     assert!(!first.is_null());
     assert_eq!(
@@ -137,7 +139,7 @@ fn test_nullable_elements_non_nullable_lists() {
 
     // Second list: [Some(4), Some(5), None].
     let second = fsl
-        .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(1, &mut ctx)
         .unwrap();
     assert!(!second.is_null());
     assert_eq!(
@@ -152,6 +154,7 @@ fn test_nullable_elements_non_nullable_lists() {
 
 #[test]
 fn test_nullable_elements_and_nullable_lists() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let len = 3;
     let list_size = 2;
 
@@ -165,7 +168,7 @@ fn test_nullable_elements_and_nullable_lists() {
 
     // First list is valid: [Some(10), None].
     let first = fsl
-        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(0, &mut ctx)
         .unwrap();
     assert!(!first.is_null());
     assert_eq!(
@@ -181,26 +184,26 @@ fn test_nullable_elements_and_nullable_lists() {
     let first_list = fsl.fixed_size_list_elements_at(0).unwrap();
     assert_eq!(
         first_list
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap(),
         Some(10u16).into()
     );
     assert_eq!(
         first_list
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(1, &mut ctx)
             .unwrap(),
         None::<u16>.into()
     );
 
     // Second list is null (but elements would be [Some(20), Some(30)]).
     let second = fsl
-        .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(1, &mut ctx)
         .unwrap();
     assert!(second.is_null());
 
     // Third list is valid: [None, None].
     let third = fsl
-        .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(2, &mut ctx)
         .unwrap();
     assert!(!third.is_null());
     assert_eq!(
@@ -216,13 +219,13 @@ fn test_nullable_elements_and_nullable_lists() {
     let third_list = fsl.fixed_size_list_elements_at(2).unwrap();
     assert_eq!(
         third_list
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap(),
         None::<u16>.into()
     );
     assert_eq!(
         third_list
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(1, &mut ctx)
             .unwrap(),
         None::<u16>.into()
     );
@@ -230,6 +233,7 @@ fn test_nullable_elements_and_nullable_lists() {
 
 #[test]
 fn test_alternating_nulls() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let len = 6;
     let list_size = 1;
 
@@ -243,7 +247,7 @@ fn test_alternating_nulls() {
     // Check alternating pattern.
     for i in 0..len {
         let scalar = fsl
-            .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(i, &mut ctx)
             .unwrap();
         if i % 2 == 0 {
             assert!(!scalar.is_null());
@@ -264,6 +268,7 @@ fn test_alternating_nulls() {
 
 #[test]
 fn test_validity_types() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let len = 4;
     let list_size = 2;
 
@@ -275,7 +280,7 @@ fn test_validity_types() {
         let fsl = FixedSizeListArray::new(elements.clone(), list_size, Validity::AllInvalid, len);
         for i in 0..len {
             assert!(
-                fsl.execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                fsl.execute_scalar(i, &mut ctx)
                     .unwrap()
                     .is_null()
             );
@@ -293,22 +298,22 @@ fn test_validity_types() {
         );
 
         assert!(
-            !fsl.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            !fsl.execute_scalar(0, &mut ctx)
                 .unwrap()
                 .is_null()
         );
         assert!(
-            !fsl.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            !fsl.execute_scalar(1, &mut ctx)
                 .unwrap()
                 .is_null()
         );
         assert!(
-            fsl.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+            fsl.execute_scalar(2, &mut ctx)
                 .unwrap()
                 .is_null()
         );
         assert!(
-            !fsl.execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+            !fsl.execute_scalar(3, &mut ctx)
                 .unwrap()
                 .is_null()
         );
@@ -317,6 +322,7 @@ fn test_validity_types() {
 
 #[test]
 fn test_mixed_nullability_patterns() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let len = 5;
     let list_size = 2;
 
@@ -338,31 +344,31 @@ fn test_mixed_nullability_patterns() {
 
     // List 0: valid with [Some(1), None].
     let list0 = fsl
-        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(0, &mut ctx)
         .unwrap();
     assert!(!list0.is_null());
 
     // List 1: null.
     let list1 = fsl
-        .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(1, &mut ctx)
         .unwrap();
     assert!(list1.is_null());
 
     // List 2: valid with [Some(5), Some(6)].
     let list2 = fsl
-        .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(2, &mut ctx)
         .unwrap();
     assert!(!list2.is_null());
 
     // List 3: valid with [Some(7), None].
     let list3 = fsl
-        .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(3, &mut ctx)
         .unwrap();
     assert!(!list3.is_null());
 
     // List 4: valid with [None, Some(10)].
     let list4 = fsl
-        .execute_scalar(4, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(4, &mut ctx)
         .unwrap();
     assert!(!list4.is_null());
 }

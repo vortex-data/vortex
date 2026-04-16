@@ -24,6 +24,7 @@ use crate::validity::Validity;
 
 #[test]
 fn test_listview_of_listview_with_overlapping() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // Create elements that will be shared between inner lists.
     // Elements: [1, 2, 3, 4, 5, 6, 7, 8]
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8].into_array();
@@ -74,7 +75,7 @@ fn test_listview_of_listview_with_overlapping() {
     // inner[0] should be [1, 2, 3].
     assert_eq!(
         inner0
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap()
             .as_primitive()
             .as_::<i32>()
@@ -83,7 +84,7 @@ fn test_listview_of_listview_with_overlapping() {
     );
     assert_eq!(
         inner0
-            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(2, &mut ctx)
             .unwrap()
             .as_primitive()
             .as_::<i32>()
@@ -94,7 +95,7 @@ fn test_listview_of_listview_with_overlapping() {
     // inner[1] should be [3, 4, 5] - shares element 3 with inner[0].
     assert_eq!(
         inner1
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap()
             .as_primitive()
             .as_::<i32>()
@@ -103,7 +104,7 @@ fn test_listview_of_listview_with_overlapping() {
     );
     assert_eq!(
         inner1
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(1, &mut ctx)
             .unwrap()
             .as_primitive()
             .as_::<i32>()
@@ -240,6 +241,7 @@ fn test_mixed_offset_size_types() {
 
 #[test]
 fn test_listview_zero_and_overlapping() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // Mix of empty lists, overlapping lists, and normal lists.
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
 
@@ -287,7 +289,7 @@ fn test_listview_zero_and_overlapping() {
     assert_eq!(inner1.len(), 3); // [1, 2, 3]
     assert_eq!(
         inner1
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap()
             .as_primitive()
             .as_::<i32>()
@@ -306,7 +308,7 @@ fn test_listview_zero_and_overlapping() {
     assert_eq!(inner3.len(), 3); // [2, 3, 4]
     assert_eq!(
         inner3
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap()
             .as_primitive()
             .as_::<i32>()
@@ -325,6 +327,7 @@ fn test_listview_zero_and_overlapping() {
 
 #[test]
 fn test_listview_of_struct_with_nulls() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // Create structs with fields that could be null.
     let struct_fields = StructFields::new(
         FieldNames::from(["id", "value"].as_slice()),
@@ -385,7 +388,7 @@ fn test_listview_of_struct_with_nulls() {
     // The middle element (struct[2]) should be null.
     assert!(
         list1
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(1, &mut ctx)
             .unwrap()
             .is_null()
     );

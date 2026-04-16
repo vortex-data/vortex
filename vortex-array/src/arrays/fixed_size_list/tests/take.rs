@@ -82,6 +82,7 @@ fn test_take_degenerate_lists(
     #[case] expected_len: usize,
     #[case] expected_nulls: Vec<bool>,
 ) {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // Create a degenerate FSL array with list_size = 0.
     // This is a specific edge case for FSL where lists have no elements.
     let elements = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
@@ -97,7 +98,7 @@ fn test_take_degenerate_lists(
     for (i, expected_null) in expected_nulls.iter().enumerate() {
         assert_eq!(
             result
-                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(i, &mut ctx)
                 .unwrap()
                 .is_null(),
             *expected_null
@@ -188,6 +189,7 @@ fn test_take_nullable_arrays_fsl_specific(
     #[case] indices: Vec<Option<u32>>,
     #[case] expected_nulls: Vec<bool>,
 ) {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // Build the nullable FSL array.
     let list_size = if let Some(Some(first)) = array_values.first() {
         u32::try_from(first.len()).unwrap()
@@ -231,7 +233,7 @@ fn test_take_nullable_arrays_fsl_specific(
     for (i, expected_null) in expected_nulls.iter().enumerate() {
         assert_eq!(
             result
-                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(i, &mut ctx)
                 .unwrap()
                 .is_null(),
             *expected_null

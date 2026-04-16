@@ -161,6 +161,7 @@ mod test {
 
     #[test]
     fn test_binary_compare() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = VarBinArray::from_iter(
             [Some(b"abc".to_vec()), None, Some(b"def".to_vec())],
             DType::Binary(Nullability::Nullable),
@@ -186,7 +187,7 @@ mod test {
                 .unwrap()
                 .to_mask(
                     result.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx()
+                    &mut ctx
                 )
                 .unwrap()
                 .to_bit_buffer(),
@@ -200,6 +201,7 @@ mod test {
 
     #[test]
     fn varbinview_compare() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = VarBinArray::from_iter(
             [Some(b"abc".to_vec()), None, Some(b"def".to_vec())],
             DType::Binary(Nullability::Nullable),
@@ -222,7 +224,7 @@ mod test {
                 .unwrap()
                 .to_mask(
                     result.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx()
+                    &mut ctx
                 )
                 .unwrap()
                 .to_bit_buffer(),

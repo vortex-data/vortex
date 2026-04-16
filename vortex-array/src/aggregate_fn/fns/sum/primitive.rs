@@ -139,65 +139,73 @@ mod tests {
 
     #[test]
     fn sum_i32() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();
-        let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let result = sum(&arr, &mut ctx)?;
         assert_eq!(result.as_primitive().typed_value::<i64>(), Some(10));
         Ok(())
     }
 
     #[test]
     fn sum_u8() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = PrimitiveArray::new(buffer![10u8, 20, 30], Validity::NonNullable).into_array();
-        let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let result = sum(&arr, &mut ctx)?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(60));
         Ok(())
     }
 
     #[test]
     fn sum_f64() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr =
             PrimitiveArray::new(buffer![1.5f64, 2.5, 3.0], Validity::NonNullable).into_array();
-        let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let result = sum(&arr, &mut ctx)?;
         assert_eq!(result.as_primitive().typed_value::<f64>(), Some(7.0));
         Ok(())
     }
 
     #[test]
     fn sum_with_nulls() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = PrimitiveArray::from_option_iter([Some(2i32), None, Some(4)]).into_array();
-        let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let result = sum(&arr, &mut ctx)?;
         assert_eq!(result.as_primitive().typed_value::<i64>(), Some(6));
         Ok(())
     }
 
     #[test]
     fn sum_all_null() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = PrimitiveArray::from_option_iter([None::<i32>, None, None]).into_array();
-        let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let result = sum(&arr, &mut ctx)?;
         assert_eq!(result.as_primitive().typed_value::<i64>(), Some(0));
         Ok(())
     }
 
     #[test]
     fn sum_all_invalid_float() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = PrimitiveArray::from_option_iter::<f32, _>([None, None, None]).into_array();
-        let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let result = sum(&arr, &mut ctx)?;
         assert_eq!(result, Scalar::primitive(0f64, Nullable));
         Ok(())
     }
 
     #[test]
     fn sum_buffer_i32() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = buffer![1, 1, 1, 1].into_array();
-        let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let result = sum(&arr, &mut ctx)?;
         assert_eq!(result.as_primitive().as_::<i32>(), Some(4));
         Ok(())
     }
 
     #[test]
     fn sum_buffer_f64() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = buffer![1., 1., 1., 1.].into_array();
-        let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let result = sum(&arr, &mut ctx)?;
         assert_eq!(result.as_primitive().as_::<f32>(), Some(4.));
         Ok(())
     }
@@ -222,51 +230,56 @@ mod tests {
 
     #[test]
     fn sum_f64_with_nan() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = PrimitiveArray::new(
             buffer![1.0f64, f64::NAN, 2.0, f64::NAN, 3.0],
             Validity::NonNullable,
         )
         .into_array();
-        let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let result = sum(&arr, &mut ctx)?;
         assert_eq!(result.as_primitive().typed_value::<f64>(), Some(6.0));
         Ok(())
     }
 
     #[test]
     fn sum_f32_with_nan() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr =
             PrimitiveArray::new(buffer![1.0f32, f32::NAN, 4.0], Validity::NonNullable).into_array();
-        let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let result = sum(&arr, &mut ctx)?;
         assert_eq!(result.as_primitive().typed_value::<f64>(), Some(5.0));
         Ok(())
     }
 
     #[test]
     fn sum_f64_with_nan_and_nulls() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = PrimitiveArray::from_option_iter([Some(1.0f64), None, Some(f64::NAN), Some(3.0)])
             .into_array();
-        let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let result = sum(&arr, &mut ctx)?;
         assert_eq!(result.as_primitive().typed_value::<f64>(), Some(4.0));
         Ok(())
     }
 
     #[test]
     fn sum_all_nan() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr =
             PrimitiveArray::new(buffer![f64::NAN, f64::NAN], Validity::NonNullable).into_array();
-        let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let result = sum(&arr, &mut ctx)?;
         assert_eq!(result.as_primitive().typed_value::<f64>(), Some(0.0));
         Ok(())
     }
 
     #[test]
     fn sum_f64_with_infinity() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let batch = PrimitiveArray::new(
             buffer![1.0f64, f64::INFINITY, f64::NEG_INFINITY, 2.0],
             Validity::NonNullable,
         )
         .into_array();
-        let acc = sum(&batch, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let acc = sum(&batch, &mut ctx)?;
         // INFINITY + NEG_INFINITY = NaN, which is treated as saturated
         assert!(acc.as_primitive().typed_value::<f64>().unwrap().is_nan());
 
@@ -275,28 +288,30 @@ mod tests {
             EmptyOptions,
             DType::Primitive(PType::F64, Nullability::NonNullable),
         )?;
-        acc.accumulate(&batch, &mut LEGACY_SESSION.create_execution_ctx())?;
+        acc.accumulate(&batch, &mut ctx)?;
         assert!(acc.is_saturated());
         Ok(())
     }
 
     #[test]
     fn sum_checked_overflow() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = PrimitiveArray::new(buffer![i64::MAX, 1i64], Validity::NonNullable).into_array();
-        let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let result = sum(&arr, &mut ctx)?;
         assert!(result.is_null());
         Ok(())
     }
 
     #[test]
     fn sum_checked_overflow_is_saturated() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(Sum, EmptyOptions, dtype)?;
         assert!(!acc.is_saturated());
 
         let batch =
             PrimitiveArray::new(buffer![i64::MAX, 1i64], Validity::NonNullable).into_array();
-        acc.accumulate(&batch, &mut LEGACY_SESSION.create_execution_ctx())?;
+        acc.accumulate(&batch, &mut ctx)?;
         assert!(acc.is_saturated());
 
         // finish resets state, clearing saturation

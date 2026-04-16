@@ -187,12 +187,13 @@ unsafe fn build_list_offsets_from_list_view<O: IntegerPType>(
 ///
 /// The conversion happens bottom-up, processing children before parents.
 pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     if !array.dtype().is_nested() {
         return Ok(array);
     }
 
     let canonical = array
-        .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?;
+        .execute::<Canonical>(&mut ctx)?;
 
     Ok(match canonical {
         Canonical::List(listview) => {

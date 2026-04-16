@@ -56,10 +56,9 @@ macro_rules! assert_nth_scalar {
         use $crate::LEGACY_SESSION;
         use $crate::VortexSessionExecute as _;
         let arr_ref: $crate::ArrayRef = $crate::IntoArray::into_array($arr.clone());
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert_eq!(
-            arr_ref
-                .execute_scalar($n, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap(),
+            arr_ref.execute_scalar($n, &mut ctx).unwrap(),
             $expected.try_into().unwrap()
         );
     }};
@@ -79,16 +78,13 @@ macro_rules! assert_nth_scalar_is_null {
         use $crate::LEGACY_SESSION;
         use $crate::VortexSessionExecute as _;
         let arr_ref: $crate::ArrayRef = $crate::IntoArray::into_array($arr.clone());
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let scalar_val = arr_ref.execute_scalar($n, &mut ctx).unwrap();
         assert!(
-            arr_ref
-                .execute_scalar($n, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap()
-                .is_null(),
+            scalar_val.is_null(),
             "expected scalar at index {} to be null, but was {:?}",
             $n,
-            arr_ref
-                .execute_scalar($n, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap()
+            scalar_val
         );
     }};
 }
@@ -131,7 +127,8 @@ macro_rules! assert_arrays_eq {
 #[track_caller]
 #[expect(clippy::panic)]
 pub fn assert_arrays_eq_impl(left: &ArrayRef, right: &ArrayRef) {
-    let executed = execute_to_canonical(left.clone(), &mut LEGACY_SESSION.create_execution_ctx());
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let executed = execute_to_canonical(left.clone(), &mut ctx);
 
     let left_right = find_mismatched_indices(left, right);
     let executed_right = find_mismatched_indices(&executed, right);

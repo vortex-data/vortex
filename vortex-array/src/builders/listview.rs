@@ -21,9 +21,9 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::LEGACY_SESSION;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
+#[expect(deprecated)]
+use crate::canonical::ToCanonical as _;
 use crate::array::IntoArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
@@ -294,8 +294,11 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        #[expect(deprecated)]
-        let listview = array.to_listview();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let listview = array
+            .clone()
+            .execute::<ListViewArray>(&mut ctx)
+            .vortex_expect("extend_from_array_unchecked: failed to canonicalize");
         if listview.is_empty() {
             return;
         }
@@ -311,7 +314,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
             array
                 .validity()
                 .vortex_expect("validity_mask in extend_from_array_unchecked")
-                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .to_mask(array.len(), &mut ctx)
                 .vortex_expect("Failed to compute validity mask"),
         );
 

@@ -352,6 +352,7 @@ mod test {
 
     #[test]
     fn test_empty_chunks_all_valid() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create chunks where some are empty but all non-empty chunks have all valid values
         let chunks = vec![
             PrimitiveArray::new(buffer![1u64, 2, 3], Validity::AllValid).into_array(),
@@ -366,13 +367,13 @@ mod test {
         // Should be all_valid since all non-empty chunks are all_valid
         assert!(
             chunked
-                .all_valid(&mut LEGACY_SESSION.create_execution_ctx())
+                .all_valid(&mut ctx)
                 .unwrap()
         );
         assert!(
             !chunked
                 .into_array()
-                .all_invalid(&mut LEGACY_SESSION.create_execution_ctx())
+                .all_invalid(&mut ctx)
                 .unwrap()
         );
 
@@ -381,6 +382,7 @@ mod test {
 
     #[test]
     fn test_empty_chunks_all_invalid() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create chunks where some are empty but all non-empty chunks have all invalid values
         let chunks = vec![
             PrimitiveArray::new(buffer![1u64, 2], Validity::AllInvalid).into_array(),
@@ -395,13 +397,13 @@ mod test {
         // Should be all_invalid since all non-empty chunks are all_invalid
         assert!(
             !chunked
-                .all_valid(&mut LEGACY_SESSION.create_execution_ctx())
+                .all_valid(&mut ctx)
                 .unwrap()
         );
         assert!(
             chunked
                 .into_array()
-                .all_invalid(&mut LEGACY_SESSION.create_execution_ctx())
+                .all_invalid(&mut ctx)
                 .unwrap()
         );
 
@@ -410,6 +412,7 @@ mod test {
 
     #[test]
     fn test_empty_chunks_mixed_validity() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create chunks with mixed validity including empty chunks
         let chunks = vec![
             PrimitiveArray::new(buffer![1u64, 2], Validity::AllValid).into_array(),
@@ -424,13 +427,13 @@ mod test {
         // Should be neither all_valid nor all_invalid
         assert!(
             !chunked
-                .all_valid(&mut LEGACY_SESSION.create_execution_ctx())
+                .all_valid(&mut ctx)
                 .unwrap()
         );
         assert!(
             !chunked
                 .into_array()
-                .all_invalid(&mut LEGACY_SESSION.create_execution_ctx())
+                .all_invalid(&mut ctx)
                 .unwrap()
         );
 

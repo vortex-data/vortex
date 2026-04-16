@@ -215,6 +215,7 @@ mod test {
 
     #[test]
     fn nullable_take() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let list = ListArray::try_new(
             buffer![0i32, 5, 3, 4].into_array(),
             buffer![0, 2, 3, 4, 4].into_array(),
@@ -245,12 +246,12 @@ mod test {
 
         assert!(
             result
-                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(0, &mut ctx)
                 .unwrap()
         );
         assert_eq!(
             result
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut ctx)
                 .unwrap(),
             Scalar::list(
                 Arc::clone(&element_dtype),
@@ -261,18 +262,18 @@ mod test {
 
         assert!(
             result
-                .is_invalid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_invalid(1, &mut ctx)
                 .unwrap()
         );
 
         assert!(
             result
-                .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(2, &mut ctx)
                 .unwrap()
         );
         assert_eq!(
             result
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(2, &mut ctx)
                 .unwrap(),
             Scalar::list(
                 Arc::clone(&element_dtype),
@@ -283,12 +284,12 @@ mod test {
 
         assert!(
             result
-                .is_valid(3, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(3, &mut ctx)
                 .unwrap()
         );
         assert_eq!(
             result
-                .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(3, &mut ctx)
                 .unwrap(),
             Scalar::list(element_dtype, vec![], Nullability::Nullable)
         );
@@ -319,6 +320,7 @@ mod test {
 
     #[test]
     fn non_nullable_take() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let list = ListArray::try_new(
             buffer![0i32, 5, 3, 4].into_array(),
             buffer![0, 2, 3, 3, 4].into_array(),
@@ -348,12 +350,12 @@ mod test {
 
         assert!(
             result
-                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(0, &mut ctx)
                 .unwrap()
         );
         assert_eq!(
             result
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut ctx)
                 .unwrap(),
             Scalar::list(
                 Arc::clone(&element_dtype),
@@ -364,12 +366,12 @@ mod test {
 
         assert!(
             result
-                .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(1, &mut ctx)
                 .unwrap()
         );
         assert_eq!(
             result
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(1, &mut ctx)
                 .unwrap(),
             Scalar::list(
                 Arc::clone(&element_dtype),
@@ -380,12 +382,12 @@ mod test {
 
         assert!(
             result
-                .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(2, &mut ctx)
                 .unwrap()
         );
         assert_eq!(
             result
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(2, &mut ctx)
                 .unwrap(),
             Scalar::list(element_dtype, vec![], Nullability::NonNullable)
         );
@@ -458,6 +460,7 @@ mod test {
 
     #[test]
     fn test_u64_offset_accumulation_non_nullable() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let elements = buffer![0i32; 200].into_array();
         let offsets = buffer![0u8, 200].into_array();
         let list = ListArray::try_new(elements, offsets, Validity::NonNullable)
@@ -475,18 +478,19 @@ mod test {
         assert_eq!(result_view.len(), 2);
         assert!(
             result_view
-                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(0, &mut ctx)
                 .unwrap()
         );
         assert!(
             result_view
-                .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(1, &mut ctx)
                 .unwrap()
         );
     }
 
     #[test]
     fn test_u64_offset_accumulation_nullable() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let elements = buffer![0i32; 150].into_array();
         let offsets = buffer![0u8, 150, 150].into_array();
         let validity = BoolArray::from_iter(vec![true, false]).into_array();
@@ -505,17 +509,17 @@ mod test {
         assert_eq!(result_view.len(), 3);
         assert!(
             result_view
-                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(0, &mut ctx)
                 .unwrap()
         );
         assert!(
             result_view
-                .is_invalid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_invalid(1, &mut ctx)
                 .unwrap()
         );
         assert!(
             result_view
-                .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(2, &mut ctx)
                 .unwrap()
         );
     }

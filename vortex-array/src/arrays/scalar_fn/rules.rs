@@ -75,6 +75,7 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnPackToStructRule {
 struct ScalarFnConstantRule;
 impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
     fn reduce(&self, array: ArrayView<'_, ScalarFnVTable>) -> VortexResult<Option<ArrayRef>> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         if !array.children().iter().all(|c| c.is::<Constant>()) {
             return Ok(None);
         }
@@ -83,7 +84,7 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
         } else {
             let result = array
                 .array()
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?;
+                .execute_scalar(0, &mut ctx)?;
             Ok(Some(ConstantArray::new(result, array.len()).into_array()))
         }
     }

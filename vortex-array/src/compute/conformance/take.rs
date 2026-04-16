@@ -110,6 +110,7 @@ fn test_take_none(array: &ArrayRef) {
 
 #[expect(clippy::cast_possible_truncation)]
 fn test_take_selective(array: &ArrayRef) {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let len = array.len();
 
     // Take every other element
@@ -128,17 +129,18 @@ fn test_take_selective(array: &ArrayRef) {
             array
                 .execute_scalar(
                     original_idx as usize,
-                    &mut LEGACY_SESSION.create_execution_ctx()
+                    &mut ctx
                 )
                 .vortex_expect("scalar_at should succeed in conformance test"),
             result
-                .execute_scalar(result_idx, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(result_idx, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
     }
 }
 
 fn test_take_first_and_last(array: &ArrayRef) {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let len = array.len();
     let indices = PrimitiveArray::from_iter([0u64, (len - 1) as u64]);
     let result = array
@@ -148,24 +150,25 @@ fn test_take_first_and_last(array: &ArrayRef) {
     assert_eq!(result.len(), 2);
     assert_eq!(
         array
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .vortex_expect("scalar_at should succeed in conformance test"),
         result
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .vortex_expect("scalar_at should succeed in conformance test")
     );
     assert_eq!(
         array
-            .execute_scalar(len - 1, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(len - 1, &mut ctx)
             .vortex_expect("scalar_at should succeed in conformance test"),
         result
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(1, &mut ctx)
             .vortex_expect("scalar_at should succeed in conformance test")
     );
 }
 
 #[expect(clippy::cast_possible_truncation)]
 fn test_take_with_nullable_indices(array: &ArrayRef) {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let len = array.len();
 
     // Create indices with some null values
@@ -193,17 +196,17 @@ fn test_take_with_nullable_indices(array: &ArrayRef) {
         match idx_opt {
             Some(idx) => {
                 let expected = array
-                    .execute_scalar(*idx as usize, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(*idx as usize, &mut ctx)
                     .vortex_expect("scalar_at should succeed in conformance test");
                 let actual = result
-                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(i, &mut ctx)
                     .vortex_expect("scalar_at should succeed in conformance test");
                 assert_eq!(expected, actual);
             }
             None => {
                 assert!(
                     result
-                        .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                        .execute_scalar(i, &mut ctx)
                         .vortex_expect("scalar_at should succeed in conformance test")
                         .is_null()
                 );
@@ -213,6 +216,7 @@ fn test_take_with_nullable_indices(array: &ArrayRef) {
 }
 
 fn test_take_repeated_indices(array: &ArrayRef) {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     if array.is_empty() {
         return;
     }
@@ -225,12 +229,12 @@ fn test_take_repeated_indices(array: &ArrayRef) {
 
     assert_eq!(result.len(), 3);
     let first_elem = array
-        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(0, &mut ctx)
         .vortex_expect("scalar_at should succeed in conformance test");
     for i in 0..3 {
         assert_eq!(
             result
-                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(i, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
             first_elem
         );
@@ -248,6 +252,7 @@ fn test_empty_indices(array: &ArrayRef) {
 }
 
 fn test_take_reverse(array: &ArrayRef) {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let len = array.len();
     // Take elements in reverse order
     let indices = PrimitiveArray::from_iter((0..len as u64).rev());
@@ -261,16 +266,17 @@ fn test_take_reverse(array: &ArrayRef) {
     for i in 0..len {
         assert_eq!(
             array
-                .execute_scalar(len - 1 - i, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(len - 1 - i, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
             result
-                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(i, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
     }
 }
 
 fn test_take_single_middle(array: &ArrayRef) {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let len = array.len();
     let middle_idx = len / 2;
 
@@ -282,16 +288,17 @@ fn test_take_single_middle(array: &ArrayRef) {
     assert_eq!(result.len(), 1);
     assert_eq!(
         array
-            .execute_scalar(middle_idx, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(middle_idx, &mut ctx)
             .vortex_expect("scalar_at should succeed in conformance test"),
         result
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .vortex_expect("scalar_at should succeed in conformance test")
     );
 }
 
 #[expect(clippy::cast_possible_truncation)]
 fn test_take_random_unsorted(array: &ArrayRef) {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let len = array.len();
 
     // Create a pseudo-random but deterministic pattern
@@ -313,16 +320,17 @@ fn test_take_random_unsorted(array: &ArrayRef) {
     for (i, &idx) in indices.iter().enumerate() {
         assert_eq!(
             array
-                .execute_scalar(idx as usize, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(idx as usize, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
             result
-                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(i, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
     }
 }
 
 fn test_take_contiguous_range(array: &ArrayRef) {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let len = array.len();
     let start = len / 4;
     let end = len / 2;
@@ -339,10 +347,10 @@ fn test_take_contiguous_range(array: &ArrayRef) {
     for i in 0..(end - start) {
         assert_eq!(
             array
-                .execute_scalar(start + i, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(start + i, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
             result
-                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(i, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
     }
@@ -350,6 +358,7 @@ fn test_take_contiguous_range(array: &ArrayRef) {
 
 #[expect(clippy::cast_possible_truncation)]
 fn test_take_mixed_repeated(array: &ArrayRef) {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let len = array.len();
 
     // Create pattern with some repeated indices
@@ -375,10 +384,10 @@ fn test_take_mixed_repeated(array: &ArrayRef) {
     for (i, &idx) in indices.iter().enumerate() {
         assert_eq!(
             array
-                .execute_scalar(idx as usize, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(idx as usize, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
             result
-                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(i, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
     }
@@ -386,6 +395,7 @@ fn test_take_mixed_repeated(array: &ArrayRef) {
 
 #[expect(clippy::cast_possible_truncation)]
 fn test_take_large_indices(array: &ArrayRef) {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // Test with a large number of indices to stress test performance
     let len = array.len();
     let num_indices = 10000.min(len * 3);
@@ -407,10 +417,10 @@ fn test_take_large_indices(array: &ArrayRef) {
         let expected_idx = indices[i] as usize;
         assert_eq!(
             array
-                .execute_scalar(expected_idx, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(expected_idx, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
             result
-                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(i, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
     }

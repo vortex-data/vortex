@@ -583,6 +583,7 @@ impl ArrayRef {
                 use crate::canonical::ToCanonical as _;
                 use crate::dtype::DType;
 
+                let mut ctx = LEGACY_SESSION.create_execution_ctx();
                 let mut builder = tabled::builder::Builder::default();
 
                 // Special logic for struct arrays.
@@ -590,7 +591,7 @@ impl ArrayRef {
                     // For non-struct arrays, simply display a single column table without header.
                     for row_idx in 0..self.len() {
                         let value = self
-                            .execute_scalar(row_idx, &mut LEGACY_SESSION.create_execution_ctx())
+                            .execute_scalar(row_idx, &mut ctx)
                             .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string());
                         builder.push_record([value]);
                     }
@@ -607,7 +608,7 @@ impl ArrayRef {
 
                 for row_idx in 0..self.len() {
                     if !self
-                        .is_valid(row_idx, &mut LEGACY_SESSION.create_execution_ctx())
+                        .is_valid(row_idx, &mut ctx)
                         .unwrap_or(false)
                     {
                         let null_row = vec!["null".to_string(); sf.names().len()];
@@ -618,7 +619,7 @@ impl ArrayRef {
                             crate::arrays::struct_::StructArrayExt::iter_unmasked_fields(&struct_)
                         {
                             let value = field_array
-                                .execute_scalar(row_idx, &mut LEGACY_SESSION.create_execution_ctx())
+                                .execute_scalar(row_idx, &mut ctx)
                                 .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string());
                             row.push(value);
                         }
@@ -636,7 +637,7 @@ impl ArrayRef {
 
                 for row_idx in 0..self.len() {
                     if !self
-                        .is_valid(row_idx, &mut LEGACY_SESSION.create_execution_ctx())
+                        .is_valid(row_idx, &mut ctx)
                         .unwrap_or(false)
                     {
                         table.modify(

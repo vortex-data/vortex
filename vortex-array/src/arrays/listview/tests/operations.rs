@@ -36,6 +36,7 @@ use crate::validity::Validity;
 
 #[test]
 fn test_slice_comprehensive() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // Comprehensive test for basic slicing, full array, and single element cases.
     // Logical lists: [[1,2,3], [4,5], [6,7,8], [9,10]]
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
@@ -62,10 +63,10 @@ fn test_slice_comprehensive() {
         assert_eq!(
             full_list
                 .array()
-                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(i, &mut ctx)
                 .unwrap(),
             listview
-                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(i, &mut ctx)
                 .unwrap(),
             "Mismatch at index {}",
             i
@@ -135,6 +136,7 @@ fn test_slice_out_of_order() {
 
 #[test]
 fn test_slice_with_nulls() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // Test slicing with nullable ListView.
     // Logical lists: [[1,2], null, [5,6], null]
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8].into_array();
@@ -157,13 +159,13 @@ fn test_slice_with_nulls() {
     assert!(
         sliced_list
             .array()
-            .is_invalid(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_invalid(0, &mut ctx)
             .unwrap()
     ); // Original index 1 was null.
     assert!(
         sliced_list
             .array()
-            .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(1, &mut ctx)
             .unwrap()
     ); // Original index 2 was valid.
 
@@ -269,6 +271,7 @@ fn test_cast_numeric_types(#[case] from_ptype: PType, #[case] to_ptype: PType) {
 
 #[test]
 fn test_cast_with_nulls() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // Logical lists: [[10,20], null]
     let elements = buffer![10i32, 20, 30, 40].into_array();
     let offsets = buffer![0u32, 2].into_array();
@@ -293,12 +296,12 @@ fn test_cast_with_nulls() {
     let result_list = result.to_listview();
     assert!(
         result_list
-            .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(0, &mut ctx)
             .unwrap()
     );
     assert!(
         result_list
-            .is_invalid(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_invalid(1, &mut ctx)
             .unwrap()
     );
 }
@@ -525,6 +528,7 @@ fn test_mask_listview_conformance(#[case] listview: ListViewArray) {
 
 #[test]
 fn test_mask_preserves_structure() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // ListView-specific: Verify mask preserves offsets and sizes.
     // Logical lists: [[1,2], [3,4], [5,6], [7,8]]
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8].into_array();
@@ -548,22 +552,22 @@ fn test_mask_preserves_structure() {
     // Check validity: true in selection means null.
     assert!(
         !result_list
-            .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(0, &mut ctx)
             .unwrap()
     ); // Masked.
     assert!(
         result_list
-            .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(1, &mut ctx)
             .unwrap()
     ); // Not masked.
     assert!(
         !result_list
-            .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(2, &mut ctx)
             .unwrap()
     ); // Masked.
     assert!(
         !result_list
-            .is_valid(3, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(3, &mut ctx)
             .unwrap()
     ); // Masked.
 
@@ -580,6 +584,7 @@ fn test_mask_preserves_structure() {
 
 #[test]
 fn test_mask_with_existing_nulls() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // ListView-specific: Test interaction between existing nulls and mask.
     // Logical lists: [[10,20], null, [50,60]]
     let elements = buffer![10i32, 20, 30, 40, 50, 60].into_array();
@@ -602,23 +607,24 @@ fn test_mask_with_existing_nulls() {
     // Check combined validity:
     assert!(
         result_list
-            .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(0, &mut ctx)
             .unwrap()
     ); // Was valid, mask is false -> valid.
     assert!(
         !result_list
-            .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(1, &mut ctx)
             .unwrap()
     ); // Was invalid, mask is true -> invalid.
     assert!(
         !result_list
-            .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(2, &mut ctx)
             .unwrap()
     ); // Was valid, mask is true -> invalid.
 }
 
 #[test]
 fn test_mask_with_gaps() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // ListView-specific: Mask with gaps in elements.
     // Logical lists: [[1,2], [5,6], [9,10]] (999 values are gaps)
     let elements = buffer![1i32, 2, 999, 999, 5, 6, 999, 999, 9, 10].into_array();
@@ -635,17 +641,17 @@ fn test_mask_with_gaps() {
     assert_eq!(result_list.len(), 3);
     assert!(
         !result_list
-            .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(0, &mut ctx)
             .unwrap()
     ); // Masked
     assert!(
         result_list
-            .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(1, &mut ctx)
             .unwrap()
     ); // Not masked
     assert!(
         result_list
-            .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(2, &mut ctx)
             .unwrap()
     ); // Not masked
 
@@ -656,6 +662,7 @@ fn test_mask_with_gaps() {
 
 #[test]
 fn test_mask_constant_arrays() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // ListView-specific: Test mask with ConstantArray offsets/sizes.
     // Logical lists: [[200,300], [200,300], [200,300]]
     let elements = buffer![100i32, 200, 300, 400, 500, 600].into_array();
@@ -680,17 +687,17 @@ fn test_mask_constant_arrays() {
     assert_eq!(result_list.len(), 3);
     assert!(
         result_list
-            .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(0, &mut ctx)
             .unwrap()
     );
     assert!(
         !result_list
-            .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(1, &mut ctx)
             .unwrap()
     ); // Masked
     assert!(
         result_list
-            .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(2, &mut ctx)
             .unwrap()
     );
 

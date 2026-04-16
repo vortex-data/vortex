@@ -28,6 +28,7 @@ mod test {
 
     #[test]
     fn test_slice_nulls() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let nulls = NullArray::new(10);
         #[expect(deprecated)]
         let sliced = nulls.slice(0..4).unwrap().to_null();
@@ -38,7 +39,7 @@ mod test {
             sliced_arr
                 .validity()
                 .unwrap()
-                .to_mask(sliced_arr.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .to_mask(sliced_arr.len(), &mut ctx)
                 .unwrap(),
             Mask::AllFalse(4)
         ));
@@ -46,6 +47,7 @@ mod test {
 
     #[test]
     fn test_take_nulls() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let nulls = NullArray::new(10);
         #[expect(deprecated)]
         let taken = nulls
@@ -59,7 +61,7 @@ mod test {
             taken_arr
                 .validity()
                 .unwrap()
-                .to_mask(taken_arr.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .to_mask(taken_arr.len(), &mut ctx)
                 .unwrap(),
             Mask::AllFalse(5)
         ));
@@ -67,10 +69,11 @@ mod test {
 
     #[test]
     fn test_scalar_at_nulls() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let nulls = NullArray::new(10);
 
         let scalar = nulls
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap();
         assert!(scalar.is_null());
         assert_eq!(scalar.dtype().clone(), DType::Null);

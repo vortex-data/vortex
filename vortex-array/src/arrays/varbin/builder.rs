@@ -95,6 +95,7 @@ impl<O: IntegerPType> VarBinBuilder<O> {
     }
 
     pub fn finish(self, dtype: DType) -> VarBinArray {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let offsets = PrimitiveArray::new(self.offsets.freeze(), Validity::NonNullable);
         let nulls = self.validity.freeze();
 
@@ -107,7 +108,7 @@ impl<O: IntegerPType> VarBinBuilder<O> {
         {
             let offsets_are_sorted = offsets
                 .statistics()
-                .compute_is_sorted(&mut LEGACY_SESSION.create_execution_ctx())
+                .compute_is_sorted(&mut ctx)
                 .unwrap_or(false);
             debug_assert!(offsets_are_sorted, "VarBinBuilder offsets must be sorted");
         }
@@ -143,6 +144,7 @@ mod tests {
 
     #[test]
     fn test_builder() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut builder = VarBinBuilder::<i32>::with_capacity(0);
         builder.append(Some(b"hello"));
         builder.append(None);
@@ -153,13 +155,13 @@ mod tests {
         assert_eq!(array.dtype().nullability(), Nullable);
         assert_eq!(
             array
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut ctx)
                 .unwrap(),
             Scalar::utf8("hello".to_string(), Nullable)
         );
         assert!(
             array
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(1, &mut ctx)
                 .unwrap()
                 .is_null()
         );

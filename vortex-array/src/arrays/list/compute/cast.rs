@@ -78,6 +78,7 @@ mod tests {
 
     #[test]
     fn test_cast_to_wrong_type() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let list = ListArray::try_new(
             buffer![0i32, 2, 3, 4].into_array(),
             buffer![0, 2, 3].into_array(),
@@ -92,7 +93,7 @@ mod tests {
             .into_array()
             .cast(target_dtype)
             .and_then(|a| {
-                a.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                a.execute::<Canonical>(&mut ctx)
                     .map(|c| c.into_array())
             });
         assert!(result.is_err());
@@ -100,6 +101,7 @@ mod tests {
 
     #[test]
     fn test_cant_cast_nulls_to_non_null() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Test that if list has nulls, the conversion will fail
 
         // Nulls in the list itself
@@ -119,7 +121,7 @@ mod tests {
             .into_array()
             .cast(target_dtype)
             .and_then(|a| {
-                a.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                a.execute::<Canonical>(&mut ctx)
                     .map(|c| c.into_array())
             });
         assert!(result.is_err());
@@ -139,7 +141,7 @@ mod tests {
         );
 
         let result = list.into_array().cast(target_dtype).and_then(|a| {
-            a.execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            a.execute::<RecursiveCanonical>(&mut ctx)
                 .map(|c| c.0.into_array())
         });
         assert!(result.is_err());

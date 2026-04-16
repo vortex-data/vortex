@@ -136,6 +136,7 @@ fn test_duplicate_field_names() {
 
 #[test]
 fn test_uncompressed_size_in_bytes() -> VortexResult<()> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let struct_array = StructArray::new(
         FieldNames::from(["integers"]),
         vec![ConstantArray::new(5, 1000).into_array()],
@@ -146,12 +147,12 @@ fn test_uncompressed_size_in_bytes() -> VortexResult<()> {
     let canonical_size = struct_array
         .clone()
         .into_array()
-        .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+        .execute::<Canonical>(&mut ctx)?
         .into_array()
         .nbytes();
     let uncompressed_size = struct_array
         .statistics()
-        .compute_uncompressed_size_in_bytes(&mut LEGACY_SESSION.create_execution_ctx());
+        .compute_uncompressed_size_in_bytes(&mut ctx);
 
     assert_eq!(canonical_size, 2);
     assert_eq!(uncompressed_size, Some(4000));

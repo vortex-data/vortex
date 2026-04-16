@@ -475,64 +475,73 @@ pub trait ToCanonical {
 #[expect(deprecated)]
 impl ToCanonical for ArrayRef {
     fn to_null(&self) -> NullArray {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         self.clone()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<Canonical>(&mut ctx)
             .vortex_expect("to_canonical failed")
             .into_null()
     }
 
     fn to_bool(&self) -> BoolArray {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         self.clone()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<Canonical>(&mut ctx)
             .vortex_expect("to_canonical failed")
             .into_bool()
     }
 
     fn to_primitive(&self) -> PrimitiveArray {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         self.clone()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<Canonical>(&mut ctx)
             .vortex_expect("to_canonical failed")
             .into_primitive()
     }
 
     fn to_decimal(&self) -> DecimalArray {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         self.clone()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<Canonical>(&mut ctx)
             .vortex_expect("to_canonical failed")
             .into_decimal()
     }
 
     fn to_struct(&self) -> StructArray {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         self.clone()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<Canonical>(&mut ctx)
             .vortex_expect("to_canonical failed")
             .into_struct()
     }
 
     fn to_listview(&self) -> ListViewArray {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         self.clone()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<Canonical>(&mut ctx)
             .vortex_expect("to_canonical failed")
             .into_listview()
     }
 
     fn to_fixed_size_list(&self) -> FixedSizeListArray {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         self.clone()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<Canonical>(&mut ctx)
             .vortex_expect("to_canonical failed")
             .into_fixed_size_list()
     }
 
     fn to_varbinview(&self) -> VarBinViewArray {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         self.clone()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<Canonical>(&mut ctx)
             .vortex_expect("to_canonical failed")
             .into_varbinview()
     }
 
     fn to_extension(&self) -> ExtensionArray {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         self.clone()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<Canonical>(&mut ctx)
             .vortex_expect("to_canonical failed")
             .into_extension()
     }

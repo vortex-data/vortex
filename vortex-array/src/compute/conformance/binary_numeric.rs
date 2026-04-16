@@ -31,10 +31,9 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::RecursiveCanonical;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::arrays::ConstantArray;
+use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
@@ -44,11 +43,12 @@ use crate::scalar::PrimitiveScalar;
 use crate::scalar::Scalar;
 
 fn to_vec_of_scalar(array: &ArrayRef) -> Vec<Scalar> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // Not fast, but obviously correct
     (0..array.len())
         .map(|index| {
             array
-                .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(index, &mut ctx)
                 .vortex_expect("scalar_at should succeed in conformance test")
         })
         .collect_vec()
@@ -93,8 +93,11 @@ fn test_standard_binary_numeric<T: NativePType + Num + Copy>(array: ArrayRef)
 where
     Scalar: From<T>,
 {
-    #[expect(deprecated)]
-    let canonicalized_array = array.to_primitive();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let canonicalized_array = array
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)
+        .vortex_expect("test_standard_binary_numeric: failed to canonicalize");
     let original_values = to_vec_of_scalar(&canonicalized_array.into_array());
 
     let one = T::from(1)
@@ -119,7 +122,7 @@ where
         let result = array
             .binary(rhs_const.clone(), op.into())
             .vortex_expect("apply shouldn't fail")
-            .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<RecursiveCanonical>(&mut ctx)
             .map(|c| c.0.into_array());
 
         // Skip this operator if the entire operation fails
@@ -157,7 +160,7 @@ where
 
         // Test scalar operator array (e.g., 1 + array)
         let result = rhs_const.binary(array.clone(), op.into()).and_then(|a| {
-            a.execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            a.execute::<RecursiveCanonical>(&mut ctx)
                 .map(|c| c.0.into_array())
         });
 
@@ -330,8 +333,11 @@ where
     T: NativePType + Num + Copy + std::fmt::Debug,
     Scalar: From<T>,
 {
-    #[expect(deprecated)]
-    let canonicalized_array = array.to_primitive();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let canonicalized_array = array
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)
+        .vortex_expect("test_binary_numeric_with_scalar: failed to canonicalize");
     let original_values = to_vec_of_scalar(&canonicalized_array.into_array());
 
     let scalar = Scalar::from(scalar_value)
@@ -363,7 +369,7 @@ where
         let result = array
             .binary(rhs_const, op.into())
             .vortex_expect("apply failed")
-            .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<RecursiveCanonical>(&mut ctx)
             .map(|x| x.0.into_array());
 
         // Skip if the entire operation fails

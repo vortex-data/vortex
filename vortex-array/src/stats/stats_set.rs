@@ -877,6 +877,7 @@ mod test {
 
     #[test]
     fn merge_unordered() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array =
             PrimitiveArray::from_option_iter([Some(1), None, Some(2), Some(42), Some(10000), None]);
         let all_stats = all::<Stat>()
@@ -885,7 +886,7 @@ mod test {
             .collect_vec();
         array
             .statistics()
-            .compute_all(&all_stats, &mut LEGACY_SESSION.create_execution_ctx())
+            .compute_all(&all_stats, &mut ctx)
             .unwrap();
 
         let stats = array.statistics().to_owned();

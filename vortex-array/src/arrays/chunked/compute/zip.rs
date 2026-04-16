@@ -65,6 +65,7 @@ mod tests {
 
     #[test]
     fn test_chunked_zip_aligns_across_boundaries() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let if_true = ChunkedArray::try_new(
             vec![
                 buffer![1i32, 2].into_array(),
@@ -94,7 +95,7 @@ mod tests {
         // One step of execution will push down the zip.
         let zipped = zipped
             .clone()
-            .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<ArrayRef>(&mut ctx)
             .unwrap();
         let zipped = zipped
             .as_opt::<Chunked>()

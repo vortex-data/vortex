@@ -104,6 +104,7 @@ mod tests {
 
     #[test]
     fn fill_null_leading_none() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(19, 2);
         let arr = DecimalArray::from_option_iter(
             [None, Some(800i128), None, Some(1000i128), None],
@@ -131,7 +132,7 @@ mod tests {
             p.as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(p.as_ref().len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .to_mask(p.as_ref().len(), &mut ctx)
                 .unwrap()
                 .all_true()
         );

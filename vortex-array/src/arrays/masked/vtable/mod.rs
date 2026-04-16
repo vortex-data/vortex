@@ -123,6 +123,7 @@ impl VTable for Masked {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<crate::array::ArrayParts<Self>> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         if !metadata.is_empty() {
             vortex_bail!(
                 "MaskedArray expects empty metadata, got {} bytes",
@@ -151,7 +152,7 @@ impl VTable for Masked {
         let validity_slot = validity_to_child(&validity, len);
         let data = MaskedData::try_new(
             len,
-            child.all_valid(&mut LEGACY_SESSION.create_execution_ctx())?,
+            child.all_valid(&mut ctx)?,
             validity,
         )?;
         Ok(

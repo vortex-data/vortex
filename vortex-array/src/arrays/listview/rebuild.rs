@@ -202,6 +202,7 @@ impl ListViewArray {
     fn rebuild_list_by_list<O: IntegerPType, NewOffset: IntegerPType, S: IntegerPType>(
         &self,
     ) -> VortexResult<ListViewArray> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let element_dtype = self
             .dtype()
             .as_list_element_opt()
@@ -224,11 +225,10 @@ impl ListViewArray {
         let mut new_sizes = BufferMut::<S>::with_capacity(len);
 
         // Canonicalize the elements up front as we will be slicing the elements quite a lot.
-        #[expect(deprecated)]
         let elements_canonical = self
             .elements()
             .clone()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<Canonical>(&mut ctx)
             .vortex_expect("canonicalize elements for rebuild")
             .into_array();
 
@@ -475,6 +475,7 @@ mod tests {
 
     #[test]
     fn test_rebuild_trim_elements_basic() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Test trimming both leading and trailing unused elements while preserving gaps in the
         // middle.
         // Elements: [_, _, A, B, _, C, D, _, _]
@@ -516,7 +517,7 @@ mod tests {
         let all_elements = trimmed.elements().to_primitive();
         assert_eq!(
             all_elements
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(2, &mut ctx)
                 .unwrap(),
             97i32.into()
         );
@@ -525,6 +526,7 @@ mod tests {
 
     #[test]
     fn test_rebuild_with_trailing_nulls_regression() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Regression test for issue #5412
         // Tests that zero-copy-to-list arrays with trailing NULLs correctly calculate
         // offsets for NULL items to maintain no-overlap invariant
@@ -561,22 +563,22 @@ mod tests {
         // Verify the result is still valid
         assert!(
             exact
-                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(0, &mut ctx)
                 .unwrap()
         );
         assert!(
             exact
-                .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(1, &mut ctx)
                 .unwrap()
         );
         assert!(
             !exact
-                .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(2, &mut ctx)
                 .unwrap()
         );
         assert!(
             !exact
-                .is_valid(3, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(3, &mut ctx)
                 .unwrap()
         );
 

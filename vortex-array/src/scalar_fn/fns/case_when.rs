@@ -1115,6 +1115,7 @@ mod tests {
 
     #[test]
     fn test_evaluate_nary_string_output() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Exercises merge_case_branches with a non-primitive (Utf8) builder.
         let test_array =
             StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4].into_array())])
@@ -1134,19 +1135,19 @@ mod tests {
 
         let result = evaluate_expr(&expr, &test_array);
         assert_eq!(
-            result.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
+            result.execute_scalar(0, &mut ctx)?,
             Scalar::utf8("low", Nullability::NonNullable)
         );
         assert_eq!(
-            result.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
+            result.execute_scalar(1, &mut ctx)?,
             Scalar::utf8("low", Nullability::NonNullable)
         );
         assert_eq!(
-            result.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?,
+            result.execute_scalar(2, &mut ctx)?,
             Scalar::utf8("high", Nullability::NonNullable)
         );
         assert_eq!(
-            result.execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())?,
+            result.execute_scalar(3, &mut ctx)?,
             Scalar::utf8("high", Nullability::NonNullable)
         );
         Ok(())

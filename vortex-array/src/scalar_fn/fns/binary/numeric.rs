@@ -87,13 +87,14 @@ mod test {
     use crate::scalar_fn::fns::operators::Operator;
 
     fn sub_scalar(array: &ArrayRef, scalar: impl Into<Scalar>) -> VortexResult<ArrayRef> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         array
             .binary(
                 ConstantArray::new(scalar, array.len()).into_array(),
                 Operator::Sub,
             )
             .and_then(|a| {
-                a.execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                a.execute::<RecursiveCanonical>(&mut ctx)
             })
             .map(|a| a.0.into_array())
     }

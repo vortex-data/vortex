@@ -266,7 +266,8 @@ fn search_sorted_side_idx<F: FnMut(usize) -> VortexResult<Ordering>>(
 
 impl IndexOrd<Scalar> for ArrayRef {
     fn index_cmp(&self, idx: usize, elem: &Scalar) -> VortexResult<Option<Ordering>> {
-        let scalar_a = self.execute_scalar(idx, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let scalar_a = self.execute_scalar(idx, &mut ctx)?;
         Ok(scalar_a.partial_cmp(elem))
     }
 

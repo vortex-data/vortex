@@ -22,8 +22,6 @@ use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
-#[expect(deprecated)]
-use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::scalar::ListScalar;
@@ -238,8 +236,11 @@ impl ArrayBuilder for FixedSizeListBuilder {
     /// This will increase the capacity if extending with this `array` would go past the original
     /// capacity.
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        #[expect(deprecated)]
-        let fsl = array.to_fixed_size_list();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let fsl = array
+            .clone()
+            .execute::<FixedSizeListArray>(&mut ctx)
+            .vortex_expect("extend_from_array_unchecked: failed to canonicalize");
         if fsl.is_empty() {
             return;
         }
@@ -249,7 +250,7 @@ impl ArrayBuilder for FixedSizeListBuilder {
             array
                 .validity()
                 .vortex_expect("validity_mask in extend_from_array_unchecked")
-                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .to_mask(array.len(), &mut ctx)
                 .vortex_expect("Failed to compute validity mask"),
         );
     }
@@ -922,6 +923,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder = FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 2, Nullable, 10);
 
@@ -944,7 +946,7 @@ mod tests {
         // Check actual values using scalar_at.
 
         let scalar0 = array
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap();
         let list0 = scalar0.as_list();
         assert_eq!(list0.len(), 2);
@@ -954,7 +956,7 @@ mod tests {
         }
 
         let scalar1 = array
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(1, &mut ctx)
             .unwrap();
         let list1 = scalar1.as_list();
         assert_eq!(list1.len(), 2);

@@ -184,6 +184,7 @@ impl VarBinData {
         dtype: &DType,
         validity: &Validity,
     ) -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Check offsets are non-nullable integer
         vortex_ensure!(
             offsets.dtype().is_int() && !offsets.dtype().is_nullable(),
@@ -215,7 +216,7 @@ impl VarBinData {
             let last_offset = offsets
                 .execute_scalar(
                     offsets.len() - 1,
-                    &mut LEGACY_SESSION.create_execution_ctx(),
+                    &mut ctx,
                 )?
                 .as_primitive()
                 .as_::<usize>()
@@ -324,6 +325,7 @@ pub trait VarBinArrayExt: TypedArrayRef<VarBin> {
     }
 
     fn offset_at(&self, index: usize) -> usize {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert!(
             index <= self.as_ref().len(),
             "Index {index} out of bounds 0..={}",
@@ -332,7 +334,7 @@ pub trait VarBinArrayExt: TypedArrayRef<VarBin> {
 
         (&self
             .offsets()
-            .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(index, &mut ctx)
             .vortex_expect("offsets must support execute_scalar"))
             .try_into()
             .vortex_expect("Failed to convert offset to usize")

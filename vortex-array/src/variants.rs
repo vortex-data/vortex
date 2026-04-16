@@ -134,17 +134,19 @@ impl PrimitiveTyped<'_> {
 
     /// Return the primitive value at the given index.
     pub fn value(&self, idx: usize) -> VortexResult<Option<PValue>> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         self.0
-            .is_valid(idx, &mut LEGACY_SESSION.create_execution_ctx())?
+            .is_valid(idx, &mut ctx)?
             .then(|| self.value_unchecked(idx))
             .transpose()
     }
 
     /// Return the primitive value at the given index, ignoring nullability.
     pub fn value_unchecked(&self, idx: usize) -> VortexResult<PValue> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         Ok(self
             .0
-            .execute_scalar(idx, &mut LEGACY_SESSION.create_execution_ctx())?
+            .execute_scalar(idx, &mut ctx)?
             .as_primitive()
             .pvalue()
             .unwrap_or_else(|| PValue::zero(&self.ptype())))
@@ -165,9 +167,10 @@ impl IndexOrd<Option<PValue>> for PrimitiveTyped<'_> {
 // TODO(ngates): add generics to the `value` function and implement this over T.
 impl IndexOrd<PValue> for PrimitiveTyped<'_> {
     fn index_cmp(&self, idx: usize, elem: &PValue) -> VortexResult<Option<Ordering>> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert!(
             self.0
-                .all_valid(&mut LEGACY_SESSION.create_execution_ctx())?
+                .all_valid(&mut ctx)?
         );
         let value = self.value_unchecked(idx)?;
         Ok(value.partial_cmp(elem))

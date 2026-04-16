@@ -165,7 +165,8 @@ mod tests {
     }
 
     fn execute(array: crate::ArrayRef, dt: &DataType) -> VortexResult<arrow_array::ArrayRef> {
-        array.execute_arrow(Some(dt), &mut LEGACY_SESSION.create_execution_ctx())
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        array.execute_arrow(Some(dt), &mut ctx)
     }
 
     #[rstest]

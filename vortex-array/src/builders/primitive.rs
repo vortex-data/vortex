@@ -19,8 +19,6 @@ use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
-#[expect(deprecated)]
-use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
@@ -178,8 +176,11 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        #[expect(deprecated)]
-        let array = array.to_primitive();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let array = array
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("extend_from_array_unchecked: failed to canonicalize");
 
         // This should be checked in `extend_from_array` but we can check it again.
         debug_assert_eq!(
@@ -196,7 +197,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
                 .vortex_expect("validity_mask")
                 .to_mask(
                     array.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
+                    &mut ctx,
                 )
                 .vortex_expect("Failed to compute validity mask"),
         );
@@ -418,6 +419,7 @@ mod tests {
     /// This test ensures the new API works correctly.
     #[test]
     fn test_append_mask_on_uninit_range() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::Nullable, 5);
         let mut range = builder.uninit_range(3);
 
@@ -442,19 +444,19 @@ mod tests {
         // Check validity using scalar_at - nulls will return is_null() = true.
         assert!(
             !array
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut ctx)
                 .unwrap()
                 .is_null()
         );
         assert!(
             array
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(1, &mut ctx)
                 .unwrap()
                 .is_null()
         );
         assert!(
             !array
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(2, &mut ctx)
                 .unwrap()
                 .is_null()
         );
@@ -509,6 +511,7 @@ mod tests {
     /// modify individual bits with relative indexing.
     #[test]
     fn test_set_bit_relative_indexing() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::Nullable, 10);
 
         // First add some values to the builder.
@@ -547,13 +550,13 @@ mod tests {
         // Check validity - the first two should be valid (from append_value).
         assert!(
             !array
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut ctx)
                 .unwrap()
                 .is_null()
         ); // initial value 100
         assert!(
             !array
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(1, &mut ctx)
                 .unwrap()
                 .is_null()
         ); // initial value 200
@@ -561,19 +564,19 @@ mod tests {
         // Check the range items with modified validity.
         assert!(
             !array
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(2, &mut ctx)
                 .unwrap()
                 .is_null()
         ); // range index 0 - set to valid
         assert!(
             array
-                .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(3, &mut ctx)
                 .unwrap()
                 .is_null()
         ); // range index 1 - left as null
         assert!(
             !array
-                .execute_scalar(4, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(4, &mut ctx)
                 .unwrap()
                 .is_null()
         ); // range index 2 - set to valid

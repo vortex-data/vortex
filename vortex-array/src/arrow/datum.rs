@@ -89,6 +89,7 @@ pub fn from_arrow_array_with_len<A>(array: A, len: usize, nullable: bool) -> Vor
 where
     ArrayRef: FromArrowArray<A>,
 {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let array = ArrayRef::from_arrow(array, nullable)?;
     if array.len() == len {
         return Ok(array);
@@ -105,7 +106,7 @@ where
 
     Ok(ConstantArray::new(
         array
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .vortex_expect("array of length 1 must support execute_scalar(0)"),
         len,
     )

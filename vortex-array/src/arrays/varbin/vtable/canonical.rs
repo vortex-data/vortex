@@ -62,6 +62,7 @@ mod tests {
     #[case(DType::Utf8(Nullability::Nullable))]
     #[case(DType::Binary(Nullability::Nullable))]
     fn test_canonical_varbin_sliced(#[case] dtype: DType) {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut varbin = VarBinBuilder::<i32>::with_capacity(10);
         varbin.append_null();
         varbin.append_null();
@@ -79,7 +80,7 @@ mod tests {
 
         assert!(
             !canonical
-                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(0, &mut ctx)
                 .unwrap()
         );
 

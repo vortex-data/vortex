@@ -290,6 +290,7 @@ pub trait ListArrayExt: TypedArrayRef<List> {
     }
 
     fn offset_at(&self, index: usize) -> VortexResult<usize> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         vortex_ensure!(
             index <= self.as_ref().len(),
             "Index {index} out of bounds 0..={}",
@@ -302,7 +303,7 @@ pub trait ListArrayExt: TypedArrayRef<List> {
             }))
         } else {
             self.offsets()
-                .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())?
+                .execute_scalar(index, &mut ctx)?
                 .as_primitive()
                 .as_::<usize>()
                 .ok_or_else(|| vortex_error::vortex_err!("offset value does not fit in usize"))
@@ -326,10 +327,11 @@ pub trait ListArrayExt: TypedArrayRef<List> {
     }
 
     fn reset_offsets(&self, recurse: bool) -> VortexResult<Array<List>> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut elements = self.sliced_elements()?;
         if recurse && elements.is_canonical() {
             elements = elements
-                .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+                .execute::<Canonical>(&mut ctx)?
                 .compact()?
                 .into_array();
         } else if recurse && let Some(child_list_array) = elements.as_opt::<List>() {
@@ -340,7 +342,7 @@ pub trait ListArrayExt: TypedArrayRef<List> {
         }
 
         let offsets = self.offsets();
-        let first_offset = offsets.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let first_offset = offsets.execute_scalar(0, &mut ctx)?;
         let adjusted_offsets = offsets.clone().binary(
             ConstantArray::new(first_offset, offsets.len()).into_array(),
             Operator::Sub,

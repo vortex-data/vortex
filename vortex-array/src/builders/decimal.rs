@@ -14,8 +14,6 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::arrays::DecimalArray;
 use crate::builders::ArrayBuilder;
@@ -196,8 +194,11 @@ impl ArrayBuilder for DecimalBuilder {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        #[expect(deprecated)]
-        let decimal_array = array.to_decimal();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let decimal_array = array
+            .clone()
+            .execute::<DecimalArray>(&mut ctx)
+            .vortex_expect("extend_from_array_unchecked: failed to canonicalize");
 
         match_each_decimal_value_type!(decimal_array.values_type(), |D| {
             // Extends the values buffer from another buffer of type D where D can be coerced to the
@@ -213,7 +214,7 @@ impl ArrayBuilder for DecimalBuilder {
                 .vortex_expect("validity_mask")
                 .to_mask(
                     decimal_array.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
+                    &mut ctx,
                 )
                 .vortex_expect("Failed to compute validity mask"),
         );
@@ -320,6 +321,7 @@ mod tests {
 
     #[test]
     fn test_mixed_extend() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = 42i8;
 
         let mut i8s = DecimalBuilder::new::<i8>(DecimalDType::new(2, 1), false.into());
@@ -334,10 +336,10 @@ mod tests {
 
         for i in 0..i8s.len() {
             assert_eq!(
-                i8s.execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                i8s.execute_scalar(i, &mut ctx)
                     .unwrap(),
                 i128s
-                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(i, &mut ctx)
                     .unwrap()
             );
         }
@@ -345,6 +347,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         use crate::scalar::Scalar;
 
         // Simply test that the builder accepts its own finish output via scalar.
@@ -364,7 +367,7 @@ mod tests {
         let mut builder2 = DecimalBuilder::new::<i64>(DecimalDType::new(10, 2), true.into());
         for i in 0..array.len() {
             let scalar = array
-                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(i, &mut ctx)
                 .unwrap();
             builder2.append_scalar(&scalar).unwrap();
         }

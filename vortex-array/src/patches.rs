@@ -175,9 +175,10 @@ impl Patches {
         // Perform validation of components when they are host-resident.
         // This is not possible to do eagerly when the data is on GPU memory.
         if indices.is_host() && values.is_host() {
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
             let max = usize::try_from(&indices.execute_scalar(
                 indices.len() - 1,
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut ctx,
             )?)
             .map_err(|_| vortex_err!("indices must be a number"))?;
             vortex_ensure!(
@@ -293,12 +294,13 @@ impl Patches {
 
     #[inline]
     pub fn chunk_offset_at(&self, idx: usize) -> VortexResult<usize> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let Some(chunk_offsets) = &self.chunk_offsets else {
             vortex_bail!("chunk_offsets must be set to retrieve offset at index")
         };
 
         chunk_offsets
-            .execute_scalar(idx, &mut LEGACY_SESSION.create_execution_ctx())?
+            .execute_scalar(idx, &mut ctx)?
             .as_primitive()
             .as_::<usize>()
             .ok_or_else(|| vortex_err!("chunk offset does not fit in usize"))
@@ -367,11 +369,12 @@ impl Patches {
 
     /// Get the patched value at a given index if it exists.
     pub fn get_patched(&self, index: usize) -> VortexResult<Option<Scalar>> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         self.search_index(index)?
             .to_found()
             .map(|patch_idx| {
                 self.values()
-                    .execute_scalar(patch_idx, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(patch_idx, &mut ctx)
             })
             .transpose()
     }
@@ -553,9 +556,10 @@ impl Patches {
 
     /// Returns the minimum patch index
     pub fn min_index(&self) -> VortexResult<usize> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let first = self
             .indices
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
+            .execute_scalar(0, &mut ctx)?
             .as_primitive()
             .as_::<usize>()
             .ok_or_else(|| vortex_err!("index does not fit in usize"))?;
@@ -564,11 +568,12 @@ impl Patches {
 
     /// Returns the maximum patch index
     pub fn max_index(&self) -> VortexResult<usize> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let last = self
             .indices
             .execute_scalar(
                 self.indices.len() - 1,
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut ctx,
             )?
             .as_primitive()
             .as_::<usize>()
@@ -653,6 +658,7 @@ impl Patches {
 
     /// Slice the patches by a range of the patched array.
     pub fn slice(&self, range: Range<usize>) -> VortexResult<Option<Self>> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let slice_start_idx = self.search_index(range.start)?.to_index();
         let slice_end_idx = self.search_index(range.end)?.to_index();
 
@@ -678,7 +684,7 @@ impl Patches {
             .as_ref()
             .map(|new_chunk_offsets| -> VortexResult<usize> {
                 let new_chunk_base = new_chunk_offsets
-                    .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
+                    .execute_scalar(0, &mut ctx)?
                     .as_primitive()
                     .as_::<usize>()
                     .ok_or_else(|| vortex_err!("chunk offset does not fit in usize"))?;
@@ -1128,6 +1134,7 @@ mod test {
 
     #[test]
     fn test_filter() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let patches = Patches::new(
             100,
             0,
@@ -1140,7 +1147,7 @@ mod test {
         let filtered = patches
             .filter(
                 &Mask::from_indices(100, vec![10, 20, 30]),
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut ctx,
             )
             .unwrap()
             .unwrap();
@@ -1151,6 +1158,7 @@ mod test {
 
     #[test]
     fn take_with_nulls() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let patches = Patches::new(
             20,
             0,
@@ -1164,7 +1172,7 @@ mod test {
             .take(
                 &PrimitiveArray::new(buffer![9, 0], Validity::from_iter(vec![true, false]))
                     .into_array(),
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut ctx,
             )
             .unwrap()
             .unwrap();
@@ -1185,7 +1193,7 @@ mod test {
                 .unwrap()
                 .to_mask(
                     primitive_values.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx()
+                    &mut ctx
                 )
                 .unwrap(),
             Mask::from_iter(vec![true])
@@ -1194,6 +1202,7 @@ mod test {
 
     #[test]
     fn take_search_with_nulls_chunked() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let patches = Patches::new(
             20,
             0,
@@ -1207,7 +1216,7 @@ mod test {
             .take_search(
                 PrimitiveArray::new(buffer![9, 0], Validity::from_iter([true, false])),
                 true,
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut ctx,
             )
             .unwrap()
             .unwrap();
@@ -1228,7 +1237,7 @@ mod test {
                 .unwrap()
                 .to_mask(
                     primitive_values.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx()
+                    &mut ctx
                 )
                 .unwrap(),
             Mask::from_iter([true, false])
@@ -1237,6 +1246,7 @@ mod test {
 
     #[test]
     fn take_search_chunked_multiple_chunks() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let patches = Patches::new(
             2048,
             0,
@@ -1250,7 +1260,7 @@ mod test {
             .take_search(
                 PrimitiveArray::new(buffer![500, 1200, 999], Validity::AllValid),
                 true,
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut ctx,
             )
             .unwrap()
             .unwrap();
@@ -1264,6 +1274,7 @@ mod test {
 
     #[test]
     fn take_search_chunked_indices_with_no_patches() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let patches = Patches::new(
             20,
             0,
@@ -1277,7 +1288,7 @@ mod test {
             .take_search(
                 PrimitiveArray::new(buffer![3, 4, 5], Validity::AllValid),
                 true,
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut ctx,
             )
             .unwrap();
 
@@ -1286,6 +1297,7 @@ mod test {
 
     #[test]
     fn take_search_chunked_interleaved() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let patches = Patches::new(
             30,
             0,
@@ -1299,7 +1311,7 @@ mod test {
             .take_search(
                 PrimitiveArray::new(buffer![10, 15, 20, 99], Validity::AllValid),
                 true,
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut ctx,
             )
             .unwrap()
             .unwrap();
@@ -1313,6 +1325,7 @@ mod test {
 
     #[test]
     fn test_take_search_multiple_chunk_offsets() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let patches = Patches::new(
             1500,
             0,
@@ -1326,7 +1339,7 @@ mod test {
             .take_search(
                 PrimitiveArray::new(BufferMut::from_iter(0..1500u64), Validity::AllValid),
                 false,
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut ctx,
             )
             .unwrap()
             .unwrap();
@@ -1366,6 +1379,7 @@ mod test {
 
     #[test]
     fn test_mask_all_true() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1377,13 +1391,14 @@ mod test {
 
         let mask = Mask::new_true(10);
         let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .mask(&mask, &mut ctx)
             .unwrap();
         assert!(masked.is_none());
     }
 
     #[test]
     fn test_mask_all_false() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1395,7 +1410,7 @@ mod test {
 
         let mask = Mask::new_false(10);
         let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .mask(&mask, &mut ctx)
             .unwrap()
             .unwrap();
 
@@ -1407,19 +1422,19 @@ mod test {
         assert!(
             masked
                 .values()
-                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(0, &mut ctx)
                 .unwrap()
         );
         assert!(
             masked
                 .values()
-                .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(1, &mut ctx)
                 .unwrap()
         );
         assert!(
             masked
                 .values()
-                .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(2, &mut ctx)
                 .unwrap()
         );
 
@@ -1429,6 +1444,7 @@ mod test {
 
     #[test]
     fn test_mask_partial() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1443,7 +1459,7 @@ mod test {
             false, false, true, false, false, false, false, false, true, false,
         ]);
         let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .mask(&mask, &mut ctx)
             .unwrap()
             .unwrap();
 
@@ -1457,6 +1473,7 @@ mod test {
 
     #[test]
     fn test_mask_with_offset() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let patches = Patches::new(
             10,
             5,                                  // offset
@@ -1472,7 +1489,7 @@ mod test {
         ]);
 
         let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .mask(&mask, &mut ctx)
             .unwrap()
             .unwrap();
         assert_eq!(masked.array_len(), 10);
@@ -1483,6 +1500,7 @@ mod test {
 
     #[test]
     fn test_mask_nullable_values() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1497,7 +1515,7 @@ mod test {
             false, false, true, false, false, false, false, false, false, false,
         ]);
         let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .mask(&mask, &mut ctx)
             .unwrap()
             .unwrap();
 
@@ -1510,18 +1528,18 @@ mod test {
         assert_eq!(masked_values.len(), 2);
         assert!(
             !masked_values
-                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(0, &mut ctx)
                 .unwrap()
         ); // the null value at index 5
         assert!(
             masked_values
-                .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(1, &mut ctx)
                 .unwrap()
         ); // the 300 value at index 8
         assert_eq!(
             i32::try_from(
                 &masked_values
-                    .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(1, &mut ctx)
                     .unwrap()
             )
             .unwrap(),
@@ -1531,6 +1549,7 @@ mod test {
 
     #[test]
     fn test_filter_keep_all() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1543,7 +1562,7 @@ mod test {
         // Keep all indices (mask with indices 0-9)
         let mask = Mask::from_indices(10, (0..10).collect());
         let filtered = patches
-            .filter(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .filter(&mask, &mut ctx)
             .unwrap()
             .unwrap();
 
@@ -1556,6 +1575,7 @@ mod test {
 
     #[test]
     fn test_filter_none() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1568,13 +1588,14 @@ mod test {
         // Filter out all (empty mask means keep nothing)
         let mask = Mask::from_indices(10, vec![]);
         let filtered = patches
-            .filter(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .filter(&mask, &mut ctx)
             .unwrap();
         assert!(filtered.is_none());
     }
 
     #[test]
     fn test_filter_with_indices() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1587,7 +1608,7 @@ mod test {
         // Keep indices 2, 5, 9 (so patches at 2 and 5 remain)
         let mask = Mask::from_indices(10, vec![2, 5, 9]);
         let filtered = patches
-            .filter(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .filter(&mask, &mut ctx)
             .unwrap()
             .unwrap();
 
@@ -1672,6 +1693,7 @@ mod test {
 
     #[test]
     fn test_patch_values() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1686,7 +1708,7 @@ mod test {
         assert_eq!(
             i32::try_from(
                 &values
-                    .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(0, &mut ctx)
                     .unwrap()
             )
             .unwrap(),
@@ -1695,7 +1717,7 @@ mod test {
         assert_eq!(
             i32::try_from(
                 &values
-                    .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(1, &mut ctx)
                     .unwrap()
             )
             .unwrap(),
@@ -1704,7 +1726,7 @@ mod test {
         assert_eq!(
             i32::try_from(
                 &values
-                    .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(2, &mut ctx)
                     .unwrap()
             )
             .unwrap(),
@@ -1752,6 +1774,7 @@ mod test {
 
     #[test]
     fn test_mask_boundary_patches() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Test masking patches at array boundaries
         let patches = Patches::new(
             10,
@@ -1766,7 +1789,7 @@ mod test {
             true, false, false, false, false, false, false, false, false, false,
         ]);
         let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .mask(&mask, &mut ctx)
             .unwrap();
         assert!(masked.is_some());
         let masked = masked.unwrap();
@@ -1776,6 +1799,7 @@ mod test {
 
     #[test]
     fn test_mask_all_patches_removed() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Test when all patches are masked out
         let patches = Patches::new(
             10,
@@ -1791,13 +1815,14 @@ mod test {
             false, false, true, false, false, true, false, false, true, false,
         ]);
         let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .mask(&mask, &mut ctx)
             .unwrap();
         assert!(masked.is_none());
     }
 
     #[test]
     fn test_mask_no_patches_removed() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Test when no patches are masked
         let patches = Patches::new(
             10,
@@ -1813,7 +1838,7 @@ mod test {
             true, false, false, true, false, false, true, false, false, true,
         ]);
         let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .mask(&mask, &mut ctx)
             .unwrap()
             .unwrap();
 
@@ -1826,6 +1851,7 @@ mod test {
 
     #[test]
     fn test_mask_single_patch() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Test with a single patch
         let patches = Patches::new(
             5,
@@ -1839,14 +1865,14 @@ mod test {
         // Mask that removes the single patch
         let mask = Mask::from_iter([false, false, true, false, false]);
         let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .mask(&mask, &mut ctx)
             .unwrap();
         assert!(masked.is_none());
 
         // Mask that keeps the single patch
         let mask = Mask::from_iter([true, false, false, true, false]);
         let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .mask(&mask, &mut ctx)
             .unwrap()
             .unwrap();
         assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([2u64]));
@@ -1854,6 +1880,7 @@ mod test {
 
     #[test]
     fn test_mask_contiguous_patches() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Test with contiguous patches
         let patches = Patches::new(
             10,
@@ -1869,7 +1896,7 @@ mod test {
             false, false, false, false, true, true, false, false, false, false,
         ]);
         let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .mask(&mask, &mut ctx)
             .unwrap()
             .unwrap();
 
@@ -1879,6 +1906,7 @@ mod test {
 
     #[test]
     fn test_mask_with_large_offset() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Test with a large offset that shifts all indices
         let patches = Patches::new(
             20,
@@ -1895,7 +1923,7 @@ mod test {
             false, false, false, false, false, false, false, false,
         ]);
         let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .mask(&mask, &mut ctx)
             .unwrap()
             .unwrap();
 
@@ -1906,6 +1934,7 @@ mod test {
     #[test]
     #[should_panic(expected = "Filter mask length 5 does not match array length 10")]
     fn test_mask_wrong_length() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1918,7 +1947,7 @@ mod test {
         // Mask with wrong length
         let mask = Mask::from_iter([false, false, true, false, false]);
         patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .mask(&mask, &mut ctx)
             .unwrap();
     }
 

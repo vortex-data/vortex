@@ -142,10 +142,11 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
     }
 
     fn compute_referenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let codes = self.codes();
         let codes_validity = codes
             .validity()?
-            .to_mask(codes.len(), &mut LEGACY_SESSION.create_execution_ctx())?;
+            .to_mask(codes.len(), &mut ctx)?;
         #[expect(deprecated)]
         let codes_primitive = self.codes().to_primitive();
         let values_len = self.values().len();
@@ -289,6 +290,7 @@ mod test {
 
     #[test]
     fn nullable_codes_validity() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dict = DictArray::try_new(
             PrimitiveArray::new(
                 buffer![0u32, 1, 2, 2, 1],
@@ -304,7 +306,7 @@ mod test {
             .unwrap()
             .to_mask(
                 dict.as_ref().len(),
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut ctx,
             )
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
@@ -315,6 +317,7 @@ mod test {
 
     #[test]
     fn nullable_values_validity() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dict = DictArray::try_new(
             buffer![0u32, 1, 2, 2, 1].into_array(),
             PrimitiveArray::new(
@@ -330,7 +333,7 @@ mod test {
             .unwrap()
             .to_mask(
                 dict.as_ref().len(),
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut ctx,
             )
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
@@ -341,6 +344,7 @@ mod test {
 
     #[test]
     fn nullable_codes_and_values() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dict = DictArray::try_new(
             PrimitiveArray::new(
                 buffer![0u32, 1, 2, 2, 1],
@@ -360,7 +364,7 @@ mod test {
             .unwrap()
             .to_mask(
                 dict.as_ref().len(),
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut ctx,
             )
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
@@ -371,6 +375,7 @@ mod test {
 
     #[test]
     fn nullable_codes_and_non_null_values() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dict = DictArray::try_new(
             PrimitiveArray::new(
                 buffer![0u32, 1, 2, 2, 1],
@@ -386,7 +391,7 @@ mod test {
             .unwrap()
             .to_mask(
                 dict.as_ref().len(),
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut ctx,
             )
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
@@ -426,6 +431,7 @@ mod test {
 
     #[test]
     fn test_dict_array_from_primitive_chunks() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let len = 2;
         let chunk_count = 2;
         let array = make_dict_primitive_chunks::<u64, u64>(len, 2, chunk_count);
@@ -434,7 +440,7 @@ mod test {
             &DType::Primitive(PType::U64, NonNullable),
             len * chunk_count,
         );
-        array.append_to_builder(builder.as_mut(), &mut LEGACY_SESSION.create_execution_ctx())?;
+        array.append_to_builder(builder.as_mut(), &mut ctx)?;
 
         #[expect(deprecated)]
         let into_prim = array.to_primitive();

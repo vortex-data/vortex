@@ -44,6 +44,7 @@ fn test_dtype_nullability_with_nullable_child() {
 
 #[test]
 fn test_canonical_dtype_matches_array_dtype() -> VortexResult<()> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // The canonical form should have the same nullability as the array's dtype.
     let child = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
     let array = MaskedArray::try_new(child, Validity::AllValid).unwrap();
@@ -51,7 +52,7 @@ fn test_canonical_dtype_matches_array_dtype() -> VortexResult<()> {
     let canonical = array
         .clone()
         .into_array()
-        .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?;
+        .execute::<Canonical>(&mut ctx)?;
     assert_eq!(canonical.dtype(), array.dtype());
     Ok(())
 }
@@ -70,31 +71,32 @@ fn test_masked_child_with_validity() {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     assert_eq!(prim.valid_count(&mut ctx).unwrap(), 3);
     assert!(
-        prim.is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+        prim.is_valid(0, &mut ctx)
             .unwrap()
     );
     assert!(
         !prim
-            .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(1, &mut ctx)
             .unwrap()
     );
     assert!(
-        prim.is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+        prim.is_valid(2, &mut ctx)
             .unwrap()
     );
     assert!(
         !prim
-            .is_valid(3, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(3, &mut ctx)
             .unwrap()
     );
     assert!(
-        prim.is_valid(4, &mut LEGACY_SESSION.create_execution_ctx())
+        prim.is_valid(4, &mut ctx)
             .unwrap()
     );
 }
 
 #[test]
 fn test_masked_child_all_valid() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // When validity is AllValid, masked_child should invert to AllInvalid.
     let child = PrimitiveArray::from_iter([10i32, 20, 30]).into_array();
     let array = MaskedArray::try_new(child, Validity::AllValid).unwrap();
@@ -102,7 +104,7 @@ fn test_masked_child_all_valid() {
     assert_eq!(array.len(), 3);
     assert_eq!(
         array
-            .valid_count(&mut LEGACY_SESSION.create_execution_ctx())
+            .valid_count(&mut ctx)
             .unwrap(),
         3
     );

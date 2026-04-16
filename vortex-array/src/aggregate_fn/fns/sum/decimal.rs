@@ -131,6 +131,7 @@ mod tests {
 
     #[test]
     fn sum_decimal_basic() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let decimal = DecimalArray::new(
             buffer![100i32, 200i32, 300i32],
             DecimalDType::new(4, 2),
@@ -139,7 +140,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )?;
 
         let expected = Scalar::try_new(
@@ -153,6 +154,7 @@ mod tests {
 
     #[test]
     fn sum_decimal_with_nulls() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let decimal = DecimalArray::new(
             buffer![100i32, 200i32, 300i32, 400i32],
             DecimalDType::new(4, 2),
@@ -161,7 +163,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )?;
 
         let expected = Scalar::try_new(
@@ -175,6 +177,7 @@ mod tests {
 
     #[test]
     fn sum_decimal_negative_values() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let decimal = DecimalArray::new(
             buffer![100i32, -200i32, 300i32, -50i32],
             DecimalDType::new(4, 2),
@@ -183,7 +186,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )?;
 
         let expected = Scalar::try_new(
@@ -197,6 +200,7 @@ mod tests {
 
     #[test]
     fn sum_decimal_near_i32_max() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let near_max = i32::MAX - 1000;
         let decimal = DecimalArray::new(
             buffer![near_max, 500i32, 400i32],
@@ -206,7 +210,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )?;
 
         let expected_sum = near_max as i64 + 500 + 400;
@@ -221,6 +225,7 @@ mod tests {
 
     #[test]
     fn sum_decimal_large_i64_values() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let large_val = i64::MAX / 4;
         let decimal = DecimalArray::new(
             buffer![large_val, large_val, large_val, large_val + 1],
@@ -230,7 +235,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )?;
 
         let expected_sum = (large_val as i128) * 4 + 1;
@@ -245,6 +250,7 @@ mod tests {
 
     #[test]
     fn sum_decimal_preserves_scale() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let decimal = DecimalArray::new(
             buffer![12345i32, 67890i32, 11111i32],
             DecimalDType::new(6, 4),
@@ -253,7 +259,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )?;
 
         let expected = Scalar::try_new(
@@ -267,12 +273,13 @@ mod tests {
 
     #[test]
     fn sum_decimal_single_value() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let decimal =
             DecimalArray::new(buffer![42i32], DecimalDType::new(3, 1), Validity::AllValid);
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )?;
 
         let expected = Scalar::try_new(
@@ -286,6 +293,7 @@ mod tests {
 
     #[test]
     fn sum_decimal_all_nulls_except_one() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let decimal = DecimalArray::new(
             buffer![100i32, 200i32, 300i32, 400i32],
             DecimalDType::new(4, 2),
@@ -294,7 +302,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )?;
 
         let expected = Scalar::try_new(
@@ -308,6 +316,7 @@ mod tests {
 
     #[test]
     fn sum_decimal_overflow_detection() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let max_val = i128::MAX / 2;
         let decimal = DecimalArray::new(
             buffer![max_val, max_val, max_val],
@@ -317,7 +326,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )?;
 
         let expected_sum =
@@ -333,6 +342,7 @@ mod tests {
 
     #[test]
     fn sum_decimal_i256_overflow() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(76, 0);
         let decimal = DecimalArray::new(
             buffer![i256::MAX, i256::MAX, i256::MAX],
@@ -343,7 +353,7 @@ mod tests {
         assert_eq!(
             sum(
                 &decimal.into_array(),
-                &mut LEGACY_SESSION.create_execution_ctx()
+                &mut ctx
             )
             .vortex_expect("operation should succeed in test"),
             Scalar::null(DType::Decimal(decimal_dtype, Nullable))

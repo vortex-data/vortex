@@ -20,8 +20,6 @@ use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
-#[expect(deprecated)]
-use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::scalar::Scalar;
@@ -116,8 +114,11 @@ impl ArrayBuilder for BoolBuilder {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        #[expect(deprecated)]
-        let bool_array = array.to_bool();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let bool_array = array
+            .clone()
+            .execute::<BoolArray>(&mut ctx)
+            .vortex_expect("extend_from_array_unchecked: failed to canonicalize");
 
         self.inner.append_buffer(&bool_array.to_bit_buffer());
         self.nulls.append_validity_mask(
@@ -127,7 +128,7 @@ impl ArrayBuilder for BoolBuilder {
                 .vortex_expect("validity_mask")
                 .to_mask(
                     bool_array.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
+                    &mut ctx,
                 )
                 .vortex_expect("Failed to compute validity mask"),
         );

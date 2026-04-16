@@ -197,12 +197,12 @@ mod test {
 
     #[test]
     fn cast_i32_u32() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = buffer![-1i32].into_array();
-        #[expect(deprecated)]
         let error = arr
             .cast(PType::U32.into())
             .and_then(|a| {
-                a.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                a.execute::<Canonical>(&mut ctx)
                     .map(|c| c.into_array())
             })
             .unwrap_err();
@@ -212,13 +212,13 @@ mod test {
 
     #[test]
     fn cast_array_with_nulls_to_nonnullable() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = PrimitiveArray::from_option_iter([Some(-1i32), None, Some(10)]);
-        #[expect(deprecated)]
         let err = arr
             .into_array()
             .cast(PType::I32.into())
             .and_then(|a| {
-                a.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                a.execute::<Canonical>(&mut ctx)
                     .map(|c| c.into_array())
             })
             .unwrap_err();
@@ -232,6 +232,7 @@ mod test {
 
     #[test]
     fn cast_with_invalid_nulls() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = PrimitiveArray::new(
             buffer![-1i32, 0, 10],
             Validity::from_iter([false, true, true]),
@@ -250,7 +251,7 @@ mod test {
             p.as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(p.as_ref().len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .to_mask(p.as_ref().len(), &mut ctx)
                 .unwrap(),
             Mask::from(BitBuffer::from(vec![false, true, true]))
         );
@@ -277,12 +278,12 @@ mod test {
     /// to the allocating path and produce an error.
     #[test]
     fn cast_same_width_int_out_of_range_errors() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = buffer![u32::MAX].into_array();
-        #[expect(deprecated)]
         let err = arr
             .cast(PType::I32.into())
             .and_then(|a| {
-                a.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                a.execute::<Canonical>(&mut ctx)
                     .map(|c| c.into_array())
             })
             .unwrap_err();

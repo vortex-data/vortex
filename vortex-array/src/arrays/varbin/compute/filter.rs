@@ -225,6 +225,7 @@ mod test {
 
     #[test]
     fn filter_var_bin_test() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = VarBinArray::from_vec(
             vec![
                 b"hello".as_slice(),
@@ -238,7 +239,7 @@ mod test {
             arr,
             &[0, 2],
             2,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )
         .unwrap();
 
@@ -247,6 +248,7 @@ mod test {
 
     #[test]
     fn filter_var_bin_slice_test() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = VarBinArray::from_vec(
             vec![
                 b"hello".as_slice(),
@@ -263,7 +265,7 @@ mod test {
             arr,
             &[(0, 1), (2, 3), (4, 5)],
             3,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )
         .unwrap();
 
@@ -272,6 +274,7 @@ mod test {
 
     #[test]
     fn filter_var_bin_slice_null() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let bytes = [
             b"one".as_slice(),
             b"two".as_slice(),
@@ -295,7 +298,7 @@ mod test {
             arr,
             &[(0, 3), (4, 6)],
             5,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )
         .unwrap();
 
@@ -313,6 +316,7 @@ mod test {
 
     #[test]
     fn filter_varbin_nulls() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let bytes = [b"".as_slice(), b"two".as_slice(), b"two".as_slice()]
             .into_iter()
             .flat_map(|x| x.iter().cloned())
@@ -327,7 +331,7 @@ mod test {
             arr,
             &[(0, 1), (2, 3)],
             2,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )
         .unwrap();
 
@@ -336,6 +340,7 @@ mod test {
 
     #[test]
     fn filter_varbin_all_null() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let offsets = buffer![0, 0, 0, 0].into_array();
         let validity = Validity::Array(BoolArray::from_iter([false, false, false]).into_array());
         let arr = VarBinArray::try_new(
@@ -351,7 +356,7 @@ mod test {
             arr,
             &[(0, 1), (2, 3)],
             2,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )
         .unwrap();
 

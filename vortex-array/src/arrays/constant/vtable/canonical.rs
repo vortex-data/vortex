@@ -347,13 +347,14 @@ mod tests {
 
     #[test]
     fn test_canonicalize_null() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let const_null = ConstantArray::new(Scalar::null(DType::Null), 42);
         #[expect(deprecated)]
         let actual = const_null.as_array().to_null();
         assert_eq!(actual.len(), 42);
         assert_eq!(
             actual
-                .execute_scalar(33, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(33, &mut ctx)
                 .unwrap(),
             Scalar::null(DType::Null)
         );
@@ -369,18 +370,19 @@ mod tests {
 
     #[test]
     fn test_canonicalize_propagates_stats() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let scalar = Scalar::bool(true, Nullability::NonNullable);
         let const_array = ConstantArray::new(scalar, 4).into_array();
         let stats = const_array
             .statistics()
             .compute_all(
                 &all::<Stat>().collect_vec(),
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut ctx,
             )
             .unwrap();
         let canonical = const_array
             .clone()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .execute::<Canonical>(&mut ctx)?
             .into_array();
         let canonical_stats = canonical.statistics();
 
@@ -401,6 +403,7 @@ mod tests {
 
     #[test]
     fn test_canonicalize_scalar_values() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let f16_value = f16::from_f32(5.722046e-6);
         let f16_scalar = Scalar::primitive(f16_value, Nullability::NonNullable);
 
@@ -412,7 +415,7 @@ mod tests {
         // Verify the scalar value is preserved through canonicalization
         assert_eq!(
             canonical_const
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut ctx)
                 .unwrap(),
             f16_scalar
         );
@@ -498,6 +501,7 @@ mod tests {
 
     #[test]
     fn test_canonicalize_nullable_struct() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = ConstantArray::new(
             Scalar::null(DType::struct_(
                 [(
@@ -514,7 +518,7 @@ mod tests {
         assert_eq!(struct_array.len(), 3);
         assert_eq!(
             struct_array
-                .valid_count(&mut LEGACY_SESSION.create_execution_ctx())
+                .valid_count(&mut ctx)
                 .unwrap(),
             0
         );
@@ -635,6 +639,7 @@ mod tests {
 
     #[test]
     fn test_canonicalize_fixed_size_list_nested() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Test with nested data types (list of strings).
         let fsl_scalar = Scalar::fixed_size_list(
             Arc::new(DType::Utf8(Nullability::NonNullable)),
@@ -654,25 +659,25 @@ mod tests {
         let elements = canonical.elements().to_varbinview();
         assert_eq!(
             elements
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut ctx)
                 .unwrap(),
             "hello".into()
         );
         assert_eq!(
             elements
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(1, &mut ctx)
                 .unwrap(),
             "world".into()
         );
         assert_eq!(
             elements
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(2, &mut ctx)
                 .unwrap(),
             "hello".into()
         );
         assert_eq!(
             elements
-                .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(3, &mut ctx)
                 .unwrap(),
             "world".into()
         );
@@ -701,6 +706,7 @@ mod tests {
 
     #[test]
     fn test_canonicalize_fixed_size_list_with_null_elements() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Test FSL with nullable element type where some elements are null.
         let fsl_scalar = Scalar::fixed_size_list(
             Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
@@ -725,19 +731,19 @@ mod tests {
         let elements = canonical.elements().to_primitive();
         assert_eq!(
             elements
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut ctx)
                 .unwrap(),
             Scalar::from(100i32)
         );
         assert_eq!(
             elements
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(1, &mut ctx)
                 .unwrap(),
             Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
         );
         assert_eq!(
             elements
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(2, &mut ctx)
                 .unwrap(),
             Scalar::from(200i32)
         );
@@ -758,6 +764,7 @@ mod tests {
 
     #[test]
     fn test_canonicalize_fixed_size_list_large() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Test with a large constant array.
         let fsl_scalar = Scalar::fixed_size_list(
             Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
@@ -787,31 +794,31 @@ mod tests {
             let base = i * 5;
             assert_eq!(
                 elements
-                    .execute_scalar(base, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(base, &mut ctx)
                     .unwrap(),
                 Scalar::from(1u8)
             );
             assert_eq!(
                 elements
-                    .execute_scalar(base + 1, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(base + 1, &mut ctx)
                     .unwrap(),
                 Scalar::from(2u8)
             );
             assert_eq!(
                 elements
-                    .execute_scalar(base + 2, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(base + 2, &mut ctx)
                     .unwrap(),
                 Scalar::from(3u8)
             );
             assert_eq!(
                 elements
-                    .execute_scalar(base + 3, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(base + 3, &mut ctx)
                     .unwrap(),
                 Scalar::from(4u8)
             );
             assert_eq!(
                 elements
-                    .execute_scalar(base + 4, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(base + 4, &mut ctx)
                     .unwrap(),
                 Scalar::from(5u8)
             );

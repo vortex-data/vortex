@@ -22,8 +22,6 @@ use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
-#[expect(deprecated)]
-use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
@@ -169,8 +167,11 @@ impl ArrayBuilder for StructBuilder {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        #[expect(deprecated)]
-        let array = array.to_struct();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let array = array
+            .clone()
+            .execute::<StructArray>(&mut ctx)
+            .vortex_expect("extend_from_array_unchecked: failed to canonicalize");
 
         for (a, builder) in array
             .iter_unmasked_fields()
@@ -183,7 +184,7 @@ impl ArrayBuilder for StructBuilder {
             array
                 .validity()
                 .vortex_expect("validity_mask")
-                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .to_mask(array.len(), &mut ctx)
                 .vortex_expect("Failed to compute validity mask"),
         );
     }
@@ -244,6 +245,7 @@ mod tests {
 
     #[test]
     fn test_append_nullable_struct() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let sdt = StructFields::new(["a", "b"].into(), vec![I32.into(), I32.into()]);
         let dtype = DType::Struct(sdt.clone(), Nullability::Nullable);
         let mut builder = StructBuilder::with_capacity(sdt, Nullability::Nullable, 0);
@@ -259,7 +261,7 @@ mod tests {
         assert_eq!(struct_.dtype(), &dtype);
         assert_eq!(
             struct_
-                .valid_count(&mut LEGACY_SESSION.create_execution_ctx())
+                .valid_count(&mut ctx)
                 .unwrap(),
             1
         );

@@ -72,6 +72,7 @@ use crate::scalar::Scalar;
     Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased()
 ))]
 fn test_append_zeros_matches_default_value(#[case] dtype: DType) {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let num_elements = 5;
 
     // Builder 1: Use append_zeros.
@@ -94,10 +95,10 @@ fn test_append_zeros_matches_default_value(#[case] dtype: DType) {
     // Compare each element.
     for i in 0..num_elements {
         let scalar_zeros = array_zeros
-            .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(i, &mut ctx)
             .unwrap();
         let scalar_manual = array_manual
-            .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(i, &mut ctx)
             .unwrap();
 
         assert_eq!(
@@ -188,6 +189,7 @@ fn test_append_nulls_panics_on_non_nullable(#[case] dtype: DType, #[case] count:
 #[case::nullable_utf8(DType::Utf8(Nullability::Nullable), true)]
 #[case::non_nullable_utf8(DType::Utf8(Nullability::NonNullable), false)]
 fn test_append_defaults_behavior(#[case] dtype: DType, #[case] should_be_null: bool) {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let mut builder = builder_with_capacity(&dtype, 3);
     builder.append_defaults(3);
     let array = builder.finish();
@@ -196,7 +198,7 @@ fn test_append_defaults_behavior(#[case] dtype: DType, #[case] should_be_null: b
 
     for i in 0..3 {
         let scalar = array
-            .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(i, &mut ctx)
             .unwrap();
         if should_be_null {
             assert!(scalar.is_null(), "Element at index {} should be null", i);
@@ -226,6 +228,7 @@ fn compare_to_canonical_methods<F>(dtype: &DType, mut fill_builder: F)
 where
     F: FnMut(&mut dyn ArrayBuilder),
 {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     use crate::IntoArray;
 
     // Create two identical builders.
@@ -238,10 +241,9 @@ where
 
     // Get canonical arrays using both methods.
     let canonical_direct = builder1.finish_into_canonical();
-    #[expect(deprecated)]
     let canonical_indirect = builder2
         .finish()
-        .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+        .execute::<Canonical>(&mut ctx)
         .vortex_expect("to_canonical failed");
 
     // Convert both to arrays for comparison.
@@ -254,10 +256,10 @@ where
     // Compare each element.
     for i in 0..array_direct.len() {
         let scalar_direct = array_direct
-            .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(i, &mut ctx)
             .unwrap();
         let scalar_indirect = array_indirect
-            .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(i, &mut ctx)
             .unwrap();
 
         assert_eq!(
@@ -513,6 +515,7 @@ fn test_to_canonical_f32() {
     Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased()
 ))]
 fn test_append_scalar_comprehensive(#[case] dtype: DType) {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let num_elements = 3;
     let mut builder = builder_with_capacity(&dtype, num_elements * 2);
 
@@ -548,7 +551,7 @@ fn test_append_scalar_comprehensive(#[case] dtype: DType) {
     // Verify each scalar matches.
     for (i, expected_scalar) in scalars.iter().enumerate() {
         let actual_scalar = array
-            .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(i, &mut ctx)
             .unwrap();
         assert_scalars_equal(&actual_scalar, expected_scalar, &dtype, i);
     }
@@ -556,7 +559,7 @@ fn test_append_scalar_comprehensive(#[case] dtype: DType) {
     // If nullable, verify the last element is null.
     if dtype.is_nullable() {
         let null_scalar = array
-            .execute_scalar(num_elements, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(num_elements, &mut ctx)
             .unwrap();
         assert!(
             null_scalar.is_null(),
@@ -687,6 +690,7 @@ fn assert_scalars_equal(actual: &Scalar, expected: &Scalar, dtype: &DType, index
 #[case::utf8(DType::Utf8(Nullability::Nullable))]
 #[case::binary(DType::Binary(Nullability::Nullable))]
 fn test_append_scalar_mixed_nulls(#[case] dtype: DType) {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let mut builder = builder_with_capacity(&dtype, 6);
 
     // Create a pattern of valid, null, valid, null, valid.
@@ -705,31 +709,31 @@ fn test_append_scalar_mixed_nulls(#[case] dtype: DType) {
     // Check the pattern.
     assert!(
         !array
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap()
             .is_null()
     );
     assert!(
         array
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(1, &mut ctx)
             .unwrap()
             .is_null()
     );
     assert!(
         !array
-            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(2, &mut ctx)
             .unwrap()
             .is_null()
     );
     assert!(
         array
-            .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(3, &mut ctx)
             .unwrap()
             .is_null()
     );
     assert!(
         !array
-            .execute_scalar(4, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(4, &mut ctx)
             .unwrap()
             .is_null()
     );
@@ -737,7 +741,7 @@ fn test_append_scalar_mixed_nulls(#[case] dtype: DType) {
     // Verify non-null values match.
     assert_scalars_equal(
         &array
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut ctx)
             .unwrap(),
         &test_scalars[0],
         &dtype,
@@ -745,7 +749,7 @@ fn test_append_scalar_mixed_nulls(#[case] dtype: DType) {
     );
     assert_scalars_equal(
         &array
-            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(2, &mut ctx)
             .unwrap(),
         &test_scalars[1],
         &dtype,
@@ -753,7 +757,7 @@ fn test_append_scalar_mixed_nulls(#[case] dtype: DType) {
     );
     assert_scalars_equal(
         &array
-            .execute_scalar(4, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(4, &mut ctx)
             .unwrap(),
         &test_scalars[2],
         &dtype,
@@ -794,6 +798,7 @@ fn test_append_scalar_wrong_dtype_rejection() {
 /// with the same scalar instance.
 #[test]
 fn test_append_scalar_repeated_same_instance() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
     let mut builder = builder_with_capacity(&dtype, 5);
 
@@ -810,7 +815,7 @@ fn test_append_scalar_repeated_same_instance() {
     // All values should be 42.
     for i in 0..5 {
         let actual = array
-            .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(i, &mut ctx)
             .unwrap();
         assert_eq!(
             actual.as_primitive().typed_value::<i32>(),
