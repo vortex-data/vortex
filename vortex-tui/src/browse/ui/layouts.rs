@@ -28,8 +28,7 @@ use ratatui::widgets::Widget;
 use ratatui::widgets::Wrap;
 use vortex::array::ArrayRef;
 use vortex::array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex::array::ToCanonical;
+use vortex::array::StructArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::error::VortexExpect;
@@ -142,9 +141,12 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
     container.render(area, buf);
 
     if is_stats_table {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Render the stats table horizontally
-        #[expect(deprecated)]
-        let struct_array = array.to_struct();
+        let struct_array = array
+            .clone()
+            .execute::<StructArray>(&mut ctx)
+            .vortex_expect("execute::<StructArray> failed");
         // add 1 for the chunk column
         let field_count = struct_array.struct_fields().nfields() + 1;
         let header = std::iter::once("chunk")
@@ -167,8 +169,8 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
             std::iter::once(Cell::from(Text::from(format!("{chunk_id}"))))
                 .chain(field_arrays.iter().map(|arr| {
                     Cell::from(Text::from(
-                        arr.execute_scalar(chunk_id, &mut LEGACY_SESSION.create_execution_ctx())
-                            .vortex_expect("scalar_at failed")
+                        arr.execute_scalar(chunk_id, &mut ctx)
+                            .vortex_expect("execute_scalar failed")
                             .to_string(),
                     ))
                 }))

@@ -11,8 +11,8 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyString;
 use vortex::array::ArrayRef;
-#[expect(deprecated)]
-use vortex::array::ToCanonical;
+use vortex::array::VortexSessionExecute;
+use vortex::array::arrays::PrimitiveArray;
 use vortex::array::iter::ArrayIteratorExt;
 use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
@@ -62,8 +62,8 @@ pub fn read_array_from_reader(
     }
 
     if let Some(indices) = indices {
-        #[expect(deprecated)]
-        let primitive = indices.to_primitive();
+        let mut ctx = SESSION.create_execution_ctx();
+        let primitive = indices.execute::<PrimitiveArray>(&mut ctx)?;
         let indices = primitive.into_buffer();
         scan = scan.with_row_indices(indices);
     }

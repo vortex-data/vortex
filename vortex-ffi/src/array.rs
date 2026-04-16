@@ -11,11 +11,10 @@ use paste::paste;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex::array::ToCanonical;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::NullArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
@@ -204,10 +203,10 @@ pub unsafe extern "C-unwind" fn vx_array_get_field(
 ) -> *const vx_array {
     try_or_default(error_out, || {
         let array = vx_array::as_ref(array);
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
-        #[expect(deprecated)]
-        let field_array = array
-            .to_struct()
+        let struct_array = array.clone().execute::<StructArray>(&mut ctx)?;
+        let field_array = struct_array
             .unmasked_fields()
             .get(index)
             .ok_or_else(|| vortex_err!("Field index out of bounds"))?
@@ -432,6 +431,8 @@ mod tests {
     use std::ptr;
 
     use vortex::array::IntoArray;
+    use vortex::array::LEGACY_SESSION;
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
@@ -771,9 +772,9 @@ mod tests {
             assert_no_error(error);
             assert!(!res.is_null());
             {
+                let mut ctx = LEGACY_SESSION.create_execution_ctx();
                 let res = vx_array::as_ref(res);
-                #[expect(deprecated)]
-                let bool_array = res.to_bool();
+                let bool_array = res.clone().execute::<BoolArray>(&mut ctx).unwrap();
                 let buffer = bool_array.to_bit_buffer();
                 let expected = BoolArray::from_iter(vec![false, false, true, true]);
                 assert_eq!(buffer, expected.to_bit_buffer());
