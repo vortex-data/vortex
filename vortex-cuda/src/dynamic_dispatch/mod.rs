@@ -1932,7 +1932,6 @@ mod tests {
             .into_host()
             .await?;
 
-        #[expect(deprecated)]
         let prim = result.into_primitive();
         assert_eq!(prim.len(), 2048);
         assert!(matches!(prim.validity()?, Validity::AllInvalid));
