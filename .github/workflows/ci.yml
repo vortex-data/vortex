@@ -28,14 +28,14 @@ env:
 jobs:
   lint-toml:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
       - uses: spiraldb/actions/.github/actions/lint-toml@0.18.5
 
   validate-workflow-yaml:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
       - name: Validate YAML file
@@ -52,7 +52,7 @@ jobs:
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=python-lint', github.run_id)
           || 'ubuntu-latest' }}
-    timeout-minutes: 40
+    timeout-minutes: 10
     steps:
       - uses: runs-on/action@v2
         if: github.repository == 'vortex-data/vortex'
@@ -79,7 +79,7 @@ jobs:
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-large/image=ubuntu24-full-x64-pre-v2/tag=python-test', github.run_id)
           || 'ubuntu-latest' }}
-    timeout-minutes: 40
+    timeout-minutes: 30
     env:
       RUST_LOG: "info,maturin=off,uv=debug"
       MATURIN_PEP517_ARGS: "--profile ci"
@@ -117,7 +117,7 @@ jobs:
   python-wheel-build:
     name: "Python (wheel build)"
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - name: Rust Dependency Cache
@@ -157,7 +157,7 @@ jobs:
 
   rust-docs:
     name: "Rust (docs)"
-    timeout-minutes: 40
+    timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-small/image=ubuntu24-full-x64-pre-v2/tag=rust-docs', github.run_id)
@@ -177,7 +177,7 @@ jobs:
 
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
-    timeout-minutes: 40
+    timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner={1}/image=ubuntu24-full-x64-pre-v2/tag={2}', github.run_id, matrix.config.runner, matrix.config.name)
@@ -225,7 +225,7 @@ jobs:
 
   check-min-deps:
     name: "Check build with minimal dependencies"
-    timeout-minutes: 40
+    timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=rust-min-deps', github.run_id)
@@ -241,7 +241,7 @@ jobs:
 
   rust-lint:
     name: "Rust (lint)"
-    timeout-minutes: 40
+    timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-large/image=ubuntu24-full-x64-pre-v2/tag=rust-lint', github.run_id)
@@ -282,7 +282,7 @@ jobs:
 
   rust-lint-no-default:
     name: "Rust (lint, no default)"
-    timeout-minutes: 40
+    timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=rust-lint-no-default', github.run_id)
@@ -301,7 +301,7 @@ jobs:
 
   public-api:
     name: "Public API lock files"
-    timeout-minutes: 40
+    timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-xsmall/image=ubuntu24-full-x64-pre-v2/tag=public-api', github.run_id)
@@ -335,7 +335,7 @@ jobs:
 
   rust-coverage:
     name: "Rust tests (coverage) (${{ matrix.suite }})"
-    timeout-minutes: 40
+    timeout-minutes: 30
     permissions:
       id-token: write
     strategy:
@@ -398,7 +398,7 @@ jobs:
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/pool=amd64-medium-pre-v2/tag=rust-test-sanitizer', github.run_id)
           || 'ubuntu-latest' }}
-    timeout-minutes: 40
+    timeout-minutes: 30
     env:
       ASAN_OPTIONS: "symbolize=1:check_initialization_order=1:detect_leaks=1:leak_check_at_exit=1"
       LSAN_OPTIONS: "report_objects=1"
@@ -459,7 +459,7 @@ jobs:
           - sanitizer: tsan
             sanitizer_flags: "-Zsanitizer=thread"
     name: "Rust/C++ FFI tests (${{ matrix.sanitizer }})"
-    timeout-minutes: 40
+    timeout-minutes: 30
     env:
       ASAN_OPTIONS: "symbolize=1:check_initialization_order=1:detect_leaks=1:leak_check_at_exit=1"
       LSAN_OPTIONS: "report_objects=1"
@@ -511,7 +511,7 @@ jobs:
   cuda-build-lint:
     if: github.repository == 'vortex-data/vortex'
     name: "CUDA build & lint"
-    timeout-minutes: 40
+    timeout-minutes: 30
     runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-build
     steps:
       - uses: runs-on/action@v2
@@ -642,7 +642,7 @@ jobs:
 
   rust-test-other:
     name: "Rust tests (${{ matrix.os }})"
-    timeout-minutes: 40
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -700,7 +700,7 @@ jobs:
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/pool=amd64-medium-pre-v2/tag=java', github.run_id)
           || 'ubuntu-latest' }}
-    timeout-minutes: 40
+    timeout-minutes: 30
     steps:
       - uses: runs-on/action@v2
         if: github.repository == 'vortex-data/vortex'
@@ -724,7 +724,7 @@ jobs:
           - { shard: 7, name: "Encodings 4", packages: "vortex-sparse vortex-zigzag vortex-zstd" }
           - { shard: 8, name: "Storage formats", packages: "vortex-flatbuffers vortex-proto vortex-btrblocks" }
     name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
-    timeout-minutes: 40
+    timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=bench-codspeed-{1}', github.run_id, matrix.shard)
@@ -757,7 +757,7 @@ jobs:
   license-check-and-audit-check:
     name: License Check and Audit Check
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 30
     strategy:
       matrix:
         checks:
@@ -773,7 +773,7 @@ jobs:
 
   cxx-test:
     name: "C++ build"
-    timeout-minutes: 40
+    timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=cxx-build', github.run_id)
@@ -806,6 +806,7 @@ jobs:
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=sql-logic-test', github.run_id)
           || 'ubuntu-latest' }}
+    timeout-minutes: 30
     steps:
       - uses: runs-on/action@v2
         if: github.repository == 'vortex-data/vortex'
@@ -824,7 +825,7 @@ jobs:
   wasm-integration:
     name: "WASM integration smoke test"
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-rust
@@ -847,7 +848,7 @@ jobs:
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=rust-miri', github.run_id)
           || 'ubuntu-latest' }}
-    timeout-minutes: 40
+    timeout-minutes: 30
     env:
       MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation -Zmiri-env-forward=RUST_BACKTRACE
       RUSTFLAGS: "-A warnings"
@@ -870,7 +871,7 @@ jobs:
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=generated-files', github.run_id)
           || 'ubuntu-latest' }}
-    timeout-minutes: 40
+    timeout-minutes: 30
     steps:
       - uses: runs-on/action@v2
         if: github.repository == 'vortex-data/vortex'
@@ -932,7 +933,7 @@ jobs:
     runs-on: ${{ matrix.target.runs-on }}
     container:
       image: "ubuntu:20.04"
-    timeout-minutes: 40
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -963,7 +964,7 @@ jobs:
 
   rust-publish-dry-run:
     name: "Rust publish dry-run"
-    timeout-minutes: 40
+    timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-xsmall/image=ubuntu24-full-x64-pre-v2/tag=rust-publish-dry-run', github.run_id)

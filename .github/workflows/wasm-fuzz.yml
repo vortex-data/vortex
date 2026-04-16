@@ -23,7 +23,7 @@ jobs:
   wasm-fuzz:
     name: "Build & Fuzz WASM"
     runs-on: ubuntu-latest
-    timeout-minutes: 270
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v6
 
@@ -63,7 +63,7 @@ jobs:
           # Capture exit code - wasmfuzz exits with error on crash
           set +e
           wasmfuzz fuzz \
-            --timeout=4h \
+            --timeout=3h30m \
             --cores 2 \
             --dir corpus-wasm/ \
             target/wasm32-wasip1/release/array_ops_wasm.wasm

@@ -16,6 +16,7 @@ jobs:
   spelling:
     name: Spell Check with Typos
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout Actions Repository
         uses: actions/checkout@v6
