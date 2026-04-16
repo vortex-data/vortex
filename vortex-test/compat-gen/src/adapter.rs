@@ -13,7 +13,9 @@ use futures::stream;
 use tokio::runtime::Runtime;
 use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
+use vortex::array::LEGACY_SESSION;
 use vortex::array::MaskFuture;
+use vortex::array::VortexSessionExecute;
 use vortex::array::expr::root;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
@@ -40,8 +42,9 @@ fn runtime() -> VortexResult<Runtime> {
 /// all stats so they are present in the serialized output.
 pub fn compute_all_stats(array: &ArrayRef) -> VortexResult<()> {
     let all_stats: Vec<Stat> = Stat::all().collect();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     for node in array.depth_first_traversal() {
-        let computed = node.statistics().compute_all(&all_stats)?;
+        let computed = node.statistics().compute_all(&all_stats, &mut ctx)?;
         node.statistics().set_iter(computed.into_iter());
     }
     Ok(())

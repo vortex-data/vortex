@@ -40,7 +40,7 @@ impl AggregateFnVTable for First {
     type Partial = FirstPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new_ref("vortex.first")
+        AggregateFnId::new("vortex.first")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -94,13 +94,13 @@ impl AggregateFnVTable for First {
         &self,
         partial: &mut Self::Partial,
         batch: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
         if partial.value.is_some() {
             return Ok(true);
         }
-        if let Some(idx) = batch.validity_mask()?.first() {
-            let scalar = batch.scalar_at(idx)?;
+        if let Some(idx) = batch.validity()?.to_mask(batch.len(), ctx)?.first() {
+            let scalar = batch.execute_scalar(idx, ctx)?;
             partial.value = Some(scalar.into_nullable());
         }
         Ok(true)

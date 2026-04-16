@@ -28,7 +28,7 @@ impl TakeExecute for Bool {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let indices_nulls_zeroed = match indices.validity_mask()? {
+        let indices_nulls_zeroed = match indices.validity()?.to_mask(indices.len(), ctx)? {
             Mask::AllTrue(_) => indices.clone(),
             Mask::AllFalse(_) => {
                 return Ok(Some(

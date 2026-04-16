@@ -55,6 +55,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::PcoChunkInfo;
 use crate::PcoMetadata;
@@ -129,7 +130,8 @@ impl VTable for Pco {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.pco");
+        *ID
     }
 
     fn validate(
@@ -256,7 +258,10 @@ pub(crate) fn number_type_from_ptype(ptype: PType) -> NumberType {
 }
 
 fn collect_valid(parray: ArrayView<'_, Primitive>) -> VortexResult<PrimitiveArray> {
-    let mask = parray.array().validity_mask()?;
+    let mask = parray.array().validity()?.to_mask(
+        parray.array().len(),
+        &mut LEGACY_SESSION.create_execution_ctx(),
+    )?;
     Ok(parray.array().filter(mask)?.to_primitive())
 }
 
@@ -273,8 +278,6 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
 pub struct Pco;
 
 impl Pco {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.pco");
-
     pub(crate) fn try_new(
         dtype: DType,
         data: PcoData,
@@ -629,15 +632,14 @@ impl OperationsVTable<Pco> for Pco {
     fn scalar_at(
         array: ArrayView<'_, Pco>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let unsliced_validity = child_to_validity(&array.slots()[0], array.dtype().nullability());
         array
             ._slice(index, index + 1)
-            .decompress(&unsliced_validity, &mut ctx)?
+            .decompress(&unsliced_validity, ctx)?
             .into_array()
-            .scalar_at(0)
+            .execute_scalar(0, ctx)
     }
 }
 

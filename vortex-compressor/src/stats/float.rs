@@ -8,6 +8,8 @@ use std::hash::Hash;
 use itertools::Itertools;
 use num_traits::Float;
 use rustc_hash::FxBuildHasher;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::NativePType;
@@ -174,7 +176,8 @@ where
         });
     }
 
-    if array.all_invalid()? {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    if array.all_invalid(&mut ctx)? {
         return Ok(FloatStats {
             null_count: u32::try_from(array.len())?,
             value_count: 0,
@@ -191,7 +194,7 @@ where
 
     let null_count = array
         .statistics()
-        .compute_null_count()
+        .compute_null_count(&mut ctx)
         .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
     let value_count = array.len() - null_count;
 
@@ -203,7 +206,10 @@ where
         HashSet::with_hasher(FxBuildHasher)
     };
 
-    let validity = array.validity_mask()?;
+    let validity = array.as_ref().validity()?.to_mask(
+        array.as_ref().len(),
+        &mut LEGACY_SESSION.create_execution_ctx(),
+    )?;
 
     let mut runs = 1;
     let head_idx = validity

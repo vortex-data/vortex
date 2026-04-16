@@ -34,7 +34,7 @@ impl DynAggregateKernel for BitPackedIsConstantKernel {
         &self,
         aggregate_fn: &AggregateFnRef,
         batch: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Scalar>> {
         if !aggregate_fn.is::<IsConstant>() {
             return Ok(None);
@@ -48,7 +48,7 @@ impl DynAggregateKernel for BitPackedIsConstantKernel {
             bitpacked_is_constant::<P, { IS_CONST_LANE_WIDTH / size_of::<P>() }>(array)?
         });
 
-        Ok(Some(IsConstant::make_partial(batch, result)?))
+        Ok(Some(IsConstant::make_partial(batch, result, ctx)?))
     }
 }
 

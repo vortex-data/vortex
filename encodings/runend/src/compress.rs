@@ -5,7 +5,9 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Primitive;
@@ -177,7 +179,10 @@ pub fn runend_decode_primitive(
     offset: usize,
     length: usize,
 ) -> VortexResult<PrimitiveArray> {
-    let validity_mask = values.validity_mask()?;
+    let validity_mask = values.as_ref().validity()?.to_mask(
+        values.as_ref().len(),
+        &mut LEGACY_SESSION.create_execution_ctx(),
+    )?;
     Ok(match_each_native_ptype!(values.ptype(), |P| {
         match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
             runend_decode_typed_primitive(
@@ -277,7 +282,10 @@ pub fn runend_decode_varbinview(
     offset: usize,
     length: usize,
 ) -> VortexResult<VarBinViewArray> {
-    let validity_mask = values.validity_mask()?;
+    let validity_mask = values.as_ref().validity()?.to_mask(
+        values.as_ref().len(),
+        &mut LEGACY_SESSION.create_execution_ctx(),
+    )?;
     let views = values.views();
 
     let (decoded_views, validity) = match_each_unsigned_integer_ptype!(ends.ptype(), |E| {

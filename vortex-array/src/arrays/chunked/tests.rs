@@ -7,6 +7,8 @@ use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
@@ -224,6 +226,18 @@ pub fn pack_nested_lists() {
 
     let canon_values = chunked_list.unwrap().as_array().to_listview();
 
-    assert_eq!(l1.scalar_at(0).unwrap(), canon_values.scalar_at(0).unwrap());
-    assert_eq!(l2.scalar_at(0).unwrap(), canon_values.scalar_at(1).unwrap());
+    assert_eq!(
+        l1.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap(),
+        canon_values
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+    );
+    assert_eq!(
+        l2.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap(),
+        canon_values
+            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+    );
 }

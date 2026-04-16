@@ -96,7 +96,12 @@ fn test_zstd_with_validity_and_multi_frame() {
     let slice = compressed.slice(176..179).unwrap();
     let primitive = slice.to_primitive();
     assert_eq!(
-        i32::try_from(&primitive.scalar_at(1).unwrap()).unwrap(),
+        i32::try_from(
+            &primitive
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        )
+        .unwrap(),
         177
     );
     assert!(
@@ -144,12 +149,21 @@ fn test_validity_vtable() {
         Validity::Array(BoolArray::from_iter(mask_bools.clone()).into_array()),
     );
     let compressed = Zstd::from_primitive(&array, 3, 0).unwrap();
+    let arr = compressed.as_array();
     assert_eq!(
-        compressed.as_array().validity_mask().unwrap(),
+        arr.validity()
+            .unwrap()
+            .to_mask(arr.len(), &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap(),
         Mask::from_iter(mask_bools)
     );
+    let sliced = compressed.slice(1..4).unwrap();
     assert_eq!(
-        compressed.slice(1..4).unwrap().validity_mask().unwrap(),
+        sliced
+            .validity()
+            .unwrap()
+            .to_mask(sliced.len(), &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap(),
         Mask::from_iter(vec![true, true, false])
     );
 }

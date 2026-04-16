@@ -16,7 +16,9 @@ use itertools::Itertools;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Field;
@@ -239,7 +241,10 @@ impl LayoutStrategy for TableStrategy {
             if is_nullable {
                 columns.push((
                     sequence_pointer.advance(),
-                    chunk.validity_mask()?.into_array(),
+                    chunk
+                        .validity()?
+                        .to_mask(chunk.len(), &mut LEGACY_SESSION.create_execution_ctx())?
+                        .into_array(),
                 ));
             }
 

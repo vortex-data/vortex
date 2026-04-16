@@ -79,7 +79,12 @@ mod test {
         1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0
     ].into_array())]
     fn test_mask_alp_conformance(#[case] array: vortex_array::ArrayRef) {
-        let alp = alp_encode(array.to_primitive().as_view(), None).unwrap();
+        let alp = alp_encode(
+            array.to_primitive().as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         test_mask_conformance(&alp.into_array());
     }
 
@@ -91,7 +96,12 @@ mod test {
             .map(|i| if i % 4 == 3 { PI } else { 1.0 })
             .collect();
         let array = PrimitiveArray::from_iter(values);
-        let alp = alp_encode(array.as_view(), None).unwrap();
+        let alp = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         assert!(alp.patches().is_some(), "expected patches");
         test_mask_conformance(&alp.into_array());
     }
@@ -99,7 +109,12 @@ mod test {
     #[test]
     fn test_mask_alp_with_patches_casts_surviving_patch_values_to_nullable() {
         let values = PrimitiveArray::from_iter([1.234f32, f32::NAN, 2.345, f32::INFINITY, 3.456]);
-        let alp = alp_encode(values.as_view(), None).unwrap();
+        let alp = alp_encode(
+            values.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         assert!(alp.patches().is_some(), "expected patches");
 
         let keep_mask = BoolArray::from_iter([false, true, true, true, true]).into_array();

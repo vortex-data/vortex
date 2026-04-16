@@ -39,18 +39,21 @@ use crate::memory::HostAllocatorRef;
 use crate::memory::MemorySessionExt;
 use crate::optimizer::ArrayOptimizer;
 
-/// Maximum number of iterations to attempt when executing an array before giving up and returning
-/// an error.
-pub(crate) static MAX_ITERATIONS: LazyLock<usize> =
-    LazyLock::new(|| match std::env::var("VORTEX_MAX_ITERATIONS") {
-        Ok(val) => val
-            .parse::<usize>()
-            .unwrap_or_else(|e| vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid usize: {e}")),
-        Err(VarError::NotPresent) => 128,
-        Err(VarError::NotUnicode(_)) => {
-            vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid unicode string")
-        }
-    });
+/// Returns the maximum number of iterations to attempt when executing an array before giving up and returning
+/// an error, can be by the `VORTEX_MAX_ITERATIONS` env variables, otherwise defaults to 128.
+pub(crate) fn max_iterations() -> usize {
+    static MAX_ITERATIONS: LazyLock<usize> =
+        LazyLock::new(|| match std::env::var("VORTEX_MAX_ITERATIONS") {
+            Ok(val) => val.parse::<usize>().unwrap_or_else(|e| {
+                vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid usize: {e}")
+            }),
+            Err(VarError::NotPresent) => 128,
+            Err(VarError::NotUnicode(_)) => {
+                vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid unicode string")
+            }
+        });
+    *MAX_ITERATIONS
+}
 
 /// Marker trait for types that an [`ArrayRef`] can be executed into.
 ///
@@ -108,7 +111,7 @@ impl ArrayRef {
         // Stack frames: (parent, slot_idx, done_predicate_for_slot)
         let mut stack: Vec<(ArrayRef, usize, DonePredicate)> = Vec::new();
 
-        for _ in 0..*MAX_ITERATIONS {
+        for _ in 0..max_iterations() {
             // Step 1: done / canonical — splice back into stacked parent or return.
             let is_done = stack
                 .last()
@@ -167,7 +170,7 @@ impl ArrayRef {
 
         vortex_bail!(
             "Exceeded maximum execution iterations ({}) while executing array",
-            *MAX_ITERATIONS,
+            max_iterations(),
         )
     }
 }

@@ -14,10 +14,10 @@ impl OperationsVTable<Delta> for Delta {
     fn scalar_at(
         array: ArrayView<'_, Delta>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let decompressed = array.array().slice(index..index + 1)?.to_primitive();
-        decompressed.into_array().scalar_at(0)
+        decompressed.into_array().execute_scalar(0, ctx)
     }
 }
 
@@ -215,7 +215,9 @@ mod tests {
     #[should_panic]
     fn test_scalar_at_non_jagged_array_oob() {
         let delta = da(&(0u32..2048).collect()).into_array();
-        delta.scalar_at(2048).unwrap();
+        delta
+            .execute_scalar(2048, &mut SESSION.create_execution_ctx())
+            .unwrap();
     }
     #[test]
     fn test_scalar_at_jagged_array() {
@@ -229,7 +231,9 @@ mod tests {
     #[should_panic]
     fn test_scalar_at_jagged_array_oob() {
         let delta = da(&(0u32..2000).collect()).into_array();
-        delta.scalar_at(2000).unwrap();
+        delta
+            .execute_scalar(2000, &mut SESSION.create_execution_ctx())
+            .unwrap();
     }
 
     #[rstest]

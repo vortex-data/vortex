@@ -318,11 +318,6 @@ pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
     }
 
     #[inline]
-    fn validity_mask(&self) -> vortex_mask::Mask {
-        self.validity().to_mask(self.as_ref().len())
-    }
-
-    #[inline]
     fn packed_slice<T: NativePType + BitPacking>(&self) -> &[T] {
         BitPackedData::packed_slice::<T>(self)
     }

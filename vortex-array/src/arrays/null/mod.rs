@@ -5,6 +5,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -36,7 +37,8 @@ impl VTable for Null {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.null");
+        *ID
     }
 
     fn validate(
@@ -121,7 +123,7 @@ impl VTable for Null {
 /// ```
 /// # fn main() -> vortex_error::VortexResult<()> {
 /// use vortex_array::arrays::NullArray;
-/// use vortex_array::IntoArray;
+/// use vortex_array::{IntoArray, LEGACY_SESSION, VortexSessionExecute};
 ///
 /// // Create a null array with 5 elements
 /// let array = NullArray::new(5);
@@ -131,17 +133,14 @@ impl VTable for Null {
 /// assert_eq!(sliced.len(), 2);
 ///
 /// // All elements are null
-/// let scalar = array.scalar_at(0).unwrap();
+/// let mut ctx = LEGACY_SESSION.create_execution_ctx();
+/// let scalar = array.execute_scalar(0, &mut ctx).unwrap();
 /// assert!(scalar.is_null());
 /// # Ok(())
 /// # }
 /// ```
 #[derive(Clone, Debug)]
 pub struct Null;
-
-impl Null {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.null");
-}
 
 impl Array<Null> {
     pub fn new(len: usize) -> Self {

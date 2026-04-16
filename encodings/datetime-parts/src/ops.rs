@@ -20,7 +20,7 @@ impl OperationsVTable<DateTimeParts> for DateTimeParts {
     fn scalar_at(
         array: ArrayView<'_, DateTimeParts>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let DType::Extension(ext) = array.dtype().clone() else {
             vortex_panic!(
@@ -33,25 +33,25 @@ impl OperationsVTable<DateTimeParts> for DateTimeParts {
             vortex_panic!(Compute: "must decode TemporalMetadata from extension metadata");
         };
 
-        if !array.as_ref().is_valid(index)? {
+        if !array.as_ref().is_valid(index, ctx)? {
             return Ok(Scalar::null(DType::Extension(ext)));
         }
 
         let days: i64 = array
             .days()
-            .scalar_at(index)?
+            .execute_scalar(index, ctx)?
             .as_primitive()
             .as_::<i64>()
             .vortex_expect("days fits in i64");
         let seconds: i64 = array
             .seconds()
-            .scalar_at(index)?
+            .execute_scalar(index, ctx)?
             .as_primitive()
             .as_::<i64>()
             .vortex_expect("seconds fits in i64");
         let subseconds: i64 = array
             .subseconds()
-            .scalar_at(index)?
+            .execute_scalar(index, ctx)?
             .as_primitive()
             .as_::<i64>()
             .vortex_expect("subseconds fits in i64");

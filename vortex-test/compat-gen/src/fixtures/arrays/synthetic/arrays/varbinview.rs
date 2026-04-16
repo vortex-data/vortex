@@ -3,6 +3,7 @@
 
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayVTable;
 use vortex_array::IntoArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinView;
@@ -25,7 +26,7 @@ impl FlatLayoutFixture for VarBinViewFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![VarBinView::ID]
+        vec![VarBinView.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

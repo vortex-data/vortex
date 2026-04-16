@@ -3,7 +3,10 @@
 
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
+use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::dtype::FieldNames;
@@ -55,7 +58,7 @@ impl FlatLayoutFixture for AlpFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![ALP::ID]
+        vec![ALP.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
@@ -129,17 +132,72 @@ impl FlatLayoutFixture for AlpFixture {
                 "f64_boundary_specials",
             ]),
             vec![
-                alp_encode(f64_prices.as_view(), None)?.into_array(),
-                alp_encode(f32_near_int.as_view(), None)?.into_array(),
-                alp_encode(f64_negative_near_int.as_view(), None)?.into_array(),
-                alp_encode(f64_currency.as_view(), None)?.into_array(),
-                alp_encode(f64_nullable.as_view(), None)?.into_array(),
-                alp_encode(f64_patched.as_view(), None)?.into_array(),
-                alp_encode(f64_patch_heavy.as_view(), None)?.into_array(),
-                alp_encode(f64_special_values.as_view(), None)?.into_array(),
-                alp_encode(f32_special_values.as_view(), None)?.into_array(),
-                alp_encode(f64_extremes.as_view(), None)?.into_array(),
-                alp_encode(f64_boundary_specials.as_view(), None)?.into_array(),
+                alp_encode(
+                    f64_prices.as_view(),
+                    None,
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )?
+                .into_array(),
+                alp_encode(
+                    f32_near_int.as_view(),
+                    None,
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )?
+                .into_array(),
+                alp_encode(
+                    f64_negative_near_int.as_view(),
+                    None,
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )?
+                .into_array(),
+                alp_encode(
+                    f64_currency.as_view(),
+                    None,
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )?
+                .into_array(),
+                alp_encode(
+                    f64_nullable.as_view(),
+                    None,
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )?
+                .into_array(),
+                alp_encode(
+                    f64_patched.as_view(),
+                    None,
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )?
+                .into_array(),
+                alp_encode(
+                    f64_patch_heavy.as_view(),
+                    None,
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )?
+                .into_array(),
+                alp_encode(
+                    f64_special_values.as_view(),
+                    None,
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )?
+                .into_array(),
+                alp_encode(
+                    f32_special_values.as_view(),
+                    None,
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )?
+                .into_array(),
+                alp_encode(
+                    f64_extremes.as_view(),
+                    None,
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )?
+                .into_array(),
+                alp_encode(
+                    f64_boundary_specials.as_view(),
+                    None,
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )?
+                .into_array(),
             ],
             N,
             Validity::NonNullable,

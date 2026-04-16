@@ -74,7 +74,7 @@ impl CudaExecute for FoRExecutor {
                 .into_primitive()
                 .into_array()
                 .slice(slice_range)?
-                .to_canonical();
+                .execute::<Canonical>(ctx.execution_ctx());
         }
 
         match_each_native_simd_ptype!(array.ptype(), |P| { decode_for::<P>(array, ctx).await })
@@ -162,7 +162,7 @@ mod tests {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let cpu_result = for_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(for_array.clone())?;
 
         let gpu_result = FoRExecutor
             .execute(for_array.into_array(), &mut cuda_ctx)
@@ -190,7 +190,7 @@ mod tests {
         let packed = BitPacked::encode(&values, 3).unwrap().into_array();
         let for_array = FoR::try_new(packed, (-8i8).into()).unwrap();
 
-        let cpu_result = for_array.to_canonical().unwrap();
+        let cpu_result = crate::canonicalize_cpu(for_array.clone()).unwrap();
 
         let gpu_result = FoRExecutor
             .execute(for_array.into_array(), &mut cuda_ctx)

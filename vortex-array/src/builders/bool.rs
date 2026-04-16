@@ -12,6 +12,8 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::builders::ArrayBuilder;
@@ -116,8 +118,17 @@ impl ArrayBuilder for BoolBuilder {
         let bool_array = array.to_bool();
 
         self.inner.append_buffer(&bool_array.to_bit_buffer());
-        self.nulls
-            .append_validity_mask(bool_array.validity_mask().vortex_expect("validity_mask"));
+        self.nulls.append_validity_mask(
+            bool_array
+                .as_ref()
+                .validity()
+                .vortex_expect("validity_mask")
+                .to_mask(
+                    bool_array.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )
+                .vortex_expect("Failed to compute validity mask"),
+        );
     }
 
     fn reserve_exact(&mut self, additional: usize) {

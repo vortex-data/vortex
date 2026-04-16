@@ -78,7 +78,7 @@ impl CastKernel for Primitive {
             }));
         }
 
-        // Otherwise, cast the values element-wise.
+        // Otherwise, we need to cast the values one-by-one.
         Ok(Some(match_each_native_ptype!(new_ptype, |T| {
             match_each_native_ptype!(array.ptype(), |F| {
                 PrimitiveArray::new(cast::<F, T>(array.as_slice()), new_validity).into_array()
@@ -116,6 +116,8 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
@@ -228,7 +230,11 @@ mod test {
             PrimitiveArray::from_option_iter([None, Some(0u32), Some(10)])
         );
         assert_eq!(
-            p.validity_mask().unwrap(),
+            p.as_ref()
+                .validity()
+                .unwrap()
+                .to_mask(p.as_ref().len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Mask::from(BitBuffer::from(vec![false, true, true]))
         );
     }

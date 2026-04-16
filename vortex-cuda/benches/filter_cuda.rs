@@ -32,7 +32,7 @@ use vortex_cuda::CudaSession;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
-const BENCH_SIZES: &[(usize, &str)] = &[(1_000_000, "1M"), (10_000_000, "10M")];
+const BENCH_SIZES: &[(usize, &str)] = &[(10_000_000, "10M")];
 const SELECTIVITIES: &[(f64, &str)] = &[(0.1, "10%"), (0.5, "50%"), (0.9, "90%")];
 
 /// Creates input data of the given length.
@@ -142,7 +142,6 @@ where
         + 'static,
 {
     let mut group = c.benchmark_group(format!("filter_cuda_{type_name}"));
-    group.sample_size(10);
 
     for (len, len_label) in BENCH_SIZES {
         for (selectivity, sel_label) in SELECTIVITIES {
@@ -229,10 +228,17 @@ where
 fn benchmark_filter(c: &mut Criterion) {
     benchmark_filter_type::<i32>(c, "i32");
     benchmark_filter_type::<i64>(c, "i64");
-    benchmark_filter_type::<f64>(c, "f64");
 }
 
-criterion::criterion_group!(benches, benchmark_filter);
+criterion::criterion_group! {
+    name = benches;
+    config = Criterion::default().without_plots()
+        .sample_size(10)
+        .warm_up_time(Duration::from_nanos(1))
+        .measurement_time(Duration::from_nanos(1))
+        .nresamples(10);
+    targets = benchmark_filter
+}
 
 #[cuda_available]
 criterion::criterion_main!(benches);

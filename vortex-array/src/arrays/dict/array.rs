@@ -12,7 +12,9 @@ use vortex_error::vortex_ensure;
 use vortex_mask::AllOr;
 
 use crate::ArrayRef;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -139,7 +141,10 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
     }
 
     fn compute_referenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
-        let codes_validity = self.codes().validity_mask()?;
+        let codes = self.codes();
+        let codes_validity = codes
+            .validity()?
+            .to_mask(codes.len(), &mut LEGACY_SESSION.create_execution_ctx())?;
         let codes_primitive = self.codes().to_primitive();
         let values_len = self.values().len();
 
@@ -290,7 +295,15 @@ mod test {
             PrimitiveArray::new(buffer![3, 6, 9], Validity::AllValid).into_array(),
         )
         .unwrap();
-        let mask = dict.validity_mask().unwrap();
+        let mask = dict
+            .as_ref()
+            .validity()
+            .unwrap()
+            .to_mask(
+                dict.as_ref().len(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+            .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
         };
@@ -308,7 +321,15 @@ mod test {
             .into_array(),
         )
         .unwrap();
-        let mask = dict.validity_mask().unwrap();
+        let mask = dict
+            .as_ref()
+            .validity()
+            .unwrap()
+            .to_mask(
+                dict.as_ref().len(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+            .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
         };
@@ -330,7 +351,15 @@ mod test {
             .into_array(),
         )
         .unwrap();
-        let mask = dict.validity_mask().unwrap();
+        let mask = dict
+            .as_ref()
+            .validity()
+            .unwrap()
+            .to_mask(
+                dict.as_ref().len(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+            .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
         };
@@ -348,7 +377,15 @@ mod test {
             PrimitiveArray::new(buffer![3, 6, 9], Validity::NonNullable).into_array(),
         )
         .unwrap();
-        let mask = dict.validity_mask().unwrap();
+        let mask = dict
+            .as_ref()
+            .validity()
+            .unwrap()
+            .to_mask(
+                dict.as_ref().len(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+            .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
         };

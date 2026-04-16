@@ -37,8 +37,11 @@ impl TakeExecute for VarBin {
             .dtype()
             .clone()
             .union_nullability(indices.dtype().nullability());
-        let array_validity = array.varbin_validity_mask();
-        let indices_validity = indices.validity_mask()?;
+        let array_validity = array.varbin_validity().to_mask(array.as_ref().len(), ctx)?;
+        let indices_validity = indices
+            .as_ref()
+            .validity()?
+            .to_mask(indices.as_ref().len(), ctx)?;
 
         let array = match_each_integer_ptype!(indices.ptype(), |I| {
             // On take, offsets get widened to either 32- or 64-bit based on the original type,

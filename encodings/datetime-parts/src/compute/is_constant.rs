@@ -37,6 +37,6 @@ impl DynAggregateKernel for DateTimePartsIsConstantKernel {
         let result = is_constant(array.days(), ctx)?
             && is_constant(array.seconds(), ctx)?
             && is_constant(array.subseconds(), ctx)?;
-        Ok(Some(IsConstant::make_partial(batch, result)?))
+        Ok(Some(IsConstant::make_partial(batch, result, ctx)?))
     }
 }

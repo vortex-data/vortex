@@ -8,6 +8,7 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::prelude::StdRng;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
@@ -70,8 +71,8 @@ fn chunked_opt_bool_into_canonical(bencher: Bencher, (len, chunk_count): (usize,
     let chunk = make_opt_bool_chunks(len, chunk_count);
 
     bencher
-        .with_inputs(|| &chunk)
-        .bench_refs(|chunk| chunk.to_canonical())
+        .with_inputs(|| (&chunk, SESSION.create_execution_ctx()))
+        .bench_refs(|(chunk, ctx)| (**chunk).clone().execute::<Canonical>(ctx))
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -97,8 +98,8 @@ fn chunked_varbinview_into_canonical(bencher: Bencher, (len, chunk_count): (usiz
     let chunks = make_string_chunks(false, len, chunk_count);
 
     bencher
-        .with_inputs(|| &chunks)
-        .bench_refs(|chunk| chunk.to_canonical())
+        .with_inputs(|| (&chunks, SESSION.create_execution_ctx()))
+        .bench_refs(|(chunk, ctx)| (**chunk).clone().execute::<Canonical>(ctx))
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -124,8 +125,8 @@ fn chunked_varbinview_opt_into_canonical(bencher: Bencher, (len, chunk_count): (
     let chunks = make_string_chunks(true, len, chunk_count);
 
     bencher
-        .with_inputs(|| &chunks)
-        .bench_refs(|chunk| chunk.to_canonical())
+        .with_inputs(|| (&chunks, SESSION.create_execution_ctx()))
+        .bench_refs(|(chunk, ctx)| (**chunk).clone().execute::<Canonical>(ctx))
 }
 
 #[divan::bench(args = BENCH_ARGS)]

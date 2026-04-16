@@ -13,6 +13,8 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::StructArray;
 use crate::arrays::struct_::StructArrayExt;
 use crate::builders::ArrayBuilder;
@@ -175,8 +177,13 @@ impl ArrayBuilder for StructBuilder {
             builder.extend_from_array(a);
         }
 
-        self.nulls
-            .append_validity_mask(array.validity_mask().vortex_expect("validity_mask"));
+        self.nulls.append_validity_mask(
+            array
+                .validity()
+                .vortex_expect("validity_mask")
+                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("Failed to compute validity mask"),
+        );
     }
 
     fn reserve_exact(&mut self, capacity: usize) {
@@ -203,6 +210,8 @@ impl ArrayBuilder for StructBuilder {
 #[cfg(test)]
 mod tests {
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
@@ -246,7 +255,12 @@ mod tests {
         let struct_ = builder.finish();
         assert_eq!(struct_.len(), 3);
         assert_eq!(struct_.dtype(), &dtype);
-        assert_eq!(struct_.valid_count().unwrap(), 1);
+        assert_eq!(
+            struct_
+                .valid_count(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            1
+        );
     }
 
     #[test]

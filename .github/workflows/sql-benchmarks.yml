@@ -14,21 +14,22 @@ on:
         required: false
         type: string
         description: "JSON string containing the matrix configuration"
-        # We do not include lance in the default configuration.
         default: |
           [
             {
               "id": "clickbench-nvme",
               "subcommand": "clickbench",
               "name": "Clickbench on NVME",
-              "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
+              "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb",
+              "extra_data_formats": "vortex-compact"
             },
             {
               "id": "tpch-nvme",
               "subcommand": "tpch",
               "name": "TPC-H SF=1 on NVME",
               "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
-              "scale_factor": "1.0"
+              "scale_factor": "1.0",
+              "iterations": "10"
             },
             {
               "id": "tpch-s3",
@@ -45,7 +46,8 @@ on:
               "subcommand": "tpch",
               "name": "TPC-H SF=10 on NVME",
               "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
-              "scale_factor": "10.0"
+              "scale_factor": "10.0",
+              "iterations": "10"
             },
             {
               "id": "tpch-s3-10",
@@ -68,6 +70,7 @@ on:
               "id": "statpopgen",
               "subcommand": "statpopgen",
               "name": "Statistical and Population Genetics",
+              "local_dir": "vortex-bench/data/statpopgen",
               "targets": "duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
               "scale_factor": "100"
             },
@@ -85,8 +88,7 @@ on:
               "local_dir": "vortex-bench/data/fineweb",
               "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/fineweb/",
               "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
-              "scale_factor": "100",
-              "iterations": "10"
+              "scale_factor": "100"
             },
             {
               "id": "polarsignals",
@@ -129,11 +131,30 @@ jobs:
 
       - name: Install DuckDB
         run: |
-          wget -qO- https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-linux-amd64.zip | funzip > duckdb
+          wget -qO- https://github.com/duckdb/duckdb/releases/download/v1.5.2/duckdb_cli-linux-amd64.zip | funzip > duckdb
           chmod +x duckdb
           echo "$PWD" >> $GITHUB_PATH
 
       - uses: ./.github/actions/system-info
+
+      - name: Resolve targets
+        id: resolve
+        shell: bash
+        run: |
+          targets="${{ matrix.targets }}"
+          # Non-PR modes include additional targets
+          if [ "${{ inputs.mode }}" != "pr" ]; then
+            case "${{ matrix.subcommand }}" in
+              clickbench) targets="$targets,datafusion:vortex-compact,duckdb:vortex-compact" ;;
+            esac
+            # Lance comparisons for local clickbench/tpch (not S3)
+            if [ -z "${{ matrix.remote_storage }}" ]; then
+              case "${{ matrix.subcommand }}" in
+                clickbench|tpch) targets="$targets,datafusion:lance" ;;
+              esac
+            fi
+          fi
+          echo "targets=$targets" >> $GITHUB_OUTPUT
 
       - name: Build binaries
         shell: bash
@@ -141,7 +162,7 @@ jobs:
           RUSTFLAGS: "-C target-cpu=native"
         run: |
           packages="--bin data-gen --bin datafusion-bench --bin duckdb-bench"
-          if [ "${{ matrix.build_lance }}" = "true" ]; then
+          if [ "${{ inputs.mode }}" != "pr" ]; then
             packages="$packages --bin lance-bench"
           fi
           cargo build $packages --profile release_debug --features unstable_encodings
@@ -152,7 +173,7 @@ jobs:
           RUST_BACKTRACE: full
         run: |
           # Extract all unique formats from targets (e.g., "datafusion:parquet,duckdb:vortex" -> "parquet,vortex")
-          all_formats=$(echo "${{ matrix.targets }}" | tr ',' '\n' | sed 's/^[^:]*://' | sort -u | tr '\n' ',' | sed 's/,$//')
+          all_formats=$(echo "${{ steps.resolve.outputs.targets }}" | tr ',' '\n' | sed 's/^[^:]*://' | sort -u | tr '\n' ',' | sed 's/,$//')
 
           # Append extra data formats if specified (for file size tracking without benchmarking)
           if [ -n "${{ matrix.extra_data_formats }}" ]; then
@@ -206,7 +227,7 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
-          bash scripts/bench-taskset.sh .github/scripts/run-sql-bench.sh "${{ matrix.subcommand }}" "${{ matrix.targets }}" \
+          bash scripts/bench-taskset.sh .github/scripts/run-sql-bench.sh "${{ matrix.subcommand }}" "${{ steps.resolve.outputs.targets }}" \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
             ${{ matrix.scale_factor && format('--scale-factor {0}', matrix.scale_factor) || '' }}
 
@@ -221,7 +242,7 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
-          bash scripts/bench-taskset.sh .github/scripts/run-sql-bench.sh "${{ matrix.subcommand }}" "${{ matrix.targets }}" \
+          bash scripts/bench-taskset.sh .github/scripts/run-sql-bench.sh "${{ matrix.subcommand }}" "${{ steps.resolve.outputs.targets }}" \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
             --remote-storage "${{ matrix.remote_storage }}" \
             --benchmark-id "${{ matrix.id }}" \

@@ -5,7 +5,9 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use vortex_array::ArrayRef;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::dtype::DType;
@@ -64,7 +66,14 @@ pub fn search_sorted_canonical_array(
     match array.dtype() {
         DType::Bool(_) => {
             let bool_array = array.to_bool();
-            let validity = bool_array.validity_mask()?.to_bit_buffer();
+            let validity = bool_array
+                .as_ref()
+                .validity()?
+                .to_mask(
+                    bool_array.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )?
+                .to_bit_buffer();
             let opt_values = bool_array
                 .to_bit_buffer()
                 .iter()
@@ -76,7 +85,14 @@ pub fn search_sorted_canonical_array(
         }
         DType::Primitive(p, _) => {
             let primitive_array = array.to_primitive();
-            let validity = primitive_array.validity_mask()?.to_bit_buffer();
+            let validity = primitive_array
+                .as_ref()
+                .validity()?
+                .to_mask(
+                    primitive_array.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )?
+                .to_bit_buffer();
             match_each_native_ptype!(p, |P| {
                 let opt_values = primitive_array
                     .as_slice::<P>()
@@ -91,7 +107,14 @@ pub fn search_sorted_canonical_array(
         }
         DType::Decimal(d, _) => {
             let decimal_array = array.to_decimal();
-            let validity = decimal_array.validity_mask()?.to_bit_buffer();
+            let validity = decimal_array
+                .as_ref()
+                .validity()?
+                .to_mask(
+                    decimal_array.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )?
+                .to_bit_buffer();
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 let buf = decimal_array.buffer::<D>();
                 let opt_values = buf
@@ -126,8 +149,9 @@ pub fn search_sorted_canonical_array(
             SearchNullableSlice(opt_values).search_sorted(&Some(to_find), side)
         }
         DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => {
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
             let scalar_vals = (0..array.len())
-                .map(|i| array.scalar_at(i))
+                .map(|i| array.execute_scalar(i, &mut ctx))
                 .collect::<VortexResult<Vec<_>>>()?;
             scalar_vals.search_sorted(&scalar.cast(array.dtype())?, side)
         }

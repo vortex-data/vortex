@@ -9,6 +9,7 @@ use divan::Bencher;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
@@ -71,8 +72,8 @@ fn decompress_fsst(bencher: Bencher, (string_count, avg_len, unique_chars): (usi
     let encoded = fsst_compress(array, len, &dtype, &compressor);
 
     bencher
-        .with_inputs(|| &encoded)
-        .bench_refs(|encoded| encoded.to_canonical())
+        .with_inputs(|| (&encoded, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(encoded, ctx)| (**encoded).clone().into_array().execute::<Canonical>(ctx))
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -128,8 +129,10 @@ fn canonicalize_compare(
             )
         })
         .bench_refs(|(fsst_array, constant, ctx)| {
-            fsst_array
-                .to_canonical()
+            (*fsst_array)
+                .clone()
+                .into_array()
+                .execute::<Canonical>(ctx)
                 .unwrap()
                 .into_array()
                 .binary(constant.clone().into_array(), Operator::Eq)
@@ -179,8 +182,8 @@ fn chunked_into_canonical(
     let array = generate_chunked_test_data(chunk_size, string_count, avg_len, unique_chars);
 
     bencher
-        .with_inputs(|| &array)
-        .bench_refs(|array| array.to_canonical());
+        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+        .bench_refs(|(array, ctx)| (**array).clone().into_array().execute::<Canonical>(ctx));
 }
 
 /// Helper function to generate random string data.

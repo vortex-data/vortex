@@ -145,7 +145,9 @@ mod test {
     use vortex_buffer::ByteBuffer;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
     use crate::ToCanonical;
+    use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
@@ -176,7 +178,16 @@ mod test {
             .to_bool();
 
         assert_eq!(
-            &result.validity_mask().unwrap().to_bit_buffer(),
+            &result
+                .as_ref()
+                .validity()
+                .unwrap()
+                .to_mask(
+                    result.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx()
+                )
+                .unwrap()
+                .to_bit_buffer(),
             &BitBuffer::from_iter([true, false, true])
         );
         assert_eq!(
@@ -202,7 +213,16 @@ mod test {
             .to_bool();
 
         assert_eq!(
-            result.validity_mask().unwrap().to_bit_buffer(),
+            result
+                .as_ref()
+                .validity()
+                .unwrap()
+                .to_mask(
+                    result.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx()
+                )
+                .unwrap()
+                .to_bit_buffer(),
             BitBuffer::from_iter([false, false, true])
         );
         assert_eq!(

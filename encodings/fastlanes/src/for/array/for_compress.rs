@@ -4,6 +4,8 @@
 use num_traits::PrimInt;
 use num_traits::WrappingSub;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::expr::stats::Stat;
@@ -19,7 +21,7 @@ impl FoRData {
         let array_ref = array.clone().into_array();
         let min = array_ref
             .statistics()
-            .compute_stat(Stat::Min)?
+            .compute_stat(Stat::Min, &mut LEGACY_SESSION.create_execution_ctx())?
             .ok_or_else(|| vortex_err!("Min stat not found"))?;
 
         let encoded = match_each_integer_ptype!(array.ptype(), |T| {
@@ -110,7 +112,10 @@ mod test {
         assert!(compressed.reference_scalar().dtype().is_signed_int());
         assert!(compressed.encoded().dtype().is_signed_int());
 
-        let encoded = compressed.encoded().scalar_at(0).unwrap();
+        let encoded = compressed
+            .encoded()
+            .execute_scalar(0, &mut SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(encoded, Scalar::from(0i32));
     }
 
@@ -175,7 +180,15 @@ mod test {
             .iter()
             .enumerate()
             .for_each(|(i, v)| {
-                assert_eq!(*v, i8::try_from(&compressed.scalar_at(i).unwrap()).unwrap());
+                assert_eq!(
+                    *v,
+                    i8::try_from(
+                        &compressed
+                            .execute_scalar(i, &mut SESSION.create_execution_ctx())
+                            .unwrap()
+                    )
+                    .unwrap()
+                );
             });
         assert_arrays_eq!(decompressed, array);
         Ok(())

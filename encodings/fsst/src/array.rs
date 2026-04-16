@@ -23,8 +23,10 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
 use vortex_array::TypedArrayRef;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::varbin::VarBinArrayExt;
@@ -49,6 +51,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::canonical::canonicalize_fsst;
 use crate::canonical::fsst_decode_views;
@@ -101,7 +104,8 @@ impl VTable for FSST {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.fsst");
+        *ID
     }
 
     fn validate(
@@ -286,7 +290,14 @@ impl VTable for FSST {
         let next_buffer_index = builder.completed_block_count() + u32::from(builder.in_progress());
         let (buffers, views) = fsst_decode_views(array, next_buffer_index, ctx)?;
 
-        builder.push_buffer_and_adjusted_views(&buffers, &views, array.array().validity_mask()?);
+        builder.push_buffer_and_adjusted_views(
+            &buffers,
+            &views,
+            array
+                .array()
+                .validity()?
+                .to_mask(array.array().len(), ctx)?,
+        );
         Ok(())
     }
 
@@ -363,8 +374,6 @@ impl Debug for FSSTData {
 pub struct FSST;
 
 impl FSST {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.fsst");
-
     /// Build an FSST array from a set of `symbols` and `codes`.
     ///
     /// The `codes` VarBinArray is decomposed: its bytes are stored in [`FSSTData`], while
@@ -573,7 +582,10 @@ impl FSSTData {
         // Validate that last offset doesn't exceed bytes length (when host-resident).
         if codes_bytes.is_on_host() && codes_offsets.is_host() && !codes_offsets.is_empty() {
             let last_offset: usize = (&codes_offsets
-                .scalar_at(codes_offsets.len() - 1)
+                .execute_scalar(
+                    codes_offsets.len() - 1,
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )
                 .vortex_expect("offsets must support scalar_at"))
                 .try_into()
                 .vortex_expect("Failed to convert offset to usize");

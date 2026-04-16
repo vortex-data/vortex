@@ -6,7 +6,9 @@
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::is_constant::is_constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::TemporalArray;
@@ -83,7 +85,11 @@ impl Scheme for TemporalScheme {
         )?;
 
         if is_constant {
-            return Ok(ConstantArray::new(ext_array.scalar_at(0)?, ext_array.len()).into_array());
+            return Ok(ConstantArray::new(
+                ext_array.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
+                ext_array.len(),
+            )
+            .into_array());
         }
 
         let dtype = temporal_array.dtype().clone();

@@ -55,6 +55,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ZstdFrameMetadata;
 use crate::ZstdMetadata;
@@ -134,7 +135,8 @@ impl VTable for Zstd {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.zstd");
+        *ID
     }
 
     fn validate(
@@ -253,8 +255,6 @@ impl VTable for Zstd {
 pub struct Zstd;
 
 impl Zstd {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.zstd");
-
     pub fn try_new(dtype: DType, data: ZstdData, validity: Validity) -> VortexResult<ZstdArray> {
         let len = data.len();
         data.validate(&dtype, len, &validity)?;
@@ -366,12 +366,18 @@ fn choose_max_dict_size(uncompressed_size: usize) -> usize {
 }
 
 fn collect_valid_primitive(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
-    let mask = parray.validity_mask()?;
+    let mask = parray.as_ref().validity()?.to_mask(
+        parray.as_ref().len(),
+        &mut LEGACY_SESSION.create_execution_ctx(),
+    )?;
     Ok(parray.filter(mask)?.to_primitive())
 }
 
 fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usize>)> {
-    let mask = vbv.validity_mask()?;
+    let mask = vbv.as_ref().validity()?.to_mask(
+        vbv.as_ref().len(),
+        &mut LEGACY_SESSION.create_execution_ctx(),
+    )?;
     let buffer_and_value_byte_indices = match mask.bit_buffer() {
         AllOr::None => (Buffer::empty(), Vec::new()),
         _ => {
@@ -1023,14 +1029,13 @@ impl OperationsVTable<Zstd> for Zstd {
     fn scalar_at(
         array: ArrayView<'_, Zstd>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let unsliced_validity = child_to_validity(&array.slots()[0], array.dtype().nullability());
         let sliced = array.data().with_slice(index, index + 1);
         sliced
-            .decompress(array.dtype(), &unsliced_validity, &mut ctx)?
-            .scalar_at(0)
+            .decompress(array.dtype(), &unsliced_validity, ctx)?
+            .execute_scalar(0, ctx)
     }
 }
 

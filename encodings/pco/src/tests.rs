@@ -164,12 +164,21 @@ fn test_validity_vtable() {
         Validity::Array(BoolArray::from_iter(mask_bools.clone()).into_array()),
     );
     let compressed = Pco::from_primitive(array.as_view(), 3, 0).unwrap();
+    let arr = compressed.as_array();
     assert_eq!(
-        compressed.as_array().validity_mask().unwrap(),
+        arr.validity()
+            .unwrap()
+            .to_mask(arr.len(), &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap(),
         Mask::from_iter(mask_bools)
     );
+    let sliced = compressed.slice(1..4).unwrap();
     assert_eq!(
-        compressed.slice(1..4).unwrap().validity_mask().unwrap(),
+        sliced
+            .validity()
+            .unwrap()
+            .to_mask(sliced.len(), &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap(),
         Mask::from_iter(vec![true, true, false])
     );
 }
@@ -184,7 +193,7 @@ fn test_serde() -> VortexResult<()> {
     let bytes = pco
         .serialize(
             &context,
-            &LEGACY_SESSION,
+            &SESSION,
             &SerializeOptions {
                 offset: 0,
                 include_padding: true,

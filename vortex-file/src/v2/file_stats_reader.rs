@@ -102,7 +102,7 @@ impl FileStatsLayoutReader {
             .execute::<Canonical>(&mut ctx)?
             .into_bool()
             .into_array()
-            .scalar_at(0)?;
+            .execute_scalar(0, &mut ctx)?;
 
         Ok(result.as_bool().value() == Some(true))
     }

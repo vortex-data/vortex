@@ -35,6 +35,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::TemporalParts;
 use crate::canonical::decode_to_temporal;
@@ -92,7 +93,8 @@ impl VTable for DateTimeParts {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.datetimeparts");
+        *ID
     }
 
     fn validate(
@@ -250,8 +252,6 @@ impl<T: TypedArrayRef<DateTimeParts>> DateTimePartsArrayExt for T {}
 pub struct DateTimeParts;
 
 impl DateTimeParts {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.datetimeparts");
-
     /// Construct a new [`DateTimePartsArray`] from its components.
     pub fn try_new(
         dtype: DType,

@@ -59,8 +59,11 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     indices_array: ArrayView<'_, Primitive>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let data_validity = array.list_validity_mask();
-    let indices_validity = indices_array.validity_mask();
+    let data_validity = array.list_validity().to_mask(array.as_ref().len(), ctx)?;
+    let indices_validity = indices_array
+        .validity()
+        .vortex_expect("Failed to compute validity mask")
+        .to_mask(indices_array.as_ref().len(), ctx)?;
 
     if !indices_validity.all_true() || !data_validity.all_true() {
         return _take_nullable::<I, O, OutputOffsetType>(array, indices_array, ctx);
@@ -124,8 +127,11 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPTy
     let offsets_array = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
     let offsets: &[O] = offsets_array.as_slice();
     let indices: &[I] = indices_array.as_slice();
-    let data_validity = array.list_validity_mask();
-    let indices_validity = indices_array.validity_mask();
+    let data_validity = array.list_validity().to_mask(array.as_ref().len(), ctx)?;
+    let indices_validity = indices_array
+        .validity()
+        .vortex_expect("Failed to compute validity mask")
+        .to_mask(indices_array.as_ref().len(), ctx)?;
 
     let mut new_offsets = PrimitiveBuilder::<OutputOffsetType>::with_capacity(
         Nullability::NonNullable,
@@ -193,7 +199,9 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::IntoArray as _;
+    use crate::LEGACY_SESSION;
     use crate::ToCanonical;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
@@ -233,9 +241,15 @@ mod test {
 
         let element_dtype: Arc<DType> = Arc::new(I32.into());
 
-        assert!(result.is_valid(0).unwrap());
+        assert!(
+            result
+                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
         assert_eq!(
-            result.scalar_at(0).unwrap(),
+            result
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::list(
                 Arc::clone(&element_dtype),
                 vec![0i32.into(), 5.into()],
@@ -243,11 +257,21 @@ mod test {
             )
         );
 
-        assert!(result.is_invalid(1).unwrap());
+        assert!(
+            result
+                .is_invalid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
 
-        assert!(result.is_valid(2).unwrap());
+        assert!(
+            result
+                .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
         assert_eq!(
-            result.scalar_at(2).unwrap(),
+            result
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::list(
                 Arc::clone(&element_dtype),
                 vec![3i32.into()],
@@ -255,9 +279,15 @@ mod test {
             )
         );
 
-        assert!(result.is_valid(3).unwrap());
+        assert!(
+            result
+                .is_valid(3, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
         assert_eq!(
-            result.scalar_at(3).unwrap(),
+            result
+                .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::list(element_dtype, vec![], Nullability::Nullable)
         );
     }
@@ -313,9 +343,15 @@ mod test {
 
         let element_dtype: Arc<DType> = Arc::new(I32.into());
 
-        assert!(result.is_valid(0).unwrap());
+        assert!(
+            result
+                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
         assert_eq!(
-            result.scalar_at(0).unwrap(),
+            result
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::list(
                 Arc::clone(&element_dtype),
                 vec![3i32.into()],
@@ -323,9 +359,15 @@ mod test {
             )
         );
 
-        assert!(result.is_valid(1).unwrap());
+        assert!(
+            result
+                .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
         assert_eq!(
-            result.scalar_at(1).unwrap(),
+            result
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::list(
                 Arc::clone(&element_dtype),
                 vec![0i32.into(), 5.into()],
@@ -333,9 +375,15 @@ mod test {
             )
         );
 
-        assert!(result.is_valid(2).unwrap());
+        assert!(
+            result
+                .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
         assert_eq!(
-            result.scalar_at(2).unwrap(),
+            result
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::list(element_dtype, vec![], Nullability::NonNullable)
         );
     }
@@ -421,8 +469,16 @@ mod test {
 
         let result_view = result.to_listview();
         assert_eq!(result_view.len(), 2);
-        assert!(result_view.is_valid(0).unwrap());
-        assert!(result_view.is_valid(1).unwrap());
+        assert!(
+            result_view
+                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
+        assert!(
+            result_view
+                .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
     }
 
     #[test]
@@ -442,9 +498,21 @@ mod test {
 
         let result_view = result.to_listview();
         assert_eq!(result_view.len(), 3);
-        assert!(result_view.is_valid(0).unwrap());
-        assert!(result_view.is_invalid(1).unwrap());
-        assert!(result_view.is_valid(2).unwrap());
+        assert!(
+            result_view
+                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
+        assert!(
+            result_view
+                .is_invalid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
+        assert!(
+            result_view
+                .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
     }
 
     /// Regression test for validity length mismatch bug.

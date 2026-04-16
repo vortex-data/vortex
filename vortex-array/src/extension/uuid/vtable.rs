@@ -27,7 +27,7 @@ impl ExtVTable for Uuid {
     type NativeValue<'a> = uuid::Uuid;
 
     fn id(&self) -> ExtId {
-        ExtId::new_ref("vortex.uuid")
+        ExtId::new("vortex.uuid")
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {

@@ -11,6 +11,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -40,10 +41,6 @@ pub type FixedSizeListArray = Array<FixedSizeList>;
 #[derive(Clone, Debug)]
 pub struct FixedSizeList;
 
-impl FixedSizeList {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.fixed_size_list");
-}
-
 impl ArrayHash for FixedSizeListData {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
         let _precision = precision;
@@ -63,9 +60,9 @@ impl VTable for FixedSizeList {
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.fixed_size_list");
+        *ID
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

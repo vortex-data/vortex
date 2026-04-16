@@ -54,6 +54,7 @@ anyhow = { workspace = true }
 arrow-array = { workspace = true }
 divan = { workspace = true }
 fastlanes = { workspace = true }
+futures = { workspace = true }
 mimalloc = { workspace = true }
 parquet = { workspace = true }
 paste = { workspace = true }
@@ -64,6 +65,7 @@ tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 vortex = { path = ".", features = ["tokio"] }
+vortex-bench = { workspace = true, features = ["unstable_encodings"] }
 vortex-tensor = { workspace = true }
 
 [features]
@@ -82,6 +84,10 @@ unstable_encodings = [
     "vortex-file?/unstable_encodings",
     "vortex-zstd?/unstable_encodings",
 ]
+
+[[example]]
+name = "turboquant_vector_search"
+required-features = ["files", "tokio", "unstable_encodings"]
 
 [[bench]]
 name = "single_encoding_throughput"

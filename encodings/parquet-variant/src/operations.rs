@@ -41,7 +41,7 @@ impl OperationsVTable<ParquetVariant> for ParquetVariant {
     fn scalar_at(
         array: ArrayView<'_, ParquetVariant>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         if array.validity()?.is_null(index)? {
             return Ok(Scalar::null(DType::Variant(Nullability::Nullable)));
@@ -49,7 +49,7 @@ impl OperationsVTable<ParquetVariant> for ParquetVariant {
 
         let metadata = array
             .metadata_array()
-            .scalar_at(index)?
+            .execute_scalar(index, ctx)?
             .as_binary()
             .value()
             .cloned()
@@ -59,6 +59,7 @@ impl OperationsVTable<ParquetVariant> for ParquetVariant {
             array.value_array(),
             array.typed_value_array(),
             index,
+            ctx,
         )?;
 
         Scalar::try_new(
@@ -73,17 +74,18 @@ fn scalar_from_variant_storage(
     value: Option<&ArrayRef>,
     typed_value: Option<&ArrayRef>,
     index: usize,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<Scalar> {
     if let Some(typed_value) = typed_value
-        && typed_value.is_valid(index)?
+        && typed_value.is_valid(index, ctx)?
     {
-        return scalar_from_typed_value_array(metadata, value, typed_value, index);
+        return scalar_from_typed_value_array(metadata, value, typed_value, index, ctx);
     }
 
     if let Some(value) = value
-        && value.is_valid(index)?
+        && value.is_valid(index, ctx)?
     {
-        return scalar_from_unshredded_value(metadata, &value.scalar_at(index)?);
+        return scalar_from_unshredded_value(metadata, &value.execute_scalar(index, ctx)?);
     }
 
     Ok(Scalar::null(DType::Null))
@@ -94,12 +96,17 @@ fn scalar_from_typed_value_array(
     value: Option<&ArrayRef>,
     typed_value: &ArrayRef,
     index: usize,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<Scalar> {
     let value_scalar = match value {
-        Some(value) if value.is_valid(index)? => Some(value.scalar_at(index)?),
+        Some(value) if value.is_valid(index, ctx)? => Some(value.execute_scalar(index, ctx)?),
         _ => None,
     };
-    scalar_from_typed_value_scalar(metadata, value_scalar, typed_value.scalar_at(index)?)
+    scalar_from_typed_value_scalar(
+        metadata,
+        value_scalar,
+        typed_value.execute_scalar(index, ctx)?,
+    )
 }
 
 fn scalar_from_typed_value_scalar(
@@ -347,6 +354,7 @@ mod tests {
     use parquet_variant::VariantBuilder;
     use parquet_variant_compute::VariantArray as ArrowVariantArray;
     use parquet_variant_compute::VariantArrayBuilder;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::Variant;
     use vortex_array::arrays::variant::VariantArrayExt;
@@ -383,7 +391,10 @@ mod tests {
                 Some(ScalarValue::Variant(Box::new(expected_inner))),
             )
             .unwrap();
-            assert_eq!(vortex_arr.scalar_at(index)?, expected);
+            assert_eq!(
+                vortex_arr.execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())?,
+                expected
+            );
         }
 
         Ok(())
@@ -412,9 +423,21 @@ mod tests {
         let variant = vortex_arr.as_opt::<Variant>().unwrap();
         assert!(variant.dtype().is_nullable());
 
-        assert!(vortex_arr.scalar_at(1)?.is_null());
-        assert!(!vortex_arr.scalar_at(0)?.is_null());
-        assert!(!vortex_arr.scalar_at(2)?.is_null());
+        assert!(
+            vortex_arr
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?
+                .is_null()
+        );
+        assert!(
+            !vortex_arr
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
+                .is_null()
+        );
+        assert!(
+            !vortex_arr
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
+                .is_null()
+        );
 
         Ok(())
     }
@@ -437,13 +460,21 @@ mod tests {
         let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
 
         assert_eq!(vortex_arr.dtype(), &DType::Variant(Nullability::Nullable));
-        assert!(vortex_arr.scalar_at(0)?.is_null());
-        assert!(vortex_arr.scalar_at(1)?.is_null());
+        assert!(
+            vortex_arr
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
+                .is_null()
+        );
+        assert!(
+            vortex_arr
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?
+                .is_null()
+        );
 
         let variant_view = vortex_arr.as_opt::<Variant>().unwrap();
         let child = variant_view.child();
         let inner_pv = child.as_opt::<ParquetVariant>().unwrap();
-        let mut ctx = vortex_array::LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let roundtripped = inner_pv.to_arrow(&mut ctx)?;
         assert_eq!(roundtripped.inner().null_count(), 2);
 
@@ -463,8 +494,16 @@ mod tests {
             vortex_arr.dtype(),
             &DType::Variant(Nullability::NonNullable)
         );
-        assert!(!vortex_arr.scalar_at(0)?.is_null());
-        assert!(!vortex_arr.scalar_at(1)?.is_null());
+        assert!(
+            !vortex_arr
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
+                .is_null()
+        );
+        assert!(
+            !vortex_arr
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?
+                .is_null()
+        );
         assert_scalar_at_matches_arrow_try_value(&arrow_variant, [0, 1])?;
 
         Ok(())
@@ -579,7 +618,7 @@ mod tests {
         let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
         let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
 
-        let row0 = vortex_arr.scalar_at(0)?;
+        let row0 = vortex_arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?;
         let row0 = row0.as_variant().value().unwrap().as_list();
         assert_eq!(row0.len(), 2);
         assert_eq!(
@@ -603,7 +642,7 @@ mod tests {
             Some(20)
         );
 
-        let row1 = vortex_arr.scalar_at(1)?;
+        let row1 = vortex_arr.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?;
         let row1 = row1.as_variant().value().unwrap().as_list();
         assert_eq!(row1.len(), 1);
         assert_eq!(
@@ -675,7 +714,7 @@ mod tests {
 
         let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
         let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
-        let object = vortex_arr.scalar_at(0)?;
+        let object = vortex_arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?;
         let object = object.as_variant().value().unwrap().as_struct();
 
         assert_eq!(

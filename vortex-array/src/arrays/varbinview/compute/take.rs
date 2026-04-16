@@ -32,7 +32,10 @@ impl TakeExecute for VarBinView {
         let validity = array.validity()?.take(indices)?;
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
 
-        let indices_mask = indices.validity_mask()?;
+        let indices_mask = indices
+            .as_ref()
+            .validity()?
+            .to_mask(indices.as_ref().len(), ctx)?;
         let views_buffer = match_each_integer_ptype!(indices.ptype(), |I| {
             take_views(array.views(), indices.as_slice::<I>(), &indices_mask)
         });

@@ -11,6 +11,8 @@ use super::common::create_nullable_fsl;
 use super::common::create_single_element_fsl;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
@@ -93,7 +95,13 @@ fn test_take_degenerate_lists(
 
     assert_eq!(result.len(), expected_len);
     for (i, expected_null) in expected_nulls.iter().enumerate() {
-        assert_eq!(result.scalar_at(i).unwrap().is_null(), *expected_null);
+        assert_eq!(
+            result
+                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .is_null(),
+            *expected_null
+        );
     }
 }
 
@@ -221,6 +229,12 @@ fn test_take_nullable_arrays_fsl_specific(
 
     assert_eq!(result.len(), indices.len());
     for (i, expected_null) in expected_nulls.iter().enumerate() {
-        assert_eq!(result.scalar_at(i).unwrap().is_null(), *expected_null);
+        assert_eq!(
+            result
+                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .is_null(),
+            *expected_null
+        );
     }
 }

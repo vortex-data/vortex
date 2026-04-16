@@ -100,6 +100,8 @@ public final class SparkToArrowSchema {
             return new ArrowType.Date(DateUnit.DAY);
         } else if (sparkType instanceof TimestampType) {
             return new ArrowType.Timestamp(TimeUnit.MICROSECOND, "UTC");
+        } else if (sparkType instanceof TimestampNTZType) {
+            return new ArrowType.Timestamp(TimeUnit.MICROSECOND, null);
         } else if (sparkType instanceof DecimalType) {
             DecimalType decimal = (DecimalType) sparkType;
             return new ArrowType.Decimal(decimal.precision(), decimal.scale(), 128);

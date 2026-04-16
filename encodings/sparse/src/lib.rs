@@ -16,11 +16,14 @@ use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::buffer::BufferHandle;
@@ -47,6 +50,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::canonical::execute_sparse;
 use crate::rules::RULES;
@@ -88,7 +92,8 @@ impl VTable for Sparse {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.sparse");
+        *ID
     }
 
     fn validate(
@@ -227,8 +232,6 @@ impl Display for SparseData {
 pub struct Sparse;
 
 impl Sparse {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.sparse");
-
     /// Construct a new [`SparseArray`] from indices, values, length, and fill value.
     pub fn try_new(
         indices: ArrayRef,
@@ -402,7 +405,9 @@ impl SparseData {
                 fill_value.dtype()
             )
         }
-        let mask = array.validity_mask()?;
+        let mask = array
+            .validity()?
+            .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())?;
 
         if mask.all_false() {
             // Array is constant NULL
@@ -412,7 +417,10 @@ impl SparseData {
         } else if mask.false_count() as f64 > (0.9 * mask.len() as f64) {
             // Array is dominated by NULL but has non-NULL values
             // TODO(joe): use exe ctx?
-            let non_null_values = array.filter(mask.clone())?.to_canonical()?.into_array();
+            let non_null_values = array
+                .filter(mask.clone())?
+                .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+                .into_array();
             let non_null_indices = match mask.indices() {
                 AllOr::All => {
                     // We already know that the mask is 90%+ false
@@ -464,7 +472,7 @@ impl SparseData {
 
         let non_top_values = array
             .filter(non_top_mask.clone())?
-            .to_canonical()?
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
             .into_array();
 
         let indices: Buffer<u64> = match non_top_mask {
@@ -512,6 +520,8 @@ impl ValidityVTable<Sparse> for Sparse {
 mod test {
     use itertools::Itertools;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -549,16 +559,33 @@ mod test {
     pub fn test_scalar_at() {
         let array = sparse_array(nullable_fill());
 
-        assert_eq!(array.scalar_at(0).unwrap(), nullable_fill());
-        assert_eq!(array.scalar_at(2).unwrap(), Scalar::from(Some(100_i32)));
-        assert_eq!(array.scalar_at(5).unwrap(), Scalar::from(Some(200_i32)));
+        assert_eq!(
+            array
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            nullable_fill()
+        );
+        assert_eq!(
+            array
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            Scalar::from(Some(100_i32))
+        );
+        assert_eq!(
+            array
+                .execute_scalar(5, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            Scalar::from(Some(200_i32))
+        );
     }
 
     #[test]
     #[should_panic(expected = "out of bounds")]
     fn test_scalar_at_oob() {
         let array = sparse_array(nullable_fill());
-        array.scalar_at(10).unwrap();
+        array
+            .execute_scalar(10, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
     }
 
     #[test]
@@ -572,27 +599,47 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            arr.scalar_at(10)
+            arr.execute_scalar(10, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .as_primitive()
                 .typed_value::<u32>(),
             Some(1234)
         );
-        assert!(arr.scalar_at(0).unwrap().is_null());
-        assert!(arr.scalar_at(99).unwrap().is_null());
+        assert!(
+            arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .is_null()
+        );
+        assert!(
+            arr.execute_scalar(99, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .is_null()
+        );
     }
 
     #[test]
     pub fn scalar_at_sliced() {
         let sliced = sparse_array(nullable_fill()).slice(2..7).unwrap();
-        assert_eq!(usize::try_from(&sliced.scalar_at(0).unwrap()).unwrap(), 100);
+        assert_eq!(
+            usize::try_from(
+                &sliced
+                    .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap()
+            )
+            .unwrap(),
+            100
+        );
     }
 
     #[test]
     pub fn validity_mask_sliced_null_fill() {
         let sliced = sparse_array(nullable_fill()).slice(2..7).unwrap();
         assert_eq!(
-            sliced.validity_mask().unwrap(),
+            sliced
+                .validity()
+                .unwrap()
+                .to_mask(sliced.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Mask::from_iter(vec![true, false, false, true, false])
         );
     }
@@ -614,7 +661,11 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            sliced.validity_mask().unwrap(),
+            sliced
+                .validity()
+                .unwrap()
+                .to_mask(sliced.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Mask::from_iter(vec![false, true, true, false, true])
         );
     }
@@ -623,13 +674,23 @@ mod test {
     pub fn scalar_at_sliced_twice() {
         let sliced_once = sparse_array(nullable_fill()).slice(1..8).unwrap();
         assert_eq!(
-            usize::try_from(&sliced_once.scalar_at(1).unwrap()).unwrap(),
+            usize::try_from(
+                &sliced_once
+                    .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap()
+            )
+            .unwrap(),
             100
         );
 
         let sliced_twice = sliced_once.slice(1..6).unwrap();
         assert_eq!(
-            usize::try_from(&sliced_twice.scalar_at(3).unwrap()).unwrap(),
+            usize::try_from(
+                &sliced_twice
+                    .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap()
+            )
+            .unwrap(),
             200
         );
     }
@@ -639,7 +700,9 @@ mod test {
         let array = sparse_array(nullable_fill());
         assert_eq!(
             array
-                .validity_mask()
+                .validity()
+                .unwrap()
+                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .to_bit_buffer()
                 .iter()
@@ -653,7 +716,14 @@ mod test {
     #[test]
     fn sparse_validity_mask_non_null_fill() {
         let array = sparse_array(non_nullable_fill());
-        assert!(array.validity_mask().unwrap().all_true());
+        assert!(
+            array
+                .validity()
+                .unwrap()
+                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .all_true()
+        );
     }
 
     #[test]
@@ -684,7 +754,11 @@ mod test {
         let sparse = Sparse::encode(&original.clone().into_array(), None)
             .vortex_expect("Sparse::encode should succeed for test data");
         assert_eq!(
-            sparse.validity_mask().unwrap(),
+            sparse
+                .validity()
+                .unwrap()
+                .to_mask(sparse.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Mask::from_iter(vec![
                 true, true, false, true, false, true, false, true, true, false, true, false,
             ])
@@ -698,7 +772,11 @@ mod test {
         let values = PrimitiveArray::from_option_iter([Some(0i16), Some(1), None, None, Some(4)])
             .into_array();
         let array = Sparse::try_new(indices, values, 10, Scalar::null_native::<i16>()).unwrap();
-        let actual = array.validity_mask().unwrap();
+        let actual = array
+            .validity()
+            .unwrap()
+            .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         let expected = Mask::from_iter([
             true, false, true, false, false, false, false, false, true, false,
         ]);

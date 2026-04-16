@@ -11,7 +11,7 @@ use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Patched;
-use vortex_array::arrays::patched::USE_EXPERIMENTAL_PATCHES;
+use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::scalar::Scalar;
 use vortex_compressor::builtins::FloatDictScheme;
@@ -348,7 +348,7 @@ impl Scheme for BitPackingScheme {
         let ptype = packed.dtype().as_ptype();
         let mut parts = BitPacked::into_parts(packed);
 
-        let array = if *USE_EXPERIMENTAL_PATCHES {
+        let array = if use_experimental_patches() {
             let patches = parts.patches.take();
             // Transpose patches into G-ALP style PatchedArray, wrapping an inner BitPackedArray.
             let array = BitPacked::try_new(

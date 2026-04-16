@@ -3,7 +3,9 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
@@ -43,7 +45,10 @@ pub fn take_canonical_array(array: &ArrayRef, indices: &[Option<usize>]) -> Vort
     let nullable: Nullability = indices.contains(&None).into();
 
     let validity = if array.dtype().is_nullable() || nullable == Nullability::Nullable {
-        let validity_idx = array.validity_mask()?.to_bit_buffer();
+        let validity_idx = array
+            .validity()?
+            .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())?
+            .to_bit_buffer();
 
         Validity::from_iter(
             indices
@@ -124,11 +129,12 @@ pub fn take_canonical_array(array: &ArrayRef, indices: &[Option<usize>]) -> Vort
                 &array.dtype().union_nullability(nullable),
                 indices_slice_non_opt.len(),
             );
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
             for idx in indices {
                 if let Some(idx) = idx {
                     builder.append_scalar(
                         &array
-                            .scalar_at(*idx)?
+                            .execute_scalar(*idx, &mut ctx)?
                             .cast(&array.dtype().union_nullability(nullable))
                             .vortex_expect("cannot cast scalar nullability"),
                     )?;

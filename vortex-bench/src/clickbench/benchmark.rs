@@ -6,7 +6,6 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::Result;
-use reqwest::Client;
 use url::Url;
 use vortex::error::VortexExpect;
 
@@ -89,7 +88,7 @@ impl Benchmark for ClickBenchBenchmark {
         }
 
         let basepath = clickbench_flavor(self.flavor).to_data_path();
-        self.flavor.download(Client::default(), basepath).await?;
+        self.flavor.download(basepath).await?;
 
         Ok(())
     }

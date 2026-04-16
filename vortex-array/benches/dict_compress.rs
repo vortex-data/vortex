@@ -6,7 +6,10 @@
 use divan::Bencher;
 use rand::distr::Distribution;
 use rand::distr::StandardUniform;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::dict_test::gen_primitive_for_dict;
@@ -75,8 +78,8 @@ where
         .into_array();
 
     bencher
-        .with_inputs(|| &dict)
-        .bench_refs(|dict| dict.to_canonical());
+        .with_inputs(|| (&dict, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(dict, ctx)| (**dict).clone().execute::<Canonical>(ctx));
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -85,8 +88,8 @@ fn decode_varbin(bencher: Bencher, (len, unique_values): (usize, usize)) {
     let dict = dict_encode(&varbin_arr.into_array()).unwrap().into_array();
 
     bencher
-        .with_inputs(|| &dict)
-        .bench_refs(|dict| dict.to_canonical());
+        .with_inputs(|| (&dict, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(dict, ctx)| (**dict).clone().execute::<Canonical>(ctx));
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -97,6 +100,6 @@ fn decode_varbinview(bencher: Bencher, (len, unique_values): (usize, usize)) {
         .into_array();
 
     bencher
-        .with_inputs(|| &dict)
-        .bench_refs(|dict| dict.to_canonical());
+        .with_inputs(|| (&dict, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(dict, ctx)| (**dict).clone().execute::<Canonical>(ctx));
 }

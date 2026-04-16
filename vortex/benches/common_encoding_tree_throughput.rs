@@ -13,8 +13,11 @@ use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
 use vortex::array::ArrayRef;
+use vortex::array::Canonical;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
 use vortex::array::ToCanonical;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::TemporalArray;
@@ -102,7 +105,12 @@ mod setup {
     /// Create ALP <- FoR <- BitPacked encoding tree for f64
     pub fn alp_for_bp_f64() -> ArrayRef {
         let (_, _, float_array) = setup_primitive_arrays();
-        let alp_compressed = alp_encode(float_array.as_view(), None).unwrap();
+        let alp_compressed = alp_encode(
+            float_array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         // Manually construct ALP <- FoR <- BitPacked tree
         let for_array = FoR::encode(alp_compressed.encoded().to_primitive()).unwrap();
@@ -411,6 +419,6 @@ fn decompress(bencher: Bencher, setup_fn: SetupFn) {
     let nbytes = compressed.nbytes();
 
     with_byte_counter(bencher, nbytes)
-        .with_inputs(|| &compressed)
-        .bench_refs(|a| a.to_canonical());
+        .with_inputs(|| (&compressed, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| (**a).clone().execute::<Canonical>(ctx));
 }

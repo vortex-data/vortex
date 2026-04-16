@@ -45,6 +45,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::compress::sequence_decompress;
 use crate::kernel::PARENT_KERNELS;
@@ -231,7 +232,8 @@ impl VTable for Sequence {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.sequence");
+        *ID
     }
 
     fn validate(
@@ -369,8 +371,6 @@ impl ValidityVTable<Sequence> for Sequence {
 pub struct Sequence;
 
 impl Sequence {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.sequence");
-
     fn stats(multiplier: PValue) -> StatsSet {
         // A sequence A[i] = base + i * multiplier is sorted iff multiplier >= 0,
         // and strictly sorted iff multiplier > 0.
@@ -451,6 +451,8 @@ impl Sequence {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::Nullability;
@@ -488,7 +490,7 @@ mod tests {
     fn test_sequence_scalar_at() {
         let scalar = Sequence::try_new_typed(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
-            .scalar_at(2)
+            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
 
         assert_eq!(

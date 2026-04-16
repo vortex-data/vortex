@@ -55,10 +55,10 @@ vortex-utils = { workspace = true, features = ["dashmap"] }
 [dev-dependencies]
 futures = { workspace = true, features = ["executor"] }
 rstest = { workspace = true }
+temp-env = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 vortex-array = { path = "../vortex-array", features = ["_test-harness"] }
 vortex-io = { path = "../vortex-io", features = ["tokio"] }
-vortex-utils = { workspace = true, features = ["_test-harness"] }
 
 [features]
 _test-harness = []

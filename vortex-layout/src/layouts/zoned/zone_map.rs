@@ -7,6 +7,7 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::StructArray;
@@ -129,7 +130,7 @@ impl ZoneMap {
             match stat {
                 // For stats that are associative, we can just compute them over the stat column
                 Stat::Min | Stat::Max | Stat::Sum => {
-                    if let Some(s) = array.statistics().compute_stat(stat)?
+                    if let Some(s) = array.statistics().compute_stat(stat, ctx)?
                         && let Some(v) = s.into_value()
                     {
                         stats_set.set(stat, Precision::exact(v))
@@ -220,7 +221,10 @@ impl StatsAccumulator {
 
     pub fn push_chunk(&mut self, array: &ArrayRef) -> VortexResult<()> {
         for builder in self.builders.iter_mut() {
-            if let Some(v) = array.statistics().compute_stat(builder.stat())? {
+            if let Some(v) = array
+                .statistics()
+                .compute_stat(builder.stat(), &mut LEGACY_SESSION.create_execution_ctx())?
+            {
                 builder.append_scalar(v.cast(&v.dtype().as_nullable())?)?;
             } else {
                 builder.append_null();

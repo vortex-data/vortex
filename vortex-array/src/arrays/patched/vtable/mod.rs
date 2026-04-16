@@ -17,6 +17,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -99,7 +100,8 @@ impl VTable for Patched {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.patched")
+        static ID: CachedId = CachedId::new("vortex.patched");
+        *ID
     }
 
     fn validate(

@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use futures::StreamExt as _;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
+use vortex_array::VortexSessionExecute;
 use vortex_array::expr::stats::Stat;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_error::VortexResult;
@@ -97,16 +98,21 @@ impl LayoutStrategy for CompressingStrategy {
         let dtype = stream.dtype().clone();
         let compressor = Arc::clone(&self.compressor);
         let stats = Arc::clone(&self.stats);
+        let session = session.clone();
+        let compute_session = session.clone();
 
         let handle = session.handle();
         let stream = stream
             .map(move |chunk| {
                 let compressor = Arc::clone(&compressor);
                 let stats = Arc::clone(&stats);
+                let session = compute_session.clone();
                 handle.spawn_cpu(move || {
                     let (sequence_id, chunk) = chunk?;
                     // Compute the stats for the chunk prior to compression
-                    chunk.statistics().compute_all(&stats)?;
+                    chunk
+                        .statistics()
+                        .compute_all(&stats, &mut session.create_execution_ctx())?;
                     Ok((sequence_id, compressor.compress_chunk(&chunk)?))
                 })
             })
@@ -118,7 +124,7 @@ impl LayoutStrategy for CompressingStrategy {
                 segment_sink,
                 SequentialStreamAdapter::new(dtype, stream).sendable(),
                 eof,
-                session,
+                &session,
             )
             .await
     }

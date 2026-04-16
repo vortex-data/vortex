@@ -418,7 +418,7 @@ impl MaterializedPlan {
             let dtype = DType::Primitive(output_ptype, Nullability::Nullable);
             return ConstantArray::new(Scalar::null(dtype), len)
                 .into_array()
-                .to_canonical();
+                .execute::<Canonical>(ctx.execution_ctx());
         }
 
         // The CUDA kernels are instantiated for unsigned integer types only;
@@ -519,6 +519,8 @@ mod tests {
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::CanonicalCudaExt;
@@ -874,7 +876,11 @@ mod tests {
             .collect();
         let float_prim = PrimitiveArray::new(Buffer::from(floats.clone()), NonNullable);
 
-        let alp = alp_encode(float_prim.as_view(), Some(exponents))?;
+        let alp = alp_encode(
+            float_prim.as_view(),
+            Some(exponents),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         assert!(alp.patches().is_none());
         let for_arr = FoR::encode(alp.encoded().to_primitive())?;
         let bp = BitPacked::encode(for_arr.encoded(), 6)?;
@@ -1847,7 +1853,7 @@ mod tests {
         let array = PrimitiveArray::from_option_iter(
             (0..2048u32).map(|i| if i % 3 == 0 { None } else { Some(i) }),
         );
-        let cpu = array.to_canonical()?.into_array();
+        let cpu = crate::canonicalize_cpu(array.clone())?.into_array();
 
         let gpu = try_gpu_dispatch(&array.into_array(), &mut cuda_ctx)
             .await?
@@ -1881,7 +1887,7 @@ mod tests {
             })
             .collect();
         let prim = PrimitiveArray::from_option_iter(values.iter().copied());
-        let cpu = prim.to_canonical()?.into_array();
+        let cpu = crate::canonicalize_cpu(prim.clone())?.into_array();
 
         // FoR encoding: subtract reference to get residuals [0..63].
         // Null positions get 0 (from from_option_iter), which is fine —
@@ -1938,7 +1944,7 @@ mod tests {
         let values: Vec<u32> = (0..2048).collect();
         let array = PrimitiveArray::new(Buffer::from(values.clone()), Validity::AllValid);
 
-        let cpu = array.to_canonical()?.into_array();
+        let cpu = crate::canonicalize_cpu(array.clone())?.into_array();
         let gpu = try_gpu_dispatch(&array.into_array(), &mut cuda_ctx)
             .await?
             .into_host()
@@ -1977,7 +1983,7 @@ mod tests {
         let values = PrimitiveArray::from_option_iter([Some(10u32), None, Some(30)]);
         let dict = DictArray::try_new(codes.into_array(), values.into_array())?;
 
-        let cpu = dict.to_canonical()?.into_array();
+        let cpu = crate::canonicalize_cpu(dict.clone())?.into_array();
         let gpu = dict
             .into_array()
             .execute_cuda(&mut cuda_ctx)
@@ -2015,7 +2021,7 @@ mod tests {
         let mask = Mask::from_iter((0..len).map(|i| i % 2 == 0));
         let filter_array = FilterArray::try_new(prim.into_array(), mask)?;
 
-        let cpu = filter_array.to_canonical()?.into_array();
+        let cpu = crate::canonicalize_cpu(filter_array.clone())?.into_array();
         let gpu = filter_array
             .into_array()
             .execute_cuda(&mut cuda_ctx)
