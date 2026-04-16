@@ -12,6 +12,7 @@ use anyhow::bail;
 use get_dir::FileTarget;
 use get_dir::GetDir;
 use get_dir::Target;
+use tracing::info;
 use url::Url;
 
 /// Creates a file if it doesn't already exist.
@@ -150,6 +151,33 @@ pub fn resolve_data_url(remote_data_dir: Option<&str>, local_subdir: &str) -> Re
             Ok(Url::parse(remote_data_dir)?)
         }
     }
+}
+
+/// Runs `f` only if `dir/.success` is absent; writes it on success.
+pub fn idempotent_dir<F>(dir: &Path, f: F) -> Result<()>
+where
+    F: FnOnce() -> Result<()>,
+{
+    if dir.join(".success").exists() {
+        info!("skipping {}: already complete", dir.display());
+        return Ok(());
+    }
+    f()?;
+    fs::write(dir.join(".success"), "").context("writing .success marker")
+}
+
+/// Async version of [`idempotent_dir`].
+pub async fn idempotent_dir_async<F, Fut>(dir: &Path, f: F) -> Result<()>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<()>>,
+{
+    if dir.join(".success").exists() {
+        info!("skipping {}: already complete", dir.display());
+        return Ok(());
+    }
+    f().await?;
+    fs::write(dir.join(".success"), "").context("writing .success marker")
 }
 
 /// Convert a URL scheme to a storage type string

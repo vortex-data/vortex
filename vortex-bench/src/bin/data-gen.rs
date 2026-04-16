@@ -11,7 +11,6 @@ use std::process::Command;
 
 use clap::Parser;
 use clap::value_parser;
-use tracing::info;
 use vortex::error::VortexExpect;
 use vortex_bench::Benchmark;
 use vortex_bench::BenchmarkArg;
@@ -23,6 +22,8 @@ use vortex_bench::conversions::convert_parquet_directory_to_vortex;
 use vortex_bench::create_benchmark;
 use vortex_bench::generate_duckdb_registration_sql;
 use vortex_bench::setup_logging_and_tracing;
+use vortex_bench::utils::file::idempotent_dir;
+use vortex_bench::utils::file::idempotent_dir_async;
 
 #[derive(Parser)]
 #[command(name = "bench-data-gen")]
@@ -53,39 +54,38 @@ async fn main() -> anyhow::Result<()> {
 
     let benchmark = create_benchmark(args.benchmark, &opts)?;
 
-    // Generate base Parquet data - this is the source for all other formats
-    benchmark.generate_base_data().await?;
+    // All conversions are only meaningful for local file URLs.
+    if benchmark.data_url().scheme() != "file" {
+        return Ok(());
+    }
 
-    // Convert to other formats as needed (only for local file URLs)
-    if benchmark.data_url().scheme() == "file" {
-        let base_path = benchmark
-            .data_url()
-            .to_file_path()
-            .map_err(|_| anyhow::anyhow!("Invalid file URL: {}", benchmark.data_url()))?;
+    let base_path = benchmark
+        .data_url()
+        .to_file_path()
+        .map_err(|_| anyhow::anyhow!("Invalid file URL: {}", benchmark.data_url()))?;
 
-        if args
-            .formats
-            .iter()
-            .any(|f| matches!(f, Format::OnDiskVortex))
-        {
-            convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::Default).await?;
-        }
+    let parquet_dir = base_path.join(Format::Parquet.name());
+    idempotent_dir_async(&parquet_dir, || benchmark.generate_base_data()).await?;
 
-        if args
-            .formats
-            .iter()
-            .any(|f| matches!(f, Format::VortexCompact))
-        {
-            convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::Compact).await?;
-        }
+    if args.formats.iter().any(|f| matches!(f, Format::OnDiskVortex)) {
+        let vortex_dir = base_path.join(Format::OnDiskVortex.name());
+        idempotent_dir_async(&vortex_dir, || {
+            convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::Default)
+        })
+        .await?;
+    }
 
-        if args
-            .formats
-            .iter()
-            .any(|f| matches!(f, Format::OnDiskDuckDB))
-        {
-            generate_duckdb(&base_path, &*benchmark)?;
-        }
+    if args.formats.iter().any(|f| matches!(f, Format::VortexCompact)) {
+        let compact_dir = base_path.join(Format::VortexCompact.name());
+        idempotent_dir_async(&compact_dir, || {
+            convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::Compact)
+        })
+        .await?;
+    }
+
+    if args.formats.iter().any(|f| matches!(f, Format::OnDiskDuckDB)) {
+        let duckdb_dir = base_path.join(Format::OnDiskDuckDB.name());
+        idempotent_dir(&duckdb_dir, || generate_duckdb(&base_path, &*benchmark))?;
     }
 
     Ok(())
@@ -97,13 +97,6 @@ fn generate_duckdb(base_path: &Path, benchmark: &dyn Benchmark) -> anyhow::Resul
     std::fs::create_dir_all(&duckdb_dir)?;
 
     let db_path = duckdb_dir.join("duckdb.db");
-
-    // Skip if database already exists
-    if db_path.exists() {
-        info!("DuckDB database already exists at {}", db_path.display());
-        return Ok(());
-    }
-
     let parquet_dir = base_path.join(Format::Parquet.name());
     let sql = generate_duckdb_registration_sql(
         benchmark,
