@@ -27,6 +27,7 @@ pub mod vector;
 
 pub mod encodings;
 
+pub mod ivf;
 pub mod vector_search;
 
 mod utils;

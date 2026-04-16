@@ -52,7 +52,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 mod rotation;
-mod splitmix64;
+pub(crate) mod splitmix64;
 pub use rotation::SorfMatrix;
 
 mod vtable;
