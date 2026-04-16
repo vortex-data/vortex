@@ -86,10 +86,18 @@ impl ArrayRef {
     /// Iteratively execute this array until the [`Matcher`] matches, using an explicit work
     /// stack.
     ///
-    /// The scheduler repeatedly:
-    /// 1. Checks if the current array matches `M` — if so, pops the stack or returns.
-    /// 2. Runs `execute_parent` on each child for child-driven optimizations.
-    /// 3. Calls `execute` which returns an [`ExecutionStep`].
+    /// Each iteration proceeds through three steps in order:
+    ///
+    /// 1. **Done / canonical check** — if `current` satisfies the active done predicate or is
+    ///    canonical, splice it back into the stacked parent (if any) and continue, or return.
+    /// 2. **`execute_parent` on children** — try each child's `execute_parent` against `current`
+    ///    as the parent (e.g. `Filter(RunEnd)` → `FilterExecuteAdaptor` fires from RunEnd).
+    ///    If there is a stacked parent frame, the rewritten child is spliced back into it so
+    ///    that optimize and further `execute_parent` can fire on the reconstructed parent
+    ///    (e.g. `Slice(RunEnd)` → `RunEnd` spliced into stacked `Filter` → `Filter(RunEnd)`
+    ///    whose `FilterExecuteAdaptor` fires on the next iteration).
+    /// 3. **`execute`** — call the encoding's own execute step, which either returns `Done` or
+    ///    `ExecuteSlot(i)` to push a child onto the stack for focused execution.
     ///
     /// Note: the returned array may not match `M`. If execution converges to a canonical form
     /// that does not match `M`, the canonical array is returned since no further execution
@@ -103,51 +111,41 @@ impl ArrayRef {
         let mut stack: Vec<(ArrayRef, usize, DonePredicate)> = Vec::new();
 
         for _ in 0..max_iterations() {
-            // Check for termination: use the stack frame's done predicate, or the root matcher.
+            // Step 1: done / canonical — splice back into stacked parent or return.
             let is_done = stack
                 .last()
                 .map_or(M::matches as DonePredicate, |frame| frame.2);
-            if is_done(&current) {
+            if is_done(&current) || AnyCanonical::matches(&current) {
                 match stack.pop() {
                     None => {
                         ctx.log(format_args!("-> {}", current));
                         return Ok(current);
                     }
                     Some((parent, slot_idx, _)) => {
-                        current = parent.with_slot(slot_idx, current)?;
-                        current = current.optimize()?;
+                        current = parent.with_slot(slot_idx, current)?.optimize()?;
                         continue;
                     }
                 }
             }
 
-            // If we've reached canonical form, we can't execute any further regardless
-            // of whether the matcher matched.
-            if AnyCanonical::matches(&current) {
-                match stack.pop() {
-                    None => {
-                        ctx.log(format_args!("-> canonical (unmatched) {}", current));
-                        return Ok(current);
-                    }
-                    Some((parent, slot_idx, _)) => {
-                        current = parent.with_slot(slot_idx, current)?;
-                        current = current.optimize()?;
-                        continue;
-                    }
-                }
-            }
-
-            // Try execute_parent (child-driven optimized execution)
+            // Step 2: execute_parent on children (current is the parent).
+            // If there is a stacked parent frame, splice the rewritten child back into it
+            // so that optimize and execute_parent can fire naturally on the reconstructed parent
+            // (e.g. Slice(RunEnd) -RunEndSliceKernel-> RunEnd, spliced back into Filter gives
+            // Filter(RunEnd), whose FilterExecuteAdaptor fires on the next iteration).
             if let Some(rewritten) = try_execute_parent(&current, ctx)? {
                 ctx.log(format_args!(
                     "execute_parent rewrote {} -> {}",
                     current, rewritten
                 ));
                 current = rewritten.optimize()?;
+                if let Some((parent, slot_idx, _)) = stack.pop() {
+                    current = parent.with_slot(slot_idx, current)?.optimize()?;
+                }
                 continue;
             }
 
-            // Execute the array itself.
+            // Step 4: execute the encoding's own step.
             let result = execute_step(current, ctx)?;
             let (array, step) = result.into_parts();
             match step {
@@ -177,9 +175,6 @@ impl ArrayRef {
 }
 
 /// Execution context for batch CPU compute.
-///
-/// Accumulates a trace of execution steps. Individual steps are logged at TRACE level for
-/// real-time following, and the full trace is dumped at DEBUG level when the context is dropped.
 #[derive(Debug, Clone)]
 pub struct ExecutionCtx {
     id: usize,
@@ -193,8 +188,8 @@ impl ExecutionCtx {
         static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
         let id = EXEC_CTX_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Self {
-            id,
             session,
+            id,
             ops: Vec::new(),
         }
     }
