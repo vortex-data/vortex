@@ -18,7 +18,6 @@ use std::path::PathBuf;
 use anyhow::Context;
 use anyhow::Result;
 
-use crate::datasets::data_downloads::DEFAULT_DOWNLOAD_CONCURRENCY;
 use crate::datasets::data_downloads::download_data;
 use crate::datasets::data_downloads::download_many;
 use crate::vector_dataset::catalog::VectorDataset;
@@ -94,9 +93,9 @@ pub struct DatasetPaths {
 /// This has idempotent semantics, so files already present on disk are skipped, and re-runs only
 /// pay for new files.
 ///
-/// Train shards download via [`download_many`] with bounded parallelism (up to
-/// [`DEFAULT_DOWNLOAD_CONCURRENCY`]); the small `test.parquet` and `neighbors.parquet` files use
-/// the simple [`download_data`] helper. All HTTP requests share a single pooled client.
+/// Train shards download via [`download_many`] with adaptive parallelism; the small
+/// `test.parquet` and `neighbors.parquet` files use the simple [`download_data`] helper.
+/// All HTTP requests share a single pooled client.
 pub async fn download(ds: VectorDataset, layout: TrainLayout) -> Result<DatasetPaths> {
     let spec = ds.validate_layout(layout)?;
     let urls = train_urls(ds, spec);
@@ -108,7 +107,7 @@ pub async fn download(ds: VectorDataset, layout: TrainLayout) -> Result<DatasetP
         .cloned()
         .zip(urls.into_iter())
         .collect();
-    download_many(train_downloads, DEFAULT_DOWNLOAD_CONCURRENCY)
+    download_many(train_downloads)
         .await
         .with_context(|| format!("download train shards for {}", ds.name()))?;
 

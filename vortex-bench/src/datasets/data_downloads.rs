@@ -8,9 +8,12 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering as AtomicOrdering;
 use std::time::Duration;
+use std::time::Instant;
 
 use anyhow::Context;
 use anyhow::Error;
@@ -36,10 +39,6 @@ use crate::utils::file::idempotent_async;
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Public API
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-
-/// Default concurrency limit for bulk downloads. Keeps us polite to the upstream while
-/// still saturating a typical 10 Gb link on a parquet-per-shard benchmark.
-pub const DEFAULT_DOWNLOAD_CONCURRENCY: usize = 16;
 
 /// Anything that can be described as a `(target_path, url)` pair accepted by
 /// [`download_many`].
@@ -67,26 +66,23 @@ pub async fn download_data(fname: PathBuf, data_url: impl AsRef<str>) -> Result<
     download_one(fname, data_url.as_ref(), None).await
 }
 
-/// Idempotently download many `(path, url)` pairs with bounded parallelism.
+/// Idempotently download many `(path, url)` pairs with adaptive parallelism.
 ///
 /// This is the preferred way to fetch multi-shard datasets (ClickBench partitioned,
 /// vector dataset train shards, Public BI tables, etc.) because it:
 ///
-/// - caps in-flight HTTP requests at `max_concurrency` so we don't overwhelm the
-///   upstream or our own network stack,
+/// - starts at `INITIAL_IN_FLIGHT` concurrent downloads and ramps up to
+///   `MAX_IN_FLIGHT` as clean completions come in (TCP-style slow-start), then
+///   halves on retries to back off from upstream rate limits,
 /// - reuses the shared HTTP client across every shard,
 /// - renders a top-of-block `N/total` bar plus a fixed number of reusable slot bars via
 ///   a shared [`MultiProgress`]: the terminal block size stays constant for the entire
 ///   run, so nothing "jumps" as shards cycle,
-/// - keeps the worker pool continuously full via `buffer_unordered`: as soon as any
-///   shard finishes, the next queued shard reuses the freed slot,
 /// - short-circuits on the first error (the remaining in-flight downloads are dropped
 ///   when the returned future is dropped),
 /// - returns the resolved on-disk paths in completion order (not submission order).
-///
-/// Pass `0` as `max_concurrency` to use [`DEFAULT_DOWNLOAD_CONCURRENCY`].
-#[tracing::instrument(skip_all, fields(count = tracing::field::Empty, max_concurrency))]
-pub async fn download_many<I>(downloads: I, max_concurrency: usize) -> Result<Vec<PathBuf>>
+#[tracing::instrument(skip_all, fields(count = tracing::field::Empty))]
+pub async fn download_many<I>(downloads: I) -> Result<Vec<PathBuf>>
 where
     I: IntoIterator,
     I::Item: IntoDownload,
@@ -101,14 +97,9 @@ where
         return Ok(Vec::new());
     }
 
-    let concurrency = if max_concurrency == 0 {
-        DEFAULT_DOWNLOAD_CONCURRENCY
-    } else {
-        max_concurrency
-    };
-    let num_slots = downloads.len().min(concurrency);
-
-    let batch = BatchProgress::new(downloads.len() as u64, num_slots, num_slots);
+    let num_slots = downloads.len().min(MAX_IN_FLIGHT);
+    let initial_in_flight = INITIAL_IN_FLIGHT.min(num_slots);
+    let batch = BatchProgress::new(downloads.len() as u64, num_slots, initial_in_flight);
 
     let results: Vec<Result<PathBuf>> = stream::iter(downloads)
         .map(|(path, url)| {
@@ -191,12 +182,72 @@ const KNOWN_SIZE_TEMPLATE: &str =
 /// Template for an active download when the response size is unknown.
 const UNKNOWN_SIZE_TEMPLATE: &str = "{prefix:>28!} {spinner} {bytes} ({bytes_per_sec})";
 
-/// Template for the top-of-block `N/total` summary bar rendered by [`download_many`].
-const SHARDS_TEMPLATE: &str = "[{elapsed_precise}] shards  [{bar:30.green/white}] {pos}/{len}";
+/// Template for the top-of-block summary bar rendered by [`download_many`]. `{pos}/{len}`
+/// tracks completed-of-total; `{msg}` is updated on every slot acquire / release to show
+/// how many downloads are currently in flight.
+const SHARDS_TEMPLATE: &str =
+    "[{elapsed_precise}] shards  [{bar:30.green/white}] {pos}/{len}  {msg}";
 
 /// How often slot spinners redraw. Fast enough to feel alive; slow enough that stderr
 /// writes sneaking past `MultiProgress` do not constantly fight for cursor position.
 const SLOT_TICK: Duration = Duration::from_millis(80);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Dynamic concurrency controller
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// Number of in-flight downloads to start at. Matches TCP-style slow-start: start small so
+/// we don't hammer the upstream on the very first connection, and double from there.
+const INITIAL_IN_FLIGHT: usize = 4;
+
+/// Upper bound on the number of concurrent downloads the controller can ramp up to, and
+/// the number of slot rows pre-allocated in the [`MultiProgress`] block. Chosen large
+/// enough that the retry-based controller is the effective ceiling, not this constant.
+/// The trade-off is that on large batches the MP block will exceed a typical local
+/// terminal height — indicatif handles this by drawing the most recent rows plus the
+/// top shards bar — but on CI there is no TTY so the visual overflow does not apply.
+const MAX_IN_FLIGHT: usize = 256;
+
+/// Never let the controller drive concurrency below this floor on a flaky network.
+/// A value of `1` means the fallback is serial downloads.
+const MIN_IN_FLIGHT: usize = 1;
+
+/// Minimum time between successive halves, in milliseconds. Coalesces simultaneous
+/// retries from one upstream hiccup into a single reaction, preventing over-halving.
+const HALVE_COOLDOWN_MS: u64 = 1000;
+
+/// Decide the next in-flight limit after a clean (no-retry) download completes.
+///
+/// Returns `Some(new_limit)` if the limit should change, or `None` if it is already at
+/// the cap or the computed move would be a no-op.
+fn decide_on_success(current: usize, in_slow_start: bool) -> Option<usize> {
+    if current >= MAX_IN_FLIGHT {
+        return None;
+    }
+    let new = if in_slow_start {
+        current.saturating_mul(2)
+    } else {
+        current.saturating_add(1)
+    }
+    .min(MAX_IN_FLIGHT);
+    (new != current).then_some(new)
+}
+
+/// Decide the next in-flight limit after a failed download attempt.
+///
+/// Returns `Some(new_limit)` if the limit should be halved now. Returns `None` if the
+/// halve is debounced (another halve fired within [`HALVE_COOLDOWN_MS`]) or we are
+/// already at the [`MIN_IN_FLIGHT`] floor.
+fn decide_on_retry(current: usize, now_ms: u64, last_halve_ms: u64) -> Option<usize> {
+    if now_ms.saturating_sub(last_halve_ms) < HALVE_COOLDOWN_MS {
+        return None;
+    }
+    if current <= MIN_IN_FLIGHT {
+        return None;
+    }
+    let new = (current / 2).max(MIN_IN_FLIGHT);
+    (new != current).then_some(new)
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Batch download internals
@@ -223,11 +274,35 @@ struct BatchInner {
     shards_bar: ProgressBar,
     free: Mutex<Vec<ProgressBar>>,
     in_flight: Arc<Semaphore>,
+    /// Current concurrency limit — the source of truth read by the controller and
+    /// written via [`BatchProgress::set_max_in_flight`].
     current_in_flight: AtomicUsize,
     num_slots: usize,
+    /// Controller state: are we still in slow-start (double on success) or have we
+    /// dropped into additive-increase (`+=1` on success) after the first retry?
+    in_slow_start: AtomicBool,
+    /// Millis since [`BatchInner::created_at`] of the most recent halve event, used to
+    /// debounce bursts of retries from a single upstream hiccup.
+    last_halve_at_ms: AtomicU64,
+    created_at: Instant,
     // The MP is kept alive alongside the Arc so bars stay registered and rendered.
     // Once the last BatchProgress clone drops, the MP drops and clears the block.
     _mp: MultiProgress,
+}
+
+impl BatchInner {
+    fn elapsed_ms(&self) -> u64 {
+        u64::try_from(self.created_at.elapsed().as_millis()).unwrap_or(u64::MAX)
+    }
+
+    /// Refresh the shards bar message to reflect the current in-flight count. Called on
+    /// every slot acquire / release and from `set_max_in_flight`.
+    fn refresh_shards_message(&self) {
+        let active = self.num_slots - self.free.lock().len();
+        let limit = self.current_in_flight.load(AtomicOrdering::Relaxed);
+        self.shards_bar
+            .set_message(format!("({active} active, limit {limit})"));
+    }
 }
 
 impl BatchProgress {
@@ -255,8 +330,12 @@ impl BatchProgress {
             in_flight: Arc::new(Semaphore::new(initial_in_flight)),
             current_in_flight: AtomicUsize::new(initial_in_flight),
             num_slots,
+            in_slow_start: AtomicBool::new(true),
+            last_halve_at_ms: AtomicU64::new(0),
+            created_at: Instant::now(),
             _mp: mp,
         };
+        inner.refresh_shards_message();
         Self {
             inner: Arc::new(inner),
         }
@@ -281,6 +360,7 @@ impl BatchProgress {
         bar.set_message("");
         bar.set_length(0);
         bar.reset();
+        self.inner.refresh_shards_message();
         SlotGuard {
             bar,
             owner: Arc::clone(&self.inner),
@@ -296,16 +376,39 @@ impl BatchProgress {
         self.inner.shards_bar.finish_and_clear();
     }
 
+    /// Called when a download completed on its first attempt (no retries). Drives the
+    /// slow-start / additive-increase side of AIMD.
+    fn report_clean_success(&self) {
+        let current = self.inner.current_in_flight.load(AtomicOrdering::Relaxed);
+        let in_slow_start = self.inner.in_slow_start.load(AtomicOrdering::Relaxed);
+        if let Some(new) = decide_on_success(current, in_slow_start) {
+            self.set_max_in_flight(new);
+        }
+    }
+
+    /// Called when a download attempt failed. Drives the halving side of AIMD, with an
+    /// internal cooldown so a burst of simultaneous retries from one upstream hiccup
+    /// halves the limit at most once.
+    fn report_retry(&self) {
+        let now_ms = self.inner.elapsed_ms();
+        let current = self.inner.current_in_flight.load(AtomicOrdering::Relaxed);
+        let last_halve_ms = self.inner.last_halve_at_ms.load(AtomicOrdering::Relaxed);
+        if let Some(new) = decide_on_retry(current, now_ms, last_halve_ms) {
+            self.inner
+                .in_slow_start
+                .store(false, AtomicOrdering::Relaxed);
+            self.inner
+                .last_halve_at_ms
+                .store(now_ms, AtomicOrdering::Relaxed);
+            self.set_max_in_flight(new);
+        }
+    }
+
     /// Adjust how many downloads may run concurrently. Clamped to the pre-allocated
     /// slot count. Raising the limit returns immediately; lowering spawns a background
     /// task that acquires and forgets the delta so the limit takes effect as active
     /// downloads complete naturally, never interrupting an in-flight transfer.
-    ///
-    /// The mechanism is in place but no policy currently calls it. A future adaptive
-    /// controller (error-rate backoff, throughput watchdog, explicit CLI flag) can drop
-    /// in without any further changes to this module.
-    #[allow(dead_code)]
-    pub(crate) fn set_max_in_flight(&self, target: usize) {
+    fn set_max_in_flight(&self, target: usize) {
         let target = target.min(self.inner.num_slots);
         let prev = self
             .inner
@@ -326,6 +429,7 @@ impl BatchProgress {
             }
             Ordering::Equal => {}
         }
+        self.inner.refresh_shards_message();
     }
 }
 
@@ -374,6 +478,7 @@ impl Drop for SlotGuard {
         bar.set_length(0);
         bar.reset();
         self.owner.free.lock().push(bar);
+        self.owner.refresh_shards_message();
     }
 }
 
@@ -413,77 +518,91 @@ async fn retry_get(
     batch: Option<&BatchProgress>,
 ) -> Result<()> {
     const MAX_ATTEMPTS: u32 = 3;
+    let progress = DownloadProgress::new(batch, display_name).await;
     let mut last_err: Option<Error> = None;
-
-    let slot = match batch {
-        Some(b) => Some(b.acquire(display_name).await),
-        None => None,
-    };
-    let standalone = slot.is_none().then(|| new_standalone_bar(display_name));
 
     for attempt in 0..MAX_ATTEMPTS {
         if attempt > 0 {
-            reset_progress_for_retry(slot.as_ref(), standalone.as_ref());
+            progress.reset_for_retry();
         }
-        let outcome: Result<()> = async {
-            let mut file = TokioFile::create(tmp_path)
-                .await
-                .context("Failed to create file")?;
-            let response = client
-                .get(url)
-                .send()
-                .await
-                .context("Failed to send HTTP request")?
-                .error_for_status()
-                .context("HTTP request returned error status")?;
-
-            activate_progress(
-                slot.as_ref(),
-                standalone.as_ref(),
-                response.content_length(),
-            );
-
-            let mut stream = response.bytes_stream();
-            while let Some(chunk) = stream.next().await {
-                let chunk = chunk?;
-                AsyncWriteExt::write_all(&mut file, &chunk)
-                    .await
-                    .context("Failed to write to file")?;
-                advance_progress(slot.as_ref(), standalone.as_ref(), chunk.len() as u64);
-            }
-
-            AsyncWriteExt::flush(&mut file).await?;
-            Ok(())
-        }
-        .await;
-
-        match outcome {
+        match single_attempt(client, url, tmp_path, &progress).await {
             Ok(()) => {
-                if let Some(bar) = standalone.as_ref() {
-                    bar.finish_and_clear();
+                if attempt == 0
+                    && let Some(b) = batch
+                {
+                    b.report_clean_success();
                 }
-                // `slot` drops here, resetting its bar to idle.
+                progress.finalize();
                 return Ok(());
             }
-            Err(e) => last_err = Some(e),
+            Err(e) => {
+                if let Some(b) = batch {
+                    b.report_retry();
+                }
+                last_err = Some(e);
+            }
         }
-
         if attempt + 1 < MAX_ATTEMPTS {
-            let jitter = Duration::from_millis(rand::random::<u64>() % 500);
-            let backoff = Duration::from_secs(1u64 << attempt) + jitter;
-            warn!(
-                "download attempt {} failed; retrying in {:?}",
-                attempt + 1,
-                backoff
-            );
-            tokio::time::sleep(backoff).await;
+            sleep_with_jitter(attempt).await;
         }
     }
 
-    if let Some(bar) = standalone.as_ref() {
-        bar.finish_and_clear();
+    progress.finalize();
+    cleanup_partial_temp(tmp_path);
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("retry_get exhausted with no recorded error")))
+}
+
+/// Perform one download attempt end to end: create the temp file, issue the GET, stream
+/// bytes to disk while advancing the progress bar. Returns on the first error so the
+/// retry loop in [`retry_get`] can decide whether to try again.
+async fn single_attempt(
+    client: &Client,
+    url: &str,
+    tmp_path: &Path,
+    progress: &DownloadProgress,
+) -> Result<()> {
+    let mut file = TokioFile::create(tmp_path)
+        .await
+        .context("Failed to create file")?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .context("Failed to send HTTP request")?
+        .error_for_status()
+        .context("HTTP request returned error status")?;
+
+    progress.activate(response.content_length());
+
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        AsyncWriteExt::write_all(&mut file, &chunk)
+            .await
+            .context("Failed to write to file")?;
+        progress.inc(chunk.len() as u64);
     }
 
+    AsyncWriteExt::flush(&mut file).await?;
+    Ok(())
+}
+
+/// Sleep `2^attempt` seconds plus 0-500 ms of jitter before the next retry.
+async fn sleep_with_jitter(attempt: u32) {
+    let jitter = Duration::from_millis(rand::random::<u64>() % 500);
+    let backoff = Duration::from_secs(1u64 << attempt) + jitter;
+    warn!(
+        "download attempt {} failed; retrying in {:?}",
+        attempt + 1,
+        backoff
+    );
+    tokio::time::sleep(backoff).await;
+}
+
+/// Best-effort removal of a partial temp file left behind when every retry attempt
+/// failed. The UUID-named temp lives under `target/`; leaking it would be mostly
+/// harmless but adds up over many CI runs.
+fn cleanup_partial_temp(tmp_path: &Path) {
     if let Err(err) = std::fs::remove_file(tmp_path) {
         warn!(
             "failed to remove leftover temp download {}: {}",
@@ -491,7 +610,72 @@ async fn retry_get(
             err
         );
     }
-    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("retry_get exhausted with no recorded error")))
+}
+
+/// Unified progress handle for a single download. Hides the split between pooled slot
+/// bars (batched path) and one-off standalone bars (single-download path) so
+/// [`retry_get`] does not have to branch on every update.
+enum DownloadProgress {
+    Slot(SlotGuard),
+    Standalone(ProgressBar),
+}
+
+impl DownloadProgress {
+    async fn new(batch: Option<&BatchProgress>, display_name: &str) -> Self {
+        match batch {
+            Some(b) => Self::Slot(b.acquire(display_name).await),
+            None => Self::Standalone(new_standalone_bar(display_name)),
+        }
+    }
+
+    fn reset_for_retry(&self) {
+        match self {
+            Self::Slot(s) => s.reset_for_retry(),
+            Self::Standalone(bar) => {
+                bar.set_style(
+                    ProgressStyle::with_template(CONNECTING_TEMPLATE).expect("valid template"),
+                );
+                bar.set_length(0);
+                bar.reset();
+            }
+        }
+    }
+
+    fn activate(&self, content_length: Option<u64>) {
+        match (self, content_length) {
+            (Self::Slot(s), Some(total)) => s.activate_known(total),
+            (Self::Slot(s), None) => s.activate_unknown(),
+            (Self::Standalone(bar), Some(total)) => {
+                bar.set_style(
+                    ProgressStyle::with_template(KNOWN_SIZE_TEMPLATE).expect("valid template"),
+                );
+                bar.set_length(total);
+                bar.reset();
+            }
+            (Self::Standalone(bar), None) => {
+                bar.set_style(
+                    ProgressStyle::with_template(UNKNOWN_SIZE_TEMPLATE).expect("valid template"),
+                );
+                bar.set_length(0);
+                bar.reset();
+            }
+        }
+    }
+
+    fn inc(&self, n: u64) {
+        match self {
+            Self::Slot(s) => s.inc(n),
+            Self::Standalone(bar) => bar.inc(n),
+        }
+    }
+
+    /// Tear down any visible state. Standalone bars are explicitly cleared here;
+    /// slot bars clean themselves up when their [`SlotGuard`] drops.
+    fn finalize(&self) {
+        if let Self::Standalone(bar) = self {
+            bar.finish_and_clear();
+        }
+    }
 }
 
 fn new_standalone_bar(display_name: &str) -> ProgressBar {
@@ -502,50 +686,78 @@ fn new_standalone_bar(display_name: &str) -> ProgressBar {
     bar
 }
 
-fn reset_progress_for_retry(slot: Option<&SlotGuard>, standalone: Option<&ProgressBar>) {
-    if let Some(slot) = slot {
-        slot.reset_for_retry();
-    } else if let Some(bar) = standalone {
-        bar.set_style(ProgressStyle::with_template(CONNECTING_TEMPLATE).expect("valid template"));
-        bar.set_length(0);
-        bar.reset();
-    }
-}
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Tests
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
-fn activate_progress(
-    slot: Option<&SlotGuard>,
-    standalone: Option<&ProgressBar>,
-    content_length: Option<u64>,
-) {
-    match (slot, standalone) {
-        (Some(slot), _) => match content_length {
-            Some(total) => slot.activate_known(total),
-            None => slot.activate_unknown(),
-        },
-        (None, Some(bar)) => match content_length {
-            Some(total) => {
-                bar.set_style(
-                    ProgressStyle::with_template(KNOWN_SIZE_TEMPLATE).expect("valid template"),
-                );
-                bar.set_length(total);
-                bar.reset();
-            }
-            None => {
-                bar.set_style(
-                    ProgressStyle::with_template(UNKNOWN_SIZE_TEMPLATE).expect("valid template"),
-                );
-                bar.set_length(0);
-                bar.reset();
-            }
-        },
-        (None, None) => {}
-    }
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-fn advance_progress(slot: Option<&SlotGuard>, standalone: Option<&ProgressBar>, n: u64) {
-    if let Some(slot) = slot {
-        slot.inc(n);
-    } else if let Some(bar) = standalone {
-        bar.inc(n);
+    const COOLDOWN_MS: u64 = HALVE_COOLDOWN_MS;
+
+    #[test]
+    fn ramp_up_doubles_in_slow_start() {
+        // Start at INITIAL (4). Each clean success in slow-start doubles until MAX.
+        let mut cur = INITIAL_IN_FLIGHT;
+        let expected = [8, 16, 32, 64, 128, 256];
+        for want in expected {
+            let next = decide_on_success(cur, true).expect("should ramp");
+            assert_eq!(next, want);
+            cur = next;
+        }
+        // At MAX, further successes are no-ops.
+        assert_eq!(cur, MAX_IN_FLIGHT);
+        assert_eq!(decide_on_success(cur, true), None);
+        assert_eq!(decide_on_success(cur, false), None);
+    }
+
+    #[test]
+    fn additive_increase_after_slow_start_exits() {
+        // Once out of slow-start, successes add 1 instead of doubling.
+        assert_eq!(decide_on_success(16, false), Some(17));
+        assert_eq!(decide_on_success(17, false), Some(18));
+    }
+
+    #[test]
+    fn retry_halves() {
+        // At 64, a single retry (past the cooldown) halves to 32.
+        assert_eq!(decide_on_retry(64, COOLDOWN_MS + 1, 0), Some(32));
+        assert_eq!(decide_on_retry(32, COOLDOWN_MS + 1, 0), Some(16));
+        assert_eq!(decide_on_retry(2, COOLDOWN_MS + 1, 0), Some(1));
+    }
+
+    #[test]
+    fn halve_is_debounced() {
+        // Three retries at t=100, t=200, t=500 (all within the 1 s cooldown after the
+        // first halve at t=100) only produce one halve.
+        let last_halve = 100;
+        assert_eq!(decide_on_retry(64, 200, last_halve), None);
+        assert_eq!(decide_on_retry(64, 500, last_halve), None);
+        // A retry past the cooldown halves again.
+        assert_eq!(
+            decide_on_retry(64, last_halve + COOLDOWN_MS + 1, last_halve),
+            Some(32)
+        );
+    }
+
+    #[test]
+    fn halve_respects_min_floor() {
+        // At MIN (1), retries are no-ops — we never go below 1.
+        assert_eq!(decide_on_retry(MIN_IN_FLIGHT, COOLDOWN_MS + 1, 0), None);
+        // At 2, halving to 1 is the last step.
+        assert_eq!(decide_on_retry(2, COOLDOWN_MS + 1, 0), Some(1));
+    }
+
+    #[test]
+    fn ramp_up_respects_max_cap() {
+        // Even from a large `current`, we never exceed MAX.
+        assert_eq!(
+            decide_on_success(MAX_IN_FLIGHT - 1, true),
+            Some(MAX_IN_FLIGHT)
+        );
+        assert_eq!(decide_on_success(MAX_IN_FLIGHT, true), None);
+        // Additive at the cap is also a no-op.
+        assert_eq!(decide_on_success(MAX_IN_FLIGHT, false), None);
     }
 }

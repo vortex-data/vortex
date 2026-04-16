@@ -42,7 +42,6 @@ use crate::SESSION;
 use crate::TableSpec;
 use crate::conversions::parquet_to_vortex_chunks;
 use crate::datasets::Dataset;
-use crate::datasets::data_downloads::DEFAULT_DOWNLOAD_CONCURRENCY;
 use crate::datasets::data_downloads::decompress_bz2;
 use crate::datasets::data_downloads::download_many;
 use crate::idempotent_async;
@@ -296,7 +295,7 @@ impl PBIData {
                 table.data_url.as_str().to_owned(),
             )
         });
-        download_many(downloads, DEFAULT_DOWNLOAD_CONCURRENCY).await?;
+        download_many(downloads).await?;
         Ok(())
     }
 
