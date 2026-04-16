@@ -200,7 +200,7 @@ impl Flavor {
                     let url = format!("https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_{idx}.parquet");
                     (output_path, url)
                 });
-                download_many(downloads).await?;
+                download_many(&parquet_dir, downloads).await?;
             }
         }
         Ok(())

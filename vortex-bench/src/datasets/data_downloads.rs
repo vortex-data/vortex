@@ -71,6 +71,7 @@ pub async fn download_data(fname: PathBuf, data_url: impl AsRef<str>) -> Result<
 /// This is the preferred way to fetch multi-shard datasets (ClickBench partitioned,
 /// vector dataset train shards, Public BI tables, etc.) because it:
 ///
+/// - skips all downloads immediately if `dir/.success` already exists,
 /// - starts at `INITIAL_IN_FLIGHT` concurrent downloads and ramps up to
 ///   `MAX_IN_FLIGHT` as clean completions come in (TCP-style slow-start), then
 ///   halves on retries to back off from upstream rate limits,
@@ -80,13 +81,18 @@ pub async fn download_data(fname: PathBuf, data_url: impl AsRef<str>) -> Result<
 ///   run, so nothing "jumps" as shards cycle,
 /// - short-circuits on the first error (the remaining in-flight downloads are dropped
 ///   when the returned future is dropped),
-/// - returns the resolved on-disk paths in completion order (not submission order).
+/// - writes `dir/.success` on completion so subsequent runs skip the whole batch.
 #[tracing::instrument(skip_all, fields(count = tracing::field::Empty))]
-pub async fn download_many<I>(downloads: I) -> Result<Vec<PathBuf>>
+pub async fn download_many<I>(dir: &Path, downloads: I) -> Result<Vec<PathBuf>>
 where
     I: IntoIterator,
     I::Item: IntoDownload,
 {
+    if dir.join(".success").exists() {
+        info!("skipping {}: already complete", dir.display());
+        return Ok(Vec::new());
+    }
+
     let downloads: Vec<(PathBuf, String)> = downloads
         .into_iter()
         .map(IntoDownload::into_download)
@@ -118,7 +124,11 @@ where
 
     batch.finish();
 
-    results.into_iter().collect()
+    let paths: Result<Vec<PathBuf>> = results.into_iter().collect();
+    if paths.is_ok() {
+        std::fs::write(dir.join(".success"), "").context("writing .success marker")?;
+    }
+    paths
 }
 
 /// Idempotently decompress a bzip2 file into `output_path`, streaming the decompressed bytes

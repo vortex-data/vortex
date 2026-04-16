@@ -289,13 +289,14 @@ pub struct PBIData {
 
 impl PBIData {
     async fn download_bzips(&self) -> anyhow::Result<()> {
+        let bzip_dir = self.base_path.join(FileType::CsvBzip2.name());
         let downloads = self.tables.iter().map(|table| {
             (
                 self.get_file_path(&table.name, FileType::CsvBzip2),
                 table.data_url.as_str().to_owned(),
             )
         });
-        download_many(downloads).await?;
+        download_many(&bzip_dir, downloads).await?;
         Ok(())
     }
 
