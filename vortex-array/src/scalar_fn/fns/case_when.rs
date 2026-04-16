@@ -246,7 +246,7 @@ impl ScalarFnVTable for CaseWhen {
             return Ok(else_value);
         }
 
-        merge_case_branches(branches, else_value)
+        merge_case_branches(branches, else_value, ctx)
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
@@ -268,6 +268,7 @@ const SLICE_CROSSOVER_RUN_LEN: usize = 4;
 fn merge_case_branches(
     branches: Vec<(Mask, ArrayRef)>,
     else_value: ArrayRef,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     if branches.len() == 1 {
         let (mask, then_value) = &branches[0];
@@ -304,7 +305,14 @@ fn merge_case_branches(
 
     let fragmented = spans.len() > else_value.len() / SLICE_CROSSOVER_RUN_LEN;
     if fragmented {
-        merge_row_by_row(&branch_arrays, &else_value, &spans, &output_dtype, builder)
+        merge_row_by_row(
+            &branch_arrays,
+            &else_value,
+            &spans,
+            &output_dtype,
+            builder,
+            ctx,
+        )
     } else {
         merge_run_by_run(&branch_arrays, &else_value, &spans, &output_dtype, builder)
     }
@@ -318,21 +326,22 @@ fn merge_row_by_row(
     spans: &[(usize, usize, usize)],
     output_dtype: &DType,
     mut builder: Box<dyn ArrayBuilder>,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let mut pos = 0;
     for &(start, end, branch_idx) in spans {
         for row in pos..start {
-            let scalar = else_value.scalar_at(row)?;
+            let scalar = else_value.execute_scalar(row, ctx)?;
             builder.append_scalar(&scalar.cast(output_dtype)?)?;
         }
         for row in start..end {
-            let scalar = branch_arrays[branch_idx].scalar_at(row)?;
+            let scalar = branch_arrays[branch_idx].execute_scalar(row, ctx)?;
             builder.append_scalar(&scalar.cast(output_dtype)?)?;
         }
         pos = end;
     }
     for row in pos..else_value.len() {
-        let scalar = else_value.scalar_at(row)?;
+        let scalar = else_value.execute_scalar(row, ctx)?;
         builder.append_scalar(&scalar.cast(output_dtype)?)?;
     }
 
@@ -379,7 +388,8 @@ mod tests {
     use super::*;
     use crate::Canonical;
     use crate::IntoArray;
-    use crate::VortexSessionExecute as _;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
@@ -1124,19 +1134,19 @@ mod tests {
 
         let result = evaluate_expr(&expr, &test_array);
         assert_eq!(
-            result.scalar_at(0)?,
+            result.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
             Scalar::utf8("low", Nullability::NonNullable)
         );
         assert_eq!(
-            result.scalar_at(1)?,
+            result.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
             Scalar::utf8("low", Nullability::NonNullable)
         );
         assert_eq!(
-            result.scalar_at(2)?,
+            result.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?,
             Scalar::utf8("high", Nullability::NonNullable)
         );
         assert_eq!(
-            result.scalar_at(3)?,
+            result.execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())?,
             Scalar::utf8("high", Nullability::NonNullable)
         );
         Ok(())
@@ -1194,6 +1204,7 @@ mod tests {
                 ),
             ],
             PrimitiveArray::from_option_iter(vec![Some(99i32); n]).into_array(),
+            &mut SESSION.create_execution_ctx(),
         )?;
 
         // Even rows → 0, odd rows → 1.

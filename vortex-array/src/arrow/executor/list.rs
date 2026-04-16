@@ -147,7 +147,7 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
     // For ZCTL, we know that we only care about the final size.
     assert!(!sizes.is_empty());
     let final_size = sizes
-        .scalar_at(sizes.len() - 1)?
+        .execute_scalar(sizes.len() - 1, ctx)?
         .cast(&DType::Primitive(O::PTYPE, Nullability::NonNullable))?;
     let final_size = final_size
         .as_primitive()

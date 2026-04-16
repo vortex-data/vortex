@@ -86,21 +86,25 @@ pub fn tag_to_ptype(tag: PTypeTag) -> PType {
     }
 }
 
-/// Serialize a `#[repr(C)]` struct to a byte vector for the packed plan.
+/// Reinterpret a reference to a packed type as a raw bytes slice.
 ///
-/// Copies field data into a pre-zeroed buffer so padding holes are
-/// deterministically zero, avoiding UB from reading uninitialised bytes.
-fn as_bytes<T: Sized>(val: &T) -> Vec<u8> {
-    let n = size_of::<T>();
-    let mut buf = vec![0u8; n];
-    // SAFETY: T is a bindgen-generated #[repr(C)] struct with only
-    // integer/float/enum fields. We overwrite the zeroed buffer with
-    // the struct's bytes; padding holes keep their zero value.
-    unsafe {
-        std::ptr::copy_nonoverlapping(std::ptr::addr_of!(*val).cast::<u8>(), buf.as_mut_ptr(), n);
+/// # Safety
+///
+/// The caller must ensure `T` is a `#[repr(C)]` type whose layout is
+/// compatible with the C ABI.  All the types we serialise (`PlanHeader`,
+/// `PackedStage`, `ScalarOp`) are bindgen-generated `#[repr(C)]` structs.
+/// Padding bytes may be uninitialised on the Rust side, but the C reader
+/// never inspects them, so the values are irrelevant.
+unsafe trait AsPackedBytes: Sized {
+    /// Reinterpret a `&T` as a byte slice for serialization into the packed plan.
+    fn as_packed_bytes(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(std::ptr::addr_of!(*self).cast(), size_of::<Self>()) }
     }
-    buf
 }
+
+unsafe impl AsPackedBytes for PlanHeader {}
+unsafe impl AsPackedBytes for PackedStage {}
+unsafe impl AsPackedBytes for ScalarOp {}
 
 /// A stage used to build a [`CudaDispatchPlan`] on the host side.
 ///
@@ -210,7 +214,7 @@ impl CudaDispatchPlan {
             output_ptype,
             plan_size_bytes: total_size as u16,
         };
-        buffer.extend_from_slice(&as_bytes(&header));
+        buffer.extend_from_slice(header.as_packed_bytes());
 
         for stage in &stages {
             let packed_stage = PackedStage {
@@ -221,9 +225,9 @@ impl CudaDispatchPlan {
                 num_scalar_ops: stage.scalar_ops.len() as u8,
                 source_ptype: stage.source_ptype,
             };
-            buffer.extend_from_slice(&as_bytes(&packed_stage));
+            buffer.extend_from_slice(packed_stage.as_packed_bytes());
             for op in &stage.scalar_ops {
-                buffer.extend_from_slice(&as_bytes(op));
+                buffer.extend_from_slice(op.as_packed_bytes());
             }
         }
 
@@ -418,7 +422,7 @@ impl MaterializedPlan {
             let dtype = DType::Primitive(output_ptype, Nullability::Nullable);
             return ConstantArray::new(Scalar::null(dtype), len)
                 .into_array()
-                .to_canonical();
+                .execute::<Canonical>(ctx.execution_ctx());
         }
 
         // The CUDA kernels are instantiated for unsigned integer types only;
@@ -1853,7 +1857,7 @@ mod tests {
         let array = PrimitiveArray::from_option_iter(
             (0..2048u32).map(|i| if i % 3 == 0 { None } else { Some(i) }),
         );
-        let cpu = array.to_canonical()?.into_array();
+        let cpu = crate::canonicalize_cpu(array.clone())?.into_array();
 
         let gpu = try_gpu_dispatch(&array.into_array(), &mut cuda_ctx)
             .await?
@@ -1887,7 +1891,7 @@ mod tests {
             })
             .collect();
         let prim = PrimitiveArray::from_option_iter(values.iter().copied());
-        let cpu = prim.to_canonical()?.into_array();
+        let cpu = crate::canonicalize_cpu(prim.clone())?.into_array();
 
         // FoR encoding: subtract reference to get residuals [0..63].
         // Null positions get 0 (from from_option_iter), which is fine —
@@ -1944,7 +1948,7 @@ mod tests {
         let values: Vec<u32> = (0..2048).collect();
         let array = PrimitiveArray::new(Buffer::from(values.clone()), Validity::AllValid);
 
-        let cpu = array.to_canonical()?.into_array();
+        let cpu = crate::canonicalize_cpu(array.clone())?.into_array();
         let gpu = try_gpu_dispatch(&array.into_array(), &mut cuda_ctx)
             .await?
             .into_host()
@@ -1983,7 +1987,7 @@ mod tests {
         let values = PrimitiveArray::from_option_iter([Some(10u32), None, Some(30)]);
         let dict = DictArray::try_new(codes.into_array(), values.into_array())?;
 
-        let cpu = dict.to_canonical()?.into_array();
+        let cpu = crate::canonicalize_cpu(dict.clone())?.into_array();
         let gpu = dict
             .into_array()
             .execute_cuda(&mut cuda_ctx)
@@ -2021,7 +2025,7 @@ mod tests {
         let mask = Mask::from_iter((0..len).map(|i| i % 2 == 0));
         let filter_array = FilterArray::try_new(prim.into_array(), mask)?;
 
-        let cpu = filter_array.to_canonical()?.into_array();
+        let cpu = crate::canonicalize_cpu(filter_array.clone())?.into_array();
         let gpu = filter_array
             .into_array()
             .execute_cuda(&mut cuda_ctx)

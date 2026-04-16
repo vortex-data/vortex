@@ -114,7 +114,7 @@ pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<boo
         return Ok(true);
     }
 
-    let all_invalid = array.all_invalid()?;
+    let all_invalid = array.all_invalid(ctx)?;
     if all_invalid {
         array
             .statistics()
@@ -122,7 +122,7 @@ pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<boo
         return Ok(true);
     }
 
-    let all_valid = array.all_valid()?;
+    let all_valid = array.all_valid(ctx)?;
 
     // If we have some nulls but not all nulls, array can't be constant.
     if !all_valid && !all_invalid {
@@ -186,13 +186,17 @@ impl IsConstant {
     /// Kernels that compute `is_constant` by delegating to child arrays can call this
     /// to package the boolean result into the partial struct format expected by the
     /// accumulator, avoiding duplicated boilerplate.
-    pub fn make_partial(batch: &ArrayRef, is_constant: bool) -> VortexResult<Scalar> {
+    pub fn make_partial(
+        batch: &ArrayRef,
+        is_constant: bool,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         let partial_dtype = make_is_constant_partial_dtype(batch.dtype());
         if is_constant {
             if batch.is_empty() {
                 return Ok(Scalar::null(partial_dtype));
             }
-            let first_value = batch.scalar_at(0)?.into_nullable();
+            let first_value = batch.execute_scalar(0, ctx)?.into_nullable();
             Ok(Scalar::struct_(
                 partial_dtype,
                 vec![Scalar::bool(true, Nullability::NonNullable), first_value],
@@ -371,13 +375,13 @@ impl AggregateFnVTable for IsConstant {
                 // Convert to ArrayRef for DynArray methods.
                 let array_ref = c.clone().into_array();
 
-                let all_invalid = array_ref.all_invalid()?;
+                let all_invalid = array_ref.all_invalid(ctx)?;
                 if all_invalid {
                     partial.check_value(Scalar::null(partial.element_dtype.as_nullable()));
                     return Ok(());
                 }
 
-                let all_valid = array_ref.all_valid()?;
+                let all_valid = array_ref.all_valid(ctx)?;
                 // Mixed nulls → not constant.
                 if !all_valid && !all_invalid {
                     partial.is_constant = false;
@@ -386,7 +390,7 @@ impl AggregateFnVTable for IsConstant {
 
                 // All valid from here. Check batch-level constancy.
                 if c.len() == 1 {
-                    partial.check_value(array_ref.scalar_at(0)?.into_nullable());
+                    partial.check_value(array_ref.execute_scalar(0, ctx)?.into_nullable());
                     return Ok(());
                 }
 
@@ -410,7 +414,7 @@ impl AggregateFnVTable for IsConstant {
                     return Ok(());
                 }
 
-                partial.check_value(array_ref.scalar_at(0)?.into_nullable());
+                partial.check_value(array_ref.execute_scalar(0, ctx)?.into_nullable());
                 Ok(())
             }
         }
@@ -460,11 +464,13 @@ mod tests {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
         let arr = buffer![0, 1].into_array();
-        arr.statistics().compute_all(&[Stat::Min, Stat::Max])?;
+        arr.statistics()
+            .compute_all(&[Stat::Min, Stat::Max], &mut ctx)?;
         assert!(!is_constant(&arr, &mut ctx)?);
 
         let arr = buffer![0, 0].into_array();
-        arr.statistics().compute_all(&[Stat::Min, Stat::Max])?;
+        arr.statistics()
+            .compute_all(&[Stat::Min, Stat::Max], &mut ctx)?;
         assert!(is_constant(&arr, &mut ctx)?);
 
         let arr = PrimitiveArray::from_option_iter([Some(0), Some(0)]).into_array();
@@ -477,13 +483,15 @@ mod tests {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
         let arr = PrimitiveArray::from_iter([0.0, 0.0, f32::NAN]).into_array();
-        arr.statistics().compute_all(&[Stat::Min, Stat::Max])?;
+        arr.statistics()
+            .compute_all(&[Stat::Min, Stat::Max], &mut ctx)?;
         assert!(!is_constant(&arr, &mut ctx)?);
 
         let arr =
             PrimitiveArray::from_option_iter([Some(f32::NEG_INFINITY), Some(f32::NEG_INFINITY)])
                 .into_array();
-        arr.statistics().compute_all(&[Stat::Min, Stat::Max])?;
+        arr.statistics()
+            .compute_all(&[Stat::Min, Stat::Max], &mut ctx)?;
         assert!(is_constant(&arr, &mut ctx)?);
         Ok(())
     }

@@ -14,7 +14,7 @@ use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::dtype::DType;
-use crate::executor::MAX_ITERATIONS;
+use crate::executor::max_iterations;
 use crate::scalar::Scalar;
 
 /// Reference-counted type-erased accumulator.
@@ -108,7 +108,7 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         let kernels = &session.aggregate_fns().kernels;
 
         let mut batch = batch.clone();
-        for _ in 0..*MAX_ITERATIONS {
+        for _ in 0..max_iterations() {
             if batch.is::<AnyCanonical>() {
                 break;
             }

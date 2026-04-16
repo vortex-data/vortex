@@ -11,7 +11,9 @@ use super::common::create_large_listview;
 use super::common::create_nullable_listview;
 use super::common::create_overlapping_listview;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
@@ -184,7 +186,7 @@ fn test_filter_extreme_offsets() {
     let list0 = result_list.list_elements_at(0).unwrap();
     assert_eq!(
         list0
-            .scalar_at(0)
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .as_primitive()
             .as_::<i32>()
@@ -193,7 +195,7 @@ fn test_filter_extreme_offsets() {
     );
     assert_eq!(
         list0
-            .scalar_at(1)
+            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .as_primitive()
             .as_::<i32>()

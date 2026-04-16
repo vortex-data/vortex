@@ -1058,7 +1058,7 @@ mod tests {
 
         // Verify the value was stored correctly
         let retrieved = array
-            .scalar_at(0)
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .as_binary()
             .value()

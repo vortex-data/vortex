@@ -66,7 +66,9 @@ mod test {
     fn test_scalar_at_nulls() {
         let nulls = NullArray::new(10);
 
-        let scalar = nulls.scalar_at(0).unwrap();
+        let scalar = nulls
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         assert!(scalar.is_null());
         assert_eq!(scalar.dtype().clone(), DType::Null);
     }

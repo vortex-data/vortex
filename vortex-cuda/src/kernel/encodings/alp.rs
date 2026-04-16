@@ -169,7 +169,7 @@ mod tests {
             Some(patches),
         )?;
 
-        let cpu_result = alp_array.to_canonical()?.into_array();
+        let cpu_result = crate::canonicalize_cpu(alp_array.clone())?.into_array();
 
         let gpu_result = ALPExecutor
             .execute(alp_array.into_array(), &mut cuda_ctx)
@@ -213,7 +213,7 @@ mod tests {
             &mut LEGACY_SESSION.create_execution_ctx(),
         )?;
 
-        let cpu_result = alp_array.to_canonical()?.into_array();
+        let cpu_result = crate::canonicalize_cpu(alp_array.clone())?.into_array();
 
         let gpu_result = alp_array
             .into_array()
@@ -244,7 +244,7 @@ mod tests {
             &mut LEGACY_SESSION.create_execution_ctx(),
         )?;
 
-        let cpu_result = alp_array.to_canonical()?.into_array();
+        let cpu_result = crate::canonicalize_cpu(alp_array.clone())?.into_array();
 
         let gpu_result = alp_array
             .into_array()

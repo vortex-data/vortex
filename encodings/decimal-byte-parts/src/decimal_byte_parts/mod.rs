@@ -303,10 +303,10 @@ impl OperationsVTable<DecimalByteParts> for DecimalByteParts {
     fn scalar_at(
         array: ArrayView<'_, DecimalByteParts>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         // TODO(joe): support parts len != 1
-        let scalar = array.msp().scalar_at(index)?;
+        let scalar = array.msp().execute_scalar(index, ctx)?;
 
         // Note. values in msp, can only be signed integers upto size i64.
         let primitive_scalar = scalar.as_primitive();
@@ -329,6 +329,8 @@ impl ValidityChild<DecimalByteParts> for DecimalByteParts {
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::DType;
@@ -357,18 +359,27 @@ mod tests {
         .unwrap()
         .into_array();
 
-        assert_eq!(Scalar::null(dtype.clone()), array.scalar_at(0).unwrap());
+        assert_eq!(
+            Scalar::null(dtype.clone()),
+            array
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
         assert_eq!(
             Scalar::try_new(
                 dtype.clone(),
                 Some(ScalarValue::Decimal(DecimalValue::I64(200)))
             )
             .unwrap(),
-            array.scalar_at(1).unwrap()
+            array
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
         );
         assert_eq!(
             Scalar::try_new(dtype, Some(ScalarValue::Decimal(DecimalValue::I64(400)))).unwrap(),
-            array.scalar_at(2).unwrap()
+            array
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
         );
     }
 }

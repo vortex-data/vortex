@@ -27,7 +27,9 @@ use ratatui::widgets::Table;
 use ratatui::widgets::Widget;
 use ratatui::widgets::Wrap;
 use vortex::array::ArrayRef;
+use vortex::array::LEGACY_SESSION;
 use vortex::array::ToCanonical;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::error::VortexExpect;
 use vortex::layout::layouts::flat::Flat;
@@ -163,7 +165,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
             std::iter::once(Cell::from(Text::from(format!("{chunk_id}"))))
                 .chain(field_arrays.iter().map(|arr| {
                     Cell::from(Text::from(
-                        arr.scalar_at(chunk_id)
+                        arr.execute_scalar(chunk_id, &mut LEGACY_SESSION.create_execution_ctx())
                             .vortex_expect("scalar_at failed")
                             .to_string(),
                     ))

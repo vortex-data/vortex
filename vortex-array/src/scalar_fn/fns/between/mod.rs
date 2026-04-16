@@ -106,16 +106,6 @@ pub(super) fn precondition(
         return Ok(Some(Canonical::empty(&return_dtype).into_array()));
     }
 
-    // A quick check to see if either bound is a null constant array.
-    if (lower.is_invalid(0)? || upper.is_invalid(0)?)
-        && let (Some(c_lower), Some(c_upper)) = (lower.as_constant(), upper.as_constant())
-        && (c_lower.is_null() || c_upper.is_null())
-    {
-        return Ok(Some(
-            ConstantArray::new(Scalar::null(return_dtype), arr.len()).into_array(),
-        ));
-    }
-
     if lower.as_constant().is_some_and(|v| v.is_null())
         || upper.as_constant().is_some_and(|v| v.is_null())
     {

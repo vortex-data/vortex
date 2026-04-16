@@ -55,7 +55,7 @@ jobs:
           uv run --all-packages make -C docs html
       - name: Upload static files as artifact
         id: deployment
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: docs/_build/html
 

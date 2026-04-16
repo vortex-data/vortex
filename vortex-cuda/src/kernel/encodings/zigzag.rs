@@ -124,7 +124,7 @@ mod tests {
             PrimitiveArray::new(Buffer::from(encoded_data), NonNullable).into_array(),
         )?;
 
-        let cpu_result = zigzag_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(zigzag_array.clone())?;
 
         let gpu_result = ZigZagExecutor
             .execute(zigzag_array.into_array(), &mut cuda_ctx)

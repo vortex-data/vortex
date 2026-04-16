@@ -102,6 +102,7 @@ mod tests {
 
     use cudarc::driver::DeviceRepr;
     use vortex::array::IntoArray;
+    use vortex::array::LEGACY_SESSION;
     use vortex::array::ToCanonical;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::PrimitiveArray;
@@ -161,10 +162,7 @@ mod tests {
 
         let cpu_result = values
             .clone()
-            .patch(
-                &patches,
-                &mut vortex::array::LEGACY_SESSION.create_execution_ctx(),
-            )
+            .patch(&patches, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
 
         let PrimitiveDataParts {
@@ -189,7 +187,8 @@ mod tests {
             Values::PTYPE,
             Validity::NonNullable,
         )
-        .to_canonical()
+        .into_array()
+        .execute::<vortex::array::Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
         .unwrap()
         .into_host()
         .await

@@ -6,6 +6,7 @@ pub mod writer;
 
 use std::env;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use vortex_array::DeserializeMetadata;
 use vortex_array::ProstMetadata;
@@ -30,9 +31,10 @@ use crate::segments::SegmentSource;
 use crate::vtable;
 
 /// Check if inline array node is enabled.
-/// This checks the env var each time to allow tests to toggle the behavior.
 pub(super) fn flat_layout_inline_array_node() -> bool {
-    env::var("FLAT_LAYOUT_INLINE_ARRAY_NODE").is_ok()
+    static FLAT_LAYOUT_INLINE_ARRAY_NODE: LazyLock<bool> =
+        LazyLock::new(|| env::var("FLAT_LAYOUT_INLINE_ARRAY_NODE").is_ok_and(|v| v == "1"));
+    *FLAT_LAYOUT_INLINE_ARRAY_NODE
 }
 
 vtable!(Flat);

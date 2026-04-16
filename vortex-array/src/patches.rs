@@ -21,7 +21,9 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -172,8 +174,11 @@ impl Patches {
         // Perform validation of components when they are host-resident.
         // This is not possible to do eagerly when the data is on GPU memory.
         if indices.is_host() && values.is_host() {
-            let max = usize::try_from(&indices.scalar_at(indices.len() - 1)?)
-                .map_err(|_| vortex_err!("indices must be a number"))?;
+            let max = usize::try_from(&indices.execute_scalar(
+                indices.len() - 1,
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )?)
+            .map_err(|_| vortex_err!("indices must be a number"))?;
             vortex_ensure!(
                 max - offset < array_len,
                 "Patch indices {max:?}, offset {offset} are longer than the array length {array_len}"
@@ -182,7 +187,7 @@ impl Patches {
             #[cfg(debug_assertions)]
             {
                 use crate::VortexSessionExecute;
-                let mut ctx = crate::LEGACY_SESSION.create_execution_ctx();
+                let mut ctx = LEGACY_SESSION.create_execution_ctx();
                 assert!(
                     crate::aggregate_fn::fns::is_sorted::is_sorted(&indices, &mut ctx)
                         .unwrap_or(false),
@@ -292,7 +297,7 @@ impl Patches {
         };
 
         chunk_offsets
-            .scalar_at(idx)?
+            .execute_scalar(idx, &mut LEGACY_SESSION.create_execution_ctx())?
             .as_primitive()
             .as_::<usize>()
             .ok_or_else(|| vortex_err!("chunk offset does not fit in usize"))
@@ -363,7 +368,10 @@ impl Patches {
     pub fn get_patched(&self, index: usize) -> VortexResult<Option<Scalar>> {
         self.search_index(index)?
             .to_found()
-            .map(|patch_idx| self.values().scalar_at(patch_idx))
+            .map(|patch_idx| {
+                self.values()
+                    .execute_scalar(patch_idx, &mut LEGACY_SESSION.create_execution_ctx())
+            })
             .transpose()
     }
 
@@ -545,7 +553,7 @@ impl Patches {
     pub fn min_index(&self) -> VortexResult<usize> {
         let first = self
             .indices
-            .scalar_at(0)?
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
             .as_primitive()
             .as_::<usize>()
             .ok_or_else(|| vortex_err!("index does not fit in usize"))?;
@@ -556,7 +564,10 @@ impl Patches {
     pub fn max_index(&self) -> VortexResult<usize> {
         let last = self
             .indices
-            .scalar_at(self.indices.len() - 1)?
+            .execute_scalar(
+                self.indices.len() - 1,
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )?
             .as_primitive()
             .as_::<usize>()
             .ok_or_else(|| vortex_err!("index does not fit in usize"))?;
@@ -665,7 +676,7 @@ impl Patches {
             .as_ref()
             .map(|new_chunk_offsets| -> VortexResult<usize> {
                 let new_chunk_base = new_chunk_offsets
-                    .scalar_at(0)?
+                    .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
                     .as_primitive()
                     .as_::<usize>()
                     .ok_or_else(|| vortex_err!("chunk offset does not fit in usize"))?;
@@ -1387,9 +1398,24 @@ mod test {
             masked.values(),
             PrimitiveArray::from_iter([100i32, 200, 300])
         );
-        assert!(masked.values().is_valid(0).unwrap());
-        assert!(masked.values().is_valid(1).unwrap());
-        assert!(masked.values().is_valid(2).unwrap());
+        assert!(
+            masked
+                .values()
+                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
+        assert!(
+            masked
+                .values()
+                .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
+        assert!(
+            masked
+                .values()
+                .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
 
         // Indices should remain unchanged
         assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([2u64, 5, 8]));
@@ -1475,10 +1501,23 @@ mod test {
         // Values should be the null and 300
         let masked_values = masked.values().to_primitive();
         assert_eq!(masked_values.len(), 2);
-        assert!(!masked_values.is_valid(0).unwrap()); // the null value at index 5
-        assert!(masked_values.is_valid(1).unwrap()); // the 300 value at index 8
+        assert!(
+            !masked_values
+                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        ); // the null value at index 5
+        assert!(
+            masked_values
+                .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        ); // the 300 value at index 8
         assert_eq!(
-            i32::try_from(&masked_values.scalar_at(1).unwrap()).unwrap(),
+            i32::try_from(
+                &masked_values
+                    .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap()
+            )
+            .unwrap(),
             300i32
         );
     }
@@ -1637,15 +1676,30 @@ mod test {
 
         let values = patches.values().to_primitive();
         assert_eq!(
-            i32::try_from(&values.scalar_at(0).unwrap()).unwrap(),
+            i32::try_from(
+                &values
+                    .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap()
+            )
+            .unwrap(),
             100i32
         );
         assert_eq!(
-            i32::try_from(&values.scalar_at(1).unwrap()).unwrap(),
+            i32::try_from(
+                &values
+                    .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap()
+            )
+            .unwrap(),
             200i32
         );
         assert_eq!(
-            i32::try_from(&values.scalar_at(2).unwrap()).unwrap(),
+            i32::try_from(
+                &values
+                    .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap()
+            )
+            .unwrap(),
             300i32
         );
     }

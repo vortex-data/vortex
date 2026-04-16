@@ -5,6 +5,7 @@ use std::sync::LazyLock;
 
 use divan::Bencher;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
@@ -68,6 +69,6 @@ fn chunked_dict_fsst_into_canonical(
     let chunk = make_dict_fsst_chunks::<u16>(len, unique_values, chunk_count);
 
     bencher
-        .with_inputs(|| &chunk)
-        .bench_refs(|chunk| chunk.to_canonical())
+        .with_inputs(|| (&chunk, SESSION.create_execution_ctx()))
+        .bench_refs(|(chunk, ctx)| (**chunk).clone().execute::<Canonical>(ctx))
 }

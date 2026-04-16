@@ -13,6 +13,7 @@ use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
 use vortex::array::ArrayRef;
+use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::LEGACY_SESSION;
 use vortex::array::ToCanonical;
@@ -418,6 +419,6 @@ fn decompress(bencher: Bencher, setup_fn: SetupFn) {
     let nbytes = compressed.nbytes();
 
     with_byte_counter(bencher, nbytes)
-        .with_inputs(|| &compressed)
-        .bench_refs(|a| a.to_canonical());
+        .with_inputs(|| (&compressed, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| (**a).clone().execute::<Canonical>(ctx));
 }

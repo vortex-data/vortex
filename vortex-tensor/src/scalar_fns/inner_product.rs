@@ -798,9 +798,9 @@ mod tests {
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
 
         // Row 0: 1*7 + 2*8 = 23, row 1: null, row 2: 5*11 + 6*12 = 127.
-        assert!(prim.is_valid(0)?);
-        assert!(!prim.is_valid(1)?);
-        assert!(prim.is_valid(2)?);
+        assert!(prim.is_valid(0, &mut ctx)?);
+        assert!(!prim.is_valid(1, &mut ctx)?);
+        assert!(prim.is_valid(2, &mut ctx)?);
         assert_close(&[prim.as_slice::<f64>()[0]], &[23.0]);
         assert_close(&[prim.as_slice::<f64>()[2]], &[127.0]);
         Ok(())
@@ -901,8 +901,8 @@ mod tests {
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
 
         // Row 0: 5.0 * 5.0 * dot([0.6, 0.8], [0.6, 0.8]) = 25.0, row 1: null.
-        assert!(prim.is_valid(0)?);
-        assert!(!prim.is_valid(1)?);
+        assert!(prim.is_valid(0, &mut ctx)?);
+        assert!(!prim.is_valid(1, &mut ctx)?);
         assert_close(&[prim.as_slice::<f64>()[0]], &[25.0]);
         Ok(())
     }

@@ -97,7 +97,7 @@ pub fn apply_patches_to_uninit_range_fn<T: NativePType, F: Fn(T) -> T>(
 
     let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
     let values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
-    assert!(values.all_valid()?, "Patch values must be all valid");
+    assert!(values.all_valid(ctx)?, "Patch values must be all valid");
     let values = values.as_slice::<T>();
 
     match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
@@ -369,11 +369,12 @@ mod tests {
 
         // Verify the validity mask was correctly applied.
         assert_eq!(result.len(), 5);
-        assert!(!result.scalar_at(0).unwrap().is_null());
-        assert!(result.scalar_at(1).unwrap().is_null());
-        assert!(!result.scalar_at(2).unwrap().is_null());
-        assert!(!result.scalar_at(3).unwrap().is_null());
-        assert!(result.scalar_at(4).unwrap().is_null());
+        let mut ctx = SESSION.create_execution_ctx();
+        assert!(!result.execute_scalar(0, &mut ctx).unwrap().is_null());
+        assert!(result.execute_scalar(1, &mut ctx).unwrap().is_null());
+        assert!(!result.execute_scalar(2, &mut ctx).unwrap().is_null());
+        assert!(!result.execute_scalar(3, &mut ctx).unwrap().is_null());
+        assert!(result.execute_scalar(4, &mut ctx).unwrap().is_null());
         Ok(())
     }
 
@@ -456,9 +457,10 @@ mod tests {
         // Verify length.
         assert_eq!(result.len(), 7);
         // Validity should be preserved when unpacking.
-        assert!(!result.scalar_at(0).unwrap().is_null());
-        assert!(result.scalar_at(1).unwrap().is_null());
-        assert!(!result.scalar_at(2).unwrap().is_null());
+        let mut ctx = SESSION.create_execution_ctx();
+        assert!(!result.execute_scalar(0, &mut ctx).unwrap().is_null());
+        assert!(result.execute_scalar(1, &mut ctx).unwrap().is_null());
+        assert!(!result.execute_scalar(2, &mut ctx).unwrap().is_null());
 
         // Test combining patches with nullability.
         let patch_values = Buffer::from_iter([10u16, 0, 2000, 0, 30, 3000, 0]);

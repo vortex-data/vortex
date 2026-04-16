@@ -13,6 +13,7 @@ use crate::arrays::dict::DictArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
+use crate::validity::Validity;
 
 impl CastReduce for Dict {
     fn cast(array: ArrayView<'_, Dict>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -20,7 +21,10 @@ impl CastReduce for Dict {
         // TODO(joe): optimize this, could look at accessible values and fill_null not those?
         if !dtype.is_nullable()
             && array.values().dtype().is_nullable()
-            && !array.values().all_valid()?
+            && !matches!(
+                array.values().validity()?,
+                Validity::NonNullable | Validity::AllValid
+            )
         {
             return Ok(None);
         }
@@ -163,20 +167,9 @@ mod tests {
             &DType::Primitive(PType::I32, Nullability::NonNullable)
         );
 
-        // Check that both codes and values are NonNullable again
-        let back_dict = back_to_non_nullable.as_::<Dict>();
-        assert_eq!(
-            back_dict.codes().dtype().nullability(),
-            Nullability::NonNullable
-        );
-        assert_eq!(
-            back_dict.values().dtype().nullability(),
-            Nullability::NonNullable
-        );
-
         // Verify values are unchanged
         let original_values = dict.as_array().to_primitive();
-        let final_values = back_dict.array().to_primitive();
+        let final_values = back_to_non_nullable.to_primitive();
         assert_arrays_eq!(original_values, final_values);
     }
 

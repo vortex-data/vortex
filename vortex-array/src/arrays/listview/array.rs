@@ -13,7 +13,9 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -345,8 +347,8 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
             .map(|p| match_each_integer_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
             .unwrap_or_else(|| {
                 self.offsets()
-                    .scalar_at(index)
-                    .vortex_expect("offsets must support scalar_at")
+                    .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+                    .vortex_expect("offsets must support execute_scalar")
                     .as_primitive()
                     .as_::<usize>()
                     .vortex_expect("offset must fit in usize")
@@ -365,8 +367,8 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
             .map(|p| match_each_integer_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
             .unwrap_or_else(|| {
                 self.sizes()
-                    .scalar_at(index)
-                    .vortex_expect("sizes must support scalar_at")
+                    .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+                    .vortex_expect("sizes must support execute_scalar")
                     .as_primitive()
                     .as_::<usize>()
                     .vortex_expect("size must fit in usize")
@@ -553,7 +555,8 @@ fn validate_zctl(
 ) -> VortexResult<()> {
     // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed), even
     // if there are null views.
-    if let Some(is_sorted) = offsets_primitive.statistics().compute_is_sorted() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    if let Some(is_sorted) = offsets_primitive.statistics().compute_is_sorted(&mut ctx) {
         vortex_ensure!(is_sorted, "offsets must be sorted");
     } else {
         vortex_bail!("offsets must report is_sorted statistic");

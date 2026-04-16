@@ -281,7 +281,9 @@ mod tests {
 
     use super::FixedSizeListBuilder;
     use crate::IntoArray as _;
+    use crate::LEGACY_SESSION;
     use crate::ToCanonical;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
     use crate::builders::ArrayBuilder;
@@ -923,7 +925,9 @@ mod tests {
 
         // Check actual values using scalar_at.
 
-        let scalar0 = array.scalar_at(0).unwrap();
+        let scalar0 = array
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         let list0 = scalar0.as_list();
         assert_eq!(list0.len(), 2);
         if let Some(list0_items) = list0.elements() {
@@ -931,7 +935,9 @@ mod tests {
             assert_eq!(list0_items[1].as_primitive().typed_value::<i32>(), Some(2));
         }
 
-        let scalar1 = array.scalar_at(1).unwrap();
+        let scalar1 = array
+            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         let list1 = scalar1.as_list();
         assert_eq!(list1.len(), 2);
         if let Some(list1_items) = list1.elements() {

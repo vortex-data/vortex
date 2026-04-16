@@ -348,7 +348,12 @@ mod tests {
         let const_null = ConstantArray::new(Scalar::null(DType::Null), 42);
         let actual = const_null.as_array().to_null();
         assert_eq!(actual.len(), 42);
-        assert_eq!(actual.scalar_at(33).unwrap(), Scalar::null(DType::Null));
+        assert_eq!(
+            actual
+                .execute_scalar(33, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            Scalar::null(DType::Null)
+        );
     }
 
     #[test]
@@ -365,7 +370,10 @@ mod tests {
         let const_array = ConstantArray::new(scalar, 4).into_array();
         let stats = const_array
             .statistics()
-            .compute_all(&all::<Stat>().collect_vec())
+            .compute_all(
+                &all::<Stat>().collect_vec(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
             .unwrap();
         let canonical = const_array.to_canonical()?.into_array();
         let canonical_stats = canonical.statistics();
@@ -395,7 +403,12 @@ mod tests {
         let canonical_const = const_array.to_primitive();
 
         // Verify the scalar value is preserved through canonicalization
-        assert_eq!(canonical_const.scalar_at(0).unwrap(), f16_scalar);
+        assert_eq!(
+            canonical_const
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            f16_scalar
+        );
     }
 
     #[test]
@@ -608,10 +621,30 @@ mod tests {
 
         // Check elements are repeated correctly.
         let elements = canonical.elements().to_varbinview();
-        assert_eq!(elements.scalar_at(0).unwrap(), "hello".into());
-        assert_eq!(elements.scalar_at(1).unwrap(), "world".into());
-        assert_eq!(elements.scalar_at(2).unwrap(), "hello".into());
-        assert_eq!(elements.scalar_at(3).unwrap(), "world".into());
+        assert_eq!(
+            elements
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            "hello".into()
+        );
+        assert_eq!(
+            elements
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            "world".into()
+        );
+        assert_eq!(
+            elements
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            "hello".into()
+        );
+        assert_eq!(
+            elements
+                .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            "world".into()
+        );
     }
 
     #[test]
@@ -655,12 +688,24 @@ mod tests {
 
         // Check elements including nulls.
         let elements = canonical.elements().to_primitive();
-        assert_eq!(elements.scalar_at(0).unwrap(), Scalar::from(100i32));
         assert_eq!(
-            elements.scalar_at(1).unwrap(),
+            elements
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            Scalar::from(100i32)
+        );
+        assert_eq!(
+            elements
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
         );
-        assert_eq!(elements.scalar_at(2).unwrap(), Scalar::from(200i32));
+        assert_eq!(
+            elements
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            Scalar::from(200i32)
+        );
 
         // Check element validity.
         let element_validity = elements
@@ -703,11 +748,36 @@ mod tests {
         // Check pattern repeats correctly.
         for i in 0..1000 {
             let base = i * 5;
-            assert_eq!(elements.scalar_at(base).unwrap(), Scalar::from(1u8));
-            assert_eq!(elements.scalar_at(base + 1).unwrap(), Scalar::from(2u8));
-            assert_eq!(elements.scalar_at(base + 2).unwrap(), Scalar::from(3u8));
-            assert_eq!(elements.scalar_at(base + 3).unwrap(), Scalar::from(4u8));
-            assert_eq!(elements.scalar_at(base + 4).unwrap(), Scalar::from(5u8));
+            assert_eq!(
+                elements
+                    .execute_scalar(base, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap(),
+                Scalar::from(1u8)
+            );
+            assert_eq!(
+                elements
+                    .execute_scalar(base + 1, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap(),
+                Scalar::from(2u8)
+            );
+            assert_eq!(
+                elements
+                    .execute_scalar(base + 2, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap(),
+                Scalar::from(3u8)
+            );
+            assert_eq!(
+                elements
+                    .execute_scalar(base + 3, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap(),
+                Scalar::from(4u8)
+            );
+            assert_eq!(
+                elements
+                    .execute_scalar(base + 4, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap(),
+                Scalar::from(5u8)
+            );
         }
     }
 }

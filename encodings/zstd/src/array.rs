@@ -1029,14 +1029,13 @@ impl OperationsVTable<Zstd> for Zstd {
     fn scalar_at(
         array: ArrayView<'_, Zstd>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let unsliced_validity = child_to_validity(&array.slots()[0], array.dtype().nullability());
         let sliced = array.data().with_slice(index, index + 1);
         sliced
-            .decompress(array.dtype(), &unsliced_validity, &mut ctx)?
-            .scalar_at(0)
+            .decompress(array.dtype(), &unsliced_validity, ctx)?
+            .execute_scalar(0, ctx)
     }
 }
 

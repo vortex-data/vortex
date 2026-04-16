@@ -142,7 +142,7 @@ mod tests {
         .vortex_expect("bp");
         let arr = FoR::try_new(bp.into_array(), 1000u32.into()).vortex_expect("for");
 
-        let cpu = arr.to_canonical()?.into_array();
+        let cpu = crate::canonicalize_cpu(arr.clone())?.into_array();
         let gpu = arr
             .into_array()
             .execute_cuda(&mut ctx)
@@ -177,7 +177,7 @@ mod tests {
             None,
         )?;
 
-        let cpu = alp.to_canonical()?.into_array();
+        let cpu = crate::canonicalize_cpu(alp.clone())?.into_array();
         let gpu = alp
             .into_array()
             .execute_cuda(&mut ctx)
@@ -215,7 +215,7 @@ mod tests {
         .unwrap();
         let arr = ALP::try_new(encoded, Exponents { e: 0, f: 2 }, Some(patches))?;
 
-        let cpu = arr.to_canonical()?.into_array();
+        let cpu = crate::canonicalize_cpu(arr.clone())?.into_array();
         let gpu = arr
             .into_array()
             .execute_cuda(&mut ctx)

@@ -4,6 +4,8 @@
 use pyo3::exceptions::PyIndexError;
 use pyo3::prelude::*;
 use vortex::array::ArrayRef;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
 use vortex::layout::scan::repeated_scan::RepeatedScan;
 
 use crate::RUNTIME;
@@ -68,7 +70,7 @@ impl PyRepeatedScan {
             if array.is_empty() {
                 continue;
             }
-            let scalar = array.scalar_at(0)?;
+            let scalar = array.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?;
             return Ok(PyScalar::init(slf.py(), scalar)?);
         }
 

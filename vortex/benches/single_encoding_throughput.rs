@@ -14,6 +14,8 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::prelude::IndexedRandom;
 use rand::rngs::StdRng;
+use vortex::array::Canonical;
+use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::LEGACY_SESSION;
 use vortex::array::ToCanonical;
@@ -39,6 +41,7 @@ use vortex::encodings::zigzag::zigzag_encode;
 use vortex::encodings::zstd::Zstd;
 use vortex::encodings::zstd::ZstdData;
 use vortex_array::VortexSessionExecute;
+use vortex_error::VortexResult;
 use vortex_sequence::Sequence;
 use vortex_session::VortexSession;
 
@@ -63,6 +66,10 @@ fn with_byte_counter<'a, 'b>(bencher: Bencher<'a, 'b>, bytes: u64) -> Bencher<'a
         _ = bytes; // Consume the bytes value to avoid unused variable warning.
         return bencher;
     }
+}
+
+fn canonicalize(array: impl IntoArray, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    array.into_array().execute::<Canonical>(ctx)
 }
 
 // Setup functions
@@ -125,8 +132,8 @@ fn bench_bitpacked_decompress_u32(bencher: Bencher) {
         .into_array();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
-        .with_inputs(|| &compressed)
-        .bench_refs(|a| a.to_canonical());
+        .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| canonicalize((**a).clone(), ctx));
 }
 
 #[divan::bench(name = "runend_compress_u32")]
@@ -144,8 +151,8 @@ fn bench_runend_decompress_u32(bencher: Bencher) {
     let compressed = RunEnd::encode(uint_array.into_array()).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
-        .with_inputs(|| &compressed)
-        .bench_refs(|a| a.to_canonical());
+        .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| canonicalize((**a).clone(), ctx));
 }
 
 #[divan::bench(name = "delta_compress_u32")]
@@ -169,8 +176,8 @@ fn bench_delta_decompress_u32(bencher: Bencher) {
         .into_array();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
-        .with_inputs(|| &compressed)
-        .bench_refs(|a| a.to_canonical());
+        .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| canonicalize((**a).clone(), ctx));
 }
 
 #[divan::bench(name = "for_compress_i32")]
@@ -188,8 +195,8 @@ fn bench_for_decompress_i32(bencher: Bencher) {
     let compressed = FoR::encode(int_array).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
-        .with_inputs(|| &compressed)
-        .bench_refs(|a| a.to_canonical());
+        .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| canonicalize((**a).clone(), ctx));
 }
 
 #[divan::bench(name = "dict_compress_u32")]
@@ -207,8 +214,8 @@ fn bench_dict_decompress_u32(bencher: Bencher) {
     let compressed = dict_encode(&uint_array.into_array()).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
-        .with_inputs(|| &compressed)
-        .bench_refs(|a| a.to_canonical());
+        .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| canonicalize((**a).clone(), ctx));
 }
 
 #[divan::bench(name = "zigzag_compress_i32")]
@@ -226,8 +233,8 @@ fn bench_zigzag_decompress_i32(bencher: Bencher) {
     let compressed = zigzag_encode(int_array.as_view()).unwrap().into_array();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
-        .with_inputs(|| &compressed)
-        .bench_refs(|a| a.to_canonical());
+        .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| canonicalize((**a).clone(), ctx));
 }
 
 #[expect(clippy::cast_possible_truncation)]
@@ -248,8 +255,8 @@ fn bench_sequence_decompress_u32(bencher: Bencher) {
         .into_array();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
-        .with_inputs(|| &compressed)
-        .bench_refs(|a| a.to_canonical());
+        .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| canonicalize((**a).clone(), ctx));
 }
 
 #[divan::bench(name = "alp_compress_f64")]
@@ -279,8 +286,8 @@ fn bench_alp_decompress_f64(bencher: Bencher) {
     .unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 8)
-        .with_inputs(|| &compressed)
-        .bench_refs(|a| a.to_canonical());
+        .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| canonicalize((**a).clone(), ctx));
 }
 
 #[divan::bench(name = "alp_rd_compress_f64")]
@@ -302,8 +309,8 @@ fn bench_alp_rd_decompress_f64(bencher: Bencher) {
     let compressed = encoder.encode(float_array.as_view());
 
     with_byte_counter(bencher, NUM_VALUES * 8)
-        .with_inputs(|| &compressed)
-        .bench_refs(|a| a.to_canonical());
+        .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| canonicalize((**a).clone(), ctx));
 }
 
 #[divan::bench(name = "pcodec_compress_f64")]
@@ -321,8 +328,8 @@ fn bench_pcodec_decompress_f64(bencher: Bencher) {
     let compressed = Pco::from_primitive(float_array.as_view(), 3, 0).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 8)
-        .with_inputs(|| &compressed)
-        .bench_refs(|a| a.to_canonical());
+        .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| canonicalize((**a).clone(), ctx));
 }
 
 #[cfg(feature = "zstd")]
@@ -351,8 +358,8 @@ fn bench_zstd_decompress_u32(bencher: Bencher) {
     .into_array();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
-        .with_inputs(|| &compressed)
-        .bench_refs(|a| a.to_canonical());
+        .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| canonicalize((**a).clone(), ctx));
 }
 
 // String compression benchmarks
@@ -375,8 +382,8 @@ fn bench_dict_decompress_string(bencher: Bencher) {
     let nbytes = varbinview_arr.into_array().nbytes() as u64;
 
     with_byte_counter(bencher, nbytes)
-        .with_inputs(|| &dict)
-        .bench_refs(|a| a.to_canonical());
+        .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| canonicalize((**a).clone(), ctx));
 }
 
 #[divan::bench(name = "fsst_compress_string")]
@@ -405,8 +412,8 @@ fn bench_fsst_decompress_string(bencher: Bencher) {
     let nbytes = varbinview_arr.into_array().nbytes() as u64;
 
     with_byte_counter(bencher, nbytes)
-        .with_inputs(|| &fsst_array)
-        .bench_refs(|a| a.to_canonical());
+        .with_inputs(|| (&fsst_array, SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| canonicalize((**a).clone(), ctx));
 }
 
 #[cfg(feature = "zstd")]
@@ -439,8 +446,8 @@ fn bench_zstd_decompress_string(bencher: Bencher) {
     let nbytes = varbinview_arr.into_array().nbytes() as u64;
 
     with_byte_counter(bencher, nbytes)
-        .with_inputs(|| &compressed)
-        .bench_refs(|a| a.to_canonical());
+        .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| canonicalize((**a).clone(), ctx));
 }
 
 // TODO(connor): Remove this.
@@ -554,7 +561,7 @@ mod turboquant_benches {
                     with_byte_counter(bencher, (NUM_VECTORS * $dim * 4) as u64)
                         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
                         .bench_refs(|(a, ctx)| {
-                            (*a).clone()
+                            (**a).clone()
                                 .into_array()
                                 .execute::<ExtensionArray>(ctx)
                                 .unwrap()

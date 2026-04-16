@@ -5,6 +5,8 @@ use std::sync::Arc;
 
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
@@ -24,7 +26,7 @@ use vortex_error::VortexResult;
 /// without using the scalar_at method, to serve as an independent baseline for testing.
 pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexResult<Scalar> {
     let canonical_ref = canonical.clone().into_array();
-    if canonical_ref.is_invalid(index)? {
+    if canonical_ref.is_invalid(index, &mut LEGACY_SESSION.create_execution_ctx())? {
         return Ok(Scalar::null(canonical_ref.dtype().clone()));
     }
     Ok(match canonical {

@@ -73,7 +73,9 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
@@ -94,7 +96,7 @@ mod tests {
             PrimitiveArray::new(buffer![-189, -160, 1], Validity::AllValid).as_view(),
         )?;
         assert_eq!(
-            zigzag.scalar_at(1)?,
+            zigzag.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
             Scalar::primitive(-160, Nullability::Nullable)
         );
         Ok(())

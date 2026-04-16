@@ -22,12 +22,14 @@
 //! into per-flavor `.vortex` files, after which the scan driver re-opens those files per iteration.
 
 mod catalog;
+mod convert;
 mod download;
 mod layout;
 mod paths;
 
 pub use catalog::ALL_VECTOR_DATASETS;
 pub use catalog::VectorDataset;
+pub use convert::list_to_vector_ext;
 pub use download::DatasetPaths;
 pub use download::download;
 pub use download::neighbors_url;

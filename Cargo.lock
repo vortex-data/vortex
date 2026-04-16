@@ -10043,6 +10043,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
+name = "vector-search-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow-array 58.0.0",
+ "arrow-buffer 58.0.0",
+ "arrow-schema 58.0.0",
+ "clap",
+ "futures",
+ "indicatif",
+ "parquet 58.0.0",
+ "rand 0.10.1",
+ "serde",
+ "tabled",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "vortex",
+ "vortex-bench",
+ "vortex-btrblocks",
+ "vortex-tensor",
+]
+
+[[package]]
 name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10056,6 +10080,7 @@ dependencies = [
  "arrow-array 58.0.0",
  "codspeed-divan-compat",
  "fastlanes",
+ "futures",
  "mimalloc",
  "parquet 58.0.0",
  "paste",
@@ -10068,6 +10093,7 @@ dependencies = [
  "vortex",
  "vortex-alp",
  "vortex-array",
+ "vortex-bench",
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",
@@ -10230,6 +10256,7 @@ dependencies = [
  "url",
  "uuid",
  "vortex",
+ "vortex-tensor",
 ]
 
 [[package]]
@@ -10741,6 +10768,7 @@ dependencies = [
  "rstest",
  "rustc-hash",
  "sketches-ddsketch 0.4.0",
+ "temp-env",
  "termtree",
  "tokio",
  "tracing",

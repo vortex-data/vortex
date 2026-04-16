@@ -12,7 +12,10 @@ use divan::Bencher;
 use rand::distr::Uniform;
 use rand::prelude::*;
 use rand_distr::Zipf;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 
@@ -38,9 +41,12 @@ fn dict_canonicalize_uniform<const NUM_VALUES: usize>(bencher: Bencher, num_indi
 
     let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
 
-    bencher
-        .with_inputs(|| &dict)
-        .bench_refs(|dict| dict.to_canonical());
+    bencher.with_inputs(|| &dict).bench_refs(|dict| {
+        (*dict)
+            .clone()
+            .into_array()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+    });
 }
 
 #[divan::bench(args = NUM_INDICES, consts = VECTOR_SIZE, sample_count = 100_000)]
@@ -57,7 +63,10 @@ fn dict_canonicalize_zipfian<const NUM_VALUES: usize>(bencher: Bencher, num_indi
 
     let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
 
-    bencher
-        .with_inputs(|| &dict)
-        .bench_refs(|dict| dict.to_canonical());
+    bencher.with_inputs(|| &dict).bench_refs(|dict| {
+        (*dict)
+            .clone()
+            .into_array()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+    });
 }

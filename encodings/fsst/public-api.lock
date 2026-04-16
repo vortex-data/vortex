@@ -48,7 +48,7 @@ pub fn vortex_fsst::FSST::validate(&self, data: &Self::ArrayData, dtype: &vortex
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_fsst::FSST> for vortex_fsst::FSST
 
-pub fn vortex_fsst::FSST::scalar_at(array: vortex_array::array::view::ArrayView<'_, vortex_fsst::FSST>, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_fsst::FSST::scalar_at(array: vortex_array::array::view::ArrayView<'_, vortex_fsst::FSST>, index: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::array::vtable::validity::ValidityVTable<vortex_fsst::FSST> for vortex_fsst::FSST
 

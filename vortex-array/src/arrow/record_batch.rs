@@ -17,7 +17,9 @@ use crate::VortexSessionExecute;
 use crate::array::IntoArray;
 use crate::arrays::StructArray;
 use crate::arrow::ArrowArrayExecutor;
+use crate::validity::Validity;
 
+// deprecated(note = "Use ArrowArrayExecutor::execute_record_batch instead")
 impl TryFrom<&ArrayRef> for RecordBatch {
     type Error = VortexError;
 
@@ -27,7 +29,7 @@ impl TryFrom<&ArrayRef> for RecordBatch {
         };
 
         vortex_ensure!(
-            struct_array.all_valid()?,
+            matches!(struct_array.validity()?, Validity::AllValid),
             "RecordBatch can only be constructed from StructArray with no nulls"
         );
 

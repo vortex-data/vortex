@@ -9,6 +9,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -85,7 +87,11 @@ impl Array<Masked> {
         let dtype = child.dtype().as_nullable();
         let len = child.len();
         let validity_slot = validity_to_child(&validity, len);
-        let data = MaskedData::try_new(len, child.all_valid()?, validity)?;
+        let data = MaskedData::try_new(
+            len,
+            child.all_valid(&mut LEGACY_SESSION.create_execution_ctx())?,
+            validity,
+        )?;
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Masked, dtype, len, data)

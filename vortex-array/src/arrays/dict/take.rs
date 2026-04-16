@@ -21,6 +21,7 @@ use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar::Scalar;
 use crate::stats::StatsSet;
+use crate::validity::Validity;
 
 pub trait TakeReduce: VTable {
     /// Take elements from an array at the given indices without reading buffers.
@@ -142,8 +143,12 @@ pub(crate) fn propagate_take_stats(
     target: &ArrayRef,
     indices: &ArrayRef,
 ) -> VortexResult<()> {
+    let indices_all_valid = matches!(
+        indices.validity()?,
+        Validity::NonNullable | Validity::AllValid
+    );
     target.statistics().with_mut_typed_stats_set(|mut st| {
-        if indices.all_valid().unwrap_or(false) {
+        if indices_all_valid {
             let is_constant = source.statistics().get_as::<bool>(Stat::IsConstant);
             if is_constant == Some(Precision::Exact(true)) {
                 // Any combination of elements from a constant array is still const

@@ -15,7 +15,10 @@ use std::sync::Arc;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
@@ -344,8 +347,22 @@ impl<V: VTable> Array<V> {
         self.inner.slice(range)
     }
 
+    #[deprecated(
+        note = "Use `execute_scalar` instead, which allows passing an execution context for more \
+        efficient execution when fetching multiple scalars from the same array."
+    )]
     pub fn scalar_at(&self, index: usize) -> VortexResult<crate::scalar::Scalar> {
-        self.inner.scalar_at(index)
+        self.inner
+            .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+    }
+
+    /// Execute the array to extract a scalar at the given index.
+    pub fn execute_scalar(
+        &self,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<crate::scalar::Scalar> {
+        self.inner.execute_scalar(index, ctx)
     }
 
     pub fn filter(&self, mask: vortex_mask::Mask) -> VortexResult<ArrayRef> {
@@ -360,22 +377,23 @@ impl<V: VTable> Array<V> {
         self.inner.validity()
     }
 
-    pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
-        self.inner.is_valid(index)
+    pub fn is_valid(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+        self.inner.is_valid(index, ctx)
     }
 
-    pub fn is_invalid(&self, index: usize) -> VortexResult<bool> {
-        self.inner.is_invalid(index)
+    pub fn is_invalid(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+        self.inner.is_invalid(index, ctx)
     }
 
-    pub fn all_valid(&self) -> VortexResult<bool> {
-        self.inner.all_valid()
+    pub fn all_valid(&self, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+        self.inner.all_valid(ctx)
     }
 
-    pub fn all_invalid(&self) -> VortexResult<bool> {
-        self.inner.all_invalid()
+    pub fn all_invalid(&self, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+        self.inner.all_invalid(ctx)
     }
 
+    #[deprecated(note = "Use Array::<V>::execute::<Canonical>() instead")]
     pub fn to_canonical(&self) -> VortexResult<crate::Canonical> {
         self.inner.to_canonical()
     }
@@ -392,18 +410,18 @@ impl<V: VTable> Array<V> {
         self.inner.as_constant()
     }
 
-    pub fn valid_count(&self, ctx: &mut crate::ExecutionCtx) -> VortexResult<usize> {
+    pub fn valid_count(&self, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
         self.inner.valid_count(ctx)
     }
 
-    pub fn invalid_count(&self, ctx: &mut crate::ExecutionCtx) -> VortexResult<usize> {
+    pub fn invalid_count(&self, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
         self.inner.invalid_count(ctx)
     }
 
     pub fn append_to_builder(
         &self,
         builder: &mut dyn crate::builders::ArrayBuilder,
-        ctx: &mut crate::ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         self.inner.append_to_builder(builder, ctx)
     }

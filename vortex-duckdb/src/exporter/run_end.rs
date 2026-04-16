@@ -86,7 +86,7 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
         if start_run_idx == end_run_idx {
             // NOTE(ngates): would be great if we could just export and set type == CONSTANT
             // self.values_exporter.export(start_run_idx, 1, vector, cache);
-            let constant = self.values.scalar_at(start_run_idx)?;
+            let constant = self.values.execute_scalar(start_run_idx, ctx)?;
             let value = constant.try_to_duckdb_scalar()?;
             vector.reference_value(&value);
             return Ok(());

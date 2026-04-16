@@ -176,7 +176,8 @@ where
         });
     }
 
-    if array.all_invalid()? {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    if array.all_invalid(&mut ctx)? {
         return Ok(FloatStats {
             null_count: u32::try_from(array.len())?,
             value_count: 0,
@@ -193,7 +194,7 @@ where
 
     let null_count = array
         .statistics()
-        .compute_null_count()
+        .compute_null_count(&mut ctx)
         .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
     let value_count = array.len() - null_count;
 

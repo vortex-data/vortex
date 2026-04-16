@@ -43,12 +43,15 @@ impl OperationsVTable<Patched> for Patched {
         //  be slower.
         for (&patch_index, idx) in std::iter::zip(patch_indices.as_slice::<u16>(), range) {
             if patch_index == chunk_index {
-                return array.patch_values().scalar_at(idx)?.cast(array.dtype());
+                return array
+                    .patch_values()
+                    .execute_scalar(idx, ctx)?
+                    .cast(array.dtype());
             }
         }
 
         // Otherwise, access the underlying value.
-        array.inner().scalar_at(index)
+        array.inner().execute_scalar(index, ctx)
     }
 }
 
@@ -59,6 +62,8 @@ mod tests {
 
     use crate::ExecutionCtx;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::Patched;
     use crate::dtype::Nullability;
     use crate::optimizer::ArrayOptimizer;
@@ -85,19 +90,27 @@ mod tests {
             .into_array();
 
         assert_eq!(
-            array.scalar_at(0).unwrap(),
+            array
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::primitive(0u16, Nullability::NonNullable)
         );
         assert_eq!(
-            array.scalar_at(1).unwrap(),
+            array
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::primitive(1u16, Nullability::NonNullable)
         );
         assert_eq!(
-            array.scalar_at(2).unwrap(),
+            array
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::primitive(1u16, Nullability::NonNullable)
         );
         assert_eq!(
-            array.scalar_at(3).unwrap(),
+            array
+                .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::primitive(1u16, Nullability::NonNullable)
         );
     }
@@ -122,7 +135,9 @@ mod tests {
             .into_array();
 
         for index in 0..array.len() {
-            let value = array.scalar_at(index).unwrap();
+            let value = array
+                .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap();
 
             if [1, 2, 3].contains(&index) {
                 assert_eq!(value, 1u16.into());
@@ -157,9 +172,19 @@ mod tests {
 
         assert!(array.is::<Patched>());
 
-        assert_eq!(array.scalar_at(0).unwrap(), 1u16.into());
+        assert_eq!(
+            array
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            1u16.into()
+        );
         for index in 1..array.len() {
-            assert_eq!(array.scalar_at(index).unwrap(), 0u16.into());
+            assert_eq!(
+                array
+                    .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap(),
+                0u16.into()
+            );
         }
     }
 }

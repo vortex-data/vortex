@@ -475,8 +475,8 @@ dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__rest
 #define GENERATE_KERNEL(suffix, Type)                                                                        \
     extern "C" __global__ void __launch_bounds__(BLOCK_SIZE, 32)                                             \
         dynamic_dispatch_##suffix(Type *__restrict output,                                                   \
-                                 uint64_t array_len,                                                         \
-                                 const uint8_t *__restrict packed_plan) {                                    \
+                                  uint64_t array_len,                                                        \
+                                  const uint8_t *__restrict packed_plan) {                                   \
         dynamic_dispatch<Type>(output, array_len, packed_plan);                                              \
     }
 

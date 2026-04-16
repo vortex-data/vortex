@@ -18,7 +18,7 @@ impl OperationsVTable<ALP> for ALP {
     fn scalar_at(
         array: ArrayView<'_, ALP>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         if let Some(patches) = array.patches()
             && let Some(patch) = patches.get_patched(index)?
@@ -26,7 +26,7 @@ impl OperationsVTable<ALP> for ALP {
             return patch.cast(array.dtype());
         }
 
-        let encoded_val = array.encoded().scalar_at(index)?;
+        let encoded_val = array.encoded().execute_scalar(index, ctx)?;
 
         Ok(match_each_alp_float_ptype!(array.dtype().as_ptype(), |T| {
             let encoded_val: <T as ALPFloat>::ALPInt =

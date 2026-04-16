@@ -104,11 +104,15 @@ pub fn sort_canonical_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
         }
         DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => {
             let mut sort_indices = (0..array.len()).collect::<Vec<_>>();
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
             sort_indices.sort_by(|a, b| {
-                array
-                    .scalar_at(*a)
-                    .vortex_expect("scalar_at")
-                    .partial_cmp(&array.scalar_at(*b).vortex_expect("scalar_at"))
+                let lhs = array
+                    .execute_scalar(*a, &mut ctx)
+                    .vortex_expect("scalar_at");
+                let rhs = array
+                    .execute_scalar(*b, &mut ctx)
+                    .vortex_expect("scalar_at");
+                lhs.partial_cmp(&rhs)
                     .vortex_expect("must be a valid comparison")
             });
             take_canonical_array_non_nullable_indices(array, &sort_indices)

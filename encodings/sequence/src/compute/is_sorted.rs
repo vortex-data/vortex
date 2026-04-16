@@ -27,7 +27,6 @@ impl DynAggregateKernel for SequenceIsSortedKernel {
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Scalar>> {
-        let _ = ctx;
         let Some(options) = aggregate_fn.as_opt::<IsSorted>() else {
             return Ok(None);
         };
@@ -47,6 +46,11 @@ impl DynAggregateKernel for SequenceIsSortedKernel {
             })
         })?;
 
-        Ok(Some(IsSorted::make_partial(batch, result, options.strict)?))
+        Ok(Some(IsSorted::make_partial(
+            batch,
+            result,
+            options.strict,
+            ctx,
+        )?))
     }
 }

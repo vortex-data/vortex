@@ -94,7 +94,9 @@ mod tests {
     use vortex_error::VortexExpect;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
     use crate::ToCanonical;
+    use crate::VortexSessionExecute;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -121,6 +123,10 @@ mod tests {
             .vortex_expect("operation should succeed in test");
         let filled_primitive = filled.to_primitive();
         assert_arrays_eq!(filled_primitive, PrimitiveArray::from_iter([10, 20, 20]));
-        assert!(filled_primitive.all_valid().unwrap());
+        assert!(
+            filled_primitive
+                .all_valid(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
     }
 }

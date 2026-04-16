@@ -1,0 +1,123 @@
+name: Publish Dry Runs
+
+# Concurrency control:
+# - PRs: new commits on a feature branch will cancel in-progress (outdated) runs.
+# - Push to develop: runs queue sequentially, never cancelled.
+# - `workflow_dispatch`: groups by branch and queues if run on develop.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
+on:
+  push:
+    branches: [develop]
+  pull_request: { }
+  workflow_dispatch: { }
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  NIGHTLY_TOOLCHAIN: nightly-2026-02-05
+
+jobs:
+  python-wheel-build:
+    name: "Python (wheel build)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - name: Rust Dependency Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref_name == 'develop' }}
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "false"
+      - uses: mlugg/setup-zig@v2.2.1
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
+        with:
+          sync: false
+          prune-cache: false
+      - name: Ensure wheel and sdist can be built on Linux - PyVortex
+        shell: bash
+        run: |
+          echo "Clearing wheel target directory"
+          rm -rf ../target/wheels/
+
+          uv venv
+          uv tool run maturin@1.10 build --interpreter python3.11 --zig
+          uv tool run maturin@1.10 build --interpreter python3.11 --zig --sdist
+
+          file_count=$(ls -1 ../target/wheels/ | wc -l)
+
+          if [[ $file_count -ne 2 ]]; then
+            echo "Unexpected number of files detected ${file_count}:"
+            ls ../target/wheels/
+            exit 1
+          else
+            echo "Generated two files"
+          fi
+        working-directory: vortex-python/
+
+  check-java-publish-build:
+    runs-on: ${{ matrix.target.runs-on }}
+    container:
+      image: "ubuntu:20.04"
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { os: ubuntu, runs-on: "ubuntu-24.04-arm", target: aarch64-unknown-linux-gnu }
+          - { os: ubuntu, runs-on: "ubuntu-24.04", target: x86_64-unknown-linux-gnu }
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/prepare-java-linux
+      - uses: actions/setup-java@v5
+        with:
+          distribution: "corretto"
+          java-version: "17"
+      - uses: ./.github/actions/setup-rust
+        with:
+          targets: ${{ matrix.target.target }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "false"
+      - run: cargo build --profile ci --package vortex-jni
+
+  compat-check:
+    name: "Compat check"
+    uses: ./.github/workflows/compat-validation.yml
+    with:
+      mode: last
+
+  rust-publish-dry-run:
+    name: "Rust publish dry-run"
+    timeout-minutes: 30
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-xsmall/image=ubuntu24-full-x64-pre-v2/tag=rust-publish-dry-run', github.run_id)
+          || 'ubuntu-latest' }}
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-prebuild
+      - name: Install cargo-edit
+        uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
+        with:
+          tool: cargo-edit
+      - name: Set Version
+        run: |
+          # This is mostly a dummy version, we don't actually publish anything but it cannot exist in crates.io
+          cargo set-version --workspace 0.100000.0
+      - name: Test Release
+        run: |
+          cargo publish --dry-run --no-verify --allow-dirty --workspace

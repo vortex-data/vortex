@@ -180,7 +180,7 @@ impl VTable for Dict {
         // TODO(joe): use stat get instead computing.
         // Also not the check to do here it take value validity using code validity, but this approx
         // is correct.
-        if array.codes().all_invalid()? {
+        if array.codes().all_invalid(ctx)? {
             return Ok(ExecutionResult::done(ConstantArray::new(
                 Scalar::null(array.dtype().as_nullable()),
                 array.codes().len(),

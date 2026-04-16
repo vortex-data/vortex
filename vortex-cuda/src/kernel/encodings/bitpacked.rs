@@ -202,7 +202,7 @@ mod tests {
         let bp_with_patches = BitPacked::encode(&array.into_array(), bw)?;
         assert!(bp_with_patches.patches().is_some());
 
-        let cpu_result = bp_with_patches.to_canonical()?.into_array();
+        let cpu_result = crate::canonicalize_cpu(bp_with_patches.clone())?.into_array();
 
         let gpu_result = block_on(async {
             BitPackedExecutor
@@ -233,7 +233,7 @@ mod tests {
         let bp_with_patches = BitPacked::encode(&array.into_array(), 9)?;
         assert!(bp_with_patches.patches().is_some());
 
-        let cpu_result = bp_with_patches.to_canonical()?.into_array();
+        let cpu_result = crate::canonicalize_cpu(bp_with_patches.clone())?.into_array();
 
         let gpu_result = block_on(async {
             BitPackedExecutor
@@ -274,7 +274,7 @@ mod tests {
 
         let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), bit_width)
             .vortex_expect("operation should succeed in test");
-        let cpu_result = bitpacked_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(bitpacked_array.clone())?;
 
         let gpu_result = block_on(async {
             BitPackedExecutor
@@ -323,7 +323,7 @@ mod tests {
 
         let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), bit_width)
             .vortex_expect("operation should succeed in test");
-        let cpu_result = bitpacked_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(bitpacked_array.clone())?;
 
         let gpu_result = block_on(async {
             BitPackedExecutor
@@ -388,7 +388,7 @@ mod tests {
 
         let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), bit_width)
             .vortex_expect("operation should succeed in test");
-        let cpu_result = bitpacked_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(bitpacked_array.clone())?;
 
         let gpu_result = block_on(async {
             BitPackedExecutor
@@ -485,7 +485,7 @@ mod tests {
 
         let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), bit_width)
             .vortex_expect("operation should succeed in test");
-        let cpu_result = bitpacked_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(bitpacked_array.clone())?;
         let gpu_result = block_on(async {
             BitPackedExecutor
                 .execute(bitpacked_array.into_array(), &mut cuda_ctx)
@@ -520,7 +520,7 @@ mod tests {
             .vortex_expect("operation should succeed in test");
         let sliced_array = bitpacked_array.into_array().slice(67..3969)?;
         assert!(sliced_array.is::<BitPacked>());
-        let cpu_result = sliced_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(sliced_array.clone())?;
         let gpu_result = block_on(async {
             BitPackedExecutor
                 .execute(sliced_array, &mut cuda_ctx)

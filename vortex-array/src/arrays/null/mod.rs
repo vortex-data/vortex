@@ -123,7 +123,7 @@ impl VTable for Null {
 /// ```
 /// # fn main() -> vortex_error::VortexResult<()> {
 /// use vortex_array::arrays::NullArray;
-/// use vortex_array::IntoArray;
+/// use vortex_array::{IntoArray, LEGACY_SESSION, VortexSessionExecute};
 ///
 /// // Create a null array with 5 elements
 /// let array = NullArray::new(5);
@@ -133,7 +133,8 @@ impl VTable for Null {
 /// assert_eq!(sliced.len(), 2);
 ///
 /// // All elements are null
-/// let scalar = array.scalar_at(0).unwrap();
+/// let mut ctx = LEGACY_SESSION.create_execution_ctx();
+/// let scalar = array.execute_scalar(0, &mut ctx).unwrap();
 /// assert!(scalar.is_null());
 /// # Ok(())
 /// # }

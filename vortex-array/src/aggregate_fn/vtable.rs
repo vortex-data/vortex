@@ -14,11 +14,9 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
-use crate::arrays::ConstantArray;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 
@@ -138,12 +136,7 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     ///
     /// The provided `state` has dtype as specified by `state_dtype`, the result scalar must have
     /// dtype as specified by `return_dtype`.
-    fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
-        let scalar = self.to_scalar(partial)?;
-        let array = ConstantArray::new(scalar, 1).into_array();
-        let result = self.finalize(array)?;
-        result.scalar_at(0)
-    }
+    fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

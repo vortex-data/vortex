@@ -47,6 +47,8 @@ pub(crate) fn varbin_to_canonical(
 mod tests {
     use rstest::rstest;
 
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::varbin::builder::VarBinBuilder;
@@ -73,7 +75,11 @@ mod tests {
         let canonical = varbin.to_varbinview();
         assert_eq!(canonical.dtype(), &dtype);
 
-        assert!(!canonical.is_valid(0).unwrap());
+        assert!(
+            !canonical
+                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
 
         // First value is inlined (12 bytes)
         assert!(canonical.views()[1].is_inlined());

@@ -5,6 +5,8 @@ use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::Constant;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -76,7 +78,7 @@ impl FlatLayoutFixture for ConstantFixture {
             Some("UTC".into()),
         )
         .into_array()
-        .scalar_at(0)?;
+        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?;
         let const_timestamp = ConstantArray::new(timestamp_scalar, N);
 
         let arr = StructArray::try_new(

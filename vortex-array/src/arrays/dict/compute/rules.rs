@@ -29,6 +29,7 @@ use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::like::LikeReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::scalar_fn::fns::pack::Pack;
+use crate::validity::Validity;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Dict> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&FilterReduceAdaptor(Dict)),
@@ -99,7 +100,10 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
         // If the scalar function is null-sensitive, then we cannot push it down to values if
         // we have any nulls in the codes.
         if array.codes().dtype().is_nullable()
-            && !array.codes().all_valid()?
+            && !matches!(
+                array.codes().validity()?,
+                Validity::NonNullable | Validity::AllValid
+            )
             && sig.is_null_sensitive()
         {
             tracing::trace!(

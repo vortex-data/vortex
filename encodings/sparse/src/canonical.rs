@@ -8,6 +8,8 @@ use num_traits::NumCast;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListViewArray;
@@ -202,7 +204,7 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
             builder
                 .append_value(
                     patch_values
-                        .scalar_at(patch_idx)
+                        .execute_scalar(patch_idx, &mut LEGACY_SESSION.create_execution_ctx())
                         .vortex_expect("scalar_at")
                         .as_list(),
                 )
@@ -298,7 +300,11 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
                 .vortex_expect("fixed_size_list_elements_at");
             for i in 0..list_size as usize {
                 builder
-                    .append_scalar(&patch_list.scalar_at(i).vortex_expect("scalar_at"))
+                    .append_scalar(
+                        &patch_list
+                            .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                            .vortex_expect("scalar_at"),
+                    )
                     .vortex_expect("element dtype must match");
             }
         } else {
@@ -557,8 +563,11 @@ mod test {
     use std::sync::Arc;
 
     use rstest::rstest;
+    use vortex_array::Canonical;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::FixedSizeListArray;
@@ -1025,7 +1034,9 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical()?.into_array();
+        let actual = sparse
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
         let result_listview = actual.to_listview();
 
         // Check the structure
@@ -1079,7 +1090,10 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical().vortex_expect("no fail").into_array();
+        let actual = sparse
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("no fail")
+            .into_array();
         let result_listview = actual.to_listview();
 
         // Check the structure
@@ -1122,7 +1136,9 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical()?.into_array();
+        let actual = sparse
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
         let result_listview = actual.to_listview();
 
         // Check the structure
@@ -1233,7 +1249,9 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical()?.into_array();
+        let actual = sparse
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
 
         // Expected: [1,2,3], null, [4,5,6], [7,8,9], null.
         let expected_elements =
@@ -1271,7 +1289,9 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical()?.into_array();
+        let actual = sparse
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
 
         // Expected: [1,2], [99,88], [3,4], [99,88], [5,6], [99,88].
         let expected_elements = buffer![1i32, 2, 99, 88, 3, 4, 99, 88, 5, 6, 99, 88].into_array();
@@ -1309,7 +1329,9 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical()?.into_array();
+        let actual = sparse
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
 
         // Expected validity: [true, true, true, false, true, true].
         // Expected elements: [7,8], [10,20], [7,8], [30,40], [50,60], [7,8].
@@ -1357,7 +1379,9 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical()?.into_array();
+        let actual = sparse
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
 
         // Build expected: 97 copies of [99,99] with patches at positions 5, 50, 95.
         let mut expected_elements_vec = Vec::with_capacity(200);
@@ -1414,7 +1438,9 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical()?.into_array();
+        let actual = sparse
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
 
         // Expected: just [42, 43].
         let expected_elements = buffer![42i32, 43].into_array();
@@ -1440,7 +1466,9 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical()?.into_array();
+        let actual = sparse
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
         let mut expected_elements = buffer_mut![1, 2, 1, 2];
         expected_elements.extend(buffer![42i32; 252]);
         let expected = ListArray::try_new(
@@ -1507,7 +1535,10 @@ mod test {
         .unwrap();
 
         // Convert to canonical form - this triggers the function we're testing
-        let canonical = sparse.to_canonical()?.into_array();
+        let canonical = sparse
+            .into_array()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
         let result_listview = canonical.to_listview();
 
         // Verify the structure
@@ -1586,7 +1617,10 @@ mod test {
         let sparse =
             Sparse::try_new(indices, values, 5, Scalar::null(sliced.dtype().clone())).unwrap();
 
-        let canonical = sparse.to_canonical()?.into_array();
+        let canonical = sparse
+            .into_array()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
         let result_listview = canonical.to_listview();
 
         assert_eq!(result_listview.len(), 5);

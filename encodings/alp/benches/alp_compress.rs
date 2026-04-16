@@ -12,6 +12,8 @@ use vortex_alp::ALPRDFloat;
 use vortex_alp::RDEncoder;
 use vortex_alp::alp_encode;
 use vortex_alp::decompress_into_array;
+use vortex_array::Canonical;
+use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
@@ -153,6 +155,6 @@ fn decompress_rd<T: ALPRDFloat + NativePType>(bencher: Bencher, args: (usize, f6
     let encoded = encoder.encode(primitive.as_view());
 
     bencher
-        .with_inputs(|| &encoded)
-        .bench_refs(|encoded| encoded.to_canonical());
+        .with_inputs(|| (&encoded, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(encoded, ctx)| (**encoded).clone().into_array().execute::<Canonical>(ctx));
 }
