@@ -213,7 +213,6 @@ impl std::fmt::Display for DisplayLayoutTree {
 mod tests {
     use std::sync::Arc;
 
-    use serial_test::serial;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::arrays::BoolArray;
@@ -247,7 +246,6 @@ mod tests {
 
     /// Test display_tree with inline array_tree metadata (no segment source needed).
     #[test]
-    #[serial]
     fn test_display_tree_inline_array_tree() {
         // LazyLock caches the env var on first read, so only nextest (separate processes) can isolate it.
         if std::env::var("NEXTEST_RUN_ID").is_ok() {
@@ -347,7 +345,6 @@ vortex.struct, dtype: {numbers=i64?, strings=utf8}, children: 2, rows: 5
 
     /// Test display_tree_with_segments using async segment source to fetch buffer sizes.
     #[test]
-    #[serial]
     fn test_display_tree_with_segment_source() {
         if std::env::var("NEXTEST_RUN_ID").is_ok() {
             temp_env::with_var("FLAT_LAYOUT_INLINE_ARRAY_NODE", None::<&str>, || {
@@ -412,7 +409,6 @@ vortex.chunked, dtype: i32, children: 2, rows: 10
 
     /// Test display_array_tree with inline array node metadata.
     #[test]
-    #[serial]
     fn test_display_array_tree_with_inline_node() {
         if std::env::var("NEXTEST_RUN_ID").is_ok() {
             temp_env::with_var("FLAT_LAYOUT_INLINE_ARRAY_NODE", Some("1"), || {
@@ -458,7 +454,6 @@ vortex.flat, dtype: i32?, segment 0, buffers=[20B], total=20B
 
     /// Test display_tree without inline array node (shows segment ID).
     #[test]
-    #[serial]
     fn test_display_tree_without_inline_node() {
         if std::env::var("NEXTEST_RUN_ID").is_ok() {
             temp_env::with_var("FLAT_LAYOUT_INLINE_ARRAY_NODE", Some("1"), || {

@@ -236,6 +236,7 @@ taffy = "0.9.0"
 take_mut = "0.2.2"
 tar = "0.4"
 target-lexicon = "0.13"
+temp-env = "0.3"
 tempfile = "3"
 termtree = { version = "1.0" }
 test-with = "0.15"
