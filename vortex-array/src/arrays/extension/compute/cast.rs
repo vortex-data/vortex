@@ -17,7 +17,9 @@ impl CastReduce for Extension {
         dtype: &DType,
     ) -> vortex_error::VortexResult<Option<ArrayRef>> {
         if !array.dtype().eq_ignore_nullability(dtype) {
-            return Ok(None);
+            // Target is not the same extension type.
+            // Delegate to the storage array's cast.
+            return Ok(Some(array.storage_array().cast(dtype.clone())?));
         }
 
         let DType::Extension(ext_dtype) = dtype else {
@@ -51,9 +53,12 @@ mod tests {
     use super::*;
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
+    use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
 
@@ -106,6 +111,26 @@ mod tests {
                 .and_then(|a| a.to_canonical().map(|c| c.into_array()))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn cast_timestamp_to_i64() -> vortex_error::VortexResult<()> {
+        let ext_dtype = Timestamp::new_with_tz(
+            TimeUnit::Nanoseconds,
+            Some("UTC".into()),
+            Nullability::NonNullable,
+        )
+        .erased();
+        let storage = buffer![1i64, 2, 3].into_array();
+        let arr = ExtensionArray::new(ext_dtype, storage).into_array();
+
+        let result = arr.cast(DType::Primitive(PType::I64, Nullability::NonNullable))?;
+        assert_eq!(
+            result.dtype(),
+            &DType::Primitive(PType::I64, Nullability::NonNullable)
+        );
+        assert_arrays_eq!(result, buffer![1i64, 2, 3].into_array());
+        Ok(())
     }
 
     #[rstest]
