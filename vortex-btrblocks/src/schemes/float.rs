@@ -17,7 +17,7 @@ use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Patched;
-use vortex_array::arrays::patched::USE_EXPERIMENTAL_PATCHES;
+use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::PType;
 use vortex_compressor::estimate::CompressionEstimate;
@@ -120,7 +120,7 @@ impl Scheme for ALPScheme {
         let alp_stats = alp_encoded.as_array().statistics().to_owned();
         let exponents = alp_encoded.exponents();
 
-        if *USE_EXPERIMENTAL_PATCHES {
+        if use_experimental_patches() {
             let patches = alp_encoded.patches();
 
             // Create ALP array without interior patches.

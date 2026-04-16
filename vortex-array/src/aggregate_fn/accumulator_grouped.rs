@@ -32,7 +32,7 @@ use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
-use crate::executor::MAX_ITERATIONS;
+use crate::executor::max_iterations;
 use crate::match_each_integer_ptype;
 
 /// Reference-counted type-erased grouped accumulator.
@@ -165,7 +165,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         let session = ctx.session().clone();
         let kernels = &session.aggregate_fns().grouped_kernels;
 
-        for _ in 0..*MAX_ITERATIONS {
+        for _ in 0..max_iterations() {
             if elements.is::<AnyCanonical>() {
                 break;
             }

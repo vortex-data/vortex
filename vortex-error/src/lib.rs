@@ -20,6 +20,7 @@ use std::io;
 use std::num::TryFromIntError;
 use std::ops::Deref;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 /// A string that can be used as an error message.
 #[derive(Debug)]
@@ -38,12 +39,18 @@ where
         reason = "intentionally panic in debug mode when VORTEX_PANIC_ON_ERR is set"
     )]
     fn from(msg: T) -> Self {
-        if env::var("VORTEX_PANIC_ON_ERR").as_deref().unwrap_or("") == "1" {
+        if panic_on_err() {
             panic!("{}\nBacktrace:\n{}", msg.into(), Backtrace::capture());
         } else {
             Self(msg.into())
         }
     }
+}
+
+fn panic_on_err() -> bool {
+    static PANIC_ON_ERR: LazyLock<bool> =
+        LazyLock::new(|| env::var("VORTEX_PANIC_ON_ERR").is_ok_and(|v| v == "1"));
+    *PANIC_ON_ERR
 }
 
 impl AsRef<str> for ErrString {
