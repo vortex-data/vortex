@@ -16,8 +16,8 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::LEGACY_SESSION;
-#[allow(deprecated)]
-use crate::ToCanonical;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;

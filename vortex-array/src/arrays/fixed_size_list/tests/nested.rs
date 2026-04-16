@@ -7,8 +7,8 @@ use vortex_buffer::buffer;
 
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
-#[allow(deprecated)]
-use crate::ToCanonical;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;

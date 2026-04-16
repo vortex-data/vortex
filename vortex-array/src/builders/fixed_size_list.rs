@@ -22,8 +22,8 @@ use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
-#[allow(deprecated)]
-use crate::canonical::ToCanonical;
+#[expect(deprecated)]
+use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::scalar::ListScalar;
@@ -284,8 +284,8 @@ mod tests {
     use super::FixedSizeListBuilder;
     use crate::IntoArray as _;
     use crate::LEGACY_SESSION;
-    #[allow(deprecated)]
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::fixed_size_list::FixedSizeListArrayExt;

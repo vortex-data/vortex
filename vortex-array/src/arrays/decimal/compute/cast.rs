@@ -150,8 +150,8 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::DecimalArray;
     use crate::builtins::ArrayBuiltins;
-    #[allow(deprecated)]
-    use crate::canonical::ToCanonical;
+    #[expect(deprecated)]
+    use crate::canonical::ToCanonical as _;
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;

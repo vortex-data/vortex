@@ -15,8 +15,8 @@ use super::DictConstraints;
 use super::DictEncoder;
 use crate::ArrayRef;
 use crate::IntoArray;
-#[allow(deprecated)]
-use crate::ToCanonical;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::NativeValue;

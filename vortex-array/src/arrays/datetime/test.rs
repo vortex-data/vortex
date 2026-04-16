@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributorsuse crate::dtype::Nullability;
-#![allow(deprecated)]
+#![expect(deprecated)]
 
 use rstest::rstest;
 use vortex_buffer::buffer;
@@ -9,7 +9,7 @@ use vortex_error::VortexResult;
 
 use crate::IntoArray;
 use crate::Precision;
-use crate::ToCanonical;
+use crate::ToCanonical as _;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::datetime::TemporalData;
 use crate::assert_arrays_eq;

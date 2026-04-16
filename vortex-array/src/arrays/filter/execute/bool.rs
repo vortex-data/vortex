@@ -31,8 +31,8 @@ mod test {
 
     use crate::IntoArray;
     use crate::arrays::filter::execute::bool::BoolArray;
-    #[allow(deprecated)]
-    use crate::canonical::ToCanonical;
+    #[expect(deprecated)]
+    use crate::canonical::ToCanonical as _;
     use crate::compute::conformance::filter::test_filter_conformance;
 
     #[expect(deprecated)]

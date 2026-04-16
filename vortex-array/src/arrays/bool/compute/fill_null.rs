@@ -42,8 +42,9 @@ impl FillNullKernel for Bool {
 }
 
 #[cfg(test)]
-#[allow(deprecated)]
 mod tests {
+    #![expect(deprecated)]
+
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::bitbuffer;
@@ -52,7 +53,7 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::arrays::bool::BoolArrayExt;
     use crate::builtins::ArrayBuiltins;
-    use crate::canonical::ToCanonical;
+    use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;

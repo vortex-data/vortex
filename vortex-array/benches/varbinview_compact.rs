@@ -7,8 +7,8 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-#[allow(deprecated)]
-use vortex_array::ToCanonical;
+#[expect(deprecated)]
+use vortex_array::ToCanonical as _;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;

@@ -28,8 +28,8 @@ mod tests {
     use std::iter;
 
     use crate::IntoArray;
-    #[allow(deprecated)]
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::arrays::BoolArray;
     use crate::arrays::bool::BoolArrayExt;
     use crate::assert_arrays_eq;

@@ -60,8 +60,8 @@ mod test {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    #[allow(deprecated)]
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::accessor::ArrayAccessor;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;

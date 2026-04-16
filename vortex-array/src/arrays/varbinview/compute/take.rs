@@ -95,8 +95,8 @@ mod tests {
     use crate::accessor::ArrayAccessor;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::varbinview::compute::take::PrimitiveArray;
-    #[allow(deprecated)]
-    use crate::canonical::ToCanonical;
+    #[expect(deprecated)]
+    use crate::canonical::ToCanonical as _;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;

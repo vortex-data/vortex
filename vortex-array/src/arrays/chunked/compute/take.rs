@@ -126,8 +126,8 @@ mod test {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    #[allow(deprecated)]
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;

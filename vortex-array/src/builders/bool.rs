@@ -20,8 +20,8 @@ use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
-#[allow(deprecated)]
-use crate::canonical::ToCanonical;
+#[expect(deprecated)]
+use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::scalar::Scalar;
@@ -170,8 +170,8 @@ mod tests {
     use crate::builders::BoolBuilder;
     use crate::builders::bool::BoolArray;
     use crate::builders::builder_with_capacity;
-    #[allow(deprecated)]
-    use crate::canonical::ToCanonical;
+    #[expect(deprecated)]
+    use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;

@@ -23,8 +23,8 @@ use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::builders::builder_with_capacity;
-#[allow(deprecated)]
-use crate::canonical::ToCanonical;
+#[expect(deprecated)]
+use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
@@ -323,8 +323,8 @@ mod tests {
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    #[allow(deprecated)]
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::list::ListArrayExt;

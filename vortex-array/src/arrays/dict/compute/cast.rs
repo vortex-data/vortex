@@ -57,8 +57,8 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    #[allow(deprecated)]
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::arrays::Dict;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::dict::DictArraySlotsExt;

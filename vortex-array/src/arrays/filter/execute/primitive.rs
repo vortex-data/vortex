@@ -35,8 +35,8 @@ mod test {
 
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
-    #[allow(deprecated)]
-    use crate::canonical::ToCanonical;
+    #[expect(deprecated)]
+    use crate::canonical::ToCanonical as _;
     use crate::compute::conformance::filter::LARGE_SIZE;
     use crate::compute::conformance::filter::MEDIUM_SIZE;
     use crate::compute::conformance::filter::test_filter_conformance;

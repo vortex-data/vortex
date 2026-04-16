@@ -291,8 +291,8 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    #[allow(deprecated)]
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;

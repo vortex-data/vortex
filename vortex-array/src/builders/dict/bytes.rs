@@ -25,8 +25,8 @@ use crate::arrays::VarBin;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::build_views::BinaryView;
-#[allow(deprecated)]
-use crate::canonical::ToCanonical;
+#[expect(deprecated)]
+use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
@@ -207,8 +207,8 @@ mod test {
     use std::str;
 
     use crate::IntoArray;
-    #[allow(deprecated)]
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::accessor::ArrayAccessor;
     use crate::arrays::VarBinArray;
     use crate::arrays::dict::DictArraySlotsExt;

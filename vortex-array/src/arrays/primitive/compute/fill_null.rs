@@ -57,8 +57,8 @@ mod test {
     use crate::arrays::primitive::compute::fill_null::BoolArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
-    #[allow(deprecated)]
-    use crate::canonical::ToCanonical;
+    #[expect(deprecated)]
+    use crate::canonical::ToCanonical as _;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 

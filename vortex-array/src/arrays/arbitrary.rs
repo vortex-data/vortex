@@ -13,8 +13,8 @@ use vortex_error::VortexExpect;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-#[allow(deprecated)]
-use crate::ToCanonical;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::NullArray;

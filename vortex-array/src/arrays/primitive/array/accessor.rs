@@ -5,8 +5,8 @@ use std::iter;
 
 use vortex_error::VortexExpect;
 
-#[allow(deprecated)]
-use crate::ToCanonical;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::NativePType;

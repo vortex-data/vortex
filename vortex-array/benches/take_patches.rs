@@ -11,8 +11,8 @@ use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
-#[allow(deprecated)]
-use vortex_array::ToCanonical;
+#[expect(deprecated)]
+use vortex_array::ToCanonical as _;
 use vortex_array::VortexSessionExecute;
 use vortex_array::patches::Patches;
 use vortex_buffer::Buffer;

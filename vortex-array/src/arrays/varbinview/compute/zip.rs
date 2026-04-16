@@ -214,8 +214,8 @@ mod tests {
     use crate::accessor::ArrayAccessor;
     use crate::arrays::VarBinViewArray;
     use crate::builtins::ArrayBuiltins;
-    #[allow(deprecated)]
-    use crate::canonical::ToCanonical;
+    #[expect(deprecated)]
+    use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
 

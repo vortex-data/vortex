@@ -102,7 +102,7 @@ fn constant_boolean(
 
 #[cfg(test)]
 mod tests {
-    #![allow(deprecated)]
+    #![expect(deprecated)]
 
     use rstest::rstest;
 
@@ -112,7 +112,7 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::builtins::ArrayBuiltins;
-    use crate::canonical::ToCanonical;
+    use crate::canonical::ToCanonical as _;
     use crate::scalar_fn::fns::operators::Operator;
 
     #[rstest]

@@ -22,8 +22,8 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
-#[allow(deprecated)]
-use crate::ToCanonical;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
@@ -1117,8 +1117,8 @@ mod test {
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    #[allow(deprecated)]
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::assert_arrays_eq;
     use crate::patches::Patches;

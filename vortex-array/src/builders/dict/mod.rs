@@ -9,8 +9,8 @@ use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-#[allow(deprecated)]
-use crate::ToCanonical;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
 use crate::arrays::DictArray;
 use crate::arrays::Primitive;
 use crate::arrays::VarBin;

@@ -15,8 +15,8 @@ use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
-#[allow(deprecated)]
-use crate::canonical::ToCanonical;
+#[expect(deprecated)]
+use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::scalar::ExtScalar;

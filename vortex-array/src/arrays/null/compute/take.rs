@@ -6,8 +6,8 @@ use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-#[allow(deprecated)]
-use crate::ToCanonical;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
 use crate::array::ArrayView;
 use crate::arrays::Null;
 use crate::arrays::NullArray;

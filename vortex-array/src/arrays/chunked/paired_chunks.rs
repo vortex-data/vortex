@@ -121,6 +121,8 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::arrays::ChunkedArray;
     use crate::arrays::chunked::paired_chunks::PairedChunksExt;
     use crate::dtype::DType;
@@ -137,8 +139,6 @@ mod tests {
         left: &ChunkedArray,
         right: &ChunkedArray,
     ) -> VortexResult<Vec<(Vec<i32>, Vec<i32>, std::ops::Range<usize>)>> {
-        #[allow(deprecated)]
-        use crate::ToCanonical;
         let mut result = Vec::new();
         for pair in left.paired_chunks(right) {
             let pair = pair?;

@@ -84,8 +84,8 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::IntoArray as _;
-    #[allow(deprecated)]
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::bool::BoolArrayExt;

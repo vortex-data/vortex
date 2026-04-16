@@ -13,8 +13,8 @@ use vortex_mask::AllOr;
 
 use crate::ArrayRef;
 use crate::LEGACY_SESSION;
-#[allow(deprecated)]
-use crate::ToCanonical;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -272,8 +272,8 @@ mod test {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    #[allow(deprecated)]
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::arrays::ChunkedArray;
     use crate::arrays::DictArray;

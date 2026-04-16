@@ -250,8 +250,8 @@ mod tests {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    #[allow(deprecated)]
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;

@@ -44,8 +44,9 @@ pub(crate) fn varbin_to_canonical(
 }
 
 #[cfg(test)]
-#[allow(deprecated)]
 mod tests {
+    #![expect(deprecated)]
+
     use rstest::rstest;
 
     use crate::LEGACY_SESSION;
@@ -54,7 +55,7 @@ mod tests {
     use crate::arrays::VarBinViewArray;
     use crate::arrays::varbin::builder::VarBinBuilder;
     use crate::assert_arrays_eq;
-    use crate::canonical::ToCanonical;
+    use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
 

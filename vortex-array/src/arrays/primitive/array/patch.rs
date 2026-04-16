@@ -135,8 +135,8 @@ mod tests {
     use vortex_buffer::buffer;
 
     use super::*;
-    #[allow(deprecated)]
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::assert_arrays_eq;
     use crate::validity::Validity;
 

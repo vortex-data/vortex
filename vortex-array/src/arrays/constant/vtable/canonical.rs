@@ -333,8 +333,8 @@ mod tests {
     use crate::arrays::listview::ListViewRebuildMode;
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
-    #[allow(deprecated)]
-    use crate::canonical::ToCanonical;
+    #[expect(deprecated)]
+    use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;

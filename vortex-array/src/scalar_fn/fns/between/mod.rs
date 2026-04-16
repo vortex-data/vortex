@@ -324,7 +324,7 @@ impl ScalarFnVTable for Between {
 
 #[cfg(test)]
 mod tests {
-    #![allow(deprecated)]
+    #![expect(deprecated)]
 
     use rstest::rstest;
     use vortex_buffer::buffer;
@@ -332,7 +332,7 @@ mod tests {
     use super::*;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    use crate::ToCanonical;
+    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::DecimalArray;

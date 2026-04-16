@@ -470,56 +470,65 @@ pub trait ToCanonical {
 }
 
 // Blanket impl for all Array encodings.
-#[allow(deprecated)]
+#[expect(deprecated)]
 impl ToCanonical for ArrayRef {
+    #[expect(deprecated)]
     fn to_null(&self) -> NullArray {
         self.to_canonical()
             .vortex_expect("to_canonical failed")
             .into_null()
     }
 
+    #[expect(deprecated)]
     fn to_bool(&self) -> BoolArray {
         self.to_canonical()
             .vortex_expect("to_canonical failed")
             .into_bool()
     }
 
+    #[expect(deprecated)]
     fn to_primitive(&self) -> PrimitiveArray {
         self.to_canonical()
             .vortex_expect("to_canonical failed")
             .into_primitive()
     }
 
+    #[expect(deprecated)]
     fn to_decimal(&self) -> DecimalArray {
         self.to_canonical()
             .vortex_expect("to_canonical failed")
             .into_decimal()
     }
 
+    #[expect(deprecated)]
     fn to_struct(&self) -> StructArray {
         self.to_canonical()
             .vortex_expect("to_canonical failed")
             .into_struct()
     }
 
+    #[expect(deprecated)]
     fn to_listview(&self) -> ListViewArray {
         self.to_canonical()
             .vortex_expect("to_canonical failed")
             .into_listview()
     }
 
+    #[expect(deprecated)]
     fn to_fixed_size_list(&self) -> FixedSizeListArray {
         self.to_canonical()
             .vortex_expect("to_canonical failed")
             .into_fixed_size_list()
     }
 
+    #[expect(deprecated)]
     fn to_varbinview(&self) -> VarBinViewArray {
         self.to_canonical()
             .vortex_expect("to_canonical failed")
             .into_varbinview()
     }
 
+    #[expect(deprecated)]
     fn to_extension(&self) -> ExtensionArray {
         self.to_canonical()
             .vortex_expect("to_canonical failed")
