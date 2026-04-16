@@ -189,7 +189,6 @@ mod tests {
         .into_array()
     }
 
-    #[expect(deprecated)]
     fn primitive_field(array: &ArrayRef, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
 
@@ -197,15 +196,19 @@ mod tests {
             vortex_bail!("empty field path");
         };
 
+        #[expect(deprecated)]
         let mut array = array.to_struct().unmasked_field_by_name(field)?.clone();
         for field in field_path {
-            array = array.to_struct().unmasked_field_by_name(field)?.clone();
+            #[expect(deprecated)]
+            let next = array.to_struct().unmasked_field_by_name(field)?.clone();
+            array = next;
         }
-        Ok(array.to_primitive())
+        #[expect(deprecated)]
+        let result = array.to_primitive();
+        Ok(result)
     }
 
     #[test]
-    #[expect(deprecated)]
     pub fn test_empty_pack() {
         let expr = Pack.new_expr(
             PackOptions {
@@ -218,11 +221,12 @@ mod tests {
         let test_array = test_array();
         let actual_array = test_array.clone().apply(&expr).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
-        assert_eq!(actual_array.to_struct().struct_fields().nfields(), 0);
+        #[expect(deprecated)]
+        let nfields = actual_array.to_struct().struct_fields().nfields();
+        assert_eq!(nfields, 0);
     }
 
     #[test]
-    #[expect(deprecated)]
     pub fn test_simple_pack() {
         let expr = Pack.new_expr(
             PackOptions {
@@ -232,6 +236,7 @@ mod tests {
             [col("a"), col("b"), col("a")],
         );
 
+        #[expect(deprecated)]
         let actual_array = test_array().apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
@@ -252,7 +257,6 @@ mod tests {
     }
 
     #[test]
-    #[expect(deprecated)]
     pub fn test_nested_pack() {
         let expr = Pack.new_expr(
             PackOptions {
@@ -272,6 +276,7 @@ mod tests {
             ],
         );
 
+        #[expect(deprecated)]
         let actual_array = test_array().apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
@@ -295,7 +300,6 @@ mod tests {
     }
 
     #[test]
-    #[expect(deprecated)]
     pub fn test_pack_nullable() {
         let expr = Pack.new_expr(
             PackOptions {
@@ -305,6 +309,7 @@ mod tests {
             [col("a"), col("b"), col("a")],
         );
 
+        #[expect(deprecated)]
         let actual_array = test_array().apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);

@@ -519,6 +519,8 @@ impl ValidityChild<ALP> for ALP {
 
 #[cfg(test)]
 mod tests {
+    #![expect(deprecated)]
+
     use std::f64::consts::PI;
     use std::sync::LazyLock;
 

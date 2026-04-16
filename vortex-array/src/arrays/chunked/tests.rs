@@ -172,7 +172,6 @@ fn scalar_at_empty_children_leading() {
 }
 
 #[test]
-#[expect(deprecated)]
 pub fn pack_nested_structs() {
     let struct_array = StructArray::try_new(
         ["a"].into(),
@@ -192,8 +191,11 @@ pub fn pack_nested_structs() {
     )
     .unwrap()
     .into_array();
+    #[expect(deprecated)]
     let canonical_struct = chunked.to_struct();
+    #[expect(deprecated)]
     let canonical_varbin = canonical_struct.unmasked_fields()[0].to_varbinview();
+    #[expect(deprecated)]
     let original_varbin = struct_array.unmasked_fields()[0].to_varbinview();
     let orig_values =
         original_varbin.with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>());
@@ -203,7 +205,6 @@ pub fn pack_nested_structs() {
 }
 
 #[test]
-#[expect(deprecated)]
 pub fn pack_nested_lists() {
     let l1 = ListArray::try_new(
         buffer![1, 2, 3, 4].into_array(),
@@ -227,6 +228,7 @@ pub fn pack_nested_lists() {
         ),
     );
 
+    #[expect(deprecated)]
     let canon_values = chunked_list.unwrap().as_array().to_listview();
 
     assert_eq!(

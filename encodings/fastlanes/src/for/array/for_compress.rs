@@ -52,6 +52,7 @@ mod test {
     use std::sync::LazyLock;
 
     use itertools::Itertools;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::primitive::PrimitiveArrayExt;
@@ -166,6 +167,7 @@ mod test {
                 .unwrap()
         );
 
+        #[expect(deprecated)]
         let encoded = compressed
             .encoded()
             .to_primitive()

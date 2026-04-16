@@ -95,7 +95,6 @@ mod tests {
         assert_eq!(output.dtype(), &new_dtype);
     }
 
-    #[expect(deprecated)]
     #[test]
     fn cast_different_ext_dtype() {
         let original_dtype =
@@ -106,12 +105,12 @@ mod tests {
         let storage = buffer![1i64].into_array();
         let arr = ExtensionArray::new(original_dtype, storage);
 
-        assert!(
-            arr.into_array()
-                .cast(DType::Extension(target_dtype))
-                .and_then(|a| a.to_canonical().map(|c| c.into_array()))
-                .is_err()
-        );
+        #[expect(deprecated)]
+        let result = arr
+            .into_array()
+            .cast(DType::Extension(target_dtype))
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+        assert!(result.is_err());
     }
 
     #[test]

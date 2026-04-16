@@ -11,6 +11,7 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
@@ -359,6 +360,7 @@ impl LayoutReader for StructReader {
 
                 // If root expression was a pack, then we apply the validity to each child field
                 if is_pack_merge {
+                    #[expect(deprecated)]
                     let struct_array = array.to_struct();
                     let masked_fields: Vec<ArrayRef> = struct_array
                         .iter_unmasked_fields()
@@ -386,6 +388,8 @@ impl LayoutReader for StructReader {
 
 #[cfg(test)]
 mod tests {
+    #![expect(deprecated)]
+
     use std::sync::Arc;
 
     use rstest::fixture;

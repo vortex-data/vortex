@@ -711,15 +711,18 @@ mod tests {
 
     // -- Tests migrated from compute/list_contains.rs --
 
-    #[expect(deprecated)]
     fn nonnull_strings(values: Vec<Vec<&str>>) -> ArrayRef {
-        ListArray::from_iter_slow::<u64, _>(values, Arc::new(DType::Utf8(Nullability::NonNullable)))
-            .unwrap()
-            .to_listview()
-            .into_array()
+        #[expect(deprecated)]
+        let result = ListArray::from_iter_slow::<u64, _>(
+            values,
+            Arc::new(DType::Utf8(Nullability::NonNullable)),
+        )
+        .unwrap()
+        .to_listview()
+        .into_array();
+        result
     }
 
-    #[expect(deprecated)]
     fn null_strings(values: Vec<Vec<Option<&str>>>) -> ArrayRef {
         let elements = values.iter().flatten().cloned().collect_vec();
 
@@ -736,11 +739,13 @@ mod tests {
         let elements =
             VarBinArray::from_iter(elements, DType::Utf8(Nullability::Nullable)).into_array();
 
-        ListArray::try_new(elements, offsets, Validity::NonNullable)
+        #[expect(deprecated)]
+        let result = ListArray::try_new(elements, offsets, Validity::NonNullable)
             .unwrap()
             .as_array()
             .to_listview()
-            .into_array()
+            .into_array();
+        result
     }
 
     fn bool_array(values: Vec<bool>, validity: Validity) -> BoolArray {

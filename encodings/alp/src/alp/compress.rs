@@ -131,6 +131,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    #![expect(deprecated)]
+
     use core::f64;
 
     use f64::consts::E;

@@ -23,9 +23,10 @@ use crate::validity::Validity;
 impl TryFrom<&ArrayRef> for RecordBatch {
     type Error = VortexError;
 
-    #[expect(deprecated)]
     fn try_from(value: &ArrayRef) -> VortexResult<Self> {
-        let Canonical::Struct(struct_array) = value.to_canonical()? else {
+        #[expect(deprecated)]
+        let canonical = value.to_canonical()?;
+        let Canonical::Struct(struct_array) = canonical else {
             vortex_bail!("RecordBatch can only be constructed from ")
         };
 

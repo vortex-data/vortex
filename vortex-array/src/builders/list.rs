@@ -217,8 +217,8 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
         self.append_value(scalar.as_list())
     }
 
-    #[expect(deprecated)]
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
+        #[expect(deprecated)]
         let list = array.to_listview();
         if list.is_empty() {
             return;
@@ -235,7 +235,9 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
 
         // Note that `ListViewArray` has `n` offsets and sizes, not `n+1` offsets like `ListArray`.
         let elements = list.elements();
+        #[expect(deprecated)]
         let offsets = list.offsets().to_primitive();
+        #[expect(deprecated)]
         let sizes = list.sizes().to_primitive();
 
         fn extend_inner<O, OffsetType, SizeType>(
@@ -306,9 +308,10 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
         self.finish_into_list().into_array()
     }
 
-    #[expect(deprecated)]
     fn finish_into_canonical(&mut self) -> Canonical {
-        Canonical::List(self.finish_into_list().into_array().to_listview())
+        #[expect(deprecated)]
+        let listview = self.finish_into_list().into_array().to_listview();
+        Canonical::List(listview)
     }
 }
 
@@ -350,7 +353,6 @@ mod tests {
         assert_eq!(list.len(), 0);
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_values() {
         let dtype: Arc<DType> = Arc::new(I32.into());
@@ -381,6 +383,7 @@ mod tests {
         let list = builder.finish();
         assert_eq!(list.len(), 2);
 
+        #[expect(deprecated)]
         let list_array = list.to_listview();
 
         assert_eq!(list_array.list_elements_at(0).unwrap().len(), 3);
@@ -399,7 +402,6 @@ mod tests {
         )
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_nullable_values() {
         let dtype: Arc<DType> = Arc::new(I32.into());
@@ -434,6 +436,7 @@ mod tests {
         let list = builder.finish();
         assert_eq!(list.len(), 3);
 
+        #[expect(deprecated)]
         let list_array = list.to_listview();
 
         assert_eq!(list_array.list_elements_at(0).unwrap().len(), 3);
@@ -441,7 +444,6 @@ mod tests {
         assert_eq!(list_array.list_elements_at(2).unwrap().len(), 3);
     }
 
-    #[expect(deprecated)]
     fn test_extend_builder_gen<O: IntegerPType>() {
         let list = ListArray::from_iter_opt_slow::<O, _, _>(
             [Some(vec![0, 1, 2]), None, Some(vec![4, 5])],
@@ -458,6 +460,7 @@ mod tests {
         builder.extend_from_array(&list.slice(0..0).unwrap());
         builder.extend_from_array(&list.slice(1..3).unwrap());
 
+        #[expect(deprecated)]
         let expected = ListArray::from_iter_opt_slow::<O, _, _>(
             [
                 Some(vec![0, 1, 2]),
@@ -507,7 +510,6 @@ mod tests {
         test_extend_builder_gen::<u64>();
     }
 
-    #[expect(deprecated)]
     #[test]
     pub fn test_array_with_gap() {
         let one_trailing_unused_element = ListArray::try_new(
@@ -532,6 +534,7 @@ mod tests {
             DType::List(Arc::new(DType::Primitive(I32, NonNullable)), NonNullable),
         );
 
+        #[expect(deprecated)]
         let canon_values = chunked_list.unwrap().as_array().to_listview();
 
         assert_eq!(

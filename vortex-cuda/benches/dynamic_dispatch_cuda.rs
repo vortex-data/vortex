@@ -19,6 +19,7 @@ use cudarc::driver::PushKernelArg;
 use cudarc::driver::sys::CUevent_flags;
 use vortex::array::IntoArray;
 use vortex::array::LEGACY_SESSION;
+#[expect(deprecated)]
 use vortex::array::ToCanonical;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::DictArray;
@@ -382,6 +383,7 @@ fn bench_alp_for_bitpacked(c: &mut Criterion) {
         )
         .vortex_expect("alp_encode");
         assert!(alp.patches().is_none());
+        #[expect(deprecated)]
         let for_arr = FoRData::encode(alp.encoded().to_primitive()).vortex_expect("for encode");
         let bp =
             BitPackedData::encode(for_arr.encoded(), bit_width).vortex_expect("bitpack encode");

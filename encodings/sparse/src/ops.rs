@@ -24,6 +24,8 @@ impl OperationsVTable<Sparse> for Sparse {
 
 #[cfg(test)]
 mod tests {
+    #![expect(deprecated)]
+
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;

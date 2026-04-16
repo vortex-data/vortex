@@ -311,7 +311,6 @@ mod tests {
     use crate::scalar_fn::fns::merge::StructArray;
     use crate::scalar_fn::fns::pack::Pack;
 
-    #[expect(deprecated)]
     fn primitive_field(array: &ArrayRef, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
 
@@ -319,11 +318,16 @@ mod tests {
             vortex_bail!("empty field path");
         };
 
+        #[expect(deprecated)]
         let mut array = array.to_struct().unmasked_field_by_name(field)?.clone();
         for field in field_path {
-            array = array.to_struct().unmasked_field_by_name(field)?.clone();
+            #[expect(deprecated)]
+            let next = array.to_struct().unmasked_field_by_name(field)?.clone();
+            array = next;
         }
-        Ok(array.to_primitive())
+        #[expect(deprecated)]
+        let result = array.to_primitive();
+        Ok(result)
     }
 
     #[test]
@@ -456,7 +460,6 @@ mod tests {
     }
 
     #[test]
-    #[expect(deprecated)]
     pub fn test_nested_merge() {
         // Nested structs are not merged!
 
@@ -494,13 +497,16 @@ mod tests {
         ])
         .unwrap()
         .into_array();
+        #[expect(deprecated)]
         let actual_array = test_array.apply(&expr).unwrap().to_struct();
 
+        #[expect(deprecated)]
+        let inner_struct = actual_array
+            .unmasked_field_by_name("a")
+            .unwrap()
+            .to_struct();
         assert_eq!(
-            actual_array
-                .unmasked_field_by_name("a")
-                .unwrap()
-                .to_struct()
+            inner_struct
                 .names()
                 .iter()
                 .map(|name| name.as_ref())
@@ -510,7 +516,6 @@ mod tests {
     }
 
     #[test]
-    #[expect(deprecated)]
     pub fn test_merge_order() {
         let expr = merge(vec![get_item("0", root()), get_item("1", root())]);
 
@@ -536,6 +541,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
+        #[expect(deprecated)]
         let actual_array = test_array.apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["a", "c", "b", "d"]);

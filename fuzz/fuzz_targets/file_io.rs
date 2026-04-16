@@ -8,6 +8,7 @@ use libfuzzer_sys::Corpus;
 use libfuzzer_sys::fuzz_target;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
@@ -50,9 +51,9 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             .clone()
             .apply(&filter_expr.clone().unwrap_or_else(|| lit(true)))
             .vortex_expect("filter expression evaluation should succeed in fuzz test");
-        let mask = bool_mask
-            .to_bool()
-            .to_mask_fill_null_false(&mut SESSION.create_execution_ctx());
+        #[expect(deprecated)]
+        let bool_mask_bool = bool_mask.to_bool();
+        let mask = bool_mask_bool.to_mask_fill_null_false(&mut SESSION.create_execution_ctx());
         let filtered = array_data
             .filter(mask)
             .vortex_expect("filter operation should succeed in fuzz test");
@@ -110,6 +111,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         output_array.dtype()
     );
 
+    #[expect(deprecated)]
     let bool_result = expected_array
         .binary(output_array.clone(), Operator::Eq)
         .vortex_expect("compare operation should succeed in fuzz test")

@@ -135,19 +135,13 @@ mod tests {
     use crate::scalar_fn::fns::not::BoolArray;
 
     #[test]
-    #[expect(deprecated)]
     fn invert_booleans() {
         let not_expr = not(root());
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
+        #[expect(deprecated)]
+        let result = bools.into_array().apply(&not_expr).unwrap().to_bool();
         assert_eq!(
-            bools
-                .into_array()
-                .apply(&not_expr)
-                .unwrap()
-                .to_bool()
-                .to_bit_buffer()
-                .iter()
-                .collect::<Vec<_>>(),
+            result.to_bit_buffer().iter().collect::<Vec<_>>(),
             vec![true, false, true, true, false, false]
         );
     }

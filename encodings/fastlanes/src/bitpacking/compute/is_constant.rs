@@ -8,6 +8,7 @@ use lending_iterator::LendingIterator;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
@@ -57,7 +58,9 @@ fn bitpacked_is_constant<T: BitPackedUnpack, const WIDTH: usize>(
 ) -> VortexResult<bool> {
     let mut bit_unpack_iterator = array.unpacked_chunks::<T>()?;
     let patches = array.patches().map(|p| {
+        #[expect(deprecated)]
         let values = p.values().to_primitive();
+        #[expect(deprecated)]
         let indices = p.indices().to_primitive();
         let offset = p.offset();
         (indices, values, offset)

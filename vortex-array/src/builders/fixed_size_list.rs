@@ -237,8 +237,8 @@ impl ArrayBuilder for FixedSizeListBuilder {
 
     /// This will increase the capacity if extending with this `array` would go past the original
     /// capacity.
-    #[expect(deprecated)]
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
+        #[expect(deprecated)]
         let fsl = array.to_fixed_size_list();
         if fsl.is_empty() {
             return;
@@ -307,7 +307,6 @@ mod tests {
         assert_eq!(fsl.len(), 0);
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_values() {
         let dtype: Arc<DType> = Arc::new(I32.into());
@@ -339,12 +338,12 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 2);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.elements().len(), 6);
         assert_eq!(fsl_array.list_size(), 3);
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_degenerate_size_zero_non_nullable() {
         let dtype: Arc<DType> = Arc::new(I32.into());
@@ -363,13 +362,13 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 100);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 0);
         // The elements array should be empty since list_size is 0.
         assert_eq!(fsl_array.elements().len(), 0);
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_degenerate_size_zero_nullable() {
         // Use nullable elements since we'll be appending nulls
@@ -393,12 +392,12 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 100);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 0);
         assert_eq!(fsl_array.elements().len(), 0);
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_capacity_growth() {
         let dtype: Arc<DType> = Arc::new(I32.into());
@@ -423,11 +422,11 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 5);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.elements().len(), 10);
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_large_size_zero_capacity_empty_result() {
         let dtype: Arc<DType> = Arc::new(I32.into());
@@ -437,12 +436,12 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 0);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 100000000);
         assert_eq!(fsl_array.elements().len(), 0);
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_nullable_lists_non_nullable_elements() {
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, NonNullable));
@@ -470,6 +469,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 3);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert!(
             fsl_array
@@ -494,7 +494,6 @@ mod tests {
         );
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_non_nullable_lists_nullable_elements() {
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, Nullable));
@@ -534,11 +533,11 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 2);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.elements().len(), 6);
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_append_zeros() {
         let dtype: Arc<DType> = Arc::new(I32.into());
@@ -549,17 +548,18 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 5);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 3);
         assert_eq!(fsl_array.elements().len(), 15);
 
         // Check that all elements are zeros.
+        #[expect(deprecated)]
         let elements_array = fsl_array.elements().to_primitive();
         let elements = elements_array.as_slice::<i32>();
         assert!(elements.iter().all(|&x| x == 0));
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_append_nulls() {
         // Elements must be nullable if we're going to append null lists
@@ -573,6 +573,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 3);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 2);
 
@@ -588,7 +589,6 @@ mod tests {
         }
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_append_scalar_nulls() {
         // Elements must be nullable if we're going to append null lists
@@ -604,6 +604,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 1);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 2);
 
@@ -617,7 +618,6 @@ mod tests {
         );
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_append_zeros_degenerate() {
         let dtype: Arc<DType> = Arc::new(I32.into());
@@ -630,6 +630,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 1000);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 0);
         assert_eq!(fsl_array.elements().len(), 0);
@@ -660,7 +661,6 @@ mod tests {
         );
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_extend_from_array() {
         let dtype: Arc<DType> = Arc::new(I32.into());
@@ -682,6 +682,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 6);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.elements().len(), 12);
 
@@ -730,7 +731,6 @@ mod tests {
         );
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_extend_degenerate_arrays() {
         let dtype: Arc<DType> = Arc::new(I32.into());
@@ -758,6 +758,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 5);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 0);
         assert_eq!(fsl_array.elements().len(), 0);
@@ -834,7 +835,6 @@ mod tests {
         assert_eq!(fsl.len(), 1);
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_mixed_operations() {
         // Use nullable elements since we'll be appending nulls
@@ -871,6 +871,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 6);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.elements().len(), 12);
 
@@ -991,7 +992,6 @@ mod tests {
         assert!(builder.append_scalar(&wrong_scalar).is_err());
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_append_array_as_list() {
         let dtype: Arc<DType> = Arc::new(I32.into());
@@ -1035,6 +1035,7 @@ mod tests {
         assert_eq!(fsl.list_size(), 3);
 
         // Verify elements array: [1, 2, 3, 10, 11, 12, 4, 5, 6, 20, 21, 22].
+        #[expect(deprecated)]
         let elements = fsl.elements().to_primitive();
         assert_eq!(
             elements.as_slice::<i32>(),

@@ -496,6 +496,7 @@ mod tests {
     use cudarc::driver::PushKernelArg;
     use rstest::rstest;
     use vortex::array::IntoArray;
+    #[expect(deprecated)]
     use vortex::array::ToCanonical;
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
@@ -882,6 +883,7 @@ mod tests {
             &mut LEGACY_SESSION.create_execution_ctx(),
         )?;
         assert!(alp.patches().is_none());
+        #[expect(deprecated)]
         let for_arr = FoR::encode(alp.encoded().to_primitive())?;
         let bp = BitPacked::encode(for_arr.encoded(), 6)?;
 
@@ -1930,6 +1932,7 @@ mod tests {
             .into_host()
             .await?;
 
+        #[expect(deprecated)]
         let prim = result.into_primitive();
         assert_eq!(prim.len(), 2048);
         assert!(matches!(prim.validity()?, Validity::AllInvalid));

@@ -150,6 +150,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    #![expect(deprecated)]
+
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::LEGACY_SESSION;

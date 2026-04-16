@@ -294,8 +294,8 @@ impl ArrayBuilder for VarBinViewBuilder {
         Ok(())
     }
 
-    #[expect(deprecated)]
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
+        #[expect(deprecated)]
         let array = array.to_varbinview();
         self.flush_in_progress();
 

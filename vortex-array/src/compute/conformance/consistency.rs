@@ -1008,7 +1008,6 @@ fn test_boolean_demorgan_consistency(array: &ArrayRef) {
 /// # Why This Matters
 /// Aggregate operations on sliced arrays must produce correct results
 /// regardless of the underlying encoding's offset handling.
-#[expect(deprecated)]
 fn test_slice_aggregate_consistency(array: &ArrayRef) {
     use crate::aggregate_fn::fns::min_max::min_max;
     use crate::aggregate_fn::fns::nan_count::nan_count;
@@ -1030,6 +1029,7 @@ fn test_slice_aggregate_consistency(array: &ArrayRef) {
     let sliced = array
         .slice(start..end)
         .vortex_expect("slice should succeed in conformance test");
+    #[expect(deprecated)]
     let canonical = array.to_canonical().vortex_expect("to_canonical failed");
     let canonical_sliced = canonical
         .into_array()
@@ -1120,7 +1120,6 @@ fn test_slice_aggregate_consistency(array: &ArrayRef) {
 /// This test specifically catches bugs where encodings (like RunEndArray) fail to preserve
 /// offset information during cast operations. Such bugs can lead to incorrect data being
 /// returned after casting a sliced array.
-#[expect(deprecated)]
 fn test_cast_slice_consistency(array: &ArrayRef) {
     let len = array.len();
     if len < 5 {
@@ -1132,6 +1131,7 @@ fn test_cast_slice_consistency(array: &ArrayRef) {
     let end = 7.min(len - 2).max(start + 1); // Ensure we have at least 1 element
 
     // Get canonical form of the original array
+    #[expect(deprecated)]
     let canonical = array.to_canonical().vortex_expect("to_canonical failed");
 
     // Choose appropriate target dtype based on the array's type
@@ -1256,10 +1256,10 @@ fn test_cast_slice_consistency(array: &ArrayRef) {
             .vortex_expect("slice should succeed in conformance test");
 
         // Try to cast the sliced array (force execution via to_canonical)
-        let slice_then_cast = match sliced
-            .cast(target_dtype.clone())
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
-        {
+        let slice_then_cast = match sliced.cast(target_dtype.clone()).and_then(|a| {
+            #[expect(deprecated)]
+            a.to_canonical().map(|c| c.into_array())
+        }) {
             Ok(result) => result,
             Err(_) => continue, // Skip if cast fails
         };
@@ -1308,11 +1308,10 @@ fn test_cast_slice_consistency(array: &ArrayRef) {
         }
 
         // Also test the other way: cast then slice
-        let casted = match array
-            .clone()
-            .cast(target_dtype.clone())
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
-        {
+        let casted = match array.clone().cast(target_dtype.clone()).and_then(|a| {
+            #[expect(deprecated)]
+            a.to_canonical().map(|c| c.into_array())
+        }) {
             Ok(result) => result,
             Err(_) => continue, // Skip if cast fails
         };

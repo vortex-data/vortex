@@ -25,6 +25,7 @@ use pyo3_bytes::PyBytes;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::LEGACY_SESSION;
+#[expect(deprecated)]
 use vortex::array::ToCanonical;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::Chunked;
@@ -527,10 +528,12 @@ impl PyArray {
     /// ```
     fn filter(slf: Bound<Self>, mask: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let mask = (&*mask as &ArrayRef)
-            .to_bool()
-            .to_mask_fill_null_false(&mut LEGACY_SESSION.create_execution_ctx());
-        let inner = slf.filter(mask)?.to_canonical()?.into_array();
+        #[expect(deprecated)]
+        let mask_bool = (&*mask as &ArrayRef).to_bool();
+        let mask = mask_bool.to_mask_fill_null_false(&mut LEGACY_SESSION.create_execution_ctx());
+        #[expect(deprecated)]
+        let canonical = slf.filter(mask)?.to_canonical()?;
+        let inner = canonical.into_array();
         Ok(PyArrayRef::from(inner))
     }
 

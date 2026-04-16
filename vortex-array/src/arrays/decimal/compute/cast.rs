@@ -159,7 +159,6 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::validity::Validity;
 
-    #[expect(deprecated)]
     #[test]
     fn cast_decimal_to_nullable() {
         let decimal_dtype = DecimalDType::new(10, 2);
@@ -171,6 +170,7 @@ mod tests {
 
         // Cast to nullable
         let nullable_dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
+        #[expect(deprecated)]
         let casted = array
             .into_array()
             .cast(nullable_dtype.clone())
@@ -182,7 +182,6 @@ mod tests {
         assert_eq!(casted.len(), 3);
     }
 
-    #[expect(deprecated)]
     #[test]
     fn cast_nullable_to_non_nullable() {
         let decimal_dtype = DecimalDType::new(10, 2);
@@ -192,6 +191,7 @@ mod tests {
 
         // Cast to non-nullable
         let non_nullable_dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
+        #[expect(deprecated)]
         let casted = array
             .into_array()
             .cast(non_nullable_dtype.clone())
@@ -202,7 +202,6 @@ mod tests {
         assert!(matches!(casted.validity(), Ok(Validity::NonNullable)));
     }
 
-    #[expect(deprecated)]
     #[test]
     #[should_panic(expected = "Cannot cast array with invalid values to non-nullable type")]
     fn cast_nullable_with_nulls_to_non_nullable_fails() {
@@ -213,14 +212,14 @@ mod tests {
 
         // Attempt to cast to non-nullable should fail
         let non_nullable_dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
-        array
+        #[expect(deprecated)]
+        let result = array
             .into_array()
             .cast(non_nullable_dtype)
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
-            .unwrap();
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+        result.unwrap();
     }
 
-    #[expect(deprecated)]
     #[test]
     fn cast_different_scale_fails() {
         let array = DecimalArray::new(
@@ -231,6 +230,7 @@ mod tests {
 
         // Try to cast to different scale - not supported
         let different_dtype = DType::Decimal(DecimalDType::new(15, 3), Nullability::NonNullable);
+        #[expect(deprecated)]
         let result = array
             .into_array()
             .cast(different_dtype)
@@ -245,7 +245,6 @@ mod tests {
         );
     }
 
-    #[expect(deprecated)]
     #[test]
     fn cast_downcast_precision_fails() {
         let array = DecimalArray::new(
@@ -256,6 +255,7 @@ mod tests {
 
         // Try to downcast precision - not supported
         let smaller_dtype = DType::Decimal(DecimalDType::new(10, 2), Nullability::NonNullable);
+        #[expect(deprecated)]
         let result = array
             .into_array()
             .cast(smaller_dtype)
@@ -270,7 +270,6 @@ mod tests {
         );
     }
 
-    #[expect(deprecated)]
     #[test]
     fn cast_upcast_precision_succeeds() {
         let array = DecimalArray::new(
@@ -281,6 +280,7 @@ mod tests {
 
         // Cast to higher precision with same scale - should succeed
         let wider_dtype = DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable);
+        #[expect(deprecated)]
         let casted = array.into_array().cast(wider_dtype).unwrap().to_decimal();
 
         assert_eq!(casted.precision(), 38);
@@ -290,7 +290,6 @@ mod tests {
         assert_eq!(casted.values_type(), DecimalType::I128);
     }
 
-    #[expect(deprecated)]
     #[test]
     fn cast_to_non_decimal_returns_err() {
         let array = DecimalArray::new(
@@ -300,6 +299,7 @@ mod tests {
         );
 
         // Try to cast to non-decimal type - should fail since no kernel can handle it
+        #[expect(deprecated)]
         let result = array
             .into_array()
             .cast(DType::Utf8(Nullability::NonNullable))

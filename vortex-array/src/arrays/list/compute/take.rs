@@ -213,7 +213,6 @@ mod test {
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
-    #[expect(deprecated)]
     #[test]
     fn nullable_take() {
         let list = ListArray::try_new(
@@ -237,6 +236,7 @@ mod test {
             )
         );
 
+        #[expect(deprecated)]
         let result = result.to_listview();
 
         assert_eq!(result.len(), 4);
@@ -317,7 +317,6 @@ mod test {
         );
     }
 
-    #[expect(deprecated)]
     #[test]
     fn non_nullable_take() {
         let list = ListArray::try_new(
@@ -340,6 +339,7 @@ mod test {
             )
         );
 
+        #[expect(deprecated)]
         let result = result.to_listview();
 
         assert_eq!(result.len(), 3);
@@ -456,7 +456,6 @@ mod test {
         test_take_conformance(&list.into_array());
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_u64_offset_accumulation_non_nullable() {
         let elements = buffer![0i32; 200].into_array();
@@ -471,6 +470,7 @@ mod test {
 
         assert_eq!(result.len(), 2);
 
+        #[expect(deprecated)]
         let result_view = result.to_listview();
         assert_eq!(result_view.len(), 2);
         assert!(
@@ -485,7 +485,6 @@ mod test {
         );
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_u64_offset_accumulation_nullable() {
         let elements = buffer![0i32; 150].into_array();
@@ -501,6 +500,7 @@ mod test {
 
         assert_eq!(result.len(), 3);
 
+        #[expect(deprecated)]
         let result_view = result.to_listview();
         assert_eq!(result_view.len(), 3);
         assert!(

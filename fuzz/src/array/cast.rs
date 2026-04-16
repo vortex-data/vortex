@@ -4,6 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
@@ -34,21 +35,24 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
             |In| {
                 match_each_integer_ptype!(target.as_ptype(), |Out| {
                     #[allow(clippy::cast_possible_truncation)]
-                    PrimitiveArray::new(
-                        array
-                            .to_primitive()
-                            .as_slice::<In>()
-                            .iter()
-                            .map(|v| *v as Out)
-                            .collect::<Buffer<Out>>(),
-                        Validity::from_mask(
-                            array
-                                .validity()?
-                                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())?,
-                            target.nullability(),
-                        ),
-                    )
-                    .into_array()
+                    {
+                        #[expect(deprecated)]
+                        let prim = array.to_primitive();
+                        PrimitiveArray::new(
+                            prim.as_slice::<In>()
+                                .iter()
+                                .map(|v| *v as Out)
+                                .collect::<Buffer<Out>>(),
+                            Validity::from_mask(
+                                array.validity()?.to_mask(
+                                    array.len(),
+                                    &mut LEGACY_SESSION.create_execution_ctx(),
+                                )?,
+                                target.nullability(),
+                            ),
+                        )
+                        .into_array()
+                    }
                 })
             }
         )))
@@ -64,31 +68,32 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
         }
 
         match (from_ptype, to_ptype) {
-            (PType::F32, PType::F64) => Ok(Some(
-                PrimitiveArray::new(
-                    array
-                        .to_primitive()
-                        .as_slice::<f32>()
-                        .iter()
-                        .map(|v| *v as f64)
-                        .collect::<Buffer<f64>>(),
-                    Validity::from_mask(
-                        array
-                            .validity()?
-                            .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())?,
-                        target.nullability(),
-                    ),
-                )
-                .into_array(),
-            )),
-            (PType::F64, PType::F32) =>
-            {
+            (PType::F32, PType::F64) => {
+                #[expect(deprecated)]
+                let prim = array.to_primitive();
+                Ok(Some(
+                    PrimitiveArray::new(
+                        prim.as_slice::<f32>()
+                            .iter()
+                            .map(|v| *v as f64)
+                            .collect::<Buffer<f64>>(),
+                        Validity::from_mask(
+                            array
+                                .validity()?
+                                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())?,
+                            target.nullability(),
+                        ),
+                    )
+                    .into_array(),
+                ))
+            }
+            (PType::F64, PType::F32) => {
+                #[expect(deprecated)]
+                let prim = array.to_primitive();
                 #[expect(clippy::cast_possible_truncation)]
                 Ok(Some(
                     PrimitiveArray::new(
-                        array
-                            .to_primitive()
-                            .as_slice::<f64>()
+                        prim.as_slice::<f64>()
                             .iter()
                             .map(|v| *v as f32)
                             .collect::<Buffer<f32>>(),

@@ -56,6 +56,8 @@ impl TakeExecute for ALPRD {
 
 #[cfg(test)]
 mod test {
+    #![expect(deprecated)]
+
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;

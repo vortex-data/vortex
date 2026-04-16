@@ -201,6 +201,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::MaskFuture;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
@@ -404,24 +405,22 @@ mod tests {
                     .bit_buffer(),
                 AllOr::Some(&validity_boolean_buffer)
             );
-            assert_eq!(
-                result
-                    .to_struct()
-                    .unmasked_field_by_name("a")
-                    .unwrap()
-                    .to_primitive()
-                    .as_slice::<u64>(),
-                &[1, 2]
-            );
-            assert_eq!(
-                result
-                    .to_struct()
-                    .unmasked_field_by_name("b")
-                    .unwrap()
-                    .to_primitive()
-                    .as_slice::<u64>(),
-                &[3, 4]
-            );
+            #[expect(deprecated)]
+            let result_struct = result.to_struct();
+            #[expect(deprecated)]
+            let field_a = result_struct
+                .unmasked_field_by_name("a")
+                .unwrap()
+                .to_primitive();
+            assert_eq!(field_a.as_slice::<u64>(), &[1, 2]);
+            #[expect(deprecated)]
+            let result_struct_b = result.to_struct();
+            #[expect(deprecated)]
+            let field_b = result_struct_b
+                .unmasked_field_by_name("b")
+                .unwrap()
+                .to_primitive();
+            assert_eq!(field_b.as_slice::<u64>(), &[3, 4]);
         })
     }
 

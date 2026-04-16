@@ -38,7 +38,6 @@ fn compact_sliced(bencher: Bencher, args: (usize, usize)) {
     compact_sliced_impl(bencher, args);
 }
 
-#[expect(deprecated)]
 fn compact_impl(bencher: Bencher, (output_size, utilization_pct): (usize, usize)) {
     let base_size = (output_size * 100) / utilization_pct;
     let base_array = build_varbinview_fixture(base_size);
@@ -47,6 +46,7 @@ fn compact_impl(bencher: Bencher, (output_size, utilization_pct): (usize, usize)
         .into_array()
         .take(indices)
         .vortex_expect("operation should succeed in benchmark");
+    #[expect(deprecated)]
     let array = taken.to_varbinview();
 
     bencher.with_inputs(|| &array).bench_refs(|array| {
@@ -56,7 +56,6 @@ fn compact_impl(bencher: Bencher, (output_size, utilization_pct): (usize, usize)
     })
 }
 
-#[expect(deprecated)]
 fn compact_sliced_impl(bencher: Bencher, (output_size, utilization_pct): (usize, usize)) {
     let base_size = (output_size * 100) / utilization_pct;
     let base_array = build_varbinview_fixture(base_size);
@@ -64,6 +63,7 @@ fn compact_sliced_impl(bencher: Bencher, (output_size, utilization_pct): (usize,
         .into_array()
         .slice(0..output_size)
         .vortex_expect("slice should succeed");
+    #[expect(deprecated)]
     let array = sliced.to_varbinview();
 
     bencher.with_inputs(|| &array).bench_refs(|array| {

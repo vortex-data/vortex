@@ -7,6 +7,7 @@ pub use bitpacking::*;
 pub use delta::*;
 pub use r#for::*;
 pub use rle::*;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::validity::Validity;
@@ -82,6 +83,7 @@ pub(crate) fn fill_forward_nulls<T: Copy + Default>(
         Validity::NonNullable | Validity::AllValid => values,
         Validity::AllInvalid => Buffer::zeroed(values.len()),
         Validity::Array(validity_array) => {
+            #[expect(deprecated)]
             let bit_buffer = validity_array.to_bool().to_bit_buffer();
             let mut last_valid = T::default();
             match values.try_into_mut() {

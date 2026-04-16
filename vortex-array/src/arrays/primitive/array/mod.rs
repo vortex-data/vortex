@@ -145,7 +145,6 @@ pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
     }
 
     /// Narrow the array to the smallest possible integer type that can represent all values.
-    #[expect(deprecated)]
     fn narrow(&self) -> VortexResult<PrimitiveArray> {
         if !self.ptype().is_int() {
             return Ok(self.to_owned());
@@ -181,46 +180,58 @@ pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
         if min < 0 || max < 0 {
             // Signed
             if min >= i8::MIN as i64 && max <= i8::MAX as i64 {
-                return Ok(self
+                #[expect(deprecated)]
+                let result = self
                     .as_ref()
                     .cast(DType::Primitive(PType::I8, nullability))?
-                    .to_primitive());
+                    .to_primitive();
+                return Ok(result);
             }
 
             if min >= i16::MIN as i64 && max <= i16::MAX as i64 {
-                return Ok(self
+                #[expect(deprecated)]
+                let result = self
                     .as_ref()
                     .cast(DType::Primitive(PType::I16, nullability))?
-                    .to_primitive());
+                    .to_primitive();
+                return Ok(result);
             }
 
             if min >= i32::MIN as i64 && max <= i32::MAX as i64 {
-                return Ok(self
+                #[expect(deprecated)]
+                let result = self
                     .as_ref()
                     .cast(DType::Primitive(PType::I32, nullability))?
-                    .to_primitive());
+                    .to_primitive();
+                return Ok(result);
             }
         } else {
             // Unsigned
             if max <= u8::MAX as i64 {
-                return Ok(self
+                #[expect(deprecated)]
+                let result = self
                     .as_ref()
                     .cast(DType::Primitive(PType::U8, nullability))?
-                    .to_primitive());
+                    .to_primitive();
+                return Ok(result);
             }
 
             if max <= u16::MAX as i64 {
-                return Ok(self
+                #[expect(deprecated)]
+                let result = self
                     .as_ref()
                     .cast(DType::Primitive(PType::U16, nullability))?
-                    .to_primitive());
+                    .to_primitive();
+                return Ok(result);
             }
 
             if max <= u32::MAX as i64 {
-                return Ok(self
+                #[expect(deprecated)]
+                let result = self
                     .as_ref()
                     .cast(DType::Primitive(PType::U32, nullability))?
-                    .to_primitive());
+                    .to_primitive();
+                return Ok(result);
             }
         }
 
@@ -467,7 +478,6 @@ impl Array<Primitive> {
         }
     }
 
-    #[expect(deprecated)]
     pub fn map_each_with_validity<T, R, F>(self, f: F) -> VortexResult<Self>
     where
         T: NativePType,
@@ -486,6 +496,7 @@ impl Array<Primitive> {
                 BufferMut::<R>::from_iter(buf_iter.zip(iter::repeat(false)).map(f))
             }
             Validity::Array(val) => {
+                #[expect(deprecated)]
                 let val = val.to_bool().into_bit_buffer();
                 BufferMut::<R>::from_iter(buf_iter.zip(val.iter()).map(f))
             }
@@ -527,7 +538,6 @@ impl PrimitiveData {
     }
 
     /// Create a PrimitiveArray from a byte buffer containing only the valid elements.
-    #[expect(deprecated)]
     pub fn from_values_byte_buffer(
         valid_elems_buffer: ByteBuffer,
         ptype: PType,
@@ -540,6 +550,7 @@ impl PrimitiveData {
             Validity::AllValid | Validity::NonNullable => valid_elems_buffer.aligned(alignment),
             Validity::AllInvalid => ByteBuffer::zeroed_aligned(n_rows * byte_width, alignment),
             Validity::Array(is_valid) => {
+                #[expect(deprecated)]
                 let bool_array = is_valid.to_bool();
                 let bool_buffer = bool_array.to_bit_buffer();
                 let mut bytes = ByteBufferMut::zeroed_aligned(n_rows * byte_width, alignment);

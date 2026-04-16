@@ -40,6 +40,8 @@ impl TakeExecute for ALP {
 
 #[cfg(test)]
 mod test {
+    #![expect(deprecated)]
+
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;

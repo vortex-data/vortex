@@ -4,6 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
@@ -64,6 +65,7 @@ pub fn take_canonical_array(array: &ArrayRef, indices: &[Option<usize>]) -> Vort
 
     match array.dtype() {
         DType::Bool(_) => {
+            #[expect(deprecated)]
             let bool_array = array.to_bool();
             let vec_values = bool_array.to_bit_buffer().iter().collect::<Vec<_>>();
             Ok(BoolArray::new(
@@ -76,6 +78,7 @@ pub fn take_canonical_array(array: &ArrayRef, indices: &[Option<usize>]) -> Vort
             .into_array())
         }
         DType::Primitive(p, _) => {
+            #[expect(deprecated)]
             let primitive_array = array.to_primitive();
             match_each_native_ptype!(p, |P| {
                 Ok(take_primitive::<P>(
@@ -86,6 +89,7 @@ pub fn take_canonical_array(array: &ArrayRef, indices: &[Option<usize>]) -> Vort
             })
         }
         DType::Decimal(d, _) => {
+            #[expect(deprecated)]
             let decimal_array = array.to_decimal();
 
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
@@ -98,6 +102,7 @@ pub fn take_canonical_array(array: &ArrayRef, indices: &[Option<usize>]) -> Vort
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
+            #[expect(deprecated)]
             let utf8 = array.to_varbinview();
             let values =
                 utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>());
@@ -110,6 +115,7 @@ pub fn take_canonical_array(array: &ArrayRef, indices: &[Option<usize>]) -> Vort
             .into_array())
         }
         DType::Struct(..) => {
+            #[expect(deprecated)]
             let struct_array = array.to_struct();
             let taken_children = struct_array
                 .iter_unmasked_fields()

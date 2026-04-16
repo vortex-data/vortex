@@ -70,7 +70,6 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
 
-    #[expect(deprecated)]
     #[test]
     fn test_cast_dict_to_wider_type() {
         let values = buffer![1i32, 2, 3, 2, 1].into_array();
@@ -85,6 +84,7 @@ mod tests {
             &DType::Primitive(PType::I64, Nullability::NonNullable)
         );
 
+        #[expect(deprecated)]
         let decoded = casted.to_primitive();
         assert_arrays_eq!(decoded, PrimitiveArray::from_iter([1i64, 2, 3, 2, 1]));
     }
@@ -105,7 +105,6 @@ mod tests {
         );
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_cast_dict_allvalid_to_nonnullable_and_back() {
         // Create an AllValid dict array (no nulls)
@@ -171,7 +170,9 @@ mod tests {
         );
 
         // Verify values are unchanged
+        #[expect(deprecated)]
         let original_values = dict.as_array().to_primitive();
+        #[expect(deprecated)]
         let final_values = back_to_non_nullable.to_primitive();
         assert_arrays_eq!(original_values, final_values);
     }
@@ -185,7 +186,6 @@ mod tests {
         test_cast_conformance(&array);
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_cast_dict_with_unreferenced_null_values_to_nonnullable() {
         use crate::arrays::DictArray;
@@ -221,9 +221,8 @@ mod tests {
             casted.dtype(),
             &DType::Primitive(PType::F64, Nullability::NonNullable)
         );
-        assert_arrays_eq!(
-            casted.to_primitive(),
-            PrimitiveArray::from_iter([1.0f64, 3.0, 1.0])
-        );
+        #[expect(deprecated)]
+        let casted_prim = casted.to_primitive();
+        assert_arrays_eq!(casted_prim, PrimitiveArray::from_iter([1.0f64, 3.0, 1.0]));
     }
 }

@@ -293,8 +293,8 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         self.append_value(list_scalar)
     }
 
-    #[expect(deprecated)]
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
+        #[expect(deprecated)]
         let listview = array.to_listview();
         if listview.is_empty() {
             return;
@@ -343,6 +343,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         let uninit_range = self.offsets_builder.uninit_range(extend_length);
 
         // This should be cheap because we didn't compress after rebuilding.
+        #[expect(deprecated)]
         let new_offsets = listview.offsets().to_primitive();
 
         match_each_integer_ptype!(new_offsets.ptype(), |A| {

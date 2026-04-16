@@ -94,7 +94,6 @@ mod test {
     use crate::validity::Validity;
 
     #[test]
-    #[expect(deprecated)]
     fn take_nullable() {
         let reference = BoolArray::from_iter(vec![
             Some(false),
@@ -104,6 +103,7 @@ mod test {
             Some(false),
         ]);
 
+        #[expect(deprecated)]
         let b = reference
             .take(buffer![0, 3, 4].into_array())
             .unwrap()

@@ -132,6 +132,7 @@ mod tests {
     use std::sync::Arc;
 
     use vortex::array::IntoArray;
+    #[expect(deprecated)]
     use vortex::array::ToCanonical;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
@@ -236,6 +237,7 @@ mod tests {
             assert!(!array.is_null());
 
             {
+                #[expect(deprecated)]
                 let array = vx_array::as_ref(array).to_struct();
                 assert_arrays_eq!(array, struct_array);
             }

@@ -75,7 +75,6 @@ mod tests {
         assert_eq!(result.len(), list.len());
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_cast_to_wrong_type() {
         let list = ListArray::try_new(
@@ -88,14 +87,14 @@ mod tests {
         let target_dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
         // can't cast list to u64
 
-        let result = list
-            .into_array()
-            .cast(target_dtype)
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+        let result = list.into_array().cast(target_dtype).and_then(|a| {
+            #[expect(deprecated)]
+            let canonical = a.to_canonical().map(|c| c.into_array());
+            canonical
+        });
         assert!(result.is_err());
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_cant_cast_nulls_to_non_null() {
         // Test that if list has nulls, the conversion will fail
@@ -113,10 +112,11 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let result = list
-            .into_array()
-            .cast(target_dtype)
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+        let result = list.into_array().cast(target_dtype).and_then(|a| {
+            #[expect(deprecated)]
+            let canonical = a.to_canonical().map(|c| c.into_array());
+            canonical
+        });
         assert!(result.is_err());
 
         // Nulls in list element array — the inner cast error is deferred until

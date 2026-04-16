@@ -3,6 +3,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::arrays::varbin::builder::VarBinBuilder;
 use vortex_array::assert_arrays_eq;
@@ -95,6 +96,7 @@ fn test_fsst_array_ops() {
     );
 
     // test to_canonical
+    #[expect(deprecated)]
     let canonical_array = fsst_array.to_varbinview().into_array();
 
     assert_arrays_eq!(fsst_array, canonical_array);

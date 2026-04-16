@@ -272,6 +272,7 @@ where
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
@@ -282,6 +283,7 @@ mod tests {
     #[test]
     fn test_float_stats() {
         let floats = buffer![0.0f32, 1.0f32, 2.0f32].into_array();
+        #[expect(deprecated)]
         let floats = floats.to_primitive();
 
         let stats = FloatStats::generate_opts(

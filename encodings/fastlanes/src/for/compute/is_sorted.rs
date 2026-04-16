@@ -4,6 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
@@ -35,6 +36,7 @@ impl DynAggregateKernel for FoRIsSortedKernel {
             return Ok(None);
         };
 
+        #[expect(deprecated)]
         let encoded = array.encoded().to_primitive();
         let unsigned_array = PrimitiveArray::from_buffer_handle(
             encoded.buffer_handle().clone(),

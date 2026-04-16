@@ -99,8 +99,8 @@ impl ArrayBuilder for ExtensionBuilder {
         self.append_value(scalar.as_extension())
     }
 
-    #[expect(deprecated)]
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
+        #[expect(deprecated)]
         let ext_array = array.to_extension();
         self.storage.extend_from_array(ext_array.storage_array())
     }

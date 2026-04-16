@@ -275,6 +275,8 @@ impl StatsAccumulator {
 
 #[cfg(test)]
 mod tests {
+    #![expect(deprecated)]
+
     use std::sync::Arc;
 
     use rstest::rstest;

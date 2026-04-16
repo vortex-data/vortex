@@ -134,7 +134,6 @@ mod tests {
     }
 
     #[expect(clippy::type_complexity)]
-    #[expect(deprecated)]
     fn collect_pairs(
         left: &ChunkedArray,
         right: &ChunkedArray,
@@ -142,7 +141,9 @@ mod tests {
         let mut result = Vec::new();
         for pair in left.paired_chunks(right) {
             let pair = pair?;
+            #[expect(deprecated)]
             let l: Vec<i32> = pair.left.to_primitive().as_slice::<i32>().to_vec();
+            #[expect(deprecated)]
             let r: Vec<i32> = pair.right.to_primitive().as_slice::<i32>().to_vec();
             result.push((l, r, pair.pos));
         }

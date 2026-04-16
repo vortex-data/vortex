@@ -389,6 +389,7 @@ pub mod test_harness {
     use rand::rngs::StdRng;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
@@ -413,6 +414,7 @@ pub mod test_harness {
             })
             .collect::<BufferMut<i32>>();
 
+        #[expect(deprecated)]
         let values = if fraction_null == 0.0 {
             values.into_array().to_primitive()
         } else {
@@ -430,6 +432,7 @@ mod test {
 
     use rand::SeedableRng;
     use rand::rngs::StdRng;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ChunkedArray;
@@ -506,6 +509,7 @@ mod test {
             .collect::<Vec<_>>();
         let chunked = ChunkedArray::from_iter(chunks).into_array();
 
+        #[expect(deprecated)]
         let into_ca = chunked.to_primitive();
         let mut primitive_builder =
             PrimitiveBuilder::<i32>::with_capacity(chunked.dtype().nullability(), 10 * 100);
@@ -538,6 +542,7 @@ mod test {
         let bitpacked = bitpack_encode(&array, 4, None).unwrap();
 
         let patches = bitpacked.patches().unwrap();
+        #[expect(deprecated)]
         let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
 
         // chunk 0 (0-1023): patches at 100, 200 -> starts at patch index 0
@@ -561,6 +566,7 @@ mod test {
         let bitpacked = bitpack_encode(&array, 4, None).unwrap();
 
         let patches = bitpacked.patches().unwrap();
+        #[expect(deprecated)]
         let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
 
         assert_arrays_eq!(chunk_offsets, PrimitiveArray::from_iter([0u64, 2, 2]));
@@ -580,6 +586,7 @@ mod test {
         let bitpacked = bitpack_encode(&array, 4, None).unwrap();
 
         let patches = bitpacked.patches().unwrap();
+        #[expect(deprecated)]
         let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
 
         // chunk 0 (0-1023): patches at 100, 200 -> starts at patch index 0
@@ -604,6 +611,7 @@ mod test {
         let bitpacked = bitpack_encode(&array, 4, None).unwrap();
 
         let patches = bitpacked.patches().unwrap();
+        #[expect(deprecated)]
         let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
 
         // Single chunk starting at patch index 0.

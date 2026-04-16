@@ -7,6 +7,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::is_constant::is_constant;
@@ -75,6 +76,7 @@ impl Scheme for TemporalScheme {
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
         let array = data.array().clone();
+        #[expect(deprecated)]
         let ext_array = array.to_extension();
         let temporal_array = TemporalArray::try_from(ext_array.clone().into_array())?;
 
@@ -99,24 +101,17 @@ impl Scheme for TemporalScheme {
             subseconds,
         } = split_temporal(temporal_array)?;
 
-        let days = compressor.compress_child(
-            &days.to_primitive().narrow()?.into_array(),
-            &ctx,
-            self.id(),
-            0,
-        )?;
-        let seconds = compressor.compress_child(
-            &seconds.to_primitive().narrow()?.into_array(),
-            &ctx,
-            self.id(),
-            1,
-        )?;
-        let subseconds = compressor.compress_child(
-            &subseconds.to_primitive().narrow()?.into_array(),
-            &ctx,
-            self.id(),
-            2,
-        )?;
+        #[expect(deprecated)]
+        let days_primitive = days.to_primitive().narrow()?;
+        let days = compressor.compress_child(&days_primitive.into_array(), &ctx, self.id(), 0)?;
+        #[expect(deprecated)]
+        let seconds_primitive = seconds.to_primitive().narrow()?;
+        let seconds =
+            compressor.compress_child(&seconds_primitive.into_array(), &ctx, self.id(), 1)?;
+        #[expect(deprecated)]
+        let subseconds_primitive = subseconds.to_primitive().narrow()?;
+        let subseconds =
+            compressor.compress_child(&subseconds_primitive.into_array(), &ctx, self.id(), 2)?;
 
         Ok(DateTimeParts::try_new(dtype, days, seconds, subseconds)?.into_array())
     }

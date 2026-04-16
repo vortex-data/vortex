@@ -141,12 +141,12 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
         Ok(())
     }
 
-    #[expect(deprecated)]
     fn compute_referenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
         let codes = self.codes();
         let codes_validity = codes
             .validity()?
             .to_mask(codes.len(), &mut LEGACY_SESSION.create_execution_ctx())?;
+        #[expect(deprecated)]
         let codes_primitive = self.codes().to_primitive();
         let values_len = self.values().len();
 
@@ -424,7 +424,6 @@ mod test {
             .into_array()
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_dict_array_from_primitive_chunks() -> VortexResult<()> {
         let len = 2;
@@ -437,6 +436,7 @@ mod test {
         );
         array.append_to_builder(builder.as_mut(), &mut LEGACY_SESSION.create_execution_ctx())?;
 
+        #[expect(deprecated)]
         let into_prim = array.to_primitive();
         let prim_into = builder.finish_into_canonical().into_primitive();
 

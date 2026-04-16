@@ -271,6 +271,7 @@ impl ValidityChild<ZigZag> for ZigZag {
 mod test {
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::scalar::Scalar;
@@ -281,6 +282,7 @@ mod test {
 
     #[test]
     fn test_compute_statistics() -> VortexResult<()> {
+        #[expect(deprecated)]
         let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10]
             .into_array()
             .to_primitive();

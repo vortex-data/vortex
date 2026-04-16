@@ -14,11 +14,11 @@ use crate::match_each_integer_ptype;
 use crate::validity::Validity;
 
 impl ArrayAccessor<[u8]> for VarBinArray {
-    #[expect(deprecated)]
     fn with_iterator<F, R>(&self, f: F) -> R
     where
         F: for<'a> FnOnce(&mut dyn Iterator<Item = Option<&'a [u8]>>) -> R,
     {
+        #[expect(deprecated)]
         let offsets = self.offsets().to_primitive();
         let validity = self
             .validity()
@@ -40,6 +40,7 @@ impl ArrayAccessor<[u8]> for VarBinArray {
                 }
                 Validity::AllInvalid => f(&mut iter::repeat_n(None, self.len())),
                 Validity::Array(v) => {
+                    #[expect(deprecated)]
                     let validity = v.to_bool().into_bit_buffer();
                     let mut iter = offsets
                         .windows(2)

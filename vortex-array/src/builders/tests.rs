@@ -221,7 +221,6 @@ fn test_append_defaults_behavior(#[case] dtype: DType, #[case] should_be_null: b
 
 /// Helper function that fills two builders with the same values and compares the results
 /// of `to_canonical()` vs `finish().to_canonical()`.
-#[expect(deprecated)]
 fn compare_to_canonical_methods<F>(dtype: &DType, mut fill_builder: F)
 where
     F: FnMut(&mut dyn ArrayBuilder),
@@ -238,6 +237,7 @@ where
 
     // Get canonical arrays using both methods.
     let canonical_direct = builder1.finish_into_canonical();
+    #[expect(deprecated)]
     let canonical_indirect = builder2
         .finish()
         .to_canonical()

@@ -57,13 +57,13 @@ fn test_canonical_dtype_matches_array_dtype() -> VortexResult<()> {
 }
 
 #[test]
-#[expect(deprecated)]
 fn test_masked_child_with_validity() {
     // When validity has nulls, masked_child should apply inverted mask.
     let child = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]).into_array();
     let array =
         MaskedArray::try_new(child, Validity::from_iter([true, false, true, false, true])).unwrap();
 
+    #[expect(deprecated)]
     let prim = array.as_array().to_primitive();
 
     // Positions where validity is false should be null in masked_child.

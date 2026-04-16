@@ -18,8 +18,8 @@ use crate::optimizer::rules::ParentRuleSet;
 
 impl TakeReduce for Null {
     #[expect(clippy::cast_possible_truncation)]
-    #[expect(deprecated)]
     fn take(array: ArrayView<'_, Null>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        #[expect(deprecated)]
         let indices = indices.to_primitive();
 
         // Enforce all indices are valid

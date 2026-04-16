@@ -194,7 +194,6 @@ mod tests {
     }
 
     #[test]
-    #[expect(deprecated)]
     fn cast_duplicate_field_names_to_nullable() {
         let names = FieldNames::from(["a", "a"]);
         let field1 = buffer![1i32, 2, 3].into_array();
@@ -211,11 +210,12 @@ mod tests {
             .unwrap();
         assert_eq!(result.dtype(), &target_dtype);
         assert_eq!(result.len(), 3);
-        assert_eq!(result.to_struct().struct_fields().nfields(), 2);
+        #[expect(deprecated)]
+        let nfields = result.to_struct().struct_fields().nfields();
+        assert_eq!(nfields, 2);
     }
 
     #[test]
-    #[expect(deprecated)]
     fn cast_add_fields() {
         let names = FieldNames::from(["a", "b"]);
         let field1 = buffer![1i32, 2, 3].into_array();
@@ -241,6 +241,8 @@ mod tests {
             .unwrap();
         assert_eq!(result.dtype(), &target_dtype);
         assert_eq!(result.len(), 3);
-        assert_eq!(result.to_struct().struct_fields().nfields(), 3);
+        #[expect(deprecated)]
+        let nfields = result.to_struct().struct_fields().nfields();
+        assert_eq!(nfields, 3);
     }
 }

@@ -30,9 +30,9 @@ pub fn slice_array() {
 }
 
 #[test]
-#[expect(deprecated)]
 pub fn flatten_array() {
     let binary_arr = VarBinViewArray::from_iter_str(["string1", "string2"]);
+    #[expect(deprecated)]
     let var_bin = binary_arr.as_array().to_varbinview();
     assert_arrays_eq!(
         var_bin,

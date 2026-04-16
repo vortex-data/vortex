@@ -162,7 +162,6 @@ impl VTable for Chunked {
         Ok(Some(vec![]))
     }
 
-    #[expect(deprecated)]
     fn deserialize(
         &self,
         dtype: &DType,
@@ -188,6 +187,7 @@ impl VTable for Chunked {
             &DType::Primitive(PType::U64, Nullability::NonNullable),
             nchunks + 1,
         )?;
+        #[expect(deprecated)]
         let chunk_offsets_buf = chunk_offsets.to_primitive().to_buffer::<u64>();
         let chunk_offsets_usize = chunk_offsets_buf
             .iter()

@@ -214,16 +214,16 @@ mod test {
     use crate::arrays::dict::DictArraySlotsExt;
     use crate::builders::dict::dict_encode;
 
-    #[expect(deprecated)]
     #[test]
     fn encode_varbin() {
         let arr = VarBinArray::from(vec!["hello", "world", "hello", "again", "world"]);
         let dict = dict_encode(&arr.into_array()).unwrap();
-        assert_eq!(
-            dict.codes().to_primitive().as_slice::<u8>(),
-            &[0, 1, 0, 2, 1]
-        );
-        dict.values().to_varbinview().with_iterator(|iter| {
+        #[expect(deprecated)]
+        let codes = dict.codes().to_primitive();
+        assert_eq!(codes.as_slice::<u8>(), &[0, 1, 0, 2, 1]);
+        #[expect(deprecated)]
+        let values = dict.values().to_varbinview();
+        values.with_iterator(|iter| {
             assert_eq!(
                 iter.flatten()
                     .map(|b| unsafe { str::from_utf8_unchecked(b) })
@@ -233,7 +233,6 @@ mod test {
         });
     }
 
-    #[expect(deprecated)]
     #[test]
     fn encode_varbin_nulls() {
         let arr: VarBinArray = vec![
@@ -249,11 +248,12 @@ mod test {
         .into_iter()
         .collect();
         let dict = dict_encode(&arr.into_array()).unwrap();
-        assert_eq!(
-            dict.codes().to_primitive().as_slice::<u8>(),
-            &[0, 1, 2, 0, 1, 3, 2, 1]
-        );
-        dict.values().to_varbinview().with_iterator(|iter| {
+        #[expect(deprecated)]
+        let codes = dict.codes().to_primitive();
+        assert_eq!(codes.as_slice::<u8>(), &[0, 1, 2, 0, 1, 3, 2, 1]);
+        #[expect(deprecated)]
+        let values = dict.values().to_varbinview();
+        values.with_iterator(|iter| {
             assert_eq!(
                 iter.map(|b| b.map(|v| unsafe { str::from_utf8_unchecked(v) }))
                     .collect::<Vec<_>>(),
@@ -262,12 +262,13 @@ mod test {
         });
     }
 
-    #[expect(deprecated)]
     #[test]
     fn repeated_values() {
         let arr = VarBinArray::from(vec!["a", "a", "b", "b", "a", "b", "a", "b"]);
         let dict = dict_encode(&arr.into_array()).unwrap();
-        dict.values().to_varbinview().with_iterator(|iter| {
+        #[expect(deprecated)]
+        let values = dict.values().to_varbinview();
+        values.with_iterator(|iter| {
             assert_eq!(
                 iter.flatten()
                     .map(|b| unsafe { str::from_utf8_unchecked(b) })
@@ -275,9 +276,8 @@ mod test {
                 vec!["a", "b"]
             );
         });
-        assert_eq!(
-            dict.codes().to_primitive().as_slice::<u8>(),
-            &[0, 0, 1, 1, 0, 1, 0, 1]
-        );
+        #[expect(deprecated)]
+        let codes = dict.codes().to_primitive();
+        assert_eq!(codes.as_slice::<u8>(), &[0, 0, 1, 1, 0, 1, 0, 1]);
     }
 }

@@ -523,7 +523,6 @@ impl ArrayRef {
         DisplayArrayAs(self, DisplayOptions::TableDisplay)
     }
 
-    #[expect(deprecated)]
     fn fmt_as(&self, f: &mut std::fmt::Formatter, options: &DisplayOptions) -> std::fmt::Result {
         match options {
             DisplayOptions::MetadataOnly => EncodingSummaryExtractor::write(self, f),
@@ -602,6 +601,7 @@ impl ArrayRef {
                     return write!(f, "{table}");
                 };
 
+                #[expect(deprecated)]
                 let struct_ = self.to_struct();
                 builder.push_record(sf.names().iter().map(|name| name.to_string()));
 

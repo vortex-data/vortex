@@ -247,6 +247,7 @@ fn decode_nullable_sequential(
 #[cfg(test)]
 mod tests {
     use vortex_array::LEGACY_SESSION;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
@@ -373,6 +374,7 @@ mod tests {
             BitBuffer::from(vec![true, false, true, false, true]),
             Validity::from(BitBuffer::from(vec![true, false, true, false, true])),
         );
+        #[expect(deprecated)]
         let decoded = runend_decode_bools(ends, values, 0, 10000)?.to_bool();
 
         // Check length and a few values

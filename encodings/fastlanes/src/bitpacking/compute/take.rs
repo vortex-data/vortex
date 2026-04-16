@@ -166,6 +166,7 @@ mod test {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
@@ -281,9 +282,10 @@ mod test {
             taken_primitive,
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), None, Some(4)])
         );
+        #[expect(deprecated)]
+        let taken_primitive_prim = taken_primitive.to_primitive();
         assert_eq!(
-            taken_primitive
-                .to_primitive()
+            taken_primitive_prim
                 .invalid_count(&mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             1

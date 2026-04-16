@@ -160,12 +160,12 @@ mod test {
     use crate::scalar_fn::fns::operators::Operator;
 
     #[test]
-    #[expect(deprecated)]
     fn test_binary_compare() {
         let array = VarBinArray::from_iter(
             [Some(b"abc".to_vec()), None, Some(b"def".to_vec())],
             DType::Binary(Nullability::Nullable),
         );
+        #[expect(deprecated)]
         let result = array
             .into_array()
             .binary(
@@ -199,7 +199,6 @@ mod test {
     }
 
     #[test]
-    #[expect(deprecated)]
     fn varbinview_compare() {
         let array = VarBinArray::from_iter(
             [Some(b"abc".to_vec()), None, Some(b"def".to_vec())],
@@ -209,6 +208,7 @@ mod test {
             [None, None, Some(b"def".to_vec())],
             DType::Binary(Nullability::Nullable),
         );
+        #[expect(deprecated)]
         let result = array
             .into_array()
             .binary(vbv.into_array(), Operator::Eq)

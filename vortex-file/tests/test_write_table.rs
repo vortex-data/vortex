@@ -9,6 +9,7 @@ use std::sync::LazyLock;
 use futures::StreamExt;
 use futures::pin_mut;
 use vortex_array::IntoArray;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DictArray;
@@ -102,7 +103,9 @@ async fn test_file_roundtrip() {
 
     while let Some(next) = stream.next().await {
         let next = next.expect("next");
+        #[expect(deprecated)]
         let next = next.to_struct();
+        #[expect(deprecated)]
         let a = next.unmasked_field_by_name("a").unwrap().to_struct();
         let b = next.unmasked_field_by_name("b").unwrap();
 

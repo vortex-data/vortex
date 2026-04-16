@@ -34,6 +34,8 @@ impl CastReduce for Sparse {
 
 #[cfg(test)]
 mod tests {
+    #![expect(deprecated)]
+
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;

@@ -140,7 +140,6 @@ pub fn list_from_list_view(list_view: ListViewArray) -> VortexResult<ListArray> 
 ///
 /// The `ListViewArray` must have offsets that are sorted, and every size must be equal to the gap
 /// between `offset[i]` and `offset[i + 1]`.
-#[expect(deprecated)]
 unsafe fn build_list_offsets_from_list_view<O: IntegerPType>(
     list_view: &ListViewArray,
 ) -> ArrayRef {
@@ -151,6 +150,7 @@ unsafe fn build_list_offsets_from_list_view<O: IntegerPType>(
     // Create uninit range for direct memory access.
     let mut offsets_range = offsets_builder.uninit_range(len + 1);
 
+    #[expect(deprecated)]
     let offsets = list_view.offsets().to_primitive();
     let offsets_slice = offsets.as_slice::<O>();
     debug_assert!(offsets_slice.is_sorted());
@@ -184,12 +184,12 @@ unsafe fn build_list_offsets_from_list_view<O: IntegerPType>(
 /// Recursively converts all `ListViewArray`s to `ListArray`s in a nested array structure.
 ///
 /// The conversion happens bottom-up, processing children before parents.
-#[expect(deprecated)]
 pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> {
     if !array.dtype().is_nested() {
         return Ok(array);
     }
 
+    #[expect(deprecated)]
     let canonical = array.to_canonical()?;
 
     Ok(match canonical {

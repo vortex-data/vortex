@@ -160,6 +160,7 @@ mod tests {
 
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
@@ -219,6 +220,7 @@ mod tests {
 
     #[test]
     fn test_all_zeros() -> VortexResult<()> {
+        #[expect(deprecated)]
         let zeros = buffer![0u16, 0, 0, 0].into_array().to_primitive();
         let bitpacked = encode(&zeros, 0);
         let actual = unpack(&bitpacked)?;
@@ -228,6 +230,7 @@ mod tests {
 
     #[test]
     fn test_simple_patches() -> VortexResult<()> {
+        #[expect(deprecated)]
         let zeros = buffer![0u16, 1, 0, 1].into_array().to_primitive();
         let bitpacked = encode(&zeros, 0);
         let actual = unpack(&bitpacked)?;
@@ -237,6 +240,7 @@ mod tests {
 
     #[test]
     fn test_one_full_chunk() -> VortexResult<()> {
+        #[expect(deprecated)]
         let zeros = BufferMut::from_iter(0u16..1024).into_array().to_primitive();
         let bitpacked = encode(&zeros, 10);
         let actual = unpack(&bitpacked)?;
@@ -246,6 +250,7 @@ mod tests {
 
     #[test]
     fn test_three_full_chunks_with_patches() -> VortexResult<()> {
+        #[expect(deprecated)]
         let zeros = BufferMut::from_iter((5u16..1029).chain(5u16..1029).chain(5u16..1029))
             .into_array()
             .to_primitive();
@@ -261,6 +266,7 @@ mod tests {
 
     #[test]
     fn test_one_full_chunk_and_one_short_chunk_no_patch() -> VortexResult<()> {
+        #[expect(deprecated)]
         let zeros = BufferMut::from_iter(0u16..1025).into_array().to_primitive();
         let bitpacked = encode(&zeros, 11);
         assert!(bitpacked.patches().is_none());
@@ -271,6 +277,7 @@ mod tests {
 
     #[test]
     fn test_one_full_chunk_and_one_short_chunk_with_patches() -> VortexResult<()> {
+        #[expect(deprecated)]
         let zeros = BufferMut::from_iter(512u16..1537)
             .into_array()
             .to_primitive();
@@ -284,6 +291,7 @@ mod tests {
 
     #[test]
     fn test_offset_and_short_chunk_and_patches() -> VortexResult<()> {
+        #[expect(deprecated)]
         let zeros = BufferMut::from_iter(512u16..1537)
             .into_array()
             .to_primitive();
@@ -304,6 +312,7 @@ mod tests {
 
     #[test]
     fn test_offset_and_short_chunk_with_chunks_between_and_patches() -> VortexResult<()> {
+        #[expect(deprecated)]
         let zeros = BufferMut::from_iter(512u16..2741)
             .into_array()
             .to_primitive();

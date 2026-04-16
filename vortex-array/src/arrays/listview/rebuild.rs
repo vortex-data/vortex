@@ -114,10 +114,10 @@ impl ListViewArray {
     /// Picks between [`rebuild_with_take`](Self::rebuild_with_take) and
     /// [`rebuild_list_by_list`](Self::rebuild_list_by_list) based on element dtype and average
     /// list size.
-    #[expect(deprecated)]
     fn naive_rebuild<O: IntegerPType, NewOffset: IntegerPType, S: IntegerPType>(
         &self,
     ) -> VortexResult<ListViewArray> {
+        #[expect(deprecated)]
         let sizes_canonical = self.sizes().to_primitive();
         let total: u64 = sizes_canonical
             .as_slice::<S>()
@@ -148,12 +148,13 @@ impl ListViewArray {
 
     /// Rebuilds elements using a single bulk `take`: collect all element indices into a flat
     /// `BufferMut<u64>`, perform a single `take`.
-    #[expect(deprecated)]
     fn rebuild_with_take<O: IntegerPType, NewOffset: IntegerPType, S: IntegerPType>(
         &self,
     ) -> VortexResult<ListViewArray> {
+        #[expect(deprecated)]
         let offsets_canonical = self.offsets().to_primitive();
         let offsets_slice = offsets_canonical.as_slice::<O>();
+        #[expect(deprecated)]
         let sizes_canonical = self.sizes().to_primitive();
         let sizes_slice = sizes_canonical.as_slice::<S>();
 
@@ -197,7 +198,6 @@ impl ListViewArray {
 
     /// Rebuilds elements list-by-list: canonicalize elements upfront, then for each list `slice`
     /// the relevant range and `extend_from_array` into a typed builder.
-    #[expect(deprecated)]
     fn rebuild_list_by_list<O: IntegerPType, NewOffset: IntegerPType, S: IntegerPType>(
         &self,
     ) -> VortexResult<ListViewArray> {
@@ -206,8 +206,10 @@ impl ListViewArray {
             .as_list_element_opt()
             .vortex_expect("somehow had a canonical list that was not a list");
 
+        #[expect(deprecated)]
         let offsets_canonical = self.offsets().to_primitive();
         let offsets_slice = offsets_canonical.as_slice::<O>();
+        #[expect(deprecated)]
         let sizes_canonical = self.sizes().to_primitive();
         let sizes_slice = sizes_canonical.as_slice::<S>();
 
@@ -221,6 +223,7 @@ impl ListViewArray {
         let mut new_sizes = BufferMut::<S>::with_capacity(len);
 
         // Canonicalize the elements up front as we will be slicing the elements quite a lot.
+        #[expect(deprecated)]
         let elements_canonical = self
             .elements()
             .to_canonical()
@@ -468,7 +471,6 @@ mod tests {
         Ok(())
     }
 
-    #[expect(deprecated)]
     #[test]
     fn test_rebuild_trim_elements_basic() -> VortexResult<()> {
         // Test trimming both leading and trailing unused elements while preserving gaps in the
@@ -508,6 +510,7 @@ mod tests {
         );
 
         // Note that element at index 2 (97) is preserved as a gap.
+        #[expect(deprecated)]
         let all_elements = trimmed.elements().to_primitive();
         assert_eq!(
             all_elements

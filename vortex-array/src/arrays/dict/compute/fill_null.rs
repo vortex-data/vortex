@@ -106,7 +106,6 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
-    #[expect(deprecated)]
     #[test]
     fn nullable_codes_fill_in_values() {
         let dict = DictArray::try_new(
@@ -123,6 +122,7 @@ mod tests {
             .into_array()
             .fill_null(Scalar::primitive(20, Nullability::NonNullable))
             .vortex_expect("operation should succeed in test");
+        #[expect(deprecated)]
         let filled_primitive = filled.to_primitive();
         assert_arrays_eq!(filled_primitive, PrimitiveArray::from_iter([10, 20, 20]));
         assert!(

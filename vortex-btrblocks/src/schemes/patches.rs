@@ -4,6 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
@@ -15,6 +16,7 @@ use vortex_error::VortexResult;
 /// Compresses the given patches by downscaling integers and checking for constant values.
 pub fn compress_patches(patches: Patches) -> VortexResult<Patches> {
     // Downscale the patch indices.
+    #[expect(deprecated)]
     let indices = patches.indices().to_primitive().narrow()?.into_array();
 
     // Check if the values are constant.
@@ -32,7 +34,11 @@ pub fn compress_patches(patches: Patches) -> VortexResult<Patches> {
     let chunk_offsets = patches
         .chunk_offsets()
         .as_ref()
-        .map(|offsets| Ok::<ArrayRef, VortexError>(offsets.to_primitive().narrow()?.into_array()))
+        .map(|offsets| {
+            #[expect(deprecated)]
+            let offsets_primitive = offsets.to_primitive().narrow()?.into_array();
+            Ok::<ArrayRef, VortexError>(offsets_primitive)
+        })
         .transpose()?;
 
     Patches::new(

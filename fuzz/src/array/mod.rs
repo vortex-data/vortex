@@ -327,24 +327,22 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     }
 
                     // Sum - returns a scalar, does NOT update current_array (terminal operation)
-                    let sum_result = sum_canonical_array(
-                        current_array
-                            .to_canonical()
-                            .vortex_expect("to_canonical should succeed in fuzz test"),
-                        &mut ctx,
-                    )
-                    .vortex_expect("sum_canonical_array should succeed in fuzz test");
+                    #[expect(deprecated)]
+                    let current_array_canonical = current_array
+                        .to_canonical()
+                        .vortex_expect("to_canonical should succeed in fuzz test");
+                    let sum_result = sum_canonical_array(current_array_canonical, &mut ctx)
+                        .vortex_expect("sum_canonical_array should succeed in fuzz test");
                     (Action::Sum, ExpectedValue::Scalar(sum_result))
                 }
                 ActionType::MinMax => {
                     // MinMax - returns a scalar, does NOT update current_array (terminal operation)
-                    let min_max_result = min_max_canonical_array(
-                        current_array
-                            .to_canonical()
-                            .vortex_expect("to_canonical should succeed in fuzz test"),
-                        &mut ctx,
-                    )
-                    .vortex_expect("min_max_canonical_array should succeed in fuzz test");
+                    #[expect(deprecated)]
+                    let current_array_canonical = current_array
+                        .to_canonical()
+                        .vortex_expect("to_canonical should succeed in fuzz test");
+                    let min_max_result = min_max_canonical_array(current_array_canonical, &mut ctx)
+                        .vortex_expect("min_max_canonical_array should succeed in fuzz test");
                     (Action::MinMax, ExpectedValue::MinMax(min_max_result))
                 }
                 ActionType::FillNull => {
@@ -370,13 +368,13 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     }
 
                     // Compute expected result on canonical form
-                    let expected_result = fill_null_canonical_array(
-                        current_array
-                            .to_canonical()
-                            .vortex_expect("to_canonical should succeed in fuzz test"),
-                        &fill_value,
-                    )
-                    .vortex_expect("fill_null_canonical_array should succeed in fuzz test");
+                    #[expect(deprecated)]
+                    let current_array_canonical = current_array
+                        .to_canonical()
+                        .vortex_expect("to_canonical should succeed in fuzz test");
+                    let expected_result =
+                        fill_null_canonical_array(current_array_canonical, &fill_value)
+                            .vortex_expect("fill_null_canonical_array should succeed in fuzz test");
                     // Update current_array to the result for chaining
                     current_array = expected_result.clone();
                     (
@@ -391,10 +389,12 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         .collect::<arbitrary::Result<Vec<_>>>()?;
 
                     // Compute expected result on canonical form
+                    #[expect(deprecated)]
+                    let current_array_canonical = current_array
+                        .to_canonical()
+                        .vortex_expect("to_canonical should succeed in fuzz test");
                     let expected_result = mask_canonical_array(
-                        current_array
-                            .to_canonical()
-                            .vortex_expect("to_canonical should succeed in fuzz test"),
+                        current_array_canonical,
                         &Mask::from_iter(mask.clone()),
                     )
                     .vortex_expect("mask_canonical_array should succeed in fuzz test");
@@ -424,13 +424,13 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     let expected_scalars: Vec<Scalar> = indices_vec
                         .iter()
                         .map(|&idx| {
-                            scalar_at_canonical_array(
-                                current_array
-                                    .to_canonical()
-                                    .vortex_expect("to_canonical should succeed in fuzz test"),
-                                idx,
+                            #[expect(deprecated)]
+                            let canonical = current_array
+                                .to_canonical()
+                                .vortex_expect("to_canonical should succeed in fuzz test");
+                            scalar_at_canonical_array(canonical, idx).vortex_expect(
+                                "scalar_at_canonical_array should succeed in fuzz test",
                             )
-                            .vortex_expect("scalar_at_canonical_array should succeed in fuzz test")
                         })
                         .collect();
 
@@ -581,6 +581,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
         debug!(id = i, action = ?action);
         match action {
             Action::Compress(strategy) => {
+                #[expect(deprecated)]
                 let canonical = current_array
                     .to_canonical()
                     .vortex_expect("to_canonical should succeed in fuzz test");

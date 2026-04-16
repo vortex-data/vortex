@@ -220,7 +220,6 @@ mod tests {
     use crate::dtype::Nullability;
 
     #[test]
-    #[expect(deprecated)]
     fn zip_varbinview_kernel_zips() {
         let a = VarBinViewArray::from_iter(
             [
@@ -248,6 +247,7 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, true, false, false, true]);
 
+        #[expect(deprecated)]
         let zipped = mask
             .clone()
             .into_array()

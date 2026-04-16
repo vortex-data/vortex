@@ -6,6 +6,7 @@ use std::mem;
 use fastlanes::RLE as FastLanesRLE;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
@@ -138,6 +139,7 @@ fn padded_validity(array: &PrimitiveArray) -> Validity {
 
             let mut builder = BitBufferMut::with_capacity(padded_len);
 
+            #[expect(deprecated)]
             let bool_array = validity_array.to_bool();
             builder.append_buffer(&bool_array.to_bit_buffer());
             builder.append_n(false, padded_len - len);
@@ -149,6 +151,7 @@ fn padded_validity(array: &PrimitiveArray) -> Validity {
 
 #[cfg(test)]
 mod tests {
+    #![expect(deprecated)]
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;

@@ -255,7 +255,6 @@ mod test {
     }
 
     #[test]
-    #[expect(deprecated)]
     fn test_take_shuffled_large() -> VortexResult<()> {
         let nchunks: i32 = 100;
         let chunk_len: i32 = 1_000;
@@ -286,6 +285,7 @@ mod test {
         let result = arr.take(indices_arr.into_array())?;
 
         // Verify every element.
+        #[expect(deprecated)]
         let result = result.to_primitive();
         let result_vals = result.as_slice::<i32>();
         for (pos, &idx) in indices.iter().enumerate() {

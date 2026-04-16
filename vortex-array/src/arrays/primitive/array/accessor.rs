@@ -13,7 +13,6 @@ use crate::dtype::NativePType;
 use crate::validity::Validity;
 
 impl<T: NativePType> ArrayAccessor<T> for PrimitiveArray {
-    #[expect(deprecated)]
     fn with_iterator<F, R>(&self, f: F) -> R
     where
         F: for<'a> FnOnce(&mut dyn Iterator<Item = Option<&'a T>>) -> R,
@@ -28,6 +27,7 @@ impl<T: NativePType> ArrayAccessor<T> for PrimitiveArray {
             }
             Validity::AllInvalid => f(&mut iter::repeat_n(None, self.len())),
             Validity::Array(v) => {
+                #[expect(deprecated)]
                 let validity = v.to_bool().into_bit_buffer();
                 let mut iter = self
                     .as_slice::<T>()

@@ -29,6 +29,7 @@ use jni::sys::jstring;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayView;
 use vortex::array::LEGACY_SESSION;
+#[expect(deprecated)]
 use vortex::array::ToCanonical;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::VarBin;
@@ -234,6 +235,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getField(
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
 
     try_or_throw(&mut env, |_| {
+        #[expect(deprecated)]
         let struct_array = array_ref.inner.to_struct();
         let idx = index as usize;
         if idx >= struct_array.struct_fields().nfields() {
@@ -303,14 +305,12 @@ macro_rules! get_primitive {
             let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
             try_or_throw(&mut env, |_| {
                 let scalar_value = if array_ref.is_extension {
-                    array_ref
-                        .inner
-                        .to_extension()
-                        .storage_array()
-                        .execute_scalar(
-                            index as usize,
-                            &mut LEGACY_SESSION.create_execution_ctx(),
-                        )?
+                    #[expect(deprecated)]
+                    let ext = array_ref.inner.to_extension();
+                    ext.storage_array().execute_scalar(
+                        index as usize,
+                        &mut LEGACY_SESSION.create_execution_ctx(),
+                    )?
                 } else {
                     array_ref.inner.execute_scalar(
                         index as usize,
@@ -348,10 +348,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBigDecimal(
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |env| {
         let scalar_value = if array_ref.is_extension {
-            array_ref
-                .inner
-                .to_extension()
-                .storage_array()
+            #[expect(deprecated)]
+            let ext = array_ref.inner.to_extension();
+            ext.storage_array()
                 .execute_scalar(index as usize, &mut LEGACY_SESSION.create_execution_ctx())?
         } else {
             array_ref

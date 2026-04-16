@@ -28,6 +28,7 @@ use ratatui::widgets::Widget;
 use ratatui::widgets::Wrap;
 use vortex::array::ArrayRef;
 use vortex::array::LEGACY_SESSION;
+#[expect(deprecated)]
 use vortex::array::ToCanonical;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::struct_::StructArrayExt;
@@ -142,6 +143,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
 
     if is_stats_table {
         // Render the stats table horizontally
+        #[expect(deprecated)]
         let struct_array = array.to_struct();
         // add 1 for the chunk column
         let field_count = struct_array.struct_fields().nfields() + 1;

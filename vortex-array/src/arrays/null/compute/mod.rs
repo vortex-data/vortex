@@ -27,9 +27,9 @@ mod test {
     use crate::dtype::DType;
 
     #[test]
-    #[expect(deprecated)]
     fn test_slice_nulls() {
         let nulls = NullArray::new(10);
+        #[expect(deprecated)]
         let sliced = nulls.slice(0..4).unwrap().to_null();
 
         assert_eq!(sliced.len(), 4);
@@ -45,9 +45,9 @@ mod test {
     }
 
     #[test]
-    #[expect(deprecated)]
     fn test_take_nulls() {
         let nulls = NullArray::new(10);
+        #[expect(deprecated)]
         let taken = nulls
             .take(buffer![0u64, 2, 4, 6, 8].into_array())
             .unwrap()

@@ -30,6 +30,7 @@ use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Primitive;
@@ -262,7 +263,9 @@ fn collect_valid(parray: ArrayView<'_, Primitive>) -> VortexResult<PrimitiveArra
         parray.array().len(),
         &mut LEGACY_SESSION.create_execution_ctx(),
     )?;
-    Ok(parray.array().filter(mask)?.to_primitive())
+    #[expect(deprecated)]
+    let result = parray.array().filter(mask)?.to_primitive();
+    Ok(result)
 }
 
 pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {

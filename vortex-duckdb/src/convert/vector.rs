@@ -373,6 +373,7 @@ pub fn data_chunk_to_vortex(
 
 #[cfg(test)]
 mod tests {
+    #![expect(deprecated)]
     use std::ffi::CString;
 
     use vortex::array::LEGACY_SESSION;

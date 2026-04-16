@@ -7,6 +7,7 @@ use std::sync::LazyLock;
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
@@ -140,6 +141,7 @@ fn test_validity_and_multiple_chunks_and_pages() {
     let slice = compressed.slice(100..103).unwrap();
     assert_nth_scalar!(slice, 0, 100);
     assert_nth_scalar!(slice, 2, 102);
+    #[expect(deprecated)]
     let primitive = slice.to_primitive();
 
     let mut ctx = LEGACY_SESSION.create_execution_ctx();

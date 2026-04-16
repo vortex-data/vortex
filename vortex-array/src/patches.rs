@@ -406,9 +406,9 @@ impl Patches {
     /// # Returns
     /// [`SearchResult::Found`] with the position if needle exists, or [`SearchResult::NotFound`]
     /// with the insertion point if not found.
-    #[expect(deprecated)]
     fn search_index_binary_search(indices: &ArrayRef, needle: usize) -> VortexResult<SearchResult> {
         if indices.is_canonical() {
+            #[expect(deprecated)]
             let primitive = indices.to_primitive();
             match_each_integer_ptype!(primitive.ptype(), |T| {
                 let Ok(needle) = T::try_from(needle) else {
@@ -1150,7 +1150,6 @@ mod test {
     }
 
     #[test]
-    #[expect(deprecated)]
     fn take_with_nulls() {
         let patches = Patches::new(
             20,
@@ -1169,7 +1168,9 @@ mod test {
             )
             .unwrap()
             .unwrap();
+        #[expect(deprecated)]
         let primitive_values = taken.values().to_primitive();
+        #[expect(deprecated)]
         let primitive_indices = taken.indices().to_primitive();
         assert_eq!(taken.array_len(), 2);
         assert_arrays_eq!(
@@ -1192,7 +1193,6 @@ mod test {
     }
 
     #[test]
-    #[expect(deprecated)]
     fn take_search_with_nulls_chunked() {
         let patches = Patches::new(
             20,
@@ -1212,6 +1212,7 @@ mod test {
             .unwrap()
             .unwrap();
 
+        #[expect(deprecated)]
         let primitive_values = taken.values().to_primitive();
         assert_eq!(taken.array_len(), 2);
         assert_arrays_eq!(
@@ -1481,7 +1482,6 @@ mod test {
     }
 
     #[test]
-    #[expect(deprecated)]
     fn test_mask_nullable_values() {
         let patches = Patches::new(
             10,
@@ -1505,6 +1505,7 @@ mod test {
         assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([5u64, 8]));
 
         // Values should be the null and 300
+        #[expect(deprecated)]
         let masked_values = masked.values().to_primitive();
         assert_eq!(masked_values.len(), 2);
         assert!(
@@ -1670,7 +1671,6 @@ mod test {
     }
 
     #[test]
-    #[expect(deprecated)]
     fn test_patch_values() {
         let patches = Patches::new(
             10,
@@ -1681,6 +1681,7 @@ mod test {
         )
         .unwrap();
 
+        #[expect(deprecated)]
         let values = patches.values().to_primitive();
         assert_eq!(
             i32::try_from(

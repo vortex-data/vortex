@@ -22,6 +22,7 @@ use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
@@ -453,8 +454,9 @@ impl SparseData {
             fill.cast(array.dtype())?
         } else {
             // TODO(robert): Support other dtypes, only thing missing is getting most common value out of the array
-            let (top_pvalue, _) = array
-                .to_primitive()
+            #[expect(deprecated)]
+            let primitive = array.to_primitive();
+            let (top_pvalue, _) = primitive
                 .top_value()?
                 .vortex_expect("Non empty or all null array");
 
@@ -462,13 +464,12 @@ impl SparseData {
         };
 
         let fill_array = ConstantArray::new(fill.clone(), array.len()).into_array();
-        let non_top_mask = Mask::from_buffer(
-            array
-                .binary(fill_array.clone(), Operator::NotEq)?
-                .fill_null(Scalar::bool(true, Nullability::NonNullable))?
-                .to_bool()
-                .to_bit_buffer(),
-        );
+        #[expect(deprecated)]
+        let non_top_bool = array
+            .binary(fill_array.clone(), Operator::NotEq)?
+            .fill_null(Scalar::bool(true, Nullability::NonNullable))?
+            .to_bool();
+        let non_top_mask = Mask::from_buffer(non_top_bool.to_bit_buffer());
 
         let non_top_values = array
             .filter(non_top_mask.clone())?
@@ -763,7 +764,9 @@ mod test {
                 true, true, false, true, false, true, false, true, true, false, true, false,
             ])
         );
-        assert_arrays_eq!(sparse.to_primitive(), original);
+        #[expect(deprecated)]
+        let sparse_primitive = sparse.to_primitive();
+        assert_arrays_eq!(sparse_primitive, original);
     }
 
     #[test]

@@ -6,6 +6,7 @@ use std::fmt::Debug;
 
 use vortex_array::ArrayRef;
 use vortex_array::LEGACY_SESSION;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
@@ -65,6 +66,7 @@ pub fn search_sorted_canonical_array(
 ) -> VortexResult<SearchResult> {
     match array.dtype() {
         DType::Bool(_) => {
+            #[expect(deprecated)]
             let bool_array = array.to_bool();
             let validity = bool_array
                 .as_ref()
@@ -84,6 +86,7 @@ pub fn search_sorted_canonical_array(
             SearchNullableSlice(opt_values).search_sorted(&Some(to_find), side)
         }
         DType::Primitive(p, _) => {
+            #[expect(deprecated)]
             let primitive_array = array.to_primitive();
             let validity = primitive_array
                 .as_ref()
@@ -106,6 +109,7 @@ pub fn search_sorted_canonical_array(
             })
         }
         DType::Decimal(d, _) => {
+            #[expect(deprecated)]
             let decimal_array = array.to_decimal();
             let validity = decimal_array
                 .as_ref()
@@ -138,6 +142,7 @@ pub fn search_sorted_canonical_array(
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
+            #[expect(deprecated)]
             let utf8 = array.to_varbinview();
             let opt_values =
                 utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>());

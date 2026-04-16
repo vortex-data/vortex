@@ -286,6 +286,7 @@ pub unsafe extern "C" fn vx_expression_list_contains(
 
 #[cfg(test)]
 mod tests {
+    #![expect(deprecated)]
     use std::ptr;
     use std::sync::Arc;
 

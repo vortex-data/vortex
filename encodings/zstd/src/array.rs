@@ -23,6 +23,7 @@ use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
@@ -370,7 +371,9 @@ fn collect_valid_primitive(parray: &PrimitiveArray) -> VortexResult<PrimitiveArr
         parray.as_ref().len(),
         &mut LEGACY_SESSION.create_execution_ctx(),
     )?;
-    Ok(parray.filter(mask)?.to_primitive())
+    #[expect(deprecated)]
+    let result = parray.filter(mask)?.to_primitive();
+    Ok(result)
 }
 
 fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usize>)> {
@@ -799,7 +802,9 @@ impl ZstdData {
     }
 
     pub fn from_array(array: ArrayRef, level: i32, values_per_frame: usize) -> VortexResult<Self> {
-        Self::from_canonical(&array.to_canonical()?, level, values_per_frame)?
+        #[expect(deprecated)]
+        let canonical = array.to_canonical()?;
+        Self::from_canonical(&canonical, level, values_per_frame)?
             .ok_or_else(|| vortex_err!("Zstd can only encode Primitive and VarBinView arrays"))
     }
 

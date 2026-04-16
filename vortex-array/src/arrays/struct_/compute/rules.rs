@@ -164,7 +164,6 @@ mod tests {
     use crate::validity::Validity;
 
     #[test]
-    #[expect(deprecated)]
     fn test_struct_cast_field_reorder() {
         // Source: {a, b}, Target: {c, b, a} - reordered + new null field
         let source = StructArray::try_new(
@@ -189,6 +188,7 @@ mod tests {
 
         // Use `ArrayBuiltins::cast` which goes through the optimizer and applies
         // `StructCastPushDownRule`.
+        #[expect(deprecated)]
         let result = source.into_array().cast(target).unwrap().to_struct();
         assert_arrays_eq!(
             result.unmasked_field_by_name("a").unwrap(),
@@ -232,7 +232,6 @@ mod tests {
     }
 
     #[test]
-    #[expect(deprecated)]
     fn cast_struct_drop_field() {
         // Casting to a struct with a subset of fields should succeed.
         let source = StructArray::try_new(
@@ -258,6 +257,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
+        #[expect(deprecated)]
         let result = source.into_array().cast(target).unwrap().to_struct();
         assert_eq!(result.unmasked_fields().len(), 2);
         assert_arrays_eq!(
@@ -271,7 +271,6 @@ mod tests {
     }
 
     #[test]
-    #[expect(deprecated)]
     fn cast_struct_field_type_widening() {
         // Casting struct fields to wider types (i32 -> i64).
         let source = StructArray::try_new(
@@ -290,6 +289,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
+        #[expect(deprecated)]
         let result = source.into_array().cast(target).unwrap().to_struct();
         assert_eq!(
             result.unmasked_field_by_name("val").unwrap().dtype(),

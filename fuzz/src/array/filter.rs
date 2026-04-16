@@ -4,6 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
@@ -43,6 +44,7 @@ pub fn filter_canonical_array(array: &ArrayRef, filter: &[bool]) -> VortexResult
 
     match array.dtype() {
         DType::Bool(_) => {
+            #[expect(deprecated)]
             let bool_array = array.to_bool();
             Ok(BoolArray::new(
                 BitBuffer::from_iter(
@@ -57,6 +59,7 @@ pub fn filter_canonical_array(array: &ArrayRef, filter: &[bool]) -> VortexResult
             .into_array())
         }
         DType::Primitive(p, _) => match_each_native_ptype!(p, |P| {
+            #[expect(deprecated)]
             let primitive_array = array.to_primitive();
             Ok(PrimitiveArray::new(
                 filter
@@ -70,6 +73,7 @@ pub fn filter_canonical_array(array: &ArrayRef, filter: &[bool]) -> VortexResult
             .into_array())
         }),
         DType::Decimal(d, _) => {
+            #[expect(deprecated)]
             let decimal_array = array.to_decimal();
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 let buf = decimal_array.buffer::<D>();
@@ -87,6 +91,7 @@ pub fn filter_canonical_array(array: &ArrayRef, filter: &[bool]) -> VortexResult
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
+            #[expect(deprecated)]
             let utf8 = array.to_varbinview();
             let values = utf8.with_iterator(|iter| {
                 iter.zip(filter.iter())
@@ -97,6 +102,7 @@ pub fn filter_canonical_array(array: &ArrayRef, filter: &[bool]) -> VortexResult
             Ok(VarBinViewArray::from_iter(values, array.dtype().clone()).into_array())
         }
         DType::Struct(..) => {
+            #[expect(deprecated)]
             let struct_array = array.to_struct();
             let filtered_children = struct_array
                 .iter_unmasked_fields()

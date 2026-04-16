@@ -83,7 +83,6 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
-    #[expect(deprecated)]
     #[test]
     fn take_nullable_indices() {
         let array = ConstantArray::new(42, 10).into_array();
@@ -102,6 +101,7 @@ mod tests {
             taken.dtype()
         );
         assert_arrays_eq!(
+            #[expect(deprecated)]
             taken.to_primitive(),
             PrimitiveArray::new(
                 buffer![42i32, 42, 42],
@@ -119,7 +119,6 @@ mod tests {
         );
     }
 
-    #[expect(deprecated)]
     #[test]
     fn take_all_valid_indices() {
         let array = ConstantArray::new(42, 10).into_array();
@@ -131,6 +130,7 @@ mod tests {
             taken.dtype()
         );
         assert_arrays_eq!(
+            #[expect(deprecated)]
             taken.to_primitive(),
             PrimitiveArray::new(buffer![42i32, 42, 42], Validity::AllValid)
         );

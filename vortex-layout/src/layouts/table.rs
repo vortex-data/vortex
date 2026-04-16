@@ -17,6 +17,7 @@ use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::struct_::StructArrayExt;
@@ -236,6 +237,7 @@ impl LayoutStrategy for TableStrategy {
         let columns_vec_stream = stream.map(move |chunk| {
             let (sequence_id, chunk) = chunk?;
             let mut sequence_pointer = sequence_id.descend();
+            #[expect(deprecated)]
             let struct_chunk = chunk.to_struct();
             let mut columns: Vec<(SequenceId, ArrayRef)> = Vec::new();
             if is_nullable {

@@ -7,6 +7,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
@@ -71,7 +72,9 @@ fn fill_bool_array(
         }
         Validity::AllInvalid => ConstantArray::new(fill_value.clone(), array.len()).into_array(),
         Validity::Array(validity_array) => {
-            let validity_bits = validity_array.to_bool().into_bit_buffer();
+            #[expect(deprecated)]
+            let validity_bool = validity_array.to_bool();
+            let validity_bits = validity_bool.into_bit_buffer();
             let data_bits = array.into_bit_buffer();
 
             let new_bits = match data_bits.try_into_mut() {
@@ -116,6 +119,7 @@ fn fill_primitive_array(
                 ConstantArray::new(fill_value.clone(), array.len()).into_array()
             }
             Validity::Array(validity_array) => {
+                #[expect(deprecated)]
                 let validity_bool_array = validity_array.to_bool();
                 let validity_bits = validity_bool_array.to_bit_buffer();
                 let data_slice = array.as_slice::<T>();
@@ -162,6 +166,7 @@ fn fill_decimal_array(
                 ConstantArray::new(fill_value.clone(), array.len()).into_array()
             }
             Validity::Array(validity_array) => {
+                #[expect(deprecated)]
                 let validity_bool_array = validity_array.to_bool();
                 let validity_bits = validity_bool_array.to_bit_buffer();
                 let data_buffer = array.buffer::<D>();
@@ -196,6 +201,7 @@ fn fill_varbinview_array(
         Validity::NonNullable | Validity::AllValid => array.into_array(),
         Validity::AllInvalid => ConstantArray::new(fill_value.clone(), array.len()).into_array(),
         Validity::Array(validity_array) => {
+            #[expect(deprecated)]
             let validity_bool_array = validity_array.to_bool();
             let validity_bits = validity_bool_array.to_bit_buffer();
 
@@ -223,9 +229,11 @@ fn fill_varbinview_array(
                     let string_refs: Vec<&str> = strings.iter().map(|s| s.as_str()).collect();
                     let result = VarBinViewArray::from_iter_str(string_refs).into_array();
                     if result_nullability == Nullability::Nullable {
+                        #[expect(deprecated)]
+                        let result_vbv = result.to_varbinview();
                         VarBinViewArray::new_handle(
-                            result.to_varbinview().views_handle().clone(),
-                            Arc::clone(result.to_varbinview().data_buffers()),
+                            result_vbv.views_handle().clone(),
+                            Arc::clone(result_vbv.data_buffers()),
                             result.dtype().as_nullable(),
                             result_nullability.into(),
                         )
@@ -257,9 +265,11 @@ fn fill_varbinview_array(
                     let binary_refs: Vec<&[u8]> = binaries.iter().map(|b| b.as_slice()).collect();
                     let result = VarBinViewArray::from_iter_bin(binary_refs).into_array();
                     if result_nullability == Nullability::Nullable {
+                        #[expect(deprecated)]
+                        let result_vbv = result.to_varbinview();
                         VarBinViewArray::new_handle(
-                            result.to_varbinview().views_handle().clone(),
-                            Arc::clone(result.to_varbinview().data_buffers()),
+                            result_vbv.views_handle().clone(),
+                            Arc::clone(result_vbv.data_buffers()),
                             result.dtype().as_nullable(),
                             result_nullability.into(),
                         )

@@ -41,6 +41,8 @@ impl FilterKernel for ALP {
 
 #[cfg(test)]
 mod test {
+    #![expect(deprecated)]
+
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;

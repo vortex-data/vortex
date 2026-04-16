@@ -5,6 +5,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::builtins::ArrayBuiltins;
@@ -22,6 +23,7 @@ fn take_datetime_parts(
     indices: &ArrayRef,
 ) -> VortexResult<ArrayRef> {
     // we go ahead and canonicalize here to avoid worst-case canonicalizing 3 separate times
+    #[expect(deprecated)]
     let indices = indices.to_primitive();
 
     let taken_days = array.days().take(indices.clone().into_array())?;

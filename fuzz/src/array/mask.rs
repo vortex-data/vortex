@@ -7,6 +7,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
@@ -44,6 +45,7 @@ pub fn mask_validity(validity: &Validity, mask: &Mask) -> Validity {
                 Validity::from_bit_buffer(make_valid.clone(), Nullability::Nullable)
             }
             Validity::Array(is_valid) => {
+                #[expect(deprecated)]
                 let is_valid = is_valid.to_bool();
                 Validity::from_bit_buffer(
                     is_valid.to_bit_buffer() & make_valid,

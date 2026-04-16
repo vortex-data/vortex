@@ -77,6 +77,7 @@ pub(crate) fn new_exporter_with_flatten(
         let canonical = match canonical {
             Some(c) => c,
             None => {
+                #[expect(deprecated)]
                 let canonical = values.to_canonical()?;
                 cache
                     .canonical_cache

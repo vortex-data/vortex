@@ -8,6 +8,7 @@ use std::any::TypeId;
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::VarBinView;
@@ -141,7 +142,9 @@ impl ArrayAndStats {
         let array = self.array.clone();
 
         self.cache.get_or_insert_with::<BoolStats>(|| {
-            BoolStats::generate(&array.to_bool()).vortex_expect("BoolStats shouldn't fail")
+            #[expect(deprecated)]
+            let bool_array = array.to_bool();
+            BoolStats::generate(&bool_array).vortex_expect("BoolStats shouldn't fail")
         })
     }
 
@@ -153,7 +156,9 @@ impl ArrayAndStats {
         let opts = self.opts;
 
         self.cache.get_or_insert_with::<IntegerStats>(|| {
-            IntegerStats::generate_opts(&array.to_primitive(), opts)
+            #[expect(deprecated)]
+            let primitive = array.to_primitive();
+            IntegerStats::generate_opts(&primitive, opts)
         })
     }
 
@@ -163,7 +168,9 @@ impl ArrayAndStats {
         let opts = self.opts;
 
         self.cache.get_or_insert_with::<FloatStats>(|| {
-            FloatStats::generate_opts(&array.to_primitive(), opts)
+            #[expect(deprecated)]
+            let primitive = array.to_primitive();
+            FloatStats::generate_opts(&primitive, opts)
         })
     }
 
@@ -173,7 +180,9 @@ impl ArrayAndStats {
         let opts = self.opts;
 
         self.cache.get_or_insert_with::<StringStats>(|| {
-            StringStats::generate_opts(&array.to_varbinview(), opts)
+            #[expect(deprecated)]
+            let varbinview = array.to_varbinview();
+            StringStats::generate_opts(&varbinview, opts)
         })
     }
 

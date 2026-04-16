@@ -103,6 +103,7 @@ mod tests {
     use cudarc::driver::DeviceRepr;
     use vortex::array::IntoArray;
     use vortex::array::LEGACY_SESSION;
+    #[expect(deprecated)]
     use vortex::array::ToCanonical;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::PrimitiveArray;
@@ -199,10 +200,12 @@ mod tests {
     }
 
     fn force_cast<T: NativePType>(array: PrimitiveArray) -> PrimitiveArray {
-        array
+        #[expect(deprecated)]
+        let result = array
             .into_array()
             .cast(DType::Primitive(T::PTYPE, Nullability::NonNullable))
             .unwrap()
-            .to_primitive()
+            .to_primitive();
+        result
     }
 }

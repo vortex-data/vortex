@@ -18,7 +18,8 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use vortex::VortexSessionDefault;
-use vortex::array::ToCanonical;
+#[expect(deprecated)]
+use vortex::array::ToCanonical as _;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::buffer::ByteBufferMut;
@@ -178,6 +179,7 @@ async fn cmd_scan(path: PathBuf, gpu_file: bool, json_output: bool) -> VortexRes
 
     let mut chunk = 0;
     while let Some(next) = batches.next().await.transpose()? {
+        #[expect(deprecated)]
         let record = next.to_struct();
 
         for (field, field_name) in record

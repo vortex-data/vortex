@@ -4,6 +4,7 @@
 
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
@@ -78,6 +79,7 @@ fn test_zstd_with_validity_and_multi_frame() {
     assert_nth_scalar!(compressed, 177, 177);
 
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    #[expect(deprecated)]
     let decompressed = Zstd::decompress(&compressed, &mut ctx)
         .unwrap()
         .to_primitive();
@@ -94,6 +96,7 @@ fn test_zstd_with_validity_and_multi_frame() {
 
     // check slicing works
     let slice = compressed.slice(176..179).unwrap();
+    #[expect(deprecated)]
     let primitive = slice.to_primitive();
     assert_eq!(
         i32::try_from(
@@ -130,6 +133,7 @@ fn test_zstd_with_dict() {
     assert_nth_scalar!(compressed, 199, 199);
 
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    #[expect(deprecated)]
     let decompressed = Zstd::decompress(&compressed, &mut ctx)
         .unwrap()
         .to_primitive();
@@ -137,6 +141,7 @@ fn test_zstd_with_dict() {
 
     // check slicing works
     let slice = compressed.slice(176..179).unwrap();
+    #[expect(deprecated)]
     let primitive = slice.to_primitive();
     assert_arrays_eq!(primitive, PrimitiveArray::from_iter([176, 177, 178]));
 }
@@ -213,6 +218,7 @@ fn test_zstd_decompress_var_bin_view() {
     assert_nth_scalar!(compressed, 4, "baz");
 
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    #[expect(deprecated)]
     let decompressed = Zstd::decompress(&compressed, &mut ctx)
         .unwrap()
         .to_varbinview();

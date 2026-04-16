@@ -84,7 +84,6 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
 }
 
 /// Creates a random array chunk.
-#[expect(deprecated)]
 fn random_array_chunk(
     u: &mut Unstructured<'_>,
     dtype: &DType,
@@ -107,10 +106,14 @@ fn random_array_chunk(
             PType::I16 => random_primitive::<i16>(u, *n, chunk_len),
             PType::I32 => random_primitive::<i32>(u, *n, chunk_len),
             PType::I64 => random_primitive::<i64>(u, *n, chunk_len),
-            PType::F16 => Ok(random_primitive::<u16>(u, *n, chunk_len)?
-                .to_primitive()
-                .reinterpret_cast(PType::F16)
-                .into_array()),
+            PType::F16 => {
+                #[expect(deprecated)]
+                let prim = random_primitive::<u16>(u, *n, chunk_len)?
+                    .to_primitive()
+                    .reinterpret_cast(PType::F16)
+                    .into_array();
+                Ok(prim)
+            }
             PType::F32 => random_primitive::<f32>(u, *n, chunk_len),
             PType::F64 => random_primitive::<f64>(u, *n, chunk_len),
         },

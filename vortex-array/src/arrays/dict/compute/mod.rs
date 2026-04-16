@@ -77,7 +77,6 @@ mod test {
     use crate::dtype::Nullability;
     use crate::dtype::PType::I32;
     use crate::scalar_fn::fns::operators::Operator;
-    #[expect(deprecated)]
     #[test]
     fn canonicalise_nullable_primitive() {
         let values: Vec<Option<i32>> = (0..65)
@@ -91,6 +90,7 @@ mod test {
 
         let dict =
             dict_encode(&PrimitiveArray::from_option_iter(values.clone()).into_array()).unwrap();
+        #[expect(deprecated)]
         let actual = dict.as_array().to_primitive();
 
         let expected = PrimitiveArray::from_option_iter(values);
@@ -98,31 +98,30 @@ mod test {
         assert_arrays_eq!(actual, expected);
     }
 
-    #[expect(deprecated)]
     #[test]
     fn canonicalise_non_nullable_primitive_32_unique_values() {
         let unique_values: Vec<i32> = (0..32).collect();
         let expected = PrimitiveArray::from_iter((0..1000).map(|i| unique_values[i % 32]));
 
         let dict = dict_encode(&expected.clone().into_array()).unwrap();
+        #[expect(deprecated)]
         let actual = dict.as_array().to_primitive();
 
         assert_arrays_eq!(actual, expected);
     }
 
-    #[expect(deprecated)]
     #[test]
     fn canonicalise_non_nullable_primitive_100_unique_values() {
         let unique_values: Vec<i32> = (0..100).collect();
         let expected = PrimitiveArray::from_iter((0..1000).map(|i| unique_values[i % 100]));
 
         let dict = dict_encode(&expected.clone().into_array()).unwrap();
+        #[expect(deprecated)]
         let actual = dict.as_array().to_primitive();
 
         assert_arrays_eq!(actual, expected);
     }
 
-    #[expect(deprecated)]
     #[test]
     fn canonicalise_nullable_varbin() {
         let reference = VarBinViewArray::from_iter(
@@ -131,6 +130,7 @@ mod test {
         );
         assert_eq!(reference.len(), 6);
         let dict = dict_encode(&reference.clone().into_array()).unwrap();
+        #[expect(deprecated)]
         let flattened_dict = dict.as_array().to_varbinview();
         assert_eq!(
             flattened_dict.with_iterator(|iter| iter

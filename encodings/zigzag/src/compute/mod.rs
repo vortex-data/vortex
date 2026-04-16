@@ -70,6 +70,8 @@ impl ZigZagEncoded for u64 {
 
 #[cfg(test)]
 mod tests {
+    #![expect(deprecated)]
+
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;

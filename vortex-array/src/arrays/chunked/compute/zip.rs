@@ -64,7 +64,6 @@ mod tests {
     use crate::dtype::PType;
 
     #[test]
-    #[expect(deprecated)]
     fn test_chunked_zip_aligns_across_boundaries() {
         let if_true = ChunkedArray::try_new(
             vec![
@@ -104,6 +103,7 @@ mod tests {
         assert_eq!(zipped.nchunks(), 4);
         let mut values: Vec<i32> = Vec::new();
         for chunk in zipped.chunks() {
+            #[expect(deprecated)]
             let primitive = chunk.to_primitive();
             values.extend_from_slice(primitive.as_slice::<i32>());
         }

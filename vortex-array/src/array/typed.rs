@@ -394,9 +394,10 @@ impl<V: VTable> Array<V> {
     }
 
     #[deprecated(note = "Use Array::<V>::execute::<Canonical>() instead")]
-    #[expect(deprecated)]
     pub fn to_canonical(&self) -> VortexResult<crate::Canonical> {
-        self.inner.to_canonical()
+        #[expect(deprecated)]
+        let result = self.inner.to_canonical();
+        result
     }
 
     pub fn nbytes(&self) -> u64 {

@@ -11,6 +11,7 @@ use paste::paste;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::LEGACY_SESSION;
+#[expect(deprecated)]
 use vortex::array::ToCanonical;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::NullArray;
@@ -204,6 +205,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_field(
     try_or_default(error_out, || {
         let array = vx_array::as_ref(array);
 
+        #[expect(deprecated)]
         let field_array = array
             .to_struct()
             .unmasked_fields()
@@ -770,7 +772,9 @@ mod tests {
             assert!(!res.is_null());
             {
                 let res = vx_array::as_ref(res);
-                let buffer = res.to_bool().to_bit_buffer();
+                #[expect(deprecated)]
+                let bool_array = res.to_bool();
+                let buffer = bool_array.to_bit_buffer();
                 let expected = BoolArray::from_iter(vec![false, false, true, true]);
                 assert_eq!(buffer, expected.to_bit_buffer());
             }

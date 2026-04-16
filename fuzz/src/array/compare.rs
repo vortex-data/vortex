@@ -4,6 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
@@ -40,9 +41,10 @@ pub fn compare_canonical_array(
                 .as_bool()
                 .value()
                 .vortex_expect("nulls handled before");
+            #[expect(deprecated)]
+            let bool_array = array.to_bool();
             compare_to(
-                array
-                    .to_bool()
+                bool_array
                     .to_bit_buffer()
                     .iter()
                     .zip(
@@ -62,6 +64,7 @@ pub fn compare_canonical_array(
         }
         DType::Primitive(p, _) => {
             let primitive = value.as_primitive();
+            #[expect(deprecated)]
             let primitive_array = array.to_primitive();
             match_each_native_ptype!(p, |P| {
                 let pval = primitive
@@ -90,6 +93,7 @@ pub fn compare_canonical_array(
         }
         DType::Decimal(..) => {
             let decimal = value.as_decimal();
+            #[expect(deprecated)]
             let decimal_array = array.to_decimal();
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 let dval = decimal
@@ -118,26 +122,34 @@ pub fn compare_canonical_array(
                 )
             })
         }
-        DType::Utf8(_) => array.to_varbinview().with_iterator(|iter| {
-            let utf8_value = value.as_utf8();
-            compare_to(
-                iter.map(|v| v.map(|b| unsafe { str::from_utf8_unchecked(b) })),
-                utf8_value.value().vortex_expect("nulls handled before"),
-                operator,
-                result_nullability,
-            )
-        }),
-        DType::Binary(_) => array.to_varbinview().with_iterator(|iter| {
-            let binary_value = value.as_binary();
-            compare_to(
-                // Don't understand the lifetime problem here but identity map makes it go away
-                #[expect(clippy::map_identity)]
-                iter.map(|v| v),
-                binary_value.value().vortex_expect("nulls handled before"),
-                operator,
-                result_nullability,
-            )
-        }),
+        DType::Utf8(_) => {
+            #[expect(deprecated)]
+            let varbinview = array.to_varbinview();
+            varbinview.with_iterator(|iter| {
+                let utf8_value = value.as_utf8();
+                compare_to(
+                    iter.map(|v| v.map(|b| unsafe { str::from_utf8_unchecked(b) })),
+                    utf8_value.value().vortex_expect("nulls handled before"),
+                    operator,
+                    result_nullability,
+                )
+            })
+        }
+        DType::Binary(_) => {
+            #[expect(deprecated)]
+            let varbinview = array.to_varbinview();
+            varbinview.with_iterator(|iter| {
+                let binary_value = value.as_binary();
+                compare_to(
+                    // Don't understand the lifetime problem here but identity map makes it go away
+                    #[expect(clippy::map_identity)]
+                    iter.map(|v| v),
+                    binary_value.value().vortex_expect("nulls handled before"),
+                    operator,
+                    result_nullability,
+                )
+            })
+        }
         DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => {
             let mut ctx = LEGACY_SESSION.create_execution_ctx();
             let scalar_vals: Vec<Scalar> = (0..array.len())

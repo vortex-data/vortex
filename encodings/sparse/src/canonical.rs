@@ -560,6 +560,8 @@ fn execute_varbin_inner<I: IntegerPType>(
 
 #[cfg(test)]
 mod test {
+    #![expect(deprecated)]
+
     use std::sync::Arc;
 
     use rstest::rstest;

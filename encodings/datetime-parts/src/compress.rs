@@ -3,6 +3,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TemporalArray;
@@ -26,9 +27,11 @@ pub struct TemporalParts {
 /// Splitting the components by granularity creates more small values, which enables better
 /// cascading compression.
 pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
+    #[expect(deprecated)]
     let temporal_values = array.temporal_values().to_primitive();
 
     // After this operation, timestamps will be a PrimitiveArray<i64>
+    #[expect(deprecated)]
     let timestamps = temporal_values
         .clone()
         .into_array()
@@ -80,6 +83,7 @@ impl TryFrom<TemporalArray> for DateTimePartsData {
 
 #[cfg(test)]
 mod tests {
+    #![expect(deprecated)]
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;

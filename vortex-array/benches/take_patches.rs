@@ -38,7 +38,6 @@ const BENCH_ARGS: &[(f64, f64)] = &[
 ];
 
 #[divan::bench(args = BENCH_ARGS)]
-#[expect(deprecated)]
 fn take_search(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
     let mut rng = StdRng::seed_from_u64(0);
     let patches = fixture(65536, patches_sparsity, &mut rng);
@@ -51,12 +50,13 @@ fn take_search(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64))
     bencher
         .with_inputs(|| (&patches, &indices, LEGACY_SESSION.create_execution_ctx()))
         .bench_refs(|(patches, indices, ctx)| {
-            patches.take_search(indices.to_primitive(), false, ctx)
+            #[expect(deprecated)]
+            let prim = indices.to_primitive();
+            patches.take_search(prim, false, ctx)
         });
 }
 
 #[divan::bench(args = BENCH_ARGS)]
-#[expect(deprecated)]
 fn take_search_chunked(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
     let mut rng = StdRng::seed_from_u64(0);
     let patches = fixture_with_chunk_offsets(65536, patches_sparsity, &mut rng);
@@ -69,12 +69,13 @@ fn take_search_chunked(bencher: Bencher, (patches_sparsity, index_multiple): (f6
     bencher
         .with_inputs(|| (&patches, &indices, LEGACY_SESSION.create_execution_ctx()))
         .bench_refs(|(patches, indices, ctx)| {
-            patches.take_search(indices.to_primitive(), false, ctx)
+            #[expect(deprecated)]
+            let prim = indices.to_primitive();
+            patches.take_search(prim, false, ctx)
         });
 }
 
 #[divan::bench(args = BENCH_ARGS)]
-#[expect(deprecated)]
 fn take_map(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
     let mut rng = StdRng::seed_from_u64(0);
     let patches = fixture(65536, patches_sparsity, &mut rng);
@@ -86,7 +87,11 @@ fn take_map(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
 
     bencher
         .with_inputs(|| (&patches, &indices, LEGACY_SESSION.create_execution_ctx()))
-        .bench_refs(|(patches, indices, ctx)| patches.take_map(indices.to_primitive(), false, ctx));
+        .bench_refs(|(patches, indices, ctx)| {
+            #[expect(deprecated)]
+            let prim = indices.to_primitive();
+            patches.take_map(prim, false, ctx)
+        });
 }
 
 fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {

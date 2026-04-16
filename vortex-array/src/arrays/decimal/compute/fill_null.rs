@@ -102,7 +102,6 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
-    #[expect(deprecated)]
     #[test]
     fn fill_null_leading_none() {
         let decimal_dtype = DecimalDType::new(19, 2);
@@ -110,6 +109,7 @@ mod tests {
             [None, Some(800i128), None, Some(1000i128), None],
             decimal_dtype,
         );
+        #[expect(deprecated)]
         let p = arr
             .into_array()
             .fill_null(Scalar::decimal(
@@ -137,7 +137,6 @@ mod tests {
         );
     }
 
-    #[expect(deprecated)]
     #[test]
     fn fill_null_all_none() {
         let decimal_dtype = DecimalDType::new(19, 2);
@@ -147,6 +146,7 @@ mod tests {
             decimal_dtype,
         );
 
+        #[expect(deprecated)]
         let p = arr
             .into_array()
             .fill_null(Scalar::decimal(
@@ -163,12 +163,12 @@ mod tests {
     }
 
     /// fill_null with a value that overflows the array's storage type should upcast the array.
-    #[expect(deprecated)]
     #[test]
     fn fill_null_overflow_upcasts() {
         let decimal_dtype = DecimalDType::new(3, 0);
         let arr = DecimalArray::from_option_iter([None, Some(10i8), None], decimal_dtype);
         // i8 max is 127, so 200 doesn't fit — the array should be widened to i16.
+        #[expect(deprecated)]
         let result = arr
             .into_array()
             .fill_null(Scalar::decimal(
@@ -184,7 +184,6 @@ mod tests {
         );
     }
 
-    #[expect(deprecated)]
     #[test]
     fn fill_null_non_nullable() {
         let decimal_dtype = DecimalDType::new(19, 2);
@@ -194,6 +193,7 @@ mod tests {
             decimal_dtype,
             Validity::NonNullable,
         );
+        #[expect(deprecated)]
         let p = arr
             .into_array()
             .fill_null(Scalar::decimal(

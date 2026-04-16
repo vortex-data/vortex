@@ -123,6 +123,7 @@ fn compare_fsst_constant(
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
@@ -158,6 +159,7 @@ mod tests {
         let rhs = ConstantArray::new("world", lhs.len());
 
         // Ensure fastpath for Eq exists, and returns correct answer
+        #[expect(deprecated)]
         let equals = lhs
             .clone()
             .into_array()
@@ -173,6 +175,7 @@ mod tests {
         );
 
         // Ensure fastpath for Eq exists, and returns correct answer
+        #[expect(deprecated)]
         let not_equals = lhs
             .clone()
             .into_array()

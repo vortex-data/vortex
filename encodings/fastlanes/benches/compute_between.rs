@@ -12,6 +12,7 @@ use vortex_alp::alp_encode;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
@@ -58,6 +59,7 @@ fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast>(
     )
     .vortex_expect("");
 
+    #[expect(deprecated)]
     let encoded = alp.encoded().to_primitive();
 
     let bp = bitpack_to_best_bit_width(&encoded)

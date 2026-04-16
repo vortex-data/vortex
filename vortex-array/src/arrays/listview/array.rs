@@ -209,7 +209,6 @@ impl ListViewData {
     }
 
     /// Validates the components that would be used to create a `ListViewArray`.
-    #[expect(deprecated)]
     pub fn validate(
         elements: &ArrayRef,
         offsets: &ArrayRef,
@@ -251,7 +250,9 @@ impl ListViewData {
 
         // Skip host-only validation when offsets/sizes are not host-resident.
         if offsets.is_host() && sizes.is_host() {
+            #[expect(deprecated)]
             let offsets_primitive = offsets.to_primitive();
+            #[expect(deprecated)]
             let sizes_primitive = sizes.to_primitive();
 
             // Validate the `offsets` and `sizes` arrays.
@@ -383,14 +384,12 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
         self.elements().slice(offset..offset + size)
     }
 
-    #[expect(deprecated)]
     fn verify_is_zero_copy_to_list(&self) -> bool {
-        validate_zctl(
-            self.elements(),
-            self.offsets().to_primitive(),
-            self.sizes().to_primitive(),
-        )
-        .is_ok()
+        #[expect(deprecated)]
+        let offsets_primitive = self.offsets().to_primitive();
+        #[expect(deprecated)]
+        let sizes_primitive = self.sizes().to_primitive();
+        validate_zctl(self.elements(), offsets_primitive, sizes_primitive).is_ok()
     }
 }
 impl<T: TypedArrayRef<ListView>> ListViewArrayExt for T {}
@@ -457,15 +456,14 @@ impl Array<ListView> {
     /// # Safety
     ///
     /// See [`ListViewData::with_zero_copy_to_list`].
-    #[expect(deprecated)]
     pub unsafe fn with_zero_copy_to_list(self, is_zctl: bool) -> Self {
         if cfg!(debug_assertions) && is_zctl {
-            validate_zctl(
-                self.elements(),
-                self.offsets().to_primitive(),
-                self.sizes().to_primitive(),
-            )
-            .vortex_expect("Failed to validate zero-copy to list flag");
+            #[expect(deprecated)]
+            let offsets_primitive = self.offsets().to_primitive();
+            #[expect(deprecated)]
+            let sizes_primitive = self.sizes().to_primitive();
+            validate_zctl(self.elements(), offsets_primitive, sizes_primitive)
+                .vortex_expect("Failed to validate zero-copy to list flag");
         }
         let dtype = self.dtype().clone();
         let len = self.len();

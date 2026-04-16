@@ -180,7 +180,6 @@ mod test {
         assert_arrays_eq!(filtered, expected);
     }
 
-    #[expect(deprecated)]
     #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `filter`"]
     #[test]
     fn test_filter_preserves_unreferenced_elements() {
@@ -198,6 +197,7 @@ mod test {
         // Filter to keep only 2 lists.
         let mask = Mask::from_iter([true, false, false, true, false]);
         let result = listview.filter(mask).unwrap();
+        #[expect(deprecated)]
         let result_list = result.to_listview();
 
         assert_eq!(result_list.len(), 2, "Wrong number of filtered lists");
@@ -213,7 +213,6 @@ mod test {
         assert_eq!(result_list.offset_at(1), 0, "Wrong offset at index 3");
     }
 
-    #[expect(deprecated)]
     #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `filter`"]
     #[test]
     fn test_filter_with_gaps() {
@@ -231,6 +230,7 @@ mod test {
         // Filter to keep lists with gaps and overlaps.
         let mask = Mask::from_iter([false, true, true, true, false]);
         let result = listview.filter(mask).unwrap();
+        #[expect(deprecated)]
         let result_list = result.to_listview();
 
         assert_eq!(result_list.len(), 3, "Wrong filter result length");
@@ -253,7 +253,6 @@ mod test {
         );
     }
 
-    #[expect(deprecated)]
     #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `filter`"]
     #[test]
     fn test_filter_constant_arrays() {
@@ -275,6 +274,7 @@ mod test {
 
         let mask1 = Mask::from_iter([true, false, true, false]);
         let result1 = const_offset_list.filter(mask1).unwrap();
+        #[expect(deprecated)]
         let result1_list = result1.to_listview();
 
         assert_eq!(result1_list.len(), 2);
@@ -298,6 +298,7 @@ mod test {
 
         let mask2 = Mask::from_iter([true, false, true]);
         let result2 = both_const_list.filter(mask2).unwrap();
+        #[expect(deprecated)]
         let result2_list = result2.to_listview();
 
         assert_eq!(result2_list.len(), 2);
@@ -307,7 +308,6 @@ mod test {
         assert_eq!(result2_list.size_at(1), 3);
     }
 
-    #[expect(deprecated)]
     #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `filter`"]
     #[test]
     fn test_filter_extreme_offsets() {
@@ -325,6 +325,7 @@ mod test {
         // Filter to keep only 2 lists, demonstrating we keep all 10000 elements.
         let mask = Mask::from_iter([false, true, false, false, true]);
         let result = listview.filter(mask).unwrap();
+        #[expect(deprecated)]
         let result_list = result.to_listview();
 
         assert_eq!(result_list.len(), 2);
@@ -360,6 +361,7 @@ mod test {
         // Test sparse selection from large dataset.
         let sparse_mask = Mask::from_iter((0..5).map(|i| i == 0 || i == 4));
         let sparse_result = listview.filter(sparse_mask).unwrap();
+        #[expect(deprecated)]
         let sparse_list = sparse_result.to_listview();
 
         assert_eq!(sparse_list.len(), 2);

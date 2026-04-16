@@ -41,12 +41,12 @@ mod test {
     use crate::compute::conformance::filter::MEDIUM_SIZE;
     use crate::compute::conformance::filter::test_filter_conformance;
 
-    #[expect(deprecated)]
     #[test]
     fn filter_run_variant_mixed_test() {
         let mask = [true, true, false, true, true, true, false, true];
         let arr = PrimitiveArray::from_iter([1u32, 24, 54, 2, 3, 2, 3, 2]);
 
+        #[expect(deprecated)]
         let filtered = arr.filter(Mask::from_iter(mask)).unwrap().to_primitive();
         assert_eq!(
             filtered.len(),

@@ -13,6 +13,7 @@ use vortex_array::CanonicalValidity;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
@@ -476,10 +477,10 @@ impl CascadingCompressor {
 
         // Record the root scheme with the offsets child index so root exclusion rules apply.
         let offset_ctx = ctx.descend_with_scheme(ROOT_SCHEME_ID, root_list_children::OFFSETS);
-        let compressed_offsets = self.compress_canonical(
-            Canonical::Primitive(list_array.offsets().to_primitive().narrow()?),
-            offset_ctx,
-        )?;
+        #[expect(deprecated)]
+        let list_offsets_primitive = list_array.offsets().to_primitive().narrow()?;
+        let compressed_offsets =
+            self.compress_canonical(Canonical::Primitive(list_offsets_primitive), offset_ctx)?;
 
         Ok(
             ListArray::try_new(compressed_elems, compressed_offsets, list_array.validity()?)?
@@ -499,16 +500,18 @@ impl CascadingCompressor {
         let offset_ctx = ctx
             .clone()
             .descend_with_scheme(ROOT_SCHEME_ID, root_list_children::OFFSETS);
+        #[expect(deprecated)]
+        let list_view_offsets_primitive = list_view.offsets().to_primitive().narrow()?;
         let compressed_offsets = self.compress_canonical(
-            Canonical::Primitive(list_view.offsets().to_primitive().narrow()?),
+            Canonical::Primitive(list_view_offsets_primitive),
             offset_ctx,
         )?;
 
         let sizes_ctx = ctx.descend_with_scheme(ROOT_SCHEME_ID, root_list_children::SIZES);
-        let compressed_sizes = self.compress_canonical(
-            Canonical::Primitive(list_view.sizes().to_primitive().narrow()?),
-            sizes_ctx,
-        )?;
+        #[expect(deprecated)]
+        let list_view_sizes_primitive = list_view.sizes().to_primitive().narrow()?;
+        let compressed_sizes =
+            self.compress_canonical(Canonical::Primitive(list_view_sizes_primitive), sizes_ctx)?;
 
         Ok(ListViewArray::try_new(
             compressed_elems,

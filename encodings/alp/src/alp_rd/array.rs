@@ -418,7 +418,9 @@ impl ALPRDData {
                 let mut patches = patches.cast_values(&left_parts.dtype().as_nonnullable())?;
                 // Force execution of the lazy cast so patch values are materialized
                 // before serialization.
-                *patches.values_mut() = patches.values().to_canonical()?.into_array();
+                #[expect(deprecated)]
+                let canonical = patches.values().to_canonical()?.into_array();
+                *patches.values_mut() = canonical;
                 Ok(patches)
             })
             .transpose()
@@ -658,6 +660,8 @@ impl ValidityChild<ALPRD> for ALPRD {
 
 #[cfg(test)]
 mod test {
+    #![expect(deprecated)]
+
     use prost::Message;
     use rstest::rstest;
     use vortex_array::ToCanonical;

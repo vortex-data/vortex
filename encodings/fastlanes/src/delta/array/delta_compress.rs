@@ -92,6 +92,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    #![expect(deprecated)]
     use std::sync::LazyLock;
 
     use rstest::rstest;

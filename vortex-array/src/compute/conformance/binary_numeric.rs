@@ -89,11 +89,11 @@ where
     test_binary_numeric_edge_cases(array);
 }
 
-#[expect(deprecated)]
 fn test_standard_binary_numeric<T: NativePType + Num + Copy>(array: ArrayRef)
 where
     Scalar: From<T>,
 {
+    #[expect(deprecated)]
     let canonicalized_array = array.to_primitive();
     let original_values = to_vec_of_scalar(&canonicalized_array.into_array());
 
@@ -325,12 +325,12 @@ where
     test_binary_numeric_with_scalar(array, T::neg_infinity());
 }
 
-#[expect(deprecated)]
 fn test_binary_numeric_with_scalar<T>(array: ArrayRef, scalar_value: T)
 where
     T: NativePType + Num + Copy + std::fmt::Debug,
     Scalar: From<T>,
 {
+    #[expect(deprecated)]
     let canonicalized_array = array.to_primitive();
     let original_values = to_vec_of_scalar(&canonicalized_array.into_array());
 

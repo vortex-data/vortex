@@ -103,7 +103,6 @@ mod tests {
     use crate::validity::Validity;
 
     #[test]
-    #[expect(deprecated)]
     fn take_nullable() {
         let arr = VarBinViewArray::from_iter_nullable_str([
             Some("one"),
@@ -117,16 +116,15 @@ mod tests {
         let taken = arr.take(buffer![0, 3].into_array()).unwrap();
 
         assert!(taken.dtype().is_nullable());
-        assert_eq!(
-            taken.to_varbinview().with_iterator(|it| it
-                .map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
-                .collect::<Vec<_>>()),
-            [Some("one".to_string()), Some("four".to_string())]
-        );
+        #[expect(deprecated)]
+        let result = taken.to_varbinview().with_iterator(|it| {
+            it.map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(result, [Some("one".to_string()), Some("four".to_string())]);
     }
 
     #[test]
-    #[expect(deprecated)]
     fn take_nullable_indices() {
         let arr = VarBinViewArray::from_iter(["one", "two"].map(Some), DType::Utf8(NonNullable));
 
@@ -139,12 +137,12 @@ mod tests {
         let taken = arr.take(indices.into_array()).unwrap();
 
         assert!(taken.dtype().is_nullable());
-        assert_eq!(
-            taken.to_varbinview().with_iterator(|it| it
-                .map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
-                .collect::<Vec<_>>()),
-            [Some("two".to_string()), None]
-        );
+        #[expect(deprecated)]
+        let result = taken.to_varbinview().with_iterator(|it| {
+            it.map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(result, [Some("two".to_string()), None]);
     }
 
     #[rstest]

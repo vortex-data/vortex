@@ -54,12 +54,12 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
             let list = array.list_elements_at(index)?;
             let children: Vec<Scalar> = (0..list.len())
                 .map(|i| {
-                    scalar_at_canonical_array(
-                        list.to_canonical()
-                            .vortex_expect("to_canonical should succeed in fuzz test"),
-                        i,
-                    )
-                    .vortex_expect("scalar_at_canonical_array should succeed in fuzz test")
+                    #[expect(deprecated)]
+                    let canonical = list
+                        .to_canonical()
+                        .vortex_expect("to_canonical should succeed in fuzz test");
+                    scalar_at_canonical_array(canonical, i)
+                        .vortex_expect("scalar_at_canonical_array should succeed in fuzz test")
                 })
                 .collect();
             Scalar::list(
@@ -72,12 +72,12 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
             let list = array.fixed_size_list_elements_at(index)?;
             let children: Vec<Scalar> = (0..list.len())
                 .map(|i| {
-                    scalar_at_canonical_array(
-                        list.to_canonical()
-                            .vortex_expect("to_canonical should succeed in fuzz test"),
-                        i,
-                    )
-                    .vortex_expect("scalar_at_canonical_array should succeed in fuzz test")
+                    #[expect(deprecated)]
+                    let canonical = list
+                        .to_canonical()
+                        .vortex_expect("to_canonical should succeed in fuzz test");
+                    scalar_at_canonical_array(canonical, i)
+                        .vortex_expect("scalar_at_canonical_array should succeed in fuzz test")
                 })
                 .collect();
             Scalar::fixed_size_list(list.dtype().clone(), children, array.dtype().nullability())
@@ -86,20 +86,20 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
             let field_scalars: Vec<Scalar> = array
                 .iter_unmasked_fields()
                 .map(|field| {
-                    scalar_at_canonical_array(
-                        field
-                            .to_canonical()
-                            .vortex_expect("to_canonical should succeed in fuzz test"),
-                        index,
-                    )
-                    .vortex_expect("scalar_at_canonical_array should succeed in fuzz test")
+                    #[expect(deprecated)]
+                    let canonical = field
+                        .to_canonical()
+                        .vortex_expect("to_canonical should succeed in fuzz test");
+                    scalar_at_canonical_array(canonical, index)
+                        .vortex_expect("scalar_at_canonical_array should succeed in fuzz test")
                 })
                 .collect();
             Scalar::struct_(array.dtype().clone(), field_scalars)
         }
         Canonical::Extension(array) => {
-            let storage_scalar =
-                scalar_at_canonical_array(array.storage_array().to_canonical()?, index)?;
+            #[expect(deprecated)]
+            let storage_canonical = array.storage_array().to_canonical()?;
+            let storage_scalar = scalar_at_canonical_array(storage_canonical, index)?;
             Scalar::extension_ref(array.ext_dtype().clone(), storage_scalar)
         }
         Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),

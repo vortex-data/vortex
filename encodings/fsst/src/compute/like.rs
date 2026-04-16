@@ -5,6 +5,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::varbin::VarBinArrayExt;
@@ -58,6 +59,7 @@ impl LikeKernel for FSST {
 
         let negated = options.negated;
         let codes = array.codes();
+        #[expect(deprecated)]
         let offsets = codes.offsets().to_primitive();
         let all_bytes = codes.bytes();
         let all_bytes = all_bytes.as_slice();

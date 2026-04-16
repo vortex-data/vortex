@@ -123,11 +123,12 @@ where
     NativeValue<T>: Hash + Eq,
     Code: UnsignedPType,
 {
-    #[expect(deprecated)]
     fn encode(&mut self, array: &ArrayRef) -> ArrayRef {
         let mut codes = BufferMut::<Code>::with_capacity(array.len());
 
-        array.to_primitive().with_iterator(|it| {
+        #[expect(deprecated)]
+        let prim = array.to_primitive();
+        prim.with_iterator(|it| {
             for value in it {
                 let Some(code) = self.encode_value(value.copied()) else {
                     break;

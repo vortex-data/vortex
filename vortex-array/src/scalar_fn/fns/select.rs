@@ -333,20 +333,20 @@ mod tests {
     }
 
     #[test]
-    #[expect(deprecated)]
     pub fn include_columns() {
         let st = test_array();
         let select = select(vec![FieldName::from("a")], root());
+        #[expect(deprecated)]
         let selected = st.into_array().apply(&select).unwrap().to_struct();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["a"]);
     }
 
     #[test]
-    #[expect(deprecated)]
     pub fn exclude_columns() {
         let st = test_array();
         let select = select_exclude(vec![FieldName::from("a")], root());
+        #[expect(deprecated)]
         let selected = st.into_array().apply(&select).unwrap().to_struct();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["b"]);

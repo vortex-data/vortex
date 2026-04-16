@@ -524,13 +524,12 @@ mod tests {
                 .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .into_array();
-            assert_arrays_eq!(
-                actual
-                    .to_canonical()
-                    .vortex_expect("to_canonical failed")
-                    .into_array(),
-                expected
-            );
+            #[expect(deprecated)]
+            let actual_canonical = actual
+                .to_canonical()
+                .vortex_expect("to_canonical failed")
+                .into_array();
+            assert_arrays_eq!(actual_canonical, expected);
         })
     }
 }

@@ -333,6 +333,7 @@ impl<T: TypedArrayRef<crate::BitPacked>> BitPackedArrayExt for T {}
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -355,7 +356,9 @@ mod test {
         let uncompressed = PrimitiveArray::from_option_iter(values);
         let packed = BitPackedData::encode(&uncompressed.into_array(), 1).unwrap();
         let expected = PrimitiveArray::from_option_iter(values);
-        assert_arrays_eq!(packed.as_array().to_primitive(), expected);
+        #[expect(deprecated)]
+        let packed_primitive = packed.as_array().to_primitive();
+        assert_arrays_eq!(packed_primitive, expected);
     }
 
     #[test]
@@ -375,8 +378,10 @@ mod test {
 
         let packed_with_patches = BitPackedData::encode(&parray, 9).unwrap();
         assert!(packed_with_patches.patches().is_some());
+        #[expect(deprecated)]
+        let packed_primitive = packed_with_patches.as_array().to_primitive();
         assert_arrays_eq!(
-            packed_with_patches.as_array().to_primitive(),
+            packed_primitive,
             PrimitiveArray::new(values, vortex_array::validity::Validity::NonNullable)
         );
     }

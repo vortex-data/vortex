@@ -293,7 +293,9 @@ fn row_idx_array_future(
     let expr = expr.clone();
     async move {
         let array = idx_array(row_offset, &row_range).into_array();
-        let array = array.filter(mask.await?)?.to_canonical()?.into_array();
+        let filtered = array.filter(mask.await?)?;
+        #[expect(deprecated)]
+        let array = filtered.to_canonical()?.into_array();
         array.apply(&expr)
     }
     .boxed()

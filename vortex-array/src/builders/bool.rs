@@ -115,8 +115,8 @@ impl ArrayBuilder for BoolBuilder {
         Ok(())
     }
 
-    #[expect(deprecated)]
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
+        #[expect(deprecated)]
         let bool_array = array.to_bool();
 
         self.inner.append_buffer(&bool_array.to_bit_buffer());
@@ -193,7 +193,6 @@ mod tests {
             .into_array()
     }
 
-    #[expect(deprecated)]
     #[test]
     fn tests() -> VortexResult<()> {
         let len = 1000;
@@ -206,7 +205,9 @@ mod tests {
             .clone()
             .append_to_builder(builder.as_mut(), &mut ctx)?;
 
+        #[expect(deprecated)]
         let canon_into = builder.finish().to_bool();
+        #[expect(deprecated)]
         let into_canon = chunk.to_bool();
 
         assert!(
