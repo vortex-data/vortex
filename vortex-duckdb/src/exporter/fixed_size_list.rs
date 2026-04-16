@@ -10,6 +10,8 @@
 //! [`DType::FixedSizeList`]: vortex_array::dtype::DType::FixedSizeList
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::FixedSizeListArray;
+use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex::array::validity::Validity;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
@@ -17,7 +19,6 @@ use super::ConversionCache;
 use super::all_invalid;
 use super::new_array_exporter_with_flatten;
 use super::validity;
-use crate::duckdb::LogicalType;
 use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 
@@ -38,14 +39,16 @@ pub(crate) fn new_exporter(
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let list_size = array.list_size();
     let len = array.len();
-    let (elements, validity, dtype) = array.into_parts();
+    let parts = array.into_data_parts();
+    let elements = parts.elements;
+    let validity = parts.validity;
+
+    if matches!(validity, Validity::AllInvalid) {
+        return Ok(all_invalid::new_exporter());
+    }
+
     let mask = validity.to_array(len).execute::<Mask>(ctx)?;
     let elements_exporter = new_array_exporter_with_flatten(elements, cache, ctx, true)?;
-
-    if mask.all_false() {
-        let ltype = LogicalType::try_from(dtype)?;
-        return Ok(all_invalid::new_exporter(len, &ltype));
-    }
 
     Ok(validity::new_exporter(
         mask,
@@ -96,10 +99,10 @@ impl ColumnExporter for FixedSizeListExporter {
 #[cfg(test)]
 mod tests {
     use vortex::array::IntoArray as _;
+    use vortex::array::VortexSessionExecute;
     use vortex::array::validity::Validity;
     use vortex::buffer::buffer;
     use vortex::error::VortexExpect;
-    use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::SESSION;

@@ -4,7 +4,7 @@
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::dict::TakeExecute;
@@ -18,7 +18,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ParquetVariant;
-use crate::array::ParquetVariantArray;
+use crate::ParquetVariantArrayExt;
 
 pub(crate) static PARENT_KERNELS: ParentKernelSet<ParquetVariant> = ParentKernelSet::new(&[
     ParentKernelSet::lift(&FilterExecuteAdaptor(ParquetVariant)),
@@ -28,72 +28,66 @@ pub(crate) static PARENT_KERNELS: ParentKernelSet<ParquetVariant> = ParentKernel
 
 impl SliceKernel for ParquetVariant {
     fn slice(
-        array: &ParquetVariantArray,
+        array: ArrayView<'_, Self>,
         range: Range<usize>,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let validity = array.validity.slice(range.clone())?;
-        let metadata = array.metadata.slice(range.clone())?;
+        let validity = array.validity()?.slice(range.clone())?;
+        let metadata = array.metadata_array().slice(range.clone())?;
         let value = array
-            .value
-            .as_ref()
+            .value_array()
             .map(|v| v.slice(range.clone()))
             .transpose()?;
         let typed_value = array
-            .typed_value
-            .as_ref()
+            .typed_value_array()
             .map(|tv| tv.slice(range))
             .transpose()?;
         Ok(Some(
-            ParquetVariantArray::try_new(validity, metadata, value, typed_value)?.into_array(),
+            ParquetVariant::try_new(validity, metadata, value, typed_value)?.into_array(),
         ))
     }
 }
 
 impl FilterKernel for ParquetVariant {
     fn filter(
-        array: &ParquetVariantArray,
+        array: ArrayView<'_, Self>,
         mask: &Mask,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let validity = array.validity.filter(mask)?;
-        let metadata = array.metadata.filter(mask.clone())?;
+        let validity = array.validity()?.filter(mask)?;
+        let metadata = array.metadata_array().filter(mask.clone())?;
         let value = array
-            .value
-            .as_ref()
+            .value_array()
             .map(|v| v.filter(mask.clone()))
             .transpose()?;
         let typed_value = array
-            .typed_value
-            .as_ref()
+            .typed_value_array()
             .map(|tv| tv.filter(mask.clone()))
             .transpose()?;
         Ok(Some(
-            ParquetVariantArray::try_new(validity, metadata, value, typed_value)?.into_array(),
+            ParquetVariant::try_new(validity, metadata, value, typed_value)?.into_array(),
         ))
     }
 }
 
 impl TakeExecute for ParquetVariant {
     fn take(
-        array: &ParquetVariantArray,
+        array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let validity = array.validity.take(indices)?;
-        let metadata = array.metadata.take(indices.to_array())?;
+        let validity = array.validity()?.take(indices)?;
+        let metadata = array.metadata_array().take(indices.clone())?;
         let value = array
-            .value
-            .as_ref()
-            .map(|v| v.take(indices.to_array()))
+            .value_array()
+            .map(|v| v.take(indices.clone()))
             .transpose()?;
         let typed_value = array
-            .typed_value
-            .as_ref()
-            .map(|tv| tv.take(indices.to_array()))
+            .typed_value_array()
+            .map(|tv| tv.take(indices.clone()))
             .transpose()?;
         Ok(Some(
-            ParquetVariantArray::try_new(validity, metadata, value, typed_value)?.into_array(),
+            ParquetVariant::try_new(validity, metadata, value, typed_value)?.into_array(),
         ))
     }
 }
@@ -111,13 +105,14 @@ mod tests {
     use parquet_variant_compute::VariantArray as ArrowVariantArray;
     use parquet_variant_compute::VariantArrayBuilder;
     use vortex_array::ArrayRef;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
-    use crate::ParquetVariantArray;
+    use crate::ParquetVariantData;
 
     fn make_unshredded_array() -> VortexResult<ArrayRef> {
         let mut builder = VariantArrayBuilder::new(4);
@@ -125,7 +120,7 @@ mod tests {
         builder.append_variant(PqVariant::from("hello"));
         builder.append_variant(PqVariant::from(true));
         builder.append_variant(PqVariant::from(99i64));
-        ParquetVariantArray::from_arrow_variant(&builder.build())
+        ParquetVariantData::from_arrow_variant(&builder.build())
     }
 
     fn make_nullable_array() -> VortexResult<ArrayRef> {
@@ -143,7 +138,7 @@ mod tests {
         )
         .unwrap();
         let arrow_variant = ArrowVariantArray::try_new(&null_struct).unwrap();
-        ParquetVariantArray::from_arrow_variant(&arrow_variant)
+        ParquetVariantData::from_arrow_variant(&arrow_variant)
     }
 
     #[test]
@@ -152,8 +147,14 @@ mod tests {
         let sliced = arr.slice(1..3)?;
 
         assert_eq!(sliced.len(), 2);
-        assert_eq!(sliced.scalar_at(0)?, arr.scalar_at(1)?);
-        assert_eq!(sliced.scalar_at(1)?, arr.scalar_at(2)?);
+        assert_eq!(
+            sliced.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
+            arr.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?
+        );
+        assert_eq!(
+            sliced.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
+            arr.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
+        );
 
         Ok(())
     }
@@ -164,9 +165,21 @@ mod tests {
         let sliced = arr.slice(0..3)?;
 
         assert_eq!(sliced.len(), 3);
-        assert!(!sliced.scalar_at(0)?.is_null());
-        assert!(sliced.scalar_at(1)?.is_null());
-        assert!(!sliced.scalar_at(2)?.is_null());
+        assert!(
+            !sliced
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
+                .is_null()
+        );
+        assert!(
+            sliced
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?
+                .is_null()
+        );
+        assert!(
+            !sliced
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
+                .is_null()
+        );
 
         Ok(())
     }
@@ -178,8 +191,14 @@ mod tests {
         let filtered = arr.filter(mask)?;
 
         assert_eq!(filtered.len(), 2);
-        assert_eq!(filtered.scalar_at(0)?, arr.scalar_at(0)?);
-        assert_eq!(filtered.scalar_at(1)?, arr.scalar_at(2)?);
+        assert_eq!(
+            filtered.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
+            arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
+        );
+        assert_eq!(
+            filtered.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
+            arr.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
+        );
 
         Ok(())
     }
@@ -192,9 +211,21 @@ mod tests {
         let filtered = arr.filter(mask)?;
 
         assert_eq!(filtered.len(), 3);
-        assert!(!filtered.scalar_at(0)?.is_null());
-        assert!(filtered.scalar_at(1)?.is_null());
-        assert!(filtered.scalar_at(2)?.is_null());
+        assert!(
+            !filtered
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
+                .is_null()
+        );
+        assert!(
+            filtered
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?
+                .is_null()
+        );
+        assert!(
+            filtered
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
+                .is_null()
+        );
 
         Ok(())
     }
@@ -206,9 +237,18 @@ mod tests {
         let taken = arr.take(indices.into_array())?;
 
         assert_eq!(taken.len(), 3);
-        assert_eq!(taken.scalar_at(0)?, arr.scalar_at(2)?);
-        assert_eq!(taken.scalar_at(1)?, arr.scalar_at(0)?);
-        assert_eq!(taken.scalar_at(2)?, arr.scalar_at(3)?);
+        assert_eq!(
+            taken.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
+            arr.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
+        );
+        assert_eq!(
+            taken.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
+            arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
+        );
+        assert_eq!(
+            taken.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?,
+            arr.execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())?
+        );
 
         Ok(())
     }
@@ -221,10 +261,26 @@ mod tests {
         let taken = arr.take(indices.into_array())?;
 
         assert_eq!(taken.len(), 4);
-        assert!(!taken.scalar_at(0)?.is_null());
-        assert!(taken.scalar_at(1)?.is_null());
-        assert!(taken.scalar_at(2)?.is_null());
-        assert!(!taken.scalar_at(3)?.is_null());
+        assert!(
+            !taken
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
+                .is_null()
+        );
+        assert!(
+            taken
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?
+                .is_null()
+        );
+        assert!(
+            taken
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
+                .is_null()
+        );
+        assert!(
+            !taken
+                .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())?
+                .is_null()
+        );
 
         Ok(())
     }
@@ -253,12 +309,18 @@ mod tests {
         )
         .unwrap();
         let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
-        let arr = ParquetVariantArray::from_arrow_variant(&arrow_variant)?;
+        let arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
 
         let sliced = arr.slice(1..3)?;
         assert_eq!(sliced.len(), 2);
-        assert_eq!(sliced.scalar_at(0)?, arr.scalar_at(1)?);
-        assert_eq!(sliced.scalar_at(1)?, arr.scalar_at(2)?);
+        assert_eq!(
+            sliced.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
+            arr.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?
+        );
+        assert_eq!(
+            sliced.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
+            arr.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
+        );
 
         Ok(())
     }

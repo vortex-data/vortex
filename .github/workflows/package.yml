@@ -42,7 +42,7 @@ jobs:
           enable-sccache: "false"
 
       - name: Install cargo-edit
-        uses: taiki-e/cache-cargo-install-action@1ce845d7672f06bdf703007779598583b6c62f61
+        uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:
           tool: cargo-edit
 
@@ -84,6 +84,7 @@ jobs:
 
   prepare-java-macos:
     runs-on: "macos-latest"
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
         with:
@@ -108,7 +109,7 @@ jobs:
     runs-on: ${{ matrix.target.runs-on }}
     container:
       image: "ubuntu:20.04"
-    timeout-minutes: 120
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -140,5 +141,6 @@ jobs:
   prepare-all:
     needs: [prepare-python, prepare-java-macos, prepare-java-linux]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - run: echo "All packages built successfully"

@@ -85,7 +85,7 @@ fn generate_sorted_label_sets() -> LabelSets {
                 .iter()
                 .map(|&idx| {
                     let (_, fill, distinct) = LABELS[idx];
-                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                     let null_count = ((1.0 - fill) * NUM_LABEL_SETS as f64).round() as usize;
                     if s < null_count || distinct == 0 {
                         None
@@ -143,7 +143,7 @@ pub fn generate_polarsignals_parquet(n_rows: usize, output_path: &Path) -> Resul
     let props = WriterProperties::builder()
         .set_compression(Compression::SNAPPY)
         .build();
-    let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props))?;
+    let mut writer = ArrowWriter::try_new(file, Arc::clone(&schema), Some(props))?;
 
     let batch_size = 10_000;
     let num_threads = std::thread::available_parallelism()
@@ -159,11 +159,11 @@ pub fn generate_polarsignals_parquet(n_rows: usize, output_path: &Path) -> Resul
         chunk
             .iter()
             .map(|&(start, len)| {
-                let schema = schema.clone();
-                let label_sets = label_sets.clone();
-                let function_names = function_names.clone();
-                let function_filenames = function_filenames.clone();
-                let build_ids = build_ids.clone();
+                let schema = Arc::clone(&schema);
+                let label_sets = Arc::clone(&label_sets);
+                let function_names = Arc::clone(&function_names);
+                let function_filenames = Arc::clone(&function_filenames);
+                let build_ids = Arc::clone(&build_ids);
                 std::thread::spawn(move || {
                     let mut rng = StdRng::seed_from_u64(42 + start as u64);
                     build_batch(
@@ -191,7 +191,7 @@ pub fn generate_polarsignals_parquet(n_rows: usize, output_path: &Path) -> Resul
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn build_batch(
     schema: &Arc<Schema>,
     n: usize,
@@ -235,7 +235,7 @@ fn build_batch(
     }
 
     let batch = RecordBatch::try_new(
-        schema.clone(),
+        Arc::clone(schema),
         vec![
             Arc::new(labels_array),
             Arc::new(locations_array),
@@ -414,7 +414,7 @@ fn build_locations(
 }
 
 #[cfg(test)]
-#[allow(clippy::disallowed_types)]
+#[expect(clippy::disallowed_types)]
 mod tests {
     use std::collections::HashSet;
 

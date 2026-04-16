@@ -14,7 +14,7 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
-use crate::arrays::scalar_fn::ScalarFnArrayExt;
+use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::expr::Expression;
@@ -28,6 +28,7 @@ use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::get_item::GetItem;
+use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::fns::is_null::IsNull;
 use crate::scalar_fn::fns::list_contains::ListContains;
 use crate::scalar_fn::fns::mask::Mask;
@@ -48,6 +49,9 @@ pub trait ExprBuiltins: Sized {
 
     /// Is null check.
     fn is_null(&self) -> VortexResult<Expression>;
+
+    /// Is not null check.
+    fn is_not_null(&self) -> VortexResult<Expression>;
 
     /// Mask the expression using the given boolean mask.
     /// The resulting expression's validity is the intersection of the original expression's
@@ -84,6 +88,10 @@ impl ExprBuiltins for Expression {
         IsNull.try_new_expr(EmptyOptions, [self.clone()])
     }
 
+    fn is_not_null(&self) -> VortexResult<Expression> {
+        IsNotNull.try_new_expr(EmptyOptions, [self.clone()])
+    }
+
     fn mask(&self, mask: Expression) -> VortexResult<Expression> {
         Mask.try_new_expr(EmptyOptions, [self.clone(), mask])
     }
@@ -117,6 +125,9 @@ pub trait ArrayBuiltins: Sized {
 
     /// Is null check.
     fn is_null(&self) -> VortexResult<ArrayRef>;
+
+    /// Is not null check.
+    fn is_not_null(&self) -> VortexResult<ArrayRef>;
 
     /// Mask the array using the given boolean mask.
     /// The resulting array's validity is the intersection of the original array's validity
@@ -178,6 +189,12 @@ impl ArrayBuiltins for ArrayRef {
 
     fn is_null(&self) -> VortexResult<ArrayRef> {
         IsNull
+            .try_new_array(self.len(), EmptyOptions, [self.clone()])?
+            .optimize()
+    }
+
+    fn is_not_null(&self) -> VortexResult<ArrayRef> {
+        IsNotNull
             .try_new_array(self.len(), EmptyOptions, [self.clone()])?
             .optimize()
     }

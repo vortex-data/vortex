@@ -22,6 +22,9 @@
 
 set -Eeu -o pipefail
 
+export VORTEX_EXPERIMENTAL_PATCHED_ARRAY=1
+export FLAT_LAYOUT_INLINE_ARRAY_NODE=1
+
 subcommand="$1"
 targets="$2"
 shift 2

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
+use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
@@ -9,9 +11,7 @@ use vortex::array::arrays::TemporalArray;
 use vortex::array::dtype::FieldNames;
 use vortex::array::extension::datetime::TimeUnit;
 use vortex::array::validity::Validity;
-use vortex::array::vtable::ArrayId;
 use vortex::encodings::datetime_parts::DateTimeParts;
-use vortex::encodings::datetime_parts::DateTimePartsArray;
 use vortex::encodings::datetime_parts::split_temporal;
 use vortex::error::VortexResult;
 
@@ -23,10 +23,7 @@ pub struct DateTimePartsFixture;
 fn encode_temporal(temporal: TemporalArray) -> VortexResult<ArrayRef> {
     let dtype = temporal.dtype().clone();
     let parts = split_temporal(temporal)?;
-    Ok(
-        DateTimePartsArray::try_new(dtype, parts.days, parts.seconds, parts.subseconds)?
-            .into_array(),
-    )
+    Ok(DateTimeParts::try_new(dtype, parts.days, parts.seconds, parts.subseconds)?.into_array())
 }
 
 impl FlatLayoutFixture for DateTimePartsFixture {
@@ -39,7 +36,7 @@ impl FlatLayoutFixture for DateTimePartsFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![DateTimeParts::ID]
+        vec![DateTimeParts.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

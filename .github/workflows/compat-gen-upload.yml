@@ -27,7 +27,9 @@ jobs:
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=compat-gen-dry-run', github.run_id)
           || 'ubuntu-latest' }}
+    timeout-minutes: 30
     permissions:
+      id-token: write
       contents: read
     outputs:
       version: ${{ steps.detect.outputs.version }}
@@ -40,6 +42,12 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup-prebuild
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: "arn:aws:iam::245040174862:role/GitHubCompatUploadRole"
+          aws-region: us-east-1
 
       - name: Detect version
         id: detect
@@ -70,6 +78,7 @@ jobs:
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=compat-gen-upload', github.run_id)
           || 'ubuntu-latest' }}
+    timeout-minutes: 30
     environment: compat-upload
     permissions:
       id-token: write
@@ -87,7 +96,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: "arn:aws:iam::245040174862:role/GitHubBenchmarkRole"
+          role-to-assume: "arn:aws:iam::245040174862:role/GitHubCompatUploadRole"
           aws-region: us-east-1
 
       - name: Upload fixtures for v${{ needs.dry-run.outputs.version }}

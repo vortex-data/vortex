@@ -46,7 +46,7 @@ pub fn nan_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize
     }
 
     // Short-circuit for empty arrays or all-null arrays.
-    if array.is_empty() || array.valid_count()? == 0 {
+    if array.is_empty() || array.valid_count(ctx)? == 0 {
         return Ok(0);
     }
 
@@ -81,19 +81,11 @@ impl AggregateFnVTable for NanCount {
     type Partial = u64;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new_ref("vortex.nan_count")
+        AggregateFnId::new("vortex.nan_count")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        _metadata: &[u8],
-        _session: &vortex_session::VortexSession,
-    ) -> VortexResult<Self::Options> {
-        Ok(EmptyOptions)
+        unimplemented!("NanCount is not yet serializable");
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
@@ -144,7 +136,7 @@ impl AggregateFnVTable for NanCount {
         &self,
         partial: &mut Self::Partial,
         batch: &Columnar,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         match batch {
             Columnar::Constant(c) => {
@@ -158,7 +150,7 @@ impl AggregateFnVTable for NanCount {
                 Ok(())
             }
             Columnar::Canonical(c) => match c {
-                Canonical::Primitive(p) => accumulate_primitive(partial, p),
+                Canonical::Primitive(p) => accumulate_primitive(partial, p, ctx),
                 _ => vortex_bail!(
                     "Unsupported canonical type for nan_count: {}",
                     batch.dtype()

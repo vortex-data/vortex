@@ -13,7 +13,7 @@ use vortex::array::IntoArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::TemporalArray;
-use vortex::array::arrays::primitive::PrimitiveArrayParts;
+use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_signed_integer_ptype;
 use vortex::array::validity::Validity;
@@ -22,6 +22,7 @@ use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::encodings::datetime_parts::DateTimeParts;
+use vortex::encodings::datetime_parts::DateTimePartsArrayExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
@@ -51,7 +52,7 @@ impl CudaExecute for DateTimePartsExecutor {
     ) -> VortexResult<Canonical> {
         let output_len = array.len();
         let array = array
-            .try_into::<DateTimeParts>()
+            .try_downcast::<DateTimeParts>()
             .map_err(|_| vortex_err!("Expected DateTimePartsArray"))?;
 
         // Extract the temporal metadata from the dtype
@@ -129,7 +130,7 @@ impl CudaExecute for DateTimePartsExecutor {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 async fn decode_datetimeparts_typed<DaysT, SecondsT, SubsecondsT>(
     days: PrimitiveArray,
     seconds: PrimitiveArray,
@@ -147,18 +148,18 @@ where
 {
     let output_len = days.len();
 
-    let PrimitiveArrayParts {
+    let PrimitiveDataParts {
         buffer: days_buffer,
         ..
-    } = days.into_parts();
-    let PrimitiveArrayParts {
+    } = days.into_data_parts();
+    let PrimitiveDataParts {
         buffer: seconds_buffer,
         ..
-    } = seconds.into_parts();
-    let PrimitiveArrayParts {
+    } = seconds.into_data_parts();
+    let PrimitiveDataParts {
         buffer: subseconds_buffer,
         ..
-    } = subseconds.into_parts();
+    } = subseconds.into_data_parts();
 
     // Move buffers to device if not already there
     let days_device = ctx.ensure_on_device(days_buffer).await?;
@@ -208,6 +209,7 @@ mod tests {
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
+    use vortex::encodings::datetime_parts::DateTimeParts;
     use vortex::encodings::datetime_parts::DateTimePartsArray;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
@@ -237,7 +239,7 @@ mod tests {
             None,
         );
 
-        DateTimePartsArray::try_new(
+        DateTimeParts::try_new(
             temporal.dtype().clone(),
             days_arr,
             seconds_arr,
@@ -282,7 +284,7 @@ mod tests {
             .vortex_expect("failed to create execution context");
 
         let dtp_array = make_datetimeparts_array(days, seconds, subseconds, time_unit);
-        let cpu_result = dtp_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(dtp_array.clone())?;
 
         let gpu_result = DateTimePartsExecutor
             .execute(dtp_array.into_array(), &mut cuda_ctx)
@@ -308,7 +310,7 @@ mod tests {
         let subseconds: Vec<i64> = (0..len).map(|i| (i % 1000) as i64).collect();
 
         let dtp_array = make_datetimeparts_array(days, seconds, subseconds, TimeUnit::Milliseconds);
-        let cpu_result = dtp_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(dtp_array.clone())?;
 
         let gpu_result = DateTimePartsExecutor
             .execute(dtp_array.into_array(), &mut cuda_ctx)
@@ -348,7 +350,7 @@ mod tests {
             None,
         );
 
-        let dtp_array = DateTimePartsArray::try_new(
+        let dtp_array = DateTimeParts::try_new(
             temporal.dtype().clone(),
             days_arr,
             seconds_arr,
@@ -356,7 +358,7 @@ mod tests {
         )
         .vortex_expect("Failed to create DateTimePartsArray");
 
-        let cpu_result = dtp_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(dtp_array.clone())?;
 
         let gpu_result = DateTimePartsExecutor
             .execute(dtp_array.into_array(), &mut cuda_ctx)

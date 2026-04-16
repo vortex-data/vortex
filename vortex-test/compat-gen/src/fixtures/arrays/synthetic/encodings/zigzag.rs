@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
+use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
-use vortex::array::vtable::ArrayId;
 use vortex::encodings::zigzag::ZigZag;
 use vortex::encodings::zigzag::zigzag_encode;
 use vortex::error::VortexResult;
@@ -27,7 +28,7 @@ impl FlatLayoutFixture for ZigZagFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![ZigZag::ID]
+        vec![ZigZag.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
@@ -80,17 +81,17 @@ impl FlatLayoutFixture for ZigZagFixture {
                 "head_tail_nulls",
             ]),
             vec![
-                zigzag_encode(alternating_i32)?.into_array(),
-                zigzag_encode(small_i64)?.into_array(),
-                zigzag_encode(deltas_i32)?.into_array(),
-                zigzag_encode(small_i16)?.into_array(),
-                zigzag_encode(small_i8)?.into_array(),
-                zigzag_encode(nullable_zigzag)?.into_array(),
-                zigzag_encode(extremes_i32)?.into_array(),
-                zigzag_encode(zero_heavy_outliers)?.into_array(),
-                zigzag_encode(repeated_negative)?.into_array(),
-                zigzag_encode(zero_crossing)?.into_array(),
-                zigzag_encode(head_tail_nulls)?.into_array(),
+                zigzag_encode(alternating_i32.as_view())?.into_array(),
+                zigzag_encode(small_i64.as_view())?.into_array(),
+                zigzag_encode(deltas_i32.as_view())?.into_array(),
+                zigzag_encode(small_i16.as_view())?.into_array(),
+                zigzag_encode(small_i8.as_view())?.into_array(),
+                zigzag_encode(nullable_zigzag.as_view())?.into_array(),
+                zigzag_encode(extremes_i32.as_view())?.into_array(),
+                zigzag_encode(zero_heavy_outliers.as_view())?.into_array(),
+                zigzag_encode(repeated_negative.as_view())?.into_array(),
+                zigzag_encode(zero_crossing.as_view())?.into_array(),
+                zigzag_encode(head_tail_nulls.as_view())?.into_array(),
             ],
             N,
             Validity::NonNullable,

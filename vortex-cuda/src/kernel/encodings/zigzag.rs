@@ -10,12 +10,13 @@ use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::arrays::PrimitiveArray;
-use vortex::array::arrays::primitive::PrimitiveArrayParts;
+use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::dtype::NativePType;
 use vortex::dtype::PType;
 use vortex::encodings::zigzag::ZigZag;
 use vortex::encodings::zigzag::ZigZagArray;
+use vortex::encodings::zigzag::ZigZagArrayExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
@@ -31,7 +32,7 @@ pub(crate) struct ZigZagExecutor;
 
 impl ZigZagExecutor {
     fn try_specialize(array: ArrayRef) -> Option<ZigZagArray> {
-        array.try_into::<ZigZag>().ok()
+        array.try_downcast::<ZigZag>().ok()
     }
 }
 
@@ -70,9 +71,9 @@ where
     // Execute child and copy to device
     let canonical = array.encoded().clone().execute_cuda(ctx).await?;
     let primitive = canonical.into_primitive();
-    let PrimitiveArrayParts {
+    let PrimitiveDataParts {
         buffer, validity, ..
-    } = primitive.into_parts();
+    } = primitive.into_data_parts();
 
     let device_buffer = ctx.ensure_on_device(buffer).await?;
 
@@ -102,7 +103,7 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
-    use vortex::encodings::zigzag::ZigZagArray;
+    use vortex::encodings::zigzag::ZigZag;
     use vortex::error::VortexExpect;
     use vortex::session::VortexSession;
 
@@ -119,11 +120,11 @@ mod tests {
         // So encoded [0, 2, 4, 1, 3] should decode to [0, 1, 2, -1, -2]
         let encoded_data: Vec<u32> = vec![0, 2, 4, 1, 3];
 
-        let zigzag_array = ZigZagArray::try_new(
+        let zigzag_array = ZigZag::try_new(
             PrimitiveArray::new(Buffer::from(encoded_data), NonNullable).into_array(),
         )?;
 
-        let cpu_result = zigzag_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(zigzag_array.clone())?;
 
         let gpu_result = ZigZagExecutor
             .execute(zigzag_array.into_array(), &mut cuda_ctx)

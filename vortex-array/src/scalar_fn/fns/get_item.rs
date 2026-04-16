@@ -12,6 +12,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::StructArray;
+use crate::arrays::struct_::StructArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::builtins::ExprBuiltins;
 use crate::dtype::DType;
@@ -43,7 +44,7 @@ impl ScalarFnVTable for GetItem {
     type Options = FieldName;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.get_item")
+        ScalarFnId::new("vortex.get_item")
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -218,7 +219,6 @@ impl ScalarFnVTable for GetItem {
 mod tests {
     use vortex_buffer::buffer;
 
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::dtype::DType;
     use crate::dtype::FieldNames;

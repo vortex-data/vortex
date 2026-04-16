@@ -11,7 +11,9 @@ use vortex_error::VortexResult;
 
 use crate::Canonical;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::BoolArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::ExtensionArray;
@@ -34,7 +36,7 @@ use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 /// Shared implementation for both `canonicalize` and `execute` methods.
-pub(crate) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canonical> {
+pub(crate) fn constant_canonicalize(array: ArrayView<'_, Constant>) -> VortexResult<Canonical> {
     let scalar = array.scalar();
 
     let validity = match array.dtype().nullability() {
@@ -317,14 +319,19 @@ mod tests {
 
     use enum_iterator::all;
     use itertools::Itertools;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
 
-    use crate::DynArray;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
+    use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
+    use crate::arrays::listview::ListViewArrayExt;
     use crate::arrays::listview::ListViewRebuildMode;
+    use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
     use crate::canonical::ToCanonical;
     use crate::dtype::DType;
@@ -335,14 +342,18 @@ mod tests {
     use crate::expr::stats::StatsProvider;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     #[test]
     fn test_canonicalize_null() {
         let const_null = ConstantArray::new(Scalar::null(DType::Null), 42);
-        let actual = const_null.to_null();
+        let actual = const_null.as_array().to_null();
         assert_eq!(actual.len(), 42);
-        assert_eq!(actual.scalar_at(33).unwrap(), Scalar::null(DType::Null));
+        assert_eq!(
+            actual
+                .execute_scalar(33, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            Scalar::null(DType::Null)
+        );
     }
 
     #[test]
@@ -359,15 +370,18 @@ mod tests {
         let const_array = ConstantArray::new(scalar, 4).into_array();
         let stats = const_array
             .statistics()
-            .compute_all(&all::<Stat>().collect_vec())
+            .compute_all(
+                &all::<Stat>().collect_vec(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
             .unwrap();
-        let canonical = const_array.to_canonical()?;
-        let canonical_stats = canonical.as_ref().statistics();
+        let canonical = const_array.to_canonical()?.into_array();
+        let canonical_stats = canonical.statistics();
 
-        let stats_ref = stats.as_typed_ref(canonical.as_ref().dtype());
+        let stats_ref = stats.as_typed_ref(canonical.dtype());
 
         for stat in all::<Stat>() {
-            if stat.dtype(canonical.as_ref().dtype()).is_none() {
+            if stat.dtype(canonical.dtype()).is_none() {
                 continue;
             }
             assert_eq!(
@@ -389,7 +403,12 @@ mod tests {
         let canonical_const = const_array.to_primitive();
 
         // Verify the scalar value is preserved through canonicalization
-        assert_eq!(canonical_const.scalar_at(0).unwrap(), f16_scalar);
+        assert_eq!(
+            canonical_const
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            f16_scalar
+        );
     }
 
     #[test]
@@ -469,9 +488,14 @@ mod tests {
             3,
         );
 
-        let struct_array = array.to_struct();
+        let struct_array = array.as_array().to_struct();
         assert_eq!(struct_array.len(), 3);
-        assert_eq!(struct_array.valid_count().unwrap(), 0);
+        assert_eq!(
+            struct_array
+                .valid_count(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            0
+        );
 
         let field = struct_array
             .unmasked_field_by_name("non_null_field")
@@ -501,7 +525,7 @@ mod tests {
 
         assert_eq!(canonical.len(), 4);
         assert_eq!(canonical.list_size(), 3);
-        assert!(matches!(canonical.validity(), Validity::NonNullable));
+        assert!(matches!(canonical.validity(), Ok(Validity::NonNullable)));
 
         // Check that each list is [10, 20, 30].
         for i in 0..4 {
@@ -528,7 +552,7 @@ mod tests {
 
         assert_eq!(canonical.len(), 3);
         assert_eq!(canonical.list_size(), 2);
-        assert!(matches!(canonical.validity(), Validity::AllValid));
+        assert!(matches!(canonical.validity(), Ok(Validity::AllValid)));
 
         // Check elements.
         let elements = canonical.elements().to_primitive();
@@ -552,7 +576,7 @@ mod tests {
 
         assert_eq!(canonical.len(), 5);
         assert_eq!(canonical.list_size(), 4);
-        assert!(matches!(canonical.validity(), Validity::AllInvalid));
+        assert!(matches!(canonical.validity(), Ok(Validity::AllInvalid)));
 
         // Elements should be defaults (zeros).
         let elements = canonical.elements().to_primitive();
@@ -574,7 +598,7 @@ mod tests {
 
         assert_eq!(canonical.len(), 10);
         assert_eq!(canonical.list_size(), 0);
-        assert!(matches!(canonical.validity(), Validity::NonNullable));
+        assert!(matches!(canonical.validity(), Ok(Validity::NonNullable)));
 
         // Elements array should be empty.
         assert!(canonical.elements().is_empty());
@@ -597,10 +621,30 @@ mod tests {
 
         // Check elements are repeated correctly.
         let elements = canonical.elements().to_varbinview();
-        assert_eq!(elements.scalar_at(0).unwrap(), "hello".into());
-        assert_eq!(elements.scalar_at(1).unwrap(), "world".into());
-        assert_eq!(elements.scalar_at(2).unwrap(), "hello".into());
-        assert_eq!(elements.scalar_at(3).unwrap(), "world".into());
+        assert_eq!(
+            elements
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            "hello".into()
+        );
+        assert_eq!(
+            elements
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            "world".into()
+        );
+        assert_eq!(
+            elements
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            "hello".into()
+        );
+        assert_eq!(
+            elements
+                .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            "world".into()
+        );
     }
 
     #[test]
@@ -640,19 +684,33 @@ mod tests {
 
         assert_eq!(canonical.len(), 3);
         assert_eq!(canonical.list_size(), 3);
-        assert!(matches!(canonical.validity(), Validity::NonNullable));
+        assert!(matches!(canonical.validity(), Ok(Validity::NonNullable)));
 
         // Check elements including nulls.
         let elements = canonical.elements().to_primitive();
-        assert_eq!(elements.scalar_at(0).unwrap(), Scalar::from(100i32));
         assert_eq!(
-            elements.scalar_at(1).unwrap(),
+            elements
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            Scalar::from(100i32)
+        );
+        assert_eq!(
+            elements
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
         );
-        assert_eq!(elements.scalar_at(2).unwrap(), Scalar::from(200i32));
+        assert_eq!(
+            elements
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            Scalar::from(200i32)
+        );
 
         // Check element validity.
-        let element_validity = elements.validity();
+        let element_validity = elements
+            .validity()
+            .vortex_expect("constant canonical element validity should be derivable");
         assert!(element_validity.is_valid(0).unwrap());
         assert!(!element_validity.is_valid(1).unwrap());
         assert!(element_validity.is_valid(2).unwrap());
@@ -690,11 +748,36 @@ mod tests {
         // Check pattern repeats correctly.
         for i in 0..1000 {
             let base = i * 5;
-            assert_eq!(elements.scalar_at(base).unwrap(), Scalar::from(1u8));
-            assert_eq!(elements.scalar_at(base + 1).unwrap(), Scalar::from(2u8));
-            assert_eq!(elements.scalar_at(base + 2).unwrap(), Scalar::from(3u8));
-            assert_eq!(elements.scalar_at(base + 3).unwrap(), Scalar::from(4u8));
-            assert_eq!(elements.scalar_at(base + 4).unwrap(), Scalar::from(5u8));
+            assert_eq!(
+                elements
+                    .execute_scalar(base, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap(),
+                Scalar::from(1u8)
+            );
+            assert_eq!(
+                elements
+                    .execute_scalar(base + 1, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap(),
+                Scalar::from(2u8)
+            );
+            assert_eq!(
+                elements
+                    .execute_scalar(base + 2, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap(),
+                Scalar::from(3u8)
+            );
+            assert_eq!(
+                elements
+                    .execute_scalar(base + 3, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap(),
+                Scalar::from(4u8)
+            );
+            assert_eq!(
+                elements
+                    .execute_scalar(base + 4, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap(),
+                Scalar::from(5u8)
+            );
         }
     }
 }

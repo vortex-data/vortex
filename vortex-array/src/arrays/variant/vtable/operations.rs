@@ -4,16 +4,18 @@
 use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
+use crate::array::ArrayView;
+use crate::array::OperationsVTable;
 use crate::arrays::Variant;
+use crate::arrays::variant::VariantArrayExt;
 use crate::scalar::Scalar;
-use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<Variant> for Variant {
     fn scalar_at(
-        array: &<Variant as crate::vtable::VTable>::Array,
+        array: ArrayView<'_, Variant>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        array.child().scalar_at(index)
+        array.child().execute_scalar(index, ctx)
     }
 }

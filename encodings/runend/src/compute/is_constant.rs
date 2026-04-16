@@ -11,6 +11,7 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
+use crate::array::RunEndArrayExt;
 
 /// RunEnd-specific is_constant kernel.
 ///
@@ -34,6 +35,6 @@ impl DynAggregateKernel for RunEndIsConstantKernel {
         };
 
         let result = is_constant(array.values(), ctx)?;
-        Ok(Some(IsConstant::make_partial(batch, result)?))
+        Ok(Some(IsConstant::make_partial(batch, result, ctx)?))
     }
 }

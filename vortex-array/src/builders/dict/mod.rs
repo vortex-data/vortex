@@ -8,13 +8,13 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::DictArray;
 use crate::arrays::Primitive;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinView;
+use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 

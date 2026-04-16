@@ -179,10 +179,18 @@ impl VortexWriteOptions {
         // We spawn the layout future so it is driven in the background while we write the
         // buffer stream, so we don't need to poll it until all buffers have been drained.
         let ctx2 = ctx.clone();
-        let layout_fut = self.session.handle().spawn_nested(|h| async move {
+        let session = self.session.clone();
+        let layout_fut = self.session.handle().spawn_nested(move |h| async move {
+            let session = session.with_handle(h);
             let layout = self
                 .strategy
-                .write_stream(ctx2, segments.clone(), stream, eof, h)
+                .write_stream(
+                    ctx2,
+                    Arc::<BufferedSegmentSink>::clone(&segments),
+                    stream,
+                    eof,
+                    &session,
+                )
                 .await?;
             Ok::<_, VortexError>((layout, segments.segment_specs()))
         });
@@ -202,7 +210,7 @@ impl VortexWriteOptions {
 
         // Assemble the Footer object now that we have all the segments.
         let mut footer = Footer::new(
-            layout.clone(),
+            Arc::clone(&layout),
             segment_specs,
             if self.file_statistics.is_empty() {
                 None
@@ -250,7 +258,7 @@ impl VortexWriteOptions {
 
         let write = CountingVortexWrite::new(write);
         let bytes_written = write.counter();
-        let strategy = self.strategy.clone();
+        let strategy = Arc::clone(&self.strategy);
         let future = self.write(write, arrays).boxed_local().fuse();
 
         Writer {

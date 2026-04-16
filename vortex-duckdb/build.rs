@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
+#![expect(clippy::unwrap_used)]
 // exit(1) + cargo:error= doesn't provide a double-traceback like panic!()
-#![allow(clippy::exit)]
+#![expect(clippy::exit)]
 
 use std::env;
 use std::fs;
@@ -383,7 +383,7 @@ fn main() {
     // e.g. reordering fields in C++ structs.
     let version = env::var("DUCKDB_VERSION")
         // You can also change this version to a commit hash
-        .unwrap_or_else(|_| "1.5.0".to_owned());
+        .unwrap_or_else(|_| "1.5.2".to_owned());
     let version = DuckDBVersion::from(&version);
     match &version {
         DuckDBVersion::Release(v) => println!("cargo:info=Using DuckDB release version: {v}"),
@@ -392,8 +392,8 @@ fn main() {
 
     let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let duckdb_dir = crate_dir.join("duckdb");
-    let target_dir = crate_dir.parent().unwrap().join("target");
-    let library_dir = target_dir.join(format!("duckdb-lib-{version}"));
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let library_dir = out_dir.join(format!("duckdb-lib-{version}"));
 
     let library_dir_str = library_dir.display();
     println!("cargo:rustc-link-search=native={library_dir_str}");
@@ -411,11 +411,10 @@ fn main() {
     //       println!("cargo:rustc-link-arg=-Wl,-rpath,{duckdb_lib}");
     //   }
     //
-    // Alternatively, set LD_LIBRARY_PATH (Linux) or DYLD_LIBRARY_PATH (macOS) at runtime:
-    //   LD_LIBRARY_PATH=/path/to/target/duckdb-lib-vX.Y.Z cargo run --bin ...
+    // Alternatively, set LD_LIBRARY_PATH (Linux) or DYLD_LIBRARY_PATH (macOS) at runtime.
     println!("cargo:lib_dir={library_dir_str}");
 
-    let source_dir = target_dir.join(format!("duckdb-source-{version}"));
+    let source_dir = out_dir.join(format!("duckdb-source-{version}"));
     let source_archive_url = match &version {
         DuckDBVersion::Release(v) => format!("{DUCKDB_SOURCE_RELEASE_URL}/v{v}.zip"),
         DuckDBVersion::Commit(c) => format!("{DUCKDB_SOURCE_COMMIT_URL}/{c}.zip"),

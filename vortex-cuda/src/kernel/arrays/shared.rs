@@ -6,6 +6,7 @@ use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::arrays::Shared;
+use vortex::array::arrays::shared::SharedArrayExt;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 
@@ -26,13 +27,13 @@ impl CudaExecute for SharedExecutor {
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
         let shared = array
-            .try_into::<Shared>()
+            .try_downcast::<Shared>()
             .ok()
             .vortex_expect("Array is not a Shared array");
 
         shared
             .get_or_compute_async(|source| source.execute_cuda(ctx))
             .await?
-            .to_canonical()
+            .execute::<Canonical>(ctx.execution_ctx())
     }
 }

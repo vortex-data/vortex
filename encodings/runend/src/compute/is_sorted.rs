@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray as _;
 use vortex_array::aggregate_fn::AggregateFnRef;
@@ -13,6 +14,7 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
+use crate::array::RunEndArrayExt;
 
 /// RunEnd-specific is_sorted kernel.
 ///
@@ -39,11 +41,23 @@ impl DynAggregateKernel for RunEndIsSortedKernel {
         let result = if options.strict {
             // Strict sort with run-end encoding means we need to canonicalize
             // since run-end encoding repeats values.
-            is_strict_sorted(&array.to_canonical()?.into_array(), ctx)?
+            is_strict_sorted(
+                &array
+                    .array()
+                    .clone()
+                    .execute::<Canonical>(ctx)?
+                    .into_array(),
+                ctx,
+            )?
         } else {
             is_sorted(array.values(), ctx)?
         };
 
-        Ok(Some(IsSorted::make_partial(batch, result, options.strict)?))
+        Ok(Some(IsSorted::make_partial(
+            batch,
+            result,
+            options.strict,
+            ctx,
+        )?))
     }
 }

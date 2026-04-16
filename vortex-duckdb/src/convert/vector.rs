@@ -375,11 +375,16 @@ pub fn data_chunk_to_vortex(
 mod tests {
     use std::ffi::CString;
 
+    use vortex::array::LEGACY_SESSION;
     use vortex::array::ToCanonical;
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::BoolArray;
+    use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
+    use vortex::array::arrays::listview::ListViewArrayExt;
+    use vortex::array::arrays::struct_::StructArrayExt;
+    use vortex::array::assert_arrays_eq;
     use vortex::error::VortexExpect;
     use vortex::mask::Mask;
-    use vortex_array::assert_arrays_eq;
 
     use super::*;
     use crate::cpp::DUCKDB_TYPE;
@@ -503,7 +508,15 @@ mod tests {
 
         assert_eq!(values_slice, values);
         assert_eq!(
-            vortex_values.validity_mask().unwrap(),
+            vortex_values
+                .as_ref()
+                .validity()
+                .unwrap()
+                .to_mask(
+                    vortex_values.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx()
+                )
+                .unwrap(),
             Mask::from_indices(3, vec![0, 2])
         );
     }
@@ -608,7 +621,15 @@ mod tests {
 
         assert_eq!(vortex_slice, values);
         assert_eq!(
-            vortex_array.validity_mask().unwrap(),
+            vortex_array
+                .as_ref()
+                .validity()
+                .unwrap()
+                .to_mask(
+                    vortex_array.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx()
+                )
+                .unwrap(),
             Mask::from_indices(3, vec![0, 2])
         );
     }
@@ -686,7 +707,7 @@ mod tests {
         let vortex_array = result.to_struct();
 
         assert_eq!(vortex_array.len(), len);
-        assert_eq!(vortex_array.unmasked_fields().len(), 0);
+        assert_eq!(vortex_array.struct_fields().nfields(), 0);
     }
 
     #[test]
@@ -721,13 +742,13 @@ mod tests {
         let vortex_array = result.to_struct();
 
         assert_eq!(vortex_array.len(), len);
-        assert_eq!(vortex_array.unmasked_fields().len(), 2);
+        assert_eq!(vortex_array.struct_fields().nfields(), 2);
         assert_arrays_eq!(
-            &vortex_array.unmasked_fields()[0],
+            vortex_array.unmasked_field(0),
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)])
         );
         assert_arrays_eq!(
-            &vortex_array.unmasked_fields()[1],
+            vortex_array.unmasked_field(1),
             PrimitiveArray::from_option_iter([Some(5i32), Some(6), Some(7), Some(8)])
         );
     }
@@ -775,7 +796,15 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)])
         );
         assert_eq!(
-            vortex_array.validity_mask().unwrap(),
+            vortex_array
+                .as_ref()
+                .validity()
+                .unwrap()
+                .to_mask(
+                    vortex_array.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx()
+                )
+                .unwrap(),
             Mask::from_indices(2, vec![0])
         );
     }
@@ -888,7 +917,15 @@ mod tests {
         assert_eq!(sizes.as_slice::<i64>()[1], 0);
 
         assert_eq!(
-            vortex_array.validity_mask().unwrap(),
+            vortex_array
+                .as_ref()
+                .validity()
+                .unwrap()
+                .to_mask(
+                    vortex_array.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx()
+                )
+                .unwrap(),
             Mask::from_indices(3, vec![0, 2])
         );
     }

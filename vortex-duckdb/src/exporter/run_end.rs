@@ -11,7 +11,7 @@ use vortex::array::search_sorted::SearchSorted;
 use vortex::array::search_sorted::SearchSortedSide;
 use vortex::dtype::IntegerPType;
 use vortex::encodings::runend::RunEndArray;
-use vortex::encodings::runend::RunEndArrayParts;
+use vortex::encodings::runend::RunEndArrayExt;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 
@@ -38,7 +38,8 @@ pub(crate) fn new_exporter(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let offset = array.offset();
-    let RunEndArrayParts { ends, values } = array.into_parts();
+    let ends = array.ends().clone();
+    let values = array.values().clone();
     let ends = ends.execute::<PrimitiveArray>(ctx)?;
     let values_exporter = new_array_exporter(values.clone(), cache, ctx)?;
 
@@ -85,7 +86,7 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
         if start_run_idx == end_run_idx {
             // NOTE(ngates): would be great if we could just export and set type == CONSTANT
             // self.values_exporter.export(start_run_idx, 1, vector, cache);
-            let constant = self.values.scalar_at(start_run_idx)?;
+            let constant = self.values.execute_scalar(start_run_idx, ctx)?;
             let value = constant.try_to_duckdb_scalar()?;
             vector.reference_value(&value);
             return Ok(());

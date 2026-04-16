@@ -14,7 +14,6 @@ use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::arrow::Datum;
 use crate::arrow::from_arrow_array_with_len;
@@ -63,7 +62,7 @@ impl ScalarFnVTable for Like {
     type Options = LikeOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.like")
+        ScalarFnId::new("vortex.like")
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

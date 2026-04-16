@@ -21,6 +21,7 @@ use sqllogictest::Record;
 use sqllogictest::default_validator;
 use sqllogictest::parse_file;
 use vortex::error::vortex_panic;
+use vortex::utils::aliases::hash_set::HashSet;
 
 use crate::Benchmark;
 use crate::BenchmarkDataset;
@@ -85,6 +86,7 @@ pub struct SqlBenchmarkRunner {
     benchmark_dataset: BenchmarkDataset,
     storage: String,
     expected_row_counts: Option<Vec<usize>>,
+    /// Deduplicated, preserving insertion order.
     formats: Vec<Format>,
     memory_tracker: Option<BenchmarkMemoryTracker>,
     hide_progress_bar: bool,
@@ -97,10 +99,12 @@ impl SqlBenchmarkRunner {
     pub fn new<B: Benchmark + ?Sized>(
         benchmark: &B,
         engine: Engine,
-        formats: Vec<Format>,
+        formats: impl IntoIterator<Item = Format>,
         track_memory: bool,
         hide_progress_bar: bool,
     ) -> anyhow::Result<Self> {
+        let mut seen = HashSet::new();
+        let formats: Vec<Format> = formats.into_iter().filter(|f| seen.insert(*f)).collect();
         let storage = url_scheme_to_storage(benchmark.data_url())?;
 
         let memory_tracker = track_memory.then(BenchmarkMemoryTracker::new);

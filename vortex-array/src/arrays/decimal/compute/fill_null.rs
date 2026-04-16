@@ -12,6 +12,7 @@ use super::cast::upcast_decimal_values;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::BoolArray;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
@@ -21,23 +22,18 @@ use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNullKernel;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl FillNullKernel for Decimal {
     fn fill_null(
-        array: &DecimalArray,
+        array: ArrayView<'_, Decimal>,
         fill_value: &Scalar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let result_validity = Validity::from(fill_value.dtype().nullability());
 
-        Ok(Some(match array.validity() {
+        Ok(Some(match array.validity()? {
             Validity::Array(is_valid) => {
-                let is_invalid = is_valid
-                    .clone()
-                    .execute::<BoolArray>(ctx)?
-                    .into_bit_buffer()
-                    .not();
+                let is_invalid = is_valid.execute::<BoolArray>(ctx)?.into_bit_buffer().not();
                 let decimal_scalar = fill_value.as_decimal();
                 let decimal_value = decimal_scalar
                     .decimal_value()
@@ -57,7 +53,7 @@ impl FillNullKernel for Decimal {
 }
 
 fn fill_invalid_positions<T: NativeDecimalType>(
-    array: &DecimalArray,
+    array: ArrayView<'_, Decimal>,
     is_invalid: &BitBuffer,
     decimal_value: &DecimalValue,
     result_validity: Validity,
@@ -68,14 +64,15 @@ fn fill_invalid_positions<T: NativeDecimalType>(
             let target = max(array.values_type(), decimal_value.decimal_type());
             let upcasted = upcast_decimal_values(array, target)?;
             match_each_decimal_value_type!(upcasted.values_type(), |U| {
-                fill_invalid_positions::<U>(&upcasted, is_invalid, decimal_value, result_validity)
+                let upcasted = upcasted.as_view();
+                fill_invalid_positions::<U>(upcasted, is_invalid, decimal_value, result_validity)
             })
         }
     }
 }
 
 fn fill_buffer<T: NativeDecimalType>(
-    array: &DecimalArray,
+    array: ArrayView<'_, Decimal>,
     is_invalid: &BitBuffer,
     fill_val: T,
     result_validity: Validity,
@@ -92,6 +89,8 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::DecimalArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
@@ -126,7 +125,14 @@ mod tests {
             p.buffer::<i128>().as_slice(),
             vec![4200, 800, 4200, 1000, 4200]
         );
-        assert!(p.validity_mask().unwrap().all_true());
+        assert!(
+            p.as_ref()
+                .validity()
+                .unwrap()
+                .to_mask(p.as_ref().len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .all_true()
+        );
     }
 
     #[test]

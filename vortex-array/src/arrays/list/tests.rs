@@ -51,7 +51,8 @@ fn test_simple_list_array() {
             vec![1.into(), 2.into()],
             Nullability::Nullable
         ),
-        list.scalar_at(0).unwrap()
+        list.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
     );
     assert_eq!(
         Scalar::list(
@@ -59,11 +60,13 @@ fn test_simple_list_array() {
             vec![3.into(), 4.into()],
             Nullability::Nullable
         ),
-        list.scalar_at(1).unwrap()
+        list.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
     );
     assert_eq!(
         Scalar::list(Arc::new(I32.into()), vec![5.into()], Nullability::Nullable),
-        list.scalar_at(2).unwrap()
+        list.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
     );
 }
 
@@ -81,12 +84,18 @@ fn test_simple_list_array_from_iter() {
 
     assert_eq!(list.len(), list_from_iter.len());
     assert_eq!(
-        list.scalar_at(0).unwrap(),
-        list_from_iter.scalar_at(0).unwrap()
+        list.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap(),
+        list_from_iter
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
     );
     assert_eq!(
-        list.scalar_at(1).unwrap(),
-        list_from_iter.scalar_at(1).unwrap()
+        list.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap(),
+        list_from_iter
+            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
     );
 }
 
@@ -218,10 +227,30 @@ fn test_list_filter_with_nulls() {
     assert_eq!(filtered.len(), 4);
 
     // Check validity of filtered array using scalar_at (works on any array).
-    assert!(filtered.scalar_at(0).unwrap().is_valid());
-    assert!(!filtered.scalar_at(1).unwrap().is_valid()); // Was null.
-    assert!(!filtered.scalar_at(2).unwrap().is_valid()); // Was null.
-    assert!(filtered.scalar_at(3).unwrap().is_valid());
+    assert!(
+        filtered
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .is_valid()
+    );
+    assert!(
+        !filtered
+            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .is_valid()
+    ); // Was null.
+    assert!(
+        !filtered
+            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .is_valid()
+    ); // Was null.
+    assert!(
+        filtered
+            .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .is_valid()
+    );
 }
 
 #[test]
@@ -443,7 +472,7 @@ fn test_offset_to_0() {
 type OptVec<T> = Vec<Option<T>>;
 
 // Helper function to create a list of lists from a 3D vector with Option types.
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn create_list_of_lists_nullable(data: OptVec<OptVec<OptVec<i32>>>) -> ListArray {
     // Flatten all elements and track offsets and validity.
     let mut all_elements = Vec::new();
@@ -625,7 +654,9 @@ fn test_list_of_lists() {
     assert_arrays_eq!(inner, PrimitiveArray::from_iter([7]));
 
     // Test scalar conversion.
-    let scalar = list_of_lists.scalar_at(0).unwrap();
+    let scalar = list_of_lists
+        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+        .unwrap();
     assert!(matches!(scalar.dtype(), DType::List(_, _)));
     let list_scalar = scalar.as_list();
     assert_eq!(list_scalar.len(), 2);
@@ -670,11 +701,15 @@ fn test_list_of_lists_nullable_outer() {
     ));
 
     // First element should be [[1, 2], [3]].
-    let first = list_of_lists.scalar_at(0).unwrap();
+    let first = list_of_lists
+        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+        .unwrap();
     assert!(!first.is_null());
 
     // Second element should be null.
-    let second = list_of_lists.scalar_at(1).unwrap();
+    let second = list_of_lists
+        .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+        .unwrap();
     assert!(second.is_null());
 
     // Third element should be [[4, 5, 6]].
@@ -727,7 +762,10 @@ fn test_list_of_lists_nullable_inner() {
     assert_eq!(first_list.len(), 3);
 
     // Check that second inner list is null.
-    let second_inner = first_list.scalar_at(1).unwrap();
+    let second_inner = first_list
+        .array()
+        .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+        .unwrap();
     assert!(second_inner.is_null());
 }
 
@@ -755,7 +793,9 @@ fn test_list_of_lists_both_nullable() {
     ));
 
     // First outer list should have 2 elements, second is null inner list.
-    let first_outer = list_of_lists.scalar_at(0).unwrap();
+    let first_outer = list_of_lists
+        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+        .unwrap();
     assert!(!first_outer.is_null());
     let first_outer_array = list_of_lists.list_elements_at(0).unwrap();
     let first_list = first_outer_array.as_::<List>();
@@ -766,11 +806,16 @@ fn test_list_of_lists_both_nullable() {
     assert_eq!(first_inner.len(), 2);
 
     // Second inner list should be null.
-    let second_inner = first_list.scalar_at(1).unwrap();
+    let second_inner = first_list
+        .array()
+        .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+        .unwrap();
     assert!(second_inner.is_null());
 
     // Second outer list should be null.
-    let second_outer = list_of_lists.scalar_at(1).unwrap();
+    let second_outer = list_of_lists
+        .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+        .unwrap();
     assert!(second_outer.is_null());
 
     // Third outer list should have [3].
@@ -784,7 +829,10 @@ fn test_list_of_lists_both_nullable() {
     let fourth_outer = list_of_lists.list_elements_at(3).unwrap();
     let fourth_list = fourth_outer.as_::<List>();
     assert_eq!(fourth_list.len(), 1);
-    let inner = fourth_list.scalar_at(0).unwrap();
+    let inner = fourth_list
+        .array()
+        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+        .unwrap();
     assert!(inner.is_null());
 }
 
@@ -901,8 +949,10 @@ fn test_recursive_compact_list_of_lists() {
     assert_eq!(recursive.len(), 2);
 
     // Check the flattened elements - this shows the actual compaction difference
-    let non_recursive_flat_elements = non_recursive.elements().as_::<List>().elements();
-    let recursive_flat_elements = recursive.elements().as_::<List>().elements();
+    let non_recursive_inner = non_recursive.elements().as_::<List>();
+    let non_recursive_flat_elements = non_recursive_inner.elements();
+    let recursive_inner = recursive.elements().as_::<List>();
+    let recursive_flat_elements = recursive_inner.elements();
 
     // Non-recursive should still have all original elements [1,2,3,4,5,6,7,8,9,10,11,12]
     assert_eq!(non_recursive_flat_elements.len(), 12);
@@ -911,9 +961,15 @@ fn test_recursive_compact_list_of_lists() {
     assert_eq!(recursive_flat_elements.len(), 7);
 
     // Verify data integrity is preserved
+    let non_recursive_array = non_recursive.into_array();
+    let recursive_array = recursive.into_array();
     assert_eq!(
-        non_recursive.scalar_at(0).unwrap(),
-        recursive.scalar_at(0).unwrap()
+        non_recursive_array
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap(),
+        recursive_array
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
     );
 }
 

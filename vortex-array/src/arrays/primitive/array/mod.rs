@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::iter;
 
 use vortex_buffer::Alignment;
@@ -11,16 +13,22 @@ use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
+use crate::array::Array;
+use crate::array::ArrayParts;
+use crate::array::TypedArrayRef;
+use crate::arrays::Primitive;
+use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 mod accessor;
 mod cast;
@@ -31,7 +39,18 @@ mod top_value;
 pub use patch::chunk_range;
 pub use patch::patch_chunk;
 
+use crate::ArrayRef;
+use crate::aggregate_fn::fns::min_max::min_max;
+use crate::array::child_to_validity;
+use crate::array::validity_to_child;
+use crate::arrays::bool::BoolArrayExt;
 use crate::buffer::BufferHandle;
+use crate::builtins::ArrayBuiltins;
+
+/// The validity bitmap indicating which elements are non-null.
+pub(super) const VALIDITY_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 
 /// A primitive array that stores [native types][crate::dtype::NativePType] in a contiguous buffer
 /// of memory, along with an optional validity child.
@@ -49,7 +68,7 @@ use crate::buffer::BufferHandle;
 /// ```
 /// # fn main() -> vortex_error::VortexResult<()> {
 /// use vortex_array::arrays::PrimitiveArray;
-/// use vortex_array::compute::sum;
+/// use vortex_array::{LEGACY_SESSION, VortexSessionExecute};
 ///
 /// // Create from iterator using FromIterator impl
 /// let array: PrimitiveArray = [1i32, 2, 3, 4, 5].into_iter().collect();
@@ -58,32 +77,163 @@ use crate::buffer::BufferHandle;
 /// let sliced = array.slice(1..3)?;
 ///
 /// // Access individual values
-/// let value = sliced.scalar_at(0).unwrap();
+/// let mut ctx = LEGACY_SESSION.create_execution_ctx();
+/// let value = sliced.execute_scalar(0, &mut ctx).unwrap();
 /// assert_eq!(value, 2i32.into());
 ///
-/// // Convert into a type-erased array that can be passed to compute functions.
-/// use vortex_array::IntoArray;
-/// let summed = sum(&sliced.into_array()).unwrap().as_primitive().typed_value::<i64>().unwrap();
-/// assert_eq!(summed, 5i64);
 /// # Ok(())
 /// # }
 /// ```
 #[derive(Clone, Debug)]
-pub struct PrimitiveArray {
-    pub(super) dtype: DType,
+pub struct PrimitiveData {
+    pub(super) ptype: PType,
     pub(super) buffer: BufferHandle,
-    pub(super) validity: Validity,
-    pub(super) stats_set: ArrayStats,
 }
 
-pub struct PrimitiveArrayParts {
+impl Display for PrimitiveData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ptype: {}", self.ptype)
+    }
+}
+
+pub struct PrimitiveDataParts {
     pub ptype: PType,
     pub buffer: BufferHandle,
     pub validity: Validity,
 }
 
+pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
+    fn ptype(&self) -> PType {
+        match self.as_ref().dtype() {
+            DType::Primitive(ptype, _) => *ptype,
+            _ => unreachable!("PrimitiveArrayExt requires a primitive dtype"),
+        }
+    }
+
+    fn nullability(&self) -> Nullability {
+        match self.as_ref().dtype() {
+            DType::Primitive(_, nullability) => *nullability,
+            _ => unreachable!("PrimitiveArrayExt requires a primitive dtype"),
+        }
+    }
+
+    fn validity_child(&self) -> Option<&ArrayRef> {
+        self.as_ref().slots()[VALIDITY_SLOT].as_ref()
+    }
+
+    fn validity(&self) -> Validity {
+        child_to_validity(&self.as_ref().slots()[VALIDITY_SLOT], self.nullability())
+    }
+
+    fn buffer_handle(&self) -> &BufferHandle {
+        &self.buffer
+    }
+
+    fn reinterpret_cast(&self, ptype: PType) -> PrimitiveArray {
+        if self.ptype() == ptype {
+            return self.to_owned();
+        }
+
+        assert_eq!(
+            self.ptype().byte_width(),
+            ptype.byte_width(),
+            "can't reinterpret cast between integers of two different widths"
+        );
+
+        PrimitiveArray::from_buffer_handle(self.buffer_handle().clone(), ptype, self.validity())
+    }
+
+    /// Narrow the array to the smallest possible integer type that can represent all values.
+    fn narrow(&self) -> VortexResult<PrimitiveArray> {
+        if !self.ptype().is_int() {
+            return Ok(self.to_owned());
+        }
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let Some(min_max) = min_max(self.as_ref(), &mut ctx)? else {
+            return Ok(PrimitiveArray::new(
+                Buffer::<u8>::zeroed(self.len()),
+                self.validity(),
+            ));
+        };
+
+        // If we can't cast to i64, then leave the array as its original type.
+        // It's too big to downcast anyway.
+        let Ok(min) = min_max
+            .min
+            .cast(&PType::I64.into())
+            .and_then(|s| i64::try_from(&s))
+        else {
+            return Ok(self.to_owned());
+        };
+        let Ok(max) = min_max
+            .max
+            .cast(&PType::I64.into())
+            .and_then(|s| i64::try_from(&s))
+        else {
+            return Ok(self.to_owned());
+        };
+
+        let nullability = self.as_ref().dtype().nullability();
+
+        if min < 0 || max < 0 {
+            // Signed
+            if min >= i8::MIN as i64 && max <= i8::MAX as i64 {
+                return Ok(self
+                    .as_ref()
+                    .cast(DType::Primitive(PType::I8, nullability))?
+                    .to_primitive());
+            }
+
+            if min >= i16::MIN as i64 && max <= i16::MAX as i64 {
+                return Ok(self
+                    .as_ref()
+                    .cast(DType::Primitive(PType::I16, nullability))?
+                    .to_primitive());
+            }
+
+            if min >= i32::MIN as i64 && max <= i32::MAX as i64 {
+                return Ok(self
+                    .as_ref()
+                    .cast(DType::Primitive(PType::I32, nullability))?
+                    .to_primitive());
+            }
+        } else {
+            // Unsigned
+            if max <= u8::MAX as i64 {
+                return Ok(self
+                    .as_ref()
+                    .cast(DType::Primitive(PType::U8, nullability))?
+                    .to_primitive());
+            }
+
+            if max <= u16::MAX as i64 {
+                return Ok(self
+                    .as_ref()
+                    .cast(DType::Primitive(PType::U16, nullability))?
+                    .to_primitive());
+            }
+
+            if max <= u32::MAX as i64 {
+                return Ok(self
+                    .as_ref()
+                    .cast(DType::Primitive(PType::U32, nullability))?
+                    .to_primitive());
+            }
+        }
+
+        Ok(self.to_owned())
+    }
+}
+impl<T: TypedArrayRef<Primitive>> PrimitiveArrayExt for T {}
+
 // TODO(connor): There are a lot of places where we could be using `new_unchecked` in the codebase.
-impl PrimitiveArray {
+impl PrimitiveData {
+    /// Build the slots vector for this array.
+    pub(super) fn make_slots(validity: &Validity, len: usize) -> Vec<Option<ArrayRef>> {
+        vec![validity_to_child(validity, len)]
+    }
+
     /// Create a new array from a buffer handle.
     ///
     /// # Safety
@@ -93,22 +243,20 @@ impl PrimitiveArray {
     pub unsafe fn new_unchecked_from_handle(
         handle: BufferHandle,
         ptype: PType,
-        validity: Validity,
+        _validity: Validity,
     ) -> Self {
         Self {
+            ptype,
             buffer: handle,
-            dtype: DType::Primitive(ptype, validity.nullability()),
-            validity,
-            stats_set: ArrayStats::default(),
         }
     }
 
-    /// Creates a new [`PrimitiveArray`].
+    /// Creates a new `PrimitiveArray`.
     ///
     /// # Panics
     ///
     /// Panics if the provided components do not satisfy the invariants documented
-    /// in [`PrimitiveArray::new_unchecked`].
+    /// in `PrimitiveArray::new_unchecked`.
     pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
         let buffer = buffer.into();
         Self::try_new(buffer, validity).vortex_expect("PrimitiveArray construction failed")
@@ -116,12 +264,12 @@ impl PrimitiveArray {
 
     /// Constructs a new `PrimitiveArray`.
     ///
-    /// See [`PrimitiveArray::new_unchecked`] for more information.
+    /// See `PrimitiveArray::new_unchecked` for more information.
     ///
     /// # Errors
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented in
-    /// [`PrimitiveArray::new_unchecked`].
+    /// `PrimitiveArray::new_unchecked`.
     #[inline]
     pub fn try_new<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> VortexResult<Self> {
         Self::validate(&buffer, &validity)?;
@@ -130,7 +278,7 @@ impl PrimitiveArray {
         Ok(unsafe { Self::new_unchecked(buffer, validity) })
     }
 
-    /// Creates a new [`PrimitiveArray`] without validation from these components:
+    /// Creates a new `PrimitiveArray` without validation from these components:
     ///
     /// * `buffer` is a typed buffer containing the primitive values.
     /// * `validity` holds the null values.
@@ -143,22 +291,20 @@ impl PrimitiveArray {
     ///
     /// - If `validity` is [`Validity::Array`], its length must exactly equal `buffer.len()`.
     #[inline]
-    pub unsafe fn new_unchecked<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> Self {
+    pub unsafe fn new_unchecked<T: NativePType>(buffer: Buffer<T>, _validity: Validity) -> Self {
         #[cfg(debug_assertions)]
-        Self::validate(&buffer, &validity)
+        Self::validate(&buffer, &_validity)
             .vortex_expect("[Debug Assertion]: Invalid `PrimitiveArray` parameters");
 
         Self {
-            dtype: DType::Primitive(T::PTYPE, validity.nullability()),
+            ptype: T::PTYPE,
             buffer: BufferHandle::new_host(buffer.into_byte_buffer()),
-            validity,
-            stats_set: Default::default(),
         }
     }
 
-    /// Validates the components that would be used to create a [`PrimitiveArray`].
+    /// Validates the components that would be used to create a `PrimitiveArray`.
     ///
-    /// This function checks all the invariants required by [`PrimitiveArray::new_unchecked`].
+    /// This function checks all the invariants required by `PrimitiveArray::new_unchecked`.
     #[inline]
     pub fn validate<T: NativePType>(buffer: &Buffer<T>, validity: &Validity) -> VortexResult<()> {
         if let Some(len) = validity.maybe_len()
@@ -179,21 +325,184 @@ impl PrimitiveArray {
     }
 }
 
-impl PrimitiveArray {
-    /// Consume the primitive array and returns its component parts.
-    pub fn into_parts(self) -> PrimitiveArrayParts {
-        let ptype = self.ptype();
-        PrimitiveArrayParts {
-            ptype,
-            buffer: self.buffer,
-            validity: self.validity,
+impl Array<Primitive> {
+    pub fn empty<T: NativePType>(nullability: Nullability) -> Self {
+        let dtype = DType::Primitive(T::PTYPE, nullability);
+        let len = 0;
+        let data = PrimitiveData::empty::<T>(nullability);
+        let slots = PrimitiveData::make_slots(&Validity::from(nullability), len);
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Primitive, dtype, len, data).with_slots(slots),
+            )
         }
+    }
+
+    /// Creates a new `PrimitiveArray`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the provided components do not satisfy the invariants.
+    pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
+        let buffer = buffer.into();
+        let dtype = DType::Primitive(T::PTYPE, validity.nullability());
+        let len = buffer.len();
+        let slots = PrimitiveData::make_slots(&validity, len);
+        let data = PrimitiveData::new(buffer, validity);
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Primitive, dtype, len, data).with_slots(slots),
+            )
+        }
+    }
+
+    /// Constructs a new `PrimitiveArray`.
+    pub fn try_new<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> VortexResult<Self> {
+        let dtype = DType::Primitive(T::PTYPE, validity.nullability());
+        let len = buffer.len();
+        let slots = PrimitiveData::make_slots(&validity, len);
+        let data = PrimitiveData::try_new(buffer, validity)?;
+        Ok(unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Primitive, dtype, len, data).with_slots(slots),
+            )
+        })
+    }
+
+    /// Creates a new `PrimitiveArray` without validation.
+    ///
+    /// # Safety
+    ///
+    /// See [`PrimitiveData::new_unchecked`].
+    pub unsafe fn new_unchecked<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> Self {
+        let dtype = DType::Primitive(T::PTYPE, validity.nullability());
+        let len = buffer.len();
+        let slots = PrimitiveData::make_slots(&validity, len);
+        let data = unsafe { PrimitiveData::new_unchecked(buffer, validity) };
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Primitive, dtype, len, data).with_slots(slots),
+            )
+        }
+    }
+
+    /// Create a new array from a buffer handle.
+    ///
+    /// # Safety
+    ///
+    /// See [`PrimitiveData::new_unchecked_from_handle`].
+    pub unsafe fn new_unchecked_from_handle(
+        handle: BufferHandle,
+        ptype: PType,
+        validity: Validity,
+    ) -> Self {
+        let dtype = DType::Primitive(ptype, validity.nullability());
+        let len = handle.len() / ptype.byte_width();
+        let slots = PrimitiveData::make_slots(&validity, len);
+        let data = unsafe { PrimitiveData::new_unchecked_from_handle(handle, ptype, validity) };
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Primitive, dtype, len, data).with_slots(slots),
+            )
+        }
+    }
+
+    /// Creates a new `PrimitiveArray` from a [`BufferHandle`].
+    pub fn from_buffer_handle(handle: BufferHandle, ptype: PType, validity: Validity) -> Self {
+        let dtype = DType::Primitive(ptype, validity.nullability());
+        let len = handle.len() / ptype.byte_width();
+        let slots = PrimitiveData::make_slots(&validity, len);
+        let data = PrimitiveData::from_buffer_handle(handle, ptype, validity);
+        Array::try_from_parts(ArrayParts::new(Primitive, dtype, len, data).with_slots(slots))
+            .vortex_expect("PrimitiveData is always valid")
+    }
+
+    /// Creates a new `PrimitiveArray` from a [`ByteBuffer`].
+    pub fn from_byte_buffer(buffer: ByteBuffer, ptype: PType, validity: Validity) -> Self {
+        let dtype = DType::Primitive(ptype, validity.nullability());
+        let len = buffer.len() / ptype.byte_width();
+        let slots = PrimitiveData::make_slots(&validity, len);
+        let data = PrimitiveData::from_byte_buffer(buffer, ptype, validity);
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Primitive, dtype, len, data).with_slots(slots),
+            )
+        }
+    }
+
+    /// Create a PrimitiveArray from a byte buffer containing only the valid elements.
+    pub fn from_values_byte_buffer(
+        valid_elems_buffer: ByteBuffer,
+        ptype: PType,
+        validity: Validity,
+        n_rows: usize,
+    ) -> Self {
+        let dtype = DType::Primitive(ptype, validity.nullability());
+        let len = n_rows;
+        let slots = PrimitiveData::make_slots(&validity, len);
+        let data =
+            PrimitiveData::from_values_byte_buffer(valid_elems_buffer, ptype, validity, n_rows);
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Primitive, dtype, len, data).with_slots(slots),
+            )
+        }
+    }
+
+    /// Validates the components that would be used to create a `PrimitiveArray`.
+    pub fn validate<T: NativePType>(buffer: &Buffer<T>, validity: &Validity) -> VortexResult<()> {
+        PrimitiveData::validate(buffer, validity)
+    }
+
+    pub fn into_data_parts(self) -> PrimitiveDataParts {
+        let validity = PrimitiveArrayExt::validity(&self);
+        let ptype = PrimitiveArrayExt::ptype(&self);
+        let data = self.into_data();
+        PrimitiveDataParts {
+            ptype,
+            buffer: data.buffer,
+            validity,
+        }
+    }
+
+    pub fn map_each_with_validity<T, R, F>(self, f: F) -> VortexResult<Self>
+    where
+        T: NativePType,
+        R: NativePType,
+        F: FnMut((T, bool)) -> R,
+    {
+        let validity = PrimitiveArrayExt::validity(&self);
+        let data = self.into_data();
+        let buf_iter = data.to_buffer::<T>().into_iter();
+
+        let buffer = match &validity {
+            Validity::NonNullable | Validity::AllValid => {
+                BufferMut::<R>::from_iter(buf_iter.zip(iter::repeat(true)).map(f))
+            }
+            Validity::AllInvalid => {
+                BufferMut::<R>::from_iter(buf_iter.zip(iter::repeat(false)).map(f))
+            }
+            Validity::Array(val) => {
+                let val = val.to_bool().into_bit_buffer();
+                BufferMut::<R>::from_iter(buf_iter.zip(val.iter()).map(f))
+            }
+        };
+        Ok(PrimitiveArray::new(buffer.freeze(), validity))
     }
 }
 
-impl PrimitiveArray {
+impl PrimitiveData {
+    pub fn len(&self) -> usize {
+        self.buffer.len() / self.ptype.byte_width()
+    }
+
+    /// Returns `true` if the array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.buffer.is_empty()
+    }
+
     pub fn ptype(&self) -> PType {
-        self.dtype().as_ptype()
+        self.ptype
     }
 
     /// Get access to the buffer handle backing the array.
@@ -201,13 +510,10 @@ impl PrimitiveArray {
         &self.buffer
     }
 
-    pub fn from_buffer_handle(handle: BufferHandle, ptype: PType, validity: Validity) -> Self {
-        let dtype = DType::Primitive(ptype, validity.nullability());
+    pub fn from_buffer_handle(handle: BufferHandle, ptype: PType, _validity: Validity) -> Self {
         Self {
+            ptype,
             buffer: handle,
-            dtype,
-            validity,
-            stats_set: ArrayStats::default(),
         }
     }
 
@@ -244,52 +550,49 @@ impl PrimitiveArray {
         Self::from_byte_buffer(buffer, ptype, validity)
     }
 
-    /// Map each element in the array to a new value.
+    /// Get a buffer in host memory holding all the values.
     ///
-    /// This ignores validity and maps over all maybe-null elements.
-    ///
-    /// TODO(ngates): we could be smarter here if validity is sparse and only run the function
-    ///   over the valid elements.
-    pub fn map_each<T, R, F>(self, f: F) -> PrimitiveArray
-    where
-        T: NativePType,
-        R: NativePType,
-        F: FnMut(T) -> R,
-    {
-        let validity = self.validity().clone();
-        let buffer = match self.try_into_buffer_mut() {
-            Ok(buffer_mut) => buffer_mut.map_each_in_place(f),
-            Err(buffer) => BufferMut::from_iter(buffer.iter().copied().map(f)),
-        };
-        PrimitiveArray::new(buffer.freeze(), validity)
+    /// NOTE: some values may be nonsense if the validity buffer indicates that the value is null.
+    pub fn to_buffer<T: NativePType>(&self) -> Buffer<T> {
+        if T::PTYPE != self.ptype() {
+            vortex_panic!(
+                "Attempted to get buffer of type {} from array of type {}",
+                T::PTYPE,
+                self.ptype()
+            )
+        }
+        Buffer::from_byte_buffer(self.buffer_handle().to_host_sync())
     }
 
-    /// Map each element in the array to a new value.
-    ///
-    /// This doesn't ignore validity and maps over all maybe-null elements, with a bool true if
-    /// valid and false otherwise.
-    pub fn map_each_with_validity<T, R, F>(self, f: F) -> VortexResult<PrimitiveArray>
-    where
-        T: NativePType,
-        R: NativePType,
-        F: FnMut((T, bool)) -> R,
-    {
-        let validity = self.validity();
+    /// Consume the array and get a host Buffer containing the data values.
+    pub fn into_buffer<T: NativePType>(self) -> Buffer<T> {
+        if T::PTYPE != self.ptype() {
+            vortex_panic!(
+                "Attempted to get buffer of type {} from array of type {}",
+                T::PTYPE,
+                self.ptype()
+            )
+        }
+        Buffer::from_byte_buffer(self.buffer.into_host_sync())
+    }
 
-        let buf_iter = self.to_buffer::<T>().into_iter();
+    /// Extract a mutable buffer from the PrimitiveData. Attempts to do this with zero-copy
+    /// if the buffer is uniquely owned, otherwise will make a copy.
+    pub fn into_buffer_mut<T: NativePType>(self) -> BufferMut<T> {
+        self.try_into_buffer_mut()
+            .unwrap_or_else(|buffer| BufferMut::<T>::copy_from(&buffer))
+    }
 
-        let buffer = match &validity {
-            Validity::NonNullable | Validity::AllValid => {
-                BufferMut::<R>::from_iter(buf_iter.zip(iter::repeat(true)).map(f))
-            }
-            Validity::AllInvalid => {
-                BufferMut::<R>::from_iter(buf_iter.zip(iter::repeat(false)).map(f))
-            }
-            Validity::Array(val) => {
-                let val = val.to_bool().into_bit_buffer();
-                BufferMut::<R>::from_iter(buf_iter.zip(val.iter()).map(f))
-            }
-        };
-        Ok(PrimitiveArray::new(buffer.freeze(), validity.clone()))
+    /// Try to extract a mutable buffer from the PrimitiveData with zero copy.
+    pub fn try_into_buffer_mut<T: NativePType>(self) -> Result<BufferMut<T>, Buffer<T>> {
+        if T::PTYPE != self.ptype() {
+            vortex_panic!(
+                "Attempted to get buffer_mut of type {} from array of type {}",
+                T::PTYPE,
+                self.ptype()
+            )
+        }
+        let buffer = Buffer::<T>::from_byte_buffer(self.buffer.into_host_sync());
+        buffer.try_into_mut()
     }
 }

@@ -15,10 +15,13 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnVTable;
 use crate::arrays::scalar_fn::ExactScalarFn;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::arrow::Datum;
 use crate::arrow::IntoArrowArray;
@@ -29,7 +32,6 @@ use crate::kernel::ExecuteParentKernel;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::operators::CompareOperator;
-use crate::vtable::VTable;
 
 /// Trait for encoding-specific comparison kernels that operate in encoded space.
 ///
@@ -38,7 +40,7 @@ use crate::vtable::VTable;
 /// the left-hand side, swapping the operator when necessary.
 pub trait CompareKernel: VTable {
     fn compare(
-        lhs: &Self::Array,
+        lhs: ArrayView<'_, Self>,
         rhs: &ArrayRef,
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,
@@ -61,7 +63,7 @@ where
 
     fn execute_parent(
         &self,
-        array: &V::Array,
+        array: ArrayView<'_, V>,
         parent: ScalarFnArrayView<'_, Binary>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -75,13 +77,11 @@ where
         let Some(scalar_fn_array) = parent.as_opt::<ScalarFnVTable>() else {
             return Ok(None);
         };
-        let children = scalar_fn_array.children();
-
         // Normalize so `array` is always LHS, swapping the operator if needed
         // TODO(joe): should be go this here or in the Rule/Kernel
         let (cmp_op, other) = match child_idx {
-            0 => (cmp_op, &children[1]),
-            1 => (cmp_op.swap(), &children[0]),
+            0 => (cmp_op, scalar_fn_array.get_child(1)),
+            1 => (cmp_op.swap(), scalar_fn_array.get_child(0)),
             _ => return Ok(None),
         };
 
@@ -152,8 +152,8 @@ fn arrow_compare_arrays(
     // Arrow's vectorized comparison kernels don't support nested types.
     // For nested types, fall back to `make_comparator` which does element-wise comparison.
     let arrow_array: BooleanArray = if left.dtype().is_nested() || right.dtype().is_nested() {
-        let rhs = right.to_array().into_arrow_preferred()?;
-        let lhs = left.to_array().into_arrow(rhs.data_type())?;
+        let rhs = right.clone().into_arrow_preferred()?;
+        let lhs = left.clone().into_arrow(rhs.data_type())?;
 
         assert!(
             lhs.data_type().equals_datatype(rhs.data_type()),
@@ -249,7 +249,9 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
     use crate::ToCanonical;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
@@ -348,7 +350,9 @@ mod tests {
             .binary(right.into_array(), Operator::Gt)
             .unwrap();
         assert_eq!(result.len(), 10);
-        let scalar = result.scalar_at(0).unwrap();
+        let scalar = result
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(scalar.as_bool().value(), Some(false));
     }
 
@@ -540,8 +544,23 @@ mod tests {
             .into_array()
             .binary(list.into_array(), Operator::Eq)
             .unwrap();
-        assert!(result.scalar_at(0).unwrap().is_valid());
-        assert!(result.scalar_at(1).unwrap().is_valid());
-        assert!(result.scalar_at(2).unwrap().is_valid());
+        assert!(
+            result
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .is_valid()
+        );
+        assert!(
+            result
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .is_valid()
+        );
+        assert!(
+            result
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .is_valid()
+        );
     }
 }

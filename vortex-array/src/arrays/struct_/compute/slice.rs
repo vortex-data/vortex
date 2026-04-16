@@ -8,16 +8,16 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::slice::SliceReduce;
-use crate::vtable::ValidityHelper;
+use crate::arrays::struct_::StructArrayExt;
 
 impl SliceReduce for Struct {
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let fields: Vec<_> = array
-            .unmasked_fields()
-            .iter()
+            .iter_unmasked_fields()
             .map(|field| field.slice(range.clone()))
             .try_collect()?;
 
@@ -28,7 +28,7 @@ impl SliceReduce for Struct {
                     fields,
                     array.struct_fields().clone(),
                     range.len(),
-                    array.validity().slice(range)?,
+                    array.validity()?.slice(range)?,
                 )
             }
             .into_array(),

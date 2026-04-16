@@ -12,7 +12,9 @@ use std::hint;
 
 use vortex_error::VortexResult;
 
-use crate::DynArray;
+use crate::ArrayRef;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::scalar::Scalar;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -262,9 +264,9 @@ fn search_sorted_side_idx<F: FnMut(usize) -> VortexResult<Ordering>>(
     }
 }
 
-impl IndexOrd<Scalar> for dyn DynArray + '_ {
+impl IndexOrd<Scalar> for ArrayRef {
     fn index_cmp(&self, idx: usize, elem: &Scalar) -> VortexResult<Option<Ordering>> {
-        let scalar_a = self.scalar_at(idx)?;
+        let scalar_a = self.execute_scalar(idx, &mut LEGACY_SESSION.create_execution_ctx())?;
         Ok(scalar_a.partial_cmp(elem))
     }
 

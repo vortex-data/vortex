@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! A more configurable variant of the `StructStrategy` that allows overwriting
-//! specific leaf fields with custom write strategies.
+//! A configurable writer strategy for tabular data.
+//!
+//! Allows the caller to override specific leaf fields with custom layout strategies.
 
 use std::sync::Arc;
 
@@ -15,7 +16,10 @@ use itertools::Itertools;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldName;
@@ -25,7 +29,8 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::kanal_ext::KanalExt;
-use vortex_io::runtime::Handle;
+use vortex_io::session::RuntimeSessionExt;
+use vortex_session::VortexSession;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -68,7 +73,7 @@ impl TableStrategy {
     /// // Build a write strategy that does not compress validity or any leaf fields.
     /// let flat = Arc::new(FlatLayoutStrategy::default());
     ///
-    /// let strategy = TableStrategy::new(flat.clone(), flat.clone());
+    /// let strategy = TableStrategy::new(Arc::<FlatLayoutStrategy>::clone(&flat), Arc::<FlatLayoutStrategy>::clone(&flat));
     /// ```
     pub fn new(validity: Arc<dyn LayoutStrategy>, fallback: Arc<dyn LayoutStrategy>) -> Self {
         Self {
@@ -85,12 +90,14 @@ impl TableStrategy {
     /// ```ignore
     /// # use std::sync::Arc;
     /// # use vortex_array::dtype::{field_path, Field, FieldPath};
+    /// # use vortex_btrblocks::BtrBlocksCompressor;
     /// # use vortex_layout::layouts::compressed::CompressingStrategy;
     /// # use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     /// # use vortex_layout::layouts::table::TableStrategy;
     ///
     /// // A strategy for compressing data using the balanced BtrBlocks compressor.
-    /// let compress = CompressingStrategy::new_btrblocks(FlatLayoutStrategy::default(), true);
+    /// let compress =
+    ///     CompressingStrategy::new(FlatLayoutStrategy::default(), BtrBlocksCompressor::default());
     ///
     /// // Our combined strategy uses no compression for validity buffers, BtrBlocks compression
     /// // for most columns, and stores a nested binary column uncompressed (flat) because it
@@ -152,14 +159,14 @@ impl TableStrategy {
             if field_path.starts_with_field(field)
                 && let Some(subpath) = field_path.clone().step_into()
             {
-                new_writers.insert(subpath, strategy.clone());
+                new_writers.insert(subpath, Arc::clone(strategy));
             }
         }
 
         Self {
             leaf_writers: new_writers,
-            validity: self.validity.clone(),
-            fallback: self.fallback.clone(),
+            validity: Arc::clone(&self.validity),
+            fallback: Arc::clone(&self.fallback),
         }
     }
 
@@ -191,7 +198,7 @@ impl LayoutStrategy for TableStrategy {
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,
-        handle: Handle,
+        session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
 
@@ -199,7 +206,7 @@ impl LayoutStrategy for TableStrategy {
         if !dtype.is_struct() {
             return self
                 .fallback
-                .write_stream(ctx, segment_sink, stream, eof, handle)
+                .write_stream(ctx, segment_sink, stream, eof, session)
                 .await;
         }
 
@@ -234,15 +241,17 @@ impl LayoutStrategy for TableStrategy {
             if is_nullable {
                 columns.push((
                     sequence_pointer.advance(),
-                    chunk.validity_mask()?.into_array(),
+                    chunk
+                        .validity()?
+                        .to_mask(chunk.len(), &mut LEGACY_SESSION.create_execution_ctx())?
+                        .into_array(),
                 ));
             }
 
             columns.extend(
                 struct_chunk
-                    .unmasked_fields()
-                    .iter()
-                    .map(|field| (sequence_pointer.advance(), field.to_array())),
+                    .iter_unmasked_fields()
+                    .map(|field| (sequence_pointer.advance(), field.clone())),
             );
 
             Ok(columns)
@@ -257,6 +266,7 @@ impl LayoutStrategy for TableStrategy {
             (0..stream_count).map(|_| kanal::bounded_async(1)).unzip();
 
         // Spawn a task to fan out column chunks to their respective transposed streams
+        let handle = session.handle();
         handle
             .spawn(async move {
                 pin_mut!(columns_vec_stream);
@@ -271,7 +281,7 @@ impl LayoutStrategy for TableStrategy {
                         Err(e) => {
                             let e: Arc<VortexError> = Arc::new(e);
                             for tx in column_streams_tx.iter() {
-                                let _ = tx.send(Err(VortexError::from(e.clone()))).await;
+                                let _ = tx.send(Err(VortexError::from(Arc::clone(&e)))).await;
                             }
                             break;
                         }
@@ -308,8 +318,11 @@ impl LayoutStrategy for TableStrategy {
                         .sendable();
                 let child_eof = eof.split_off();
                 let field = Field::Name(name.clone());
-                handle.spawn_nested(|h| {
-                    let validity = self.validity.clone();
+                let session = session.clone();
+                let ctx = ctx.clone();
+                let segment_sink = Arc::clone(&segment_sink);
+                handle.spawn_nested(move |h| {
+                    let validity = Arc::clone(&self.validity);
                     // descend further and try with new fields
                     let writer = self
                         .leaf_writers
@@ -321,11 +334,10 @@ impl LayoutStrategy for TableStrategy {
                                 Arc::new(self.descend(&field))
                             } else {
                                 // Use fallback for leaf columns
-                                self.fallback.clone()
+                                Arc::clone(&self.fallback)
                             }
                         });
-                    let ctx = ctx.clone();
-                    let segment_sink = segment_sink.clone();
+                    let session = session.with_handle(h);
 
                     async move {
                         // If we have a matching writer, we use it.
@@ -333,12 +345,12 @@ impl LayoutStrategy for TableStrategy {
                         // Write validity stream
                         if index == 0 && is_nullable {
                             validity
-                                .write_stream(ctx, segment_sink, column_stream, child_eof, h)
+                                .write_stream(ctx, segment_sink, column_stream, child_eof, &session)
                                 .await
                         } else {
                             // Use the underlying writer, otherwise use the fallback writer.
                             writer
-                                .write_stream(ctx, segment_sink, column_stream, child_eof, h)
+                                .write_stream(ctx, segment_sink, column_stream, child_eof, &session)
                                 .await
                         }
                     }
@@ -372,8 +384,11 @@ mod tests {
         let flat = Arc::new(FlatLayoutStrategy::default());
 
         // Success
-        let path = TableStrategy::new(flat.clone(), flat.clone())
-            .with_field_writer(field_path!(a.b.c), flat.clone());
+        let path = TableStrategy::new(
+            Arc::<FlatLayoutStrategy>::clone(&flat),
+            Arc::<FlatLayoutStrategy>::clone(&flat),
+        )
+        .with_field_writer(field_path!(a.b.c), Arc::<FlatLayoutStrategy>::clone(&flat));
 
         // Should panic right here.
         let _path = path.with_field_writer(field_path!(a.b), flat);
@@ -385,7 +400,10 @@ mod tests {
     )]
     fn test_root_override() {
         let flat = Arc::new(FlatLayoutStrategy::default());
-        let _strategy = TableStrategy::new(flat.clone(), flat.clone())
-            .with_field_writer(FieldPath::root(), flat);
+        let _strategy = TableStrategy::new(
+            Arc::<FlatLayoutStrategy>::clone(&flat),
+            Arc::<FlatLayoutStrategy>::clone(&flat),
+        )
+        .with_field_writer(FieldPath::root(), flat);
     }
 }

@@ -15,6 +15,7 @@ use vortex::array::arrow::FromArrowArray;
 use vortex::array::iter::ArrayIterator;
 use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
+use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexError;
@@ -279,7 +280,7 @@ impl PyVortexWriteOptions {
     /// >>> vx.io.VortexWriteOptions.default().write(sprl, "chonky.vortex")
     /// >>> import os
     /// >>> os.path.getsize('chonky.vortex')
-    /// 215972
+    /// 216036
     /// ```
     ///
     /// Wow, Vortex manages to use about two bytes per integer! So advanced. So tiny.
@@ -291,7 +292,7 @@ impl PyVortexWriteOptions {
     /// ```python
     /// >>> vx.io.VortexWriteOptions.compact().write(sprl, "tiny.vortex")
     /// >>> os.path.getsize('tiny.vortex')
-    /// 55088
+    /// 55152
     /// ```
     ///
     /// Random numbers are not (usually) composed of random bytes!
@@ -352,7 +353,8 @@ impl PyVortexWriteOptions {
         py.detach(|| {
             let mut strategy = WriteStrategyBuilder::default();
             if self.use_compact_encodings {
-                strategy = strategy.with_compact_encodings();
+                strategy = strategy
+                    .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact());
             }
             let strategy = strategy.build();
             TOKIO_RUNTIME.block_on(async move {

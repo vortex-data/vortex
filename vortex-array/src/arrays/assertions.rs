@@ -4,9 +4,39 @@
 use std::fmt::Display;
 
 use itertools::Itertools;
+use vortex_error::VortexExpect;
 
-pub fn format_indices<I: IntoIterator<Item = usize>>(indices: I) -> impl Display {
+use crate::ArrayRef;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::RecursiveCanonical;
+use crate::VortexSessionExecute;
+
+fn format_indices<I: IntoIterator<Item = usize>>(indices: I) -> impl Display {
     indices.into_iter().format(",")
+}
+
+/// Executes an array to recursive canonical form with the given execution context.
+fn execute_to_canonical(array: ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
+    array
+        .execute::<RecursiveCanonical>(ctx)
+        .vortex_expect("failed to execute array to recursive canonical form")
+        .0
+        .into_array()
+}
+
+/// Finds indices where two arrays differ based on `scalar_at` comparison.
+#[expect(clippy::unwrap_used)]
+fn find_mismatched_indices(left: &ArrayRef, right: &ArrayRef) -> Vec<usize> {
+    assert_eq!(left.len(), right.len());
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    (0..left.len())
+        .filter(|i| {
+            left.execute_scalar(*i, &mut ctx).unwrap()
+                != right.execute_scalar(*i, &mut ctx).unwrap()
+        })
+        .collect()
 }
 
 /// Asserts that the scalar at position `$n` in array `$arr` equals `$expected`.
@@ -21,9 +51,18 @@ pub fn format_indices<I: IntoIterator<Item = usize>>(indices: I) -> impl Display
 /// ```
 #[macro_export]
 macro_rules! assert_nth_scalar {
-    ($arr:expr, $n:expr, $expected:expr) => {
-        assert_eq!($arr.scalar_at($n).unwrap(), $expected.try_into().unwrap());
-    };
+    ($arr:expr, $n:expr, $expected:expr) => {{
+        use $crate::IntoArray as _;
+        use $crate::LEGACY_SESSION;
+        use $crate::VortexSessionExecute as _;
+        let arr_ref: $crate::ArrayRef = $crate::IntoArray::into_array($arr.clone());
+        assert_eq!(
+            arr_ref
+                .execute_scalar($n, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            $expected.try_into().unwrap()
+        );
+    }};
 }
 
 /// Asserts that the scalar at position `$n` in array `$arr` is null.
@@ -36,21 +75,31 @@ macro_rules! assert_nth_scalar {
 /// ```
 #[macro_export]
 macro_rules! assert_nth_scalar_is_null {
-    ($arr:expr, $n:expr) => {
+    ($arr:expr, $n:expr) => {{
+        use $crate::LEGACY_SESSION;
+        use $crate::VortexSessionExecute as _;
+        let arr_ref: $crate::ArrayRef = $crate::IntoArray::into_array($arr.clone());
         assert!(
-            $arr.scalar_at($n).unwrap().is_null(),
+            arr_ref
+                .execute_scalar($n, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .is_null(),
             "expected scalar at index {} to be null, but was {:?}",
             $n,
-            $arr.scalar_at($n).unwrap()
+            arr_ref
+                .execute_scalar($n, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
         );
-    };
+    }};
 }
 
 #[macro_export]
 macro_rules! assert_arrays_eq {
     ($left:expr, $right:expr) => {{
-        let left = $left.clone();
-        let right = $right.clone();
+
+
+        let left: $crate::ArrayRef = $crate::IntoArray::into_array($left.clone());
+        let right: $crate::ArrayRef = $crate::IntoArray::into_array($right.clone());
         if left.dtype() != right.dtype() {
             panic!(
                 "assertion left == right failed: arrays differ in type: {} != {}.\n  left: {}\n right: {}",
@@ -61,27 +110,52 @@ macro_rules! assert_arrays_eq {
             )
         }
 
-        if left.len() != right.len() {
-            panic!(
-                "assertion left == right failed: arrays differ in length: {} != {}.\n  left: {}\n right: {}",
-                left.len(),
-                right.len(),
-                left.display_values(),
-                right.display_values()
-            )
-        }
+        assert_eq!(
+            left.len(),
+            right.len(),
+            "assertion left == right failed: arrays differ in length: {} != {}.\n  left: {}\n right: {}",
+            left.len(),
+            right.len(),
+            left.display_values(),
+            right.display_values()
+        );
 
-        let n = left.len();
-        let mismatched_indices = (0..n)
-            .filter(|i| left.scalar_at(*i).unwrap() != right.scalar_at(*i).unwrap())
-            .collect::<Vec<_>>();
-        if mismatched_indices.len() != 0 {
-            panic!(
-                "assertion left == right failed: arrays do not match at indices: {}.\n  left: {}\n right: {}",
-                $crate::arrays::format_indices(mismatched_indices),
-                left.display_values(),
-                right.display_values()
-            )
-        }
+        let left = left.clone();
+        let right = right.clone();
+        $crate::arrays::assert_arrays_eq_impl(&left, &right);
     }};
+}
+
+/// Implementation of `assert_arrays_eq!` — called by the macro after converting inputs to
+/// `ArrayRef`.
+#[track_caller]
+#[expect(clippy::panic)]
+pub fn assert_arrays_eq_impl(left: &ArrayRef, right: &ArrayRef) {
+    let executed = execute_to_canonical(left.clone(), &mut LEGACY_SESSION.create_execution_ctx());
+
+    let left_right = find_mismatched_indices(left, right);
+    let executed_right = find_mismatched_indices(&executed, right);
+
+    if !left_right.is_empty() || !executed_right.is_empty() {
+        let mut msg = String::new();
+        if !left_right.is_empty() {
+            msg.push_str(&format!(
+                "\n  left != right at indices: {}",
+                format_indices(left_right)
+            ));
+        }
+        if !executed_right.is_empty() {
+            msg.push_str(&format!(
+                "\n  executed != right at indices: {}",
+                format_indices(executed_right)
+            ));
+        }
+        panic!(
+            "assertion failed: arrays do not match:{}\n     left: {}\n    right: {}\n executed: {}",
+            msg,
+            left.display_values(),
+            right.display_values(),
+            executed.display_values()
+        )
+    }
 }

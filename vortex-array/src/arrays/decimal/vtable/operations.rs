@@ -4,16 +4,16 @@
 use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
+use crate::array::ArrayView;
+use crate::array::OperationsVTable;
 use crate::arrays::Decimal;
-use crate::arrays::decimal::vtable::DecimalArray;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
-use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<Decimal> for Decimal {
     fn scalar_at(
-        array: &DecimalArray,
+        array: ArrayView<'_, Decimal>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -31,8 +31,9 @@ impl OperationsVTable<Decimal> for Decimal {
 mod tests {
     use vortex_buffer::buffer;
 
-    use crate::DynArray;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::Decimal;
     use crate::arrays::DecimalArray;
     use crate::dtype::DecimalDType;
@@ -79,7 +80,9 @@ mod tests {
         );
 
         assert_eq!(
-            array.scalar_at(0).unwrap(),
+            array
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::decimal(
                 DecimalValue::I128(100),
                 DecimalDType::new(3, 2),

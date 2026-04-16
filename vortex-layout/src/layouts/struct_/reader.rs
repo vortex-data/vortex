@@ -13,6 +13,7 @@ use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
@@ -30,7 +31,6 @@ use vortex_array::expr::transform::replace;
 use vortex_array::expr::transform::replace_root_fields;
 use vortex_array::scalar_fn::fns::merge::Merge;
 use vortex_array::scalar_fn::fns::pack::Pack;
-use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -84,7 +84,7 @@ impl StructReader {
         let mut names: Vec<Arc<str>> = struct_dt
             .names()
             .iter()
-            .map(|x| x.inner().clone())
+            .map(|x| Arc::clone(x.inner()))
             .collect();
 
         if layout.dtype.is_nullable() {
@@ -93,10 +93,10 @@ impl StructReader {
         }
 
         let lazy_children = LazyReaderChildren::new(
-            layout.children.clone(),
+            Arc::clone(&layout.children),
             dtypes,
             names,
-            segment_source.clone(),
+            Arc::clone(&segment_source),
             session.clone(),
         );
 
@@ -294,7 +294,7 @@ impl LayoutReader for StructReader {
                 .map_err(|err| {
                     err.with_context(format!("While evaluating filter partition {name}"))
                 }),
-            Partitioned::Multi(partitioned) => partitioned.clone().into_mask_future(
+            Partitioned::Multi(partitioned) => Arc::clone(partitioned).into_mask_future(
                 mask,
                 |name, expr, mask| {
                     self.field_reader(name)?
@@ -340,17 +340,15 @@ impl LayoutReader for StructReader {
             ),
 
             Partitioned::Multi(partitioned) => (
-                partitioned
-                    .clone()
-                    .into_array_future(mask_fut, |name, expr, mask| {
-                        self.field_reader(name)?
-                            .projection_evaluation(row_range, expr, mask)
-                            .map_err(|err| {
-                                err.with_context(format!(
-                                    "While evaluating projection partition {name}"
-                                ))
-                            })
-                    })?,
+                Arc::clone(partitioned).into_array_future(mask_fut, |name, expr, mask| {
+                    self.field_reader(name)?
+                        .projection_evaluation(row_range, expr, mask)
+                        .map_err(|err| {
+                            err.with_context(format!(
+                                "While evaluating projection partition {name}"
+                            ))
+                        })
+                })?,
                 partitioned.root.is::<Pack>() || partitioned.root.is::<Merge>(),
             ),
         };
@@ -363,8 +361,7 @@ impl LayoutReader for StructReader {
                 if is_pack_merge {
                     let struct_array = array.to_struct();
                     let masked_fields: Vec<ArrayRef> = struct_array
-                        .unmasked_fields()
-                        .iter()
+                        .iter_unmasked_fields()
                         .map(|a| a.clone().mask(validity.clone()))
                         .try_collect()?;
 
@@ -372,7 +369,7 @@ impl LayoutReader for StructReader {
                         struct_array.names().clone(),
                         masked_fields,
                         struct_array.len(),
-                        struct_array.validity().clone(),
+                        struct_array.validity()?,
                     )?
                     .into_array())
                 } else {
@@ -394,13 +391,15 @@ mod tests {
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::ArrayContext;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::assert_nth_scalar;
     use vortex_array::dtype::DType;
@@ -422,6 +421,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
+    use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::Mask;
 
     use crate::LayoutRef;
@@ -444,23 +444,27 @@ mod tests {
             Arc::new(FlatLayoutStrategy::default()),
             Arc::new(FlatLayoutStrategy::default()),
         );
-        let layout = block_on(|handle| {
-            strategy.write_stream(
-                ctx,
-                segments.clone(),
-                StructArray::try_new(
-                    Vec::<FieldName>::new().into(),
-                    vec![],
-                    5,
-                    Validity::NonNullable,
+        let segments2 = Arc::<TestSegments>::clone(&segments);
+        let layout = block_on(|handle| async move {
+            let session = SESSION.clone().with_handle(handle);
+            strategy
+                .write_stream(
+                    ctx,
+                    segments2,
+                    StructArray::try_new(
+                        Vec::<FieldName>::new().into(),
+                        vec![],
+                        5,
+                        Validity::NonNullable,
+                    )
+                    .unwrap()
+                    .into_array()
+                    .to_array_stream()
+                    .sequenced(ptr),
+                    eof,
+                    &session,
                 )
-                .unwrap()
-                .into_array()
-                .to_array_stream()
-                .sequenced(ptr),
-                eof,
-                handle,
-            )
+                .await
         })
         .unwrap();
 
@@ -477,25 +481,29 @@ mod tests {
             Arc::new(FlatLayoutStrategy::default()),
             Arc::new(FlatLayoutStrategy::default()),
         );
-        let layout = block_on(|handle| {
-            strategy.write_stream(
-                ctx,
-                segments.clone(),
-                StructArray::from_fields(
-                    [
-                        ("a", buffer![7, 2, 3].into_array()),
-                        ("b", buffer![4, 5, 6].into_array()),
-                        ("c", buffer![4, 5, 6].into_array()),
-                    ]
-                    .as_slice(),
+        let segments2 = Arc::<TestSegments>::clone(&segments);
+        let layout = block_on(|handle| async move {
+            let session = SESSION.clone().with_handle(handle);
+            strategy
+                .write_stream(
+                    ctx,
+                    segments2,
+                    StructArray::from_fields(
+                        [
+                            ("a", buffer![7, 2, 3].into_array()),
+                            ("b", buffer![4, 5, 6].into_array()),
+                            ("c", buffer![4, 5, 6].into_array()),
+                        ]
+                        .as_slice(),
+                    )
+                    .unwrap()
+                    .into_array()
+                    .to_array_stream()
+                    .sequenced(ptr),
+                    eof,
+                    &session,
                 )
-                .unwrap()
-                .into_array()
-                .to_array_stream()
-                .sequenced(ptr),
-                eof,
-                handle,
-            )
+                .await
         })
         .unwrap();
 
@@ -513,25 +521,29 @@ mod tests {
             Arc::new(FlatLayoutStrategy::default()),
             Arc::new(FlatLayoutStrategy::default()),
         );
-        let layout = block_on(|handle| {
-            strategy.write_stream(
-                ctx,
-                segments.clone(),
-                StructArray::try_from_iter_with_validity(
-                    [
-                        ("a", buffer![7, 2, 3].into_array()),
-                        ("b", buffer![4, 5, 6].into_array()),
-                        ("c", buffer![4, 5, 6].into_array()),
-                    ],
-                    Validity::Array(BoolArray::from_iter([false, true, true]).into_array()),
+        let segments2 = Arc::<TestSegments>::clone(&segments);
+        let layout = block_on(|handle| async move {
+            let session = SESSION.clone().with_handle(handle);
+            strategy
+                .write_stream(
+                    ctx,
+                    segments2,
+                    StructArray::try_from_iter_with_validity(
+                        [
+                            ("a", buffer![7, 2, 3].into_array()),
+                            ("b", buffer![4, 5, 6].into_array()),
+                            ("c", buffer![4, 5, 6].into_array()),
+                        ],
+                        Validity::Array(BoolArray::from_iter([false, true, true]).into_array()),
+                    )
+                    .unwrap()
+                    .into_array()
+                    .to_array_stream()
+                    .sequenced(ptr),
+                    eof,
+                    &session,
                 )
-                .unwrap()
-                .into_array()
-                .to_array_stream()
-                .sequenced(ptr),
-                eof,
-                handle,
-            )
+                .await
         })
         .unwrap();
 
@@ -554,37 +566,43 @@ mod tests {
             Arc::new(FlatLayoutStrategy::default()),
             Arc::new(FlatLayoutStrategy::default()),
         );
-        let layout = block_on(|handle| {
-            strategy.write_stream(
-                ctx,
-                segments.clone(),
-                StructArray::try_from_iter_with_validity(
-                    [(
-                        "a",
-                        StructArray::try_from_iter_with_validity(
-                            [(
-                                "b",
-                                StructArray::try_from_iter_with_validity(
-                                    [("c", buffer![4, 5, 6].into_array())],
-                                    Validity::NonNullable,
-                                )
-                                .unwrap()
-                                .into_array(),
-                            )],
-                            Validity::Array(BoolArray::from_iter([true, false, true]).into_array()),
-                        )
-                        .unwrap()
-                        .into_array(),
-                    )],
-                    Validity::NonNullable,
+        let segments2 = Arc::<TestSegments>::clone(&segments);
+        let layout = block_on(|handle| async move {
+            let session = SESSION.clone().with_handle(handle);
+            strategy
+                .write_stream(
+                    ctx,
+                    segments2,
+                    StructArray::try_from_iter_with_validity(
+                        [(
+                            "a",
+                            StructArray::try_from_iter_with_validity(
+                                [(
+                                    "b",
+                                    StructArray::try_from_iter_with_validity(
+                                        [("c", buffer![4, 5, 6].into_array())],
+                                        Validity::NonNullable,
+                                    )
+                                    .unwrap()
+                                    .into_array(),
+                                )],
+                                Validity::Array(
+                                    BoolArray::from_iter([true, false, true]).into_array(),
+                                ),
+                            )
+                            .unwrap()
+                            .into_array(),
+                        )],
+                        Validity::NonNullable,
+                    )
+                    .unwrap()
+                    .into_array()
+                    .to_array_stream()
+                    .sequenced(ptr),
+                    eof,
+                    &session,
                 )
-                .unwrap()
-                .into_array()
-                .to_array_stream()
-                .sequenced(ptr),
-                eof,
-                handle,
-            )
+                .await
         })
         .unwrap();
 
@@ -702,7 +720,9 @@ mod tests {
 
         // ...and the result is masked with the validity of the parent StructArray
         assert_eq!(
-            result.scalar_at(0).unwrap(),
+            result
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::null(result.dtype().clone()),
         );
         assert_nth_scalar!(result, 1, 2);
@@ -744,7 +764,7 @@ mod tests {
         // Row 0: struct is valid, field "c" is 4.
         assert_eq!(
             result
-                .scalar_at(0)
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .as_struct()
                 .field_by_idx(0)
@@ -753,12 +773,18 @@ mod tests {
         );
 
         // Row 1: struct is null (because root.a.b was null at this row).
-        assert!(result.scalar_at(1).unwrap().as_struct().is_null());
+        assert!(
+            result
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .as_struct()
+                .is_null()
+        );
 
         // Row 2: struct is valid, field "c" is 6.
         assert_eq!(
             result
-                .scalar_at(2)
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .as_struct()
                 .field_by_idx(0)

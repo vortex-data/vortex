@@ -11,6 +11,8 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::Ref;
 use crate::builders::ArrayBuilder;
@@ -36,7 +38,7 @@ impl VarBinViewArray {
     }
 
     fn should_compact(&self) -> VortexResult<bool> {
-        let nbuffers = self.nbuffers();
+        let nbuffers = self.data_buffers().len();
 
         // If the array is entirely inlined strings, do not attempt to compact.
         if nbuffers == 0 {
@@ -63,7 +65,10 @@ impl VarBinViewArray {
     where
         F: FnMut(&Ref),
     {
-        match self.validity_mask()? {
+        match self.as_ref().validity()?.to_mask(
+            self.as_ref().len(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )? {
             Mask::AllTrue(_) => {
                 for &view in self.views().iter() {
                     if !view.is_inlined() {
@@ -93,7 +98,7 @@ impl VarBinViewArray {
 
     pub(crate) fn buffer_utilizations(&self) -> VortexResult<Vec<BufferUtilization>> {
         let mut utilizations: Vec<BufferUtilization> = self
-            .buffers()
+            .data_buffers()
             .iter()
             .map(|buf| {
                 let len = u32::try_from(buf.len()).vortex_expect("buffer sizes must fit in u32");
@@ -207,17 +212,17 @@ mod tests {
         ]);
 
         // Verify it has buffers
-        assert!(original.nbuffers() > 0);
-        let original_buffers = original.nbuffers();
+        assert!(!original.data_buffers().is_empty());
+        let original_buffers = original.data_buffers().len();
 
         // Take only the first and last elements (indices 0 and 4)
         let indices = buffer![0u32, 4u32].into_array();
-        let taken = original.take(indices.to_array()).unwrap();
+        let taken = original.take(indices).unwrap();
         let taken = taken
             .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
         // The taken array should still have the same number of buffers
-        assert_eq!(taken.nbuffers(), original_buffers);
+        assert_eq!(taken.data_buffers().len(), original_buffers);
 
         // Now optimize the taken array
         let optimized_array = taken.compact_buffers().unwrap();
@@ -225,7 +230,7 @@ mod tests {
         // The optimized array should have compacted buffers
         // Since both remaining strings are short, they should be inlined
         // so we might have 0 buffers, or 1 buffer if any were not inlined
-        assert!(optimized_array.nbuffers() <= 1);
+        assert!(optimized_array.data_buffers().len() <= 1);
 
         // Verify the data is still correct
         assert_arrays_eq!(
@@ -251,7 +256,7 @@ mod tests {
 
         // Take only the first and third long strings (indices 0 and 2)
         let indices = buffer![0u32, 2u32].into_array();
-        let taken = original.take(indices.to_array()).unwrap();
+        let taken = original.take(indices).unwrap();
         let taken_array = taken
             .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
@@ -260,7 +265,7 @@ mod tests {
         let optimized_array = taken_array.compact_buffers().unwrap();
 
         // The optimized array should have exactly 1 buffer (consolidated)
-        assert_eq!(optimized_array.nbuffers(), 1);
+        assert_eq!(optimized_array.data_buffers().len(), 1);
 
         // Verify the data is still correct
         assert_arrays_eq!(
@@ -275,12 +280,12 @@ mod tests {
         let original = VarBinViewArray::from_iter_str(["a", "bb", "ccc", "dddd"]);
 
         // This should have no buffers
-        assert_eq!(original.nbuffers(), 0);
+        assert_eq!(original.data_buffers().len(), 0);
 
         // Optimize should return the same array
         let optimized_array = original.compact_buffers().unwrap();
 
-        assert_eq!(optimized_array.nbuffers(), 0);
+        assert_eq!(optimized_array.data_buffers().len(), 0);
 
         assert_arrays_eq!(optimized_array, original);
     }
@@ -293,13 +298,13 @@ mod tests {
         let original = VarBinViewArray::from_iter_str([str1, str2]);
 
         // Should have 1 compact buffer
-        assert_eq!(original.nbuffers(), 1);
+        assert_eq!(original.data_buffers().len(), 1);
         assert_eq!(original.buffer(0).len(), str1.len() + str2.len());
 
         // Optimize should return the same array (no change needed)
         let optimized_array = original.compact_buffers().unwrap();
 
-        assert_eq!(optimized_array.nbuffers(), 1);
+        assert_eq!(optimized_array.data_buffers().len(), 1);
 
         assert_arrays_eq!(optimized_array, original);
     }
@@ -312,12 +317,12 @@ mod tests {
             "another very long string that definitely needs a buffer to store it",
         ]);
 
-        let original_buffers = original.nbuffers();
+        let original_buffers = original.data_buffers().len();
         assert!(original_buffers > 0);
 
         // Take only first element
         let indices = buffer![0u32].into_array();
-        let taken = original.take(indices.to_array()).unwrap();
+        let taken = original.take(indices).unwrap();
         let taken = taken
             .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
@@ -325,7 +330,7 @@ mod tests {
         let compacted = taken.compact_with_threshold(0.0).unwrap();
 
         // Should still have the same number of buffers as the taken array
-        assert_eq!(compacted.nbuffers(), taken.nbuffers());
+        assert_eq!(compacted.data_buffers().len(), taken.data_buffers().len());
 
         // Verify correctness
         assert_arrays_eq!(compacted, taken);
@@ -342,19 +347,18 @@ mod tests {
 
         // Take only first and last elements
         let indices = buffer![0u32, 2u32].into_array();
-        let taken = original.take(indices.to_array()).unwrap();
+        let taken = original.take(indices).unwrap();
         let taken = taken
-            .clone()
             .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
 
-        let original_buffers = taken.nbuffers();
+        let original_buffers = taken.data_buffers().len();
 
         // Compact with threshold=1.0 (aggressive compaction)
         let compacted = taken.compact_with_threshold(1.0).unwrap();
 
         // Should have compacted buffers
-        assert!(compacted.nbuffers() <= original_buffers);
+        assert!(compacted.data_buffers().len() <= original_buffers);
 
         // Verify correctness
         assert_arrays_eq!(compacted, taken);
@@ -370,13 +374,13 @@ mod tests {
         let original = VarBinViewArray::from_iter_str([str1, str2, str3]);
 
         // All strings should be in one well-utilized buffer
-        assert_eq!(original.nbuffers(), 1);
+        assert_eq!(original.data_buffers().len(), 1);
 
         // Compact with high threshold
         let compacted = original.compact_with_threshold(0.8).unwrap();
 
         // Well-utilized buffer should be preserved
-        assert_eq!(compacted.nbuffers(), 1);
+        assert_eq!(compacted.data_buffers().len(), 1);
 
         // Verify all data is correct
         assert_arrays_eq!(compacted, original);
@@ -398,7 +402,7 @@ mod tests {
 
         // Take every other element to create mixed utilization
         let indices_array = buffer![0u32, 2u32, 4u32, 6u32, 8u32].into_array();
-        let taken = original.take(indices_array.to_array()).unwrap();
+        let taken = original.take(indices_array).unwrap();
         let taken = taken
             .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
@@ -424,13 +428,13 @@ mod tests {
 
         // Take only the first 5 elements - they should be in a contiguous range at the start
         let indices_array = buffer![0u32, 1u32, 2u32, 3u32, 4u32].into_array();
-        let taken = original.take(indices_array.to_array()).unwrap();
+        let taken = original.take(indices_array).unwrap();
         let taken = taken
             .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
         // Get buffer stats before compaction
         let utils_before = taken.buffer_utilizations().unwrap();
-        let original_buffer_count = taken.nbuffers();
+        let original_buffer_count = taken.data_buffers().len();
 
         // Compact with a threshold that should trigger slicing
         // The range utilization should be high even if overall utilization is low
@@ -438,7 +442,7 @@ mod tests {
 
         // After compaction, we should still have buffers (sliced, not rewritten)
         assert!(
-            compacted.nbuffers() > 0,
+            !compacted.data_buffers().is_empty(),
             "Should have buffers after slice compaction"
         );
 
@@ -449,7 +453,7 @@ mod tests {
         // (it was sliced, not rewritten into multiple buffers)
         if original_buffer_count == 1 && utils_before[0].range_utilization() >= 0.8 {
             assert_eq!(
-                compacted.nbuffers(),
+                compacted.data_buffers().len(),
                 1,
                 "Slice strategy should maintain single buffer"
             );

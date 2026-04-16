@@ -1,24 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
-use crate::IntoArray;
-use crate::LEGACY_SESSION;
-use crate::ToCanonical;
-use crate::VortexSessionExecute;
-use crate::aggregate_fn::fns::min_max::min_max;
-use crate::arrays::PrimitiveArray;
-use crate::builtins::ArrayBuiltins;
-use crate::dtype::DType;
+use super::PrimitiveData;
 use crate::dtype::NativePType;
-use crate::dtype::PType;
-use crate::vtable::ValidityHelper;
 
-impl PrimitiveArray {
+impl PrimitiveData {
     /// Return a slice of the array's buffer.
     ///
     /// NOTE: these values may be nonsense if the validity buffer indicates that the value is null.
@@ -44,110 +33,6 @@ impl PrimitiveArray {
         // SAFETY: alignment of Buffer is checked on construction
         unsafe { std::slice::from_raw_parts(raw_slice.cast(), byte_buffer.len() / size_of::<T>()) }
     }
-
-    pub fn reinterpret_cast(&self, ptype: PType) -> Self {
-        if self.ptype() == ptype {
-            return self.clone();
-        }
-
-        assert_eq!(
-            self.ptype().byte_width(),
-            ptype.byte_width(),
-            "can't reinterpret cast between integers of two different widths"
-        );
-
-        PrimitiveArray::from_buffer_handle(
-            self.buffer_handle().clone(),
-            ptype,
-            self.validity().clone(),
-        )
-    }
-
-    /// Narrow the array to the smallest possible integer type that can represent all values.
-    pub fn narrow(&self) -> VortexResult<PrimitiveArray> {
-        if !self.ptype().is_int() {
-            return Ok(self.clone());
-        }
-
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let Some(min_max) = min_max(&self.clone().into_array(), &mut ctx)? else {
-            return Ok(PrimitiveArray::new(
-                Buffer::<u8>::zeroed(self.len()),
-                self.validity.clone(),
-            ));
-        };
-
-        // If we can't cast to i64, then leave the array as its original type.
-        // It's too big to downcast anyway.
-        let Ok(min) = min_max
-            .min
-            .cast(&PType::I64.into())
-            .and_then(|s| i64::try_from(&s))
-        else {
-            return Ok(self.clone());
-        };
-        let Ok(max) = min_max
-            .max
-            .cast(&PType::I64.into())
-            .and_then(|s| i64::try_from(&s))
-        else {
-            return Ok(self.clone());
-        };
-
-        if min < 0 || max < 0 {
-            // Signed
-            if min >= i8::MIN as i64 && max <= i8::MAX as i64 {
-                return Ok(self
-                    .clone()
-                    .into_array()
-                    .cast(DType::Primitive(PType::I8, self.dtype().nullability()))?
-                    .to_primitive());
-            }
-
-            if min >= i16::MIN as i64 && max <= i16::MAX as i64 {
-                return Ok(self
-                    .clone()
-                    .into_array()
-                    .cast(DType::Primitive(PType::I16, self.dtype().nullability()))?
-                    .to_primitive());
-            }
-
-            if min >= i32::MIN as i64 && max <= i32::MAX as i64 {
-                return Ok(self
-                    .clone()
-                    .into_array()
-                    .cast(DType::Primitive(PType::I32, self.dtype().nullability()))?
-                    .to_primitive());
-            }
-        } else {
-            // Unsigned
-            if max <= u8::MAX as i64 {
-                return Ok(self
-                    .clone()
-                    .into_array()
-                    .cast(DType::Primitive(PType::U8, self.dtype().nullability()))?
-                    .to_primitive());
-            }
-
-            if max <= u16::MAX as i64 {
-                return Ok(self
-                    .clone()
-                    .into_array()
-                    .cast(DType::Primitive(PType::U16, self.dtype().nullability()))?
-                    .to_primitive());
-            }
-
-            if max <= u32::MAX as i64 {
-                return Ok(self
-                    .clone()
-                    .into_array()
-                    .cast(DType::Primitive(PType::U32, self.dtype().nullability()))?
-                    .to_primitive());
-            }
-        }
-
-        Ok(self.clone())
-    }
 }
 
 #[cfg(test)]
@@ -157,6 +42,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::primitive::PrimitiveArrayExt;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -174,7 +60,7 @@ mod tests {
             result.dtype(),
             &DType::Primitive(PType::U8, Nullability::Nullable)
         );
-        assert!(matches!(result.validity, Validity::AllInvalid));
+        assert!(matches!(result.validity(), Ok(Validity::AllInvalid)));
     }
 
     #[rstest]
@@ -220,7 +106,7 @@ mod tests {
             &DType::Primitive(PType::U8, Nullability::Nullable)
         );
         // Check that validity is preserved (the array should still have nullable values)
-        assert!(matches!(&result.validity, Validity::Array(_)));
+        assert!(matches!(result.validity(), Ok(Validity::Array(_))));
     }
 
     #[test]
@@ -257,7 +143,7 @@ mod tests {
         let array2 = PrimitiveArray::new(Buffer::<i64>::empty(), Validity::NonNullable);
         let result2 = array2.narrow().unwrap();
         // Empty arrays should not have their validity changed
-        assert!(matches!(result.validity, Validity::AllInvalid));
-        assert!(matches!(result2.validity, Validity::NonNullable));
+        assert!(matches!(result.validity(), Ok(Validity::AllInvalid)));
+        assert!(matches!(result2.validity(), Ok(Validity::NonNullable)));
     }
 }

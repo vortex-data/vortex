@@ -64,8 +64,8 @@ By default, our tests use a precompiled build which means you don't get an
 
 2. If there is an api difference between duckdb-vortex's duckdb submodule and
    vortex's vortex-duckdb/duckdb submodule, checkout duckdb-vortex to previous
-   commit. For example, if duckdb-vortex's HEAD uses 1.5 API but vortex's HEAD
-   uses 1.4.2, checkout duckdb-vortex at 8a41ee6ebd9.
+   commit. For example, if duckdb-vortex's HEAD uses 1.6 API but vortex's HEAD
+   uses 1.5.2, checkout duckdb-vortex at 8a41ee6ebd9.
 
 3. Update duckdb-vortex's submodules. Replace vortex/ submodule by a softlink to
    your local vortex repository.

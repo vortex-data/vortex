@@ -11,7 +11,8 @@ use futures::stream;
 use vortex_array::ArrayContext;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_io::runtime::Handle;
+use vortex_io::session::RuntimeSessionExt;
+use vortex_session::VortexSession;
 
 use crate::IntoLayout;
 use crate::LayoutRef;
@@ -46,11 +47,12 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,
-        handle: Handle,
+        session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let dtype2 = dtype.clone();
-        let chunk_strategy = self.chunk_strategy.clone();
+        let chunk_strategy = Arc::clone(&self.chunk_strategy);
+        let handle = session.handle();
 
         // We spawn each child to allow parallelism when processing chunks.
         let stream = stream! {
@@ -58,12 +60,14 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
             while let Some(chunk) = stream.next().await {
                 let chunk_eof = eof.split_off();
 
-                let chunk_strategy = chunk_strategy.clone();
+                let chunk_strategy = Arc::clone(&chunk_strategy);
                 let ctx = ctx.clone();
-                let segment_sink = segment_sink.clone();
+                let segment_sink = Arc::clone(&segment_sink);
                 let dtype = dtype2.clone();
+                let session = session.clone();
 
                 yield handle.spawn_nested(move |handle| async move {
+                    let session = session.with_handle(handle);
                     chunk_strategy
                         .write_stream(
                             ctx,
@@ -74,7 +78,7 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
                             )
                             .sendable(),
                             chunk_eof,
-                            handle,
+                            &session,
                         )
                         .await
                 })

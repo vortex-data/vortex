@@ -71,19 +71,11 @@ impl AggregateFnVTable for Sum {
     type Partial = SumPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new_ref("vortex.sum")
+        AggregateFnId::new("vortex.sum")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        _metadata: &[u8],
-        _session: &vortex_session::VortexSession,
-    ) -> VortexResult<Self::Options> {
-        Ok(EmptyOptions)
+        unimplemented!("Sum is not yet serializable");
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
@@ -225,7 +217,7 @@ impl AggregateFnVTable for Sum {
         &self,
         partial: &mut Self::Partial,
         batch: &Columnar,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         // Constants compute scalar * len and combine via combine_partials.
         if let Columnar::Constant(c) = batch {
@@ -242,9 +234,9 @@ impl AggregateFnVTable for Sum {
 
         let result = match batch {
             Columnar::Canonical(c) => match c {
-                Canonical::Primitive(p) => accumulate_primitive(&mut inner, p),
-                Canonical::Bool(b) => accumulate_bool(&mut inner, b),
-                Canonical::Decimal(d) => accumulate_decimal(&mut inner, d),
+                Canonical::Primitive(p) => accumulate_primitive(&mut inner, p, ctx),
+                Canonical::Bool(b) => accumulate_bool(&mut inner, b, ctx),
+                Canonical::Decimal(d) => accumulate_decimal(&mut inner, d, ctx),
                 _ => vortex_bail!("Unsupported canonical type for sum: {}", batch.dtype()),
             },
             Columnar::Constant(_) => unreachable!(),
@@ -339,7 +331,6 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::ArrayRef;
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;

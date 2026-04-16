@@ -4,7 +4,7 @@
 use std::fmt::Debug;
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
@@ -19,7 +19,8 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::ALP;
-use crate::ALPArray;
+use crate::ALPArrayExt;
+use crate::ALPArraySlotsExt;
 use crate::ALPFloat;
 use crate::match_each_alp_float_ptype;
 
@@ -27,7 +28,7 @@ use crate::match_each_alp_float_ptype;
 
 impl CompareKernel for ALP {
     fn compare(
-        lhs: &ALPArray,
+        lhs: ArrayView<'_, Self>,
         rhs: &ArrayRef,
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
@@ -70,7 +71,7 @@ impl CompareKernel for ALP {
 /// the encoded value to the encoded values in the ALPArray. There are fixups when the value doesn't
 /// encode into the ALP domain.
 fn alp_scalar_compare<F: ALPFloat + Into<Scalar>>(
-    alp: &ALPArray,
+    alp: ArrayView<ALP>,
     value: F,
     operator: CompareOperator,
 ) -> VortexResult<Option<ArrayRef>>
@@ -151,7 +152,9 @@ where
 mod tests {
     use rstest::rstest;
     use vortex_array::ArrayRef;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -168,7 +171,7 @@ mod tests {
     use crate::alp_encode;
 
     fn test_alp_compare<F: ALPFloat + Into<Scalar>>(
-        alp: &ALPArray,
+        alp: ArrayView<ALP>,
         value: F,
         operator: CompareOperator,
     ) -> Option<ArrayRef>
@@ -182,20 +185,25 @@ mod tests {
     #[test]
     fn basic_comparison_test() {
         let array = PrimitiveArray::from_iter([1.234f32; 1025]);
-        let encoded = alp_encode(&array, None).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
             encoded.encoded().to_primitive().as_slice::<i32>(),
             vec![1234; 1025]
         );
 
-        let r = alp_scalar_compare(&encoded, 1.3_f32, CompareOperator::Eq)
+        let r = alp_scalar_compare(encoded.as_view(), 1.3_f32, CompareOperator::Eq)
             .unwrap()
             .unwrap();
         let expected = BoolArray::from_iter([false; 1025]);
         assert_arrays_eq!(r, expected);
 
-        let r = alp_scalar_compare(&encoded, 1.234f32, CompareOperator::Eq)
+        let r = alp_scalar_compare(encoded.as_view(), 1.234f32, CompareOperator::Eq)
             .unwrap()
             .unwrap();
         let expected = BoolArray::from_iter([true; 1025]);
@@ -205,22 +213,25 @@ mod tests {
     #[test]
     fn comparison_with_unencodable_value() {
         let array = PrimitiveArray::from_iter([1.234f32; 1025]);
-        let encoded = alp_encode(&array, None).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
             encoded.encoded().to_primitive().as_slice::<i32>(),
             vec![1234; 1025]
         );
 
-        #[allow(clippy::excessive_precision)]
-        let r_eq = alp_scalar_compare(&encoded, 1.234444_f32, CompareOperator::Eq)
+        let r_eq = alp_scalar_compare(encoded.as_view(), 1.234444_f32, CompareOperator::Eq)
             .unwrap()
             .unwrap();
         let expected = BoolArray::from_iter([false; 1025]);
         assert_arrays_eq!(r_eq, expected);
 
-        #[allow(clippy::excessive_precision)]
-        let r_neq = alp_scalar_compare(&encoded, 1.234444f32, CompareOperator::NotEq)
+        let r_neq = alp_scalar_compare(encoded.as_view(), 1.234444f32, CompareOperator::NotEq)
             .unwrap()
             .unwrap();
         let expected = BoolArray::from_iter([true; 1025]);
@@ -230,7 +241,12 @@ mod tests {
     #[test]
     fn comparison_range() {
         let array = PrimitiveArray::from_iter([0.0605_f32; 10]);
-        let encoded = alp_encode(&array, None).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
             encoded.encoded().to_primitive().as_slice::<i32>(),
@@ -238,28 +254,28 @@ mod tests {
         );
 
         // !(0.0605_f32 >= 0.06051_f32);
-        let r_gte = alp_scalar_compare(&encoded, 0.06051_f32, CompareOperator::Gte)
+        let r_gte = alp_scalar_compare(encoded.as_view(), 0.06051_f32, CompareOperator::Gte)
             .unwrap()
             .unwrap();
         let expected = BoolArray::from_iter([false; 10]);
         assert_arrays_eq!(r_gte, expected);
 
         // (0.0605_f32 > 0.06051_f32);
-        let r_gt = alp_scalar_compare(&encoded, 0.06051_f32, CompareOperator::Gt)
+        let r_gt = alp_scalar_compare(encoded.as_view(), 0.06051_f32, CompareOperator::Gt)
             .unwrap()
             .unwrap();
         let expected = BoolArray::from_iter([false; 10]);
         assert_arrays_eq!(r_gt, expected);
 
         // 0.0605_f32 <= 0.06051_f32;
-        let r_lte = alp_scalar_compare(&encoded, 0.06051_f32, CompareOperator::Lte)
+        let r_lte = alp_scalar_compare(encoded.as_view(), 0.06051_f32, CompareOperator::Lte)
             .unwrap()
             .unwrap();
         let expected = BoolArray::from_iter([true; 10]);
         assert_arrays_eq!(r_lte, expected);
 
         //0.0605_f32 < 0.06051_f32;
-        let r_lt = alp_scalar_compare(&encoded, 0.06051_f32, CompareOperator::Lt)
+        let r_lt = alp_scalar_compare(encoded.as_view(), 0.06051_f32, CompareOperator::Lt)
             .unwrap()
             .unwrap();
         let expected = BoolArray::from_iter([true; 10]);
@@ -269,38 +285,45 @@ mod tests {
     #[test]
     fn comparison_zeroes() {
         let array = PrimitiveArray::from_iter([0.0_f32; 10]);
-        let encoded = alp_encode(&array, None).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
             encoded.encoded().to_primitive().as_slice::<i32>(),
             vec![0; 10]
         );
 
-        let r_gte = test_alp_compare(&encoded, -0.00000001_f32, CompareOperator::Gte).unwrap();
+        let r_gte =
+            test_alp_compare(encoded.as_view(), -0.00000001_f32, CompareOperator::Gte).unwrap();
         let expected = BoolArray::from_iter([true; 10]);
         assert_arrays_eq!(r_gte, expected);
 
-        let r_gte = test_alp_compare(&encoded, -0.0_f32, CompareOperator::Gte).unwrap();
+        let r_gte = test_alp_compare(encoded.as_view(), -0.0_f32, CompareOperator::Gte).unwrap();
         let expected = BoolArray::from_iter([true; 10]);
         assert_arrays_eq!(r_gte, expected);
 
-        let r_gt = test_alp_compare(&encoded, -0.0000000001f32, CompareOperator::Gt).unwrap();
+        let r_gt =
+            test_alp_compare(encoded.as_view(), -0.0000000001f32, CompareOperator::Gt).unwrap();
         let expected = BoolArray::from_iter([true; 10]);
         assert_arrays_eq!(r_gt, expected);
 
-        let r_gte = test_alp_compare(&encoded, -0.0_f32, CompareOperator::Gt).unwrap();
+        let r_gte = test_alp_compare(encoded.as_view(), -0.0_f32, CompareOperator::Gt).unwrap();
         let expected = BoolArray::from_iter([true; 10]);
         assert_arrays_eq!(r_gte, expected);
 
-        let r_lte = test_alp_compare(&encoded, 0.06051_f32, CompareOperator::Lte).unwrap();
+        let r_lte = test_alp_compare(encoded.as_view(), 0.06051_f32, CompareOperator::Lte).unwrap();
         let expected = BoolArray::from_iter([true; 10]);
         assert_arrays_eq!(r_lte, expected);
 
-        let r_lt = test_alp_compare(&encoded, 0.06051_f32, CompareOperator::Lt).unwrap();
+        let r_lt = test_alp_compare(encoded.as_view(), 0.06051_f32, CompareOperator::Lt).unwrap();
         let expected = BoolArray::from_iter([true; 10]);
         assert_arrays_eq!(r_lt, expected);
 
-        let r_lt = test_alp_compare(&encoded, -0.00001_f32, CompareOperator::Lt).unwrap();
+        let r_lt = test_alp_compare(encoded.as_view(), -0.00001_f32, CompareOperator::Lt).unwrap();
         let expected = BoolArray::from_iter([false; 10]);
         assert_arrays_eq!(r_lt, expected);
     }
@@ -309,12 +332,17 @@ mod tests {
     fn compare_with_patches() {
         let array =
             PrimitiveArray::from_iter([1.234f32, 1.5, 19.0, std::f32::consts::E, 1_000_000.9]);
-        let encoded = alp_encode(&array, None).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         assert!(encoded.patches().is_some());
 
         // Not supported!
         assert!(
-            alp_scalar_compare(&encoded, 1_000_000.9_f32, CompareOperator::Eq)
+            alp_scalar_compare(encoded.as_view(), 1_000_000.9_f32, CompareOperator::Eq)
                 .unwrap()
                 .is_none()
         )
@@ -323,7 +351,12 @@ mod tests {
     #[test]
     fn compare_to_null() {
         let array = PrimitiveArray::from_iter([1.234f32; 10]);
-        let encoded = alp_encode(&array, None).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         let other = ConstantArray::new(
             Scalar::null(DType::Primitive(PType::F32, Nullability::Nullable)),
@@ -346,9 +379,14 @@ mod tests {
     #[case(f32::NEG_INFINITY, true)]
     fn compare_to_non_finite_gt(#[case] value: f32, #[case] result: bool) {
         let array = PrimitiveArray::from_iter([1.234f32; 10]);
-        let encoded = alp_encode(&array, None).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
-        let r = test_alp_compare(&encoded, value, CompareOperator::Gt).unwrap();
+        let r = test_alp_compare(encoded.as_view(), value, CompareOperator::Gt).unwrap();
         let expected = BoolArray::from_iter([result; 10]);
         assert_arrays_eq!(r, expected);
     }
@@ -360,9 +398,14 @@ mod tests {
     #[case(f32::NEG_INFINITY, false)]
     fn compare_to_non_finite_lt(#[case] value: f32, #[case] result: bool) {
         let array = PrimitiveArray::from_iter([1.234f32; 10]);
-        let encoded = alp_encode(&array, None).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
-        let r = test_alp_compare(&encoded, value, CompareOperator::Lt).unwrap();
+        let r = test_alp_compare(encoded.as_view(), value, CompareOperator::Lt).unwrap();
         let expected = BoolArray::from_iter([result; 10]);
         assert_arrays_eq!(r, expected);
     }

@@ -3,20 +3,20 @@
 
 use vortex_error::VortexResult;
 
-use crate::DynArray;
 use crate::ExecutionCtx;
+use crate::array::ArrayView;
+use crate::array::OperationsVTable;
 use crate::arrays::Masked;
-use crate::arrays::MaskedArray;
+use crate::arrays::masked::MaskedArrayExt;
 use crate::scalar::Scalar;
-use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<Masked> for Masked {
     fn scalar_at(
-        array: &MaskedArray,
+        array: ArrayView<'_, Masked>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         // Invalid indices are handled by the entrypoint function.
-        Ok(array.child.scalar_at(index)?.into_nullable())
+        Ok(array.child().execute_scalar(index, ctx)?.into_nullable())
     }
 }

@@ -236,7 +236,7 @@ async fn test_filter_schema_evolution_struct_fields(
     let read_schema = host02.schema();
 
     let provider = ctx
-        .table_provider("tbl", "/files/", read_schema.clone())
+        .table_provider("tbl", "/files/", Arc::clone(&read_schema))
         .await?;
 
     let table = ctx.session.read_table(provider)?;
@@ -359,7 +359,7 @@ async fn test_schema_evolution_struct_of_dict(
     let read_schema = batch.schema();
 
     let provider = ctx
-        .table_provider("tbl", "/files/", read_schema.clone())
+        .table_provider("tbl", "/files/", Arc::clone(&read_schema))
         .await?;
 
     let table = ctx.session.read_table(provider)?;
@@ -582,7 +582,7 @@ async fn test_dictionary_column_type_preservation(
     // Create table with explicit schema that expects Dictionary types
     let table_schema = batch.schema();
     let provider = ctx
-        .table_provider("tbl", "/files/", table_schema.clone())
+        .table_provider("tbl", "/files/", Arc::clone(&table_schema))
         .await?;
 
     let table = ctx.session.read_table(provider)?;
@@ -652,13 +652,15 @@ async fn test_nested_struct_dictionary_type_preservation(
     ]));
 
     let batch = RecordBatch::try_new(
-        schema.clone(),
+        Arc::clone(&schema),
         vec![Arc::new(labels_struct), value_array, producer_array],
     )?;
 
     ctx.write_arrow_batch("files/data.vortex", &batch).await?;
 
-    let provider = ctx.table_provider("tbl", "/files/", schema.clone()).await?;
+    let provider = ctx
+        .table_provider("tbl", "/files/", Arc::clone(&schema))
+        .await?;
     let table = ctx.session.read_table(provider)?;
 
     // Query that projects a nested struct field (like in polarsignals Q0)
@@ -740,7 +742,7 @@ async fn test_polarsignals_like_schema(
     ]));
 
     let batch = RecordBatch::try_new(
-        schema.clone(),
+        Arc::clone(&schema),
         vec![
             Arc::new(labels_struct),
             value_array,
@@ -754,7 +756,9 @@ async fn test_polarsignals_like_schema(
 
     ctx.write_arrow_batch("files/data.vortex", &batch).await?;
 
-    let provider = ctx.table_provider("tbl", "/files/", schema.clone()).await?;
+    let provider = ctx
+        .table_provider("tbl", "/files/", Arc::clone(&schema))
+        .await?;
     let table = ctx.session.read_table(provider)?;
 
     // Query like polarsignals Q0: filter on multiple dictionary columns, project value and labels.comm
@@ -815,7 +819,7 @@ async fn test_external_table_dictionary_columns(
     ]));
 
     let batch = RecordBatch::try_new(
-        schema.clone(),
+        Arc::clone(&schema),
         vec![producer_array, sample_type_array, value_array],
     )?;
 
@@ -901,7 +905,7 @@ async fn test_sql_struct_field_dictionary_type(
     ]));
 
     let batch = RecordBatch::try_new(
-        schema.clone(),
+        Arc::clone(&schema),
         vec![
             Arc::new(labels_struct),
             value_array,

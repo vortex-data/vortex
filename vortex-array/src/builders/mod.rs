@@ -11,6 +11,7 @@
 //! ```
 //! use vortex_array::builders::{builder_with_capacity, ArrayBuilder};
 //! use vortex_array::dtype::{DType, Nullability};
+//! use vortex_array::{LEGACY_SESSION, VortexSessionExecute};
 //!
 //! // Create a new builder for string data.
 //! let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4);
@@ -21,14 +22,16 @@
 //! builder.append_scalar(&"d".into()).unwrap();
 //!
 //! let strings = builder.finish();
+//! let mut ctx = LEGACY_SESSION.create_execution_ctx();
 //!
-//! assert_eq!(strings.scalar_at(0).unwrap(), "a".into());
-//! assert_eq!(strings.scalar_at(1).unwrap(), "b".into());
-//! assert_eq!(strings.scalar_at(2).unwrap(), "c".into());
-//! assert_eq!(strings.scalar_at(3).unwrap(), "d".into());
+//! assert_eq!(strings.execute_scalar(0, &mut ctx).unwrap(), "a".into());
+//! assert_eq!(strings.execute_scalar(1, &mut ctx).unwrap(), "b".into());
+//! assert_eq!(strings.execute_scalar(2, &mut ctx).unwrap(), "c".into());
+//! assert_eq!(strings.execute_scalar(3, &mut ctx).unwrap(), "d".into());
 //! ```
 
 use std::any::Any;
+use std::sync::Arc;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -39,6 +42,7 @@ use crate::canonical::Canonical;
 use crate::dtype::DType;
 use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
+use crate::memory::HostAllocatorRef;
 use crate::scalar::Scalar;
 
 mod lazy_null_builder;
@@ -221,6 +225,7 @@ pub trait ArrayBuilder: Send {
 /// ```
 /// use vortex_array::builders::{builder_with_capacity, ArrayBuilder};
 /// use vortex_array::dtype::{DType, Nullability};
+/// use vortex_array::{LEGACY_SESSION, VortexSessionExecute};
 ///
 /// // Create a new builder for string data.
 /// let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4);
@@ -231,11 +236,12 @@ pub trait ArrayBuilder: Send {
 /// builder.append_scalar(&"d".into()).unwrap();
 ///
 /// let strings = builder.finish();
+/// let mut ctx = LEGACY_SESSION.create_execution_ctx();
 ///
-/// assert_eq!(strings.scalar_at(0).unwrap(), "a".into());
-/// assert_eq!(strings.scalar_at(1).unwrap(), "b".into());
-/// assert_eq!(strings.scalar_at(2).unwrap(), "c".into());
-/// assert_eq!(strings.scalar_at(3).unwrap(), "d".into());
+/// assert_eq!(strings.execute_scalar(0, &mut ctx).unwrap(), "a".into());
+/// assert_eq!(strings.execute_scalar(1, &mut ctx).unwrap(), "b".into());
+/// assert_eq!(strings.execute_scalar(2, &mut ctx).unwrap(), "c".into());
+/// assert_eq!(strings.execute_scalar(3, &mut ctx).unwrap(), "d".into());
 /// ```
 pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBuilder> {
     match dtype {
@@ -269,14 +275,19 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
             capacity,
         )),
         DType::List(dtype, n) => Box::new(ListViewBuilder::<u64, u64>::with_capacity(
-            dtype.clone(),
+            Arc::clone(dtype),
             *n,
             2 * capacity, // Arbitrarily choose 2 times the `offsets` capacity here.
             capacity,
         )),
-        DType::FixedSizeList(elem_dtype, list_size, null) => Box::new(
-            FixedSizeListBuilder::with_capacity(elem_dtype.clone(), *list_size, *null, capacity),
-        ),
+        DType::FixedSizeList(elem_dtype, list_size, null) => {
+            Box::new(FixedSizeListBuilder::with_capacity(
+                Arc::clone(elem_dtype),
+                *list_size,
+                *null,
+                capacity,
+            ))
+        }
         DType::Extension(ext_dtype) => {
             Box::new(ExtensionBuilder::with_capacity(ext_dtype.clone(), capacity))
         }
@@ -284,4 +295,15 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
             unimplemented!()
         }
     }
+}
+
+/// Construct a new canonical builder for the given [`DType`] using a host
+/// [`crate::memory::HostAllocator`].
+pub fn builder_with_capacity_in(
+    allocator: HostAllocatorRef,
+    dtype: &DType,
+    capacity: usize,
+) -> Box<dyn ArrayBuilder> {
+    let _allocator = allocator;
+    builder_with_capacity(dtype, capacity)
 }

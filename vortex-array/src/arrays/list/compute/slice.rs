@@ -7,18 +7,19 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::List;
 use crate::arrays::ListArray;
+use crate::arrays::list::ListArrayExt;
 use crate::arrays::slice::SliceReduce;
-use crate::vtable::ValidityHelper;
 
 impl SliceReduce for List {
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             ListArray::new(
                 array.elements().clone(),
                 array.offsets().slice(range.start..range.end + 1)?,
-                array.validity().slice(range)?,
+                array.validity()?.slice(range)?,
             )
             .into_array(),
         ))

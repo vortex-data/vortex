@@ -8,7 +8,6 @@ use async_trait::async_trait;
 use futures::TryStreamExt;
 use glob::glob;
 use vortex::array::ArrayRef;
-use vortex::array::DynArray;
 use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::ChunkedArray;

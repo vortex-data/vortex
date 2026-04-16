@@ -14,20 +14,21 @@ use vortex_mask::MaskIter;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
 use crate::arrays::filter::FilterKernel;
+use crate::arrays::varbin::VarBinArrayExt;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl FilterKernel for VarBin {
     fn filter(
-        array: &VarBinArray,
+        array: ArrayView<'_, VarBin>,
         mask: &Mask,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -36,7 +37,7 @@ impl FilterKernel for VarBin {
 }
 
 fn filter_select_var_bin(
-    arr: &VarBinArray,
+    arr: ArrayView<'_, VarBin>,
     mask: &Mask,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<VarBinArray> {
@@ -55,19 +56,22 @@ fn filter_select_var_bin(
 }
 
 fn filter_select_var_bin_by_slice(
-    values: &VarBinArray,
+    values: ArrayView<'_, VarBin>,
     mask_slices: &[(usize, usize)],
     selection_count: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<VarBinArray> {
-    let offsets = values.offsets().to_array().execute::<PrimitiveArray>(ctx)?;
+    let offsets = values.offsets().clone().execute::<PrimitiveArray>(ctx)?;
     match_each_integer_ptype!(offsets.ptype(), |O| {
         filter_select_var_bin_by_slice_primitive_offset(
             values.dtype().clone(),
             offsets.as_slice::<O>(),
             values.bytes().as_slice(),
             mask_slices,
-            values.validity_mask()?,
+            values
+                .varbin_validity()
+                .to_mask(values.as_ref().len(), ctx)
+                .vortex_expect("Failed to compute validity mask"),
             selection_count,
         )
     })
@@ -154,19 +158,19 @@ fn update_non_nullable_slice<O>(
 }
 
 fn filter_select_var_bin_by_index(
-    values: &VarBinArray,
+    values: ArrayView<'_, VarBin>,
     mask_indices: &[usize],
     selection_count: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<VarBinArray> {
-    let offsets = values.offsets().to_array().execute::<PrimitiveArray>(ctx)?;
+    let offsets = values.offsets().clone().execute::<PrimitiveArray>(ctx)?;
     match_each_integer_ptype!(offsets.ptype(), |O| {
         filter_select_var_bin_by_index_primitive_offset(
             values.dtype().clone(),
             offsets.as_slice::<O>(),
             values.bytes().as_slice(),
             mask_indices,
-            values.validity().clone(),
+            values.validity()?,
             selection_count,
         )
     })
@@ -229,8 +233,9 @@ mod test {
             ],
             DType::Utf8(NonNullable),
         );
+        let arr = arr.as_view();
         let buf = filter_select_var_bin_by_index(
-            &arr,
+            arr,
             &[0, 2],
             2,
             &mut LEGACY_SESSION.create_execution_ctx(),
@@ -253,8 +258,9 @@ mod test {
             DType::Utf8(NonNullable),
         );
 
+        let arr = arr.as_view();
         let buf = filter_select_var_bin_by_slice(
-            &arr,
+            arr,
             &[(0, 1), (2, 3), (4, 5)],
             3,
             &mut LEGACY_SESSION.create_execution_ctx(),
@@ -284,8 +290,9 @@ mod test {
         );
         let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity).unwrap();
 
+        let arr = arr.as_view();
         let buf = filter_select_var_bin_by_slice(
-            &arr,
+            arr,
             &[(0, 3), (4, 6)],
             5,
             &mut LEGACY_SESSION.create_execution_ctx(),
@@ -315,8 +322,9 @@ mod test {
         let validity = Validity::Array(BoolArray::from_iter([false, true, true]).into_array());
         let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity).unwrap();
 
+        let arr = arr.as_view();
         let buf = filter_select_var_bin_by_slice(
-            &arr,
+            arr,
             &[(0, 1), (2, 3)],
             2,
             &mut LEGACY_SESSION.create_execution_ctx(),
@@ -338,8 +346,9 @@ mod test {
         )
         .unwrap();
 
+        let arr = arr.as_view();
         let buf = filter_select_var_bin_by_slice(
-            &arr,
+            arr,
             &[(0, 1), (2, 3)],
             2,
             &mut LEGACY_SESSION.create_execution_ctx(),

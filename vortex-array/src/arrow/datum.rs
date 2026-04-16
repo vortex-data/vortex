@@ -10,8 +10,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrow::FromArrowArray;
@@ -34,17 +35,17 @@ impl Datum {
             })
         } else {
             Ok(Self {
-                array: array.to_array().into_arrow_preferred()?,
+                array: array.clone().into_arrow_preferred()?,
                 is_scalar: false,
             })
         }
     }
 
-    /// Create a new [`Datum`] from an [`DynArray`], which can then be passed to Arrow compute.
+    /// Create a new [`Datum`] from an `DynArray`, which can then be passed to Arrow compute.
     /// This not try and convert the array to a scalar if it is constant.
     pub fn try_new_array(array: &ArrayRef) -> VortexResult<Self> {
         Ok(Self {
-            array: array.to_array().into_arrow_preferred()?,
+            array: array.clone().into_arrow_preferred()?,
             is_scalar: false,
         })
     }
@@ -60,7 +61,7 @@ impl Datum {
             })
         } else {
             Ok(Self {
-                array: array.to_array().into_arrow(target_datatype)?,
+                array: array.clone().into_arrow(target_datatype)?,
                 is_scalar: false,
             })
         }
@@ -104,8 +105,8 @@ where
 
     Ok(ConstantArray::new(
         array
-            .scalar_at(0)
-            .vortex_expect("array of length 1 must support scalar_at(0)"),
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("array of length 1 must support execute_scalar(0)"),
         len,
     )
     .into_array())

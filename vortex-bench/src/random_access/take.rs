@@ -3,6 +3,7 @@
 
 use std::iter::once;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use arrow_array::PrimitiveArray;
 use arrow_array::types::Int64Type;
@@ -18,7 +19,6 @@ use parquet::file::metadata::PageIndexPolicy;
 use stream::StreamExt;
 use tokio::fs::File;
 use vortex::array::Canonical;
-use vortex::array::DynArray;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::stream::ArrayStreamExt;
@@ -168,7 +168,7 @@ impl RandomAccessor for ParquetRandomAccessor {
             .with_batch_size(10_000_000)
             .build()?;
 
-        let schema = reader.schema().clone();
+        let schema = Arc::clone(reader.schema());
 
         let batches = reader
             .enumerate()

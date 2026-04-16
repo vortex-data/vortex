@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 
@@ -17,10 +16,15 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
-use crate::arrays::FilterArray;
+use crate::arrays::Filter;
 use crate::arrays::NullArray;
+use crate::arrays::VariantArray;
+use crate::arrays::extension::ExtensionArrayExt;
+use crate::arrays::filter::FilterArrayExt;
+use crate::arrays::variant::VariantArrayExt;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
@@ -37,7 +41,7 @@ mod varbinview;
 
 /// Reconstruct a [`Mask`] from an [`Arc<MaskValues>`].
 fn values_to_mask(values: &Arc<MaskValues>) -> Mask {
-    Mask::Values(values.clone())
+    Mask::Values(Arc::clone(values))
 }
 
 /// A helper function that lazily filters a [`Validity`] with selection mask values.
@@ -49,8 +53,8 @@ fn filter_validity(validity: Validity, mask: &Arc<MaskValues>) -> Validity {
 
 /// Check for some fast-path execution conditions before calling [`execute_filter`].
 pub(super) fn execute_filter_fast_paths(
-    array: &FilterArray,
-    _ctx: &mut ExecutionCtx,
+    array: ArrayView<'_, Filter>,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     let true_count = array.mask.true_count();
 
@@ -61,12 +65,18 @@ pub(super) fn execute_filter_fast_paths(
 
     // If the mask selects everything, then we can just fully decompress the whole thing.
     if true_count == array.mask.len() {
-        return Ok(Some(array.child.clone()));
+        return Ok(Some(array.child().clone()));
     }
 
     // Also check if the array itself is completely null, in which case we only care about the total
     // number of nulls, not the values.
-    if array.validity_mask()?.true_count() == 0 {
+    let child_arr = array.array();
+    if child_arr
+        .validity()?
+        .to_mask(child_arr.len(), ctx)?
+        .true_count()
+        == 0
+    {
         return Ok(Some(
             ConstantArray::new(Scalar::null(array.dtype().clone()), true_count).into_array(),
         ));
@@ -95,8 +105,12 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Ca
                 .vortex_expect("ExtensionArray storage type somehow could not be filtered");
             Canonical::Extension(ExtensionArray::new(a.ext_dtype().clone(), filtered_storage))
         }
-        Canonical::Variant(_) => {
-            vortex_panic!("Variant arrays don't support filtering")
+        Canonical::Variant(a) => {
+            let filtered_child = a
+                .child()
+                .filter(values_to_mask(mask))
+                .vortex_expect("VariantArray child could not be filtered");
+            Canonical::Variant(VariantArray::new(filtered_child))
         }
     }
 }

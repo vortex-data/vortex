@@ -9,12 +9,14 @@ use std::sync::LazyLock;
 
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
+use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinArray;
+use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar_fn::fns::like::Like;
@@ -89,7 +91,7 @@ impl<'a> Arbitrary<'a> for FuzzFsstLike {
 /// - `Ok(true)` — keep in corpus
 /// - `Ok(false)` — reject (e.g. too few strings)
 /// - `Err(_)` — mismatch found (bug)
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err)]
 pub fn run_fsst_like_fuzz(fuzz: FuzzFsstLike) -> VortexFuzzResult<bool> {
     let FuzzFsstLike {
         strings,
@@ -111,7 +113,8 @@ pub fn run_fsst_like_fuzz(fuzz: FuzzFsstLike) -> VortexFuzzResult<bool> {
 
     // Train FSST compressor and compress.
     let compressor = fsst_train_compressor(&varbin);
-    let fsst_array: FSSTArray = fsst_compress(varbin.clone(), &compressor);
+    let fsst_array: FSSTArray =
+        fsst_compress(varbin.clone(), varbin.len(), varbin.dtype(), &compressor);
 
     let opts = LikeOptions {
         negated,
@@ -119,11 +122,11 @@ pub fn run_fsst_like_fuzz(fuzz: FuzzFsstLike) -> VortexFuzzResult<bool> {
     };
 
     // Run LIKE on the uncompressed array.
-    let expected = run_like_on_array(varbin.into_array().as_ref(), &pattern, len, opts)
+    let expected = run_like_on_array(&varbin.into_array(), &pattern, len, opts)
         .map_err(|err| VortexFuzzError::VortexError(err, Backtrace::capture()))?;
 
     // Run LIKE on the FSST-compressed array.
-    let actual = run_like_on_array(fsst_array.into_array().as_ref(), &pattern, len, opts)
+    let actual = run_like_on_array(&fsst_array.into_array(), &pattern, len, opts)
         .map_err(|err| VortexFuzzError::VortexError(err, Backtrace::capture()))?;
 
     // Compare bit-for-bit.
@@ -151,18 +154,16 @@ pub fn run_fsst_like_fuzz(fuzz: FuzzFsstLike) -> VortexFuzzResult<bool> {
 }
 
 fn run_like_on_array(
-    array: &dyn vortex_array::DynArray,
+    array: &ArrayRef,
     pattern: &str,
     len: usize,
     opts: LikeOptions,
 ) -> VortexResult<BoolArray> {
-    use vortex_array::ArrayRef;
-    use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+    use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 
-    let arr: ArrayRef = array.to_array();
     let pattern_arr = ConstantArray::new(pattern, len).into_array();
     let result = Like
-        .try_new_array(len, opts, [arr, pattern_arr])?
+        .try_new_array(len, opts, [array.clone(), pattern_arr])?
         .into_array()
         .execute::<Canonical>(&mut SESSION.create_execution_ctx())?;
     Ok(result.into_bool())

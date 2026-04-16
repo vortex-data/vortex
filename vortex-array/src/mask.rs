@@ -8,7 +8,6 @@ use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -35,7 +34,10 @@ impl Executable for Mask {
             }
             Columnar::Canonical(a) => {
                 let bool = a.into_array().execute::<BoolArray>(ctx)?;
-                let mask = bool.validity_mask()?;
+                let mask = bool
+                    .as_ref()
+                    .validity()?
+                    .to_mask(bool.as_ref().len(), ctx)?;
                 let bits = bool.into_bit_buffer();
                 // To handle nullable boolean arrays, we treat nulls as false in the mask.
                 // TODO(ngates): is this correct? Feels like we should just force the caller to

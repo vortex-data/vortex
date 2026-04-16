@@ -3,24 +3,24 @@
 
 use vortex_error::VortexResult;
 
+use crate::ArrayRef;
 use crate::IntoArray;
-use crate::array::ArrayRef;
+use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
-use crate::vtable::ValidityHelper;
 
 impl CastReduce for Bool {
-    fn cast(array: &BoolArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Bool>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !matches!(dtype, DType::Bool(_)) {
             return Ok(None);
         }
 
         let new_nullability = dtype.nullability();
         let new_validity = array
-            .validity()
-            .clone()
+            .validity()?
             .cast_nullability(new_nullability, array.len())?;
         Ok(Some(
             BoolArray::new(array.to_bit_buffer(), new_validity).into_array(),

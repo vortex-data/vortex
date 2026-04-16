@@ -5,22 +5,22 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::List;
 use crate::arrays::ListArray;
+use crate::arrays::list::ListArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
-use crate::vtable::ValidityHelper;
 
 impl CastReduce for List {
-    fn cast(array: &ListArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, List>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         let Some(target_element_type) = dtype.as_list_element_opt() else {
             return Ok(None);
         };
 
         let validity = array
-            .validity()
-            .clone()
+            .validity()?
             .cast_nullability(dtype.nullability(), array.len())?;
 
         let new_elements = array.elements().cast((**target_element_type).clone())?;
@@ -55,8 +55,8 @@ mod tests {
     #[test]
     fn test_cast_list_success() {
         let list = ListArray::try_new(
-            buffer![1i32, 2, 3, 4].into_array().to_array(),
-            buffer![0, 2, 3].into_array().to_array(),
+            buffer![1i32, 2, 3, 4].into_array(),
+            buffer![0, 2, 3].into_array(),
             Validity::NonNullable,
         )
         .unwrap();
@@ -78,8 +78,8 @@ mod tests {
     #[test]
     fn test_cast_to_wrong_type() {
         let list = ListArray::try_new(
-            buffer![0i32, 2, 3, 4].into_array().to_array(),
-            buffer![0, 2, 3].into_array().to_array(),
+            buffer![0i32, 2, 3, 4].into_array(),
+            buffer![0, 2, 3].into_array(),
             Validity::NonNullable,
         )
         .unwrap();
@@ -100,8 +100,8 @@ mod tests {
 
         // Nulls in the list itself
         let list = ListArray::try_new(
-            buffer![0i32, 2, 3, 4].into_array().to_array(),
-            buffer![0, 2, 3].into_array().to_array(),
+            buffer![0i32, 2, 3, 4].into_array(),
+            buffer![0, 2, 3].into_array(),
             Validity::Array(BoolArray::from_iter(vec![false, true]).into_array()),
         )
         .unwrap();
@@ -121,7 +121,7 @@ mod tests {
         // the elements are executed.
         let list = ListArray::try_new(
             PrimitiveArray::from_option_iter([Some(0i32), Some(2), None, None]).into_array(),
-            buffer![0, 2, 3].into_array().to_array(),
+            buffer![0, 2, 3].into_array(),
             Validity::NonNullable,
         )
         .unwrap();

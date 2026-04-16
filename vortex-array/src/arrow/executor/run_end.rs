@@ -19,13 +19,12 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::array::ArrayVisitor;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrow::ArrowArrayExecutor;
+use crate::session::ArraySessionExt;
 
 /// The encoding ID used by `vortex-runend`. We match on this string to avoid a crate dependency.
 const VORTEX_RUNEND_ID: &str = "vortex.runend";
@@ -48,7 +47,7 @@ pub(super) fn to_arrow_run_end(
     values_type: &Field,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let array = match array.try_into::<Constant>() {
+    let array = match array.try_downcast::<Constant>() {
         Ok(constant) => {
             return constant_to_run_end(constant, ends_type, values_type, ctx);
         }
@@ -81,8 +80,9 @@ fn run_end_to_arrow(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let length = array.len();
-    let metadata_bytes = array
-        .metadata()?
+    let metadata_bytes = ctx
+        .session()
+        .array_serialize(&array)?
         .ok_or_else(|| vortex_err!("RunEndArray missing metadata"))?;
     let metadata = RunEndMetadata::decode(&*metadata_bytes)
         .map_err(|e| vortex_err!("Failed to decode RunEndMetadata: {e}"))?;

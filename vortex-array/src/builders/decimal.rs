@@ -13,7 +13,9 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
 use crate::arrays::DecimalArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
@@ -204,8 +206,14 @@ impl ArrayBuilder for DecimalBuilder {
 
         self.nulls.append_validity_mask(
             decimal_array
-                .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+                .as_ref()
+                .validity()
+                .vortex_expect("validity_mask")
+                .to_mask(
+                    decimal_array.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )
+                .vortex_expect("Failed to compute validity mask"),
         );
     }
 
@@ -300,6 +308,8 @@ impl Default for DecimalBuffer {
 
 #[cfg(test)]
 mod tests {
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::DecimalBuilder;
@@ -321,7 +331,13 @@ mod tests {
         let i128s = i128s.finish();
 
         for i in 0..i8s.len() {
-            assert_eq!(i8s.scalar_at(i).unwrap(), i128s.scalar_at(i).unwrap());
+            assert_eq!(
+                i8s.execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap(),
+                i128s
+                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap()
+            );
         }
     }
 
@@ -345,7 +361,9 @@ mod tests {
         // Test by taking a scalar from the array and appending it to a new builder.
         let mut builder2 = DecimalBuilder::new::<i64>(DecimalDType::new(10, 2), true.into());
         for i in 0..array.len() {
-            let scalar = array.scalar_at(i).unwrap();
+            let scalar = array
+                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap();
             builder2.append_scalar(&scalar).unwrap();
         }
 

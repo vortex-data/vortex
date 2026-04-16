@@ -39,7 +39,7 @@ impl ScalarFnVTable for FillNull {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.fill_null")
+        ScalarFnId::new("vortex.fill_null")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -162,7 +162,7 @@ fn fill_null_canonical(
     fill_value: &Scalar,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let arr = canonical.as_ref().to_array();
+    let arr = canonical.to_array_ref();
     if let Some(result) = precondition(&arr, fill_value)? {
         // The result of precondition may return another ScalarFn, in which case we should
         // apply it immediately.
@@ -181,7 +181,7 @@ fn fill_null_canonical(
             .ok_or_else(|| vortex_err!("FillNullKernel for DecimalArray returned None")),
         other => vortex_bail!(
             "No FillNullKernel for canonical array {}",
-            other.as_ref().encoding_id()
+            other.to_array_ref().encoding_id()
         ),
     }
 }

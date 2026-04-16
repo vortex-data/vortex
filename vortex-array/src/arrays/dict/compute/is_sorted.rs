@@ -11,6 +11,7 @@ use crate::aggregate_fn::fns::is_sorted::is_sorted;
 use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::arrays::Dict;
+use crate::arrays::dict::DictArraySlotsExt;
 use crate::scalar::Scalar;
 
 /// Dict-specific is_sorted kernel.
@@ -43,7 +44,7 @@ impl DynAggregateKernel for DictIsSortedKernel {
         };
 
         if result {
-            Ok(Some(IsSorted::make_partial(batch, true, strict)?))
+            Ok(Some(IsSorted::make_partial(batch, true, strict, ctx)?))
         } else {
             // We can't definitively say it's NOT sorted without canonicalizing,
             // so return None to let the accumulator handle it.

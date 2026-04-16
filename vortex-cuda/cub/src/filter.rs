@@ -29,7 +29,7 @@ pub trait CubFilterable: Copy + 'static {
     /// - `d_flags` must have at least `num_items` bytes (one per element, 0 or 1)
     /// - `d_out` must have enough space for selected elements
     /// - `d_num_selected` must point to a valid i64 on the device
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     unsafe fn filter_bytemask(
         d_temp: *mut c_void,
         temp_bytes: usize,
@@ -55,7 +55,7 @@ pub trait CubFilterable: Copy + 'static {
     /// - `d_bitmask` must contain enough bytes to hold `bit_offset + num_items` bits
     /// - `d_out` must have enough space for selected elements
     /// - `d_num_selected` must point to a valid i64 on the device
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     unsafe fn filter_bitmask(
         d_temp: *mut c_void,
         temp_bytes: usize,
@@ -135,7 +135,7 @@ macro_rules! impl_filter {
                 /// - `d_flags` must have at least `num_items` bytes (one per element, 0 or 1)
                 /// - `d_out` must have enough space for selected elements
                 /// - `d_num_selected` must point to a valid i64 on the device
-                #[allow(clippy::too_many_arguments)]
+                #[expect(clippy::too_many_arguments)]
                 pub unsafe fn [<filter_bytemask_ $suffix>](
                     d_temp: *mut c_void,
                     temp_bytes: usize,
@@ -175,7 +175,7 @@ macro_rules! impl_filter {
                 /// - `d_bitmask` must contain enough bytes to hold `bit_offset + num_items` bits
                 /// - `d_out` must have enough space for selected elements
                 /// - `d_num_selected` must point to a valid i64 on the device
-                #[allow(clippy::too_many_arguments)]
+                #[expect(clippy::too_many_arguments)]
                 pub unsafe fn [<filter_bitmask_ $suffix>](
                     d_temp: *mut c_void,
                     temp_bytes: usize,

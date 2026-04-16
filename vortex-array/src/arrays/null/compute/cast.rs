@@ -6,20 +6,20 @@ use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::Null;
-use crate::arrays::NullArray;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for Null {
-    fn cast(array: &NullArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Null>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !dtype.is_nullable() {
             vortex_bail!("Cannot cast Null to {}", dtype);
         }
         if dtype == &DType::Null {
-            return Ok(Some(array.clone().into_array()));
+            return Ok(Some(array.array().clone()));
         }
 
         let scalar = Scalar::null(dtype.clone());
@@ -32,6 +32,8 @@ mod tests {
     use rstest::rstest;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::NullArray;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
@@ -64,7 +66,12 @@ mod tests {
 
         // Verify all values are null
         for i in 0..5 {
-            assert!(result.scalar_at(i).unwrap().is_null());
+            assert!(
+                result
+                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap()
+                    .is_null()
+            );
         }
     }
 

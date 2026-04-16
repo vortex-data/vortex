@@ -4,14 +4,16 @@
 use std::cmp::Ordering;
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_decimal_value_type;
@@ -28,7 +30,17 @@ pub fn sort_canonical_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
             let mut opt_values = bool_array
                 .to_bit_buffer()
                 .iter()
-                .zip(bool_array.validity_mask()?.to_bit_buffer().iter())
+                .zip(
+                    bool_array
+                        .as_ref()
+                        .validity()?
+                        .to_mask(
+                            bool_array.as_ref().len(),
+                            &mut LEGACY_SESSION.create_execution_ctx(),
+                        )?
+                        .to_bit_buffer()
+                        .iter(),
+                )
                 .map(|(b, v)| v.then_some(b))
                 .collect::<Vec<_>>();
             opt_values.sort();
@@ -41,7 +53,17 @@ pub fn sort_canonical_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
                     .as_slice::<P>()
                     .iter()
                     .copied()
-                    .zip(primitive_array.validity_mask()?.to_bit_buffer().iter())
+                    .zip(
+                        primitive_array
+                            .as_ref()
+                            .validity()?
+                            .to_mask(
+                                primitive_array.as_ref().len(),
+                                &mut LEGACY_SESSION.create_execution_ctx(),
+                            )?
+                            .to_bit_buffer()
+                            .iter(),
+                    )
                     .map(|(p, v)| v.then_some(p))
                     .collect::<Vec<_>>();
                 sort_primitive_slice(&mut opt_values);
@@ -56,7 +78,17 @@ pub fn sort_canonical_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
                     .as_slice()
                     .iter()
                     .copied()
-                    .zip(decimal_array.validity_mask()?.to_bit_buffer().iter())
+                    .zip(
+                        decimal_array
+                            .as_ref()
+                            .validity()?
+                            .to_mask(
+                                decimal_array.as_ref().len(),
+                                &mut LEGACY_SESSION.create_execution_ctx(),
+                            )?
+                            .to_bit_buffer()
+                            .iter(),
+                    )
                     .map(|(p, v)| v.then_some(p))
                     .collect::<Vec<_>>();
                 opt_values.sort();
@@ -72,11 +104,15 @@ pub fn sort_canonical_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
         }
         DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => {
             let mut sort_indices = (0..array.len()).collect::<Vec<_>>();
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
             sort_indices.sort_by(|a, b| {
-                array
-                    .scalar_at(*a)
-                    .vortex_expect("scalar_at")
-                    .partial_cmp(&array.scalar_at(*b).vortex_expect("scalar_at"))
+                let lhs = array
+                    .execute_scalar(*a, &mut ctx)
+                    .vortex_expect("scalar_at");
+                let rhs = array
+                    .execute_scalar(*b, &mut ctx)
+                    .vortex_expect("scalar_at");
+                lhs.partial_cmp(&rhs)
                     .vortex_expect("must be a valid comparison")
             });
             take_canonical_array_non_nullable_indices(array, &sort_indices)

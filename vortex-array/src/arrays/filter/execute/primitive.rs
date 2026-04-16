@@ -14,7 +14,7 @@ use crate::match_each_native_ptype;
 pub fn filter_primitive(array: &PrimitiveArray, mask: &Arc<MaskValues>) -> PrimitiveArray {
     let validity = array
         .validity()
-        .vortex_expect("missing PrimitiveArray validity");
+        .vortex_expect("primitive validity should be derivable");
     let filtered_validity = filter_validity(validity, mask);
 
     match_each_native_ptype!(array.ptype(), |T| {
@@ -27,7 +27,7 @@ pub fn filter_primitive(array: &PrimitiveArray, mask: &Arc<MaskValues>) -> Primi
 }
 
 #[cfg(test)]
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 mod test {
     use itertools::Itertools;
     use rstest::rstest;

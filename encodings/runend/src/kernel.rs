@@ -4,11 +4,13 @@
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Slice;
-use vortex_array::arrays::SliceArray;
 use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::filter::FilterExecuteAdaptor;
 use vortex_array::kernel::ExecuteParentKernel;
@@ -17,7 +19,7 @@ use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
-use crate::RunEndArray;
+use crate::array::RunEndArrayExt;
 use crate::compute::take_from::RunEndTakeFrom;
 
 pub(super) const PARENT_KERNELS: ParentKernelSet<RunEnd> = ParentKernelSet::new(&[
@@ -40,8 +42,8 @@ impl ExecuteParentKernel<RunEnd> for RunEndSliceKernel {
 
     fn execute_parent(
         &self,
-        array: &RunEndArray,
-        parent: &SliceArray,
+        array: ArrayView<'_, RunEnd>,
+        parent: ArrayView<'_, Slice>,
         _child_idx: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -49,7 +51,7 @@ impl ExecuteParentKernel<RunEnd> for RunEndSliceKernel {
     }
 }
 
-fn slice(array: &RunEndArray, range: Range<usize>) -> VortexResult<ArrayRef> {
+fn slice(array: ArrayView<'_, RunEnd>, range: Range<usize>) -> VortexResult<ArrayRef> {
     let new_length = range.len();
 
     let slice_begin = array.find_physical_index(range.start)?;
@@ -57,13 +59,15 @@ fn slice(array: &RunEndArray, range: Range<usize>) -> VortexResult<ArrayRef> {
 
     // If the sliced range contains only a single run, opt to return a ConstantArray.
     if slice_begin + 1 == slice_end {
-        let value = array.values().scalar_at(slice_begin)?;
+        let value = array
+            .values()
+            .execute_scalar(slice_begin, &mut LEGACY_SESSION.create_execution_ctx())?;
         return Ok(ConstantArray::new(value, new_length).into_array());
     }
 
     // SAFETY: we maintain the ends invariant in our slice implementation
     Ok(unsafe {
-        RunEndArray::new_unchecked(
+        RunEnd::new_unchecked(
             array.ends().slice(slice_begin..slice_end)?,
             array.values().slice(slice_begin..slice_end)?,
             range.start + array.offset(),

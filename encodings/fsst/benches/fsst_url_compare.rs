@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
+#![expect(clippy::unwrap_used)]
 
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
@@ -56,7 +57,7 @@ fn pick_url_with_domain(data: &VarBinArray, domain: &str) -> String {
 fn eq_pushdown_high_match(bencher: Bencher) {
     let data = &*URL_DATA;
     let compressor = fsst_train_compressor(data);
-    let fsst_array = fsst_compress(data, &compressor);
+    let fsst_array = fsst_compress(data, data.len(), data.dtype(), &compressor);
     let match_url = pick_url_with_domain(data, HIGH_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
 
@@ -77,7 +78,7 @@ fn eq_pushdown_high_match(bencher: Bencher) {
 fn eq_pushdown_low_match(bencher: Bencher) {
     let data = &*URL_DATA;
     let compressor = fsst_train_compressor(data);
-    let fsst_array = fsst_compress(data, &compressor);
+    let fsst_array = fsst_compress(data, data.len(), data.dtype(), &compressor);
     let match_url = pick_url_with_domain(data, LOW_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
 
@@ -98,18 +99,19 @@ fn eq_pushdown_low_match(bencher: Bencher) {
 fn eq_canonicalize_high_match(bencher: Bencher) {
     let data = &*URL_DATA;
     let compressor = fsst_train_compressor(data);
-    let fsst_array = fsst_compress(data, &compressor);
+    let fsst_array = fsst_compress(data, data.len(), data.dtype(), &compressor);
     let match_url = pick_url_with_domain(data, HIGH_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
 
     bencher
         .with_inputs(|| (&fsst_array, &constant, SESSION.create_execution_ctx()))
         .bench_refs(|(fsst_array, constant, ctx)| {
-            fsst_array
-                .to_canonical()
+            (*fsst_array)
+                .clone()
+                .into_array()
+                .execute::<Canonical>(ctx)
                 .unwrap()
-                .as_ref()
-                .to_array()
+                .into_array()
                 .binary(constant.clone().into_array(), Operator::Eq)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -121,18 +123,19 @@ fn eq_canonicalize_high_match(bencher: Bencher) {
 fn eq_canonicalize_low_match(bencher: Bencher) {
     let data = &*URL_DATA;
     let compressor = fsst_train_compressor(data);
-    let fsst_array = fsst_compress(data, &compressor);
+    let fsst_array = fsst_compress(data, data.len(), data.dtype(), &compressor);
     let match_url = pick_url_with_domain(data, LOW_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
 
     bencher
         .with_inputs(|| (&fsst_array, &constant, SESSION.create_execution_ctx()))
         .bench_refs(|(fsst_array, constant, ctx)| {
-            fsst_array
-                .to_canonical()
+            (*fsst_array)
+                .clone()
+                .into_array()
+                .execute::<Canonical>(ctx)
                 .unwrap()
-                .as_ref()
-                .to_array()
+                .into_array()
                 .binary(constant.clone().into_array(), Operator::Eq)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -148,7 +151,7 @@ fn eq_canonicalize_low_match(bencher: Bencher) {
 fn like_substr_high_match(bencher: Bencher) {
     let data = &*URL_DATA;
     let compressor = fsst_train_compressor(data);
-    let fsst_array = fsst_compress(data, &compressor);
+    let fsst_array = fsst_compress(data, data.len(), data.dtype(), &compressor);
     let pattern = format!("%{HIGH_MATCH_DOMAIN}%");
     let expr = like(root(), lit(pattern.as_str()));
 
@@ -169,7 +172,7 @@ fn like_substr_high_match(bencher: Bencher) {
 fn like_substr_low_match(bencher: Bencher) {
     let data = &*URL_DATA;
     let compressor = fsst_train_compressor(data);
-    let fsst_array = fsst_compress(data, &compressor);
+    let fsst_array = fsst_compress(data, data.len(), data.dtype(), &compressor);
     let pattern = format!("%{LOW_MATCH_DOMAIN}%");
     let expr = like(root(), lit(pattern.as_str()));
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fs::create_dir_all;
+use std::fs;
 use std::future::Future;
 use std::path::Path;
 use std::path::PathBuf;
@@ -25,10 +25,10 @@ pub fn idempotent<T, P: IdempotentPath + ?Sized>(
     if !data_path.exists() {
         // Ensure parent directory exists
         if let Some(parent) = data_path.parent() {
-            create_dir_all(parent).context("Failed to create parent directories")?;
+            fs::create_dir_all(parent).context("Failed to create parent directories")?;
         }
         f(temp_path.as_path())?;
-        std::fs::rename(temp_path, &data_path).context("Failed to rename temp file")?;
+        fs::rename(temp_path, &data_path).context("Failed to rename temp file")?;
     }
     Ok(data_path)
 }
@@ -44,10 +44,10 @@ where
     if !data_path.exists() {
         // Ensure parent directory exists
         if let Some(parent) = data_path.parent() {
-            create_dir_all(parent).context("Failed to create parent directories")?;
+            fs::create_dir_all(parent).context("Failed to create parent directories")?;
         }
         f(temp_path.clone()).await?;
-        std::fs::rename(temp_path, &data_path).context("Failed to rename temp file")?;
+        fs::rename(temp_path, &data_path).context("Failed to rename temp file")?;
     }
     Ok(data_path)
 }

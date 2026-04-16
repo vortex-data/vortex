@@ -44,8 +44,8 @@ impl CurrentThreadWorkerPool {
             // Spawn new workers
             for _ in current..n {
                 let shutdown = Arc::new(AtomicBool::new(false));
-                let executor = self.executor.clone();
-                let shutdown_clone = shutdown.clone();
+                let executor = Arc::clone(&self.executor);
+                let shutdown_clone = Arc::clone(&shutdown);
 
                 std::thread::Builder::new()
                     .name("vortex-current-thread-worker".to_string())

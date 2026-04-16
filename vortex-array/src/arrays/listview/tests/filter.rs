@@ -10,12 +10,14 @@ use super::common::create_empty_lists_listview;
 use super::common::create_large_listview;
 use super::common::create_nullable_listview;
 use super::common::create_overlapping_listview;
-use crate::DynArray;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::assert_arrays_eq;
 use crate::compute::conformance::filter::test_filter_conformance;
 use crate::validity::Validity;
@@ -42,8 +44,7 @@ fn test_filter_preserves_unreferenced_elements() {
     let offsets = buffer![5u32, 2, 8, 0, 1].into_array();
     let sizes = buffer![3u32, 2, 2, 2, 4].into_array();
 
-    let listview =
-        ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).into_array();
+    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
 
     // Filter to keep only 2 lists.
     let mask = Mask::from_iter([true, false, false, true, false]);
@@ -74,8 +75,7 @@ fn test_filter_with_gaps() {
     let offsets = buffer![0u32, 6, 10, 1, 7].into_array();
     let sizes = buffer![3u32, 3, 2, 2, 2].into_array();
 
-    let listview =
-        ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).into_array();
+    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
 
     // Filter to keep lists with gaps and overlaps.
     let mask = Mask::from_iter([false, true, true, true, false]);
@@ -166,8 +166,7 @@ fn test_filter_extreme_offsets() {
     let offsets = buffer![0u32, 4999, 9995, 2500, 7500].into_array();
     let sizes = buffer![5u32, 2, 5, 3, 4].into_array();
 
-    let listview =
-        ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).into_array();
+    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
 
     // Filter to keep only 2 lists, demonstrating we keep all 10000 elements.
     let mask = Mask::from_iter([false, true, false, false, true]);
@@ -187,7 +186,7 @@ fn test_filter_extreme_offsets() {
     let list0 = result_list.list_elements_at(0).unwrap();
     assert_eq!(
         list0
-            .scalar_at(0)
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .as_primitive()
             .as_::<i32>()
@@ -196,7 +195,7 @@ fn test_filter_extreme_offsets() {
     );
     assert_eq!(
         list0
-            .scalar_at(1)
+            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .as_primitive()
             .as_::<i32>()

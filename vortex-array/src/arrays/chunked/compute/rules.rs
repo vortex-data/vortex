@@ -6,12 +6,16 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArray;
+use crate::arrays::ScalarFnVTable;
+use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::scalar_fn::AnyScalarFn;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -33,17 +37,16 @@ impl ArrayParentReduceRule<Chunked> for ChunkedUnaryScalarFnPushDownRule {
 
     fn reduce_parent(
         &self,
-        array: &ChunkedArray,
-        parent: &ScalarFnArray,
+        array: ArrayView<'_, Chunked>,
+        parent: ArrayView<'_, ScalarFnVTable>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        if parent.children().len() != 1 {
+        if parent.nchildren() != 1 {
             return Ok(None);
         }
 
         let new_chunks: Vec<_> = array
-            .chunks
-            .iter()
+            .iter_chunks()
             .map(|chunk| {
                 ScalarFnArray::try_new(
                     parent.scalar_fn().clone(),
@@ -69,11 +72,11 @@ impl ArrayParentReduceRule<Chunked> for ChunkedConstantScalarFnPushDownRule {
 
     fn reduce_parent(
         &self,
-        array: &ChunkedArray,
-        parent: &ScalarFnArray,
+        array: ArrayView<'_, Chunked>,
+        parent: ArrayView<'_, ScalarFnVTable>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        for (idx, child) in parent.children().iter().enumerate() {
+        for (idx, child) in parent.iter_children().enumerate() {
             if idx == child_idx {
                 continue;
             }
@@ -83,12 +86,10 @@ impl ArrayParentReduceRule<Chunked> for ChunkedConstantScalarFnPushDownRule {
         }
 
         let new_chunks: Vec<_> = array
-            .chunks
-            .iter()
+            .iter_chunks()
             .map(|chunk| {
                 let new_children: Vec<_> = parent
-                    .children()
-                    .iter()
+                    .iter_children()
                     .enumerate()
                     .map(|(idx, child)| {
                         if idx == child_idx {

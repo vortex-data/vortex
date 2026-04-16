@@ -5,9 +5,9 @@ use async_trait::async_trait;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::array::DynArray;
+use vortex::array::IntoArray;
 use vortex::array::arrays::Slice;
-use vortex::array::arrays::slice::SliceArrayParts;
+use vortex::array::arrays::slice::SliceArrayExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 
@@ -26,23 +26,41 @@ impl CudaExecute for SliceExecutor {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
-        let slice_array = array.try_into::<Slice>().map_err(|array| {
+        let slice_array = array.try_downcast::<Slice>().map_err(|array| {
             vortex_err!(
                 "SliceExecutor requires input of SliceArray, was {}",
                 array.encoding_id()
             )
         })?;
 
-        let SliceArrayParts { child, range } = slice_array.into_parts();
-        let child = child.execute_cuda(ctx).await?;
+        let range = slice_array.data().slice_range().clone();
+        let child = slice_array.child().clone().execute_cuda(ctx).await?;
 
         match child {
-            Canonical::Null(null_array) => null_array.slice(range)?.to_canonical(),
-            Canonical::Bool(bool_array) => bool_array.slice(range)?.to_canonical(),
-            Canonical::Primitive(prim_array) => prim_array.slice(range)?.to_canonical(),
-            Canonical::Decimal(decimal_array) => decimal_array.slice(range)?.to_canonical(),
-            Canonical::VarBinView(varbinview) => varbinview.slice(range)?.to_canonical(),
-            Canonical::Extension(extension_array) => extension_array.slice(range)?.to_canonical(),
+            Canonical::Null(null_array) => null_array
+                .into_array()
+                .slice(range)?
+                .execute::<Canonical>(ctx.execution_ctx()),
+            Canonical::Bool(bool_array) => bool_array
+                .into_array()
+                .slice(range)?
+                .execute::<Canonical>(ctx.execution_ctx()),
+            Canonical::Primitive(prim_array) => prim_array
+                .into_array()
+                .slice(range)?
+                .execute::<Canonical>(ctx.execution_ctx()),
+            Canonical::Decimal(decimal_array) => decimal_array
+                .into_array()
+                .slice(range)?
+                .execute::<Canonical>(ctx.execution_ctx()),
+            Canonical::VarBinView(varbinview) => varbinview
+                .into_array()
+                .slice(range)?
+                .execute::<Canonical>(ctx.execution_ctx()),
+            Canonical::Extension(extension_array) => extension_array
+                .into_array()
+                .slice(range)?
+                .execute::<Canonical>(ctx.execution_ctx()),
             c => todo!("Slice kernel not implemented for {}", c.dtype()),
         }
     }

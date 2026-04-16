@@ -4,7 +4,7 @@
 use cudarc::driver::DeviceRepr;
 use vortex::array::Canonical;
 use vortex::array::arrays::DecimalArray;
-use vortex::array::arrays::decimal::DecimalArrayParts;
+use vortex::array::arrays::decimal::DecimalDataParts;
 use vortex::dtype::NativeDecimalType;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
@@ -18,12 +18,12 @@ pub(super) async fn filter_decimal<D: NativeDecimalType + DeviceRepr + CubFilter
     mask: Mask,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
-    let DecimalArrayParts {
+    let DecimalDataParts {
         values,
         validity,
         decimal_dtype,
         ..
-    } = array.into_parts();
+    } = array.into_data_parts();
 
     let filtered_validity = validity.filter(&mask)?;
     let filtered_values = filter_sized::<D>(values, mask, ctx).await?;
@@ -94,7 +94,7 @@ mod tests {
 
         let filter_array = FilterArray::try_new(input.clone().into_array(), mask.clone())?;
 
-        let cpu_result = filter_array.to_canonical()?.into_array();
+        let cpu_result = crate::canonicalize_cpu(filter_array.clone())?.into_array();
 
         let gpu_result = FilterExecutor
             .execute(filter_array.into_array(), &mut cuda_ctx)
@@ -123,7 +123,7 @@ mod tests {
 
         let filter_array = FilterArray::try_new(input.into_array(), mask)?;
 
-        let cpu_result = filter_array.to_canonical()?.into_array();
+        let cpu_result = crate::canonicalize_cpu(filter_array.clone())?.into_array();
 
         let gpu_result = FilterExecutor
             .execute(filter_array.into_array(), &mut cuda_ctx)

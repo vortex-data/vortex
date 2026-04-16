@@ -9,7 +9,7 @@ use vortex::buffer::Buffer;
 use vortex::dtype::DType;
 use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
-use vortex::encodings::sequence::SequenceArray;
+use vortex::encodings::sequence::Sequence;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -43,7 +43,7 @@ pub fn sequence_array_from_range<T: NativePType + TryFrom<isize> + Into<PValue>>
         vortex_bail!("Step, {}, does not fit in requested dtype: {}", step, dtype);
     };
 
-    Ok(SequenceArray::try_new_typed::<T>(start, step, dtype.nullability(), len)?.into_array())
+    Ok(Sequence::try_new_typed::<T>(start, step, dtype.nullability(), len)?.into_array())
 }
 
 fn range_len(start: isize, stop: isize, step: isize) -> Option<usize> {

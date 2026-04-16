@@ -3,8 +3,6 @@
 
 //! Benchmarks for `intersect_by_rank`.
 
-#![allow(clippy::unwrap_used, clippy::cast_possible_truncation)]
-
 use divan::Bencher;
 use vortex_buffer::BitBuffer;
 use vortex_mask::Mask;
@@ -39,6 +37,7 @@ const DENSITY_MATRIX_ARGS: &[(f64, f64, &str)] = &[
 
 fn create_random_mask(len: usize, selectivity: f64) -> Mask {
     Mask::from_buffer(BitBuffer::from_iter((0..len).map(|i| {
+        #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let threshold = (selectivity * 1000.0) as usize;
         (i * 7 + 13) % 1000 < threshold
     })))

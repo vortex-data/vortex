@@ -68,6 +68,8 @@ pub fn vortex_mask::Mask::into_bit_buffer(self) -> vortex_buffer::bit::buf::BitB
 
 pub fn vortex_mask::Mask::is_empty(&self) -> bool
 
+pub fn vortex_mask::Mask::last(&self) -> core::option::Option<usize>
+
 pub fn vortex_mask::Mask::len(&self) -> usize
 
 pub fn vortex_mask::Mask::limit(self, limit: usize) -> Self
@@ -103,16 +105,6 @@ pub fn vortex_mask::Mask::bitand_not(self, rhs: &vortex_mask::Mask) -> vortex_ma
 impl vortex_mask::Mask
 
 pub fn vortex_mask::Mask::intersect_by_rank(&self, mask: &vortex_mask::Mask) -> vortex_mask::Mask
-
-impl vortex_mask::Mask
-
-pub fn vortex_mask::Mask::into_mut(self) -> vortex_mask::MaskMut
-
-pub fn vortex_mask::Mask::try_into_mut(self) -> core::result::Result<vortex_mask::MaskMut, Self>
-
-impl vortex_mask::Mask
-
-pub fn vortex_mask::Mask::iter_bools<F, T>(&self, f: F) -> T where F: core::ops::function::FnMut(&mut dyn core::iter::traits::iterator::Iterator<Item = bool>) -> T
 
 impl core::clone::Clone for vortex_mask::Mask
 
@@ -173,78 +165,6 @@ pub enum vortex_mask::MaskIter<'a>
 pub vortex_mask::MaskIter::Indices(&'a [usize])
 
 pub vortex_mask::MaskIter::Slices(&'a [(usize, usize)])
-
-pub struct vortex_mask::MaskMut(_)
-
-impl vortex_mask::MaskMut
-
-pub fn vortex_mask::MaskMut::all_false(&self) -> bool
-
-pub fn vortex_mask::MaskMut::all_true(&self) -> bool
-
-pub fn vortex_mask::MaskMut::append_mask(&mut self, other: &vortex_mask::Mask)
-
-pub fn vortex_mask::MaskMut::append_n(&mut self, new_value: bool, n: usize)
-
-pub fn vortex_mask::MaskMut::as_bit_buffer_mut(&mut self) -> core::option::Option<&mut vortex_buffer::bit::buf_mut::BitBufferMut>
-
-pub fn vortex_mask::MaskMut::capacity(&self) -> usize
-
-pub fn vortex_mask::MaskMut::clear(&mut self)
-
-pub fn vortex_mask::MaskMut::empty() -> Self
-
-pub fn vortex_mask::MaskMut::freeze(self) -> vortex_mask::Mask
-
-pub fn vortex_mask::MaskMut::from_buffer(bit_buffer: vortex_buffer::bit::buf_mut::BitBufferMut) -> Self
-
-pub fn vortex_mask::MaskMut::is_empty(&self) -> bool
-
-pub fn vortex_mask::MaskMut::len(&self) -> usize
-
-pub fn vortex_mask::MaskMut::new(len: usize, value: bool) -> Self
-
-pub fn vortex_mask::MaskMut::new_false(len: usize) -> Self
-
-pub fn vortex_mask::MaskMut::new_true(len: usize) -> Self
-
-pub fn vortex_mask::MaskMut::reserve(&mut self, additional: usize)
-
-pub fn vortex_mask::MaskMut::set(&mut self, index: usize)
-
-pub unsafe fn vortex_mask::MaskMut::set_len(&mut self, new_len: usize)
-
-pub fn vortex_mask::MaskMut::set_to(&mut self, index: usize, value: bool)
-
-pub unsafe fn vortex_mask::MaskMut::set_to_unchecked(&mut self, index: usize, value: bool)
-
-pub unsafe fn vortex_mask::MaskMut::set_unchecked(&mut self, index: usize)
-
-pub fn vortex_mask::MaskMut::split_off(&mut self, at: usize) -> Self
-
-pub fn vortex_mask::MaskMut::truncate(&mut self, len: usize)
-
-pub fn vortex_mask::MaskMut::unset(&mut self, index: usize)
-
-pub unsafe fn vortex_mask::MaskMut::unset_unchecked(&mut self, index: usize)
-
-pub fn vortex_mask::MaskMut::unsplit(&mut self, other: Self)
-
-pub fn vortex_mask::MaskMut::value(&self, index: usize) -> bool
-
-pub fn vortex_mask::MaskMut::with_capacity(capacity: usize) -> Self
-
-impl core::clone::Clone for vortex_mask::MaskMut
-
-pub fn vortex_mask::MaskMut::clone(&self) -> vortex_mask::MaskMut
-
-impl core::default::Default for vortex_mask::MaskMut
-
-pub fn vortex_mask::MaskMut::default() -> Self
-
-impl core::fmt::Debug for vortex_mask::MaskMut
-
-pub fn vortex_mask::MaskMut::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub struct vortex_mask::MaskValues
 

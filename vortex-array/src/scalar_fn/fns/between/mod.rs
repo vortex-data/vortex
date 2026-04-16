@@ -3,7 +3,6 @@
 
 mod kernel;
 
-use std::any::Any;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
@@ -16,14 +15,12 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::Decimal;
 use crate::arrays::Primitive;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::Options;
 use crate::dtype::DType;
 use crate::dtype::DType::Bool;
 use crate::expr::StatsCatalog;
@@ -59,12 +56,6 @@ impl Display for BetweenOptions {
             "<="
         };
         write!(f, "lower_strict: {}, upper_strict: {}", lower_op, upper_op)
-    }
-}
-
-impl Options for BetweenOptions {
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 }
 
@@ -115,16 +106,6 @@ pub(super) fn precondition(
         return Ok(Some(Canonical::empty(&return_dtype).into_array()));
     }
 
-    // A quick check to see if either bound is a null constant array.
-    if (lower.is_invalid(0)? || upper.is_invalid(0)?)
-        && let (Some(c_lower), Some(c_upper)) = (lower.as_constant(), upper.as_constant())
-        && (c_lower.is_null() || c_upper.is_null())
-    {
-        return Ok(Some(
-            ConstantArray::new(Scalar::null(return_dtype), arr.len()).into_array(),
-        ));
-    }
-
     if lower.as_constant().is_some_and(|v| v.is_null())
         || upper.as_constant().is_some_and(|v| v.is_null())
     {
@@ -165,12 +146,12 @@ fn between_canonical(
 
     // TODO(joe): return lazy compare once the executor supports this
     // Fall back to compare + boolean and
-    let lower_cmp = lower.to_array().binary(
-        arr.to_array(),
+    let lower_cmp = lower.clone().binary(
+        arr.clone(),
         Operator::from(options.lower_strict.to_compare_operator()),
     )?;
-    let upper_cmp = arr.to_array().binary(
-        upper.to_array(),
+    let upper_cmp = arr.clone().binary(
+        upper.clone(),
         Operator::from(options.upper_strict.to_compare_operator()),
     )?;
     execute_boolean(&lower_cmp, &upper_cmp, Operator::And)
@@ -194,7 +175,7 @@ impl ScalarFnVTable for Between {
     type Options = BetweenOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.between")
+        ScalarFnId::new("vortex.between")
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

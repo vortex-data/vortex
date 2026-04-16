@@ -12,17 +12,17 @@ use std::sync::Arc;
 use futures::stream;
 use tokio::runtime::Runtime;
 use vortex::VortexSessionDefault;
+use vortex::array::ArrayRef;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::MaskFuture;
+use vortex::array::VortexSessionExecute;
+use vortex::array::expr::root;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::LayoutStrategy;
 use vortex::layout::layouts::flat::Flat;
 use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
-use vortex_array::ArrayRef;
-use vortex_array::ArrayVisitorExt;
-use vortex_array::DynArray;
-use vortex_array::MaskFuture;
-use vortex_array::expr::root;
 use vortex_array::expr::stats::Stat;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
@@ -42,8 +42,9 @@ fn runtime() -> VortexResult<Runtime> {
 /// all stats so they are present in the serialized output.
 pub fn compute_all_stats(array: &ArrayRef) -> VortexResult<()> {
     let all_stats: Vec<Stat> = Stat::all().collect();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     for node in array.depth_first_traversal() {
-        let computed = node.statistics().compute_all(&all_stats)?;
+        let computed = node.statistics().compute_all(&all_stats, &mut ctx)?;
         node.statistics().set_iter(computed.into_iter());
     }
     Ok(())
@@ -123,7 +124,7 @@ pub fn read_layout_tree(bytes: ByteBuffer) -> VortexResult<()> {
     runtime()?.block_on(async {
         let session = VortexSession::default().with_tokio();
         let file = session.open_options().open_buffer(bytes)?;
-        let root_layout = file.footer().layout().clone();
+        let root_layout = Arc::clone(file.footer().layout());
         let segment_source = file.segment_source();
 
         for layout_result in root_layout.depth_first_traversal() {
@@ -135,7 +136,7 @@ pub fn read_layout_tree(bytes: ByteBuffer) -> VortexResult<()> {
             if row_count == 0 {
                 continue;
             }
-            let reader = layout.new_reader("".into(), segment_source.clone(), &session)?;
+            let reader = layout.new_reader("".into(), Arc::clone(&segment_source), &session)?;
             let len =
                 usize::try_from(row_count).map_err(|e| vortex_err!("row count overflow: {e}"))?;
             reader

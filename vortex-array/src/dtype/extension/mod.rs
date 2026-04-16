@@ -19,6 +19,9 @@ pub use vtable::*;
 mod plugin;
 pub use plugin::*;
 
+mod foreign;
+pub(crate) use foreign::*;
+
 mod typed;
 pub use typed::*;
 
@@ -27,9 +30,10 @@ pub use erased::*;
 
 mod matcher;
 pub use matcher::*;
+use vortex_session::registry::Id;
 
 /// A unique identifier for an extension type
-pub type ExtId = arcref::ArcRef<str>;
+pub type ExtId = Id;
 
 /// Private module to seal [`typed::DynExtDType`].
 mod sealed {

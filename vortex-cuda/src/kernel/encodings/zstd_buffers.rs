@@ -41,7 +41,7 @@ impl CudaExecute for ZstdBuffersExecutor {
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
         let zstd_buffers = array
-            .try_into::<ZstdBuffers>()
+            .try_downcast::<ZstdBuffers>()
             .map_err(|_| vortex_err!("expected zstd buffers array"))?;
         decode_zstd_buffers(zstd_buffers, ctx).await
     }
@@ -55,7 +55,7 @@ async fn decode_zstd_buffers(
     let compressed_buffers = plan.compressed_buffers();
 
     if compressed_buffers.is_empty() {
-        let inner_array = array.build_inner(&[], ctx.session())?;
+        let inner_array = ZstdBuffers::build_inner(&array, &[], ctx.session())?;
         return inner_array.execute_cuda(ctx).await;
     }
 
@@ -158,7 +158,7 @@ async fn decode_zstd_buffers(
     let output_handle = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_output)));
     let decompressed_buffers = plan.split_output_handle(&output_handle)?;
 
-    let inner_array = array.build_inner(&decompressed_buffers, ctx.session())?;
+    let inner_array = ZstdBuffers::build_inner(&array, &decompressed_buffers, ctx.session())?;
     inner_array.execute_cuda(ctx).await
 }
 
@@ -223,7 +223,6 @@ mod tests {
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::assert_arrays_eq;
-    use vortex::encodings::zstd::ZstdBuffersArray;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
@@ -238,9 +237,9 @@ mod tests {
             .vortex_expect("failed to create execution context");
 
         let input = PrimitiveArray::from_iter(0i64..1024).into_array();
-        let compressed = ZstdBuffersArray::compress(&input, 3)?;
+        let compressed = ZstdBuffers::compress(&input, 3, &VortexSession::empty())?;
 
-        let cpu_result = compressed.clone().into_array().to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(compressed.clone())?;
         let gpu_result = ZstdBuffersExecutor
             .execute(compressed.into_array(), &mut cuda_ctx)
             .await?
@@ -265,9 +264,9 @@ mod tests {
             "baz",
         ])
         .into_array();
-        let compressed = ZstdBuffersArray::compress(&input, 3)?;
+        let compressed = ZstdBuffers::compress(&input, 3, &VortexSession::empty())?;
 
-        let cpu_result = compressed.clone().into_array().to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(compressed.clone())?;
         let gpu_result = ZstdBuffersExecutor
             .execute(compressed.into_array(), &mut cuda_ctx)
             .await?

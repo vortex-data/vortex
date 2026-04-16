@@ -29,9 +29,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayContext;
 use crate::ArrayRef;
-use crate::ArrayVisitor;
-use crate::ArrayVisitorExt;
-use crate::DynArray;
+use crate::array::new_foreign_array;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::TryFromBytes;
@@ -48,7 +46,7 @@ pub struct SerializeOptions {
     pub include_padding: bool,
 }
 
-impl dyn DynArray + '_ {
+impl ArrayRef {
     /// Serialize the array into a sequence of byte buffers that should be written contiguously.
     /// This function returns a vec to avoid copying data buffers.
     ///
@@ -62,6 +60,7 @@ impl dyn DynArray + '_ {
     pub fn serialize(
         &self,
         ctx: &ArrayContext,
+        session: &VortexSession,
         options: &SerializeOptions,
     ) -> VortexResult<Vec<ByteBuffer>> {
         // Collect all array buffers
@@ -120,7 +119,7 @@ impl dyn DynArray + '_ {
         // Set up the flatbuffer builder
         let mut fbb = FlatBufferBuilder::new();
 
-        let root = ArrayNodeFlatBuffer::try_new(ctx, self)?;
+        let root = ArrayNodeFlatBuffer::try_new(ctx, session, self)?;
         let fb_root = root.try_write_flatbuffer(&mut fbb)?;
 
         let fb_buffers = fbb.create_vector(&fb_buffers);
@@ -160,21 +159,17 @@ impl dyn DynArray + '_ {
 /// A utility struct for creating an [`fba::ArrayNode`] flatbuffer.
 pub struct ArrayNodeFlatBuffer<'a> {
     ctx: &'a ArrayContext,
-    array: &'a dyn DynArray,
+    session: &'a VortexSession,
+    array: &'a ArrayRef,
     buffer_idx: u16,
 }
 
 impl<'a> ArrayNodeFlatBuffer<'a> {
-    pub fn try_new(ctx: &'a ArrayContext, array: &'a dyn DynArray) -> VortexResult<Self> {
-        // Depth-first traversal of the array to ensure it supports serialization.
-        for child in array.depth_first_traversal() {
-            if child.metadata()?.is_none() {
-                vortex_bail!(
-                    "Array {} does not support serialization",
-                    child.encoding_id()
-                );
-            }
-        }
+    pub fn try_new(
+        ctx: &'a ArrayContext,
+        session: &'a VortexSession,
+        array: &'a ArrayRef,
+    ) -> VortexResult<Self> {
         let n_buffers_recursive = array.nbuffers_recursive();
         if n_buffers_recursive > u16::MAX as usize {
             vortex_bail!(
@@ -184,6 +179,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         };
         Ok(Self {
             ctx,
+            session,
             array,
             buffer_idx: 0,
         })
@@ -204,20 +200,20 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
                 )
             })?;
 
-        let metadata = self.array.metadata()?.ok_or_else(|| {
+        let metadata_bytes = self.session.array_serialize(self.array)?.ok_or_else(|| {
             vortex_err!(
                 "Array {} does not support serialization",
                 self.array.encoding_id()
             )
         })?;
-        let metadata = Some(fbb.create_vector(metadata.as_slice()));
+        let metadata = Some(fbb.create_vector(metadata_bytes.as_slice()));
 
         // Assign buffer indices for all child arrays.
         let nbuffers = u16::try_from(self.array.nbuffers())
             .map_err(|_| vortex_err!("Array can have at most u16::MAX buffers"))?;
         let mut child_buffer_idx = self.buffer_idx + nbuffers;
 
-        let children = &self
+        let children = self
             .array
             .children()
             .iter()
@@ -225,6 +221,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
                 // Update the number of buffers required.
                 let msg = ArrayNodeFlatBuffer {
                     ctx: self.ctx,
+                    session: self.session,
                     array: child,
                     buffer_idx: child_buffer_idx,
                 }
@@ -238,7 +235,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
                 Ok(msg)
             })
             .collect::<VortexResult<Vec<_>>>()?;
-        let children = Some(fbb.create_vector(children));
+        let children = Some(fbb.create_vector(&children));
 
         let buffers = Some(fbb.create_vector_from_iter((0..nbuffers).map(|i| i + self.buffer_idx)));
         let stats = Some(self.array.statistics().write_flatbuffer(fbb)?);
@@ -271,27 +268,27 @@ pub trait ArrayChildren {
     }
 }
 
-impl ArrayChildren for &[ArrayRef] {
+impl<T: AsRef<[ArrayRef]>> ArrayChildren for T {
     fn get(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
-        let array = self[index].clone();
+        let array = self.as_ref()[index].clone();
         assert_eq!(array.len(), len);
         assert_eq!(array.dtype(), dtype);
         Ok(array)
     }
 
     fn len(&self) -> usize {
-        <[_]>::len(self)
+        self.as_ref().len()
     }
 }
 
-/// [`ArrayParts`] represents a parsed but not-yet-decoded deserialized [`DynArray`].
+/// [`SerializedArray`] represents a parsed but not-yet-decoded deserialized array.
 /// It contains all the information from the serialized form, without anything extra. i.e.
 /// it is missing a [`DType`] and `len`, and the `encoding_id` is not yet resolved to a concrete
 /// vtable.
 ///
-/// An [`ArrayParts`] can be fully decoded into an [`ArrayRef`] using the `decode` function.
+/// An [`SerializedArray`] can be fully decoded into an [`ArrayRef`] using the `decode` function.
 #[derive(Clone)]
-pub struct ArrayParts {
+pub struct SerializedArray {
     // Typed as fb::ArrayNode
     flatbuffer: FlatBuffer,
     // The location of the current fb::ArrayNode
@@ -299,9 +296,9 @@ pub struct ArrayParts {
     buffers: Arc<[BufferHandle]>,
 }
 
-impl Debug for ArrayParts {
+impl Debug for SerializedArray {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ArrayParts")
+        f.debug_struct("SerializedArray")
             .field("encoding_id", &self.encoding_id())
             .field("children", &(0..self.nchildren()).map(|i| self.child(i)))
             .field(
@@ -313,8 +310,8 @@ impl Debug for ArrayParts {
     }
 }
 
-impl ArrayParts {
-    /// Decode an [`ArrayParts`] into an [`ArrayRef`].
+impl SerializedArray {
+    /// Decode an [`SerializedArray`] into an [`ArrayRef`].
     pub fn decode(
         &self,
         dtype: &DType,
@@ -326,29 +323,23 @@ impl ArrayParts {
         let encoding_id = ctx
             .resolve(encoding_idx)
             .ok_or_else(|| vortex_err!("Unknown encoding index: {}", encoding_idx))?;
-        let vtable = session
-            .arrays()
-            .registry()
-            .find(&encoding_id)
-            .ok_or_else(|| vortex_err!("Unknown encoding: {}", encoding_id))?;
+        let Some(plugin) = session.arrays().registry().find(&encoding_id) else {
+            if session.allows_unknown() {
+                return self.decode_foreign(encoding_id, dtype, len, ctx);
+            }
+            return Err(vortex_err!("Unknown encoding: {}", encoding_id));
+        };
 
-        let children = ArrayPartsChildren {
-            parts: self,
+        let children = SerializedArrayChildren {
+            ser: self,
             ctx,
             session,
         };
 
         let buffers = self.collect_buffers()?;
 
-        let decoded = vtable.build(
-            encoding_id.clone(),
-            dtype,
-            len,
-            self.metadata(),
-            &buffers,
-            &children,
-            session,
-        )?;
+        let decoded =
+            plugin.deserialize(dtype, len, self.metadata(), &buffers, &children, session)?;
 
         assert_eq!(
             decoded.len(),
@@ -366,9 +357,9 @@ impl ArrayParts {
             decoded.dtype(),
             dtype,
         );
-        assert_eq!(
-            decoded.encoding_id(),
-            encoding_id,
+
+        assert!(
+            plugin.is_supported_encoding(&decoded.encoding_id()),
             "Array decoded from {} has incorrect encoding {}",
             encoding_id,
             decoded.encoding_id(),
@@ -382,6 +373,34 @@ impl ArrayParts {
         }
 
         Ok(decoded)
+    }
+
+    fn decode_foreign(
+        &self,
+        encoding_id: crate::array::ArrayId,
+        dtype: &DType,
+        len: usize,
+        ctx: &ReadContext,
+    ) -> VortexResult<ArrayRef> {
+        let children = (0..self.nchildren())
+            .map(|idx| {
+                let child = self.child(idx);
+                let child_encoding_idx = child.flatbuffer().encoding();
+                let child_encoding_id = ctx
+                    .resolve(child_encoding_idx)
+                    .ok_or_else(|| vortex_err!("Unknown encoding index: {}", child_encoding_idx))?;
+                child.decode_foreign(child_encoding_id, dtype, len, ctx)
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        new_foreign_array(
+            encoding_id,
+            dtype.clone(),
+            len,
+            self.metadata().to_vec(),
+            self.collect_buffers()?.into_owned(),
+            children,
+        )
     }
 
     /// Returns the array encoding.
@@ -405,7 +424,7 @@ impl ArrayParts {
     }
 
     /// Returns the nth child of the array.
-    pub fn child(&self, idx: usize) -> ArrayParts {
+    pub fn child(&self, idx: usize) -> SerializedArray {
         let children = self
             .flatbuffer()
             .children()
@@ -490,7 +509,7 @@ impl ArrayParts {
     /// without needing to access the actual buffer data.
     pub fn buffer_lengths(&self) -> Vec<usize> {
         let fb_array = root::<fba::Array>(self.flatbuffer.as_ref())
-            .vortex_expect("ArrayParts flatbuffer must be a valid Array");
+            .vortex_expect("SerializedArray flatbuffer must be a valid Array");
         fb_array
             .buffers()
             .map(|buffers| buffers.iter().map(|b| b.length() as usize).collect())
@@ -508,7 +527,7 @@ impl ArrayParts {
         Ok((fb_buffer, flatbuffer_loc))
     }
 
-    /// Create an [`ArrayParts`] from a pre-existing array tree flatbuffer and pre-resolved buffer
+    /// Create an [`SerializedArray`] from a pre-existing array tree flatbuffer and pre-resolved buffer
     /// handles.
     ///
     /// The caller is responsible for resolving buffers from whatever source (device segments, host
@@ -519,24 +538,24 @@ impl ArrayParts {
         buffers: Vec<BufferHandle>,
     ) -> VortexResult<Self> {
         let (flatbuffer, flatbuffer_loc) = Self::validate_array_tree(array_tree)?;
-        Ok(ArrayParts {
+        Ok(SerializedArray {
             flatbuffer,
             flatbuffer_loc,
             buffers: buffers.into(),
         })
     }
 
-    /// Create an [`ArrayParts`] from a raw array tree flatbuffer (metadata only).
+    /// Create an [`SerializedArray`] from a raw array tree flatbuffer (metadata only).
     ///
-    /// This constructor creates an `ArrayParts` with no buffer data, useful for
+    /// This constructor creates a `SerializedArray` with no buffer data, useful for
     /// inspecting the metadata when the actual buffer data is not needed
     /// (e.g., displaying buffer sizes from inlined array tree metadata).
     ///
-    /// Note: Calling `buffer()` on the returned `ArrayParts` will fail since
+    /// Note: Calling `buffer()` on the returned `SerializedArray` will fail since
     /// no actual buffer data is available.
     pub fn from_array_tree(array_tree: impl Into<ByteBuffer>) -> VortexResult<Self> {
         let (flatbuffer, flatbuffer_loc) = Self::validate_array_tree(array_tree)?;
-        Ok(ArrayParts {
+        Ok(SerializedArray {
             flatbuffer,
             flatbuffer_loc,
             buffers: Arc::new([]),
@@ -548,7 +567,7 @@ impl ArrayParts {
         unsafe { fba::ArrayNode::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
     }
 
-    /// Returns a new [`ArrayParts`] with the given node as the root
+    /// Returns a new [`SerializedArray`] with the given node as the root
     // TODO(ngates): we may want a wrapper that avoids this clone.
     fn with_root(&self, root: fba::ArrayNode) -> Self {
         let mut this = self.clone();
@@ -556,7 +575,7 @@ impl ArrayParts {
         this
     }
 
-    /// Create an [`ArrayParts`] from a pre-existing flatbuffer (ArrayNode) and a segment containing
+    /// Create an [`SerializedArray`] from a pre-existing flatbuffer (ArrayNode) and a segment containing
     /// only the data buffers (without the flatbuffer suffix).
     ///
     /// This is used when the flatbuffer is stored separately in layout metadata (e.g., when
@@ -569,7 +588,7 @@ impl ArrayParts {
         Self::from_flatbuffer_and_segment_with_overrides(array_tree, segment, &HashMap::new())
     }
 
-    /// Create an [`ArrayParts`] from a pre-existing flatbuffer (ArrayNode) and a segment,
+    /// Create an [`SerializedArray`] from a pre-existing flatbuffer (ArrayNode) and a segment,
     /// substituting host-resident buffer overrides for specific buffer indices.
     ///
     /// Buffers whose index appears in `buffer_overrides` are resolved from the provided
@@ -614,7 +633,7 @@ impl ArrayParts {
             })
             .collect::<VortexResult<Arc<[_]>>>()?;
 
-        Ok(ArrayParts {
+        Ok(SerializedArray {
             flatbuffer: fb_buffer,
             flatbuffer_loc,
             buffers,
@@ -622,31 +641,31 @@ impl ArrayParts {
     }
 }
 
-struct ArrayPartsChildren<'a> {
-    parts: &'a ArrayParts,
+struct SerializedArrayChildren<'a> {
+    ser: &'a SerializedArray,
     ctx: &'a ReadContext,
     session: &'a VortexSession,
 }
 
-impl ArrayChildren for ArrayPartsChildren<'_> {
+impl ArrayChildren for SerializedArrayChildren<'_> {
     fn get(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
-        self.parts
+        self.ser
             .child(index)
             .decode(dtype, len, self.ctx, self.session)
     }
 
     fn len(&self) -> usize {
-        self.parts.nchildren()
+        self.ser.nchildren()
     }
 }
 
-impl TryFrom<ByteBuffer> for ArrayParts {
+impl TryFrom<ByteBuffer> for SerializedArray {
     type Error = VortexError;
 
     fn try_from(value: ByteBuffer) -> Result<Self, Self::Error> {
         // The final 4 bytes contain the length of the flatbuffer.
         if value.len() < 4 {
-            vortex_bail!("ArrayParts buffer is too short");
+            vortex_bail!("SerializedArray buffer is too short");
         }
 
         // We align each buffer individually, so we remove alignment requirements on the buffer.
@@ -654,7 +673,7 @@ impl TryFrom<ByteBuffer> for ArrayParts {
 
         let fb_length = u32::try_from_le_bytes(&value.as_slice()[value.len() - 4..])? as usize;
         if value.len() < 4 + fb_length {
-            vortex_bail!("ArrayParts buffer is too short for flatbuffer");
+            vortex_bail!("SerializedArray buffer is too short for flatbuffer");
         }
 
         let fb_offset = value.len() - 4 - fb_length;
@@ -665,7 +684,7 @@ impl TryFrom<ByteBuffer> for ArrayParts {
     }
 }
 
-impl TryFrom<BufferHandle> for ArrayParts {
+impl TryFrom<BufferHandle> for SerializedArray {
     type Error = VortexError;
 
     fn try_from(value: BufferHandle) -> Result<Self, Self::Error> {

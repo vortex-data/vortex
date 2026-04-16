@@ -46,11 +46,11 @@ pub(crate) fn new_exporter(
 #[cfg(test)]
 mod tests {
     use vortex::array::IntoArray as _;
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::TemporalArray;
     use vortex::buffer::buffer;
     use vortex::extension::datetime::TimeUnit;
-    use vortex_array::VortexSessionExecute;
 
     use crate::SESSION;
     use crate::cpp;

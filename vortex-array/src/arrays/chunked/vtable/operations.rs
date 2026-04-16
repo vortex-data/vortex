@@ -3,21 +3,21 @@
 
 use vortex_error::VortexResult;
 
-use crate::DynArray;
 use crate::ExecutionCtx;
+use crate::array::ArrayView;
+use crate::array::OperationsVTable;
 use crate::arrays::Chunked;
-use crate::arrays::chunked::vtable::ChunkedArray;
+use crate::arrays::chunked::ChunkedArrayExt;
 use crate::scalar::Scalar;
-use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<Chunked> for Chunked {
     fn scalar_at(
-        array: &ChunkedArray,
+        array: ArrayView<'_, Chunked>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let (chunk_index, chunk_offset) = array.find_chunk_idx(index)?;
-        array.chunk(chunk_index).scalar_at(chunk_offset)
+        array.chunk(chunk_index).execute_scalar(chunk_offset, ctx)
     }
 }
 

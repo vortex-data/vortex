@@ -21,8 +21,9 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::matcher::Matcher;
-use crate::vtable::VTable;
 
 /// A collection of [`ExecuteParentKernel`]s registered for a specific child encoding.
 ///
@@ -58,7 +59,7 @@ impl<V: VTable> ParentKernelSet<V> {
     /// Evaluate the parent kernels on the given child and parent arrays.
     pub fn execute(
         &self,
-        child: &V::Array,
+        child: ArrayView<'_, V>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -92,7 +93,7 @@ pub trait ExecuteParentKernel<V: VTable>: Debug + Send + Sync + 'static {
     /// Attempt to execute the parent array fused with the child array.
     fn execute_parent(
         &self,
-        array: &V::Array,
+        array: ArrayView<'_, V>,
         parent: <Self::Parent as Matcher>::Match<'_>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -108,7 +109,7 @@ pub trait DynParentKernel<V: VTable>: Send + Sync {
     /// Attempt to execute the parent array fused with the child array.
     fn execute_parent(
         &self,
-        child: &V::Array,
+        child: ArrayView<'_, V>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -138,7 +139,7 @@ impl<V: VTable, K: ExecuteParentKernel<V>> DynParentKernel<V> for ParentKernelAd
 
     fn execute_parent(
         &self,
-        child: &V::Array,
+        child: ArrayView<'_, V>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,

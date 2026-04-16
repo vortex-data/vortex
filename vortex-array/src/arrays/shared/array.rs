@@ -1,88 +1,87 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
 use async_lock::Mutex as AsyncMutex;
 use vortex_error::SharedVortexResult;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
-use crate::dtype::DType;
-use crate::stats::ArrayStats;
+use crate::array::Array;
+use crate::array::ArrayParts;
+use crate::array::TypedArrayRef;
+use crate::arrays::Shared;
+
+/// The source array that is shared and lazily computed.
+pub(super) const SOURCE_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["source"];
 
 /// A lazily-executing array wrapper with a one-way transition from source to cached form.
 ///
 /// Before materialization, operations delegate to the source array.
 /// After materialization (via `get_or_compute`), operations delegate to the cached result.
 #[derive(Debug, Clone)]
-pub struct SharedArray {
-    source: ArrayRef,
+pub struct SharedData {
     cached: Arc<OnceLock<SharedVortexResult<ArrayRef>>>,
     async_compute_lock: Arc<AsyncMutex<()>>,
-    pub(super) dtype: DType,
-    pub(super) stats: ArrayStats,
 }
 
-impl SharedArray {
-    pub fn new(source: ArrayRef) -> Self {
-        Self {
-            dtype: source.dtype().clone(),
-            source,
-            cached: Arc::new(OnceLock::new()),
-            async_compute_lock: Arc::new(AsyncMutex::new(())),
-            stats: ArrayStats::default(),
-        }
+impl Display for SharedData {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
+
+#[expect(async_fn_in_trait)]
+pub trait SharedArrayExt: TypedArrayRef<Shared> {
+    fn source(&self) -> &ArrayRef {
+        self.as_ref().slots()[SOURCE_SLOT]
+            .as_ref()
+            .vortex_expect("validated shared source slot")
     }
 
-    /// Returns the current array reference.
-    ///
-    /// After materialization, returns the cached result. Otherwise, returns the source.
-    /// If materialization failed, falls back to the source.
-    pub(super) fn current_array_ref(&self) -> &ArrayRef {
+    fn current_array_ref(&self) -> &ArrayRef {
         match self.cached.get() {
             Some(Ok(arr)) => arr,
-            _ => &self.source,
+            _ => self.source(),
         }
     }
 
-    /// Compute and cache the result. The computation runs exactly once via `OnceLock`.
-    ///
-    /// If the computation fails, the error is cached and returned on all subsequent calls.
-    pub fn get_or_compute(
+    fn get_or_compute(
         &self,
         f: impl FnOnce(&ArrayRef) -> VortexResult<Canonical>,
     ) -> VortexResult<ArrayRef> {
         let result = self
             .cached
-            .get_or_init(|| f(&self.source).map(|c| c.into_array()).map_err(Arc::new));
+            .get_or_init(|| f(self.source()).map(|c| c.into_array()).map_err(Arc::new));
         result.clone().map_err(Into::into)
     }
 
-    /// Async version of `get_or_compute`.
-    pub async fn get_or_compute_async<F, Fut>(&self, f: F) -> VortexResult<ArrayRef>
+    async fn get_or_compute_async<F, Fut>(&self, f: F) -> VortexResult<ArrayRef>
     where
         F: FnOnce(ArrayRef) -> Fut,
         Fut: Future<Output = VortexResult<Canonical>>,
     {
-        // Fast path: already computed.
         if let Some(result) = self.cached.get() {
             return result.clone().map_err(Into::into);
         }
 
-        // Serialize async computation to prevent redundant work.
         let _guard = self.async_compute_lock.lock().await;
 
-        // Double-check after acquiring the lock.
         if let Some(result) = self.cached.get() {
             return result.clone().map_err(Into::into);
         }
 
-        let computed = f(self.source.clone())
+        let computed = f(self.source().clone())
             .await
             .map(|c| c.into_array())
             .map_err(Arc::new);
@@ -90,11 +89,34 @@ impl SharedArray {
         let result = self.cached.get_or_init(|| computed);
         result.clone().map_err(Into::into)
     }
+}
+impl<T: TypedArrayRef<Shared>> SharedArrayExt for T {}
 
-    pub(super) fn set_source(&mut self, source: ArrayRef) {
-        self.dtype = source.dtype().clone();
-        self.source = source;
-        self.cached = Arc::new(OnceLock::new());
-        self.async_compute_lock = Arc::new(AsyncMutex::new(()));
+impl SharedData {
+    pub fn new() -> Self {
+        Self {
+            cached: Arc::new(OnceLock::new()),
+            async_compute_lock: Arc::new(AsyncMutex::new(())),
+        }
+    }
+}
+
+impl Default for SharedData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Array<Shared> {
+    /// Creates a new `SharedArray`.
+    pub fn new(source: ArrayRef) -> Self {
+        let dtype = source.dtype().clone();
+        let len = source.len();
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Shared, dtype, len, SharedData::new())
+                    .with_slots(vec![Some(source)]),
+            )
+        }
     }
 }

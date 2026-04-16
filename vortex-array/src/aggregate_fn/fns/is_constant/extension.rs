@@ -6,6 +6,7 @@ use vortex_error::VortexResult;
 use super::is_constant;
 use crate::ExecutionCtx;
 use crate::arrays::ExtensionArray;
+use crate::arrays::extension::ExtensionArrayExt;
 
 /// Check if an extension array is constant by delegating to its storage array.
 pub(super) fn check_extension_constant(

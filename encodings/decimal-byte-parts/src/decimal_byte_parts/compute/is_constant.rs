@@ -11,6 +11,7 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::DecimalByteParts;
+use crate::decimal_byte_parts::DecimalBytePartsArrayExt;
 
 /// DecimalByteParts-specific is_constant kernel.
 ///
@@ -34,6 +35,6 @@ impl DynAggregateKernel for DecimalBytePartsIsConstantKernel {
         };
 
         let result = is_constant(array.msp(), ctx)?;
-        Ok(Some(IsConstant::make_partial(batch, result)?))
+        Ok(Some(IsConstant::make_partial(batch, result, ctx)?))
     }
 }

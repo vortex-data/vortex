@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
+use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
-use vortex::array::vtable::ArrayId;
 use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::bitpack_compress::bitpack_encode;
 use vortex::error::VortexResult;
@@ -27,7 +28,7 @@ impl FlatLayoutFixture for BitPackedFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![BitPacked::ID]
+        vec![BitPacked.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

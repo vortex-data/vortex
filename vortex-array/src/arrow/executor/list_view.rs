@@ -14,7 +14,7 @@ use crate::ExecutionCtx;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::listview::ListViewArrayParts;
+use crate::arrays::listview::ListViewDataParts;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;
@@ -28,7 +28,7 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
     // Check for Vortex ListViewArray and convert directly.
-    let array = match array.try_into::<ListView>() {
+    let array = match array.try_downcast::<ListView>() {
         Ok(array) => return list_view_to_list_view::<O>(array, elements_field, ctx),
         Err(array) => array,
     };
@@ -43,13 +43,13 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
     elements_field: &FieldRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
-    let ListViewArrayParts {
+    let ListViewDataParts {
         elements,
         offsets,
         sizes,
         validity,
         ..
-    } = array.into_parts();
+    } = array.into_data_parts();
 
     let elements = elements.execute_arrow(Some(elements_field.data_type()), ctx)?;
     vortex_ensure!(
@@ -71,7 +71,7 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
     let null_buffer = to_arrow_null_buffer(validity, offsets.len(), ctx)?;
 
     Ok(Arc::new(GenericListViewArray::<O>::new(
-        elements_field.clone(),
+        Arc::clone(elements_field),
         offsets,
         sizes,
         elements,

@@ -19,6 +19,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::StructArray;
+use crate::arrays::struct_::StructArrayExt;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
@@ -47,7 +48,7 @@ impl ScalarFnVTable for Select {
     type Options = FieldSelection;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new_ref("vortex.select")
+        ScalarFnId::from("vortex.select")
     }
 
     fn serialize(&self, instance: &FieldSelection) -> VortexResult<Option<Vec<u8>>> {
@@ -93,7 +94,7 @@ impl ScalarFnVTable for Select {
 
     fn child_name(&self, _instance: &FieldSelection, child_idx: usize) -> ChildName {
         match child_idx {
-            0 => ChildName::new_ref("child"),
+            0 => ChildName::from("child"),
             _ => unreachable!(),
         }
     }
@@ -307,6 +308,7 @@ mod tests {
 
     use crate::IntoArray;
     use crate::ToCanonical;
+    use crate::arrays::struct_::StructArrayExt;
     use crate::dtype::DType;
     use crate::dtype::FieldName;
     use crate::dtype::FieldNames;

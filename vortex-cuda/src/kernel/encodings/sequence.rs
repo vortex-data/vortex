@@ -15,7 +15,7 @@ use vortex::array::match_each_native_ptype;
 use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::encodings::sequence::Sequence;
-use vortex::encodings::sequence::SequenceArrayParts;
+use vortex::encodings::sequence::SequenceDataParts;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 
@@ -36,16 +36,17 @@ impl CudaExecute for SequenceExecutor {
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
         let array = array
-            .try_into::<Sequence>()
+            .try_downcast::<Sequence>()
             .map_err(|_| vortex_err!("SequenceExecutor can only accept SequenceArray"))?;
 
-        let SequenceArrayParts {
+        let len = array.len();
+        let nullability = array.dtype().nullability();
+
+        let SequenceDataParts {
             base,
             multiplier,
-            len,
             ptype,
-            nullability,
-        } = array.into_parts();
+        } = array.into_data().into_parts();
 
         match_each_native_ptype!(ptype, |P| {
             let base = base.cast::<P>()?;
@@ -89,7 +90,7 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::dtype::NativePType;
     use vortex::dtype::Nullability;
-    use vortex::encodings::sequence::SequenceArray;
+    use vortex::encodings::sequence::Sequence;
     use vortex::scalar::PValue;
     use vortex::session::VortexSession;
 
@@ -126,9 +127,9 @@ mod tests {
     ) {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty()).unwrap();
 
-        let array = SequenceArray::try_new_typed(base, multiplier, nullability, len).unwrap();
+        let array = Sequence::try_new_typed(base, multiplier, nullability, len).unwrap();
 
-        let cpu_result = array.to_canonical().unwrap().into_array();
+        let cpu_result = crate::canonicalize_cpu(array.clone()).unwrap().into_array();
 
         let gpu_result = SequenceExecutor
             .execute(array.into_array(), &mut cuda_ctx)

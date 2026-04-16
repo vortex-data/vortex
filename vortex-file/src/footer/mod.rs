@@ -24,8 +24,8 @@ pub use file_statistics::FileStatistics;
 use flatbuffers::root;
 use itertools::Itertools;
 pub use segment::*;
+use vortex_array::ArrayId;
 use vortex_array::dtype::DType;
-use vortex_array::vtable::ArrayId;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -34,7 +34,7 @@ use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::footer as fb;
 use vortex_layout::LayoutEncodingId;
 use vortex_layout::LayoutRef;
-use vortex_layout::layout_from_flatbuffer;
+use vortex_layout::layout_from_flatbuffer_with_options;
 use vortex_layout::session::LayoutSessionExt;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
@@ -88,7 +88,7 @@ impl Footer {
         let layout_ids: Arc<[_]> = layout_specs
             .iter()
             .flat_map(|e| e.iter())
-            .map(|encoding| LayoutEncodingId::new_arc(Arc::from(encoding.id())))
+            .map(|encoding| LayoutEncodingId::new(encoding.id()))
             .collect();
         let layout_read_ctx = ReadContext::new(layout_ids);
 
@@ -97,16 +97,17 @@ impl Footer {
         let array_ids: Arc<[_]> = array_specs
             .iter()
             .flat_map(|e| e.iter())
-            .map(|encoding| ArrayId::new_arc(Arc::from(encoding.id())))
+            .map(|encoding| ArrayId::new(encoding.id()))
             .collect();
         let array_read_ctx = ReadContext::new(array_ids);
 
-        let root_layout = layout_from_flatbuffer(
+        let root_layout = layout_from_flatbuffer_with_options(
             layout_bytes,
             &dtype,
             &layout_read_ctx,
             &array_read_ctx,
             session.layouts().registry(),
+            session.allows_unknown(),
         )?;
 
         let segments: Arc<[SegmentSpec]> = fb_footer

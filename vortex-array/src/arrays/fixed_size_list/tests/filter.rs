@@ -7,7 +7,6 @@ use vortex_buffer::buffer;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;

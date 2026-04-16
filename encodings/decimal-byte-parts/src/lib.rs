@@ -13,6 +13,7 @@ use decimal_byte_parts::compute::is_constant::DecimalBytePartsIsConstantKernel;
 /// an i128 decimal could be converted into a [i64, u64] with further narrowing applied to either
 /// value.
 pub use decimal_byte_parts::*;
+use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
@@ -20,11 +21,11 @@ use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
 /// Initialize decimal-byte-parts encoding in the given session.
-pub fn initialize(session: &mut VortexSession) {
+pub fn initialize(session: &VortexSession) {
     session.arrays().register(DecimalByteParts);
 
     session.aggregate_fns().register_aggregate_kernel(
-        DecimalByteParts::ID,
+        DecimalByteParts.id(),
         Some(IsConstant.id()),
         &DecimalBytePartsIsConstantKernel,
     );

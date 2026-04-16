@@ -558,6 +558,8 @@ mod test {
     use enum_iterator::all;
     use itertools::Itertools;
 
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -881,7 +883,10 @@ mod test {
             .filter(|s| !matches!(s, Stat::Sum))
             .filter(|s| !matches!(s, Stat::NaNCount))
             .collect_vec();
-        array.statistics().compute_all(&all_stats).unwrap();
+        array
+            .statistics()
+            .compute_all(&all_stats, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
 
         let stats = array.statistics().to_owned();
         for stat in &all_stats {

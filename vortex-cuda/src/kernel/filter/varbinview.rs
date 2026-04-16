@@ -3,7 +3,7 @@
 
 use vortex::array::Canonical;
 use vortex::array::arrays::VarBinViewArray;
-use vortex::array::arrays::varbinview::VarBinViewArrayParts;
+use vortex::array::arrays::varbinview::VarBinViewDataParts;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
@@ -15,12 +15,12 @@ pub(super) async fn filter_varbinview(
     mask: Mask,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
-    let VarBinViewArrayParts {
+    let VarBinViewDataParts {
         views,
         buffers,
         validity,
         dtype,
-    } = array.into_parts();
+    } = array.into_data_parts();
 
     let filtered_validity = validity.filter(&mask)?;
 
@@ -74,7 +74,7 @@ mod tests {
 
         let filter_array = FilterArray::try_new(input.into_array(), mask.clone())?;
 
-        let cpu_result = filter_array.to_canonical()?.into_array();
+        let cpu_result = crate::canonicalize_cpu(filter_array.clone())?.into_array();
 
         let gpu_result = FilterExecutor
             .execute(filter_array.into_array(), &mut cuda_ctx)

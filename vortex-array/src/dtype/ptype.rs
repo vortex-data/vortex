@@ -891,7 +891,6 @@ macro_rules! try_from_bytes {
     ($T:ty) => {
         impl ToBytes for $T {
             #[inline]
-            #[allow(clippy::size_of_in_element_count)]
             fn to_le_bytes(&self) -> &[u8] {
                 // NOTE(ngates): this assumes the platform is little-endian. Currently enforced
                 //  with a flag cfg(target_endian = "little")

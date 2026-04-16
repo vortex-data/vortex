@@ -107,33 +107,41 @@ impl<R: AsyncRead> Stream for AsyncIPCReader<R> {
 
 /// A trait for converting an [`ArrayStream`] into IPC streams.
 pub trait ArrayStreamIPC {
-    fn into_ipc(self) -> ArrayStreamIPCBytes
+    fn into_ipc(self, session: &VortexSession) -> ArrayStreamIPCBytes
     where
         Self: Sized;
 
-    fn write_ipc<W: AsyncWrite + Unpin>(self, write: W) -> impl Future<Output = VortexResult<W>>
+    fn write_ipc<W: AsyncWrite + Unpin>(
+        self,
+        write: W,
+        session: &VortexSession,
+    ) -> impl Future<Output = VortexResult<W>>
     where
         Self: Sized;
 }
 
 impl<S: ArrayStream + 'static> ArrayStreamIPC for S {
-    fn into_ipc(self) -> ArrayStreamIPCBytes
+    fn into_ipc(self, session: &VortexSession) -> ArrayStreamIPCBytes
     where
         Self: Sized,
     {
         ArrayStreamIPCBytes {
             stream: Box::pin(self),
-            encoder: MessageEncoder::default(),
+            encoder: MessageEncoder::new(session.clone()),
             buffers: vec![],
             written_dtype: false,
         }
     }
 
-    async fn write_ipc<W: AsyncWrite + Unpin>(self, mut write: W) -> VortexResult<W>
+    async fn write_ipc<W: AsyncWrite + Unpin>(
+        self,
+        mut write: W,
+        session: &VortexSession,
+    ) -> VortexResult<W>
     where
         Self: Sized,
     {
-        let mut stream = self.into_ipc();
+        let mut stream = self.into_ipc(session);
         while let Some(chunk) = stream.next().await {
             write.write_all(&chunk?).await?;
         }
@@ -230,7 +238,7 @@ mod test {
         let array = buffer![1, 2, 3].into_array();
         let ipc_buffer = array
             .to_array_stream()
-            .into_ipc()
+            .into_ipc(&SESSION)
             .collect_to_buffer()
             .await
             .unwrap();
@@ -266,7 +274,7 @@ mod test {
         let array = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
         let ipc_buffer = array
             .to_array_stream()
-            .into_ipc()
+            .into_ipc(&SESSION)
             .collect_to_buffer()
             .await
             .unwrap();
@@ -289,7 +297,7 @@ mod test {
         let array = buffer![42i64, -1, 0, i64::MAX, i64::MIN].into_array();
         let ipc_buffer = array
             .to_array_stream()
-            .into_ipc()
+            .into_ipc(&SESSION)
             .collect_to_buffer()
             .await
             .unwrap();

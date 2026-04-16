@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
+#![expect(clippy::unwrap_used)]
 
 use std::sync::LazyLock;
 
@@ -9,6 +9,7 @@ use divan::Bencher;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
@@ -57,18 +58,22 @@ fn compress_fsst(bencher: Bencher, (string_count, avg_len, unique_chars): (usize
     let compressor = fsst_train_compressor(&array);
     bencher
         .with_inputs(|| (&array, &compressor))
-        .bench_refs(|(array, compressor)| fsst_compress(*array, compressor))
+        .bench_refs(|(array, compressor)| {
+            fsst_compress(*array, array.len(), array.dtype(), compressor)
+        })
 }
 
 #[divan::bench(args = BENCH_ARGS)]
 fn decompress_fsst(bencher: Bencher, (string_count, avg_len, unique_chars): (usize, usize, u8)) {
     let array = generate_test_data(string_count, avg_len, unique_chars);
     let compressor = fsst_train_compressor(&array);
-    let encoded = fsst_compress(array, &compressor);
+    let len = array.len();
+    let dtype = array.dtype().clone();
+    let encoded = fsst_compress(array, len, &dtype, &compressor);
 
     bencher
-        .with_inputs(|| &encoded)
-        .bench_refs(|encoded| encoded.to_canonical())
+        .with_inputs(|| (&encoded, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(encoded, ctx)| (**encoded).clone().into_array().execute::<Canonical>(ctx))
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -83,7 +88,7 @@ fn train_compressor(bencher: Bencher, (string_count, avg_len, unique_chars): (us
 fn pushdown_compare(bencher: Bencher, (string_count, avg_len, unique_chars): (usize, usize, u8)) {
     let array = generate_test_data(string_count, avg_len, unique_chars);
     let compressor = fsst_train_compressor(&array);
-    let fsst_array = fsst_compress(&array, &compressor);
+    let fsst_array = fsst_compress(&array, array.len(), array.dtype(), &compressor);
     let constant = ConstantArray::new(Scalar::from(&b"const"[..]), array.len());
 
     bencher
@@ -112,7 +117,7 @@ fn canonicalize_compare(
 ) {
     let array = generate_test_data(string_count, avg_len, unique_chars);
     let compressor = fsst_train_compressor(&array);
-    let fsst_array = fsst_compress(&array, &compressor);
+    let fsst_array = fsst_compress(&array, array.len(), array.dtype(), &compressor);
     let constant = ConstantArray::new(Scalar::from(&b"const"[..]), array.len());
 
     bencher
@@ -124,11 +129,12 @@ fn canonicalize_compare(
             )
         })
         .bench_refs(|(fsst_array, constant, ctx)| {
-            fsst_array
-                .to_canonical()
+            (*fsst_array)
+                .clone()
+                .into_array()
+                .execute::<Canonical>(ctx)
                 .unwrap()
-                .as_ref()
-                .to_array()
+                .into_array()
                 .binary(constant.clone().into_array(), Operator::Eq)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -176,8 +182,8 @@ fn chunked_into_canonical(
     let array = generate_chunked_test_data(chunk_size, string_count, avg_len, unique_chars);
 
     bencher
-        .with_inputs(|| &array)
-        .bench_refs(|array| array.to_canonical());
+        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+        .bench_refs(|(array, ctx)| (**array).clone().into_array().execute::<Canonical>(ctx));
 }
 
 /// Helper function to generate random string data.
@@ -215,7 +221,9 @@ fn generate_chunked_test_data(
         .map(|_| {
             let array = generate_test_data(string_count, avg_len, unique_chars);
             let compressor = fsst_train_compressor(&array);
-            fsst_compress(array, &compressor).into_array()
+            let len = array.len();
+            let dtype = array.dtype().clone();
+            fsst_compress(array, len, &dtype, &compressor).into_array()
         })
         .collect::<ChunkedArray>()
 }

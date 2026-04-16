@@ -7,7 +7,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
@@ -21,13 +20,13 @@ use crate::scalar_fn::fns::operators::Operator;
 /// Point-wise Kleene logical _and_ between two Boolean arrays.
 #[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
 pub fn and_kleene(lhs: &ArrayRef, rhs: &ArrayRef) -> VortexResult<ArrayRef> {
-    lhs.to_array().binary(rhs.to_array(), Operator::And)
+    lhs.clone().binary(rhs.clone(), Operator::And)
 }
 
 /// Point-wise Kleene logical _or_ between two Boolean arrays.
 #[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
 pub fn or_kleene(lhs: &ArrayRef, rhs: &ArrayRef) -> VortexResult<ArrayRef> {
-    lhs.to_array().binary(rhs.to_array(), Operator::Or)
+    lhs.clone().binary(rhs.clone(), Operator::Or)
 }
 
 /// Execute a Kleene boolean operation between two arrays.
@@ -42,7 +41,7 @@ pub(crate) fn execute_boolean(
     if let Some(result) = constant_boolean(lhs, rhs, op)? {
         return Ok(result);
     }
-    arrow_execute_boolean(lhs.to_array(), rhs.to_array(), op)
+    arrow_execute_boolean(lhs.clone(), rhs.clone(), op)
 }
 
 /// Arrow implementation for Kleene boolean operations using [`Operator`].
@@ -107,6 +106,8 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
@@ -125,10 +126,26 @@ mod tests {
         let r = lhs.binary(rhs, Operator::Or).unwrap();
         let r = r.to_bool().into_array();
 
-        let v0 = r.scalar_at(0).unwrap().as_bool().value();
-        let v1 = r.scalar_at(1).unwrap().as_bool().value();
-        let v2 = r.scalar_at(2).unwrap().as_bool().value();
-        let v3 = r.scalar_at(3).unwrap().as_bool().value();
+        let v0 = r
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .as_bool()
+            .value();
+        let v1 = r
+            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .as_bool()
+            .value();
+        let v2 = r
+            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .as_bool()
+            .value();
+        let v3 = r
+            .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .as_bool()
+            .value();
 
         assert!(v0.unwrap());
         assert!(v1.unwrap());
@@ -152,10 +169,26 @@ mod tests {
             .to_bool()
             .into_array();
 
-        let v0 = r.scalar_at(0).unwrap().as_bool().value();
-        let v1 = r.scalar_at(1).unwrap().as_bool().value();
-        let v2 = r.scalar_at(2).unwrap().as_bool().value();
-        let v3 = r.scalar_at(3).unwrap().as_bool().value();
+        let v0 = r
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .as_bool()
+            .value();
+        let v1 = r
+            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .as_bool()
+            .value();
+        let v2 = r
+            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .as_bool()
+            .value();
+        let v3 = r
+            .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .as_bool()
+            .value();
 
         assert!(v0.unwrap());
         assert!(!v1.unwrap());

@@ -9,13 +9,12 @@ use std::sync::Arc;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
-use vortex_array::serde::ArrayParts;
+use vortex_array::serde::SerializedArray;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -73,10 +72,10 @@ impl FlatReader {
             let segment = segment_fut.await?;
             let parts = if let Some(array_tree) = array_tree {
                 // Use the pre-stored flatbuffer from layout metadata combined with segment buffers.
-                ArrayParts::from_flatbuffer_and_segment(array_tree, segment)?
+                SerializedArray::from_flatbuffer_and_segment(array_tree, segment)?
             } else {
                 // Parse the flatbuffer from the segment itself.
-                ArrayParts::try_from(segment)?
+                SerializedArray::try_from(segment)?
             };
             parts
                 .decode(&dtype, row_count, &ctx, &session)
@@ -129,7 +128,7 @@ impl LayoutReader for FlatReader {
             .vortex_expect("Row range begin must fit within FlatLayout size")
             ..usize::try_from(row_range.end)
                 .vortex_expect("Row range end must fit within FlatLayout size");
-        let name = self.name.clone();
+        let name = Arc::clone(&self.name);
         let array = self.array_future();
         let expr = expr.clone();
         let session = self.session.clone();
@@ -187,7 +186,7 @@ impl LayoutReader for FlatReader {
             .vortex_expect("Row range begin must fit within FlatLayout size")
             ..usize::try_from(row_range.end)
                 .vortex_expect("Row range end must fit within FlatLayout size");
-        let name = self.name.clone();
+        let name = Arc::clone(&self.name);
         let array = self.array_future();
         let expr = expr.clone();
 
@@ -236,6 +235,7 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
+    use vortex_io::session::RuntimeSessionExt;
 
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -247,6 +247,7 @@ mod test {
     #[test]
     fn flat_identity() -> VortexResult<()> {
         block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -255,10 +256,10 @@ mod test {
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     array.to_array_stream().sequenced(ptr),
                     eof,
-                    handle,
+                    &session,
                 )
                 .await?;
 
@@ -285,6 +286,7 @@ mod test {
     #[test]
     fn flat_expr() {
         block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
             let ctx = ArrayContext::empty();
 
             let segments = Arc::new(TestSegments::default());
@@ -294,10 +296,10 @@ mod test {
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     array.to_array_stream().sequenced(ptr),
                     eof,
-                    handle,
+                    &session,
                 )
                 .await
                 .unwrap();
@@ -323,6 +325,7 @@ mod test {
     #[test]
     fn flat_unaligned_row_mask() {
         block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -331,10 +334,10 @@ mod test {
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     array.to_array_stream().sequenced(ptr),
                     eof,
-                    handle,
+                    &session,
                 )
                 .await
                 .unwrap();
@@ -348,7 +351,7 @@ mod test {
                 .unwrap();
 
             let expected = PrimitiveArray::new(buffer![3i32, 4], Validity::AllValid).into_array();
-            assert_arrays_eq!(result.as_ref(), expected.as_ref());
+            assert_arrays_eq!(result, expected);
         })
     }
 }

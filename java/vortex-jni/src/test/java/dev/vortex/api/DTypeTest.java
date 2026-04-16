@@ -60,10 +60,8 @@ public final class DTypeTest {
     public void testFixedSizeListInStruct() {
         var elementType = DType.newFloat(false);
         var fslType = DType.newFixedSizeList(elementType, 3, false);
-        var structType = DType.newStruct(
-                new String[] {"id", "embedding"},
-                new DType[] {DType.newInt(false), fslType},
-                false);
+        var structType =
+                DType.newStruct(new String[] {"id", "embedding"}, new DType[] {DType.newInt(false), fslType}, false);
         assertEquals(DType.Variant.STRUCT, structType.getVariant());
 
         var fieldTypes = structType.getFieldTypes();

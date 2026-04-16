@@ -4,7 +4,14 @@
 use std::sync::Arc;
 
 use vortex_array::Canonical;
-use vortex_array::DynArray;
+use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::varbin::varbin_scalar;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_decimal_value_type;
@@ -18,8 +25,9 @@ use vortex_error::VortexResult;
 /// This implementation manually extracts the scalar value from each canonical type
 /// without using the scalar_at method, to serve as an independent baseline for testing.
 pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexResult<Scalar> {
-    if canonical.as_ref().is_invalid(index)? {
-        return Ok(Scalar::null(canonical.as_ref().dtype().clone()));
+    let canonical_ref = canonical.clone().into_array();
+    if canonical_ref.is_invalid(index, &mut LEGACY_SESSION.create_execution_ctx())? {
+        return Ok(Scalar::null(canonical_ref.dtype().clone()));
     }
     Ok(match canonical {
         Canonical::Null(_array) => Scalar::null(DType::Null),
@@ -76,8 +84,7 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
         }
         Canonical::Struct(array) => {
             let field_scalars: Vec<Scalar> = array
-                .unmasked_fields()
-                .iter()
+                .iter_unmasked_fields()
                 .map(|field| {
                     scalar_at_canonical_array(
                         field

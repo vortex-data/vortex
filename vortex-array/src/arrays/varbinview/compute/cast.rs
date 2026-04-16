@@ -1,26 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
-use crate::vtable::ValidityHelper;
 
 impl CastReduce for VarBinView {
-    fn cast(array: &VarBinViewArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, VarBinView>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !array.dtype().eq_ignore_nullability(dtype) {
             return Ok(None);
         }
 
         let new_nullability = dtype.nullability();
         let new_validity = array
-            .validity()
-            .clone()
+            .validity()?
             .cast_nullability(new_nullability, array.len())?;
         let new_dtype = array.dtype().with_nullability(new_nullability);
 
@@ -29,7 +30,7 @@ impl CastReduce for VarBinView {
             Ok(Some(
                 VarBinViewArray::new_handle_unchecked(
                     array.views_handle().clone(),
-                    array.buffers().clone(),
+                    Arc::clone(array.data_buffers()),
                     new_dtype,
                     new_validity,
                 )

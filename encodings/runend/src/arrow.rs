@@ -6,6 +6,7 @@ use arrow_array::types::RunEndIndexType;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrow::FromArrowArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::scalar::PValue;
@@ -15,10 +16,9 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
-use crate::RunEndArray;
+use crate::RunEndData;
 use crate::ops::find_slice_end_index;
-
-impl<R: RunEndIndexType> FromArrowArray<&RunArray<R>> for RunEndArray
+impl<R: RunEndIndexType> FromArrowArray<&RunArray<R>> for RunEndData
 where
     R::Native: NativePType,
 {
@@ -31,23 +31,30 @@ where
             .reinterpret_cast(R::Native::PTYPE.to_unsigned());
         let values = ArrayRef::from_arrow(array.values().as_ref(), nullable)?;
 
+        let ends_array = PrimitiveArray::from_buffer_handle(
+            ends.buffer_handle().clone(),
+            ends.ptype(),
+            ends.validity()?,
+        )
+        .into_array();
         let (ends_slice, values_slice) = if offset == 0 && len == array.run_ends().max_value() {
-            (ends.into_array(), values)
+            (ends_array, values)
         } else {
-            let slice_begin = ends
+            let slice_begin = ends_array
                 .as_primitive_typed()
                 .search_sorted(&PValue::from(offset), SearchSortedSide::Right)?
-                .to_ends_index(ends.len());
-            let slice_end = find_slice_end_index(&ends.clone().into_array(), offset + len)?;
+                .to_ends_index(ends_array.len());
+            let slice_end = find_slice_end_index(&ends_array, offset + len)?;
 
             (
-                ends.slice(slice_begin..slice_end)?,
+                ends_array.slice(slice_begin..slice_end)?,
                 values.slice(slice_begin..slice_end)?,
             )
         };
 
-        // SAFETY: arrow-rs enforces the RunEndArray invariants, we inherit their guarantees
-        Ok(unsafe { RunEndArray::new_unchecked(ends_slice, values_slice, offset, len) })
+        // SAFETY: arrow-rs enforces the RunEndArray invariants, we inherit their guarantees.
+        RunEndData::validate_parts(&ends_slice, &values_slice, offset, len)?;
+        Ok(unsafe { RunEndData::new_unchecked(offset) })
     }
 }
 
@@ -56,33 +63,87 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
+    use arrow_array::Array as _;
     use arrow_array::Float64Array;
     use arrow_array::Int32Array;
     use arrow_array::Int64Array;
     use arrow_array::RunArray;
     use arrow_array::types::Int32Type;
     use arrow_array::types::Int64Type;
+    use arrow_array::types::RunEndIndexType;
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use rstest::rstest;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray as _;
     use vortex_array::VortexSessionExecute as _;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::primitive::PrimitiveArrayExt;
     use vortex_array::arrow::ArrowArrayExecutor;
     use vortex_array::arrow::FromArrowArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::NativePType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::scalar::PValue;
+    use vortex_array::search_sorted::SearchSorted;
+    use vortex_array::search_sorted::SearchSortedSide;
     use vortex_array::session::ArraySession;
+    use vortex_array::session::ArraySessionExt;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::RunEndArray;
+    use crate::RunEnd;
+    use crate::ops::find_slice_end_index;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty().with::<ArraySession>();
+        session.arrays().register(RunEnd);
+        session
+    });
+
+    fn decode_run_array<R: RunEndIndexType>(
+        array: &RunArray<R>,
+        nullable: bool,
+    ) -> VortexResult<crate::RunEndArray>
+    where
+        R::Native: NativePType,
+    {
+        let offset = array.run_ends().offset();
+        let len = array.run_ends().len();
+        let ends_buf =
+            Buffer::<R::Native>::from_arrow_scalar_buffer(array.run_ends().inner().clone());
+        let ends = PrimitiveArray::new(ends_buf, Validity::NonNullable)
+            .reinterpret_cast(R::Native::PTYPE.to_unsigned());
+        let values = ArrayRef::from_arrow(array.values().as_ref(), nullable)?;
+
+        let ends_array = PrimitiveArray::from_buffer_handle(
+            ends.buffer_handle().clone(),
+            ends.ptype(),
+            ends.validity()?,
+        )
+        .into_array();
+        let (ends_slice, values_slice) = if offset == 0 && len == array.run_ends().max_value() {
+            (ends_array, values)
+        } else {
+            let slice_begin = ends_array
+                .as_primitive_typed()
+                .search_sorted(&PValue::from(offset), SearchSortedSide::Right)?
+                .to_ends_index(ends_array.len());
+            let slice_end = find_slice_end_index(&ends_array, offset + len)?;
+
+            (
+                ends_array.slice(slice_begin..slice_end)?,
+                values.slice(slice_begin..slice_end)?,
+            )
+        };
+
+        RunEnd::try_new_offset_length(ends_slice, values_slice, offset, array.len())
+    }
 
     #[test]
     fn test_arrow_run_array_to_vortex() -> VortexResult<()> {
@@ -94,10 +155,10 @@ mod tests {
         let arrow_run_array = RunArray::<Int32Type>::try_new(&run_ends, &values).unwrap();
 
         // Convert to Vortex
-        let vortex_array = RunEndArray::from_arrow(&arrow_run_array, false)?;
+        let vortex_array = decode_run_array(&arrow_run_array, false)?;
 
         assert_arrays_eq!(
-            vortex_array.as_ref(),
+            vortex_array.into_array(),
             buffer![10i32, 10, 10, 20, 20, 30, 30, 30].into_array()
         );
         Ok(())
@@ -111,10 +172,10 @@ mod tests {
         let arrow_run_array = RunArray::<Int32Type>::try_new(&run_ends, &values).unwrap();
 
         // Convert to Vortex with nullable=true
-        let vortex_array = RunEndArray::from_arrow(&arrow_run_array, true)?;
+        let vortex_array = decode_run_array(&arrow_run_array, true)?;
 
         assert_arrays_eq!(
-            vortex_array.as_ref(),
+            vortex_array.into_array(),
             PrimitiveArray::from_option_iter([
                 Some(100i32),
                 Some(100i32),
@@ -135,7 +196,7 @@ mod tests {
         let arrow_run_array = RunArray::<Int64Type>::try_new(&run_ends, &values).unwrap();
 
         // Convert to Vortex
-        let vortex_array = RunEndArray::from_arrow(&arrow_run_array, false)?;
+        let vortex_array = decode_run_array(&arrow_run_array, false)?;
 
         assert_arrays_eq!(vortex_array, buffer![1.5f64, 2.5, 2.5, 3.5].into_array());
         Ok(())
@@ -155,7 +216,7 @@ mod tests {
         let sliced_array = arrow_run_array.slice(1, 6);
 
         // Convert the sliced array to Vortex
-        let vortex_array = RunEndArray::from_arrow(&sliced_array, false)?;
+        let vortex_array = decode_run_array(&sliced_array, false)?;
         assert_arrays_eq!(
             vortex_array,
             buffer![100, 200, 200, 200, 300, 300].into_array()
@@ -178,7 +239,7 @@ mod tests {
         let sliced_array = arrow_run_array.slice(4, 6);
 
         // Convert to Vortex with nullable=true
-        let vortex_array = RunEndArray::from_arrow(&sliced_array, true)?;
+        let vortex_array = decode_run_array(&sliced_array, true)?;
 
         assert_arrays_eq!(
             vortex_array,
@@ -209,7 +270,7 @@ mod tests {
         let sliced_array = arrow_run_array.slice(4, 0);
 
         // Convert to Vortex with nullable=true
-        let vortex_array = RunEndArray::from_arrow(&sliced_array, true)?;
+        let vortex_array = decode_run_array(&sliced_array, true)?;
 
         // Verify properties
         assert_eq!(vortex_array.len(), 0);
@@ -227,10 +288,7 @@ mod tests {
         )
     }
 
-    fn execute(
-        array: vortex_array::ArrayRef,
-        dt: &DataType,
-    ) -> VortexResult<arrow_array::ArrayRef> {
+    fn execute(array: ArrayRef, dt: &DataType) -> VortexResult<arrow_array::ArrayRef> {
         array.execute_arrow(Some(dt), &mut SESSION.create_execution_ctx())
     }
 
@@ -240,7 +298,7 @@ mod tests {
             &Int32Array::from(vec![3i32, 5, 8]),
             &Int32Array::from(vec![10, 20, 30]),
         )?;
-        let vortex_array = RunEndArray::from_arrow(&original, false)?;
+        let vortex_array = decode_run_array(&original, false)?;
         let target = ree_type(DataType::Int32, DataType::Int32);
         let result = execute(vortex_array.into_array(), &target)?;
 
@@ -273,8 +331,7 @@ mod tests {
         #[case] expected_ends: &[i32],
         #[case] expected_values: &[i32],
     ) -> VortexResult<()> {
-        let array =
-            RunEndArray::encode(PrimitiveArray::from_iter(input.iter().copied()).into_array())?;
+        let array = RunEnd::encode(PrimitiveArray::from_iter(input.iter().copied()).into_array())?;
         let sliced = array.into_array().slice(slice_range.clone())?;
         let target = ree_type(DataType::Int32, DataType::Int32);
         let result = execute(sliced, &target)?;

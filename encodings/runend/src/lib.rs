@@ -26,6 +26,7 @@ pub mod _benchmarking {
     use super::*;
 }
 
+use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
@@ -35,22 +36,22 @@ use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
 /// Initialize run-end encoding in the given session.
-pub fn initialize(session: &mut VortexSession) {
+pub fn initialize(session: &VortexSession) {
     session.arrays().register(RunEnd);
 
     // Register the RunEnd-specific aggregate kernels.
     session.aggregate_fns().register_aggregate_kernel(
-        RunEnd::ID,
+        RunEnd.id(),
         Some(MinMax.id()),
         &compute::min_max::RunEndMinMaxKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
-        RunEnd::ID,
+        RunEnd.id(),
         Some(IsConstant.id()),
         &compute::is_constant::RunEndIsConstantKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
-        RunEnd::ID,
+        RunEnd.id(),
         Some(IsSorted.id()),
         &compute::is_sorted::RunEndIsSortedKernel,
     );
@@ -58,7 +59,7 @@ pub fn initialize(session: &mut VortexSession) {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::ProstMetadata;
+    use prost::Message;
     use vortex_array::dtype::PType;
     use vortex_array::test_harness::check_metadata;
 
@@ -69,11 +70,12 @@ mod tests {
     fn test_runend_metadata() {
         check_metadata(
             "runend.metadata",
-            ProstMetadata(RunEndMetadata {
+            &RunEndMetadata {
                 ends_ptype: PType::U64 as i32,
                 num_runs: u64::MAX,
                 offset: u64::MAX,
-            }),
+            }
+            .encode_to_vec(),
         );
     }
 }

@@ -6,7 +6,7 @@
 //! This module contains the [`AggregateFnVTable`] trait, the [`Accumulator`] trait, and the
 //! type-erasure infrastructure for aggregate functions.
 
-use arcref::ArcRef;
+use vortex_session::registry::Id;
 
 mod accumulator;
 pub use accumulator::*;
@@ -19,6 +19,9 @@ pub use vtable::*;
 
 mod plugin;
 pub use plugin::*;
+
+mod foreign;
+pub(crate) use foreign::*;
 
 mod typed;
 pub use typed::*;
@@ -35,7 +38,7 @@ pub mod proto;
 pub mod session;
 
 /// A unique identifier for an aggregate function.
-pub type AggregateFnId = ArcRef<str>;
+pub type AggregateFnId = Id;
 
 /// Private module to seal [`typed::DynAggregateFn`].
 mod sealed {

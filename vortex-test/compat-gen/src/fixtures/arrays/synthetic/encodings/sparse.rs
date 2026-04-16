@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
+use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::ConstantArray;
@@ -12,9 +14,7 @@ use vortex::array::dtype::FieldNames;
 use vortex::array::dtype::Nullability;
 use vortex::array::scalar::Scalar;
 use vortex::array::validity::Validity;
-use vortex::array::vtable::ArrayId;
 use vortex::encodings::sparse::Sparse;
-use vortex::encodings::sparse::SparseArray;
 use vortex::error::VortexResult;
 
 use super::N;
@@ -32,7 +32,7 @@ impl FlatLayoutFixture for SparseFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Sparse::ID]
+        vec![Sparse.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
@@ -43,7 +43,7 @@ impl FlatLayoutFixture for SparseFixture {
         let sparse_str: Vec<Option<&str>> = (0..N)
             .map(|i| (i % 20 == 0).then_some("rare_value"))
             .collect();
-        let sparse_str_col = VarBinArray::from(sparse_str);
+        let sparse_str_col = VarBinArray::from_nullable_strs(sparse_str);
 
         let sparse_bool_col = BoolArray::from_iter((0..N).map(|i| (i % 100 == 0).then_some(true)));
 
@@ -89,22 +89,22 @@ impl FlatLayoutFixture for SparseFixture {
                 "mixed_null_and_values",
             ]),
             vec![
-                SparseArray::encode(&sparse_i64_col.into_array(), None)?,
-                SparseArray::encode(&sparse_str_col.into_array(), None)?,
-                SparseArray::encode(&sparse_bool_col.into_array(), None)?,
-                SparseArray::encode(&sparse_f64.into_array(), None)?,
-                SparseArray::encode(&sparse_boundary.into_array(), None)?,
-                SparseArray::encode(
+                Sparse::encode(&sparse_i64_col.into_array(), None)?,
+                Sparse::encode(&sparse_str_col.into_array(), None)?,
+                Sparse::encode(&sparse_bool_col.into_array(), None)?,
+                Sparse::encode(&sparse_f64.into_array(), None)?,
+                Sparse::encode(&sparse_boundary.into_array(), None)?,
+                Sparse::encode(
                     &explicit_fill_values.into_array(),
                     Some(Scalar::primitive(10i32, Nullability::Nullable)),
                 )?,
-                SparseArray::encode(&all_default, Some(Scalar::from(10i32)))?,
-                SparseArray::encode(&clustered_edges.into_array(), None)?,
-                SparseArray::encode(
+                Sparse::encode(&all_default, Some(Scalar::from(10i32)))?,
+                Sparse::encode(&clustered_edges.into_array(), None)?,
+                Sparse::encode(
                     &almost_dense.into_array(),
                     Some(Scalar::primitive(0i32, Nullability::Nullable)),
                 )?,
-                SparseArray::encode(&mixed_null_and_values.into_array(), Some(mixed_null_fill))?,
+                Sparse::encode(&mixed_null_and_values.into_array(), Some(mixed_null_fill))?,
             ],
             N,
             Validity::NonNullable,

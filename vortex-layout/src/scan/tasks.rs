@@ -71,8 +71,8 @@ pub fn split_exec<A: 'static + Send>(
             // NOTE: it's very important that the pruning and filter evaluations are built OUTSIDE
             // the future. Registering these row ranges eagerly is a hint to the IO system that
             // we want to start prefetching the IO for this split.
-            let reader = ctx.reader.clone();
-            let filter = filter.clone();
+            let reader = Arc::clone(&ctx.reader);
+            let filter = Arc::clone(filter);
             let row_range = row_range.clone();
 
             MaskFuture::new(row_mask.len(), async move {
@@ -141,7 +141,7 @@ pub fn split_exec<A: 'static + Send>(
         ctx.reader
             .projection_evaluation(&row_range, &ctx.projection, filter_mask.clone())?;
 
-    let mapper = ctx.mapper.clone();
+    let mapper = Arc::clone(&ctx.mapper);
     let array_fut = async move {
         let mask = filter_mask.await?;
         if mask.all_false() {

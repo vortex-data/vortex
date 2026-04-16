@@ -13,6 +13,7 @@ option(BUILD_TESTS "Build tests" OFF)
 
 set(SANITIZER "" CACHE STRING "Build with sanitizers")
 set(TARGET_TRIPLE "" CACHE STRING "Rust target triple for FFI library")
+set(RUST_BUILD_PROFILE "" CACHE STRING "Cargo profile name for the Rust FFI library")
 
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
@@ -46,12 +47,14 @@ if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug" AND
     message(FATAL_ERROR "vortex-ffi can only be built in Release, Debug, or RelWithDebInfo mode")
 endif()
 
-if (CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
-    set(CMAKE_BUILD_TYPE_LOWER "release_debug")
-else()
-    string(TOLOWER ${CMAKE_BUILD_TYPE} CMAKE_BUILD_TYPE_LOWER)
+if (RUST_BUILD_PROFILE STREQUAL "")
+    if (CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+        set(RUST_BUILD_PROFILE "release_debug")
+    else()
+        string(TOLOWER ${CMAKE_BUILD_TYPE} RUST_BUILD_PROFILE)
+    endif()
 endif()
-set(LIBRARY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../target/${TARGET_TRIPLE}/${CMAKE_BUILD_TYPE_LOWER}")
+set(LIBRARY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../target/${TARGET_TRIPLE}/${RUST_BUILD_PROFILE}")
 
 if(WIN32)
     set(LIBRARY_PATH "${LIBRARY_DIR}/libvortex_ffi.lib")

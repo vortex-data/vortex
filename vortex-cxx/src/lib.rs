@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![allow(clippy::boxed_local)]
+
 mod dtype;
 mod expr;
 mod read;

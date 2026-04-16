@@ -2,11 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -45,8 +47,10 @@ pub fn compare_canonical_array(
                     .iter()
                     .zip(
                         array
-                            .validity_mask()
+                            .validity()
                             .vortex_expect("validity_mask")
+                            .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                            .vortex_expect("Failed to compute validity mask")
                             .to_bit_buffer()
                             .iter(),
                     )
@@ -70,8 +74,10 @@ pub fn compare_canonical_array(
                         .copied()
                         .zip(
                             array
-                                .validity_mask()
+                                .validity()
                                 .vortex_expect("validity_mask")
+                                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                                .vortex_expect("Failed to compute validity mask")
                                 .to_bit_buffer()
                                 .iter(),
                         )
@@ -98,8 +104,10 @@ pub fn compare_canonical_array(
                         .copied()
                         .zip(
                             array
-                                .validity_mask()
+                                .validity()
                                 .vortex_expect("validity_mask")
+                                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                                .vortex_expect("Failed to compute validity mask")
                                 .to_bit_buffer()
                                 .iter(),
                         )
@@ -123,7 +131,7 @@ pub fn compare_canonical_array(
             let binary_value = value.as_binary();
             compare_to(
                 // Don't understand the lifetime problem here but identity map makes it go away
-                #[allow(clippy::map_identity)]
+                #[expect(clippy::map_identity)]
                 iter.map(|v| v),
                 binary_value.value().vortex_expect("nulls handled before"),
                 operator,
@@ -131,8 +139,9 @@ pub fn compare_canonical_array(
             )
         }),
         DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => {
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
             let scalar_vals: Vec<Scalar> = (0..array.len())
-                .map(|i| array.scalar_at(i).vortex_expect("scalar_at"))
+                .map(|i| array.execute_scalar(i, &mut ctx).vortex_expect("scalar_at"))
                 .collect();
             BoolArray::from_iter(scalar_vals.iter().map(|v| {
                 scalar_cmp(v, value, operator)

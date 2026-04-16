@@ -18,7 +18,6 @@ mod tests {
     use vortex_error::VortexExpect;
 
     use crate::Canonical;
-    use crate::DynArray;
     use crate::IntoArray as _;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
@@ -71,7 +70,12 @@ mod tests {
             .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
         assert_eq!(taken.len(), 1);
-        assert!(taken.into_array().all_invalid().unwrap());
+        assert!(
+            taken
+                .into_array()
+                .all_invalid(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
     }
 
     #[test]
