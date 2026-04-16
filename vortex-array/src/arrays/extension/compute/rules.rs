@@ -10,20 +10,44 @@ use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::Filter;
 use crate::arrays::extension::ExtensionArrayExt;
+use crate::arrays::extension::vtable::constant_extension_array;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
+use crate::matcher::AnyArray;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Extension> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&ExtensionConstantParentRule),
     ParentRuleSet::lift(&ExtensionFilterPushDownRule),
     ParentRuleSet::lift(&CastReduceAdaptor(Extension)),
     ParentRuleSet::lift(&FilterReduceAdaptor(Extension)),
     ParentRuleSet::lift(&MaskReduceAdaptor(Extension)),
     ParentRuleSet::lift(&SliceReduceAdaptor(Extension)),
 ]);
+
+/// Normalize `Extension(Constant(storage))` children to `Constant(Extension(storage))`.
+#[derive(Debug)]
+struct ExtensionConstantParentRule;
+
+impl ArrayParentReduceRule<Extension> for ExtensionConstantParentRule {
+    type Parent = AnyArray;
+
+    fn reduce_parent(
+        &self,
+        child: ArrayView<'_, Extension>,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let Some(reduced_child) = constant_extension_array(child) else {
+            return Ok(None);
+        };
+
+        parent.clone().with_slot(child_idx, reduced_child).map(Some)
+    }
+}
 
 /// Push filter operations into the storage array of an extension array.
 #[derive(Debug)]
@@ -58,6 +82,7 @@ mod tests {
     use crate::IntoArray;
     #[expect(deprecated)]
     use crate::ToCanonical as _;
+    use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::Extension;
     use crate::arrays::ExtensionArray;
@@ -175,6 +200,31 @@ mod tests {
         #[expect(deprecated)]
         let canonical = ext_result.storage_array().to_primitive();
         assert_eq!(canonical.len(), 3);
+    }
+
+    #[test]
+    fn test_extension_constant_child_normalizes_under_scalar_fn() {
+        let ext_dtype = test_ext_dtype();
+
+        let constant_storage = ConstantArray::new(Scalar::from(10i64), 3).into_array();
+        let constant_ext = ExtensionArray::new(ext_dtype.clone(), constant_storage).into_array();
+
+        let storage = buffer![15i64, 25, 35].into_array();
+        let ext_array = ExtensionArray::new(ext_dtype, storage).into_array();
+
+        let scalar_fn_array = Binary
+            .try_new_array(3, Operator::Lt, [constant_ext, ext_array])
+            .unwrap();
+
+        let optimized = scalar_fn_array.optimize().unwrap();
+        let scalar_fn = optimized.as_opt::<crate::arrays::ScalarFnVTable>().unwrap();
+        let children = scalar_fn.children();
+        let constant = children[0]
+            .as_opt::<Constant>()
+            .expect("constant extension child should be normalized");
+
+        assert!(constant.scalar().as_extension_opt().is_some());
+        assert_eq!(constant.len(), 3);
     }
 
     #[test]

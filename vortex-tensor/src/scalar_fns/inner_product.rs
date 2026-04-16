@@ -448,18 +448,9 @@ impl InnerProduct {
             return Ok(None);
         }
 
-        // The other side must be a constant-backed tensor-like extension whose scalar is
-        // non-null.
-        let Some(const_ext) = const_ref.as_opt::<Extension>() else {
+        let Some(const_storage) = constant_tensor_storage(const_ref) else {
             return Ok(None);
         };
-        let const_storage = const_ext.storage_array();
-        let Some(const_backing) = const_storage.as_opt::<Constant>() else {
-            return Ok(None);
-        };
-        if const_backing.scalar().is_null() {
-            return Ok(None);
-        }
 
         let dim = sorf_view.options.dimension as usize;
         let num_rounds = sorf_view.options.num_rounds as usize;
@@ -467,7 +458,7 @@ impl InnerProduct {
         let padded_dim = dim.next_power_of_two();
 
         // Extract the single stored row of the constant via the stride-0 short-circuit.
-        let flat = extract_flat_elements(const_storage, dim, ctx)?;
+        let flat = extract_flat_elements(&const_storage, dim, ctx)?;
         if flat.ptype() != PType::F32 {
             // TODO(connor): as above, f16/f64 are not supported by this rewrite yet. The
             // standard path handles them correctly.
@@ -482,9 +473,9 @@ impl InnerProduct {
         let mut rotated_query = vec![0.0f32; padded_dim];
         rotation.rotate(&padded_query, &mut rotated_query);
 
-        // Build the rewritten constant as a `Vector<padded_dim, f32>` extension wrapping a
-        // `ConstantArray` of length `len`. We reuse the original storage FSL nullability so
-        // the new extension dtype stays consistent with whatever the original tree expected.
+        // Build the rewritten constant as a `Vector<padded_dim, f32>` extension scalar. We reuse
+        // the original storage FSL nullability so the new extension dtype stays consistent with
+        // whatever the original tree expected.
         let storage_fsl_nullability = const_storage.dtype().nullability();
         let element_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
         let children: Vec<Scalar> = rotated_query
@@ -493,7 +484,6 @@ impl InnerProduct {
             .collect();
         let fsl_scalar =
             Scalar::fixed_size_list(element_dtype.clone(), children, storage_fsl_nullability);
-        let new_storage = ConstantArray::new(fsl_scalar, len).into_array();
 
         // Build a fresh `Vector<padded_dim, f32>` extension dtype. We cannot reuse the
         // original extension dtype because that one has `dim`, not `padded_dim`.
@@ -504,7 +494,8 @@ impl InnerProduct {
             storage_fsl_nullability,
         );
         let new_ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, new_fsl_dtype)?.erased();
-        let new_constant = ExtensionArray::new(new_ext_dtype, new_storage).into_array();
+        let new_constant =
+            ConstantArray::new(Scalar::extension_ref(new_ext_dtype, fsl_scalar), len).into_array();
 
         // Extract the SorfTransform child (the already-padded Vector<padded_dim, f32>).
         let sorf_child = sorf_view
@@ -572,16 +563,9 @@ impl InnerProduct {
         };
 
         // Navigate the constant side and require its scalar be non-null.
-        let Some(const_ext) = const_candidate.as_opt::<Extension>() else {
+        let Some(const_storage) = constant_tensor_storage(const_candidate) else {
             return Ok(None);
         };
-        let const_storage = const_ext.storage_array();
-        let Some(const_backing) = const_storage.as_opt::<Constant>() else {
-            return Ok(None);
-        };
-        if const_backing.scalar().is_null() {
-            return Ok(None);
-        }
 
         // Canonicalize codes and values. Codes may be e.g. BitPacked; executing is cheaper
         // than falling through to the standard path (which would also canonicalize).
@@ -602,7 +586,7 @@ impl InnerProduct {
 
         let padded_dim = usize::try_from(fsl.list_size()).vortex_expect("fsl list_size fits usize");
 
-        let flat = extract_flat_elements(const_storage, padded_dim, ctx)?;
+        let flat = extract_flat_elements(&const_storage, padded_dim, ctx)?;
         if flat.ptype() != PType::F32 {
             // TODO(connor): case 2 is f32-only. For f16/f64 we fall through to the standard
             // path, which computes the inner product with the correct element type.
@@ -635,6 +619,16 @@ impl InnerProduct {
         let result = unsafe { PrimitiveArray::new_unchecked(out.freeze(), validity) }.into_array();
         Ok(Some(result))
     }
+}
+
+/// Return the storage constant for a canonical tensor-like constant query.
+fn constant_tensor_storage(array: &ArrayRef) -> Option<ArrayRef> {
+    let constant = array.as_opt::<Constant>()?;
+    if constant.scalar().is_null() {
+        return None;
+    }
+    let ext_scalar = constant.scalar().as_extension_opt()?;
+    Some(ConstantArray::new(ext_scalar.to_storage_scalar(), array.len()).into_array())
 }
 
 /// Computes the inner product (dot product) of two equal-length float slices.
@@ -959,6 +953,7 @@ mod tests {
         use vortex_array::ArrayRef;
         use vortex_array::IntoArray;
         use vortex_array::VortexSessionExecute;
+        use vortex_array::arrays::Constant;
         use vortex_array::arrays::ConstantArray;
         use vortex_array::arrays::ExtensionArray;
         use vortex_array::arrays::FixedSizeListArray;
@@ -978,9 +973,11 @@ mod tests {
         use vortex_session::VortexSession;
 
         use crate::scalar_fns::inner_product::InnerProduct;
+        use crate::scalar_fns::inner_product::constant_tensor_storage;
         use crate::scalar_fns::sorf_transform::SorfMatrix;
         use crate::scalar_fns::sorf_transform::SorfOptions;
         use crate::scalar_fns::sorf_transform::SorfTransform;
+        use crate::utils::extract_flat_elements;
         use crate::vector::Vector;
 
         static SESSION: LazyLock<VortexSession> =
@@ -1009,6 +1006,19 @@ mod tests {
             let ext_dtype =
                 ExtDType::<Vector>::try_new(EmptyMetadata, storage.dtype().clone())?.erased();
             Ok(ExtensionArray::new(ext_dtype, storage).into_array())
+        }
+
+        /// Expression-literal shape: a ConstantArray whose scalar itself is a Vector extension.
+        fn literal_vector_f32(elements: &[f32], len: usize) -> ArrayRef {
+            let element_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
+            let children: Vec<Scalar> = elements
+                .iter()
+                .map(|&v| Scalar::primitive(v, Nullability::NonNullable))
+                .collect();
+            let storage_scalar =
+                Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
+            let vector_scalar = Scalar::extension::<Vector>(EmptyMetadata, storage_scalar);
+            ConstantArray::new(vector_scalar, len).into_array()
         }
 
         /// Build an `ExtensionArray<Vector<list_size, f32>>` whose storage is
@@ -1114,6 +1124,27 @@ mod tests {
         }
 
         // ---- Case 1: SorfTransform + Constant pull-through ----
+
+        #[test]
+        fn constant_tensor_storage_accepts_extension_scalar_literal() -> VortexResult<()> {
+            let literal = literal_vector_f32(&[1.0, 2.0, 3.0], 5);
+            let storage =
+                constant_tensor_storage(&literal).expect("literal vector should be recognized");
+
+            assert_eq!(storage.len(), 5);
+            let const_storage = storage
+                .as_opt::<Constant>()
+                .expect("storage should remain constant-backed");
+            assert!(matches!(
+                const_storage.scalar().dtype(),
+                DType::FixedSizeList(_, 3, Nullability::NonNullable)
+            ));
+
+            let mut ctx = SESSION.create_execution_ctx();
+            let flat = extract_flat_elements(&storage, 3, &mut ctx)?;
+            assert_eq!(flat.row::<f32>(0), &[1.0, 2.0, 3.0]);
+            Ok(())
+        }
 
         /// Case 1: SorfTransform on LHS, constant query on RHS, with `dim < padded_dim`
         /// so the zero-padding branch is exercised.
