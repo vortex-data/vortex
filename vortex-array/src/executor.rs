@@ -206,25 +206,24 @@ impl ExecutionCtx {
         self.session.allocator()
     }
 
-    /// Log an execution step.
+    /// Log an execution step at the current depth.
     ///
-    /// Compiled out entirely in release builds. In debug builds, steps are accumulated and
-    /// dumped as a single trace on drop at DEBUG level, and logged individually at TRACE level.
+    /// Steps are accumulated and dumped as a single trace on Drop at DEBUG level.
+    /// Individual steps are also logged at TRACE level for real-time following.
     ///
     /// Use the [`format_args!`] macro to create the `msg` argument.
-    #[inline]
-    pub fn log(&mut self, _msg: fmt::Arguments<'_>) {
+    pub fn log(&mut self, msg: fmt::Arguments<'_>) {
         if tracing::enabled!(tracing::Level::DEBUG) {
-            let formatted = format!(" - {_msg}");
+            let formatted = format!(" - {msg}");
             tracing::trace!("exec[{}]: {formatted}", self.id);
             self.ops.push(formatted);
         }
-    }
-}
 
-impl Display for ExecutionCtx {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        return write!(f, "exec[{}]", self.id);
+        impl Display for ExecutionCtx {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "exec[{}]", self.id)
+            }
+        }
     }
 }
 
