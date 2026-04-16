@@ -8,8 +8,6 @@
 //!
 //! The benchmark writes one `.vortex` file per flavor per data file, then scans them all with the
 //! same query so the comparison is apples-to-apples with the Parquet files.
-//!
-//! Note that the handrolled `&[f32]` parquet baseline is **not** a flavor here.
 
 use clap::ValueEnum;
 use vortex::array::ArrayId;

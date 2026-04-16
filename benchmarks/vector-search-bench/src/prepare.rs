@@ -37,7 +37,7 @@ use crate::ingest::ChunkTransform;
 
 /// The paths of the vortex files that result from preparing one `(dataset, layout, flavor)` triple.
 #[derive(Debug, Clone)]
-pub struct CompressedVortexDataSet {
+pub struct CompressedVortexDataset {
     pub dataset: VectorDataset,
     pub layout: TrainLayout,
     pub flavor: VectorFlavor,
@@ -51,7 +51,7 @@ pub async fn prepare_all(
     layout: TrainLayout,
     paths_for_dataset: &DatasetPaths,
     flavors: &[VectorFlavor],
-) -> Result<Vec<CompressedVortexDataSet>> {
+) -> Result<Vec<CompressedVortexDataset>> {
     let mut results = Vec::with_capacity(flavors.len());
 
     for &flavor in flavors {
@@ -71,7 +71,7 @@ pub async fn prepare_flavor(
     layout: TrainLayout,
     paths_for_dataset: &DatasetPaths,
     flavor: VectorFlavor,
-) -> Result<CompressedVortexDataSet> {
+) -> Result<CompressedVortexDataset> {
     let transform = ChunkTransform {
         src_ptype: dataset.element_ptype(),
     };
@@ -106,7 +106,7 @@ pub async fn prepare_flavor(
         vortex_files.push(written_path);
     }
 
-    Ok(CompressedVortexDataSet {
+    Ok(CompressedVortexDataset {
         dataset,
         layout,
         flavor,
