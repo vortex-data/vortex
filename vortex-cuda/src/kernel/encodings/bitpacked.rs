@@ -588,7 +588,9 @@ mod tests {
         let sliced_array = bitpacked_array.into_array().slice(2..6)?;
         assert!(sliced_array.is::<BitPacked>());
 
-        let cpu_result = sliced_array.to_canonical()?;
+        let cpu_result = sliced_array
+            .clone()
+            .execute::<Canonical>(cuda_ctx.execution_ctx())?;
         let gpu_result = block_on(async {
             BitPackedExecutor
                 .execute(sliced_array, &mut cuda_ctx)
@@ -637,7 +639,9 @@ mod tests {
         let second_slice = first_slice.slice(50..2900)?;
         assert!(second_slice.is::<BitPacked>());
 
-        let cpu_result = second_slice.to_canonical()?;
+        let cpu_result = second_slice
+            .clone()
+            .execute::<Canonical>(cuda_ctx.execution_ctx())?;
         let gpu_result = block_on(async {
             BitPackedExecutor
                 .execute(second_slice, &mut cuda_ctx)
@@ -684,7 +688,9 @@ mod tests {
         let sliced_array = bitpacked_array.into_array().slice(1024..3072)?;
         assert!(sliced_array.is::<BitPacked>());
 
-        let cpu_result = sliced_array.to_canonical()?;
+        let cpu_result = sliced_array
+            .clone()
+            .execute::<Canonical>(cuda_ctx.execution_ctx())?;
         let gpu_result = block_on(async {
             BitPackedExecutor
                 .execute(sliced_array, &mut cuda_ctx)
