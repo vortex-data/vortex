@@ -9,9 +9,8 @@ use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex_array::ToCanonical as _;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -96,13 +95,13 @@ impl FileStatsAccumulator {
     ) -> VortexResult<(SequenceId, ArrayRef)> {
         let (sequence_id, chunk) = chunk?;
         if chunk.dtype().is_struct() {
-            #[expect(deprecated)]
-            let chunk = chunk.to_struct();
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
+            let struct_chunk = chunk.clone().execute::<StructArray>(&mut ctx)?;
             for (acc, field) in self
                 .accumulators
                 .lock()
                 .iter_mut()
-                .zip_eq(chunk.iter_unmasked_fields())
+                .zip_eq(struct_chunk.iter_unmasked_fields())
             {
                 acc.push_chunk(field)?;
             }

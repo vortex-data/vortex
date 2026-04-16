@@ -16,10 +16,8 @@ use itertools::Itertools;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Field;
@@ -234,18 +232,18 @@ impl LayoutStrategy for TableStrategy {
         }
 
         // stream<struct_chunk> -> stream<vec<column_chunk>>
+        let mut stream_ctx = session.create_execution_ctx();
         let columns_vec_stream = stream.map(move |chunk| {
             let (sequence_id, chunk) = chunk?;
             let mut sequence_pointer = sequence_id.descend();
-            #[expect(deprecated)]
-            let struct_chunk = chunk.to_struct();
+            let struct_chunk = chunk.clone().execute::<StructArray>(&mut stream_ctx)?;
             let mut columns: Vec<(SequenceId, ArrayRef)> = Vec::new();
             if is_nullable {
                 columns.push((
                     sequence_pointer.advance(),
                     chunk
                         .validity()?
-                        .to_mask(chunk.len(), &mut LEGACY_SESSION.create_execution_ctx())?
+                        .to_mask(chunk.len(), &mut stream_ctx)?
                         .into_array(),
                 ));
             }

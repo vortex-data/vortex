@@ -466,8 +466,7 @@ mod test {
     use parking_lot::Mutex;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldMask;
@@ -659,14 +658,14 @@ mod test {
 
         let runtime = SingleThreadRuntime::default();
         let session = crate::scan::test::session_with_handle(runtime.handle());
+        let mut ctx = session.create_execution_ctx();
 
         let stream = ScanBuilder::new(session, reader).into_stream().unwrap();
         let mut iter = runtime.block_on_stream(stream);
 
         let mut values = Vec::new();
         for chunk in &mut iter {
-            #[expect(deprecated)]
-            let prim = chunk?.to_primitive();
+            let prim = chunk?.execute::<PrimitiveArray>(&mut ctx)?;
             values.push(prim.into_buffer::<i32>()[0]);
         }
 

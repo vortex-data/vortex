@@ -11,8 +11,7 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::builtins::ArrayBuiltins;
@@ -354,14 +353,15 @@ impl LayoutReader for StructReader {
             ),
         };
 
+        let session = self.session.clone();
         Ok(Box::pin(async move {
             if let Some(validity_fut) = validity_fut {
                 let (array, validity) = try_join!(projected, validity_fut)?;
 
                 // If root expression was a pack, then we apply the validity to each child field
                 if is_pack_merge {
-                    #[expect(deprecated)]
-                    let struct_array = array.to_struct();
+                    let mut ctx = session.create_execution_ctx();
+                    let struct_array = array.execute::<StructArray>(&mut ctx)?;
                     let masked_fields: Vec<ArrayRef> = struct_array
                         .iter_unmasked_fields()
                         .map(|a| a.clone().mask(validity.clone()))
@@ -394,10 +394,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::MaskFuture;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -671,6 +668,7 @@ mod tests {
     fn test_struct_layout_select(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
+        let mut ctx = SESSION.create_execution_ctx();
         let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
         let expr = pack(
             [("a", get_item("a", root())), ("b", get_item("b", root()))],
@@ -691,16 +689,14 @@ mod tests {
         assert_eq!(result.len(), 2);
 
         let expected_a = PrimitiveArray::from_iter([7i32, 2]);
-        #[expect(deprecated)]
-        let result_struct_a = result.to_struct();
+        let result_struct_a = result.clone().execute::<StructArray>(&mut ctx).unwrap();
         assert_arrays_eq!(
             result_struct_a.unmasked_field_by_name("a").unwrap(),
             expected_a
         );
 
         let expected_b = PrimitiveArray::from_iter([4i32, 5]);
-        #[expect(deprecated)]
-        let result_struct_b = result.to_struct();
+        let result_struct_b = result.clone().execute::<StructArray>(&mut ctx).unwrap();
         assert_arrays_eq!(
             result_struct_b.unmasked_field_by_name("b").unwrap(),
             expected_b
@@ -711,6 +707,7 @@ mod tests {
     fn test_struct_layout_nulls(
         #[from(null_struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
+        let mut ctx = SESSION.create_execution_ctx();
         // Read the layout source from the top.
         let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
         let expr = get_item("a", root());
@@ -727,9 +724,7 @@ mod tests {
 
         // ...and the result is masked with the validity of the parent StructArray
         assert_eq!(
-            result
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap(),
+            result.execute_scalar(0, &mut ctx).unwrap(),
             Scalar::null(result.dtype().clone()),
         );
         assert_nth_scalar!(result, 1, 2);
@@ -740,6 +735,7 @@ mod tests {
     fn test_struct_layout_nested(
         #[from(nested_struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
+        let mut ctx = SESSION.create_execution_ctx();
         // Project out the nested struct field.
         // The projection should preserve the nulls of the `b` struct when we select out the
         // child column `c`.
@@ -771,7 +767,7 @@ mod tests {
         // Row 0: struct is valid, field "c" is 4.
         assert_eq!(
             result
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut ctx)
                 .unwrap()
                 .as_struct()
                 .field_by_idx(0)
@@ -782,7 +778,7 @@ mod tests {
         // Row 1: struct is null (because root.a.b was null at this row).
         assert!(
             result
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(1, &mut ctx)
                 .unwrap()
                 .as_struct()
                 .is_null()
@@ -791,7 +787,7 @@ mod tests {
         // Row 2: struct is valid, field "c" is 6.
         assert_eq!(
             result
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(2, &mut ctx)
                 .unwrap()
                 .as_struct()
                 .field_by_idx(0)

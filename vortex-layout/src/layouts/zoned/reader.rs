@@ -16,8 +16,8 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldPath;
@@ -136,9 +136,10 @@ impl ZonedReader {
                     )
                     .vortex_expect("Failed construct zone map evaluation");
 
+                let session = self.session.clone();
                 async move {
-                    #[expect(deprecated)]
-                    let zones_array = zones_eval.await?.to_struct();
+                    let mut ctx = session.create_execution_ctx();
+                    let zones_array = zones_eval.await?.execute::<StructArray>(&mut ctx)?;
                     // SAFETY: This is only fine to call because we perform validation above
                     Ok(unsafe { ZoneMap::new_unchecked(zones_array, present_stats) })
                 }
