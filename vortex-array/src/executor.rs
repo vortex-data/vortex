@@ -176,17 +176,10 @@ impl ArrayRef {
 }
 
 /// Execution context for batch CPU compute.
-///
-/// In debug builds, accumulates a trace of execution steps: individual steps are logged at TRACE
-/// level for real-time following, and the full trace is dumped at DEBUG level on drop.
-/// In release builds the tracing fields are compiled out entirely — `log` is a zero-overhead
-/// no-op and the struct holds only the session.
 #[derive(Debug, Clone)]
 pub struct ExecutionCtx {
     session: VortexSession,
-    #[cfg(debug_assertions)]
     id: usize,
-    #[cfg(debug_assertions)]
     ops: Vec<String>,
 }
 
@@ -195,12 +188,10 @@ impl ExecutionCtx {
     pub fn new(session: VortexSession) -> Self {
         Self {
             session,
-            #[cfg(debug_assertions)]
             id: {
                 static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
                 EXEC_CTX_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
             },
-            #[cfg(debug_assertions)]
             ops: Vec::new(),
         }
     }
@@ -223,7 +214,6 @@ impl ExecutionCtx {
     /// Use the [`format_args!`] macro to create the `msg` argument.
     #[inline]
     pub fn log(&mut self, _msg: fmt::Arguments<'_>) {
-        #[cfg(debug_assertions)]
         if tracing::enabled!(tracing::Level::DEBUG) {
             let formatted = format!(" - {_msg}");
             tracing::trace!("exec[{}]: {formatted}", self.id);
@@ -234,16 +224,12 @@ impl ExecutionCtx {
 
 impl Display for ExecutionCtx {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        #[cfg(debug_assertions)]
         return write!(f, "exec[{}]", self.id);
-        #[cfg(not(debug_assertions))]
-        write!(f, "exec")
     }
 }
 
 impl Drop for ExecutionCtx {
     fn drop(&mut self) {
-        #[cfg(debug_assertions)]
         if !self.ops.is_empty() && tracing::enabled!(tracing::Level::DEBUG) {
             // Unlike itertools `.format()` (panics in 0.14 on second format)
             struct FmtOps<'a>(&'a [String]);
