@@ -10,6 +10,9 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+OLD_QUERY_NAME = re.compile(r"_q(\d+)/")
+NEW_QUERY_NAME = re.compile(r"/q(\d+)(?::memory|/memory)?/")
+
 
 @dataclass
 class TargetRef:
@@ -64,9 +67,14 @@ def extract_target_fields(df: pd.DataFrame) -> pd.DataFrame:
 
     # Extract query number from name if present
     if "name" in df.columns:
-        # Pattern: dataset_qNN/engine:format
-        pattern = r"_q(\d+)/"
-        df["query"] = df["name"].apply(lambda n: int(m.group(1)) if (m := re.search(pattern, str(n))) else None)
+        # Patterns:
+        # - dataset_qNN/engine:format
+        # - dataset/.../qNN/engine:format
+        df["query"] = df["name"].apply(
+            lambda n: int(m.group(1))
+            if (m := (OLD_QUERY_NAME.search(str(n)) or NEW_QUERY_NAME.search(str(n))))
+            else None
+        )
 
     return df
 

@@ -243,6 +243,7 @@ pub struct QueryMeasurement {
     pub query_idx: usize,
     pub target: Target,
     pub benchmark_dataset: BenchmarkDataset,
+    pub benchmark_runner: String,
     /// The storage backend against which this test was run. One of: s3, gcs, nvme.
     pub storage: String,
     pub runs: Vec<Duration>,
@@ -297,11 +298,12 @@ pub struct TripleJson {
 impl ToJson for QueryMeasurement {
     fn to_json(&self) -> serde_json::Value {
         let name = format!(
-            "{dataset}_q{query_idx:02}/{engine}:{format}",
-            dataset = self.benchmark_dataset.name(),
+            "{benchmark_id_path}/{engine}:{format}",
+            benchmark_id_path = self
+                .benchmark_dataset
+                .benchmark_id_path(&self.benchmark_runner, self.query_idx),
             engine = self.target.engine,
             format = self.target.format.name(),
-            query_idx = self.query_idx
         );
 
         let host = Triple::host();
@@ -430,6 +432,7 @@ pub struct MemoryMeasurement {
     pub query_idx: usize,
     pub target: Target,
     pub benchmark_dataset: BenchmarkDataset,
+    pub benchmark_runner: String,
     pub storage: String,
     pub physical_memory_delta: i64,
     pub virtual_memory_delta: i64,
@@ -442,6 +445,7 @@ impl MemoryMeasurement {
         query_idx: usize,
         target: Target,
         benchmark_dataset: BenchmarkDataset,
+        benchmark_runner: String,
         storage: String,
         memory_result: MemoryMeasurementResult,
     ) -> Self {
@@ -449,6 +453,7 @@ impl MemoryMeasurement {
             query_idx,
             target,
             benchmark_dataset,
+            benchmark_runner,
             storage,
             physical_memory_delta: memory_result.physical_memory_delta,
             virtual_memory_delta: memory_result.virtual_memory_delta,
@@ -461,11 +466,12 @@ impl MemoryMeasurement {
 impl ToJson for MemoryMeasurement {
     fn to_json(&self) -> serde_json::Value {
         let name = format!(
-            "{dataset}_q{query_idx:02}_memory/{engine}:{format}",
-            dataset = self.benchmark_dataset.name(),
+            "{benchmark_id_path}/{engine}:{format}",
+            benchmark_id_path = self
+                .benchmark_dataset
+                .benchmark_memory_id_path(&self.benchmark_runner, self.query_idx),
             engine = self.target.engine,
             format = self.target.format.name(),
-            query_idx = self.query_idx
         );
 
         let host = Triple::host();
@@ -514,4 +520,59 @@ pub struct MemoryMeasurementJson {
     pub commit_id: String,
     pub target: Target,
     pub env_triple: TripleJson,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+    use crate::memory::MemoryMeasurementResult;
+
+    #[test]
+    fn query_measurement_json_name_uses_runner_prefixed_path() {
+        let measurement = QueryMeasurement {
+            query_idx: 1,
+            target: Target::new(Engine::DataFusion, Format::OnDiskVortex),
+            benchmark_dataset: BenchmarkDataset::TpcH {
+                scale_factor: "1.0".to_string(),
+            },
+            benchmark_runner: "ec2_c6id.8xlarge".to_string(),
+            storage: "nvme".to_string(),
+            runs: vec![Duration::from_nanos(10)],
+        };
+
+        let json = measurement.to_json();
+
+        assert_eq!(
+            json.get("name").and_then(serde_json::Value::as_str),
+            Some("tpch/sf_1/q01/ec2_c6id.8xlarge/datafusion:vortex-file-compressed")
+        );
+    }
+
+    #[test]
+    fn memory_measurement_json_name_uses_runner_prefixed_path() {
+        let measurement = MemoryMeasurement::new(
+            2,
+            Target::new(Engine::DuckDB, Format::Parquet),
+            BenchmarkDataset::TpcH {
+                scale_factor: "1.0".to_string(),
+            },
+            "ec2_c6id.8xlarge".to_string(),
+            "nvme".to_string(),
+            MemoryMeasurementResult {
+                physical_memory_delta: 1,
+                virtual_memory_delta: 2,
+                peak_physical_memory: 3,
+                peak_virtual_memory: 4,
+            },
+        );
+
+        let json = measurement.to_json();
+
+        assert_eq!(
+            json.get("name").and_then(serde_json::Value::as_str),
+            Some("memory/tpch/sf_1/q02/ec2_c6id.8xlarge/duckdb:parquet")
+        );
+    }
 }

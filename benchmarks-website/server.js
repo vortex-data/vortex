@@ -22,6 +22,8 @@ const COMMITS_URL =
 const REFRESH_INTERVAL = process.env.REFRESH_INTERVAL || 5 * 60 * 1000;
 const MAX_POINTS = 200;
 const USE_LOCAL_DATA = process.env.USE_LOCAL_DATA === "true";
+const LOCAL_DATA_FILE = process.env.LOCAL_DATA_FILE || null;
+const LOCAL_COMMITS_FILE = process.env.LOCAL_COMMITS_FILE || null;
 
 // Benchmark groups: non-query groups + simple suites + fan-out suites
 const GROUPS = [
@@ -64,8 +66,50 @@ const geoMean = (arr) =>
       )
     : null;
 
+function queryLabel(suite, queryNumber) {
+  return `${suite.queryPrefix} Q${queryNumber}`;
+}
+
+function parseSqlBenchmarkId(id) {
+  let parts = id.split("/");
+  if (parts[0]?.toLowerCase() === "memory") parts = parts.slice(1);
+  if (parts.length < 4) return null;
+
+  const suitePrefix = parts[0].toLowerCase();
+  const suite = QUERY_SUITES.find(
+    (querySuite) => querySuite.prefix.toLowerCase() === suitePrefix,
+  );
+  if (!suite) return null;
+
+  const querySegment = parts.at(-3);
+  const runner = parts.at(-2);
+  const seriesName = parts.at(-1);
+  const queryMatch = querySegment?.match(/^q(\d+)$/i);
+  if (!queryMatch || !runner || !seriesName?.includes(":")) return null;
+
+  const queryNumber = parseInt(queryMatch[1], 10);
+  return {
+    suite,
+    queryNumber,
+    datasetSegments: parts.slice(1, -3),
+    chartName: queryLabel(suite, queryNumber),
+    seriesName,
+    sortPosition: queryNumber,
+  };
+}
+
+function scaleFactorFromBenchmarkId(parsedSqlId) {
+  const sfSegment = parsedSqlId.datasetSegments.find((segment) =>
+    segment.toLowerCase().startsWith("sf_"),
+  );
+  if (!sfSegment) return 1;
+
+  const sf = parseFloat(sfSegment.slice(3).replace(/_/g, "."));
+  return Number.isFinite(sf) ? Math.round(sf) : 1;
+}
+
 // Categorize benchmarks based on name patterns and metadata
-function getGroup(benchmark) {
+function getGroup(benchmark, parsedSqlId = parseSqlBenchmarkId(benchmark.name)) {
   const name = benchmark.name;
   const lower = name.toLowerCase();
 
@@ -105,26 +149,20 @@ function getGroup(benchmark) {
     return "Compression";
   }
 
-  // SQL query suites: match "{prefix}_q..." or "{prefix}/..."
-  for (const suite of QUERY_SUITES) {
-    if (
-      !lower.startsWith(suite.prefix + "_q") &&
-      !lower.startsWith(suite.prefix + "/")
-    )
-      continue;
+  if (parsedSqlId) {
+    const suite = parsedSqlId.suite;
     if (suite.skip) return null;
     if (!suite.fanOut) return suite.displayName;
     // Fan-out suites: expand by storage and scale factor
     const storage = benchmark.storage?.toUpperCase() === "S3" ? "S3" : "NVMe";
-    const rawSf = benchmark.dataset?.[suite.datasetKey]?.scale_factor;
-    const sf = rawSf ? Math.round(parseFloat(rawSf)) : 1;
+    const sf = scaleFactorFromBenchmarkId(parsedSqlId);
     return `${suite.displayName} (${storage}) (SF=${sf})`;
   }
 
   return null;
 }
 
-// Format query name for display: "{prefix}_q00" -> "{QUERY_PREFIX} Q0"
+// Format query name for display: "{prefix}_q00" -> "{QUERY_PREFIX} Q0".
 function formatQuery(q) {
   const lower = q.toLowerCase();
   for (const suite of QUERY_SUITES) {
@@ -232,7 +270,14 @@ function readLocalJsonl(fp) {
 async function forEachBenchmark(callback) {
   let stream;
   if (USE_LOCAL_DATA) {
-    stream = fs.createReadStream(path.join(__dirname, "sample/data.json"));
+    const localDataFile =
+      LOCAL_DATA_FILE ||
+      (fs.existsSync(path.join(__dirname, "sample/data.json"))
+        ? path.join(__dirname, "sample/data.json")
+        : path.join(__dirname, "sample/data.json.gz"));
+    stream = localDataFile.endsWith(".gz")
+      ? fs.createReadStream(localDataFile).pipe(zlib.createGunzip())
+      : fs.createReadStream(localDataFile);
   } else {
     const res = await fetch(DATA_URL);
     if (!res.ok) throw new Error(`Fetch failed: ${DATA_URL} ${res.status}`);
@@ -259,7 +304,9 @@ async function refresh() {
   try {
     // Load commits first (small dataset, must be fully in memory for indexing)
     const commitsArr = USE_LOCAL_DATA
-      ? await readLocalJsonl(path.join(__dirname, "sample/commits.json"))
+      ? await readLocalJsonl(
+          LOCAL_COMMITS_FILE || path.join(__dirname, "sample/commits.json"),
+        )
       : await fetchJsonl(COMMITS_URL);
 
     // Build commit index (O(1) lookup)
@@ -283,9 +330,12 @@ async function refresh() {
         return;
       }
 
-      const group = getGroup(b);
+      const parsedSqlId = parseSqlBenchmarkId(b.name);
+      const group = getGroup(b, parsedSqlId);
       if (!group) {
-        uncategorized.add(b.name.split("/")[0]);
+        if (!parsedSqlId?.suite.skip) {
+          uncategorized.add(b.name.split("/")[0]);
+        }
         return;
       }
       if (!groups[group]) return;
@@ -293,17 +343,26 @@ async function refresh() {
       // Random access names have the form: random-access/{dataset}/{pattern}/{format}
       // Historical random access names: random-access/{format}
       // Other benchmarks use: {query}/{series}
-      let seriesName, chartName;
+      let seriesName, chartName, sortPos;
       const parts = b.name.split("/");
       if (group === "Random Access" && parts.length === 4) {
         chartName = `${parts[1]}/${parts[2]}`.toUpperCase().replace(/[_-]/g, " ");
         seriesName = rename(parts[3] || "default");
+        sortPos = 0;
       } else if (group === "Random Access" && parts.length === 2) {
         chartName = "RANDOM ACCESS";
         seriesName = rename(parts[1] || "default");
+        sortPos = 0;
+      } else if (parsedSqlId) {
+        seriesName = rename(parsedSqlId.seriesName);
+        chartName = parsedSqlId.chartName;
+        sortPos = parsedSqlId.sortPosition;
       } else {
         seriesName = rename(parts[1] || "default");
         chartName = formatQuery(parts[0]);
+        sortPos = parts[0].match(/q(\d+)$/i)?.[1]
+          ? parseInt(RegExp.$1, 10)
+          : 0;
       }
       chartName = normalizeChartName(group, chartName);
       if (chartName.includes("PARQUET-UNC")) return;
@@ -318,9 +377,6 @@ async function refresh() {
         else unit = "ns";
       }
 
-      const sortPos = parts[0].match(/q(\d+)$/i)?.[1]
-        ? parseInt(RegExp.$1, 10)
-        : 0;
       const idx = commitIdx.get(commit.id);
       if (idx === undefined) return;
 

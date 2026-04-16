@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Display;
+use std::path::PathBuf;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -19,7 +20,7 @@ pub mod struct_list_of_ints;
 pub mod taxi_data;
 pub mod tpch_l_comment;
 
-use std::path::PathBuf;
+pub(crate) const DEFAULT_BENCHMARK_RUNNER_ID: &str = "unknown";
 
 #[async_trait]
 pub trait Dataset {
@@ -67,6 +68,85 @@ impl BenchmarkDataset {
             BenchmarkDataset::GhArchive => "gharchive",
         }
     }
+
+    /// Return the globally unique path prefix used for query benchmark result IDs.
+    pub fn benchmark_id_path(&self, benchmark_runner: &str, query_idx: usize) -> String {
+        let runner_id = normalize_benchmark_runner_id(benchmark_runner);
+        let query_segment = format!("q{query_idx:02}");
+        let dataset_path = match self {
+            BenchmarkDataset::TpcH { scale_factor } => {
+                format!(
+                    "tpch/sf_{}/{query_segment}",
+                    scale_factor_slug(scale_factor)
+                )
+            }
+            BenchmarkDataset::TpcDS { scale_factor } => {
+                format!(
+                    "tpcds/sf_{}/{query_segment}",
+                    scale_factor_slug(scale_factor)
+                )
+            }
+            BenchmarkDataset::ClickBench { flavor } => {
+                format!(
+                    "clickbench/flavor_{}/{query_segment}",
+                    slug(&flavor.to_string())
+                )
+            }
+            BenchmarkDataset::PublicBi { name } => {
+                format!("public-bi/{}/{query_segment}", slug(name))
+            }
+            BenchmarkDataset::StatPopGen { n_rows } => {
+                format!("statpopgen/rows_{n_rows}/{query_segment}")
+            }
+            BenchmarkDataset::PolarSignals { n_rows } => {
+                format!("polarsignals/rows_{n_rows}/{query_segment}")
+            }
+            BenchmarkDataset::Fineweb => format!("fineweb/{query_segment}"),
+            BenchmarkDataset::GhArchive => format!("gharchive/{query_segment}"),
+        };
+        format!("{dataset_path}/{runner_id}")
+    }
+
+    pub fn benchmark_memory_id_path(&self, benchmark_runner: &str, query_idx: usize) -> String {
+        format!(
+            "memory/{}",
+            self.benchmark_id_path(benchmark_runner, query_idx)
+        )
+    }
+}
+
+pub(crate) fn normalize_benchmark_runner_id(benchmark_runner: &str) -> String {
+    let benchmark_runner = benchmark_runner.trim().replace('/', "_");
+    if benchmark_runner.is_empty() {
+        DEFAULT_BENCHMARK_RUNNER_ID.to_string()
+    } else {
+        benchmark_runner
+    }
+}
+
+fn scale_factor_slug(scale_factor: &str) -> String {
+    slug(scale_factor.strip_suffix(".0").unwrap_or(scale_factor))
+}
+
+fn slug(value: &str) -> String {
+    let mut slug = String::new();
+    let mut last_was_separator = false;
+
+    for ch in value.chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch);
+            last_was_separator = false;
+        } else if !last_was_separator && !slug.is_empty() {
+            slug.push('_');
+            last_was_separator = true;
+        }
+    }
+
+    if slug.ends_with('_') {
+        slug.pop();
+    }
+
+    slug
 }
 
 impl Display for BenchmarkDataset {

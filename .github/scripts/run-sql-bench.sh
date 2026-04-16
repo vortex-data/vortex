@@ -19,6 +19,7 @@
 #   --remote-storage <url>    Remote storage URL (e.g., s3://bucket/path/)
 #                             If provided, runs in remote mode (no lance support).
 #   --benchmark-id <id>       Benchmark ID for error messages (e.g., tpch-s3)
+#   --runner <id>             Benchmark runner ID prefix (e.g., ec2_c6id.8xlarge)
 
 set -Eeu -o pipefail
 
@@ -33,6 +34,7 @@ scale_factor=""
 iterations=""
 remote_storage=""
 benchmark_id=""
+runner="unknown"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -50,6 +52,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --benchmark-id)
             benchmark_id="$2"
+            shift 2
+            ;;
+        --runner)
+            runner="$2"
             shift 2
             ;;
         *)
@@ -111,6 +117,7 @@ if [[ -n "$df_formats" ]]; then
     target/release_debug/datafusion-bench "$subcommand" \
         -d gh-json \
         --formats "$df_formats" \
+        --runner "$runner" \
         $opts \
         -o df-results.json
 
@@ -122,6 +129,7 @@ if [[ -n "$ddb_formats" ]]; then
     target/release_debug/duckdb-bench "$subcommand" \
         -d gh-json \
         --formats "$ddb_formats" \
+        --runner "$runner" \
         $opts \
         --delete-duckdb-database \
         -o ddb-results.json
@@ -134,6 +142,7 @@ if ! $is_remote && [[ "$has_lance" == "true" ]] && [[ -f "target/release_debug/l
     # shellcheck disable=SC2086
     target/release_debug/lance-bench "$subcommand" \
         -d gh-json \
+        --runner "$runner" \
         $opts \
         -o lance-results.json
 

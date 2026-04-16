@@ -10,9 +10,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import argparse
 import math
-import re
-import sys
 from dataclasses import dataclass
 from typing import Any
 
@@ -20,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 # Analysis overview:
-# - Join base and PR benchmark rows on benchmark identity.
+# - Join base and PR benchmark rows on canonical benchmark name.
 # - Use log-ratios because benchmark slowdowns/speedups are multiplicative.
 # - Treat parquet rows as controls to estimate systemic drift beta(q).
 # - Attribute the remaining change to the PR as alpha(q, c).
@@ -63,21 +62,33 @@ def extract_dataset_key(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def unknown_target_fields() -> pd.Series:
+    return pd.Series({"engine": "unknown", "file_format": "unknown", "query": pd.NA})
+
+
 def extract_target_fields(name: str) -> pd.Series:
-    """Parse query, engine, and format from the benchmark name."""
+    """Parse query, engine, and format from a canonical SQL benchmark name."""
 
     if not isinstance(name, str):
-        return pd.Series({"engine": "unknown", "file_format": "unknown", "query": pd.NA})
+        return unknown_target_fields()
 
-    match = re.search(r"_q(\d+)/([^:]+):(.+)$", name)
-    if match is None:
-        return pd.Series({"engine": "unknown", "file_format": "unknown", "query": pd.NA})
+    parts = name.split("/")
+    if parts and parts[0].lower() == "memory":
+        parts = parts[1:]
+    if len(parts) < 4:
+        return unknown_target_fields()
 
+    query = parts[-3]
+    target = parts[-1]
+    if not query.lower().startswith("q") or not query[1:].isdigit() or ":" not in target:
+        return unknown_target_fields()
+
+    engine, file_format = target.split(":", 1)
     return pd.Series(
         {
-            "engine": match.group(2),
-            "file_format": match.group(3),
-            "query": int(match.group(1)),
+            "engine": engine.lower(),
+            "file_format": file_format.lower(),
+            "query": int(query[1:]),
         }
     )
 
@@ -475,13 +486,24 @@ def group_sort_key(group_key: tuple[str, str]) -> tuple[int, int, str, str]:
     )
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Compare two benchmark JSONL files and render a PR comment."
+    )
+    parser.add_argument("base_json", help="Base benchmark JSONL file")
+    parser.add_argument("pr_json", help="PR benchmark JSONL file")
+    parser.add_argument("benchmark_name", nargs="?", default="")
+    return parser.parse_args()
+
+
 def main() -> None:
     """Render the benchmark comparison markdown used in CI PR comments."""
 
-    benchmark_name = sys.argv[3] if len(sys.argv) > 3 else ""
+    args = parse_args()
+    benchmark_name = args.benchmark_name
 
-    base = pd.read_json(sys.argv[1], lines=True)
-    pr = pd.read_json(sys.argv[2], lines=True)
+    base = pd.read_json(args.base_json, lines=True)
+    pr = pd.read_json(args.pr_json, lines=True)
 
     base_commit_id = set(base["commit_id"].unique())
     pr_commit_id = set(pr["commit_id"].unique())
@@ -498,7 +520,13 @@ def main() -> None:
     base = extract_dataset_key(base)
     pr = extract_dataset_key(pr)
 
-    df3 = pd.merge(base, pr, on=["name", "storage", "dataset_key"], how="right", suffixes=("_base", "_pr"))
+    df3 = pd.merge(
+        base,
+        pr,
+        on=["name", "storage", "dataset_key"],
+        how="right",
+        suffixes=("_base", "_pr"),
+    )
     df3["ratio"] = df3["value_pr"] / df3["value_base"]
     df3[["engine", "file_format", "query"]] = df3["name"].apply(extract_target_fields)
 

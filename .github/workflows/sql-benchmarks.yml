@@ -207,6 +207,7 @@ jobs:
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
           bash scripts/bench-taskset.sh .github/scripts/run-sql-bench.sh "${{ matrix.subcommand }}" "${{ matrix.targets }}" \
+            --runner "ec2_${{ inputs.machine_type }}" \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
             ${{ matrix.scale_factor && format('--scale-factor {0}', matrix.scale_factor) || '' }}
 
@@ -222,6 +223,7 @@ jobs:
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
           bash scripts/bench-taskset.sh .github/scripts/run-sql-bench.sh "${{ matrix.subcommand }}" "${{ matrix.targets }}" \
+            --runner "ec2_${{ inputs.machine_type }}" \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
             --remote-storage "${{ matrix.remote_storage }}" \
             --benchmark-id "${{ matrix.id }}" \

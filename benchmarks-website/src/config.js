@@ -46,6 +46,7 @@ export const QUERY_SUITES = [
     fanOut: true,
   },
   { prefix: "fineweb", skip: true },
+  { prefix: "gharchive", skip: true },
 ];
 
 // Pre-registered fan-out groups (storage x scale factor).
