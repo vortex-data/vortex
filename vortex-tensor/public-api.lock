@@ -192,94 +192,6 @@ pub fn vortex_tensor::fixed_shape::FixedShapeTensorMetadata::hash<__H: core::has
 
 impl core::marker::StructuralPartialEq for vortex_tensor::fixed_shape::FixedShapeTensorMetadata
 
-pub mod vortex_tensor::ivf
-
-pub mod vortex_tensor::ivf::partitioned
-
-pub struct vortex_tensor::ivf::partitioned::IvfPartitionedIndex
-
-impl vortex_tensor::ivf::partitioned::IvfPartitionedIndex
-
-pub fn vortex_tensor::ivf::partitioned::IvfPartitionedIndex::cluster_offsets(&self) -> &[u64]
-
-pub fn vortex_tensor::ivf::partitioned::IvfPartitionedIndex::from_index(index: vortex_tensor::ivf::IvfIndex) -> Self
-
-pub fn vortex_tensor::ivf::partitioned::IvfPartitionedIndex::index(&self) -> &vortex_tensor::ivf::IvfIndex
-
-pub fn vortex_tensor::ivf::partitioned::IvfPartitionedIndex::permutation(&self) -> &[u32]
-
-pub fn vortex_tensor::ivf::partitioned::IvfPartitionedIndex::probe_ranges(&self, probed_clusters: &[usize]) -> alloc::vec::Vec<core::ops::range::Range<u64>>
-
-pub fn vortex_tensor::ivf::partitioned::IvfPartitionedIndex::query_ranges(&self, query: &[f32], nprobes: usize) -> vortex_error::VortexResult<alloc::vec::Vec<core::ops::range::Range<u64>>>
-
-pub fn vortex_tensor::ivf::partitioned::IvfPartitionedIndex::selectivity(&self, ranges: &[core::ops::range::Range<u64>]) -> f64
-
-impl core::clone::Clone for vortex_tensor::ivf::partitioned::IvfPartitionedIndex
-
-pub fn vortex_tensor::ivf::partitioned::IvfPartitionedIndex::clone(&self) -> vortex_tensor::ivf::partitioned::IvfPartitionedIndex
-
-impl core::fmt::Debug for vortex_tensor::ivf::partitioned::IvfPartitionedIndex
-
-pub fn vortex_tensor::ivf::partitioned::IvfPartitionedIndex::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-pub mod vortex_tensor::ivf::search
-
-pub fn vortex_tensor::ivf::search::build_ivf_index(data: &vortex_array::array::erased::ArrayRef, config: &vortex_tensor::ivf::IvfBuildConfig, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_tensor::ivf::IvfIndex>
-
-pub fn vortex_tensor::ivf::search::ivf_similarity_search<T: vortex_array::dtype::ptype::NativePType + core::convert::Into<vortex_array::scalar::typed_view::primitive::pvalue::PValue>>(data: vortex_array::array::erased::ArrayRef, index: &vortex_tensor::ivf::IvfIndex, query: &[T], threshold: T, nprobes: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::bool::vtable::BoolArray>
-
-pub struct vortex_tensor::ivf::IvfBuildConfig
-
-pub vortex_tensor::ivf::IvfBuildConfig::max_iterations: u32
-
-pub vortex_tensor::ivf::IvfBuildConfig::num_clusters: u32
-
-pub vortex_tensor::ivf::IvfBuildConfig::seed: u64
-
-impl core::clone::Clone for vortex_tensor::ivf::IvfBuildConfig
-
-pub fn vortex_tensor::ivf::IvfBuildConfig::clone(&self) -> vortex_tensor::ivf::IvfBuildConfig
-
-impl core::default::Default for vortex_tensor::ivf::IvfBuildConfig
-
-pub fn vortex_tensor::ivf::IvfBuildConfig::default() -> Self
-
-impl core::fmt::Debug for vortex_tensor::ivf::IvfBuildConfig
-
-pub fn vortex_tensor::ivf::IvfBuildConfig::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-pub struct vortex_tensor::ivf::IvfIndex
-
-impl vortex_tensor::ivf::IvfIndex
-
-pub fn vortex_tensor::ivf::IvfIndex::assignments(&self) -> &[u32]
-
-pub fn vortex_tensor::ivf::IvfIndex::build(vectors: &[f32], dim: usize, config: &vortex_tensor::ivf::IvfBuildConfig) -> vortex_error::VortexResult<Self>
-
-pub fn vortex_tensor::ivf::IvfIndex::build_probe_mask(&self, probed_clusters: &[usize]) -> alloc::vec::Vec<bool>
-
-pub fn vortex_tensor::ivf::IvfIndex::centroids(&self) -> &[f32]
-
-pub fn vortex_tensor::ivf::IvfIndex::cluster_sizes(&self) -> alloc::vec::Vec<usize>
-
-pub fn vortex_tensor::ivf::IvfIndex::dim(&self) -> usize
-
-pub fn vortex_tensor::ivf::IvfIndex::num_clusters(&self) -> usize
-
-pub fn vortex_tensor::ivf::IvfIndex::num_vectors(&self) -> usize
-
-pub fn vortex_tensor::ivf::IvfIndex::probe(&self, query: &[f32], nprobes: usize) -> vortex_error::VortexResult<alloc::vec::Vec<usize>>
-
-pub fn vortex_tensor::ivf::IvfIndex::query_mask(&self, query: &[f32], nprobes: usize) -> vortex_error::VortexResult<alloc::vec::Vec<bool>>
-
-impl core::clone::Clone for vortex_tensor::ivf::IvfIndex
-
-pub fn vortex_tensor::ivf::IvfIndex::clone(&self) -> vortex_tensor::ivf::IvfIndex
-
-impl core::fmt::Debug for vortex_tensor::ivf::IvfIndex
-
-pub fn vortex_tensor::ivf::IvfIndex::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
 pub mod vortex_tensor::matcher
 
 pub enum vortex_tensor::matcher::TensorMatch<'a>
@@ -583,6 +495,24 @@ pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::is_null_sensiti
 pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::return_dtype(&self, options: &Self::Options, arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
 pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::validity(&self, _options: &Self::Options, expression: &vortex_array::expr::expression::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::expression::Expression>>
+
+pub mod vortex_tensor::utils
+
+pub struct vortex_tensor::utils::FlatElements
+
+impl vortex_tensor::utils::FlatElements
+
+pub fn vortex_tensor::utils::FlatElements::ptype(&self) -> vortex_array::dtype::ptype::PType
+
+pub fn vortex_tensor::utils::FlatElements::row<T: vortex_array::dtype::ptype::NativePType>(&self, i: usize) -> &[T]
+
+pub fn vortex_tensor::utils::cast_to_f32(prim: vortex_array::arrays::primitive::vtable::PrimitiveArray) -> vortex_error::VortexResult<vortex_buffer::buffer::Buffer<f32>>
+
+pub fn vortex_tensor::utils::extract_flat_elements(storage: &vortex_array::array::erased::ArrayRef, list_size: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_tensor::utils::FlatElements>
+
+pub fn vortex_tensor::utils::extract_l2_denorm_children(array: &vortex_array::array::erased::ArrayRef) -> (vortex_array::array::erased::ArrayRef, vortex_array::array::erased::ArrayRef)
+
+pub fn vortex_tensor::utils::validate_tensor_float_input(input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_tensor::matcher::TensorMatch<'_>>
 
 pub mod vortex_tensor::vector
 

@@ -1,0 +1,285 @@
+pub mod vortex_ivf
+
+pub mod vortex_ivf::layout
+
+pub mod vortex_ivf::layout::writer
+
+pub struct vortex_ivf::layout::writer::IvfLayoutOptions
+
+pub vortex_ivf::layout::writer::IvfLayoutOptions::max_iterations: u32
+
+pub vortex_ivf::layout::writer::IvfLayoutOptions::nprobes: u32
+
+pub vortex_ivf::layout::writer::IvfLayoutOptions::num_clusters: u32
+
+pub vortex_ivf::layout::writer::IvfLayoutOptions::seed: u64
+
+impl core::clone::Clone for vortex_ivf::layout::writer::IvfLayoutOptions
+
+pub fn vortex_ivf::layout::writer::IvfLayoutOptions::clone(&self) -> vortex_ivf::layout::writer::IvfLayoutOptions
+
+impl core::convert::From<vortex_ivf::layout::writer::IvfLayoutOptions> for vortex_ivf::IvfBuildConfig
+
+pub fn vortex_ivf::IvfBuildConfig::from(value: vortex_ivf::layout::writer::IvfLayoutOptions) -> Self
+
+impl core::default::Default for vortex_ivf::layout::writer::IvfLayoutOptions
+
+pub fn vortex_ivf::layout::writer::IvfLayoutOptions::default() -> Self
+
+impl core::fmt::Debug for vortex_ivf::layout::writer::IvfLayoutOptions
+
+pub fn vortex_ivf::layout::writer::IvfLayoutOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct vortex_ivf::layout::writer::IvfStrategy
+
+impl vortex_ivf::layout::writer::IvfStrategy
+
+pub fn vortex_ivf::layout::writer::IvfStrategy::new<D: vortex_layout::strategy::LayoutStrategy, C: vortex_layout::strategy::LayoutStrategy>(data: D, centroids: C, options: vortex_ivf::layout::writer::IvfLayoutOptions) -> Self
+
+impl vortex_layout::strategy::LayoutStrategy for vortex_ivf::layout::writer::IvfStrategy
+
+pub fn vortex_ivf::layout::writer::IvfStrategy::buffered_bytes(&self) -> u64
+
+pub fn vortex_ivf::layout::writer::IvfStrategy::write_stream<'life0, 'life1, 'async_trait>(&'life0 self, ctx: vortex_array::ArrayContext, segment_sink: vortex_layout::segments::sink::SegmentSinkRef, stream: vortex_layout::sequence::SendableSequentialStream, eof: vortex_layout::sequence::SequencePointer, session: &'life1 vortex_session::VortexSession) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_layout::layout::LayoutRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
+
+pub struct vortex_ivf::layout::Ivf
+
+impl core::fmt::Debug for vortex_ivf::layout::Ivf
+
+pub fn vortex_ivf::layout::Ivf::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_layout::vtable::VTable for vortex_ivf::layout::Ivf
+
+pub type vortex_ivf::layout::Ivf::Encoding = vortex_ivf::layout::IvfLayoutEncoding
+
+pub type vortex_ivf::layout::Ivf::Layout = vortex_ivf::layout::IvfLayout
+
+pub type vortex_ivf::layout::Ivf::Metadata = vortex_array::metadata::ProstMetadata<vortex_ivf::layout::IvfLayoutMetadata>
+
+pub fn vortex_ivf::layout::Ivf::build(_encoding: &Self::Encoding, _dtype: &vortex_array::dtype::DType, _row_count: u64, metadata: &<Self::Metadata as vortex_array::metadata::DeserializeMetadata>::Output, _segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::children::LayoutChildren, _ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
+
+pub fn vortex_ivf::layout::Ivf::child(layout: &Self::Layout, idx: usize) -> vortex_error::VortexResult<vortex_layout::layout::LayoutRef>
+
+pub fn vortex_ivf::layout::Ivf::child_type(_layout: &Self::Layout, idx: usize) -> vortex_layout::layout::LayoutChildType
+
+pub fn vortex_ivf::layout::Ivf::dtype(layout: &Self::Layout) -> &vortex_array::dtype::DType
+
+pub fn vortex_ivf::layout::Ivf::encoding(_layout: &Self::Layout) -> vortex_layout::encoding::LayoutEncodingRef
+
+pub fn vortex_ivf::layout::Ivf::id(_encoding: &Self::Encoding) -> vortex_layout::layout::LayoutId
+
+pub fn vortex_ivf::layout::Ivf::metadata(layout: &Self::Layout) -> Self::Metadata
+
+pub fn vortex_ivf::layout::Ivf::nchildren(_layout: &Self::Layout) -> usize
+
+pub fn vortex_ivf::layout::Ivf::new_reader(layout: &Self::Layout, name: alloc::sync::Arc<str>, segment_source: alloc::sync::Arc<dyn vortex_layout::segments::source::SegmentSource>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::reader::LayoutReaderRef>
+
+pub fn vortex_ivf::layout::Ivf::row_count(layout: &Self::Layout) -> u64
+
+pub fn vortex_ivf::layout::Ivf::segment_ids(_layout: &Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
+
+pub fn vortex_ivf::layout::Ivf::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::layout::LayoutRef>) -> vortex_error::VortexResult<()>
+
+pub struct vortex_ivf::layout::IvfLayout
+
+impl vortex_ivf::layout::IvfLayout
+
+pub fn vortex_ivf::layout::IvfLayout::centroids(&self) -> &vortex_layout::layout::LayoutRef
+
+pub fn vortex_ivf::layout::IvfLayout::data(&self) -> &vortex_layout::layout::LayoutRef
+
+pub fn vortex_ivf::layout::IvfLayout::dim(&self) -> u32
+
+pub fn vortex_ivf::layout::IvfLayout::nprobes(&self) -> u32
+
+pub fn vortex_ivf::layout::IvfLayout::num_clusters(&self) -> u32
+
+pub fn vortex_ivf::layout::IvfLayout::try_new(data: vortex_layout::layout::LayoutRef, centroids: vortex_layout::layout::LayoutRef, dim: u32, num_clusters: u32, nprobes: u32) -> vortex_error::VortexResult<Self>
+
+impl core::clone::Clone for vortex_ivf::layout::IvfLayout
+
+pub fn vortex_ivf::layout::IvfLayout::clone(&self) -> vortex_ivf::layout::IvfLayout
+
+impl core::convert::AsRef<dyn vortex_layout::layout::Layout> for vortex_ivf::layout::IvfLayout
+
+pub fn vortex_ivf::layout::IvfLayout::as_ref(&self) -> &dyn vortex_layout::layout::Layout
+
+impl core::convert::From<vortex_ivf::layout::IvfLayout> for vortex_layout::layout::LayoutRef
+
+pub fn vortex_layout::layout::LayoutRef::from(value: vortex_ivf::layout::IvfLayout) -> vortex_layout::layout::LayoutRef
+
+impl core::fmt::Debug for vortex_ivf::layout::IvfLayout
+
+pub fn vortex_ivf::layout::IvfLayout::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::ops::deref::Deref for vortex_ivf::layout::IvfLayout
+
+pub type vortex_ivf::layout::IvfLayout::Target = dyn vortex_layout::layout::Layout
+
+pub fn vortex_ivf::layout::IvfLayout::deref(&self) -> &Self::Target
+
+impl vortex_layout::layout::IntoLayout for vortex_ivf::layout::IvfLayout
+
+pub fn vortex_ivf::layout::IvfLayout::into_layout(self) -> vortex_layout::layout::LayoutRef
+
+pub struct vortex_ivf::layout::IvfLayoutEncoding
+
+impl core::convert::AsRef<dyn vortex_layout::encoding::LayoutEncoding> for vortex_ivf::layout::IvfLayoutEncoding
+
+pub fn vortex_ivf::layout::IvfLayoutEncoding::as_ref(&self) -> &dyn vortex_layout::encoding::LayoutEncoding
+
+impl core::fmt::Debug for vortex_ivf::layout::IvfLayoutEncoding
+
+pub fn vortex_ivf::layout::IvfLayoutEncoding::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::ops::deref::Deref for vortex_ivf::layout::IvfLayoutEncoding
+
+pub type vortex_ivf::layout::IvfLayoutEncoding::Target = dyn vortex_layout::encoding::LayoutEncoding
+
+pub fn vortex_ivf::layout::IvfLayoutEncoding::deref(&self) -> &Self::Target
+
+pub struct vortex_ivf::layout::IvfLayoutMetadata
+
+pub vortex_ivf::layout::IvfLayoutMetadata::dim: u32
+
+pub vortex_ivf::layout::IvfLayoutMetadata::nprobes: u32
+
+pub vortex_ivf::layout::IvfLayoutMetadata::num_clusters: u32
+
+impl vortex_ivf::layout::IvfLayoutMetadata
+
+pub fn vortex_ivf::layout::IvfLayoutMetadata::new(dim: u32, nprobes: u32, num_clusters: u32) -> Self
+
+impl core::default::Default for vortex_ivf::layout::IvfLayoutMetadata
+
+pub fn vortex_ivf::layout::IvfLayoutMetadata::default() -> Self
+
+impl core::fmt::Debug for vortex_ivf::layout::IvfLayoutMetadata
+
+pub fn vortex_ivf::layout::IvfLayoutMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl prost::message::Message for vortex_ivf::layout::IvfLayoutMetadata
+
+pub fn vortex_ivf::layout::IvfLayoutMetadata::clear(&mut self)
+
+pub fn vortex_ivf::layout::IvfLayoutMetadata::encoded_len(&self) -> usize
+
+pub const vortex_ivf::layout::DEFAULT_NPROBES: u32
+
+pub const vortex_ivf::layout::IVF_LAYOUT_ID: &str
+
+pub fn vortex_ivf::layout::register_ivf_layout(session: &vortex_session::VortexSession)
+
+pub mod vortex_ivf::partitioned
+
+pub struct vortex_ivf::partitioned::IvfPartitionedIndex
+
+impl vortex_ivf::partitioned::IvfPartitionedIndex
+
+pub fn vortex_ivf::partitioned::IvfPartitionedIndex::cluster_offsets(&self) -> &[u64]
+
+pub fn vortex_ivf::partitioned::IvfPartitionedIndex::from_index(index: vortex_ivf::IvfIndex) -> Self
+
+pub fn vortex_ivf::partitioned::IvfPartitionedIndex::index(&self) -> &vortex_ivf::IvfIndex
+
+pub fn vortex_ivf::partitioned::IvfPartitionedIndex::permutation(&self) -> &[u32]
+
+pub fn vortex_ivf::partitioned::IvfPartitionedIndex::probe_ranges(&self, probed_clusters: &[usize]) -> alloc::vec::Vec<core::ops::range::Range<u64>>
+
+pub fn vortex_ivf::partitioned::IvfPartitionedIndex::query_ranges(&self, query: &[f32], nprobes: usize) -> vortex_error::VortexResult<alloc::vec::Vec<core::ops::range::Range<u64>>>
+
+pub fn vortex_ivf::partitioned::IvfPartitionedIndex::selectivity(&self, ranges: &[core::ops::range::Range<u64>]) -> f64
+
+impl core::clone::Clone for vortex_ivf::partitioned::IvfPartitionedIndex
+
+pub fn vortex_ivf::partitioned::IvfPartitionedIndex::clone(&self) -> vortex_ivf::partitioned::IvfPartitionedIndex
+
+impl core::fmt::Debug for vortex_ivf::partitioned::IvfPartitionedIndex
+
+pub fn vortex_ivf::partitioned::IvfPartitionedIndex::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub mod vortex_ivf::search
+
+pub fn vortex_ivf::search::build_ivf_index(data: &vortex_array::array::erased::ArrayRef, config: &vortex_ivf::IvfBuildConfig, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_ivf::IvfIndex>
+
+pub fn vortex_ivf::search::ivf_similarity_search<T: vortex_array::dtype::ptype::NativePType + core::convert::Into<vortex_array::scalar::typed_view::primitive::pvalue::PValue>>(data: vortex_array::array::erased::ArrayRef, index: &vortex_ivf::IvfIndex, query: &[T], threshold: T, nprobes: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::bool::vtable::BoolArray>
+
+pub mod vortex_ivf::tq
+
+pub struct vortex_ivf::tq::TurboQuantIvfIndex
+
+impl vortex_ivf::tq::TurboQuantIvfIndex
+
+pub fn vortex_ivf::tq::TurboQuantIvfIndex::index(&self) -> &vortex_ivf::IvfIndex
+
+pub fn vortex_ivf::tq::TurboQuantIvfIndex::probe(&self, query: &[f32], nprobes: usize) -> vortex_error::VortexResult<alloc::vec::Vec<usize>>
+
+pub fn vortex_ivf::tq::TurboQuantIvfIndex::sorf_options(&self) -> &vortex_tensor::scalar_fns::sorf_transform::SorfOptions
+
+impl core::clone::Clone for vortex_ivf::tq::TurboQuantIvfIndex
+
+pub fn vortex_ivf::tq::TurboQuantIvfIndex::clone(&self) -> vortex_ivf::tq::TurboQuantIvfIndex
+
+impl core::fmt::Debug for vortex_ivf::tq::TurboQuantIvfIndex
+
+pub fn vortex_ivf::tq::TurboQuantIvfIndex::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn vortex_ivf::tq::build_ivf_from_turboquant(data: &vortex_array::array::erased::ArrayRef, config: &vortex_ivf::IvfBuildConfig, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_ivf::tq::TurboQuantIvfIndex>
+
+pub fn vortex_ivf::tq::rotate_query(query: &[f32], options: &vortex_tensor::scalar_fns::sorf_transform::SorfOptions) -> vortex_error::VortexResult<alloc::vec::Vec<f32>>
+
+pub struct vortex_ivf::IvfBuildConfig
+
+pub vortex_ivf::IvfBuildConfig::max_iterations: u32
+
+pub vortex_ivf::IvfBuildConfig::num_clusters: u32
+
+pub vortex_ivf::IvfBuildConfig::seed: u64
+
+impl core::clone::Clone for vortex_ivf::IvfBuildConfig
+
+pub fn vortex_ivf::IvfBuildConfig::clone(&self) -> vortex_ivf::IvfBuildConfig
+
+impl core::convert::From<vortex_ivf::layout::writer::IvfLayoutOptions> for vortex_ivf::IvfBuildConfig
+
+pub fn vortex_ivf::IvfBuildConfig::from(value: vortex_ivf::layout::writer::IvfLayoutOptions) -> Self
+
+impl core::default::Default for vortex_ivf::IvfBuildConfig
+
+pub fn vortex_ivf::IvfBuildConfig::default() -> Self
+
+impl core::fmt::Debug for vortex_ivf::IvfBuildConfig
+
+pub fn vortex_ivf::IvfBuildConfig::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct vortex_ivf::IvfIndex
+
+impl vortex_ivf::IvfIndex
+
+pub fn vortex_ivf::IvfIndex::assignments(&self) -> &[u32]
+
+pub fn vortex_ivf::IvfIndex::build(vectors: &[f32], dim: usize, config: &vortex_ivf::IvfBuildConfig) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_ivf::IvfIndex::build_probe_mask(&self, probed_clusters: &[usize]) -> alloc::vec::Vec<bool>
+
+pub fn vortex_ivf::IvfIndex::centroids(&self) -> &[f32]
+
+pub fn vortex_ivf::IvfIndex::cluster_sizes(&self) -> alloc::vec::Vec<usize>
+
+pub fn vortex_ivf::IvfIndex::dim(&self) -> usize
+
+pub fn vortex_ivf::IvfIndex::num_clusters(&self) -> usize
+
+pub fn vortex_ivf::IvfIndex::num_vectors(&self) -> usize
+
+pub fn vortex_ivf::IvfIndex::probe(&self, query: &[f32], nprobes: usize) -> vortex_error::VortexResult<alloc::vec::Vec<usize>>
+
+pub fn vortex_ivf::IvfIndex::query_mask(&self, query: &[f32], nprobes: usize) -> vortex_error::VortexResult<alloc::vec::Vec<bool>>
+
+impl core::clone::Clone for vortex_ivf::IvfIndex
+
+pub fn vortex_ivf::IvfIndex::clone(&self) -> vortex_ivf::IvfIndex
+
+impl core::fmt::Debug for vortex_ivf::IvfIndex
+
+pub fn vortex_ivf::IvfIndex::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result

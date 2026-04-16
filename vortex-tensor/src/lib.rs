@@ -27,10 +27,9 @@ pub mod vector;
 
 pub mod encodings;
 
-pub mod ivf;
 pub mod vector_search;
 
-mod utils;
+pub mod utils;
 
 /// Environment variable that gates registration of the tensor scalar-fn array plugins (the array
 /// encodings that let [`CosineSimilarity`], [`InnerProduct`], [`L2Denorm`], [`L2Norm`], and

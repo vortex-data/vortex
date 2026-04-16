@@ -20,7 +20,7 @@
 
 use vortex_error::VortexResult;
 
-use super::IvfIndex;
+use crate::IvfIndex;
 
 /// An IVF index augmented with cluster boundary information for efficient range-based reads.
 ///
@@ -139,9 +139,9 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::*;
-    use crate::ivf::IvfBuildConfig;
-    use crate::ivf::tests::generate_clustered_vectors;
-    use crate::ivf::tests::normalize_vectors;
+    use crate::IvfBuildConfig;
+    use crate::tests::generate_clustered_vectors;
+    use crate::tests::normalize_vectors;
 
     #[test]
     fn partitioned_index_basic() -> VortexResult<()> {

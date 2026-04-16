@@ -1,35 +1,43 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! IVF (Inverted File) vector index for approximate nearest neighbor search.
+//! IVF (Inverted File) vector index layout for Vortex.
 //!
-//! This module implements an IVF index that clusters vectors into K groups using k-means,
-//! then at query time only searches the `nprobes` most promising clusters. This trades a
+//! This crate provides an IVF index that clusters vectors into K groups using k-means,
+//! then at query time only searches the `nprobes` most promising clusters. It trades a
 //! small amount of recall for a large speedup by avoiding brute-force comparison against
 //! every vector.
 //!
 //! # Overview
 //!
 //! 1. **Build**: Run k-means on the database vectors to find K centroids. Assign each vector
-//!    to its nearest centroid cluster.
+//!    to its nearest centroid cluster, then reorder rows by cluster.
 //! 2. **Query**: Given a query vector, compute its similarity to all K centroids, select the
-//!    top `nprobes` clusters, and search only the vectors in those clusters.
+//!    top `nprobes` clusters, and only read/scan the rows in those clusters.
 //!
-//! # Integration with Vortex
+//! # Architecture
 //!
-//! The IVF index works with [`Vector`](crate::vector::Vector) extension arrays. When data
-//! is TurboQuant-compressed, the index operates on the compressed representation where
-//! possible.
+//! This crate has three layers:
 //!
-//! The main entry points are:
+//! - **Core index** ([`IvfIndex`], [`IvfBuildConfig`]) — k-means clustering, probe selection
+//! - **Search integration** ([`search`]) — combines IVF probing with Vortex cosine similarity
+//! - **Layout** ([`layout`]) — an on-disk format that stores data sorted by cluster with
+//!   a co-located centroid index, enabling automatic pruning at read time
 //!
-//! - [`IvfIndex::build`] to construct an index from vectors
-//! - [`IvfIndex::probe`] to find which clusters to search
-//! - [`IvfIndex::build_probe_mask`] to generate a boolean mask for row-level filtering
+//! # TurboQuant integration
+//!
+//! When data is TurboQuant-compressed, the IVF centroids are computed in the SORF-rotated
+//! quantized space. At query time, the query vector is rotated once before distances are
+//! computed against centroids. This avoids decompression of every database vector during
+//! cluster assignment and matches the representation that the downstream cosine similarity
+//! fast path already uses (see [`vortex_tensor::scalar_fns::inner_product`]'s dict/constant
+//! fast path).
 
 mod kmeans;
+pub mod layout;
 pub mod partitioned;
 pub mod search;
+pub mod tq;
 
 #[cfg(test)]
 mod tests;

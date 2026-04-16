@@ -16,13 +16,13 @@ use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
+use vortex_tensor::vector::Vector;
+use vortex_tensor::vector_search::compress_turboquant;
 
-use super::IvfBuildConfig;
-use super::IvfIndex;
-use super::search::build_ivf_index;
-use super::search::ivf_similarity_search;
-use crate::vector::Vector;
-use crate::vector_search::compress_turboquant;
+use crate::IvfBuildConfig;
+use crate::IvfIndex;
+use crate::search::build_ivf_index;
+use crate::search::ivf_similarity_search;
 
 /// Generate `n` random-ish f32 vectors of the given dimension using a simple deterministic
 /// formula. Vectors are placed into `num_real_clusters` tight clusters for testing purposes.
@@ -300,7 +300,7 @@ fn rejects_mismatched_vector_length() {
 
 fn test_session() -> VortexSession {
     let session = VortexSession::empty().with::<ArraySession>();
-    crate::initialize(&session);
+    vortex_tensor::initialize(&session);
     session
 }
 

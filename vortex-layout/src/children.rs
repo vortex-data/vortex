@@ -62,9 +62,13 @@ impl LayoutChildren for Arc<dyn LayoutChildren> {
 /// An implementation of [`LayoutChildren`] for in-memory owned children.
 /// See also [`ViewLayoutChildren`] for lazily deserialized children from flatbuffers.
 #[derive(Clone)]
-pub(crate) struct OwnedLayoutChildren(Vec<LayoutRef>);
+pub struct OwnedLayoutChildren(Vec<LayoutRef>);
 
 impl OwnedLayoutChildren {
+    /// Construct an [`Arc<dyn LayoutChildren>`] from an in-memory vec of child layouts.
+    ///
+    /// This is the standard way for out-of-tree layout implementations to construct the
+    /// `Arc<dyn LayoutChildren>` required by [`VTable::build`](crate::VTable::build).
     pub fn layout_children(children: Vec<LayoutRef>) -> Arc<dyn LayoutChildren> {
         Arc::new(Self(children))
     }

@@ -3,9 +3,9 @@
 
 //! Integration of IVF index with Vortex vector arrays and similarity search.
 //!
-//! Provides functions to build an IVF index from a Vortex [`Vector`](crate::vector::Vector)
-//! extension array and to use it for accelerated similarity search by pruning clusters
-//! that are unlikely to contain relevant results.
+//! Provides functions to build an IVF index from a Vortex Vector extension array and to use
+//! it for accelerated similarity search by pruning clusters that are unlikely to contain
+//! relevant results.
 
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -21,13 +21,14 @@ use vortex_array::scalar::PValue;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
 
-use super::IvfBuildConfig;
-use super::IvfIndex;
-use crate::utils::cast_to_f32;
-use crate::vector::AnyVector;
-use crate::vector_search::build_similarity_search_tree;
+use vortex_tensor::utils::cast_to_f32;
+use vortex_tensor::vector::AnyVector;
+use vortex_tensor::vector_search::build_similarity_search_tree;
 
-/// Build an IVF index from a Vortex [`Vector`](crate::vector::Vector) extension array.
+use crate::IvfBuildConfig;
+use crate::IvfIndex;
+
+/// Build an IVF index from a Vortex `Vector` extension array.
 ///
 /// The input `data` must be a `Vector<dim, float>` extension array. The vectors are materialized
 /// to f32 for clustering. For TurboQuant-compressed data, pass the *uncompressed* array or

@@ -7,7 +7,28 @@
 //! Lloyd's algorithm for refinement. All computation is in f32. Vectors
 //! are expected in row-major layout: a flat `[n * dim]` slice.
 
-use crate::scalar_fns::sorf_transform::splitmix64::SplitMix64;
+/// A minimal deterministic PRNG used for k-means++ initialization.
+///
+/// This is a SplitMix64 implementation that matches the one used in other parts of Vortex
+/// (see `vortex-tensor::scalar_fns::sorf_transform::splitmix64`). It is duplicated here
+/// to avoid a public dependency on that private module.
+struct SplitMix64 {
+    state: u64,
+}
+
+impl SplitMix64 {
+    fn new(seed: u64) -> Self {
+        Self { state: seed }
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+}
 
 /// Result of k-means clustering.
 pub(super) struct KMeansResult {
