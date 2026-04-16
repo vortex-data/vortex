@@ -13,6 +13,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@duckdb/node-api": "^1.5.2-r.1",
     "chart.js": "^4.4.4",
     "chartjs-plugin-zoom": "^2.0.1",
     "downsample": "^1.4.0",

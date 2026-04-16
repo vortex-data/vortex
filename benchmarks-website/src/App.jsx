@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import BenchmarkSection from './components/BenchmarkSection';
@@ -17,27 +17,58 @@ export default function App() {
   const [viewMode, setViewMode] = useState('grid');
   const [modalChart, setModalChart] = useState(null);
   const [showBackToTop, setShowBackToTop] = useState(false);
-  const metadataFetched = useRef(false);
-
   useEffect(() => {
-    if (metadataFetched.current) return;
-    metadataFetched.current = true;
+    let cancelled = false;
+    let inFlight = false;
+    let pollTimer = null;
 
     async function loadMetadata() {
+      if (cancelled || inFlight) return;
+      inFlight = true;
       try {
         const data = await fetchMetadata();
+        if (cancelled) return;
+
         setMetadata(data);
+        setError(null);
         const params = new URLSearchParams(window.location.search);
         if (params.get('expanded') === 'true' && data?.groups) {
           setExpandedGroups(new Set(Object.keys(data.groups)));
         }
-      } catch (err) {
-        setError(err.message);
-      } finally {
         setLoading(false);
+        if (pollTimer !== null) {
+          window.clearInterval(pollTimer);
+          pollTimer = null;
+        }
+      } catch (err) {
+        if (cancelled) return;
+
+        if (err.status === 503 && err.payload?.status !== 'error') {
+          setError(null);
+          setLoading(true);
+          return;
+        }
+
+        setError(err.message);
+        setLoading(false);
+        if (pollTimer !== null) {
+          window.clearInterval(pollTimer);
+          pollTimer = null;
+        }
+      } finally {
+        inFlight = false;
       }
     }
+
     loadMetadata();
+    pollTimer = window.setInterval(loadMetadata, 1000);
+
+    return () => {
+      cancelled = true;
+      if (pollTimer !== null) {
+        window.clearInterval(pollTimer);
+      }
+    };
   }, []);
 
   useEffect(() => {
