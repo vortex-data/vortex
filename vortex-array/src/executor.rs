@@ -218,12 +218,12 @@ impl ExecutionCtx {
             tracing::trace!("exec[{}]: {formatted}", self.id);
             self.ops.push(formatted);
         }
+    }
+}
 
-        impl Display for ExecutionCtx {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                write!(f, "exec[{}]", self.id)
-            }
-        }
+impl Display for ExecutionCtx {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "exec[{}]", self.id)
     }
 }
 
