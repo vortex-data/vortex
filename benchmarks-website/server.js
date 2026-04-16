@@ -17,6 +17,7 @@ const COMMITS_URL =
 const REFRESH_INTERVAL = process.env.REFRESH_INTERVAL || 5 * 60 * 1000;
 const USE_LOCAL_DATA = process.env.USE_LOCAL_DATA === "true";
 const CACHE_DIR = process.env.CACHE_DIR || undefined;
+const LOADING_RETRY_AFTER_SECONDS = 1;
 
 const MIME = {
   ".html": "text/html",
@@ -40,15 +41,26 @@ const benchmarks = new BenchmarkStore({
 });
 let refreshIntervalId = null;
 
-const json = (res, code, data) => {
+const json = (res, code, data, headers = {}) => {
   res.writeHead(code, {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
     "Cache-Control": "no-store",
     Pragma: "no-cache",
+    ...headers,
   });
   res.end(JSON.stringify(data));
 };
+
+function loadingHeaders(status) {
+  if (status.state !== "loading") {
+    return {};
+  }
+
+  return {
+    "Retry-After": String(LOADING_RETRY_AFTER_SECONDS),
+  };
+}
 
 function getLoadingPayload() {
   const status = benchmarks.status;
@@ -102,7 +114,8 @@ async function handleData(res, groupName, chartName, params) {
     json(res, 200, payload);
   } catch (error) {
     if (error.message === "Loading") {
-      json(res, 503, getLoadingPayload());
+      const status = benchmarks.status;
+      json(res, 503, getLoadingPayload(), loadingHeaders(status));
       return;
     }
     if (error.statusCode === 404) {
@@ -130,13 +143,19 @@ const server = http.createServer((req, res) => {
 
   if (pathName === "/api/metadata") {
     const metadata = benchmarks.metadata;
-    json(res, metadata ? 200 : 503, metadata || getLoadingPayload());
+    const status = benchmarks.status;
+    json(
+      res,
+      metadata ? 200 : 503,
+      metadata || getLoadingPayload(),
+      metadata ? {} : loadingHeaders(status),
+    );
     return;
   }
 
   if (pathName === "/api/health") {
     const status = benchmarks.status;
-    json(res, status.ready ? 200 : 503, status);
+    json(res, status.ready ? 200 : 503, status, loadingHeaders(status));
     return;
   }
 

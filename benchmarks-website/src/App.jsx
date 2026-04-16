@@ -3,13 +3,11 @@ import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import BenchmarkSection from './components/BenchmarkSection';
 import Modal from './components/Modal';
-import { fetchMetadata } from './api';
 import { BENCHMARK_CONFIGS, CATEGORY_TAGS } from './config';
+import useBenchmarkMetadata from './hooks/useBenchmarkMetadata';
 
 export default function App() {
-  const [metadata, setMetadata] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const { metadata, loading, error } = useBenchmarkMetadata();
   const [expandedGroups, setExpandedGroups] = useState(new Set());
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -17,59 +15,15 @@ export default function App() {
   const [viewMode, setViewMode] = useState('grid');
   const [modalChart, setModalChart] = useState(null);
   const [showBackToTop, setShowBackToTop] = useState(false);
+
   useEffect(() => {
-    let cancelled = false;
-    let inFlight = false;
-    let pollTimer = null;
+    if (!metadata?.groups) return;
 
-    async function loadMetadata() {
-      if (cancelled || inFlight) return;
-      inFlight = true;
-      try {
-        const data = await fetchMetadata();
-        if (cancelled) return;
-
-        setMetadata(data);
-        setError(null);
-        const params = new URLSearchParams(window.location.search);
-        if (params.get('expanded') === 'true' && data?.groups) {
-          setExpandedGroups(new Set(Object.keys(data.groups)));
-        }
-        setLoading(false);
-        if (pollTimer !== null) {
-          window.clearInterval(pollTimer);
-          pollTimer = null;
-        }
-      } catch (err) {
-        if (cancelled) return;
-
-        if (err.status === 503 && err.payload?.status !== 'error') {
-          setError(null);
-          setLoading(true);
-          return;
-        }
-
-        setError(err.message);
-        setLoading(false);
-        if (pollTimer !== null) {
-          window.clearInterval(pollTimer);
-          pollTimer = null;
-        }
-      } finally {
-        inFlight = false;
-      }
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('expanded') === 'true') {
+      setExpandedGroups(new Set(Object.keys(metadata.groups)));
     }
-
-    loadMetadata();
-    pollTimer = window.setInterval(loadMetadata, 1000);
-
-    return () => {
-      cancelled = true;
-      if (pollTimer !== null) {
-        window.clearInterval(pollTimer);
-      }
-    };
-  }, []);
+  }, [metadata]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -86,7 +40,6 @@ export default function App() {
     const hash = window.location.hash;
     if (hash && hash.startsWith('#group-')) {
       const groupId = hash.slice(1); // Remove the '#'
-      const groupName = groupId.replace('group-', '').replace(/-/g, ' ');
 
       // Find the matching group (case-insensitive, handle hyphenated names)
       const matchingGroup = Object.keys(metadata.groups).find(name =>

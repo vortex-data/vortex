@@ -1,5 +1,21 @@
 const API_BASE = '';
 
+function parseRetryAfterMs(value) {
+  if (!value) return null;
+
+  const seconds = Number.parseInt(value, 10);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return seconds * 1000;
+  }
+
+  const retryAt = Date.parse(value);
+  if (Number.isNaN(retryAt)) {
+    return null;
+  }
+
+  return Math.max(0, retryAt - Date.now());
+}
+
 async function readResponse(response) {
   const contentType = response.headers.get('content-type') || '';
 
@@ -11,8 +27,11 @@ async function readResponse(response) {
   return text ? { error: text } : null;
 }
 
-export async function fetchMetadata() {
-  const response = await fetch(`${API_BASE}/api/metadata`, { cache: 'no-store' });
+export async function fetchMetadata(options = {}) {
+  const response = await fetch(`${API_BASE}/api/metadata`, {
+    cache: 'no-store',
+    signal: options.signal,
+  });
   const payload = await readResponse(response);
 
   if (!response.ok) {
@@ -24,6 +43,7 @@ export async function fetchMetadata() {
     const error = new Error(message);
     error.status = response.status;
     error.payload = payload;
+    error.retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
     throw error;
   }
 
@@ -69,6 +89,7 @@ export async function fetchChartData(groupName, chartName, options = {}) {
     const error = new Error(message);
     error.status = response.status;
     error.payload = payload;
+    error.retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
     throw error;
   }
 
