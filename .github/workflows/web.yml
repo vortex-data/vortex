@@ -91,7 +91,7 @@ jobs:
           RUSTFLAGS: --cfg getrandom_backend="unsupported"
         run: npm run build
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: vortex-explorer
           path: vortex-web/dist/
