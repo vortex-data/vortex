@@ -37,36 +37,23 @@ pub fn build_views<P: NativePType + AsPrimitive<usize>>(
 ) -> (Vec<ByteBuffer>, Buffer<BinaryView>) {
     let mut views = BufferMut::<BinaryView>::with_capacity(lens.len());
 
-    if bytes.len() <= max_buffer_len {
+    let buffers = if bytes.len() <= max_buffer_len {
         // Fast path: all data fits in a single buffer. No split checks needed per element
         // and offsets are guaranteed to fit in u32 (max_buffer_len <= i32::MAX < u32::MAX).
-        let bytes_ptr = bytes.as_slice().as_ptr();
-
-        // Write views directly via pointer to avoid per-element push_unchecked overhead.
-        let views_dst = views.spare_capacity_mut().as_mut_ptr() as *mut BinaryView;
-
         let mut offset: usize = 0;
-        for (i, &len) in lens.iter().enumerate() {
+        for &len in lens {
             let len: usize = len.as_();
-            // SAFETY: the sum of all lengths equals bytes.len() and we process them
-            // sequentially, so offset + len <= bytes.len() at every iteration.
-            let value = unsafe { std::slice::from_raw_parts(bytes_ptr.add(offset), len) };
-            #[allow(clippy::cast_possible_truncation)]
-            let view = BinaryView::make_view(value, start_buf_index, offset as u32);
-            // SAFETY: we reserved capacity for lens.len() views and i < lens.len().
-            unsafe { views_dst.add(i).write(view) };
+            let view =
+                BinaryView::make_view(&bytes[offset..][..len], start_buf_index, offset.as_());
+            unsafe { views.push_unchecked(view) };
             offset += len;
         }
-        // SAFETY: we wrote exactly lens.len() views above.
-        unsafe { views.set_len(lens.len()) };
 
-        let buffers = if bytes.is_empty() {
+        if bytes.is_empty() {
             Vec::new()
         } else {
             vec![bytes.freeze()]
-        };
-
-        (buffers, views.freeze())
+        }
     } else {
         // Slow path: may need to split across multiple 2 GiB buffers.
         let mut buffers = Vec::new();
@@ -93,8 +80,10 @@ pub fn build_views<P: NativePType + AsPrimitive<usize>>(
             buffers.push(bytes.freeze());
         }
 
-        (buffers, views.freeze())
-    }
+        buffers
+    };
+
+    (buffers, views.freeze())
 }
 
 #[cfg(test)]
