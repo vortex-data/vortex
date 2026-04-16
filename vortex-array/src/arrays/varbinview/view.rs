@@ -46,14 +46,17 @@ pub struct Inlined {
 }
 
 impl Inlined {
-    /// Creates a new inlined representation from the provided value of constant size.
-    fn new<const N: usize>(value: &[u8]) -> Self {
-        debug_assert_eq!(value.len(), N);
+    /// Creates a new inlined representation from the provided byte slice.
+    ///
+    /// The slice length must be <= [`BinaryView::MAX_INLINED_SIZE`] (12).
+    #[inline]
+    fn from_slice(value: &[u8]) -> Self {
+        debug_assert!(value.len() <= BinaryView::MAX_INLINED_SIZE);
         let mut inlined = Self {
-            size: N.try_into().vortex_expect("inlined size must fit in u32"),
+            size: value.len() as u32,
             data: [0u8; BinaryView::MAX_INLINED_SIZE],
         };
-        inlined.data[..N].copy_from_slice(&value[..N]);
+        inlined.data[..value.len()].copy_from_slice(value);
         inlined
     }
 
@@ -105,52 +108,14 @@ impl BinaryView {
     ///
     /// Depending on the length of the provided value either a new inlined
     /// or a reference view will be constructed.
-    ///
-    /// Adapted from arrow-rs <https://github.com/apache/arrow-rs/blob/f4fde769ab6e1a9b75f890b7f8b47bc22800830b/arrow-array/src/builder/generic_bytes_view_builder.rs#L524>
-    /// Explicitly enumerating inlined view produces code that avoids calling generic `ptr::copy_non_interleave` that's slower than explicit stores
     #[inline]
     pub fn make_view(value: &[u8], block: u32, offset: u32) -> Self {
-        match value.len() {
-            0 => Self {
-                inlined: Inlined::new::<0>(value),
-            },
-            1 => Self {
-                inlined: Inlined::new::<1>(value),
-            },
-            2 => Self {
-                inlined: Inlined::new::<2>(value),
-            },
-            3 => Self {
-                inlined: Inlined::new::<3>(value),
-            },
-            4 => Self {
-                inlined: Inlined::new::<4>(value),
-            },
-            5 => Self {
-                inlined: Inlined::new::<5>(value),
-            },
-            6 => Self {
-                inlined: Inlined::new::<6>(value),
-            },
-            7 => Self {
-                inlined: Inlined::new::<7>(value),
-            },
-            8 => Self {
-                inlined: Inlined::new::<8>(value),
-            },
-            9 => Self {
-                inlined: Inlined::new::<9>(value),
-            },
-            10 => Self {
-                inlined: Inlined::new::<10>(value),
-            },
-            11 => Self {
-                inlined: Inlined::new::<11>(value),
-            },
-            12 => Self {
-                inlined: Inlined::new::<12>(value),
-            },
-            _ => Self {
+        if value.len() <= Self::MAX_INLINED_SIZE {
+            Self {
+                inlined: Inlined::from_slice(value),
+            }
+        } else {
+            Self {
                 _ref: Ref {
                     size: u32::try_from(value.len()).vortex_expect("value length must fit in u32"),
                     prefix: value[0..4]
@@ -160,7 +125,7 @@ impl BinaryView {
                     buffer_index: block,
                     offset,
                 },
-            },
+            }
         }
     }
 
