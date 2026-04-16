@@ -77,7 +77,7 @@ impl LayoutVTable for Dict {
     type Metadata = DictV2Metadata;
 
     fn id(&self) -> LayoutId {
-        LayoutId::new_ref("vortex.dict")
+        LayoutId::new_static("vortex.dict")
     }
 
     fn deserialize_metadata(

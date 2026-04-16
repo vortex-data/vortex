@@ -7,7 +7,8 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::ToCanonical;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::MaskedArray;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::Nullability;
@@ -33,11 +34,8 @@ mod tests {
         #[case] expected_nullability: Nullability,
     ) -> VortexResult<()> {
         let canonical = array.to_canonical()?;
-        assert_eq!(
-            canonical.as_ref().dtype().nullability(),
-            expected_nullability
-        );
-        assert_eq!(canonical.as_ref().dtype(), array.dtype());
+        assert_eq!(canonical.dtype().nullability(), expected_nullability);
+        assert_eq!(canonical.dtype(), array.dtype());
         Ok(())
     }
 
@@ -50,10 +48,11 @@ mod tests {
         .unwrap();
 
         let canonical = array.to_canonical()?;
-        let prim = canonical.as_ref().to_primitive();
+        let prim = canonical.into_primitive();
 
         // Check that null positions match validity.
-        assert_eq!(prim.valid_count().unwrap(), 3);
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        assert_eq!(prim.valid_count(&mut ctx).unwrap(), 3);
         assert!(prim.is_valid(0).unwrap());
         assert!(!prim.is_valid(1).unwrap());
         assert!(prim.is_valid(2).unwrap());
@@ -71,10 +70,13 @@ mod tests {
         .unwrap();
 
         let canonical = array.to_canonical()?;
-        assert_eq!(canonical.as_ref().valid_count().unwrap(), 3);
+        assert_eq!(canonical.dtype().nullability(), Nullability::Nullable);
         assert_eq!(
-            canonical.as_ref().dtype().nullability(),
-            Nullability::Nullable
+            canonical
+                .into_array()
+                .valid_count(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            3
         );
         Ok(())
     }

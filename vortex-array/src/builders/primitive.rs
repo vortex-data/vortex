@@ -12,6 +12,8 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
@@ -60,6 +62,11 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     /// Returns the raw primitive values in this builder as a slice.
     pub fn values(&self) -> &[T] {
         self.values.as_ref()
+    }
+
+    /// Returns the raw primitive values in this builder as a mutable slice.
+    pub fn values_mut(&mut self) -> &mut [T] {
+        self.values.as_mut()
     }
 
     /// Create a new handle to the next `len` uninitialized values in the builder.
@@ -182,8 +189,14 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         self.values.extend_from_slice(array.as_slice::<T>());
         self.nulls.append_validity_mask(
             array
-                .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+                .as_ref()
+                .validity()
+                .vortex_expect("validity_mask")
+                .to_mask(
+                    array.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )
+                .vortex_expect("Failed to compute validity mask"),
         );
     }
 
@@ -353,6 +366,8 @@ impl<T> UninitRange<'_, T> {
 
 #[cfg(test)]
 mod tests {
+    use vortex_error::VortexExpect;
+
     use super::*;
     use crate::assert_arrays_eq;
 
@@ -614,10 +629,27 @@ mod tests {
         // values[2] might be any value since it's null.
 
         // Check validity - first two should be valid, third should be null.
-        use crate::vtable::ValidityHelper;
-        assert!(array.validity().is_valid(0).unwrap());
-        assert!(array.validity().is_valid(1).unwrap());
-        assert!(!array.validity().is_valid(2).unwrap());
+        assert!(
+            array
+                .validity()
+                .vortex_expect("primitive validity should be derivable")
+                .is_valid(0)
+                .unwrap()
+        );
+        assert!(
+            array
+                .validity()
+                .vortex_expect("primitive validity should be derivable")
+                .is_valid(1)
+                .unwrap()
+        );
+        assert!(
+            !array
+                .validity()
+                .vortex_expect("primitive validity should be derivable")
+                .is_valid(2)
+                .unwrap()
+        );
 
         // Test wrong dtype error.
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::NonNullable, 10);

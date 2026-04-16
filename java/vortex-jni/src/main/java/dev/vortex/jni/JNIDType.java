@@ -65,6 +65,11 @@ public final class JNIDType implements DType {
     }
 
     @Override
+    public int getFixedSizeListSize() {
+        return NativeDTypeMethods.getFixedSizeListSize(pointer.getAsLong());
+    }
+
+    @Override
     public boolean isDate() {
         return NativeDTypeMethods.isDate(pointer.getAsLong());
     }

@@ -11,7 +11,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
@@ -19,19 +18,19 @@ use vortex_error::VortexResult;
 use crate::FL_CHUNK_SIZE;
 use crate::bit_transpose::transpose_validity;
 use crate::fill_forward_nulls;
-
 pub fn delta_compress(
     array: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(PrimitiveArray, PrimitiveArray)> {
+    let validity = array.validity()?;
     let (bases, deltas) = match_each_unsigned_integer_ptype!(array.ptype(), |T| {
         // Fill-forward null values so that transposed deltas at null positions remain
         // small. Without this, bitpacking may skip patches for null positions, and the
         // corrupted delta values propagate through the cumulative sum during decompression.
-        let filled = fill_forward_nulls(array.to_buffer::<T>(), array.validity());
+        let filled = fill_forward_nulls(array.to_buffer::<T>(), &validity);
         let (bases, deltas) = compress_primitive::<T, { T::LANES }>(&filled);
         // TODO(robert): This can be avoided if we add TransposedBoolArray that performs index translation when necessary.
-        let validity = transpose_validity(array.validity(), ctx)?;
+        let validity = transpose_validity(&validity, ctx)?;
         (
             PrimitiveArray::new(bases, array.dtype().nullability().into()),
             PrimitiveArray::new(deltas, validity),
@@ -102,10 +101,11 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::session::ArraySession;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::DeltaArray;
+    use crate::Delta;
     use crate::bitpack_compress::bitpack_encode;
     use crate::delta::array::delta_decompress::delta_decompress;
     use crate::delta_compress;
@@ -120,8 +120,7 @@ mod tests {
             (0u32..10_000).map(|i| (i % 2 == 0).then_some(i)),
     ))]
     fn test_compress(#[case] array: PrimitiveArray) -> VortexResult<()> {
-        let delta =
-            DeltaArray::try_from_primitive_array(&array, &mut SESSION.create_execution_ctx())?;
+        let delta = Delta::try_from_primitive_array(&array, &mut SESSION.create_execution_ctx())?;
         assert_eq!(delta.len(), array.len());
         let decompressed = delta_decompress(&delta, &mut SESSION.create_execution_ctx())?;
         assert_arrays_eq!(decompressed, array);
@@ -138,13 +137,13 @@ mod tests {
         );
         let (bases, deltas) = delta_compress(&array, &mut SESSION.create_execution_ctx()).unwrap();
         let bitpacked_deltas = bitpack_encode(&deltas, 1, None).unwrap();
-        let packed_delta = DeltaArray::try_new(
+        let packed_delta = Delta::try_new(
             bases.into_array(),
             bitpacked_deltas.into_array(),
             0,
             array.len(),
         )
-        .unwrap();
-        assert_arrays_eq!(packed_delta.to_primitive(), array);
+        .vortex_expect("Delta array construction should succeed");
+        assert_arrays_eq!(packed_delta.as_array().to_primitive(), array);
     }
 }

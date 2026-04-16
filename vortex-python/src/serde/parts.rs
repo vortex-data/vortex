@@ -7,10 +7,11 @@ use pyo3::Bound;
 use pyo3::PyAny;
 use pyo3::PyRef;
 use pyo3::Python;
+use pyo3::intern;
 use pyo3::prelude::PyAnyMethods;
 use pyo3::pyclass;
 use pyo3::pymethods;
-use vortex::array::serde::ArrayParts;
+use vortex::array::serde::SerializedArray;
 use vortex::buffer::ByteBuffer;
 
 use crate::SESSION;
@@ -19,34 +20,34 @@ use crate::dtype::PyDType;
 use crate::error::PyVortexResult;
 use crate::serde::context::PyReadContext;
 
-/// ArrayParts is a parsed representation of a serialized array.
+/// SerializedArray is a parsed representation of a serialized array.
 ///
 /// It can be decoded into a full array using the `decode` method.
-#[pyclass(name = "ArrayParts", module = "vortex", frozen)]
-pub(crate) struct PyArrayParts(ArrayParts);
+#[pyclass(name = "SerializedArray", module = "vortex", frozen)]
+pub(crate) struct PySerializedArray(SerializedArray);
 
-impl Deref for PyArrayParts {
-    type Target = ArrayParts;
+impl Deref for PySerializedArray {
+    type Target = SerializedArray;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl From<ArrayParts> for PyArrayParts {
-    fn from(parts: ArrayParts) -> Self {
+impl From<SerializedArray> for PySerializedArray {
+    fn from(parts: SerializedArray) -> Self {
         Self(parts)
     }
 }
 
 #[pymethods]
-impl PyArrayParts {
+impl PySerializedArray {
     /// Parse a serialized array into its parts.
     #[staticmethod]
-    fn parse(data: &[u8]) -> PyVortexResult<PyArrayParts> {
+    fn parse(data: &[u8]) -> PyVortexResult<PySerializedArray> {
         // TODO(ngates): create a buffer from a slice of bytes?
         let buffer = ByteBuffer::copy_from(data);
-        Ok(PyArrayParts(ArrayParts::try_from(buffer)?))
+        Ok(PySerializedArray(SerializedArray::try_from(buffer)?))
     }
 
     /// Decode the array parts into a full array.
@@ -100,7 +101,8 @@ impl PyArrayParts {
             let addr = buffer.as_ptr() as usize;
             let size = buffer.len();
             let base = &slf;
-            let pa_buffer = pyarrow.call_method("foreign_buffer", (addr, size, base), None)?;
+            let pa_buffer =
+                pyarrow.call_method(intern!(py, "foreign_buffer"), (addr, size, base), None)?;
             buffers.push(pa_buffer);
         }
 
@@ -113,12 +115,12 @@ impl PyArrayParts {
         self.0.nchildren()
     }
 
-    /// Return the child :class:`~vortex.ArrayParts` of the array.
+    /// Return the child :class:`~vortex.SerializedArray` of the array.
     #[getter]
-    fn children(&self) -> Vec<PyArrayParts> {
+    fn children(&self) -> Vec<PySerializedArray> {
         (0..self.0.nchildren())
             .map(|idx| self.0.child(idx))
-            .map(PyArrayParts)
+            .map(PySerializedArray)
             .collect()
     }
 }

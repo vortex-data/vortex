@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
+#![expect(clippy::unwrap_used)]
 
 use divan::Bencher;
 use rand::RngExt;
@@ -37,8 +37,8 @@ fn compare_bool(bencher: Bencher) {
         .bench_refs(|input| {
             input
                 .0
-                .to_array()
-                .binary(input.1.to_array(), Operator::Gte)
+                .clone()
+                .binary(input.1.clone(), Operator::Gte)
                 .unwrap()
                 .execute::<Canonical>(&mut input.2)
         });
@@ -65,8 +65,8 @@ fn compare_int(bencher: Bencher) {
         .bench_refs(|input| {
             input
                 .0
-                .to_array()
-                .binary(input.1.to_array(), Operator::Gte)
+                .clone()
+                .binary(input.1.clone(), Operator::Gte)
                 .unwrap()
                 .execute::<Canonical>(&mut input.2)
         });

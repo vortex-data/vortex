@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayVTable;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Struct;
@@ -9,7 +11,6 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::dtype::FieldNames;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ArrayId;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
@@ -27,7 +28,7 @@ impl FlatLayoutFixture for StructNestedFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Struct::ID]
+        vec![Struct.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
@@ -35,7 +36,7 @@ impl FlatLayoutFixture for StructNestedFixture {
             FieldNames::from(["a", "b"]),
             vec![
                 PrimitiveArray::new(buffer![10i32, 20, 30], Validity::NonNullable).into_array(),
-                VarBinArray::from(vec!["x", "y", "z"]).into_array(),
+                VarBinArray::from_strs(vec!["x", "y", "z"]).into_array(),
             ],
             3,
             Validity::NonNullable,

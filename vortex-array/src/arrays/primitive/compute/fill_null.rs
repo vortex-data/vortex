@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::BoolArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
@@ -16,23 +17,18 @@ use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNullKernel;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl FillNullKernel for Primitive {
     fn fill_null(
-        array: &PrimitiveArray,
+        array: ArrayView<'_, Primitive>,
         fill_value: &Scalar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let result_validity = Validity::from(fill_value.dtype().nullability());
 
-        Ok(Some(match array.validity() {
+        Ok(Some(match array.validity()? {
             Validity::Array(is_valid) => {
-                let is_invalid = is_valid
-                    .clone()
-                    .execute::<BoolArray>(ctx)?
-                    .into_bit_buffer()
-                    .not();
+                let is_invalid = is_valid.execute::<BoolArray>(ctx)?.into_bit_buffer().not();
                 match_each_native_ptype!(array.ptype(), |T| {
                     let mut buffer = array.to_buffer::<T>().into_mut();
                     let fill_value = fill_value
@@ -55,6 +51,8 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::primitive::compute::fill_null::BoolArray;
     use crate::assert_arrays_eq;
@@ -72,7 +70,14 @@ mod test {
             .unwrap()
             .to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([42u8, 8, 42, 10, 42]));
-        assert!(p.validity_mask().unwrap().all_true());
+        assert!(
+            p.as_ref()
+                .validity()
+                .unwrap()
+                .to_mask(p.as_ref().len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .all_true()
+        );
     }
 
     #[test]
@@ -85,7 +90,14 @@ mod test {
             .unwrap()
             .to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([255u8, 255, 255, 255, 255]));
-        assert!(p.validity_mask().unwrap().all_true());
+        assert!(
+            p.as_ref()
+                .validity()
+                .unwrap()
+                .to_mask(p.as_ref().len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .all_true()
+        );
     }
 
     #[test]
@@ -100,7 +112,14 @@ mod test {
             .unwrap()
             .to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([8u8, 10, 12, 14, 16]));
-        assert!(p.validity_mask().unwrap().all_true());
+        assert!(
+            p.as_ref()
+                .validity()
+                .unwrap()
+                .to_mask(p.as_ref().len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .all_true()
+        );
     }
 
     #[test]
@@ -108,6 +127,13 @@ mod test {
         let arr = buffer![8u8, 10, 12, 14, 16].into_array();
         let p = arr.fill_null(Scalar::from(255u8)).unwrap().to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([8u8, 10, 12, 14, 16]));
-        assert!(p.validity_mask().unwrap().all_true());
+        assert!(
+            p.as_ref()
+                .validity()
+                .unwrap()
+                .to_mask(p.as_ref().len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .all_true()
+        );
     }
 }

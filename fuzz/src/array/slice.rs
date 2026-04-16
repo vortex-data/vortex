@@ -2,9 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
@@ -13,20 +14,26 @@ use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
-#[allow(clippy::unnecessary_fallible_conversions)]
 pub fn slice_canonical_array(
     array: &ArrayRef,
     start: usize,
     stop: usize,
 ) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
-        let bool_buff = array.validity_mask()?.to_bit_buffer();
+        let bool_buff = array
+            .validity()?
+            .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())?
+            .to_bit_buffer();
         Validity::from(bool_buff.slice(start..stop))
     } else {
         Validity::NonNullable
@@ -61,8 +68,7 @@ pub fn slice_canonical_array(
         DType::Struct(..) => {
             let struct_array = array.to_struct();
             let sliced_children = struct_array
-                .unmasked_fields()
-                .iter()
+                .iter_unmasked_fields()
                 .map(|c| slice_canonical_array(c, start, stop))
                 .collect::<VortexResult<Vec<_>>>()?;
             StructArray::try_new_with_dtype(

@@ -8,6 +8,7 @@ use vortex_array::ArrayRef;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::segments::SegmentId;
@@ -310,17 +311,25 @@ impl Plan {
         let compute = node
             .compute
             .take()
-            .expect("Ready node must have a compute function");
+            .ok_or_else(|| vortex_err!("Ready node is missing a compute function"))?;
         let segments: Vec<ByteBuffer> = node
             .resolved_segments
             .iter_mut()
-            .map(|slot| slot.take().expect("All segments must be resolved"))
-            .collect();
+            .enumerate()
+            .map(|(idx, slot)| {
+                slot.take()
+                    .ok_or_else(|| vortex_err!("Segment {idx} is unresolved"))
+            })
+            .collect::<VortexResult<_>>()?;
         let inputs: Vec<ArrayRef> = node
             .resolved_inputs
             .iter_mut()
-            .map(|slot| slot.take().expect("All inputs must be resolved"))
-            .collect();
+            .enumerate()
+            .map(|(idx, slot)| {
+                slot.take()
+                    .ok_or_else(|| vortex_err!("Input {idx} is unresolved"))
+            })
+            .collect::<VortexResult<_>>()?;
         node.state = NodeState::Dispatched;
         Ok((compute, segments, inputs))
     }

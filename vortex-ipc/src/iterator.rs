@@ -85,21 +85,21 @@ impl<R: Read> Iterator for SyncIPCReader<R> {
 
 /// A trait for converting an [`ArrayIterator`] into an IPC stream.
 pub trait ArrayIteratorIPC {
-    fn into_ipc(self) -> VortexResult<ArrayIteratorIPCBytes>
+    fn into_ipc(self, session: &VortexSession) -> VortexResult<ArrayIteratorIPCBytes>
     where
         Self: Sized;
 
-    fn write_ipc<W: Write>(self, write: W) -> VortexResult<W>
+    fn write_ipc<W: Write>(self, write: W, session: &VortexSession) -> VortexResult<W>
     where
         Self: Sized;
 }
 
 impl<I: ArrayIterator + 'static> ArrayIteratorIPC for I {
-    fn into_ipc(self) -> VortexResult<ArrayIteratorIPCBytes>
+    fn into_ipc(self, session: &VortexSession) -> VortexResult<ArrayIteratorIPCBytes>
     where
         Self: Sized,
     {
-        let mut encoder = MessageEncoder::default();
+        let mut encoder = MessageEncoder::new(session.clone());
         let buffers = encoder.encode(EncoderMessage::DType(self.dtype()))?;
         Ok(ArrayIteratorIPCBytes {
             inner: Box::new(self),
@@ -108,11 +108,11 @@ impl<I: ArrayIterator + 'static> ArrayIteratorIPC for I {
         })
     }
 
-    fn write_ipc<W: Write>(self, mut write: W) -> VortexResult<W>
+    fn write_ipc<W: Write>(self, mut write: W, session: &VortexSession) -> VortexResult<W>
     where
         Self: Sized,
     {
-        let mut stream = self.into_ipc()?;
+        let mut stream = self.into_ipc(session)?;
         for buffer in &mut stream {
             write.write_all(buffer?.as_ref())?;
         }
@@ -183,7 +183,10 @@ mod test {
     #[test]
     fn test_sync_stream() -> VortexResult<()> {
         let array = buffer![1i32, 2, 3].into_array();
-        let ipc_buffer = array.to_array_iterator().into_ipc()?.collect_to_buffer()?;
+        let ipc_buffer = array
+            .to_array_iterator()
+            .into_ipc(&SESSION)?
+            .collect_to_buffer()?;
 
         let reader = SyncIPCReader::try_new(Cursor::new(ipc_buffer), &SESSION)?;
 

@@ -40,7 +40,7 @@ impl VTable for Dict {
     type Metadata = ProstMetadata<DictLayoutMetadata>;
 
     fn id(_encoding: &Self::Encoding) -> LayoutId {
-        LayoutId::new_ref("vortex.dict")
+        LayoutId::new("vortex.dict")
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {
@@ -73,8 +73,8 @@ impl VTable for Dict {
 
     fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef> {
         match idx {
-            0 => Ok(layout.values.clone()),
-            1 => Ok(layout.codes.clone()),
+            0 => Ok(Arc::clone(&layout.values)),
+            1 => Ok(Arc::clone(&layout.codes)),
             _ => vortex_bail!("Unreachable child index: {}", idx),
         }
     }

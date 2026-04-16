@@ -10,6 +10,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::SharedArray;
+use crate::arrays::shared::SharedArrayExt;
 use crate::hash::ArrayEq;
 use crate::hash::Precision as HashPrecision;
 use crate::session::ArraySession;

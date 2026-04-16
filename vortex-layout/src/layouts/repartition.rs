@@ -10,13 +10,12 @@ use futures::StreamExt as _;
 use futures::pin_mut;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_io::runtime::Handle;
+use vortex_session::VortexSession;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -98,7 +97,7 @@ impl LayoutStrategy for RepartitionStrategy {
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,
-        handle: Handle,
+        session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
         // TODO(os): spawn stream below like:
         // canon_stream = stream.map(async {to_canonical}).map(spawn).buffered(parallelism)
@@ -148,7 +147,7 @@ impl LayoutStrategy for RepartitionStrategy {
                         if !chunked.is_empty() {
                             yield (
                                 sequence_pointer.advance(),
-                                chunked.to_canonical()?.into_array(),
+                                chunked.into_array().to_canonical()?.into_array(),
                             )
                         }
                     }
@@ -161,7 +160,7 @@ impl LayoutStrategy for RepartitionStrategy {
                     if !to_flush.is_empty() {
                         yield (
                             sequence_pointer.advance(),
-                            to_flush.to_canonical()?.into_array(),
+                            to_flush.into_array().to_canonical()?.into_array(),
                         )
                     }
                 }
@@ -174,7 +173,7 @@ impl LayoutStrategy for RepartitionStrategy {
                 segment_sink,
                 SequentialStreamAdapter::new(dtype, repartitioned_stream).sendable(),
                 eof,
-                handle,
+                session,
             )
             .await
     }
@@ -267,7 +266,6 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_array::ArrayContext;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::FixedSizeListArray;
@@ -279,6 +277,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
+    use vortex_io::session::RuntimeSessionExt;
 
     use super::*;
     use crate::LayoutStrategy;
@@ -287,6 +286,7 @@ mod tests {
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
+    use crate::test::SESSION;
 
     const ONE_MEG: u64 = 1 << 20;
 
@@ -386,8 +386,18 @@ mod tests {
         );
 
         let stream = fsl.into_array().to_array_stream().sequenced(ptr);
-        let layout =
-            block_on(|handle| strategy.write_stream(ctx, segments.clone(), stream, eof, handle))?;
+        let layout = block_on(|handle| async move {
+            let session = SESSION.clone().with_handle(handle);
+            strategy
+                .write_stream(
+                    ctx,
+                    Arc::<TestSegments>::clone(&segments),
+                    stream,
+                    eof,
+                    &session,
+                )
+                .await
+        })?;
 
         // The layout should be a ChunkedLayout with multiple children.
         // With 1000 rows and effective block_len = 132:
@@ -441,8 +451,18 @@ mod tests {
         );
 
         let stream = elements.into_array().to_array_stream().sequenced(ptr);
-        let layout =
-            block_on(|handle| strategy.write_stream(ctx, segments.clone(), stream, eof, handle))?;
+        let layout = block_on(|handle| async move {
+            let session = SESSION.clone().with_handle(handle);
+            strategy
+                .write_stream(
+                    ctx,
+                    Arc::<TestSegments>::clone(&segments),
+                    stream,
+                    eof,
+                    &session,
+                )
+                .await
+        })?;
 
         assert_eq!(layout.row_count(), num_elements as u64);
         assert_eq!(layout.nchildren(), 2);
@@ -477,6 +497,7 @@ mod tests {
         let _output = buf.pop_front().unwrap();
 
         // Transition SharedState from Source to Cached for ALL slices sharing this Arc.
+        use vortex_array::arrays::shared::SharedArrayExt;
         shared_handle.get_or_compute(|source| source.to_canonical())?;
 
         // Before the fix this panicked with "attempt to subtract with overflow".

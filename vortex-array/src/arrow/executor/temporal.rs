@@ -26,10 +26,10 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::arrays::ExtensionArray;
 use crate::arrays::PrimitiveArray as VortexPrimitiveArray;
+use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrow::null_buffer::to_null_buffer;
 use crate::dtype::NativePType;
 use crate::extension::datetime::AnyTemporal;
@@ -157,7 +157,10 @@ where
         primitive.ptype()
     );
 
-    let validity = primitive.validity_mask()?;
+    let validity = primitive
+        .as_ref()
+        .validity()?
+        .to_mask(primitive.as_ref().len(), ctx)?;
     let buffer = primitive.to_buffer::<T::Native>();
 
     let values = buffer.into_arrow_scalar_buffer();

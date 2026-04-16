@@ -13,7 +13,9 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
 use crate::arrays::DecimalArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
@@ -204,8 +206,14 @@ impl ArrayBuilder for DecimalBuilder {
 
         self.nulls.append_validity_mask(
             decimal_array
-                .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+                .as_ref()
+                .validity()
+                .vortex_expect("validity_mask")
+                .to_mask(
+                    decimal_array.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )
+                .vortex_expect("Failed to compute validity mask"),
         );
     }
 

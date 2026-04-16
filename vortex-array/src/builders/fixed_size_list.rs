@@ -12,9 +12,11 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
@@ -243,8 +245,10 @@ impl ArrayBuilder for FixedSizeListBuilder {
         self.elements_builder.extend_from_array(fsl.elements());
         self.nulls.append_validity_mask(
             array
-                .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+                .validity()
+                .vortex_expect("validity_mask in extend_from_array_unchecked")
+                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("Failed to compute validity mask"),
         );
     }
 
@@ -273,12 +277,13 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
 
     use super::FixedSizeListBuilder;
     use crate::IntoArray as _;
     use crate::ToCanonical;
-    use crate::array::DynArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
     use crate::builders::ArrayBuilder;
     use crate::builders::fixed_size_list::FixedSizeListArray;
     use crate::dtype::DType;
@@ -287,7 +292,6 @@ mod tests {
     use crate::dtype::PType::I32;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     #[test]
     fn test_empty() {
@@ -301,12 +305,13 @@ mod tests {
     #[test]
     fn test_values() {
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 3, NonNullable, 0);
+        let mut builder =
+            FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 3, NonNullable, 0);
 
         builder
             .append_value(
                 Scalar::fixed_size_list(
-                    dtype.clone(),
+                    Arc::clone(&dtype),
                     vec![1i32.into(), 2i32.into(), 3i32.into()],
                     NonNullable,
                 )
@@ -337,12 +342,14 @@ mod tests {
     fn test_degenerate_size_zero_non_nullable() {
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder =
-            FixedSizeListBuilder::with_capacity(dtype.clone(), 0, NonNullable, 10000000);
+            FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 0, NonNullable, 10000000);
 
         // Append multiple "empty" lists.
         for _ in 0..100 {
             builder
-                .append_value(Scalar::fixed_size_list(dtype.clone(), vec![], NonNullable).as_list())
+                .append_value(
+                    Scalar::fixed_size_list(Arc::clone(&dtype), vec![], NonNullable).as_list(),
+                )
                 .unwrap();
         }
 
@@ -359,14 +366,15 @@ mod tests {
     fn test_degenerate_size_zero_nullable() {
         // Use nullable elements since we'll be appending nulls
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, Nullable));
-        let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 0, Nullable, 10000000);
+        let mut builder =
+            FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 0, Nullable, 10000000);
 
         // Mix of null and non-null empty lists.
         for i in 0..100 {
             if i % 2 == 0 {
                 builder
                     .append_value(
-                        Scalar::fixed_size_list(dtype.clone(), vec![], Nullable).as_list(),
+                        Scalar::fixed_size_list(Arc::clone(&dtype), vec![], Nullable).as_list(),
                     )
                     .unwrap();
             } else {
@@ -386,14 +394,15 @@ mod tests {
     fn test_capacity_growth() {
         let dtype: Arc<DType> = Arc::new(I32.into());
         // Start with capacity 0.
-        let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 2, NonNullable, 0);
+        let mut builder =
+            FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 2, NonNullable, 0);
 
         // Add more items than initial capacity.
         for i in 0..5 {
             builder
                 .append_value(
                     Scalar::fixed_size_list(
-                        dtype.clone(),
+                        Arc::clone(&dtype),
                         vec![(i * 2).into(), (i * 2 + 1).into()],
                         NonNullable,
                     )
@@ -426,12 +435,16 @@ mod tests {
     #[test]
     fn test_nullable_lists_non_nullable_elements() {
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, NonNullable));
-        let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 2, Nullable, 0);
+        let mut builder = FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 2, Nullable, 0);
 
         builder
             .append_value(
-                Scalar::fixed_size_list(dtype.clone(), vec![1i32.into(), 2i32.into()], Nullable)
-                    .as_list(),
+                Scalar::fixed_size_list(
+                    Arc::clone(&dtype),
+                    vec![1i32.into(), 2i32.into()],
+                    Nullable,
+                )
+                .as_list(),
             )
             .unwrap();
 
@@ -447,20 +460,39 @@ mod tests {
         assert_eq!(fsl.len(), 3);
 
         let fsl_array = fsl.to_fixed_size_list();
-        assert!(fsl_array.validity().is_valid(0).unwrap());
-        assert!(!fsl_array.validity().is_valid(1).unwrap());
-        assert!(fsl_array.validity().is_valid(2).unwrap());
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(0)
+                .unwrap()
+        );
+        assert!(
+            !fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(1)
+                .unwrap()
+        );
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(2)
+                .unwrap()
+        );
     }
 
     #[test]
     fn test_non_nullable_lists_nullable_elements() {
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, Nullable));
-        let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 3, NonNullable, 0);
+        let mut builder =
+            FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 3, NonNullable, 0);
 
         builder
             .append_value(
                 Scalar::fixed_size_list(
-                    dtype.clone(),
+                    Arc::clone(&dtype),
                     vec![
                         Scalar::primitive(1i32, Nullable),
                         Scalar::null(dtype.as_ref().clone()),
@@ -532,7 +564,13 @@ mod tests {
 
         // Check that all lists are null.
         for i in 0..3 {
-            assert!(!fsl_array.validity().is_valid(i).unwrap());
+            assert!(
+                !fsl_array
+                    .validity()
+                    .vortex_expect("fixed-size-list validity should be derivable")
+                    .is_valid(i)
+                    .unwrap()
+            );
         }
     }
 
@@ -555,7 +593,13 @@ mod tests {
         assert_eq!(fsl_array.list_size(), 2);
 
         // Check that all lists are null.
-        assert!(!fsl_array.validity().is_valid(0).unwrap());
+        assert!(
+            !fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(0)
+                .unwrap()
+        );
     }
 
     #[test]
@@ -578,7 +622,8 @@ mod tests {
     #[test]
     fn test_invalid_size_error() {
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 3, NonNullable, 0);
+        let mut builder =
+            FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 3, NonNullable, 0);
 
         // Try to append a list with wrong size.
         let result = builder.append_value(
@@ -624,12 +669,48 @@ mod tests {
         assert_eq!(fsl_array.elements().len(), 12);
 
         // Check validity pattern is repeated.
-        assert!(fsl_array.validity().is_valid(0).unwrap());
-        assert!(!fsl_array.validity().is_valid(1).unwrap());
-        assert!(fsl_array.validity().is_valid(2).unwrap());
-        assert!(fsl_array.validity().is_valid(3).unwrap());
-        assert!(!fsl_array.validity().is_valid(4).unwrap());
-        assert!(fsl_array.validity().is_valid(5).unwrap());
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(0)
+                .unwrap()
+        );
+        assert!(
+            !fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(1)
+                .unwrap()
+        );
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(2)
+                .unwrap()
+        );
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(3)
+                .unwrap()
+        );
+        assert!(
+            !fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(4)
+                .unwrap()
+        );
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(5)
+                .unwrap()
+        );
     }
 
     #[test]
@@ -664,11 +745,41 @@ mod tests {
         assert_eq!(fsl_array.elements().len(), 0);
 
         // Check validity pattern.
-        assert!(fsl_array.validity().is_valid(0).unwrap());
-        assert!(!fsl_array.validity().is_valid(1).unwrap());
-        assert!(fsl_array.validity().is_valid(2).unwrap());
-        assert!(!fsl_array.validity().is_valid(3).unwrap());
-        assert!(fsl_array.validity().is_valid(4).unwrap());
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(0)
+                .unwrap()
+        );
+        assert!(
+            !fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(1)
+                .unwrap()
+        );
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(2)
+                .unwrap()
+        );
+        assert!(
+            !fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(3)
+                .unwrap()
+        );
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(4)
+                .unwrap()
+        );
     }
 
     #[test]
@@ -683,7 +794,8 @@ mod tests {
             0,
         );
 
-        let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 3, NonNullable, 0);
+        let mut builder =
+            FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 3, NonNullable, 0);
 
         // Add some initial data.
         builder
@@ -708,7 +820,7 @@ mod tests {
     fn test_mixed_operations() {
         // Use nullable elements since we'll be appending nulls
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, Nullable));
-        let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 2, Nullable, 0);
+        let mut builder = FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 2, Nullable, 0);
 
         // Mix of operations.
         builder
@@ -744,27 +856,63 @@ mod tests {
         assert_eq!(fsl_array.elements().len(), 12);
 
         // Check validity.
-        assert!(fsl_array.validity().is_valid(0).unwrap()); // append_value
-        assert!(!fsl_array.validity().is_valid(1).unwrap()); // append_null
-        assert!(fsl_array.validity().is_valid(2).unwrap()); // append_zeros
-        assert!(fsl_array.validity().is_valid(3).unwrap()); // append_zeros
-        assert!(!fsl_array.validity().is_valid(4).unwrap()); // append_nulls
-        assert!(fsl_array.validity().is_valid(5).unwrap()); // extend_from_array
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(0)
+                .unwrap()
+        ); // append_value
+        assert!(
+            !fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(1)
+                .unwrap()
+        ); // append_null
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(2)
+                .unwrap()
+        ); // append_zeros
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(3)
+                .unwrap()
+        ); // append_zeros
+        assert!(
+            !fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(4)
+                .unwrap()
+        ); // append_nulls
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(5)
+                .unwrap()
+        ); // extend_from_array
     }
 
     #[test]
     fn test_append_scalar() {
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 2, Nullable, 10);
+        let mut builder = FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 2, Nullable, 10);
 
         // Test appending a valid fixed-size list.
         let list_scalar1 =
-            Scalar::fixed_size_list(dtype.clone(), vec![1i32.into(), 2i32.into()], Nullable);
+            Scalar::fixed_size_list(Arc::clone(&dtype), vec![1i32.into(), 2i32.into()], Nullable);
         builder.append_scalar(&list_scalar1).unwrap();
 
         // Test appending another list.
         let list_scalar2 =
-            Scalar::fixed_size_list(dtype.clone(), vec![3i32.into(), 4i32.into()], Nullable);
+            Scalar::fixed_size_list(Arc::clone(&dtype), vec![3i32.into(), 4i32.into()], Nullable);
         builder.append_scalar(&list_scalar2).unwrap();
 
         // Test appending null via builder method (since fixed-size list null handling is special).
@@ -792,9 +940,27 @@ mod tests {
         }
 
         // Check validity - first two should be valid, third should be null.
-        assert!(array.validity().is_valid(0).unwrap());
-        assert!(array.validity().is_valid(1).unwrap());
-        assert!(!array.validity().is_valid(2).unwrap());
+        assert!(
+            array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(0)
+                .unwrap()
+        );
+        assert!(
+            array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(1)
+                .unwrap()
+        );
+        assert!(
+            !array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(2)
+                .unwrap()
+        );
 
         // Test wrong dtype error.
         let mut builder = FixedSizeListBuilder::with_capacity(dtype, 2, NonNullable, 10);
@@ -805,7 +971,8 @@ mod tests {
     #[test]
     fn test_append_array_as_list() {
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 3, NonNullable, 10);
+        let mut builder =
+            FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 3, NonNullable, 10);
 
         // Append a primitive array as a single list entry.
         let arr1 = buffer![1i32, 2, 3].into_array();
@@ -815,7 +982,7 @@ mod tests {
         builder
             .append_value(
                 Scalar::fixed_size_list(
-                    dtype.clone(),
+                    Arc::clone(&dtype),
                     vec![10i32.into(), 11i32.into(), 12i32.into()],
                     NonNullable,
                 )
@@ -831,7 +998,7 @@ mod tests {
         builder
             .append_value(
                 Scalar::fixed_size_list(
-                    dtype.clone(),
+                    Arc::clone(&dtype),
                     vec![20i32.into(), 21i32.into(), 22i32.into()],
                     NonNullable,
                 )
@@ -851,7 +1018,8 @@ mod tests {
         );
 
         // Test dtype mismatch error.
-        let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 3, NonNullable, 10);
+        let mut builder =
+            FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 3, NonNullable, 10);
         let wrong_dtype_arr = buffer![1i64, 2, 3].into_array();
         assert!(builder.append_array_as_list(&wrong_dtype_arr).is_err());
 

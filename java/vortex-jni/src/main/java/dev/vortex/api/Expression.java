@@ -88,6 +88,22 @@ public interface Expression {
         T visitGetItem(GetItem getItem);
 
         /**
+         * Visits an is null expression (null check).
+         *
+         * @param isNull the is null expression to visit
+         * @return the result of visiting the is null expression
+         */
+        T visitIsNull(IsNull isNull);
+
+        /**
+         * Visits an is not null expression (non-null check).
+         *
+         * @param isNotNull the is not null expression to visit
+         * @return the result of visiting the is not null expression
+         */
+        T visitIsNotNull(IsNotNull isNotNull);
+
+        /**
          * For expressions that do not have a specific visitor method.
          */
         T visitOther(Expression expression);

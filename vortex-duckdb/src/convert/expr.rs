@@ -13,6 +13,7 @@ use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::col;
+use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_contains;
 use vortex::expr::lit;
@@ -43,7 +44,6 @@ fn like_pattern_str(value: &duckdb::ExpressionRef) -> VortexResult<Option<String
     }
 }
 
-#[allow(clippy::cognitive_complexity)]
 pub fn try_from_bound_expression(
     value: &duckdb::ExpressionRef,
 ) -> VortexResult<Option<Expression>> {
@@ -105,7 +105,7 @@ pub fn try_from_bound_expression(
                     DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_NOT => not(child),
                     DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NULL => is_null(child),
                     DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NOT_NULL => {
-                        not(is_null(child))
+                        is_not_null(child)
                     }
                     _ => unreachable!(),
                 }

@@ -4,7 +4,7 @@
 pub mod types;
 
 #[rustfmt::skip]
-#[allow(warnings, clippy::all, clippy::pedantic, clippy::nursery)]
+#[expect(warnings, clippy::all, clippy::pedantic, clippy::nursery)]
 pub mod gpu {
     include!(concat!(env!("OUT_DIR"), "/patches.rs"));
 }
@@ -12,10 +12,9 @@ pub mod gpu {
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
 use tracing::instrument;
-use vortex::array::arrays::primitive::PrimitiveArrayParts;
+use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::patches::Patches;
 use vortex::array::validity::Validity;
-use vortex::array::vtable::ValidityHelper;
 use vortex::dtype::NativePType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
@@ -43,7 +42,7 @@ pub(crate) async fn execute_patches<
     let values = values.execute_cuda(ctx).await?.into_primitive();
 
     let supported = matches!(
-        values.validity(),
+        values.validity()?,
         Validity::NonNullable | Validity::AllValid
     );
     vortex_ensure!(
@@ -68,15 +67,15 @@ pub(crate) async fn execute_patches<
     let patches_len = indices.len();
     let patches_len_u64 = patches_len as u64;
 
-    let PrimitiveArrayParts {
+    let PrimitiveDataParts {
         buffer: indices_buffer,
         ..
-    } = indices.into_parts();
+    } = indices.into_data_parts();
 
-    let PrimitiveArrayParts {
+    let PrimitiveDataParts {
         buffer: values_buffer,
         ..
-    } = values.into_parts();
+    } = values.into_data_parts();
 
     let d_patch_indices = ctx.ensure_on_device(indices_buffer).await?;
     let d_patch_values = ctx.ensure_on_device(values_buffer).await?;
@@ -106,7 +105,7 @@ mod tests {
     use vortex::array::ToCanonical;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::PrimitiveArray;
-    use vortex::array::arrays::primitive::PrimitiveArrayParts;
+    use vortex::array::arrays::primitive::PrimitiveDataParts;
     use vortex::array::assert_arrays_eq;
     use vortex::array::buffer::BufferHandle;
     use vortex::array::builtins::ArrayBuiltins;
@@ -168,10 +167,10 @@ mod tests {
             )
             .unwrap();
 
-        let PrimitiveArrayParts {
+        let PrimitiveDataParts {
             buffer: cuda_buffer,
             ..
-        } = values.into_parts();
+        } = values.into_data_parts();
 
         let handle = ctx.ensure_on_device(cuda_buffer).await.unwrap();
         let device_buf = handle

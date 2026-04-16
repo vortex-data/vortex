@@ -32,6 +32,7 @@ use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
 use datafusion_datasource::file_sink_config::FileSinkConfig;
 use datafusion_datasource::sink::DataSinkExec;
 use datafusion_datasource::source::DataSourceExec;
+use datafusion_execution::cache::cache_manager::CachedFileMetadataEntry;
 use datafusion_expr::dml::InsertOp;
 use datafusion_physical_expr::LexRequirement;
 use datafusion_physical_plan::ExecutionPlan;
@@ -42,6 +43,7 @@ use futures::stream;
 use object_store::ObjectMeta;
 use object_store::ObjectStore;
 use vortex::VortexSessionDefault;
+use vortex::array::memory::MemorySessionExt;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
@@ -245,26 +247,30 @@ impl FileFormat for VortexFormat {
 
         let mut file_schemas = stream::iter(objects.iter().cloned())
             .map(|object| {
-                let store = store.clone();
+                let store = Arc::clone(store);
                 let session = self.session.clone();
                 let opts = self.opts.clone();
-                let cache = file_metadata_cache.clone();
+                let cache = Arc::clone(&file_metadata_cache);
 
                 SpawnedTask::spawn(async move {
-                    // Check if we have cached metadata for this file
-                    if let Some(cached) = cache.get(&object)
-                        && let Some(cached_vortex) =
-                            cached.as_any().downcast_ref::<CachedVortexMetadata>()
+                    // Check if we have entry metadata for this file
+                    if let Some(entry) = cache.get(&object.location)
+                        && entry.is_valid_for(&object)
+                        && let Some(cached_vortex) = entry
+                            .file_metadata
+                            .as_any()
+                            .downcast_ref::<CachedVortexMetadata>()
                     {
                         let inferred_schema = cached_vortex.footer().dtype().to_arrow_schema()?;
                         return VortexResult::Ok((object.location, inferred_schema));
                     }
 
-                    // Not cached or invalid - open the file
-                    let reader = Arc::new(ObjectStoreReadAt::new(
+                    // Not entry or invalid - open the file
+                    let reader = Arc::new(ObjectStoreReadAt::new_with_allocator(
                         store,
                         object.location.clone(),
                         session.handle(),
+                        session.allocator(),
                     ));
 
                     let vxf = session
@@ -276,7 +282,8 @@ impl FileFormat for VortexFormat {
 
                     // Cache the metadata
                     let cached_metadata = Arc::new(CachedVortexMetadata::new(&vxf));
-                    cache.put(&object, cached_metadata);
+                    let entry = CachedFileMetadataEntry::new(object.clone(), cached_metadata);
+                    cache.put(&object.location, entry);
 
                     let inferred_schema = vxf.dtype().to_arrow_schema()?;
                     VortexResult::Ok((object.location, inferred_schema))
@@ -304,34 +311,39 @@ impl FileFormat for VortexFormat {
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
         let object = object.clone();
-        let store = store.clone();
+        let store = Arc::clone(store);
         let session = self.session.clone();
         let opts = self.opts.clone();
         let file_metadata_cache = state.runtime_env().cache_manager.get_file_metadata_cache();
 
         SpawnedTask::spawn(async move {
-            // Try to get cached metadata first
-            let cached_metadata = file_metadata_cache.get(&object).and_then(|cached| {
-                cached
-                    .as_any()
-                    .downcast_ref::<CachedVortexMetadata>()
-                    .map(|m| {
-                        (
-                            m.footer().dtype().clone(),
-                            m.footer().statistics().cloned(),
-                            m.footer().row_count(),
-                        )
-                    })
-            });
+            // Try to get entry metadata first
+            let cached_metadata = file_metadata_cache
+                .get(&object.location)
+                .filter(|entry| entry.is_valid_for(&object))
+                .and_then(|entry| {
+                    entry
+                        .file_metadata
+                        .as_any()
+                        .downcast_ref::<CachedVortexMetadata>()
+                        .map(|m| {
+                            (
+                                m.footer().dtype().clone(),
+                                m.footer().statistics().cloned(),
+                                m.footer().row_count(),
+                            )
+                        })
+                });
 
             let (dtype, file_stats, row_count) = match cached_metadata {
                 Some(metadata) => metadata,
                 None => {
-                    // Not cached - open the file
-                    let reader = Arc::new(ObjectStoreReadAt::new(
+                    // Not entry - open the file
+                    let reader = Arc::new(ObjectStoreReadAt::new_with_allocator(
                         store,
                         object.location.clone(),
                         session.handle(),
+                        session.allocator(),
                     ));
 
                     let vxf = session
@@ -348,8 +360,9 @@ impl FileFormat for VortexFormat {
                         })?;
 
                     // Cache the metadata
-                    let cached = Arc::new(CachedVortexMetadata::new(&vxf));
-                    file_metadata_cache.put(&object, cached);
+                    let file_metadata = Arc::new(CachedVortexMetadata::new(&vxf));
+                    let entry = CachedFileMetadataEntry::new(object.clone(), file_metadata);
+                    file_metadata_cache.put(&object.location, entry);
 
                     (
                         vxf.dtype().clone(),
@@ -506,7 +519,7 @@ impl FileFormat for VortexFormat {
             return not_impl_err!("Overwrites are not implemented yet for Vortex");
         }
 
-        let schema = conf.output_schema().clone();
+        let schema = Arc::clone(conf.output_schema());
         let sink = Arc::new(VortexSink::new(conf, schema, self.session.clone()));
 
         Ok(Arc::new(DataSinkExec::new(input, sink, order_requirements)) as _)

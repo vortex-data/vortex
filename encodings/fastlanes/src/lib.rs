@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::cast_possible_truncation)]
+#![expect(clippy::cast_possible_truncation)]
 
 pub use bitpacking::*;
 pub use delta::*;
 pub use r#for::*;
 pub use rle::*;
 use vortex_array::ToCanonical;
+use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -23,33 +24,41 @@ pub(crate) const FL_CHUNK_SIZE: usize = 1024;
 use bitpacking::compute::is_constant::BitPackedIsConstantKernel;
 use r#for::compute::is_constant::FoRIsConstantKernel;
 use r#for::compute::is_sorted::FoRIsSortedKernel;
+use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+use vortex_array::arrays::patched::USE_EXPERIMENTAL_PATCHES;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
 /// Initialize fastlanes encodings in the given session.
-pub fn initialize(session: &mut VortexSession) {
-    session.arrays().register(BitPacked);
+pub fn initialize(session: &VortexSession) {
+    // If we're using the experimental Patched encoding, register a shim
+    // for BitPacked with interior patches decode as Patched array.
+    if *USE_EXPERIMENTAL_PATCHES {
+        session.arrays().register(BitPackedPatchedPlugin);
+    } else {
+        session.arrays().register(BitPacked);
+    }
     session.arrays().register(Delta);
     session.arrays().register(FoR);
     session.arrays().register(RLE);
 
     // Register the encoding-specific aggregate kernels.
     session.aggregate_fns().register_aggregate_kernel(
-        BitPacked::ID,
+        BitPacked.id(),
         Some(IsConstant.id()),
         &BitPackedIsConstantKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
-        FoR::ID,
+        FoR.id(),
         Some(IsConstant.id()),
         &FoRIsConstantKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
-        FoR::ID,
+        FoR.id(),
         Some(IsSorted.id()),
         &FoRIsSortedKernel,
     );

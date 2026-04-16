@@ -16,13 +16,13 @@ use futures::future::BoxFuture;
 use tracing::debug;
 use tracing::trace;
 use vortex::array::ArrayRef;
+use vortex::array::ArrayVTable;
 use vortex::array::Canonical;
-use vortex::array::DynArray;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
-use vortex::array::arrays::struct_::StructArrayParts;
+use vortex::array::arrays::struct_::StructDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
@@ -128,9 +128,6 @@ impl CudaExecutionCtx {
 
         let events = launch_cuda_kernel_impl(&mut launcher, self.strategy.event_flags(), len)?;
         self.strategy.on_complete(&events, len)?;
-
-        drop(events);
-
         Ok(())
     }
 
@@ -152,9 +149,6 @@ impl CudaExecutionCtx {
         let events =
             launch_cuda_kernel_with_config(&mut launcher, cfg, self.strategy.event_flags())?;
         self.strategy.on_complete(&events, len)?;
-
-        drop(events);
-
         Ok(())
     }
 
@@ -343,7 +337,7 @@ pub trait CudaExecute: 'static + Send + Sync + Debug {
 
 /// Extension trait for executing arrays on CUDA.
 #[async_trait]
-pub trait CudaArrayExt: DynArray {
+pub trait CudaArrayExt {
     /// Recursively walks the encoding tree, dispatching each layer to its
     /// registered [`CudaExecute`] implementation and returning a canonical array
     /// on the device.
@@ -357,16 +351,16 @@ pub trait CudaArrayExt: DynArray {
 
 #[async_trait]
 impl CudaArrayExt for ArrayRef {
-    #[allow(clippy::unwrap_in_result, clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     async fn execute_cuda(self, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
-        if self.encoding_id() == Struct::ID {
+        if self.encoding_id() == Struct.id() {
             let len = self.len();
-            let StructArrayParts {
+            let StructDataParts {
                 fields,
                 struct_fields,
                 validity,
                 ..
-            } = self.try_into::<Struct>().unwrap().into_parts();
+            } = self.try_downcast::<Struct>().unwrap().into_data_parts();
 
             let mut cuda_fields = Vec::with_capacity(fields.len());
             for field in fields.iter() {

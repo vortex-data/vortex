@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
@@ -10,6 +12,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -17,7 +20,6 @@ use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
@@ -58,7 +60,10 @@ fn fill_bool_array(
         .value()
         .vortex_expect("cannot have null fill value");
 
-    match array.validity() {
+    match array
+        .validity()
+        .vortex_expect("bool validity should be derivable in fuzz baseline")
+    {
         Validity::NonNullable | Validity::AllValid => {
             BoolArray::new(array.into_bit_buffer(), result_nullability.into()).into_array()
         }
@@ -98,7 +103,10 @@ fn fill_primitive_array(
         let fill_val = T::try_from(fill_value)
             .vortex_expect("fill value conversion should succeed in fuzz test");
 
-        match array.validity() {
+        match array
+            .validity()
+            .vortex_expect("primitive validity should be derivable in fuzz baseline")
+        {
             Validity::NonNullable | Validity::AllValid => {
                 PrimitiveArray::new(array.to_buffer::<T>(), result_nullability.into()).into_array()
             }
@@ -138,7 +146,10 @@ fn fill_decimal_array(
         let fill_val = D::try_from(decimal_scalar)
             .vortex_expect("decimal fill value conversion should succeed in fuzz test");
 
-        match array.validity() {
+        match array
+            .validity()
+            .vortex_expect("decimal validity should be derivable in fuzz baseline")
+        {
             Validity::NonNullable | Validity::AllValid => DecimalArray::new(
                 array.buffer::<D>(),
                 decimal_dtype,
@@ -175,8 +186,12 @@ fn fill_varbinview_array(
     fill_value: &Scalar,
     result_nullability: Nullability,
 ) -> ArrayRef {
-    match array.validity() {
-        Validity::NonNullable | Validity::AllValid => array.clone().into_array(),
+    let array_ref = array.clone().into_array();
+    match array
+        .validity()
+        .vortex_expect("varbinview validity should be derivable in fuzz baseline")
+    {
+        Validity::NonNullable | Validity::AllValid => array.into_array(),
         Validity::AllInvalid => ConstantArray::new(fill_value.clone(), array.len()).into_array(),
         Validity::Array(validity_array) => {
             let validity_bool_array = validity_array.to_bool();
@@ -191,7 +206,7 @@ fn fill_varbinview_array(
                     let strings: Vec<String> = (0..array.len())
                         .map(|i| {
                             if validity_bits.value(i) {
-                                array
+                                array_ref
                                     .scalar_at(i)
                                     .vortex_expect("scalar_at")
                                     .as_utf8()
@@ -208,7 +223,7 @@ fn fill_varbinview_array(
                     if result_nullability == Nullability::Nullable {
                         VarBinViewArray::new_handle(
                             result.to_varbinview().views_handle().clone(),
-                            result.to_varbinview().buffers().clone(),
+                            Arc::clone(result.to_varbinview().data_buffers()),
                             result.dtype().as_nullable(),
                             result_nullability.into(),
                         )
@@ -225,7 +240,7 @@ fn fill_varbinview_array(
                     let binaries: Vec<Vec<u8>> = (0..array.len())
                         .map(|i| {
                             if validity_bits.value(i) {
-                                array
+                                array_ref
                                     .scalar_at(i)
                                     .vortex_expect("scalar_at")
                                     .as_binary()
@@ -242,7 +257,7 @@ fn fill_varbinview_array(
                     if result_nullability == Nullability::Nullable {
                         VarBinViewArray::new_handle(
                             result.to_varbinview().views_handle().clone(),
-                            result.to_varbinview().buffers().clone(),
+                            Arc::clone(result.to_varbinview().data_buffers()),
                             result.dtype().as_nullable(),
                             result_nullability.into(),
                         )
@@ -259,7 +274,6 @@ fn fill_varbinview_array(
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::DecimalArray;

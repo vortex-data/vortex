@@ -7,11 +7,7 @@
 mod bitops;
 mod eq;
 mod intersect_by_rank;
-mod iter_bools;
-mod mask_mut;
 
-#[cfg(feature = "arrow")]
-mod arrow;
 #[cfg(test)]
 mod tests;
 
@@ -24,10 +20,8 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 use itertools::Itertools;
-pub use mask_mut::*;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
-use vortex_buffer::set_bit_unchecked;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
@@ -450,6 +444,23 @@ impl Mask {
         }
     }
 
+    /// Returns the last true index in the mask.
+    pub fn last(&self) -> Option<usize> {
+        match &self {
+            Self::AllTrue(len) => (*len > 0).then_some(*len - 1),
+            Self::AllFalse(_) => None,
+            Self::Values(values) => {
+                if let Some(indices) = values.indices.get() {
+                    return indices.last().copied();
+                }
+                if let Some(slices) = values.slices.get() {
+                    return slices.last().map(|(_, end)| end - 1);
+                }
+                values.buffer.set_slices().last().map(|(_, end)| end - 1)
+            }
+        }
+    }
+
     /// Returns the position in the mask of the nth true value.
     pub fn rank(&self, n: usize) -> usize {
         if n >= self.true_count() {
@@ -618,11 +629,10 @@ impl Mask {
                 let mut new_buffer_builder = BitBufferMut::new_unset(mask_values.len());
                 debug_assert!(limit < mask_values.len());
 
-                let ptr = new_buffer_builder.as_mut_ptr();
                 for index in existing_buffer.set_indices().take(limit) {
                     // SAFETY: We checked that `limit` was less than the mask values length,
                     // therefore `index` must be within the bounds of the bit buffer.
-                    unsafe { set_bit_unchecked(ptr, index) }
+                    unsafe { new_buffer_builder.set_unchecked(index) }
                 }
 
                 Self::from(new_buffer_builder.freeze())
@@ -747,11 +757,6 @@ impl MaskValues {
         } else {
             MaskIter::Indices(self.indices())
         }
-    }
-
-    /// Extracts the internal [`BitBuffer`].
-    pub(crate) fn into_buffer(self) -> BitBuffer {
-        self.buffer
     }
 }
 

@@ -4,13 +4,21 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::ExecutionCtx;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::NativePType;
 use crate::match_each_float_ptype;
 
-pub(super) fn accumulate_primitive(count: &mut u64, p: &PrimitiveArray) -> VortexResult<()> {
+pub(super) fn accumulate_primitive(
+    count: &mut u64,
+    p: &PrimitiveArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
     match_each_float_ptype!(p.ptype(), |F| {
-        *count += compute_nan_count_with_validity(p.as_slice::<F>(), p.validity_mask()?) as u64;
+        *count += compute_nan_count_with_validity(
+            p.as_slice::<F>(),
+            p.as_ref().validity()?.to_mask(p.as_ref().len(), ctx)?,
+        ) as u64;
     });
     Ok(())
 }

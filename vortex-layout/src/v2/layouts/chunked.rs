@@ -54,7 +54,7 @@ impl LayoutVTable for Chunked {
     type Metadata = ChunkedMetadata;
 
     fn id(&self) -> LayoutId {
-        LayoutId::new_ref("vortex.chunked")
+        LayoutId::new_static("vortex.chunked")
     }
 
     fn deserialize_metadata(

@@ -45,7 +45,7 @@ Plugins register with the session by accessing the relevant component and callin
 
 ```rust
 // Register a custom array encoding
-session.arrays().register(MyEncoding::ID, &MyEncoding);
+session.arrays().register(MyEncoding);
 
 // Register a custom layout
 session.layouts().register(MyLayout::encoding());

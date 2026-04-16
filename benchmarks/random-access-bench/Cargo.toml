@@ -26,6 +26,7 @@ vortex-bench = { workspace = true }
 
 [features]
 lance = ["dep:lance-bench"]
+unstable_encodings = ["vortex-bench/unstable_encodings"]
 
 [lints]
 workspace = true

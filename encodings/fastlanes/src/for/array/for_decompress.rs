@@ -4,6 +4,7 @@
 use fastlanes::FoR;
 use num_traits::PrimInt;
 use num_traits::WrappingAdd;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::PrimitiveBuilder;
@@ -12,15 +13,15 @@ use vortex_array::dtype::PhysicalPType;
 use vortex_array::dtype::UnsignedPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
-use crate::BitPackedArray;
+use crate::BitPackedArrayExt;
 use crate::FoRArray;
 use crate::bitpack_decompress;
+use crate::r#for::array::FoRArrayExt;
 use crate::unpack_iter::UnpackStrategy;
 use crate::unpack_iter::UnpackedChunks;
 
@@ -58,7 +59,7 @@ pub fn decompress(array: &FoRArray, ctx: &mut ExecutionCtx) -> VortexResult<Prim
 
     // TODO(ngates): Do we need this to be into_encoded() somehow?
     let encoded = array.encoded().clone().execute::<PrimitiveArray>(ctx)?;
-    let validity = encoded.validity().clone();
+    let validity = encoded.validity()?;
 
     Ok(match_each_integer_ptype!(ptype, |T| {
         let min = array
@@ -81,7 +82,7 @@ pub(crate) fn fused_decompress<
     T: PhysicalPType<Physical = T> + UnsignedPType + FoR + WrappingAdd,
 >(
     for_: &FoRArray,
-    bp: &BitPackedArray,
+    bp: ArrayView<'_, BitPacked>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     let ref_ = for_
@@ -93,13 +94,13 @@ pub(crate) fn fused_decompress<
     let strategy = FoRStrategy { reference: ref_ };
 
     // Create [`UnpackedChunks`] with FoR strategy.
-    let mut unpacked = UnpackedChunks::new_with_strategy(
+    let mut unpacked = UnpackedChunks::try_new_with_strategy(
         strategy,
         bp.packed().as_host().clone(),
         bp.bit_width() as usize,
         bp.offset() as usize,
         bp.len(),
-    );
+    )?;
 
     let mut builder = PrimitiveBuilder::<T>::with_capacity(
         for_.reference_scalar().dtype().nullability(),
@@ -108,7 +109,7 @@ pub(crate) fn fused_decompress<
     let mut uninit_range = builder.uninit_range(bp.len());
     unsafe {
         // Append a dense null Mask.
-        uninit_range.append_mask(bp.validity_mask()?);
+        uninit_range.append_mask(bp.validity()?.to_mask(bp.as_ref().len(), ctx)?);
     }
 
     // SAFETY: `decode_into` will initialize all values in this range.
@@ -117,7 +118,7 @@ pub(crate) fn fused_decompress<
     // Decode all chunks (initial, full, and trailer) in one call.
     unpacked.decode_into(uninit_slice);
 
-    if let Some(patches) = bp.patches() {
+    if let Some(ref patches) = bp.patches() {
         bitpack_decompress::apply_patches_to_uninit_range_fn(
             &mut uninit_range,
             patches,

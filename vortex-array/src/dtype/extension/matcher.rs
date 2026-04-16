@@ -22,12 +22,13 @@ pub trait Matcher {
 impl<V: ExtVTable> Matcher for V {
     type Match<'a> = &'a V::Metadata;
 
-    fn matches(item: &ExtDTypeRef) -> bool {
-        item.0.as_any().is::<ExtDType<V>>()
+    fn matches(ext_dtype: &ExtDTypeRef) -> bool {
+        ext_dtype.0.as_any().is::<ExtDType<V>>()
     }
 
-    fn try_match<'a>(item: &'a ExtDTypeRef) -> Option<Self::Match<'a>> {
-        item.0
+    fn try_match<'a>(ext_dtype: &'a ExtDTypeRef) -> Option<Self::Match<'a>> {
+        ext_dtype
+            .0
             .as_any()
             .downcast_ref::<ExtDType<V>>()
             .map(|inner| inner.metadata())

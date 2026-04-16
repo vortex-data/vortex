@@ -7,7 +7,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
@@ -21,13 +20,13 @@ use crate::scalar_fn::fns::operators::Operator;
 /// Point-wise Kleene logical _and_ between two Boolean arrays.
 #[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
 pub fn and_kleene(lhs: &ArrayRef, rhs: &ArrayRef) -> VortexResult<ArrayRef> {
-    lhs.to_array().binary(rhs.to_array(), Operator::And)
+    lhs.clone().binary(rhs.clone(), Operator::And)
 }
 
 /// Point-wise Kleene logical _or_ between two Boolean arrays.
 #[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
 pub fn or_kleene(lhs: &ArrayRef, rhs: &ArrayRef) -> VortexResult<ArrayRef> {
-    lhs.to_array().binary(rhs.to_array(), Operator::Or)
+    lhs.clone().binary(rhs.clone(), Operator::Or)
 }
 
 /// Execute a Kleene boolean operation between two arrays.
@@ -42,7 +41,7 @@ pub(crate) fn execute_boolean(
     if let Some(result) = constant_boolean(lhs, rhs, op)? {
         return Ok(result);
     }
-    arrow_execute_boolean(lhs.to_array(), rhs.to_array(), op)
+    arrow_execute_boolean(lhs.clone(), rhs.clone(), op)
 }
 
 /// Arrow implementation for Kleene boolean operations using [`Operator`].

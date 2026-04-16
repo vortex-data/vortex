@@ -9,9 +9,10 @@ use std::sync::atomic::Ordering;
 use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::StreamExt as _;
+use futures::pin_mut;
 use vortex_array::ArrayContext;
 use vortex_error::VortexResult;
-use vortex_io::runtime::Handle;
+use vortex_session::VortexSession;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -44,20 +45,18 @@ impl LayoutStrategy for BufferedStrategy {
         &self,
         ctx: ArrayContext,
         segment_sink: SegmentSinkRef,
-        mut stream: SendableSequentialStream,
-        mut eof: SequencePointer,
-        handle: Handle,
+        stream: SendableSequentialStream,
+        eof: SequencePointer,
+        session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let buffer_size = self.buffer_size;
 
-        // We have no choice but to put our final buffers here!
-        // We cannot hold on to sequence ids across iterations of the stream, otherwise we can
-        // cause deadlocks with other columns that are waiting for us to flush.
-        let mut final_flush = eof.split_off();
-
-        let buffered_bytes_counter = self.buffered_bytes.clone();
+        let buffered_bytes_counter = Arc::clone(&self.buffered_bytes);
         let buffered_stream = try_stream! {
+            let stream = stream.peekable();
+            pin_mut!(stream);
+
             let mut nbytes = 0u64;
             let mut chunks = VecDeque::new();
 
@@ -68,11 +67,21 @@ impl LayoutStrategy for BufferedStrategy {
                 buffered_bytes_counter.fetch_add(chunk_size, Ordering::Relaxed);
                 chunks.push_back(chunk);
 
+                // If this is the last element, flush everything.
+                if stream.as_mut().peek().await.is_none() {
+                    let mut sequence_ptr = sequence_id.descend();
+                    while let Some(chunk) = chunks.pop_front() {
+                        buffered_bytes_counter.fetch_sub(chunk.nbytes(), Ordering::Relaxed);
+                        yield (sequence_ptr.advance(), chunk)
+                    }
+                    break;
+                }
+
                 if nbytes < 2 * buffer_size {
                     continue;
                 };
 
-                // Wait until we're at 2x the buffer size before flushing 1x the buffer size
+                // Wait until we're at 2x the buffer size before flushing 1x the buffer size.
                 // This avoids small tail stragglers being flushed at the end of the file.
                 let mut sequence_ptr = sequence_id.descend();
                 while nbytes > buffer_size {
@@ -85,13 +94,6 @@ impl LayoutStrategy for BufferedStrategy {
                     yield (sequence_ptr.advance(), chunk)
                 }
             }
-
-            // Now the input stream has ended, flush everything
-            while let Some(chunk) = chunks.pop_front() {
-                let chunk_size = chunk.nbytes();
-                buffered_bytes_counter.fetch_sub(chunk_size, Ordering::Relaxed);
-                yield (final_flush.advance(), chunk)
-            }
         };
 
         self.child
@@ -100,7 +102,7 @@ impl LayoutStrategy for BufferedStrategy {
                 segment_sink,
                 SequentialStreamAdapter::new(dtype, buffered_stream).sendable(),
                 eof,
-                handle,
+                session,
             )
             .await
     }

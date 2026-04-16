@@ -19,6 +19,52 @@
 #define BinaryView_MAX_INLINED_SIZE 12
 
 /**
+ * The variant tag for a Vortex data type.
+ */
+typedef enum {
+    /**
+     * Null type.
+     */
+    DTYPE_NULL = 0,
+    /**
+     * Boolean type.
+     */
+    DTYPE_BOOL = 1,
+    /**
+     * Primitive types (e.g., u8, i16, f32, etc.).
+     */
+    DTYPE_PRIMITIVE = 2,
+    /**
+     * Variable-length UTF-8 string type.
+     */
+    DTYPE_UTF8 = 3,
+    /**
+     * Variable-length binary data type.
+     */
+    DTYPE_BINARY = 4,
+    /**
+     * Nested struct type.
+     */
+    DTYPE_STRUCT = 5,
+    /**
+     * Nested list type.
+     */
+    DTYPE_LIST = 6,
+    /**
+     * User-defined extension type.
+     */
+    DTYPE_EXTENSION = 7,
+    /**
+     * Decimal type with fixed precision and scale.
+     */
+    DTYPE_DECIMAL = 8,
+    /**
+     * Nested fixed-size list type.
+     */
+    DTYPE_FIXED_SIZE_LIST = 9,
+} vx_dtype_variant;
+
+/**
  * Variant enum for Vortex primitive types.
  */
 typedef enum {
@@ -68,51 +114,85 @@ typedef enum {
     PTYPE_F64 = 10,
 } vx_ptype;
 
+typedef enum {
+    /**
+     * Items can't be null
+     */
+    VX_VALIDITY_NON_NULLABLE = 0,
+    /**
+     * All items are valid
+     */
+    VX_VALIDITY_ALL_VALID = 1,
+    /**
+     * All items are invalid
+     */
+    VX_VALIDITY_ALL_INVALID = 2,
+    /**
+     * Items validity is determined by a boolean array. True values in boolean
+     * array are valid, false values are invalid (null)
+     */
+    VX_VALIDITY_ARRAY = 3,
+} vx_validity_type;
+
 /**
- * The variant tag for a Vortex data type.
+ * Equalities, inequalities, and boolean operations over possibly null values.
+ * For most operations, if either side is null, the result is null.
+ * VX_OPERATOR_KLEENE_AND, VX_OPERATOR_KLEENE_OR obey Kleene (three-valued)
+ * logic
  */
 typedef enum {
     /**
-     * Null type.
+     * Expressions are equal.
      */
-    DTYPE_NULL = 0,
+    VX_OPERATOR_EQ = 0,
     /**
-     * Boolean type.
+     * Expressions are not equal.
      */
-    DTYPE_BOOL = 1,
+    VX_OPERATOR_NOT_EQ = 1,
     /**
-     * Primitive types (e.g., u8, i16, f32, etc.).
+     * Expression is greater than another
      */
-    DTYPE_PRIMITIVE = 2,
+    VX_OPERATOR_GT = 2,
     /**
-     * Variable-length UTF-8 string type.
+     * Expression is greater or equal to another
      */
-    DTYPE_UTF8 = 3,
+    VX_OPERATOR_GTE = 3,
     /**
-     * Variable-length binary data type.
+     * Expression is less than another
      */
-    DTYPE_BINARY = 4,
+    VX_OPERATOR_LT = 4,
     /**
-     * Nested struct type.
+     * Expression is less or equal to another
      */
-    DTYPE_STRUCT = 5,
+    VX_OPERATOR_LTE = 5,
     /**
-     * Nested list type.
+     * Boolean AND /\.
      */
-    DTYPE_LIST = 6,
+    VX_OPERATOR_KLEENE_AND = 6,
     /**
-     * User-defined extension type.
+     * Boolean OR \/.
      */
-    DTYPE_EXTENSION = 7,
+    VX_OPERATOR_KLEENE_OR = 7,
     /**
-     * Decimal type with fixed precision and scale.
+     * The sum of the arguments.
+     * Errors at runtime if the sum would overflow or underflow.
      */
-    DTYPE_DECIMAL = 8,
+    VX_OPERATOR_ADD = 8,
     /**
-     * Nested fixed-size list type.
+     * The difference between the arguments.
+     * Errors at runtime if the sum would overflow or underflow.
+     * The result is null at any index where either input is null.
      */
-    DTYPE_FIXED_SIZE_LIST = 9,
-} vx_dtype_variant;
+    VX_OPERATOR_SUB = 9,
+    /**
+     * Multiply two numbers
+     */
+    VX_OPERATOR_MUL = 10,
+    /**
+     * Divide the left side by the right side
+     */
+    VX_OPERATOR_DIV = 11,
+} vx_binary_operator;
 
 /**
  * Log levels for the Vortex library.
@@ -236,15 +316,20 @@ typedef struct Nullability Nullability;
 typedef struct Primitive Primitive;
 
 /**
- * Base type for all Vortex arrays.
+ * Arrays are reference-counted handles to owned memory buffers that hold
+ * scalars. These buffers can be held in a number of physical encodings to
+ * perform lightweight compression that exploits the particular data
+ * distribution of the array's values.
  *
- * All built-in Vortex array types can be safely cast to this type to pass into functions that
- * expect a generic array type. e.g.
+ * Every data type recognized by Vortex also has a canonical physical
+ * encoding format, which arrays can be canonicalized into for ease of
+ * access in compute functions.
  *
- * ```cpp
- * auto primitive_array = vx_array_primitive_new(...);
- * vx_array_len((*vx_array) primitive_array));
- * ```
+ * As an implementation detail, vx_array Arc'ed inside, so cloning an
+ * array is a cheap operation.
+ *
+ * Unless stated explicitly, all operations with vx_array don't take
+ * ownership of it, and thus it must be freed by the caller.
  */
 typedef struct vx_array vx_array;
 
@@ -298,6 +383,22 @@ typedef struct vx_dtype vx_dtype;
 typedef struct vx_error vx_error;
 
 /**
+ * A node in a Vortex expression tree.
+ *
+ * Expressions represent scalar computations that can be performed on
+ * data. Each expression consists of an encoding (vtable), heap-allocated
+ * metadata, and child expressions.
+ *
+ * Unless stated explicitly, all expressions returned are owned and must
+ * be freed by the caller.
+ * Unless stated explicitly, if an operation on const vx_expression* is
+ * passed NULL, NULL is returned.
+ * Operations on expressions don't take ownership of input values, and so
+ * input values must be freed by the caller.
+ */
+typedef struct vx_expression vx_expression;
+
+/**
  * A handle to a Vortex file encapsulating the footer and logic for instantiating a reader.
  */
 typedef struct vx_file vx_file;
@@ -312,6 +413,8 @@ typedef struct vx_session vx_session;
  */
 typedef struct vx_string vx_string;
 
+typedef struct vx_struct_column_builder vx_struct_column_builder;
+
 /**
  * Represents a Vortex struct data type, without top-level nullability.
  */
@@ -321,6 +424,16 @@ typedef struct vx_struct_fields vx_struct_fields;
  * Builder for creating a [`vx_struct_fields`].
  */
 typedef struct vx_struct_fields_builder vx_struct_fields_builder;
+
+typedef struct {
+    vx_validity_type type;
+    /**
+     * If type is not VX_VALIDITY_ARRAY, this is NULL.
+     * If type is VX_VALIDITY_ARRAY, this is set to an owned boolean validity
+     * array which must be freed by the caller.
+     */
+    const vx_array *array;
+} vx_validity;
 
 /**
  * Options supplied for opening a file.
@@ -402,6 +515,40 @@ const vx_array *vx_array_clone(const vx_array *ptr);
 void vx_array_free(const vx_array *ptr);
 
 /**
+ * Check if array's dtype is nullable.
+ * As a particular example, a Null array is nullable.
+ */
+bool vx_array_is_nullable(const vx_array *array);
+
+/**
+ * Check array's dtype against a variant.
+ * Equivalent to vx_get_dtype_variant(vx_array_dtype(array)).
+ *
+ * Example:
+ *
+ * const vx_array* array = vx_array_new_null(1);
+ * assert(vx_array_has_dtype(array, DTYPE_NULL));
+ * vx_array_free(array);
+ *
+ */
+bool vx_array_has_dtype(const vx_array *array, vx_dtype_variant variant);
+
+/**
+ * Check whether array has a Primitive dtype with a specific ptype.
+ *
+ * const vx_array* array = vx_array_new_null(1);
+ * assert(!vx_array_is_primitive(array, PTYPE_U32));
+ * vx_array_free(array);
+ *
+ */
+bool vx_array_is_primitive(const vx_array *array, vx_ptype ptype);
+
+/**
+ * Return array's validity as a type and a boolean array.
+ */
+void vx_array_get_validity(const vx_array *array, vx_validity *validity, vx_error **error);
+
+/**
  * Get the length of the array.
  */
 size_t vx_array_len(const vx_array *array);
@@ -414,57 +561,93 @@ size_t vx_array_len(const vx_array *array);
  */
 const vx_dtype *vx_array_dtype(const vx_array *array);
 
-const vx_array *vx_array_get_field(const vx_array *array, uint32_t index, vx_error **error_out);
+const vx_array *vx_array_get_field(const vx_array *array, size_t index, vx_error **error_out);
 
-const vx_array *vx_array_slice(const vx_array *array, uint32_t start, uint32_t stop, vx_error **error_out);
+const vx_array *vx_array_slice(const vx_array *array, size_t start, size_t stop, vx_error **error_out);
 
-bool vx_array_is_null(const vx_array *array, uint32_t index, vx_error **_error_out);
+/**
+ * Check whether array's element at index is invalid (null) according to the
+ * validity array. Sets error if index is out of bounds or underlying validity
+ * array is corrupted.
+ */
+bool vx_array_element_is_invalid(const vx_array *array, size_t index, vx_error **error);
 
-uint32_t vx_array_null_count(const vx_array *array, vx_error **error_out);
+/**
+ * Check how many items in the array are invalid (null).
+ */
+size_t vx_array_invalid_count(const vx_array *array, vx_error **error_out);
 
-uint8_t vx_array_get_u8(const vx_array *array, uint32_t index);
+/**
+ * Create a new array with DTYPE_NULL dtype.
+ */
+const vx_array *vx_array_new_null(size_t len);
 
-uint8_t vx_array_get_storage_u8(const vx_array *array, uint32_t index);
+/**
+ * Create a new primitive array from an existing buffer.
+ * It is caller's responsibility to ensure ptr points to a buffer of correct
+ * type. ptr buffer contents are copied.
+ * validity can't be NULL.
+ *
+ * Example:
+ *
+ * const vx_error* error = NULL;
+ * vx_validity validity = {};
+ * validity.type = VX_VALIDITY_NON_NULLABLE;
+ * uint32_t buffer[] = {1, 2, 3};
+ * const vx_array* array = vx_array_new_primitive(PTYPE_U32, buffer, 3,
+ *     &validity, &error);
+ * vx_array_free(array);
+ *
+ */
+const vx_array *vx_array_new_primitive(vx_ptype ptype,
+                                       const void *ptr,
+                                       size_t len,
+                                       const vx_validity *validity,
+                                       vx_error **error);
 
-uint16_t vx_array_get_u16(const vx_array *array, uint32_t index);
+uint8_t vx_array_get_u8(const vx_array *array, size_t index);
 
-uint16_t vx_array_get_storage_u16(const vx_array *array, uint32_t index);
+uint8_t vx_array_get_storage_u8(const vx_array *array, size_t index);
 
-uint32_t vx_array_get_u32(const vx_array *array, uint32_t index);
+uint16_t vx_array_get_u16(const vx_array *array, size_t index);
 
-uint32_t vx_array_get_storage_u32(const vx_array *array, uint32_t index);
+uint16_t vx_array_get_storage_u16(const vx_array *array, size_t index);
 
-uint64_t vx_array_get_u64(const vx_array *array, uint32_t index);
+uint32_t vx_array_get_u32(const vx_array *array, size_t index);
 
-uint64_t vx_array_get_storage_u64(const vx_array *array, uint32_t index);
+uint32_t vx_array_get_storage_u32(const vx_array *array, size_t index);
 
-int8_t vx_array_get_i8(const vx_array *array, uint32_t index);
+uint64_t vx_array_get_u64(const vx_array *array, size_t index);
 
-int8_t vx_array_get_storage_i8(const vx_array *array, uint32_t index);
+uint64_t vx_array_get_storage_u64(const vx_array *array, size_t index);
 
-int16_t vx_array_get_i16(const vx_array *array, uint32_t index);
+int8_t vx_array_get_i8(const vx_array *array, size_t index);
 
-int16_t vx_array_get_storage_i16(const vx_array *array, uint32_t index);
+int8_t vx_array_get_storage_i8(const vx_array *array, size_t index);
 
-int32_t vx_array_get_i32(const vx_array *array, uint32_t index);
+int16_t vx_array_get_i16(const vx_array *array, size_t index);
 
-int32_t vx_array_get_storage_i32(const vx_array *array, uint32_t index);
+int16_t vx_array_get_storage_i16(const vx_array *array, size_t index);
 
-int64_t vx_array_get_i64(const vx_array *array, uint32_t index);
+int32_t vx_array_get_i32(const vx_array *array, size_t index);
 
-int64_t vx_array_get_storage_i64(const vx_array *array, uint32_t index);
+int32_t vx_array_get_storage_i32(const vx_array *array, size_t index);
 
-uint16_t vx_array_get_f16(const vx_array *array, uint32_t index);
+int64_t vx_array_get_i64(const vx_array *array, size_t index);
 
-uint16_t vx_array_get_storage_f16(const vx_array *array, uint32_t index);
+int64_t vx_array_get_storage_i64(const vx_array *array, size_t index);
 
-float vx_array_get_f32(const vx_array *array, uint32_t index);
+uint16_t vx_array_get_f16(const vx_array *array, size_t index);
 
-float vx_array_get_storage_f32(const vx_array *array, uint32_t index);
+uint16_t vx_array_get_storage_f16(const vx_array *array, size_t index);
 
-double vx_array_get_f64(const vx_array *array, uint32_t index);
+float vx_array_get_f32(const vx_array *array, size_t index);
 
-double vx_array_get_storage_f64(const vx_array *array, uint32_t index);
+float vx_array_get_storage_f32(const vx_array *array, size_t index);
+
+double vx_array_get_f64(const vx_array *array, size_t index);
+
+double vx_array_get_storage_f64(const vx_array *array, size_t index);
 
 /**
  * Return the utf-8 string at `index` in the array. The pointer will be null if the value at `index` is null.
@@ -477,6 +660,13 @@ const vx_string *vx_array_get_utf8(const vx_array *array, uint32_t index);
  * The caller must free the returned pointer.
  */
 const vx_binary *vx_array_get_binary(const vx_array *array, uint32_t index);
+
+/**
+ * Apply the expression to the array, wrapping it with a ScalarFnArray.
+ * This operation takes constant time as it doesn't execute the underlying
+ * array. Executing the underlying array still takes O(n) time.
+ */
+const vx_array *vx_array_apply(const vx_array *array, const vx_expression *expression, vx_error **error);
 
 /**
  * Free an owned [`vx_array_iterator`] object.
@@ -578,7 +768,7 @@ const vx_dtype *vx_dtype_new_fixed_size_list(const vx_dtype *element, uint32_t s
  *
  * Takes ownership of the `struct_dtype` pointer.
  */
-const vx_dtype *vx_dtype_new_struct(const vx_struct_fields *struct_dtype, bool is_nullable);
+const vx_dtype *vx_dtype_new_struct(vx_struct_fields *struct_dtype, bool is_nullable);
 
 /**
  * Create a new decimal data type.
@@ -678,6 +868,115 @@ void vx_error_free(vx_error *ptr);
 const vx_string *vx_error_get_message(const vx_error *error);
 
 /**
+ * Free an owned [`vx_expression`] object.
+ */
+void vx_expression_free(vx_expression *ptr);
+
+/**
+ * Create a root expression. A root expression, applied to an array in
+ * vx_array_apply, takes the array itself as opposed to functions like
+ * vx_expression_column or vx_expression_select which take the array's parts.
+ *
+ * Example:
+ *
+ * const vx_array* array = ...;
+ * vx_expression* root = vx_expression_root();
+ * const vx_error* error = NULL;
+ * vx_array* applied_array = vx_array_apply(array, root, &error);
+ * // array and applied_array are identical
+ * vx_array_free(applied_array);
+ * vx_expression_free(root);
+ * vx_array_free(array);
+ *
+ */
+vx_expression *vx_expression_root(void);
+
+/**
+ * Create an expression that selects (includes) specific fields from a child
+ * expression. Child expression must have a DTYPE_STRUCT dtype. Errors in
+ * vx_array_apply if the child expression doesn't have a specified field.
+ *
+ * Example:
+ *
+ * vx_expression* root = vx_expression_root();
+ * const char* names[] = {"name", "age"};
+ * vx_expression* select = vx_expression_select(names, 2, root);
+ * vx_expression_free(select);
+ * vx_expression_free(root);
+ *
+ */
+vx_expression *vx_expression_select(const char *const *names, size_t len, const vx_expression *child);
+
+/**
+ * Create an AND expression for multiple child expressions.
+ * If there are no input expressions, returns NULL
+ */
+vx_expression *vx_expression_and(const vx_expression *const *expressions, size_t len);
+
+/**
+ * Create an OR disjunction expression for multiple child expressions.
+ * If there are no input expressions, returns NULL;
+ */
+vx_expression *vx_expression_or(const vx_expression *const *expressions, size_t len);
+
+/**
+ * Create a binary expression for two expressions of form lhs OP rhs.
+ * If either input is NULL, returns NULL.
+ *
+ * Example for a binary sum:
+ *
+ * vx_expression* age = vx_expression_column("age");
+ * vx_expression* height = vx_expression_column("height");
+ * vx_expression* sum = vx_expression_binary(VX_OPERATOR_ADD, age, height);
+ * vx_expression_free(sum);
+ * vx_expression_free(height);
+ * vx_expression_free(age);
+ *
+ * Example for a binary equality function:
+ *
+ * vx_expression* vx_expression_eq(
+ *     const vx_expression* lhs,
+ *     const vx_expression* rhs
+ * ) {
+ *     return vx_expression_binary(VX_OPERATOR_EQ, lhs, rhs);
+ * }
+ *
+ */
+vx_expression *
+vx_expression_binary(vx_binary_operator operator_, const vx_expression *lhs, const vx_expression *rhs);
+
+/**
+ * Create a logical NOT of the child expression.
+ *
+ * Returns the logical negation of the input boolean expression.
+ */
+const vx_expression *vx_expression_not(const vx_expression *child);
+
+/**
+ * Create an expression that checks for null values.
+ *
+ * Returns a boolean array indicating which positions contain null values.
+ */
+vx_expression *vx_expression_is_null(const vx_expression *child);
+
+/**
+ * Create an expression that extracts a named field from a struct expression.
+ * Child expression must have a DTYPE_STRUCT dtype.
+ * Errors in vx_array_apply if the root array doesn't have a specified field.
+ *
+ * Accesses the specified field from the result of the child expression.
+ * Equivalent to select(&item, 1, child).
+ */
+vx_expression *vx_expression_get_item(const char *item, const vx_expression *child);
+
+/**
+ * Create an expression that checks if a value is contained in a list.
+ *
+ * Returns a boolean array indicating whether the value appears in each list.
+ */
+vx_expression *vx_expression_list_contains(const vx_expression *list, const vx_expression *value);
+
+/**
  * Clone a borrowed [`vx_file`], returning an owned [`vx_file`].
  *
  *
@@ -764,7 +1063,8 @@ vx_array_sink *vx_array_sink_open_file(const vx_session *session,
                                        vx_error **error_out);
 
 /**
- * Pushed a single array chunk into a file sink.
+ * Push an array into a file sink.
+ * Does not take ownership of array
  */
 void vx_array_sink_push(vx_array_sink *sink, const vx_array *array, vx_error **error_out);
 
@@ -808,17 +1108,60 @@ size_t vx_string_len(const vx_string *ptr);
 const char *vx_string_ptr(const vx_string *ptr);
 
 /**
- * Clone a borrowed [`vx_struct_fields`], returning an owned [`vx_struct_fields`].
- *
- *
- * Must be released with [`vx_struct_fields_free`].
+ * Free an owned [`vx_struct_column_builder`] object.
  */
-const vx_struct_fields *vx_struct_fields_clone(const vx_struct_fields *ptr);
+void vx_struct_column_builder_free(vx_struct_column_builder *ptr);
+
+/**
+ * Create a new column-wise struct array builder with given validity and a
+ * capacity hint. validity can't be NULL.
+ * If you don't know capacity, pass 0.
+ * if validity is NULL, returns NULL.
+ */
+vx_struct_column_builder *vx_struct_column_builder_new(const vx_validity *validity, size_t capacity);
+
+/**
+ * Add a named field to a struct array builder.
+ * All arguments must be non-NULL.
+ * If field's length doesn't match lengths of previous fields, sets error.
+ * If an error is returned, the builder is still valid, and caller must
+ * deallocate it using vx_struct_column_builder_free.
+ */
+void vx_struct_column_builder_add_field(vx_struct_column_builder *builder,
+                                        const char *name,
+                                        const vx_array *field,
+                                        vx_error **error);
+
+/**
+ * Finalize a struct array builder, returning a struct array.
+ * Consumes the builder. Caller doesn't need to free the builder after calling
+ * this function.
+ *
+ * Example:
+ *
+ * vx_error* error = NULL;
+ *
+ * vx_validity validity = {};
+ * validity.type = VX_VALIDITY_NON_NULLABLE;
+ *
+ * const vx_array* field_array = vx_array_new_null(5);
+ * const vx_struct_column_builder* builder =
+ *     vx_struct_column_builder_new(&validity, 1);
+ *
+ * vx_struct_column_builder_add_field(builder, "age", field_array, &error);
+ *
+ * vx_array* struct_array = vx_struct_column_builder_finalize(builder, &error);
+ *
+ * vx_array_free(struct_array);
+ * vx_array_free(field_array);
+ *
+ */
+const vx_array *vx_struct_column_builder_finalize(vx_struct_column_builder *builder, vx_error **error);
 
 /**
  * Free an owned [`vx_struct_fields`] object.
  */
-void vx_struct_fields_free(const vx_struct_fields *ptr);
+void vx_struct_fields_free(vx_struct_fields *ptr);
 
 /**
  * Return the number of fields in the struct dtype.
@@ -869,7 +1212,7 @@ void vx_struct_fields_builder_add_field(vx_struct_fields_builder *builder,
  *
  * Takes ownership of the `builder`.
  */
-const vx_struct_fields *vx_struct_fields_builder_finalize(vx_struct_fields_builder *builder);
+vx_struct_fields *vx_struct_fields_builder_finalize(vx_struct_fields_builder *builder);
 
 #ifdef __cplusplus
 } // extern "C"

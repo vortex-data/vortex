@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayVTable;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ListView;
 use vortex_array::arrays::ListViewArray;
@@ -10,7 +12,6 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::dtype::FieldNames;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ArrayId;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
@@ -28,7 +29,7 @@ impl FlatLayoutFixture for ListViewFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![ListView::ID]
+        vec![ListView.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
@@ -47,7 +48,7 @@ impl FlatLayoutFixture for ListViewFixture {
         )?;
 
         // ListView of strings: [["a","b"], ["hello"], [], ["x","y","z"]]
-        let str_elements = VarBinArray::from(vec!["a", "b", "hello", "x", "y", "z"]);
+        let str_elements = VarBinArray::from_strs(vec!["a", "b", "hello", "x", "y", "z"]);
         let str_offsets = PrimitiveArray::new(buffer![0u32, 2, 3, 3], Validity::NonNullable);
         let str_sizes = PrimitiveArray::new(buffer![2u32, 1, 0, 3], Validity::NonNullable);
         let str_listview = ListViewArray::try_new(

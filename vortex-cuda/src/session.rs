@@ -5,8 +5,8 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use cudarc::driver::CudaContext;
+use vortex::array::ArrayId;
 use vortex::array::VortexSessionExecute;
-use vortex::array::vtable::ArrayId;
 use vortex::error::VortexResult;
 use vortex::session::Ref;
 use vortex::session::SessionExt;
@@ -85,8 +85,12 @@ impl CudaSession {
     ///
     /// * `array_id` - The encoding ID to register support for
     /// * `executor` - A static reference to the CUDA support implementation
-    pub fn register_kernel(&self, array_id: ArrayId, executor: &'static dyn CudaExecute) {
-        self.kernels.insert(array_id, executor);
+    pub fn register_kernel(
+        &self,
+        array_id: impl Into<ArrayId>,
+        executor: &'static dyn CudaExecute,
+    ) {
+        self.kernels.insert(array_id.into(), executor);
     }
 
     /// Retrieves the CUDA support implementation for an encoding, if registered.

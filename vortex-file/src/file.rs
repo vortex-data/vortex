@@ -80,7 +80,7 @@ impl VortexFile {
     /// This may spawn a background I/O driver that will exit when the returned segment source
     /// is dropped.
     pub fn segment_source(&self) -> Arc<dyn SegmentSource> {
-        self.segment_source.clone()
+        Arc::clone(&self.segment_source)
     }
 
     /// Create a new layout reader for the file.
@@ -100,11 +100,12 @@ impl VortexFile {
                 .as_ref()
                 .ok_or_else(|| vortex_err!("Missing layout fb"))?,
             self.dtype(),
-            self.footer
-                .layout_ids
-                .as_ref()
-                .ok_or_else(|| vortex_err!("Missing layout IDs"))?
-                .clone(),
+            Arc::clone(
+                self.footer
+                    .layout_ids
+                    .as_ref()
+                    .ok_or_else(|| vortex_err!("Missing layout IDs"))?,
+            ),
             self.footer.array_read_ctx.clone(),
             &self.segment_source(),
             &self.session,

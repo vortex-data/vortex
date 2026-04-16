@@ -6,7 +6,6 @@ use std::sync::Arc;
 use itertools::Itertools;
 use num_traits::NumCast;
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
@@ -16,6 +15,9 @@ use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::varbinview::build_views::BinaryView;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
@@ -40,7 +42,6 @@ use vortex_array::scalar::ListScalar;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::StructScalar;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferString;
@@ -54,8 +55,8 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 
 use crate::ConstantArray;
+use crate::Sparse;
 use crate::SparseArray;
-
 pub(super) fn execute_sparse(
     array: &SparseArray,
     ctx: &mut ExecutionCtx,
@@ -112,7 +113,7 @@ pub(super) fn execute_sparse(
             execute_varbin(array, dtype.clone(), fill_value, ctx)?
         }
         DType::List(values_dtype, nullability) => {
-            execute_sparse_lists(array, values_dtype.clone(), *nullability, ctx)?
+            execute_sparse_lists(array, Arc::clone(values_dtype), *nullability, ctx)?
         }
         DType::FixedSizeList(.., nullability) => {
             execute_sparse_fixed_size_list(array, *nullability, ctx)?
@@ -147,7 +148,10 @@ fn execute_sparse_lists(
     let n_filled = array.len() - resolved_patches.num_patches();
     let total_canonical_values = values.elements().len() + fill_value.len() * n_filled;
 
-    let validity = Validity::from_mask(array.validity_mask()?, nullability);
+    let validity = {
+        let arr = array.as_array();
+        Validity::from_mask(arr.validity()?.to_mask(arr.len(), ctx)?, nullability)
+    };
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {
         match_smallest_offset_type!(total_canonical_values, |O| {
@@ -232,7 +236,10 @@ fn execute_sparse_fixed_size_list(
         .execute::<FixedSizeListArray>(ctx)?;
     let fill_value = array.fill_scalar().as_list();
 
-    let validity = Validity::from_mask(array.validity_mask()?, nullability);
+    let validity = {
+        let arr = array.as_array();
+        Validity::from_mask(arr.validity()?.to_mask(arr.len(), ctx)?, nullability)
+    };
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {
         execute_sparse_fixed_size_list_inner::<I>(
@@ -282,6 +289,7 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
         // Append the patch value, handling null patches by appending defaults.
         if values
             .validity()
+            .vortex_expect("sparse fixed-size-list validity should be derivable")
             .is_valid(patch_idx)
             .vortex_expect("is_valid")
         {
@@ -418,10 +426,13 @@ fn execute_sparse_struct(
             unresolved_patches.offset(),
             unresolved_patches.indices(),
             &Validity::from_mask(
-                unresolved_patches
-                    .values()
-                    .validity_mask()
-                    .vortex_expect("validity_mask"),
+                {
+                    let v = unresolved_patches.values();
+                    v.validity()
+                        .vortex_expect("validity_mask")
+                        .to_mask(v.len(), ctx)
+                        .vortex_expect("Failed to compute validity mask")
+                },
                 Nullability::Nullable,
             ),
             ctx,
@@ -439,7 +450,7 @@ fn execute_sparse_struct(
                 .cloned()
                 .zip_eq(fill_values)
                 .map(|(patch_values, fill_value)| unsafe {
-                    SparseArray::new_unchecked(
+                    Sparse::new_unchecked(
                         unresolved_patches
                             .clone()
                             .map_values(|_| Ok(patch_values))
@@ -476,8 +487,7 @@ fn execute_sparse_decimal<D: NativeDecimalType>(
         }
     }
     let filled_array = builder.finish_into_decimal();
-    let array = filled_array.patch(patches, ctx)?;
-    Ok(array.into_array())
+    Ok(filled_array.patch(patches, ctx)?.into_array())
 }
 
 fn execute_varbin(
@@ -489,7 +499,13 @@ fn execute_varbin(
     let patches = array.resolved_patches()?;
     let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
     let values = patches.values().clone().execute::<VarBinViewArray>(ctx)?;
-    let validity = Validity::from_mask(array.validity_mask()?, dtype.nullability());
+    let validity = {
+        let arr = array.as_array();
+        Validity::from_mask(
+            arr.validity()?.to_mask(arr.len(), ctx)?,
+            dtype.nullability(),
+        )
+    };
     let len = array.len();
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {
@@ -508,8 +524,8 @@ fn execute_varbin_inner<I: IntegerPType>(
 ) -> VarBinViewArray {
     assert_eq!(dtype.nullability(), validity.nullability());
 
-    let n_patch_buffers = values.buffers().len();
-    let mut buffers = values.buffers().to_vec();
+    let n_patch_buffers = values.data_buffers().len();
+    let mut buffers = values.data_buffers().to_vec();
 
     let fill = if let Some(buffer) = &fill_value {
         buffers.push(BufferHandle::new_host(buffer.clone()));
@@ -552,6 +568,7 @@ mod test {
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::listview::ListViewArrayExt;
     use vortex_array::arrow::IntoArrowArray as _;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
@@ -571,7 +588,7 @@ mod test {
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
-    use crate::SparseArray;
+    use crate::Sparse;
 
     #[rstest]
     #[case(Some(true))]
@@ -580,9 +597,8 @@ mod test {
     fn test_sparse_bool(#[case] fill_value: Option<bool>) {
         let indices = buffer![0u64, 1, 7].into_array();
         let values = BoolArray::from_iter([Some(true), None, Some(false)]).into_array();
-        let sparse_bools =
-            SparseArray::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
-        let actual = sparse_bools.to_bool();
+        let sparse_bools = Sparse::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
+        let actual = sparse_bools.as_array().to_bool();
 
         let expected = BoolArray::from_iter([
             Some(true),
@@ -607,11 +623,10 @@ mod test {
     fn test_sparse_primitive(#[case] fill_value: Option<i32>) {
         let indices = buffer![0u64, 1, 7].into_array();
         let values = PrimitiveArray::from_option_iter([Some(0i32), None, Some(1)]).into_array();
-        let sparse_ints =
-            SparseArray::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
+        let sparse_ints = Sparse::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
         assert_eq!(*sparse_ints.dtype(), DType::Primitive(PType::I32, Nullable));
 
-        let flat_ints = sparse_ints.to_primitive();
+        let flat_ints = sparse_ints.as_array().to_primitive();
         let expected = PrimitiveArray::from_option_iter([
             Some(0i32),
             None,
@@ -659,7 +674,7 @@ mod test {
             vec![Scalar::from(Some(-10i32)), Scalar::from(Some(-1i32))],
         );
         let len = 10;
-        let sparse_struct = SparseArray::try_new(indices, patch_values, len, fill_scalar).unwrap();
+        let sparse_struct = Sparse::try_new(indices, patch_values, len, fill_scalar).unwrap();
 
         let expected_a = PrimitiveArray::from_option_iter((0..len).map(|i| {
             if i == 0 {
@@ -694,7 +709,7 @@ mod test {
         .unwrap()
         .into_array();
 
-        let actual = sparse_struct.to_struct();
+        let actual = sparse_struct.as_array().to_struct();
         assert_arrays_eq!(actual, expected);
     }
 
@@ -726,7 +741,7 @@ mod test {
 
         let fill_scalar = Scalar::null(struct_dtype);
         let len = 10;
-        let sparse_struct = SparseArray::try_new(indices, patch_values, len, fill_scalar).unwrap();
+        let sparse_struct = Sparse::try_new(indices, patch_values, len, fill_scalar).unwrap();
 
         let expected_a = PrimitiveArray::from_option_iter((0..len).map(|i| {
             if i == 0 {
@@ -761,7 +776,7 @@ mod test {
         .unwrap()
         .into_array();
 
-        let actual = sparse_struct.to_struct();
+        let actual = sparse_struct.as_array().to_struct();
         assert_arrays_eq!(actual, expected);
     }
 
@@ -777,7 +792,7 @@ mod test {
         .into_array();
         let len = 10;
         let fill_scalar = Scalar::decimal(DecimalValue::I32(123), decimal_dtype, Nullable);
-        let sparse_struct = SparseArray::try_new(indices, patch_values, len, fill_scalar).unwrap();
+        let sparse_struct = Sparse::try_new(indices, patch_values, len, fill_scalar).unwrap();
 
         let expected = DecimalArray::new(
             buffer![100i128, 200, 123, 123, 123, 123, 123, 300, 4000, 123],
@@ -790,6 +805,7 @@ mod test {
         .unwrap();
 
         let actual = sparse_struct
+            .as_array()
             .to_decimal()
             .into_array()
             .into_arrow_preferred()
@@ -812,7 +828,7 @@ mod test {
         ])
         .into_array();
 
-        let array = SparseArray::try_new(
+        let array = Sparse::try_new(
             buffer![0u16, 3, 4, 5, 7, 9, 10].into_array(),
             strings,
             12,
@@ -820,7 +836,7 @@ mod test {
         )
         .unwrap();
 
-        let actual = array.to_varbinview().into_array();
+        let actual = array.as_array().to_varbinview().into_array();
         let expected = <VarBinViewArray as FromIterator<_>>::from_iter([
             Some("hello"),
             Some("123"),
@@ -853,7 +869,7 @@ mod test {
         ])
         .into_array();
 
-        let array = SparseArray::try_new(
+        let array = Sparse::try_new(
             buffer![0u16, 3, 4, 5, 7, 9, 10].into_array(),
             strings,
             12,
@@ -861,7 +877,7 @@ mod test {
         )
         .unwrap();
 
-        let actual = array.to_varbinview().into_array();
+        let actual = array.as_array().to_varbinview().into_array();
         let expected = <VarBinViewArray as FromIterator<_>>::from_iter([
             Some("hello"),
             None,
@@ -887,7 +903,7 @@ mod test {
             VarBinViewArray::from_iter_str(["hello", "goodbye", "hello", "bonjour", "你好"])
                 .into_array();
 
-        let array = SparseArray::try_new(
+        let array = Sparse::try_new(
             buffer![0u16, 3, 4, 5, 8].into_array(),
             strings,
             9,
@@ -895,7 +911,7 @@ mod test {
         )
         .unwrap();
 
-        let actual = array.to_varbinview().into_array();
+        let actual = array.as_array().to_varbinview().into_array();
         let expected = VarBinViewArray::from_iter_str([
             "hello", "123", "123", "goodbye", "hello", "bonjour", "123", "123", "你好",
         ])
@@ -917,7 +933,7 @@ mod test {
         ])
         .into_array();
 
-        let array = SparseArray::try_new(
+        let array = Sparse::try_new(
             buffer![0u16, 3, 4, 5, 7, 9, 10].into_array(),
             strings,
             12,
@@ -925,7 +941,7 @@ mod test {
         )
         .unwrap();
 
-        let actual = array.to_varbinview().into_array();
+        let actual = array.as_array().to_varbinview().into_array();
         let expected = <VarBinViewArray as FromIterator<_>>::from_iter([
             Some("hello"),
             None,
@@ -958,7 +974,7 @@ mod test {
         ])
         .into_array();
 
-        let array = SparseArray::try_new(
+        let array = Sparse::try_new(
             buffer![0u16, 3, 4, 5, 7, 9, 10].into_array(),
             binaries,
             12,
@@ -966,7 +982,7 @@ mod test {
         )
         .unwrap();
 
-        let actual = array.to_varbinview().into_array();
+        let actual = array.as_array().to_varbinview().into_array();
         let expected = VarBinViewArray::from_iter_nullable_bin([
             Some(b"hello" as &[u8]),
             Some(b"123"),
@@ -1005,7 +1021,7 @@ mod test {
 
         let indices = buffer![0u8, 3u8, 4u8, 5u8].into_array();
         let fill_value = Scalar::null(lists.dtype().clone());
-        let sparse = SparseArray::try_new(indices, lists, 6, fill_value)
+        let sparse = Sparse::try_new(indices, lists, 6, fill_value)
             .unwrap()
             .into_array();
 
@@ -1059,7 +1075,7 @@ mod test {
 
         let indices = buffer![0u8, 3u8, 4u8, 5u8].into_array();
         let fill_value = Scalar::null(lists.dtype().clone());
-        let sparse = SparseArray::try_new(indices, lists, 6, fill_value)
+        let sparse = Sparse::try_new(indices, lists, 6, fill_value)
             .unwrap()
             .into_array();
 
@@ -1102,7 +1118,7 @@ mod test {
 
         let indices = buffer![0u8, 3u8, 4u8, 5u8].into_array();
         let fill_value = Scalar::from(Some(vec![5i32, 6, 7, 8]));
-        let sparse = SparseArray::try_new(indices, lists, 6, fill_value)
+        let sparse = Sparse::try_new(indices, lists, 6, fill_value)
             .unwrap()
             .into_array();
 
@@ -1171,7 +1187,7 @@ mod test {
         ])
         .into_array();
 
-        let array = SparseArray::try_new(
+        let array = Sparse::try_new(
             buffer![0u16, 3, 4, 5, 7, 9, 10].into_array(),
             strings,
             12,
@@ -1179,7 +1195,7 @@ mod test {
         )
         .unwrap();
 
-        let actual = array.to_varbinview().into_array();
+        let actual = array.as_array().to_varbinview().into_array();
         let expected = VarBinViewArray::from_iter_nullable_bin([
             Some(b"hello" as &[u8]),
             None,
@@ -1213,7 +1229,7 @@ mod test {
             3,
             Nullable,
         ));
-        let sparse = SparseArray::try_new(indices, fsl, 5, fill_value)
+        let sparse = Sparse::try_new(indices, fsl, 5, fill_value)
             .unwrap()
             .into_array();
 
@@ -1251,7 +1267,7 @@ mod test {
             ],
             NonNullable,
         );
-        let sparse = SparseArray::try_new(indices, fsl, 6, fill_value)
+        let sparse = Sparse::try_new(indices, fsl, 6, fill_value)
             .unwrap()
             .into_array();
 
@@ -1289,7 +1305,7 @@ mod test {
             ],
             Nullable,
         );
-        let sparse = SparseArray::try_new(indices, fsl, 6, fill_value)
+        let sparse = Sparse::try_new(indices, fsl, 6, fill_value)
             .unwrap()
             .into_array();
 
@@ -1337,7 +1353,7 @@ mod test {
             NonNullable,
         );
 
-        let sparse = SparseArray::try_new(indices, fsl, 100, fill_value)
+        let sparse = Sparse::try_new(indices, fsl, 100, fill_value)
             .unwrap()
             .into_array();
 
@@ -1394,7 +1410,7 @@ mod test {
             ],
             NonNullable,
         );
-        let sparse = SparseArray::try_new(indices, fsl, 1, fill_value)
+        let sparse = Sparse::try_new(indices, fsl, 1, fill_value)
             .unwrap()
             .into_array();
 
@@ -1420,7 +1436,7 @@ mod test {
 
         let indices = buffer![0u8, 1u8, 2u8, 3u8].into_array();
         let fill_value = Scalar::from(Some(vec![42i32; 252])); // 252 + 4 elements = 256 > u8::MAX
-        let sparse = SparseArray::try_new(indices, lists, 5, fill_value)
+        let sparse = Sparse::try_new(indices, lists, 5, fill_value)
             .unwrap()
             .into_array();
 
@@ -1466,7 +1482,7 @@ mod test {
         let sizes = buffer![3u32, 2, 4].into_array();
 
         let list_view = unsafe {
-            ListViewArray::new_unchecked(elements.clone(), offsets, sizes, Validity::AllValid)
+            ListViewArray::new_unchecked(elements, offsets, sizes, Validity::AllValid)
                 .with_zero_copy_to_list(true)
         };
 
@@ -1482,7 +1498,7 @@ mod test {
         // - Index 7: List 2 [30, 31, 32, 33]
         // - Index 8-9: null
         let indices = buffer![1u8, 4, 7].into_array();
-        let sparse = SparseArray::try_new(
+        let sparse = Sparse::try_new(
             indices,
             list_view.into_array(),
             10,
@@ -1568,7 +1584,7 @@ mod test {
         // Extract only the values we need from the sliced array
         let values = sliced.slice(0..2).unwrap();
         let sparse =
-            SparseArray::try_new(indices, values, 5, Scalar::null(sliced.dtype().clone())).unwrap();
+            Sparse::try_new(indices, values, 5, Scalar::null(sliced.dtype().clone())).unwrap();
 
         let canonical = sparse.to_canonical()?.into_array();
         let result_listview = canonical.to_listview();

@@ -3,8 +3,6 @@
 
 //! Encapsulates a possibly lazy layout data structure, including the
 
-use arcref::ArcRef;
-
 mod children;
 pub use children::*;
 
@@ -24,7 +22,7 @@ mod vtable;
 pub use vtable::*;
 
 /// A unique identifier for a layout.
-pub type LayoutId = ArcRef<str>;
+pub type LayoutId = vortex_session::registry::Id;
 
 mod sealed {
     use crate::v2::layout::typed::Layout;

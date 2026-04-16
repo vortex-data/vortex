@@ -22,6 +22,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -178,7 +179,8 @@ impl Scan {
             config.max_split_rows,
         );
 
-        let total_splits = splits.len() as u32;
+        let total_splits = u32::try_from(splits.len())
+            .map_err(|_| vortex_err!("Too many scan splits: {}", splits.len()))?;
 
         Ok(Self {
             project_planner,
@@ -270,7 +272,7 @@ impl Scan {
                     .state
                     .read_dispatch
                     .remove(&read_id)
-                    .expect("Unknown read_id");
+                    .ok_or_else(|| vortex_err!("Unknown read_id: {read_id:?}"))?;
                 self.state.plan.resolve_segment(node_id, slot, buffer);
 
                 // If all deps resolved and node has no compute, complete it immediately
@@ -289,7 +291,7 @@ impl Scan {
                     .state
                     .compute_dispatch
                     .remove(&compute_id)
-                    .expect("Unknown compute_id");
+                    .ok_or_else(|| vortex_err!("Unknown compute_id: {compute_id:?}"))?;
 
                 self.state.plan.complete_node(node_id, result.clone());
 

@@ -5,12 +5,12 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -279,6 +279,8 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::bool::BoolArrayExt;
+    use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
@@ -335,13 +337,17 @@ mod tests {
             ]
         );
         assert_eq!(
-            stats_table.array.unmasked_fields()[1]
+            stats_table
+                .array
+                .unmasked_field(1)
                 .to_bool()
                 .to_bit_buffer(),
             BitBuffer::from(vec![false, true])
         );
         assert_eq!(
-            stats_table.array.unmasked_fields()[3]
+            stats_table
+                .array
+                .unmasked_field(3)
                 .to_bool()
                 .to_bit_buffer(),
             BitBuffer::from(vec![true, false])
@@ -369,13 +375,17 @@ mod tests {
             ]
         );
         assert_eq!(
-            stats_table.array.unmasked_fields()[1]
+            stats_table
+                .array
+                .unmasked_field(1)
                 .to_bool()
                 .to_bit_buffer(),
             BitBuffer::from(vec![false])
         );
         assert_eq!(
-            stats_table.array.unmasked_fields()[3]
+            stats_table
+                .array
+                .unmasked_field(3)
                 .to_bool()
                 .to_bit_buffer(),
             BitBuffer::from(vec![false])

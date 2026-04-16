@@ -6,7 +6,6 @@ use vortex_error::VortexExpect;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::IntoArray as _;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::Nullability;
@@ -103,7 +102,7 @@ fn test_take_none(array: &ArrayRef) {
     assert_eq!(result.dtype(), array.dtype());
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn test_take_selective(array: &ArrayRef) {
     let len = array.len();
 
@@ -156,7 +155,7 @@ fn test_take_first_and_last(array: &ArrayRef) {
     );
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn test_take_with_nullable_indices(array: &ArrayRef) {
     let len = array.len();
 
@@ -212,7 +211,7 @@ fn test_take_repeated_indices(array: &ArrayRef) {
     // Take the first element multiple times
     let indices = buffer![0u64, 0, 0].into_array();
     let result = array
-        .take(indices.to_array())
+        .take(indices)
         .vortex_expect("take should succeed in conformance test");
 
     assert_eq!(result.len(), 3);
@@ -282,7 +281,7 @@ fn test_take_single_middle(array: &ArrayRef) {
     );
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn test_take_random_unsorted(array: &ArrayRef) {
     let len = array.len();
 
@@ -340,7 +339,7 @@ fn test_take_contiguous_range(array: &ArrayRef) {
     }
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn test_take_mixed_repeated(array: &ArrayRef) {
     let len = array.len();
 
@@ -376,7 +375,7 @@ fn test_take_mixed_repeated(array: &ArrayRef) {
     }
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn test_take_large_indices(array: &ArrayRef) {
     // Test with a large number of indices to stress test performance
     let len = array.len();

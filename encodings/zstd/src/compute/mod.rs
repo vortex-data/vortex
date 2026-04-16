@@ -11,27 +11,28 @@ mod tests {
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_buffer::buffer;
 
+    use crate::Zstd;
     use crate::ZstdArray;
 
     fn zstd_i32() -> ZstdArray {
         let values = PrimitiveArray::from_iter([100i32, 200, 300, 400, 500]);
-        ZstdArray::from_primitive(&values, 0, 0).unwrap()
+        Zstd::from_primitive(&values, 0, 0).unwrap()
     }
 
     fn zstd_f64() -> ZstdArray {
         let values = PrimitiveArray::from_iter([1.1f64, 2.2, 3.3, 4.4, 5.5]);
-        ZstdArray::from_primitive(&values, 0, 0).unwrap()
+        Zstd::from_primitive(&values, 0, 0).unwrap()
     }
 
     fn zstd_u32() -> ZstdArray {
         let values = PrimitiveArray::from_iter([10u32, 20, 30, 40, 50]);
-        ZstdArray::from_primitive(&values, 0, 0).unwrap()
+        Zstd::from_primitive(&values, 0, 0).unwrap()
     }
 
     fn zstd_nullable_i64() -> ZstdArray {
         let values =
             PrimitiveArray::from_option_iter([Some(1000i64), None, Some(3000), Some(4000), None]);
-        ZstdArray::from_primitive(&values, 0, 0).unwrap()
+        Zstd::from_primitive(&values, 0, 0).unwrap()
     }
 
     fn zstd_single() -> ZstdArray {
@@ -39,7 +40,7 @@ mod tests {
             buffer![42i64],
             vortex_array::validity::Validity::NonNullable,
         );
-        ZstdArray::from_primitive(&values, 0, 0).unwrap()
+        Zstd::from_primitive(&values, 0, 0).unwrap()
     }
 
     fn zstd_large() -> ZstdArray {
@@ -47,7 +48,7 @@ mod tests {
             buffer![0u32..1000],
             vortex_array::validity::Validity::NonNullable,
         );
-        ZstdArray::from_primitive(&values, 3, 0).unwrap()
+        Zstd::from_primitive(&values, 3, 0).unwrap()
     }
 
     fn zstd_all_same() -> ZstdArray {
@@ -55,12 +56,12 @@ mod tests {
             buffer![42i32; 100],
             vortex_array::validity::Validity::NonNullable,
         );
-        ZstdArray::from_primitive(&values, 0, 0).unwrap()
+        Zstd::from_primitive(&values, 0, 0).unwrap()
     }
 
     fn zstd_negative() -> ZstdArray {
         let values = PrimitiveArray::from_iter([-100i32, -50, 0, 50, 100]);
-        ZstdArray::from_primitive(&values, 0, 0).unwrap()
+        Zstd::from_primitive(&values, 0, 0).unwrap()
     }
 
     #[rstest]

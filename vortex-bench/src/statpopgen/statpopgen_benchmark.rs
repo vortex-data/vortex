@@ -52,7 +52,7 @@ impl StatPopGenBenchmark {
             )
         })?;
 
-        let data_path = "statspopgen".to_data_path().join(format!("{n_rows}/"));
+        let data_path = "statpopgen".to_data_path().join(format!("{n_rows}/"));
 
         let data_url =
             Url::from_directory_path(data_path).map_err(|_| anyhow::anyhow!("bad data path?"))?;
@@ -129,7 +129,7 @@ impl Benchmark for StatPopGenBenchmark {
         Ok(())
     }
 
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     fn expected_row_counts(&self) -> Option<Vec<usize>> {
         let n_rows = self.n_rows as usize;
         match self.scale_factor {

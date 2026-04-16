@@ -2,31 +2,32 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
-use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::fns::mask::Mask as MaskExpr;
 use vortex_array::scalar_fn::fns::mask::MaskReduce;
 use vortex_error::VortexResult;
 
 use crate::ALPRD;
-use crate::ALPRDArray;
+use crate::ALPRDArrayExt;
 
 impl MaskReduce for ALPRD {
-    fn mask(array: &ALPRDArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: ArrayView<'_, Self>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let masked_left_parts = MaskExpr.try_new_array(
             array.left_parts().len(),
             EmptyOptions,
             [array.left_parts().clone(), mask.clone()],
         )?;
         Ok(Some(
-            ALPRDArray::try_new(
+            ALPRD::try_new(
                 array.dtype().as_nullable(),
                 masked_left_parts,
                 array.left_parts_dictionary().clone(),
                 array.right_parts().clone(),
                 array.right_bit_width(),
-                array.left_parts_patches().cloned(),
+                array.left_parts_patches(),
             )?
             .into_array(),
         ))
@@ -49,7 +50,7 @@ mod tests {
     fn test_mask_simple<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
         test_mask_conformance(
             &RDEncoder::new(&[a, b])
-                .encode(&PrimitiveArray::from_iter([a, b, outlier, b, outlier]))
+                .encode(PrimitiveArray::from_iter([a, b, outlier, b, outlier]).as_view())
                 .into_array(),
         );
     }
@@ -60,13 +61,10 @@ mod tests {
     fn test_mask_with_nulls<T: ALPRDFloat>(#[case] a: T, #[case] outlier: T) {
         test_mask_conformance(
             &RDEncoder::new(&[a])
-                .encode(&PrimitiveArray::from_option_iter([
-                    Some(a),
-                    None,
-                    Some(outlier),
-                    Some(a),
-                    None,
-                ]))
+                .encode(
+                    PrimitiveArray::from_option_iter([Some(a), None, Some(outlier), Some(a), None])
+                        .as_view(),
+                )
                 .into_array(),
         );
     }

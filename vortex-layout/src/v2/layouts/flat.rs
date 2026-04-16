@@ -47,7 +47,7 @@ impl LayoutVTable for Flat {
     type Metadata = FlatMetadata;
 
     fn id(&self) -> LayoutId {
-        LayoutId::new_ref("vortex.flat")
+        LayoutId::new_static("vortex.flat")
     }
 
     fn deserialize_metadata(
@@ -85,7 +85,7 @@ impl LayoutVTable for Flat {
             row_splits.insert(offset + layout.row_count());
         }
 
-        let segment_source = layout.segment_source().clone();
+        let segment_source = Arc::clone(layout.segment_source());
         let segment_id = layout
             .segments()
             .first()
@@ -126,7 +126,7 @@ impl SplitPlanner for FlatLayoutPlanner {
             .map_err(|_| vortex_err!("row_range end exceeds usize"))?;
 
         let segment_req = SegmentRequest {
-            source: self.segment_source.clone(),
+            source: Arc::clone(&self.segment_source),
             segment_id: self.segment_id,
         };
 

@@ -24,6 +24,7 @@ use crate::dtype::FieldDType;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
 use crate::dtype::extension::ExtId;
+use crate::dtype::extension::ForeignExtDType;
 use crate::dtype::flatbuffers as fb;
 use crate::dtype::session::DTypeSessionExt;
 
@@ -194,13 +195,10 @@ impl TryFrom<ViewedDType> for DType {
                 let fb_ext = fb
                     .type__as_extension()
                     .ok_or_else(|| vortex_err!("failed to parse extension from flatbuffer"))?;
-                let id = ExtId::new_arc(
-                    fb_ext
-                        .id()
-                        .ok_or_else(|| vortex_err!("failed to parse extension id from flatbuffer"))?
-                        .to_string()
-                        .into(),
-                );
+                let id =
+                    ExtId::new(fb_ext.id().ok_or_else(|| {
+                        vortex_err!("failed to parse extension id from flatbuffer")
+                    })?);
                 let storage_dtype = fb_ext.storage_dtype().ok_or_else(|| {
                     vortex_err!(
                 Serde: "storage_dtype must be present on DType fbs message")
@@ -213,21 +211,19 @@ impl TryFrom<ViewedDType> for DType {
                 let storage_dtype = DType::try_from(storage_view)
                     .map_err(|e| vortex_err!("failed to create DType from fbs message: {e}"))?;
 
-                let vtable = vfdt
-                    .session
-                    .dtypes()
-                    .registry()
-                    .find(&id)
-                    .ok_or_else(|| vortex_err!("No such DType extension ID: {}", id))?;
-                let ext_dtype = vtable.deserialize(
-                    fb_ext
-                        .metadata()
-                        .ok_or_else(|| {
-                            vortex_err!("failed to parse extension metadata from flatbuffer")
-                        })?
-                        .bytes(),
-                    storage_dtype,
-                )?;
+                let metadata = fb_ext
+                    .metadata()
+                    .ok_or_else(|| {
+                        vortex_err!("failed to parse extension metadata from flatbuffer")
+                    })?
+                    .bytes();
+                let ext_dtype = if let Some(vtable) = vfdt.session.dtypes().registry().find(&id) {
+                    vtable.deserialize(metadata, storage_dtype)?
+                } else if vfdt.session.allows_unknown() {
+                    ForeignExtDType::from_parts(id, metadata.to_vec(), storage_dtype)?
+                } else {
+                    return Err(vortex_err!("No such DType extension ID: {}", id));
+                };
 
                 Ok(Self::Extension(ext_dtype))
             }

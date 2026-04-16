@@ -9,9 +9,12 @@
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::match_each_unsigned_integer_ptype;
@@ -35,7 +38,10 @@ pub fn runend_decode_bools(
     offset: usize,
     length: usize,
 ) -> VortexResult<ArrayRef> {
-    let validity = values.validity_mask()?;
+    let validity = values.as_ref().validity()?.to_mask(
+        values.as_ref().len(),
+        &mut LEGACY_SESSION.create_execution_ctx(),
+    )?;
     let values_buf = values.to_bit_buffer();
     let nullability = values.dtype().nullability();
 
@@ -240,9 +246,12 @@ fn decode_nullable_sequential(
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::bool::BoolArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
@@ -369,12 +378,42 @@ mod tests {
         // Check length and a few values
         assert_eq!(decoded.len(), 10000);
         // First run: valid true
-        assert!(decoded.validity_mask()?.value(0));
+        assert!(
+            decoded
+                .as_ref()
+                .validity()?
+                .to_mask(
+                    decoded.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx()
+                )
+                .unwrap()
+                .value(0)
+        );
         assert!(decoded.to_bit_buffer().value(0));
         // Second run: null (validity false)
-        assert!(!decoded.validity_mask()?.value(2000));
+        assert!(
+            !decoded
+                .as_ref()
+                .validity()?
+                .to_mask(
+                    decoded.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx()
+                )
+                .unwrap()
+                .value(2000)
+        );
         // Third run: valid true
-        assert!(decoded.validity_mask()?.value(4000));
+        assert!(
+            decoded
+                .as_ref()
+                .validity()?
+                .to_mask(
+                    decoded.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx()
+                )
+                .unwrap()
+                .value(4000)
+        );
         assert!(decoded.to_bit_buffer().value(4000));
         Ok(())
     }

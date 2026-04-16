@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use arrow_array::ffi::FFI_ArrowArray;
 use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_schema::DataType;
@@ -25,10 +27,15 @@ use jni::sys::jobject;
 use jni::sys::jshort;
 use jni::sys::jstring;
 use vortex::array::ArrayRef;
-use vortex::array::DynArray;
+use vortex::array::ArrayView;
+use vortex::array::LEGACY_SESSION;
 use vortex::array::ToCanonical;
-use vortex::array::arrays::VarBinArray;
-use vortex::array::arrays::VarBinViewArray;
+use vortex::array::VortexSessionExecute;
+use vortex::array::arrays::VarBin;
+use vortex::array::arrays::VarBinView;
+use vortex::array::arrays::extension::ExtensionArrayExt;
+use vortex::array::arrays::struct_::StructArrayExt;
+use vortex::array::arrays::varbin::VarBinArrayExt;
 use vortex::array::arrow::IntoArrowArray;
 use vortex::dtype::DType;
 use vortex::dtype::i256;
@@ -148,7 +155,7 @@ fn data_type_no_views(data_type: DataType) -> DataType {
             let viewless_fields: Vec<FieldRef> = fields
                 .iter()
                 .map(|field_ref| {
-                    let field = (*field_ref.clone()).clone();
+                    let field = (*Arc::clone(field_ref)).clone();
                     let data_type = field.data_type().clone();
                     let field = field.with_data_type(data_type_no_views(data_type));
                     FieldRef::new(field)
@@ -158,7 +165,12 @@ fn data_type_no_views(data_type: DataType) -> DataType {
         }
         DataType::Decimal128(precision, scale) => DataType::Decimal128(precision, scale),
         DataType::Decimal256(precision, scale) => DataType::Decimal256(precision, scale),
-        DataType::FixedSizeList(..) => unreachable!("Vortex never returns FixedSizeList"),
+        DataType::FixedSizeList(inner, size) => {
+            let new_inner = (*inner)
+                .clone()
+                .with_data_type(data_type_no_views(inner.data_type().clone()));
+            DataType::FixedSizeList(FieldRef::new(new_inner), size)
+        }
         DataType::Union(..) => unreachable!("Vortex never returns Union"),
         DataType::Dictionary(..) => unreachable!("Vortex never returns Dictionary"),
         DataType::Map(..) => unreachable!("Vortex never returns Map"),
@@ -222,13 +234,12 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getField(
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
 
     try_or_throw(&mut env, |_| {
-        let field = array_ref
-            .inner
-            .to_struct()
-            .unmasked_fields()
-            .get(index as usize)
-            .cloned()
-            .ok_or_else(|| vortex_err!("Field index out of bounds"))?;
+        let struct_array = array_ref.inner.to_struct();
+        let idx = index as usize;
+        if idx >= struct_array.struct_fields().nfields() {
+            return Err(vortex_err!("Field index out of bounds").into());
+        }
+        let field = struct_array.unmasked_field(idx).clone();
         Ok(NativeArray::new(field).into_raw())
     })
 }
@@ -244,10 +255,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_slice(
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
 
     try_or_throw(&mut env, |_| {
-        let sliced_array = array_ref
-            .inner
-            .as_ref()
-            .slice(start as usize..end as usize)?;
+        let sliced_array = array_ref.inner.slice(start as usize..end as usize)?;
         Ok(NativeArray::new(sliced_array).into_raw())
     })
 }
@@ -274,7 +282,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getNullCount(
 ) -> jint {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |_| {
-        let count = array_ref.inner.invalid_count()?;
+        let count = array_ref
+            .inner
+            .invalid_count(&mut LEGACY_SESSION.create_execution_ctx())?;
         Ok(jint::try_from(count).unwrap_or(-1))
     })
 }
@@ -445,12 +455,11 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getUTF8_1ptr_1len<
             throw_runtime!("getUTF8_ptr_len expected UTF8 array");
         }
 
-        if let Some(varbin) = array_ref.inner.as_any().downcast_ref::<VarBinArray>() {
+        if let Some(varbin) = array_ref.inner.as_opt::<VarBin>() {
             let (ptr, len) = get_ptr_len_varbin(index, varbin);
             env.set_long_array_region(&out_ptr, 0, &[ptr as jlong])?;
             env.set_int_array_region(&out_len, 0, &[len as jint])?;
-        } else if let Some(varbinview) = array_ref.inner.as_any().downcast_ref::<VarBinViewArray>()
-        {
+        } else if let Some(varbinview) = array_ref.inner.as_opt::<VarBinView>() {
             let (ptr, len) = get_ptr_len_view(index, varbinview);
             env.set_long_array_region(&out_ptr, 0, &[ptr as jlong])?;
             env.set_int_array_region(&out_len, 0, &[len as jint])?;
@@ -481,7 +490,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBinary<'local>(
 /// Get a raw pointer + len to pass back to Java to avoid copying across the boundary.
 ///
 /// Panics if the index is out of bounds.
-fn get_ptr_len_varbin(index: jint, array: &VarBinArray) -> (*const u8, u32) {
+fn get_ptr_len_varbin(index: jint, array: ArrayView<VarBin>) -> (*const u8, u32) {
     // TODO: propagate this error up instead of expecting
     let bytes = array.bytes_at(usize::try_from(index).vortex_expect("index must fit in usize"));
     (
@@ -492,7 +501,7 @@ fn get_ptr_len_varbin(index: jint, array: &VarBinArray) -> (*const u8, u32) {
 }
 
 /// Get a raw pointer + len to pass back to Java to avoid copying across the boundary.
-fn get_ptr_len_view(index: jint, array: &VarBinViewArray) -> (*const u8, u32) {
+fn get_ptr_len_view(index: jint, array: ArrayView<VarBinView>) -> (*const u8, u32) {
     // TODO: propagate this error up instead of expecting
     let bytes = array.bytes_at(usize::try_from(index).vortex_expect("index must fit in usize"));
     (

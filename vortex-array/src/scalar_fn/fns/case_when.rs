@@ -28,6 +28,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
@@ -78,7 +79,7 @@ impl ScalarFnVTable for CaseWhen {
     type Options = CaseWhenOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.case_when")
+        ScalarFnId::new("vortex.case_when")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -222,7 +223,7 @@ impl ScalarFnVTable for CaseWhen {
 
             let condition = args.get(i * 2)?;
             let cond_bool = condition.execute::<BoolArray>(ctx)?;
-            let cond_mask = cond_bool.to_mask_fill_null_false();
+            let cond_mask = cond_bool.to_mask_fill_null_false(ctx);
             let effective_mask = &remaining & &cond_mask;
 
             if effective_mask.all_false() {
@@ -406,6 +407,7 @@ mod tests {
     fn evaluate_expr(expr: &Expression, array: &ArrayRef) -> ArrayRef {
         let mut ctx = SESSION.create_execution_ctx();
         array
+            .clone()
             .apply(expr)
             .unwrap()
             .execute::<Canonical>(&mut ctx)

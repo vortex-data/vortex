@@ -9,7 +9,6 @@ use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
@@ -22,7 +21,7 @@ pub fn filter_varbinview(array: &VarBinViewArray, mask: &Arc<MaskValues>) -> Var
     arrow_filter_fn(&array.clone().into_array(), &values_to_mask(mask))
         .vortex_expect("VarBinViewArray is Arrow-compatible and supports arrow_filter_fn")
         .as_::<VarBinView>()
-        .clone()
+        .into_owned()
 }
 
 fn arrow_filter_fn(array: &ArrayRef, mask: &Mask) -> vortex_error::VortexResult<ArrayRef> {
@@ -31,7 +30,7 @@ fn arrow_filter_fn(array: &ArrayRef, mask: &Mask) -> vortex_error::VortexResult<
         Mask::AllTrue(_) | Mask::AllFalse(_) => unreachable!("check in filter invoke"),
     };
 
-    let array_ref = array.to_array().into_arrow_preferred()?;
+    let array_ref = array.clone().into_arrow_preferred()?;
     let mask_array = BooleanArray::new(values.bit_buffer().clone().into(), None);
     let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
 

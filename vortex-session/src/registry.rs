@@ -4,17 +4,139 @@
 //! Many session types use a registry of objects that can be looked up by name to construct
 //! contexts. This module provides a generic registry type for that purpose.
 
+use std::cmp::Ordering;
+use std::fmt;
 use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::ops::Deref;
 use std::sync::Arc;
+use std::sync::LazyLock;
+use std::sync::OnceLock;
 
-use arcref::ArcRef;
+use lasso::Spur;
+use lasso::ThreadedRodeo;
 use parking_lot::RwLock;
 use vortex_error::VortexExpect;
 use vortex_utils::aliases::dash_map::DashMap;
 
-/// An identifier for an item in a registry.
-pub type Id = ArcRef<str>;
+/// Global string interner for [`Id`] values.
+static INTERNER: LazyLock<ThreadedRodeo> = LazyLock::new(ThreadedRodeo::new);
+
+/// A lightweight, copyable identifier backed by a global string interner.
+///
+/// Used for array encoding IDs, scalar function IDs, layout IDs, and similar
+/// globally-unique string identifiers throughout Vortex. Equality and hashing
+/// are O(1) symbol comparisons.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Id(Spur);
+
+impl Id {
+    /// Intern a string and return its `Id`.
+    pub fn new(s: &str) -> Self {
+        Self(INTERNER.get_or_intern(s))
+    }
+
+    /// Intern a string and return its `Id`.
+    pub fn new_static(s: &'static str) -> Self {
+        Self(INTERNER.get_or_intern_static(s))
+    }
+
+    /// Returns the interned string.
+    pub fn as_str(&self) -> &str {
+        let s = INTERNER.resolve(&self.0);
+        // SAFETY: INTERNER is 'static and its arena is append-only, so resolved string
+        // pointers are stable for the lifetime of the program.
+        unsafe { &*(s as *const str) }
+    }
+}
+
+impl From<&str> for Id {
+    fn from(s: &str) -> Self {
+        Self::new(s)
+    }
+}
+
+impl Display for Id {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl Debug for Id {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "Id(\"{}\")", self.as_str())
+    }
+}
+
+impl PartialOrd for Id {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Id {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.as_str().cmp(other.as_str())
+    }
+}
+
+impl AsRef<str> for Id {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl PartialEq<&Id> for Id {
+    fn eq(&self, other: &&Id) -> bool {
+        self == *other
+    }
+}
+
+impl PartialEq<Id> for &Id {
+    fn eq(&self, other: &Id) -> bool {
+        *self == other
+    }
+}
+
+/// A lazily-initialized, cached [`Id`] for use as a `static`.
+///
+/// Avoids repeated interner write-lock acquisition by storing the interned [`Id`]
+/// on first access and returning the cached copy on all subsequent calls.
+///
+/// # Example
+///
+/// ```
+/// use vortex_session::registry::{CachedId, Id};
+///
+/// static MY_ID: CachedId = CachedId::new("my.encoding");
+///
+/// fn get_id() -> Id {
+///     *MY_ID
+/// }
+/// ```
+pub struct CachedId {
+    s: &'static str,
+    cached: OnceLock<Id>,
+}
+
+impl CachedId {
+    /// Create a new `CachedId` that will intern `s` on first access.
+    pub const fn new(s: &'static str) -> Self {
+        Self {
+            s,
+            cached: OnceLock::new(),
+        }
+    }
+}
+
+impl Deref for CachedId {
+    type Target = Id;
+
+    fn deref(&self) -> &Id {
+        self.cached.get_or_init(|| Id::new(self.s))
+    }
+}
 
 /// A registry of items that are keyed by a string identifier.
 #[derive(Clone, Debug)]
@@ -33,7 +155,7 @@ impl<T: Clone> Registry<T> {
 
     /// List the IDs in the registry.
     pub fn ids(&self) -> impl Iterator<Item = Id> + '_ {
-        self.0.iter().map(|i| i.key().clone())
+        self.0.iter().map(|i| *i.key())
     }
 
     /// List the items in the registry.
@@ -156,7 +278,7 @@ impl<T: Clone> Context<T> {
             idx < u16::MAX as usize,
             "Cannot have more than u16::MAX items"
         );
-        ids.push(id.clone());
+        ids.push(*id);
         Some(u16::try_from(idx).vortex_expect("checked already"))
     }
 

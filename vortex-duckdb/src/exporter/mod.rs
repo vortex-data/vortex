@@ -19,8 +19,6 @@ mod validity;
 mod varbinview;
 mod vector;
 
-use bitvec::prelude::Lsb0;
-use bitvec::view::BitView;
 pub use cache::ConversionCache;
 pub use decimal::precision_to_duckdb_storage_size;
 use vortex::array::ArrayRef;
@@ -31,14 +29,14 @@ use vortex::array::arrays::Dict;
 use vortex::array::arrays::List;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
-use vortex::array::vtable::ValidityHelper;
+use vortex::array::arrays::struct_::StructArrayExt;
+use vortex::buffer::BitChunks;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence::Sequence;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 
 use crate::duckdb::DataChunkRef;
-use crate::duckdb::LogicalType;
 use crate::duckdb::VectorRef;
 use crate::duckdb::duckdb_vector_size;
 
@@ -57,12 +55,11 @@ impl ArrayExporter {
         cache: &ConversionCache,
         mut ctx: ExecutionCtx,
     ) -> VortexResult<Self> {
-        let validity = array.validity().execute_mask(array.len(), &mut ctx)?;
+        let validity = array.validity()?.execute_mask(array.len(), &mut ctx)?;
         assert!(validity.all_true());
 
         let fields = array
-            .unmasked_fields()
-            .iter()
+            .iter_unmasked_fields()
             .map(|field| new_array_exporter(field.clone(), cache, &mut ctx))
             .collect::<VortexResult<Vec<_>>>()?;
 
@@ -141,32 +138,34 @@ fn new_array_exporter_with_flatten(
     ctx: &mut ExecutionCtx,
     flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    let array = match array.try_into::<Constant>() {
+    let array = match array.try_downcast::<Constant>() {
         Ok(array) => return constant::new_exporter(array),
         Err(array) => array,
     };
 
-    if let Some(array) = array.as_opt::<Sequence>() {
-        return sequence::new_exporter(array);
-    }
+    let array = match array.try_downcast::<Sequence>() {
+        Ok(array) => return sequence::new_exporter(&array),
+        Err(array) => array,
+    };
 
-    let array = match array.try_into::<RunEnd>() {
+    let array = match array.try_downcast::<RunEnd>() {
         Ok(array) => return run_end::new_exporter(array, cache, ctx),
         Err(array) => array,
     };
 
-    if let Some(array) = array.as_opt::<Dict>() {
-        return dict::new_exporter_with_flatten(array, cache, ctx, flatten);
-    }
+    let array = match array.try_downcast::<Dict>() {
+        Ok(array) => return dict::new_exporter_with_flatten(&array, cache, ctx, flatten),
+        Err(array) => array,
+    };
 
-    let array = match array.try_into::<List>() {
+    let array = match array.try_downcast::<List>() {
         Ok(array) => return list::new_exporter(array, cache, ctx),
         Err(array) => array,
     };
 
     // Otherwise, we fall back to canonical
     match array.execute::<Canonical>(ctx)? {
-        Canonical::Null(array) => Ok(all_invalid::new_exporter(array.len(), &LogicalType::null())),
+        Canonical::Null(_) => Ok(all_invalid::new_exporter()),
         Canonical::Bool(array) => bool::new_exporter(array, ctx),
         Canonical::Primitive(array) => primitive::new_exporter(array, ctx),
         Canonical::Decimal(array) => decimal::new_exporter(array, ctx),
@@ -186,17 +185,33 @@ fn new_array_exporter_with_flatten(
     }
 }
 
-/// Copy the sliced bits from source into target.
+/// Copy the sliced bits from source into target, returning whether all copied bits are zero,
+/// all are one, or mixed.
 ///
-/// Offset and length are a _bit_ offset and a _bit_ length into source.
+/// offset and len are a _bit_ offset and a _bit_ length into `source`.
 ///
-/// `target.len()` must equal `len`.
-fn copy_from_slice(target: &mut [u64], source: &[u8], offset: usize, len: usize) {
-    let (start, middle, end) = unsafe { target.align_to_mut::<u8>() };
-    assert!(start.is_empty());
-    assert!(end.is_empty());
-    let target = &mut middle.view_bits_mut::<Lsb0>()[..len];
-    target.copy_from_bitslice(&source.view_bits()[offset..][..len]);
+/// target must have at least len.div_ceil(64) elements.
+/// Returns the number of ones in copied slice.
+fn copy_from_slice(target: &mut [u64], source: &[u8], offset: usize, len: usize) -> usize {
+    if len == 0 {
+        return 0;
+    }
+
+    let mut ones = 0usize;
+    let chunks = BitChunks::new(source, offset, len);
+    let chunk_len = chunks.chunk_len();
+    let remainder_len = chunks.remainder_len();
+    let remainder = chunks.remainder_bits();
+    for (slot, chunk) in target.iter_mut().zip(chunks) {
+        *slot = chunk;
+        ones += chunk.count_ones() as usize;
+    }
+
+    if remainder_len > 0 {
+        target[chunk_len] = remainder;
+        ones += remainder.count_ones() as usize;
+    }
+    ones
 }
 
 #[cfg(test)]
@@ -358,23 +373,23 @@ mod tests {
     fn test_copy_from_slice_empty_to_empty() {
         let target = &mut [];
         let source = Vec::<u8>::new();
-        copy_from_slice(target, &source, 0, 0);
+        assert_eq!(copy_from_slice(target, &source, 0, 0), 0);
     }
 
     #[test]
     fn test_copy_from_slice_64_to_empty() {
         let target = &mut [];
         let source = [1u8, 2, 3, 50, 51, 52, 100, 101];
-        copy_from_slice(target, &source, 0, 0);
-        copy_from_slice(target, &source, 5, 0);
-        copy_from_slice(target, &source, 8, 0);
+        assert_eq!(copy_from_slice(target, &source, 0, 0), 0);
+        assert_eq!(copy_from_slice(target, &source, 5, 0), 0);
+        assert_eq!(copy_from_slice(target, &source, 8, 0), 0);
     }
 
     #[test]
     fn test_copy_from_slice_64_to_64() {
         let mut target = vec![0u64];
         let source = [1u8, 2, 3, 50, 51, 52, 100, 101];
-        copy_from_slice(&mut target, &source, 0, 64);
+        assert_eq!(copy_from_slice(&mut target, &source, 0, 64), 21);
         assert_eq!(
             target[0], 0x65_64_34_33_32_03_02_01_u64,
             "{:#08x} == {:#08x}",
@@ -383,19 +398,26 @@ mod tests {
     }
 
     #[test]
+    fn test_copy_from_slice_64_ones() {
+        let mut target = [0u64];
+        let source = [u8::MAX; 8];
+        assert_eq!(copy_from_slice(&mut target, &source, 0, 64), 64);
+    }
+
+    #[test]
     fn test_copy_from_slice_80_to_0() {
         let target = &mut [];
         let source = [1u8, 2, 3, 50, 51, 52, 100, 101, 254, 255];
-        copy_from_slice(target, &source, 0, 0);
-        copy_from_slice(target, &source, 8, 0);
-        copy_from_slice(target, &source, 10, 0);
+        assert_eq!(copy_from_slice(target, &source, 0, 0), 0);
+        assert_eq!(copy_from_slice(target, &source, 8, 0), 0);
+        assert_eq!(copy_from_slice(target, &source, 10, 0), 0,);
     }
 
     #[test]
     fn test_copy_from_slice_80_to_64_case_1() {
         let mut target = [0u64];
         let source = [1u8, 2, 3, 50, 51, 52, 100, 101, 254, 255];
-        copy_from_slice(&mut target, &source, 16, 64);
+        assert_eq!(copy_from_slice(&mut target, &source, 16, 64), 34);
         assert_eq!(
             target[0], 0xff_fe_65_64_34_33_32_03_u64,
             "{:#08x} == {:#08x}",
@@ -407,7 +429,7 @@ mod tests {
     fn test_copy_from_slice_80_to_64_case_2() {
         let mut target = [0u64];
         let source = [1u8, 2, 3, 50, 51, 52, 100, 101, 254, 255];
-        copy_from_slice(&mut target, &source, 8, 64);
+        assert_eq!(copy_from_slice(&mut target, &source, 8, 64), 27);
         assert_eq!(
             target[0], 0xfe_65_64_34_33_32_03_02_u64,
             "{:#08x} == {:#08x}",
@@ -419,7 +441,7 @@ mod tests {
     fn test_copy_from_slice_80_to_64_case_3() {
         let mut target = [0u64];
         let source = [1u8, 2, 3, 50, 51, 52, 100, 101, 254, 255];
-        copy_from_slice(&mut target, &source, 0, 64);
+        assert_eq!(copy_from_slice(&mut target, &source, 0, 64), 21,);
         assert_eq!(
             target[0], 0x65_64_34_33_32_03_02_01_u64,
             "{:#08x} == {:#08x}",
@@ -431,7 +453,7 @@ mod tests {
     fn test_copy_from_slice_80_to_64_case_4() {
         let mut target = [0u64];
         let source = [1u8, 2, 3, 50, 51, 52, 100, 101, 254, 255];
-        copy_from_slice(&mut target, &source, 10, 64);
+        assert_eq!(copy_from_slice(&mut target, &source, 10, 64), 28,);
         assert_eq!(
             target[0],
             0xff_99_59_0d_0c_cc_80_c0_u64, // Python: hex(0xff_fe_65_64_34_33_32_03_02 >> 2), then remove the high two hexits
@@ -453,7 +475,7 @@ mod tests {
         let (_, middle, _) = unsafe { source.align_to::<u64>() };
         assert!(!middle.is_empty());
 
-        copy_from_slice(&mut target, &source, 0, 128);
+        assert_eq!(copy_from_slice(&mut target, &source, 0, 128), 66,);
         assert_eq!(
             target[0], 0xfc_fd_fe_ff_04_03_02_01_u64,
             "{:#08x} == {:#08x}",
@@ -465,7 +487,7 @@ mod tests {
             target[1], 0xf9_fa_fb_fc_08_07_06_05_u64,
         );
 
-        copy_from_slice(&mut target, &source, 8, 128);
+        assert_eq!(copy_from_slice(&mut target, &source, 8, 128), 66);
         assert_eq!(
             target[0], 0x05_fc_fd_fe_ff_04_03_02_u64,
             "{:#08x} == {:#08x}",
@@ -477,7 +499,7 @@ mod tests {
             target[1], 0x01_f9_fa_fb_fc_08_07_06_u64,
         );
 
-        copy_from_slice(&mut target, &source, 8 * 8, 128);
+        assert_eq!(copy_from_slice(&mut target, &source, 8 * 8, 128), 66,);
         assert_eq!(
             target[0], 0xf9_fa_fb_fc_08_07_06_05_u64,
             "{:#08x} == {:#08x}",
@@ -489,7 +511,7 @@ mod tests {
             target[1], 0xfc_fd_fe_ff_04_03_02_01_u64,
         );
 
-        copy_from_slice(&mut target, &source, 8 * 12, 128);
+        assert_eq!(copy_from_slice(&mut target, &source, 8 * 12, 128), 66,);
         assert_eq!(
             target[0], 0x04_03_02_01_f9_fa_fb_fc_u64,
             "{:#08x} == {:#08x}",
@@ -501,7 +523,7 @@ mod tests {
             target[1], 0x08_07_06_05_fc_fd_fe_ff_u64,
         );
 
-        copy_from_slice(&mut target, &source, 8 * 12 + 4, 128);
+        assert_eq!(copy_from_slice(&mut target, &source, 8 * 12 + 4, 128), 66,);
         // Find the 12th byte, skip the first hexit, take the next 32 hexits (i.e. 16 bytesor 128
         // bits).
         assert_eq!(
@@ -516,7 +538,10 @@ mod tests {
         );
 
         // Take the above and shift one bit towards the right-hand-side.
-        copy_from_slice(&mut target, &source, 8 * 12 + 4 + 1, 128);
+        assert_eq!(
+            copy_from_slice(&mut target, &source, 8 * 12 + 4 + 1, 128),
+            66,
+        );
         assert_eq!(
             target[0], 0xf8_20_18_10_0f_cf_d7_df_u64,
             "{:#08x} == {:#08x}",

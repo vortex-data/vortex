@@ -8,6 +8,7 @@ use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::arrays::Chunked;
+use crate::arrays::chunked::ChunkedArrayExt;
 use crate::scalar::Scalar;
 
 #[derive(Debug)]
@@ -25,7 +26,7 @@ impl DynAggregateKernel for ChunkedArrayAggregate {
         };
 
         let mut acc = aggregate_fn.accumulator(chunked.dtype())?;
-        for chunk in chunked.chunks() {
+        for chunk in chunked.iter_chunks() {
             acc.accumulate(chunk, ctx)?;
         }
         // Return the partial (not finalized) result, since the outer accumulator

@@ -4,22 +4,22 @@
 package dev.vortex.spark.write;
 
 import dev.vortex.api.VortexWriter;
+import dev.vortex.relocated.org.apache.arrow.c.ArrowArray;
+import dev.vortex.relocated.org.apache.arrow.c.ArrowSchema;
+import dev.vortex.relocated.org.apache.arrow.c.Data;
 import dev.vortex.relocated.org.apache.arrow.memory.BufferAllocator;
 import dev.vortex.relocated.org.apache.arrow.memory.RootAllocator;
 import dev.vortex.relocated.org.apache.arrow.vector.*;
+import dev.vortex.relocated.org.apache.arrow.vector.FieldVector;
 import dev.vortex.relocated.org.apache.arrow.vector.VectorSchemaRoot;
 import dev.vortex.relocated.org.apache.arrow.vector.complex.ListVector;
-import dev.vortex.relocated.org.apache.arrow.vector.ipc.ArrowStreamWriter;
+import dev.vortex.relocated.org.apache.arrow.vector.complex.StructVector;
 import dev.vortex.spark.SparkTypes;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.channels.Channels;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.SpecializedGetters;
 import org.apache.spark.sql.catalyst.util.ArrayData;
@@ -64,7 +64,7 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
      * @param schema   the schema of the data to write
      * @param options  additional write options
      */
-    public VortexDataWriter(String filePath, StructType schema, CaseInsensitiveStringMap options) {
+    VortexDataWriter(String filePath, StructType schema, CaseInsensitiveStringMap options) {
         this.filePath = filePath;
         this.schema = schema;
         this.options = options;
@@ -96,11 +96,8 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
             var writeSchema = SparkTypes.toDType(schema);
             var arrowSchema = SparkToArrowSchema.convert(schema);
 
-            // Convert the writer to a new schema type instead.
-
             // Create Vortex writer
-            Map<String, String> writerOptions = new HashMap<>();
-            this.vortexWriter = VortexWriter.create(filePath, writeSchema, writerOptions);
+            this.vortexWriter = VortexWriter.create(filePath, writeSchema, options.asCaseSensitiveMap());
 
             // Create VectorSchemaRoot for batching rows
             this.vectorSchemaRoot = VectorSchemaRoot.create(arrowSchema, allocator);
@@ -163,26 +160,22 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
                     populateVector(vector, dataType, row, fieldIndex, rowIndex);
                 }
             }
-
-            vector.setValueCount(batchRows.size());
         }
 
         vectorSchemaRoot.setRowCount(batchRows.size());
 
-        // Serialize to Arrow IPC format and write to Vortex
-        try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-            try (ArrowStreamWriter writer = new ArrowStreamWriter(vectorSchemaRoot, null, Channels.newChannel(baos))) {
-                writer.start();
-                writer.writeBatch();
-            }
-
-            byte[] arrowData = baos.toByteArray();
-            vortexWriter.writeBatch(arrowData);
-            bytesWritten += arrowData.length;
-
-            vectorSchemaRoot.clear();
-            batchRows.clear();
+        // Export via Arrow C Data Interface and write to Vortex
+        for (FieldVector vector : vectorSchemaRoot.getFieldVectors()) {
+            bytesWritten += vector.getBufferSize();
         }
+        try (ArrowArray arrowArray = ArrowArray.allocateNew(allocator);
+                ArrowSchema arrowSchema = ArrowSchema.allocateNew(allocator)) {
+            Data.exportVectorSchemaRoot(allocator, vectorSchemaRoot, null, arrowArray, arrowSchema);
+            vortexWriter.writeBatchFfi(arrowArray.memoryAddress(), arrowSchema.memoryAddress());
+        }
+
+        vectorSchemaRoot.clear();
+        batchRows.clear();
     }
 
     /**
@@ -214,16 +207,23 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
             if (bytes != null) {
                 ((VarBinaryVector) vector).setSafe(rowIndex, bytes);
             }
-        } else if (dataType instanceof DecimalType) {
-            DecimalType decType = (DecimalType) dataType;
+        } else if (dataType instanceof DateType) {
+            ((DateDayVector) vector).setSafe(rowIndex, row.getInt(fieldIndex));
+        } else if (dataType instanceof TimestampType) {
+            ((TimeStampMicroTZVector) vector).setSafe(rowIndex, row.getLong(fieldIndex));
+        } else if (dataType instanceof TimestampNTZType) {
+            ((TimeStampMicroVector) vector).setSafe(rowIndex, row.getLong(fieldIndex));
+        } else if (dataType instanceof DecimalType decType) {
             if (decType.precision() <= 38) {
                 // Use Decimal type from InternalRow
                 java.math.BigDecimal decimal = row.getDecimal(fieldIndex, decType.precision(), decType.scale())
                         .toJavaBigDecimal();
                 ((DecimalVector) vector).setSafe(rowIndex, decimal);
             }
-        } else if (dataType instanceof ArrayType) {
-            ArrayType arrayType = (ArrayType) dataType;
+        } else if (dataType instanceof StructType structType) {
+            populateStructVector(
+                    (StructVector) vector, structType, row.getStruct(fieldIndex, structType.fields().length), rowIndex);
+        } else if (dataType instanceof ArrayType arrayType) {
             ArrayData data = row.getArray(fieldIndex);
             ListVector listVector = ((ListVector) vector);
             int writtenElements = listVector.getElementEndIndex(listVector.getLastSet());
@@ -235,6 +235,20 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
         } else {
             // For unsupported types, set null
             throw new IllegalArgumentException("Unsupported data type: " + dataType);
+        }
+    }
+
+    private void populateStructVector(StructVector vector, StructType dataType, InternalRow row, int rowIndex) {
+        vector.setIndexDefined(rowIndex);
+
+        StructField[] fields = dataType.fields();
+        for (int fieldIndex = 0; fieldIndex < fields.length; fieldIndex++) {
+            FieldVector childVector = (FieldVector) vector.getVectorById(fieldIndex);
+            if (row.isNullAt(fieldIndex)) {
+                childVector.setNull(rowIndex);
+                continue;
+            }
+            populateVector(childVector, fields[fieldIndex].dataType(), row, fieldIndex, rowIndex);
         }
     }
 
@@ -283,17 +297,19 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
                 }
             }
 
-            try {
-                if (allocator != null) {
+            // The Arrow C Data Interface export (Data.exportVectorSchemaRoot) creates structural
+            // allocations from this allocator. When writeBatchFfi passes the ArrowArray to Rust,
+            // FFI_ArrowArray::from_raw() takes ownership and nullifies the release callback on
+            // the Java side. The Rust side calls release asynchronously on its own thread, so
+            // small structural allocations may still be outstanding when the allocator is closed.
+            // These are reclaimed when the allocator is garbage collected.
+            if (allocator != null) {
+                try {
                     allocator.close();
-                    allocator = null;
+                } catch (IllegalStateException e) {
+                    logger.debug("Allocator closed with outstanding FFI allocations: {}", e.getMessage());
                 }
-            } catch (Exception e) {
-                if (exception == null) {
-                    exception = new IOException("Failed to close allocator", e);
-                } else {
-                    exception.addSuppressed(e);
-                }
+                allocator = null;
             }
 
             closed = true;
@@ -334,7 +350,11 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
             }
 
             if (allocator != null) {
-                allocator.close();
+                try {
+                    allocator.close();
+                } catch (IllegalStateException e) {
+                    logger.debug("Allocator closed with outstanding FFI allocations: {}", e.getMessage());
+                }
                 allocator = null;
             }
 

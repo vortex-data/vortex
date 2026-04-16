@@ -97,9 +97,9 @@ impl LayoutChild {
                                 LayoutChild(Arc::new(RwLock::new(Inner::Viewed {
                                     fb: fb.clone(),
                                     loc: child._tab.loc(),
-                                    ids: ids.clone(),
+                                    ids: Arc::clone(ids),
                                     context: context.clone(),
-                                    source: source.clone(),
+                                    source: Arc::clone(source),
                                     session: session.clone(),
                                 })))
                             })
@@ -138,7 +138,7 @@ impl LayoutChild {
         segment_source: &Arc<dyn SegmentSource>,
         session: &VortexSession,
     ) -> VortexResult<LayoutChild> {
-        let fb_layout = root_with_opts::<fbl::Layout>(&LAYOUT_VERIFIER, &fb)?;
+        let fb_layout = root_with_opts::<fbl::Layout>(&LAYOUT_VERIFIER, fb)?;
         let layout_id = layout_ids
             .get(fb_layout.encoding() as usize)
             .ok_or_else(|| vortex_err!("Invalid layout ID: {}", fb_layout.encoding()))?;
@@ -147,7 +147,7 @@ impl LayoutChild {
         let _plugin = session
             .layouts2()
             .registry()
-            .find(&layout_id)
+            .find(layout_id)
             .ok_or_else(|| vortex_err!("Invalid layout ID: {}", fb_layout.encoding()))?;
 
         Ok(LayoutChild(Arc::new(RwLock::new(Inner::Viewed {
@@ -155,7 +155,7 @@ impl LayoutChild {
             loc: fb_layout._tab.loc(),
             ids: layout_ids,
             context: array_ctx,
-            source: segment_source.clone(),
+            source: Arc::clone(segment_source),
             session: session.clone(),
         }))))
     }

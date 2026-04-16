@@ -101,6 +101,7 @@ impl FileStatsLayoutReader {
         let result = pruning
             .execute::<Canonical>(&mut ctx)?
             .into_bool()
+            .into_array()
             .scalar_at(0)?;
 
         Ok(result.as_bool().value() == Some(true))
@@ -218,6 +219,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSession;
+    use vortex_io::session::RuntimeSessionExt;
     use vortex_layout::LayoutReader;
     use vortex_layout::LayoutStrategy;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
@@ -252,6 +254,7 @@ mod tests {
     #[test]
     fn pruning_when_filter_out_of_range() -> VortexResult<()> {
         block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -265,10 +268,10 @@ mod tests {
             let layout = strategy
                 .write_stream(
                     ctx,
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     struct_array.into_array().to_array_stream().sequenced(ptr),
                     eof,
-                    handle,
+                    &session,
                 )
                 .await?;
 
@@ -290,6 +293,7 @@ mod tests {
     #[test]
     fn no_pruning_when_filter_in_range() -> VortexResult<()> {
         block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -303,10 +307,10 @@ mod tests {
             let layout = strategy
                 .write_stream(
                     ctx,
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     struct_array.into_array().to_array_stream().sequenced(ptr),
                     eof,
-                    handle,
+                    &session,
                 )
                 .await?;
 

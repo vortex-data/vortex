@@ -7,10 +7,12 @@ use async_trait::async_trait;
 use futures::StreamExt as _;
 use parking_lot::Mutex;
 use vortex_array::ArrayContext;
+use vortex_array::IntoArray;
 use vortex_array::expr::stats::Stat;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_error::VortexResult;
-use vortex_io::runtime::Handle;
+use vortex_io::session::RuntimeSessionExt;
+use vortex_session::VortexSession;
 
 use crate::IntoLayout;
 use crate::LayoutRef;
@@ -76,9 +78,10 @@ impl LayoutStrategy for ZonedStrategy {
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,
-        handle: Handle,
+        session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
-        let stats = self.options.stats.clone();
+        let stats = Arc::clone(&self.options.stats);
+        let handle = session.handle();
         let handle2 = handle.clone();
 
         let stats_accumulator = Arc::new(Mutex::new(StatsAccumulator::new(
@@ -92,7 +95,7 @@ impl LayoutStrategy for ZonedStrategy {
             stream.dtype().clone(),
             stream
                 .map(move |chunk| {
-                    let stats = stats.clone();
+                    let stats = Arc::clone(&stats);
                     handle2.spawn_cpu(move || {
                         let (sequence_id, chunk) = chunk?;
                         chunk.statistics().compute_all(&stats)?;
@@ -105,7 +108,7 @@ impl LayoutStrategy for ZonedStrategy {
 
         // Now we accumulate the stats we computed above, this time we cannot spawn because we
         // need to feed the accumulator an ordered stream.
-        let stats_accumulator2 = stats_accumulator.clone();
+        let stats_accumulator2 = Arc::clone(&stats_accumulator);
         let stream = SequentialStreamAdapter::new(
             stream.dtype().clone(),
             stream.map(move |item| {
@@ -127,10 +130,10 @@ impl LayoutStrategy for ZonedStrategy {
             .child
             .write_stream(
                 ctx.clone(),
-                segment_sink.clone(),
+                Arc::clone(&segment_sink),
                 stream,
                 data_eof,
-                handle.clone(),
+                session,
             )
             .await?;
 
@@ -144,18 +147,20 @@ impl LayoutStrategy for ZonedStrategy {
         // the table depends on which stats were successfully computed.
         let stats_stream = stats_table
             .array()
+            .clone()
+            .into_array()
             .to_array_stream()
             .sequenced(eof.split_off());
         let zones_layout = self
             .stats
-            .write_stream(ctx, segment_sink.clone(), stats_stream, eof, handle)
+            .write_stream(ctx, Arc::clone(&segment_sink), stats_stream, eof, session)
             .await?;
 
         Ok(ZonedLayout::new(
             data_layout,
             zones_layout,
             block_size,
-            stats_table.present_stats().clone(),
+            Arc::clone(stats_table.present_stats()),
         )
         .into_layout())
     }

@@ -14,7 +14,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
@@ -47,7 +46,7 @@ impl ScalarFnVTable for DynamicComparison {
     type Options = DynamicComparisonExpr;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new_ref("vortex.dynamic")
+        ScalarFnId::from("vortex.dynamic")
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
@@ -131,7 +130,7 @@ impl ScalarFnVTable for DynamicComparison {
             CompareOperator::Gt => Some(DynamicComparison.new_expr(
                 DynamicComparisonExpr {
                     operator: CompareOperator::Lte,
-                    rhs: dynamic.rhs.clone(),
+                    rhs: Arc::clone(&dynamic.rhs),
                     default: !dynamic.default,
                 },
                 vec![lhs.stat_max(catalog)?],
@@ -139,7 +138,7 @@ impl ScalarFnVTable for DynamicComparison {
             CompareOperator::Gte => Some(DynamicComparison.new_expr(
                 DynamicComparisonExpr {
                     operator: CompareOperator::Lt,
-                    rhs: dynamic.rhs.clone(),
+                    rhs: Arc::clone(&dynamic.rhs),
                     default: !dynamic.default,
                 },
                 vec![lhs.stat_max(catalog)?],
@@ -147,7 +146,7 @@ impl ScalarFnVTable for DynamicComparison {
             CompareOperator::Lt => Some(DynamicComparison.new_expr(
                 DynamicComparisonExpr {
                     operator: CompareOperator::Gte,
-                    rhs: dynamic.rhs.clone(),
+                    rhs: Arc::clone(&dynamic.rhs),
                     default: !dynamic.default,
                 },
                 vec![lhs.stat_min(catalog)?],
@@ -155,7 +154,7 @@ impl ScalarFnVTable for DynamicComparison {
             CompareOperator::Lte => Some(DynamicComparison.new_expr(
                 DynamicComparisonExpr {
                     operator: CompareOperator::Gt,
-                    rhs: dynamic.rhs.clone(),
+                    rhs: Arc::clone(&dynamic.rhs),
                     default: !dynamic.default,
                 },
                 vec![lhs.stat_min(catalog)?],
@@ -393,7 +392,7 @@ mod tests {
     #[test]
     fn execute_value_flips() -> VortexResult<()> {
         let threshold = Arc::new(AtomicI32::new(5));
-        let threshold_clone = threshold.clone();
+        let threshold_clone = Arc::clone(&threshold);
         let expr = dynamic(
             CompareOperator::Lt,
             move || Some(threshold_clone.load(Ordering::SeqCst).into()),
@@ -403,7 +402,7 @@ mod tests {
         );
         let input = buffer![1i32, 5, 10].into_array();
 
-        let result = input.apply(&expr)?;
+        let result = input.clone().apply(&expr)?;
         assert_arrays_eq!(result, BoolArray::from_iter([true, false, false]));
 
         threshold.store(10, Ordering::SeqCst);

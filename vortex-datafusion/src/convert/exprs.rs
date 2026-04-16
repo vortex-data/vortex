@@ -26,6 +26,7 @@ use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::cast;
 use vortex::expr::get_item;
+use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_contains;
 use vortex::expr::lit;
@@ -244,7 +245,7 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
 
         if let Some(is_not_null_expr) = df.as_any().downcast_ref::<df_expr::IsNotNullExpr>() {
             let arg = self.convert(is_not_null_expr.arg().as_ref())?;
-            return Ok(not(is_null(arg)));
+            return Ok(is_not_null(arg));
         }
 
         if let Some(in_list) = df.as_any().downcast_ref::<df_expr::InListExpr>() {
@@ -395,7 +396,8 @@ fn try_operator_from_df(value: &DFOperator) -> DFResult<Operator> {
         | DFOperator::AtQuestion
         | DFOperator::Question
         | DFOperator::QuestionAnd
-        | DFOperator::QuestionPipe => {
+        | DFOperator::QuestionPipe
+        | DFOperator::Colon => {
             tracing::debug!(operator = %value, "Can't pushdown binary_operator operator");
             Err(exec_datafusion_err!(
                 "Unsupported datafusion operator {value}"
@@ -951,7 +953,7 @@ mod tests {
 
         // WHEN value > 10 THEN 100
         let when1 = Arc::new(df_expr::BinaryExpr::new(
-            col_value.clone(),
+            Arc::clone(&col_value),
             DFOperator::Gt,
             lit_10,
         )) as Arc<dyn PhysicalExpr>;

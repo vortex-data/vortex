@@ -10,6 +10,7 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
@@ -96,15 +97,15 @@ impl LayoutVTable for Struct {
     type Metadata = StructMetadata;
 
     fn id(&self) -> LayoutId {
-        LayoutId::new_ref("vortex.struct")
+        LayoutId::new_static("vortex.struct")
     }
 
     fn deserialize_metadata(
-        metadata: &[u8],
+        _metadata: &[u8],
         dtype: &DType,
-        row_count: u64,
-        children: &[LayoutChild],
-        array_ctx: &ReadContext,
+        _row_count: u64,
+        _children: &[LayoutChild],
+        _array_ctx: &ReadContext,
     ) -> VortexResult<Self::Metadata> {
         let struct_fields = dtype.as_struct_fields();
         let mut child_dtypes = Vec::new();
@@ -169,11 +170,10 @@ impl LayoutVTable for Struct {
         let partitioned = compute_partitioned_expr(expr, layout.dtype(), struct_fields);
 
         // Pre-compute validity relationship if nullable.
-        let validity_relationship = if layout.dtype().is_nullable() {
-            Some(Self::child_relationship(layout, 0))
-        } else {
-            None
-        };
+        let validity_relationship = layout
+            .dtype()
+            .is_nullable()
+            .then(|| Self::child_relationship(layout, 0));
 
         match partitioned {
             Partitioned::Single(field_name, field_expr) => {
@@ -349,7 +349,10 @@ impl SplitPlanner for SingleFieldSplitPlanner {
         };
 
         let validity_output = {
-            let mut child_builder = builder.step_into(self.validity_relationship.as_ref().unwrap());
+            let Some(validity_relationship) = self.validity_relationship.as_ref() else {
+                vortex_bail!("Struct layout missing validity relationship")
+            };
+            let mut child_builder = builder.step_into(validity_relationship);
             validity_planner.plan_split(row_range, selection, &mut child_builder)?
         };
 
@@ -413,7 +416,10 @@ impl SplitPlanner for MultiFieldSplitPlanner {
         }
 
         if let Some(validity_planner) = &self.validity_planner {
-            let mut child_builder = builder.step_into(self.validity_relationship.as_ref().unwrap());
+            let Some(validity_relationship) = self.validity_relationship.as_ref() else {
+                vortex_bail!("Struct layout missing validity relationship")
+            };
+            let mut child_builder = builder.step_into(validity_relationship);
             let validity_output =
                 validity_planner.plan_split(row_range, selection, &mut child_builder)?;
             child_outputs.push(validity_output);

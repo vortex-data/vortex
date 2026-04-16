@@ -4,19 +4,15 @@ Welcome, and thank you for your interest in contributing to Vortex! We are delig
 
 We ask that you read the guidelines below in order to make the process as streamlined as possible.
 
-## AI Assistance Notice
+## AI Assistance
 
 > [!IMPORTANT]
-> The Vortex project allows AI-assisted contributions, which must be properly
-> disclosed in the pull request.
+> The Vortex project permits and embraces AI-assisted contributions. Contributors
+> should disclose usage of conversational or agentic AI tools in the PR description.
 >
-> If you are using any kind of AI assistance when contributing to Vortex, please
-> disclose this in your pull request, along with the extent to which it was used
-> (e.g. writing docs or code generation).
->
-> Contributors are required to be able to understand the AI-assisted output and
-> reason about it. Should a PR indicate no visible human accountability and
-> involvement we reserve the right to close it.
+> For the full AI policy — including disclosure requirements, review standards for
+> AI-generated PRs, and rules for autonomous agents — see the
+> [contributing guide](https://vortex.dev/project/contributing.html#ai-assistance).
 
 ## Code Contributions
 
@@ -35,7 +31,7 @@ The contribution process is outlined below:
 
 3. Open a PR to indicate that the change is ready for review.
    - Ensure that you sign your work via DCO (see below).
-   - Disclose LLM usage as described in [AI Assistance Notice](#ai-assistance-notice).
+   - Disclose LLM usage as described in [AI Assistance](#ai-assistance).
    - CI requires approval from external committers.
 
 ## Governance

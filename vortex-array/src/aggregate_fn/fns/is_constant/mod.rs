@@ -26,7 +26,6 @@ use self::varbin::check_varbinview_constant;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::Columnar;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::Accumulator;
@@ -60,8 +59,8 @@ fn arrays_value_equal(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> Vor
     }
 
     // Check validity masks match (null positions must be identical).
-    let a_mask = a.validity_mask()?;
-    let b_mask = b.validity_mask()?;
+    let a_mask = a.validity()?.to_mask(a.len(), ctx)?;
+    let b_mask = b.validity()?.to_mask(b.len(), ctx)?;
     if a_mask != b_mask {
         return Ok(false);
     }
@@ -257,19 +256,11 @@ impl AggregateFnVTable for IsConstant {
     type Partial = IsConstantPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new_ref("vortex.is_constant")
+        AggregateFnId::new("vortex.is_constant")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        _metadata: &[u8],
-        _session: &vortex_session::VortexSession,
-    ) -> VortexResult<Self::Options> {
-        Ok(EmptyOptions)
+        unimplemented!("IsConstant is not yet serializable");
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {

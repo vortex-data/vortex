@@ -10,7 +10,7 @@ use crate::v2::selection::Selection;
 
 /// Identifies a split within a scan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(super) struct SplitId(u32);
+pub struct SplitId(pub(crate) u32);
 
 impl SplitId {
     pub(crate) fn new(value: u32) -> Self {

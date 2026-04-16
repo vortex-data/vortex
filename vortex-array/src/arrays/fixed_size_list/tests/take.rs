@@ -9,7 +9,7 @@ use super::common::create_empty_fsl;
 use super::common::create_large_fsl;
 use super::common::create_nullable_fsl;
 use super::common::create_single_element_fsl;
-use crate::DynArray;
+use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
@@ -42,7 +42,7 @@ fn test_take_basic_smoke_test() {
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
 
     let indices = buffer![2u32, 0, 1].into_array();
-    let result = fsl.take(indices.to_array()).unwrap();
+    let result = fsl.take(indices).unwrap();
 
     // Expected: [[5,6], [1,2], [3,4]]
     let expected = FixedSizeListArray::new(
@@ -103,7 +103,7 @@ fn test_take_large_list_size() {
     let fsl = FixedSizeListArray::new(elements, 100, Validity::NonNullable, 3);
 
     let indices = buffer![2u16, 0].into_array();
-    let result = fsl.take(indices.to_array()).unwrap();
+    let result = fsl.take(indices).unwrap();
 
     // Expected: [[200..300], [0..100]]
     let expected_elems = PrimitiveArray::from_iter((200i32..300).chain(0..100)).into_array();
@@ -128,6 +128,39 @@ fn test_take_fsl_with_null_indices_preserves_elements() {
         3,
     );
     assert_arrays_eq!(expected, result);
+}
+
+// Element index overflow: with u8 indices and list_size=16, data_idx=16 produces element index
+// 16*16=256 which overflows u8. The take kernel must widen the element index type.
+#[rstest]
+#[case::non_nullable(
+    FixedSizeListArray::new(
+        PrimitiveArray::from_iter(0u32..320).into_array(), 16, Validity::NonNullable, 20,
+    ),
+    buffer![0u8, 16, 5].into_array(),
+    FixedSizeListArray::new(
+        PrimitiveArray::from_iter((0u32..16).chain(256..272).chain(80..96)).into_array(),
+        16, Validity::NonNullable, 3,
+    ),
+)]
+#[case::nullable(
+    FixedSizeListArray::new(
+        PrimitiveArray::from_iter(0u32..320).into_array(), 16,
+        Validity::from_iter((0..20).map(|i| i != 5)), 20,
+    ),
+    buffer![0u8, 16, 5].into_array(),
+    FixedSizeListArray::new(
+        PrimitiveArray::from_iter((0u32..16).chain(256..272).chain(80..96)).into_array(),
+        16, Validity::from_iter([true, true, false]), 3,
+    ),
+)]
+fn test_element_index_overflow(
+    #[case] fsl: FixedSizeListArray,
+    #[case] indices: ArrayRef,
+    #[case] expected: FixedSizeListArray,
+) {
+    let result = fsl.take(indices).unwrap();
+    assert_arrays_eq!(result, expected);
 }
 
 // Parameterized test for nullable array scenarios that are specific to FSL's implementation.

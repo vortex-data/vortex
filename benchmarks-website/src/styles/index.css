@@ -35,6 +35,20 @@
   --radius-lg: 12px;
 }
 
+@media (prefers-color-scheme: dark) { :root {
+  --primary-color: var(--vortex-blue);
+  --primary-hover: #8a9cff;
+  --accent-color: var(--vortex-green);
+  --bg-color: #050507;
+  --bg-secondary: #121219;
+  --text-color: #F5F5F7;
+  --text-secondary: #A0A0B0;
+  --border-color: #30303a;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.6);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.7);
+  --shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.8);
+}}
+
 /* Reset and base styles */
 * {
   box-sizing: border-box;
@@ -100,6 +114,7 @@ code, pre {
   padding: 0 32px;
   width: 100%;
   gap: 24px;
+  background: var(--bg-secondary);
 }
 
 .header-left {
@@ -177,6 +192,7 @@ code, pre {
   padding: 8px 20px;
   border: 1px solid var(--border-color);
   background: var(--bg-color);
+  color: var(--text-color);
   border-radius: var(--radius-md);
   cursor: pointer;
   font-size: 14px;
@@ -206,6 +222,7 @@ code, pre {
   font-size: 14px;
   font-weight: 500;
   background: var(--bg-color);
+  color: var(--text-color);
   transition: border-color 0.2s;
 }
 
@@ -264,7 +281,7 @@ code, pre {
 /* Sidebar Navigation */
 .sidebar {
   width: var(--sidebar-width);
-  background: rgba(250, 250, 250, 0.98);
+  background: var(--bg-secondary);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   border-right: 1px solid var(--border-color);
@@ -508,6 +525,7 @@ code, pre {
   padding: 16px 32px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
   cursor: pointer;
   -webkit-user-select: none;
   user-select: none;
@@ -516,7 +534,7 @@ code, pre {
 }
 
 .benchmark-header:hover {
-  background: #F5F5F5;
+  background: var(--bg-color);
 }
 
 .title-wrapper {

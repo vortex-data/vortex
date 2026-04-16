@@ -106,7 +106,10 @@ mod common_tests {
                     factory.get_ext().to_uppercase(),
                     Arc::new(DefaultTableFactory::new()),
                 )
-                .with_object_store(&Url::try_from("file://").unwrap(), store.clone());
+                .with_object_store(
+                    &Url::try_from("file://").unwrap(),
+                    Arc::<InMemory>::clone(&store),
+                );
 
             if let Some(file_formats) = session_state_builder.file_formats() {
                 file_formats.push(factory as _);
@@ -124,7 +127,7 @@ mod common_tests {
             P: Into<object_store::path::Path>,
         {
             let array = ArrayRef::from_arrow(batch, false)?;
-            let mut write = ObjectStoreWrite::new(self.store.clone(), &path.into()).await?;
+            let mut write = ObjectStoreWrite::new(Arc::clone(&self.store), &path.into()).await?;
             VX_SESSION
                 .write_options()
                 .write(&mut write, array.to_array_stream())

@@ -5,7 +5,6 @@
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 
 use crate::Canonical;
 use crate::ExecutionCtx;
@@ -27,8 +26,10 @@ use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::VariantArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::dict::TakeReduce;
+use crate::arrays::variant::VariantArrayExt;
 
 /// Take from a canonical array using indices (codes), returning a new canonical array.
 ///
@@ -51,8 +52,12 @@ pub fn take_canonical(
         }
         Canonical::Struct(a) => Canonical::Struct(take_struct(&a, codes)),
         Canonical::Extension(a) => Canonical::Extension(take_extension(&a, codes, ctx)),
-        Canonical::Variant(_) => {
-            vortex_bail!("Variant arrays don't support Take")
+        Canonical::Variant(a) => {
+            let taken_child = a
+                .child()
+                .take(codes.clone().into_array())
+                .vortex_expect("VariantArray child could not be taken");
+            Canonical::Variant(VariantArray::new(taken_child))
         }
     })
 }
@@ -68,12 +73,12 @@ fn take_bool(
     codes: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<BoolArray> {
-    Ok(
-        <Bool as TakeExecute>::take(array, &codes.clone().into_array(), ctx)?
-            .vortex_expect("take bool should not return None")
-            .as_::<Bool>()
-            .clone(),
-    )
+    let codes_ref = codes.clone().into_array();
+    let array = array.as_view();
+    Ok(<Bool as TakeExecute>::take(array, &codes_ref, ctx)?
+        .vortex_expect("take bool should not return None")
+        .as_::<Bool>()
+        .into_owned())
 }
 
 fn take_primitive(
@@ -81,11 +86,13 @@ fn take_primitive(
     codes: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> PrimitiveArray {
-    <Primitive as TakeExecute>::take(array, &codes.clone().into_array(), ctx)
+    let codes_ref = codes.clone().into_array();
+    let array = array.as_view();
+    <Primitive as TakeExecute>::take(array, &codes_ref, ctx)
         .vortex_expect("take primitive array")
         .vortex_expect("take primitive should not return None")
         .as_::<Primitive>()
-        .clone()
+        .into_owned()
 }
 
 fn take_decimal(
@@ -93,11 +100,13 @@ fn take_decimal(
     codes: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> DecimalArray {
-    <Decimal as TakeExecute>::take(array, &codes.clone().into_array(), ctx)
+    let codes_ref = codes.clone().into_array();
+    let array = array.as_view();
+    <Decimal as TakeExecute>::take(array, &codes_ref, ctx)
         .vortex_expect("take decimal array")
         .vortex_expect("take decimal should not return None")
         .as_::<Decimal>()
-        .clone()
+        .into_owned()
 }
 
 fn take_varbinview(
@@ -105,19 +114,23 @@ fn take_varbinview(
     codes: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> VarBinViewArray {
-    <VarBinView as TakeExecute>::take(array, &codes.clone().into_array(), ctx)
+    let codes_ref = codes.clone().into_array();
+    let array = array.as_view();
+    <VarBinView as TakeExecute>::take(array, &codes_ref, ctx)
         .vortex_expect("take varbinview array")
         .vortex_expect("take varbinview should not return None")
         .as_::<VarBinView>()
-        .clone()
+        .into_owned()
 }
 
 fn take_listview(array: &ListViewArray, codes: &PrimitiveArray) -> ListViewArray {
-    <ListView as TakeReduce>::take(array, &codes.clone().into_array())
+    let codes_ref = codes.clone().into_array();
+    let array = array.as_view();
+    <ListView as TakeReduce>::take(array, &codes_ref)
         .vortex_expect("take listview array")
         .vortex_expect("take listview should not return None")
         .as_::<ListView>()
-        .clone()
+        .into_owned()
 }
 
 fn take_fixed_size_list(
@@ -125,19 +138,23 @@ fn take_fixed_size_list(
     codes: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> FixedSizeListArray {
-    <FixedSizeList as TakeExecute>::take(array, &codes.clone().into_array(), ctx)
+    let codes_ref = codes.clone().into_array();
+    let array = array.as_view();
+    <FixedSizeList as TakeExecute>::take(array, &codes_ref, ctx)
         .vortex_expect("take fixed size list array")
         .vortex_expect("take fixed size list should not return None")
         .as_::<FixedSizeList>()
-        .clone()
+        .into_owned()
 }
 
 fn take_struct(array: &StructArray, codes: &PrimitiveArray) -> StructArray {
-    <Struct as TakeReduce>::take(array, &codes.clone().into_array())
+    let codes_ref = codes.clone().into_array();
+    let array = array.as_view();
+    <Struct as TakeReduce>::take(array, &codes_ref)
         .vortex_expect("take struct array")
         .vortex_expect("take struct should not return None")
         .as_::<Struct>()
-        .clone()
+        .into_owned()
 }
 
 fn take_extension(
@@ -145,9 +162,11 @@ fn take_extension(
     codes: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> ExtensionArray {
-    <Extension as TakeExecute>::take(array, &codes.clone().into_array(), ctx)
+    let codes_ref = codes.clone().into_array();
+    let array = array.as_view();
+    <Extension as TakeExecute>::take(array, &codes_ref, ctx)
         .vortex_expect("take extension storage")
         .vortex_expect("take extension should not return None")
         .as_::<Extension>()
-        .clone()
+        .into_owned()
 }

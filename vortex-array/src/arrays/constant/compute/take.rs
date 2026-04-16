@@ -5,8 +5,10 @@ use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
+use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::MaskedArray;
@@ -17,8 +19,13 @@ use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 impl TakeReduce for Constant {
-    fn take(array: &ConstantArray, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        let result = match indices.validity_mask()?.bit_buffer() {
+    fn take(array: ArrayView<'_, Constant>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let result = match indices
+            .validity()?
+            .to_mask(indices.len(), &mut ctx)?
+            .bit_buffer()
+        {
             AllOr::All => {
                 let scalar = Scalar::try_new(
                     array
@@ -63,9 +70,10 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_mask::AllOr;
 
-    use crate::DynArray;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
     use crate::ToCanonical;
+    use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -99,7 +107,12 @@ mod tests {
             )
         );
         assert_eq!(
-            taken.validity_mask().unwrap().indices(),
+            taken
+                .validity()
+                .unwrap()
+                .to_mask(taken.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .indices(),
             AllOr::Some(valid_indices)
         );
     }
@@ -118,7 +131,15 @@ mod tests {
             taken.to_primitive(),
             PrimitiveArray::new(buffer![42i32, 42, 42], Validity::AllValid)
         );
-        assert_eq!(taken.validity_mask().unwrap().indices(), AllOr::All);
+        assert_eq!(
+            taken
+                .validity()
+                .unwrap()
+                .to_mask(taken.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .indices(),
+            AllOr::All
+        );
     }
 
     #[rstest]

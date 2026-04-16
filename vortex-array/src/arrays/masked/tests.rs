@@ -2,10 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use rstest::rstest;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use super::*;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::ToCanonical as _;
@@ -47,7 +47,7 @@ fn test_canonical_dtype_matches_array_dtype() -> VortexResult<()> {
     let array = MaskedArray::try_new(child, Validity::AllValid).unwrap();
 
     let canonical = array.to_canonical()?;
-    assert_eq!(canonical.as_ref().dtype(), array.dtype());
+    assert_eq!(canonical.dtype(), array.dtype());
     Ok(())
 }
 
@@ -58,10 +58,11 @@ fn test_masked_child_with_validity() {
     let array =
         MaskedArray::try_new(child, Validity::from_iter([true, false, true, false, true])).unwrap();
 
-    let prim = array.to_primitive();
+    let prim = array.as_array().to_primitive();
 
     // Positions where validity is false should be null in masked_child.
-    assert_eq!(prim.valid_count().unwrap(), 3);
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    assert_eq!(prim.valid_count(&mut ctx).unwrap(), 3);
     assert!(prim.is_valid(0).unwrap());
     assert!(!prim.is_valid(1).unwrap());
     assert!(prim.is_valid(2).unwrap());
@@ -73,10 +74,15 @@ fn test_masked_child_with_validity() {
 fn test_masked_child_all_valid() {
     // When validity is AllValid, masked_child should invert to AllInvalid.
     let child = PrimitiveArray::from_iter([10i32, 20, 30]).into_array();
-    let array = MaskedArray::try_new(child.clone(), Validity::AllValid).unwrap();
+    let array = MaskedArray::try_new(child, Validity::AllValid).unwrap();
 
     assert_eq!(array.len(), 3);
-    assert_eq!(array.valid_count().unwrap(), 3);
+    assert_eq!(
+        array
+            .valid_count(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap(),
+        3
+    );
     assert_arrays_eq!(
         PrimitiveArray::from_option_iter([10i32, 20, 30].map(Some)),
         array
@@ -94,7 +100,7 @@ fn test_masked_child_preserves_length(#[case] validity: Validity) {
         _ => 3,
     };
 
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     let child = PrimitiveArray::from_iter(0..len as i32).into_array();
     let array = MaskedArray::try_new(child, validity.clone()).unwrap();
 
@@ -104,7 +110,7 @@ fn test_masked_child_preserves_length(#[case] validity: Validity) {
     assert!(
         array
             .validity()
-            .unwrap()
+            .vortex_expect("masked validity should be derivable")
             .mask_eq(&validity, &mut ctx)
             .unwrap(),
     );

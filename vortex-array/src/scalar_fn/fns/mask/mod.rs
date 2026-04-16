@@ -17,6 +17,7 @@ use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -45,7 +46,7 @@ impl ScalarFnVTable for Mask {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.mask")
+        ScalarFnId::new("vortex.mask")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

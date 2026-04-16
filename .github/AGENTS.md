@@ -5,7 +5,6 @@ Nightly is required for:
 - `-Z` flags: sanitizers (`-Zsanitizer=address`), miri (`-Zmiri-*`), publish (`-Zpublish-timeout`)
 - `cargo-fuzz` (requires nightly)
 - `public-api` xtask (nightly rustdoc JSON)
-- `--cfg vortex_nightly` (enables `portable_simd` feature gate)
 
 Everything else (build, clippy, tests, docs, benchmarks, packaging) should use stable.
 

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayVTable;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Null;
 use vortex_array::arrays::NullArray;
@@ -9,7 +11,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::FieldNames;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ArrayId;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
@@ -27,7 +28,7 @@ impl FlatLayoutFixture for NullFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Null::ID]
+        vec![Null.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

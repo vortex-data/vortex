@@ -31,8 +31,7 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::SimplifyCtx;
-use crate::scalar_fn::fns::is_null::IsNull;
-use crate::scalar_fn::fns::not::Not;
+use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::options::ScalarFnOptions;
 use crate::scalar_fn::signature::ScalarFnSignature;
 use crate::scalar_fn::typed::DynScalarFn;
@@ -135,11 +134,7 @@ impl ScalarFnRef {
     pub fn validity(&self, expr: &Expression) -> VortexResult<Expression> {
         Ok(self.0.validity(expr)?.unwrap_or_else(|| {
             // TODO(ngates): make validity a mandatory method on VTable to avoid this fallback.
-            // TODO(ngates): add an IsNotNull expression.
-            Not.new_expr(
-                EmptyOptions,
-                [IsNull.new_expr(EmptyOptions, [expr.clone()])],
-            )
+            IsNotNull.new_expr(EmptyOptions, [expr.clone()])
         }))
     }
 

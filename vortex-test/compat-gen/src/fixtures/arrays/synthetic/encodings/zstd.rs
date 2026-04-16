@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
+use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
-use vortex::array::vtable::ArrayId;
 use vortex::encodings::zstd::Zstd;
-use vortex::encodings::zstd::ZstdArray;
 use vortex::error::VortexResult;
 
 use super::N;
@@ -28,7 +28,7 @@ impl FlatLayoutFixture for ZstdFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Zstd::ID]
+        vec![Zstd.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
@@ -87,14 +87,14 @@ impl FlatLayoutFixture for ZstdFixture {
                 "pseudo_random",
             ]),
             vec![
-                ZstdArray::from_primitive(&ints, 3, 128)?.into_array(),
-                ZstdArray::from_primitive(&floats, 3, 128)?.into_array(),
-                ZstdArray::from_primitive(&nullable_i64, 3, 128)?.into_array(),
-                ZstdArray::from_var_bin_view(&utf8, 3, 128)?.into_array(),
-                ZstdArray::from_var_bin_view(&nullable_utf8, 3, 128)?.into_array(),
-                ZstdArray::from_primitive(&all_zeros, 3, 128)?.into_array(),
-                ZstdArray::from_primitive(&all_null_i32, 3, 128)?.into_array(),
-                ZstdArray::from_primitive(&pseudo_random, 3, 128)?.into_array(),
+                Zstd::from_primitive(&ints, 3, 128)?.into_array(),
+                Zstd::from_primitive(&floats, 3, 128)?.into_array(),
+                Zstd::from_primitive(&nullable_i64, 3, 128)?.into_array(),
+                Zstd::from_var_bin_view(&utf8, 3, 128)?.into_array(),
+                Zstd::from_var_bin_view(&nullable_utf8, 3, 128)?.into_array(),
+                Zstd::from_primitive(&all_zeros, 3, 128)?.into_array(),
+                Zstd::from_primitive(&all_null_i32, 3, 128)?.into_array(),
+                Zstd::from_primitive(&pseudo_random, 3, 128)?.into_array(),
             ],
             N,
             Validity::NonNullable,

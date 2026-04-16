@@ -3,6 +3,7 @@
 
 package dev.vortex.spark;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -178,53 +179,100 @@ public final class VortexDataSourceWriteTest {
     }
 
     @Test
-    @DisplayName("Write and read Vortex files from S3")
-    public void testWriteAndReadFromS3() throws IOException {
-        // Skip test if AWS credentials or S3 base URI are not available
-        String awsAccessKey = System.getenv("AWS_ACCESS_KEY_ID");
-        String awsSecretKey = System.getenv("AWS_SECRET_ACCESS_KEY");
-        String s3BaseUri = System.getenv("VORTEX_TEST_S3_BASE_URI");
+    @DisplayName("Write and read partitioned Vortex files")
+    public void testPartitionedWrite() throws IOException {
+        // Given: a DataFrame with a partition column
+        List<Row> rows = Arrays.asList(
+                RowFactory.create(1, "alpha", "A"),
+                RowFactory.create(2, "beta", "B"),
+                RowFactory.create(3, "gamma", "A"),
+                RowFactory.create(4, "delta", "B"),
+                RowFactory.create(5, "epsilon", "A"));
 
-        Assumptions.assumeTrue(
-                awsAccessKey != null && awsSecretKey != null, "Skipping S3 test - AWS credentials not configured");
+        Dataset<Row> df = spark.createDataFrame(
+                rows,
+                DataTypes.createStructType(Arrays.asList(
+                        DataTypes.createStructField("id", DataTypes.IntegerType, false),
+                        DataTypes.createStructField("name", DataTypes.StringType, true),
+                        DataTypes.createStructField("group", DataTypes.StringType, true))));
 
-        Assumptions.assumeTrue(
-                s3BaseUri != null,
-                "Skipping S3 test - VORTEX_TEST_S3_BASE_URI not configured (e.g., s3://bucket/path)");
+        Path outputPath = tempDir.resolve("partitioned_output");
 
-        // Given: Create a test DataFrame
-        int numRows = 100;
-        Dataset<Row> originalDf = createTestDataFrame(numRows);
-
-        // When: Write to S3 (relying on environment credentials)
-        String s3Path = s3BaseUri + "/spark-test-" + System.currentTimeMillis();
-        originalDf
-                .repartition(2) // Force 2 partitions
-                .write()
+        // When: write with partitionBy
+        df.write()
                 .format("vortex")
-                .option("path", s3Path)
+                .partitionBy("group")
+                .option("path", outputPath.toUri().toString())
                 .mode(SaveMode.Overwrite)
                 .save();
 
-        // Then: Read back from S3
-        Dataset<Row> readDf =
-                spark.read().format("vortex").option("path", s3Path).load();
+        // Then: verify partition directories exist
+        assertTrue(Files.exists(outputPath.resolve("group=A")), "Partition directory group=A should exist");
+        assertTrue(Files.exists(outputPath.resolve("group=B")), "Partition directory group=B should exist");
 
-        // Verify schema is preserved
-        assertSchemaEquals(originalDf.schema(), readDf.schema());
+        // Verify vortex files inside partition directories
+        List<Path> filesA = findVortexFiles(outputPath.resolve("group=A"));
+        List<Path> filesB = findVortexFiles(outputPath.resolve("group=B"));
+        assertTrue(!filesA.isEmpty(), "Partition A should have vortex files");
+        assertTrue(!filesB.isEmpty(), "Partition B should have vortex files");
 
-        // Verify row count
-        assertEquals(numRows, readDf.count(), "Read DataFrame should have same number of rows as original");
+        // When: read back
+        Dataset<Row> readDf = spark.read()
+                .format("vortex")
+                .option("path", outputPath.toUri().toString())
+                .load();
 
-        // Verify data content
-        verifyDataContent(originalDf, readDf);
+        // Then: verify all rows are present
+        assertEquals(5, readDf.count(), "Should read all 5 rows back");
 
-        // Log the S3 path for debugging
-        System.out.println("Successfully wrote and read Vortex files from: " + s3Path);
+        // Verify partition values are correct
+        Dataset<Row> groupA = readDf.filter(readDf.col("group").equalTo("A")).orderBy("id");
+        assertEquals(3, groupA.count(), "Group A should have 3 rows");
+        assertEquals(1, (int) groupA.collectAsList().get(0).getAs("id"));
+        assertEquals(3, (int) groupA.collectAsList().get(1).getAs("id"));
+        assertEquals(5, (int) groupA.collectAsList().get(2).getAs("id"));
+    }
 
-        // Cleanup: Delete the test files from S3
-        // Note: In production, you might want to use AWS SDK for cleanup
-        // For now, we'll rely on a periodic cleanup job for the test folder
+    @Test
+    @DisplayName("Write and read with multiple partition columns")
+    public void testMultiColumnPartitionedWrite() throws IOException {
+        List<Row> rows = Arrays.asList(
+                RowFactory.create(1, "X", 10),
+                RowFactory.create(2, "Y", 20),
+                RowFactory.create(3, "X", 20),
+                RowFactory.create(4, "Y", 10));
+
+        Dataset<Row> df = spark.createDataFrame(
+                rows,
+                DataTypes.createStructType(Arrays.asList(
+                        DataTypes.createStructField("id", DataTypes.IntegerType, false),
+                        DataTypes.createStructField("category", DataTypes.StringType, true),
+                        DataTypes.createStructField("bucket", DataTypes.IntegerType, false))));
+
+        Path outputPath = tempDir.resolve("multi_partition_output");
+
+        df.write()
+                .format("vortex")
+                .partitionBy("category", "bucket")
+                .option("path", outputPath.toUri().toString())
+                .mode(SaveMode.Overwrite)
+                .save();
+
+        // Verify nested partition directories
+        assertTrue(
+                Files.exists(outputPath.resolve("category=X/bucket=10")),
+                "Partition directory category=X/bucket=10 should exist");
+        assertTrue(
+                Files.exists(outputPath.resolve("category=Y/bucket=20")),
+                "Partition directory category=Y/bucket=20 should exist");
+
+        // Read back and verify
+        Dataset<Row> readDf = spark.read()
+                .format("vortex")
+                .option("path", outputPath.toUri().toString())
+                .load();
+
+        assertEquals(4, readDf.count(), "Should read all 4 rows back");
     }
 
     @Test
@@ -277,6 +325,73 @@ public final class VortexDataSourceWriteTest {
         assertEquals("special!@#$%^&*()", specialRows.first().getString(1));
     }
 
+    @Test
+    @DisplayName("Write and read date, timestamp, and nested struct columns")
+    public void testWriteAndReadTemporalAndStructColumns() throws IOException {
+        Dataset<Row> originalDf = spark.range(0, 2)
+                .selectExpr(
+                        "cast(id as int) as id",
+                        "CASE WHEN id = 0 THEN CAST('2024-01-02' AS DATE) ELSE CAST('2024-02-03' AS DATE) END AS event_date",
+                        "CASE WHEN id = 0 THEN CAST('2024-01-02 03:04:05.123456' AS TIMESTAMP) "
+                                + "ELSE CAST('2024-02-03 04:05:06.654321' AS TIMESTAMP) END AS event_ts",
+                        "named_struct("
+                                + "'event_date', CASE WHEN id = 0 THEN CAST('2024-01-02' AS DATE) ELSE CAST('2024-02-03' AS DATE) END, "
+                                + "'event_ts', CASE WHEN id = 0 THEN CAST('2024-01-02 03:04:05.123456' AS TIMESTAMP) "
+                                + "ELSE CAST('2024-02-03 04:05:06.654321' AS TIMESTAMP) END, "
+                                + "'label', CASE WHEN id = 0 THEN 'alpha' ELSE 'beta' END"
+                                + ") AS payload");
+
+        Path outputPath = tempDir.resolve("temporal_struct_output");
+        originalDf
+                .write()
+                .format("vortex")
+                .option("path", outputPath.toUri().toString())
+                .mode(SaveMode.Overwrite)
+                .save();
+
+        Dataset<Row> readDf = spark.read()
+                .format("vortex")
+                .option("path", outputPath.toUri().toString())
+                .load();
+
+        List<String> expectedRows = List.of(
+                "{\"id\":0,\"event_date\":\"2024-01-02\",\"event_ts\":\"2024-01-02 03:04:05.123456\","
+                        + "\"payload_event_date\":\"2024-01-02\",\"payload_event_ts\":\"2024-01-02 03:04:05.123456\","
+                        + "\"payload_label\":\"alpha\"}",
+                "{\"id\":1,\"event_date\":\"2024-02-03\",\"event_ts\":\"2024-02-03 04:05:06.654321\","
+                        + "\"payload_event_date\":\"2024-02-03\",\"payload_event_ts\":\"2024-02-03 04:05:06.654321\","
+                        + "\"payload_label\":\"beta\"}");
+
+        assertEquals(DataTypes.DateType, readDf.schema().fields()[1].dataType());
+        assertEquals(DataTypes.TimestampType, readDf.schema().fields()[2].dataType());
+        assertTrue(readDf.schema().fields()[3].dataType() instanceof StructType);
+        assertEquals(expectedRows, projectTemporalAndStructRows(readDf));
+    }
+
+    @Test
+    @DisplayName("Write TimestampNTZ columns and nested structs")
+    public void testWriteTimestampNtzColumns() throws IOException {
+        Dataset<Row> timestampNtzDf = spark.range(0, 2)
+                .selectExpr(
+                        "cast(id as int) as id",
+                        "CASE WHEN id = 0 THEN CAST('2024-01-02 03:04:05.123456' AS TIMESTAMP_NTZ) "
+                                + "ELSE CAST(NULL AS TIMESTAMP_NTZ) END AS event_ntz",
+                        "named_struct("
+                                + "'event_ntz', CASE WHEN id = 0 THEN CAST('2024-01-02 03:04:05.123456' AS TIMESTAMP_NTZ) "
+                                + "ELSE CAST('2024-02-03 04:05:06.654321' AS TIMESTAMP_NTZ) END"
+                                + ") AS payload");
+
+        Path outputPath = tempDir.resolve("timestamp_ntz_output");
+        assertDoesNotThrow(() -> timestampNtzDf
+                .write()
+                .format("vortex")
+                .option("path", outputPath.toUri().toString())
+                .mode(SaveMode.Overwrite)
+                .save());
+
+        assertTrue(!findVortexFiles(outputPath).isEmpty(), "TimestampNTZ write should create Vortex files");
+    }
+
     /**
      * Creates a test DataFrame with monotonically increasing integers
      * and their string representations.
@@ -288,6 +403,23 @@ public final class VortexDataSourceWriteTest {
                         "cast(id as int) as id",
                         "concat('value_', cast(id as string)) as value",
                         "array('Alpha', 'Bravo', 'Charlie') AS elements");
+    }
+
+    private List<String> projectTemporalAndStructRows(Dataset<Row> df) {
+        return df
+                .orderBy("id")
+                .selectExpr("to_json(named_struct("
+                        + "'id', id, "
+                        + "'event_date', cast(event_date as string), "
+                        + "'event_ts', date_format(event_ts, 'yyyy-MM-dd HH:mm:ss.SSSSSS'), "
+                        + "'payload_event_date', cast(payload.event_date as string), "
+                        + "'payload_event_ts', date_format(payload.event_ts, 'yyyy-MM-dd HH:mm:ss.SSSSSS'), "
+                        + "'payload_label', payload.label"
+                        + ")) as json")
+                .collectAsList()
+                .stream()
+                .map(row -> row.getString(0))
+                .collect(Collectors.toList());
     }
 
     /**

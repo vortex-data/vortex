@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod reader;
-pub mod writer;
 
 use std::sync::Arc;
 
@@ -43,7 +42,7 @@ impl VTable for Struct {
     type Metadata = EmptyMetadata;
 
     fn id(_encoding: &Self::Encoding) -> LayoutId {
-        LayoutId::new_ref("vortex.struct")
+        LayoutId::new("vortex.struct")
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {

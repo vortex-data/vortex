@@ -8,7 +8,6 @@ use vortex_error::VortexExpect;
 use crate::arrays::DecimalArray;
 use crate::dtype::DecimalType;
 use crate::dtype::i256;
-use crate::vtable::ValidityHelper;
 
 macro_rules! try_downcast {
     ($array:expr, from: $src:ty, to: $($dst:ty),*) => {{
@@ -29,7 +28,9 @@ macro_rules! try_downcast {
                                 .map(|v| <$dst as BigCast>::from(v).vortex_expect("decimal conversion failure"))
                                 .collect(),
                             $array.decimal_dtype(),
-                            $array.validity().clone(),
+                            $array
+                                .validity()
+                                .vortex_expect("decimal validity should be derivable"),
                         );
                     }
                 )*

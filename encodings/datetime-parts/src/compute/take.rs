@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
@@ -16,9 +16,11 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::DateTimeParts;
-use crate::DateTimePartsArray;
-
-fn take_datetime_parts(array: &DateTimePartsArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
+use crate::array::DateTimePartsArrayExt;
+fn take_datetime_parts(
+    array: ArrayView<DateTimeParts>,
+    indices: &ArrayRef,
+) -> VortexResult<ArrayRef> {
     // we go ahead and canonicalize here to avoid worst-case canonicalizing 3 separate times
     let indices = indices.to_primitive();
 
@@ -36,13 +38,10 @@ fn take_datetime_parts(array: &DateTimePartsArray, indices: &ArrayRef) -> Vortex
     };
 
     if !taken_seconds.dtype().is_nullable() && !taken_subseconds.dtype().is_nullable() {
-        return Ok(DateTimePartsArray::try_new(
-            dtype,
-            taken_days,
-            taken_seconds,
-            taken_subseconds,
-        )?
-        .into_array());
+        return Ok(
+            DateTimeParts::try_new(dtype, taken_days, taken_seconds, taken_subseconds)?
+                .into_array(),
+        );
     }
 
     // DateTimePartsArray requires seconds and subseconds to be non-nullable.
@@ -79,15 +78,12 @@ fn take_datetime_parts(array: &DateTimePartsArray, indices: &ArrayRef) -> Vortex
         .cast(array.subseconds().dtype())?;
     let taken_subseconds = taken_subseconds.fill_null(subseconds_fill)?;
 
-    Ok(
-        DateTimePartsArray::try_new(dtype, taken_days, taken_seconds, taken_subseconds)?
-            .into_array(),
-    )
+    Ok(DateTimeParts::try_new(dtype, taken_days, taken_seconds, taken_subseconds)?.into_array())
 }
 
 impl TakeExecute for DateTimeParts {
     fn take(
-        array: &DateTimePartsArray,
+        array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -105,10 +101,11 @@ mod tests {
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_buffer::buffer;
 
+    use crate::DateTimeParts;
     use crate::DateTimePartsArray;
 
     #[rstest]
-    #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+    #[case(DateTimeParts::try_from_temporal(TemporalArray::new_timestamp(
         buffer![
             0i64,
             86_400_000,  // 1 day in ms
@@ -119,7 +116,7 @@ mod tests {
         TimeUnit::Milliseconds,
         Some("UTC".into())
     )).unwrap())]
-    #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+    #[case(DateTimeParts::try_from_temporal(TemporalArray::new_timestamp(
         PrimitiveArray::from_option_iter([
             Some(0i64),
             None,
@@ -130,7 +127,7 @@ mod tests {
         TimeUnit::Milliseconds,
         Some("UTC".into())
     )).unwrap())]
-    #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+    #[case(DateTimeParts::try_from_temporal(TemporalArray::new_timestamp(
         buffer![86_400_000i64].into_array(),
         TimeUnit::Milliseconds,
         Some("UTC".into())

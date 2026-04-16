@@ -6,8 +6,11 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
+use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::chunked::paired_chunks::PairedChunksExt;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::zip::ZipKernel;
 
@@ -16,7 +19,7 @@ use crate::scalar_fn::fns::zip::ZipKernel;
 // then zips once.
 impl ZipKernel for Chunked {
     fn zip(
-        if_true: &ChunkedArray,
+        if_true: ArrayView<'_, Chunked>,
         if_false: &ArrayRef,
         mask: &ArrayRef,
         _ctx: &mut ExecutionCtx,
@@ -29,7 +32,7 @@ impl ZipKernel for Chunked {
             .union_nullability(if_false.dtype().nullability());
         let mut out_chunks = Vec::with_capacity(if_true.nchunks() + if_false.nchunks());
 
-        for pair in if_true.paired_chunks(if_false) {
+        for pair in if_true.paired_chunks(&if_false) {
             let pair = pair?;
             let mask_slice = mask.slice(pair.pos)?;
             out_chunks.push(mask_slice.zip(pair.left, pair.right)?);
@@ -53,6 +56,7 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
+    use crate::arrays::chunked::ChunkedArrayExt;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;

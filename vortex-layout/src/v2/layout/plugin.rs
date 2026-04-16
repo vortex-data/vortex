@@ -54,7 +54,7 @@ impl<V: LayoutVTable> LayoutPlugin for V {
             args.dtype,
             args.row_count,
             &args.children,
-            &args.array_ctx,
+            args.array_ctx,
         )?;
         Ok(LayoutRef(Arc::new(Layout {
             vtable: self.clone(),
@@ -63,7 +63,7 @@ impl<V: LayoutVTable> LayoutPlugin for V {
             row_count: args.row_count,
             children: args.children,
             segments: args.segments,
-            segment_source: args.segment_source.clone(),
+            segment_source: Arc::clone(args.segment_source),
             array_ctx: args.array_ctx.clone(),
             session: args.session.clone(),
         })))

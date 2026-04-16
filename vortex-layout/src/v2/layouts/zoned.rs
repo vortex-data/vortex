@@ -54,15 +54,15 @@ impl LayoutVTable for Zoned {
     type Metadata = ZonedMetadata;
 
     fn id(&self) -> LayoutId {
-        LayoutId::new_ref("vortex.stats")
+        LayoutId::new_static("vortex.stats")
     }
 
     fn deserialize_metadata(
         metadata: &[u8],
-        dtype: &DType,
-        row_count: u64,
-        children: &[LayoutChild],
-        array_ctx: &ReadContext,
+        _dtype: &DType,
+        _row_count: u64,
+        _children: &[LayoutChild],
+        _array_ctx: &ReadContext,
     ) -> VortexResult<Self::Metadata> {
         let zone_len = u32::try_from_le_bytes(&metadata[0..4])? as u64;
         let present_stats: Arc<[Stat]> = stats_from_bitset_bytes(&metadata[4..]).into();

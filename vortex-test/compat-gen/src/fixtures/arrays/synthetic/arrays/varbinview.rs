@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayVTable;
 use vortex_array::IntoArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::dtype::FieldNames;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ArrayId;
 use vortex_error::VortexResult;
 
 use crate::fixtures::FlatLayoutFixture;
@@ -25,7 +26,7 @@ impl FlatLayoutFixture for VarBinViewFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![VarBinView::ID]
+        vec![VarBinView.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

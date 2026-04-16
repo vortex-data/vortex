@@ -10,15 +10,19 @@ use crate::ArrayRef;
 use crate::arrays::StructArray;
 use crate::arrays::filter::execute::filter_validity;
 use crate::arrays::filter::execute::values_to_mask;
-use crate::vtable::ValidityHelper;
+use crate::arrays::struct_::StructArrayExt;
 
 pub fn filter_struct(array: &StructArray, mask: &Arc<MaskValues>) -> StructArray {
-    let filtered_validity = filter_validity(array.validity().clone(), mask);
+    let filtered_validity = filter_validity(
+        array
+            .validity()
+            .vortex_expect("struct validity should be derivable"),
+        mask,
+    );
 
     let mask_for_filter = values_to_mask(mask);
     let fields: Vec<ArrayRef> = array
-        .unmasked_fields()
-        .iter()
+        .iter_unmasked_fields()
         .map(|field| {
             field
                 .filter(mask_for_filter.clone())

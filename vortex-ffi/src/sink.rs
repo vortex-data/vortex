@@ -10,9 +10,9 @@ use futures::channel::mpsc;
 use futures::channel::mpsc::Sender;
 use vortex::array::ArrayRef;
 use vortex::array::stream::ArrayStreamAdapter;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteSummary;
@@ -27,7 +27,7 @@ use crate::error::try_or_default;
 use crate::error::vx_error;
 use crate::session::vx_session;
 
-#[allow(non_camel_case_types)]
+#[expect(non_camel_case_types)]
 /// The `sink` interface is used to collect array chunks and place them into a resource
 /// (e.g. an array stream or file (`vx_array_sink_open_file`)).
 ///
@@ -79,20 +79,23 @@ pub unsafe extern "C-unwind" fn vx_array_sink_open_file(
     })
 }
 
-/// Pushed a single array chunk into a file sink.
+/// Push an array into a file sink.
+/// Does not take ownership of array
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_sink_push(
     sink: *mut vx_array_sink,
     array: *const vx_array,
     error_out: *mut *mut vx_error,
 ) {
-    let array = vx_array::as_ref(array);
-    // TODO(joe): propagate this error up instead of expecting
-    let sink = unsafe { sink.as_mut().vortex_expect("null array stream") };
     try_or_default(error_out, || {
+        vortex_ensure!(!array.is_null());
+        vortex_ensure!(!sink.is_null());
+
+        let array = vx_array::as_ref(array);
+        let sink = unsafe { &mut *sink };
         RUNTIME
             .block_on(sink.sink.send(Ok(array.clone())))
-            .map_err(|e| vortex_err!("send error {}", e.to_string()))
+            .map_err(|e| vortex_err!("Send error: {e}"))
     })
 }
 
@@ -134,6 +137,7 @@ mod tests {
     use crate::dtype::vx_dtype;
     use crate::dtype::vx_dtype_free;
     use crate::error::vx_error_free;
+    use crate::session::vx_session_free;
     use crate::session::vx_session_new;
 
     #[test]
@@ -156,7 +160,7 @@ mod tests {
 
             // Create and push an array
             let array = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-            let vx_array_ptr = vx_array::new(array.into_array());
+            let vx_array_ptr = vx_array::new(Arc::new(array.into_array()));
 
             vx_array_sink_push(sink, vx_array_ptr, &raw mut error);
             assert!(error.is_null());
@@ -168,6 +172,7 @@ mod tests {
             // Cleanup
             vx_array_free(vx_array_ptr);
             vx_dtype_free(vx_dtype_ptr);
+            vx_session_free(session);
         }
     }
 
@@ -195,7 +200,7 @@ mod tests {
                     buffer![start as u64, (start + 1) as u64, (start + 2) as u64],
                     Validity::NonNullable,
                 );
-                let vx_array_ptr = vx_array::new(array.into_array());
+                let vx_array_ptr = vx_array::new(Arc::new(array.into_array()));
 
                 vx_array_sink_push(sink, vx_array_ptr, &raw mut error);
                 assert!(error.is_null());
@@ -207,6 +212,7 @@ mod tests {
             assert!(error.is_null());
 
             vx_dtype_free(vx_dtype_ptr);
+            vx_session_free(session);
         }
     }
 
@@ -233,7 +239,7 @@ mod tests {
             if !sink.is_null() {
                 // Push an array
                 let array = PrimitiveArray::new(buffer![1i32], Validity::NonNullable);
-                let vx_array_ptr = vx_array::new(array.into_array());
+                let vx_array_ptr = vx_array::new(Arc::new(array.into_array()));
                 vx_array_sink_push(sink, vx_array_ptr, &raw mut error);
                 vx_array_free(vx_array_ptr);
 
@@ -251,6 +257,7 @@ mod tests {
             }
 
             vx_dtype_free(vx_dtype_ptr);
+            vx_session_free(session);
         }
     }
 
@@ -273,6 +280,7 @@ mod tests {
 
             vx_error_free(error);
             vx_dtype_free(vx_dtype_ptr);
+            vx_session_free(session);
         }
     }
 }

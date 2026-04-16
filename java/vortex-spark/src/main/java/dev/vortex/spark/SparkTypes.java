@@ -121,6 +121,7 @@ public final class SparkTypes {
 
                 return DataTypes.createStructType(fields);
             case LIST:
+            case FIXED_SIZE_LIST:
                 return DataTypes.createArrayType(toDataType(dType.getElementType()), dType.isNullable());
             case EXTENSION:
                 /*

@@ -7,8 +7,8 @@ use std::sync::Arc;
 use bytes::Buf;
 use flatbuffers::root;
 use flatbuffers::root_unchecked;
-use vortex_array::serde::ArrayParts;
-use vortex_array::vtable::ArrayId;
+use vortex_array::ArrayId;
+use vortex_array::serde::SerializedArray;
 use vortex_buffer::AlignedBuf;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
@@ -25,7 +25,7 @@ use vortex_session::registry::ReadContext;
 /// A message decoded from an IPC stream.
 #[derive(Debug)]
 pub enum DecoderMessage {
-    Array((ArrayParts, ReadContext, usize)),
+    Array((SerializedArray, ReadContext, usize)),
     Buffer(ByteBuffer),
     DType(FlatBuffer),
 }
@@ -115,7 +115,7 @@ impl MessageDecoder {
                         MessageHeader::ArrayMessage => {
                             // We don't care about alignment here since ArrayParts will handle it.
                             let body = bytes.copy_to_aligned(body_length, Alignment::new(1));
-                            let parts = ArrayParts::try_from(body)?;
+                            let parts = SerializedArray::try_from(body)?;
 
                             let header = msg
                                 .header_as_array_message()
@@ -125,7 +125,7 @@ impl MessageDecoder {
                                 .encodings()
                                 .iter()
                                 .flat_map(|e| e.iter())
-                                .map(|id| ArrayId::new_arc(Arc::from(id.to_string())))
+                                .map(ArrayId::new)
                                 .collect();
 
                             let ctx = ReadContext::new(encoding_ids);
@@ -168,7 +168,6 @@ impl MessageDecoder {
 mod test {
     use bytes::BytesMut;
     use vortex_array::ArrayRef;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_buffer::buffer;
@@ -181,7 +180,7 @@ mod test {
 
     fn write_and_read(expected: &ArrayRef) {
         let mut ipc_bytes = BytesMut::new();
-        let mut encoder = MessageEncoder::default();
+        let mut encoder = MessageEncoder::new(SESSION.clone());
         for buf in encoder.encode(EncoderMessage::Array(expected)).unwrap() {
             ipc_bytes.extend_from_slice(buf.as_ref());
         }

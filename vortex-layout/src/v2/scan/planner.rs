@@ -5,13 +5,12 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::expr::Expression;
 use vortex_array::optimizer::ArrayOptimizer;
-use vortex_array::serde::ArrayParts;
+use vortex_array::serde::SerializedArray;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -246,7 +245,7 @@ impl<'a> PlanBuilder<'a> {
             lifetime: self.row_range_lifetime(row_range.clone()),
             compute: move |mut args: ComputeArgs| {
                 let buffer = args.segments.remove(0);
-                let parts = ArrayParts::try_from(buffer)?;
+                let parts = SerializedArray::try_from(buffer)?;
                 parts.decode(&dtype, len, &array_ctx, args.ctx.session())
             },
         })

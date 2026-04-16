@@ -2,9 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::Nullable;
@@ -32,7 +33,6 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
             array.dtype().as_ptype(),
             |In| {
                 match_each_integer_ptype!(target.as_ptype(), |Out| {
-                    // Since the cast itself would truncate.
                     #[allow(clippy::cast_possible_truncation)]
                     PrimitiveArray::new(
                         array
@@ -41,7 +41,12 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
                             .iter()
                             .map(|v| *v as Out)
                             .collect::<Buffer<Out>>(),
-                        Validity::from_mask(array.validity_mask()?, target.nullability()),
+                        Validity::from_mask(
+                            array
+                                .validity()?
+                                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())?,
+                            target.nullability(),
+                        ),
                     )
                     .into_array()
                 })
@@ -67,13 +72,18 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
                         .iter()
                         .map(|v| *v as f64)
                         .collect::<Buffer<f64>>(),
-                    Validity::from_mask(array.validity_mask()?, target.nullability()),
+                    Validity::from_mask(
+                        array
+                            .validity()?
+                            .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())?,
+                        target.nullability(),
+                    ),
                 )
                 .into_array(),
             )),
             (PType::F64, PType::F32) =>
             {
-                #[allow(clippy::cast_possible_truncation)]
+                #[expect(clippy::cast_possible_truncation)]
                 Ok(Some(
                     PrimitiveArray::new(
                         array
@@ -82,7 +92,12 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
                             .iter()
                             .map(|v| *v as f32)
                             .collect::<Buffer<f32>>(),
-                        Validity::from_mask(array.validity_mask()?, target.nullability()),
+                        Validity::from_mask(
+                            array
+                                .validity()?
+                                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())?,
+                            target.nullability(),
+                        ),
                     )
                     .into_array(),
                 ))

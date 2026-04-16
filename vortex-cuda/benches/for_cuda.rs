@@ -3,8 +3,8 @@
 
 //! CUDA benchmarks for FoR decompression.
 
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::cast_possible_truncation)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::cast_possible_truncation)]
 
 mod common;
 
@@ -25,7 +25,8 @@ use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;
 use vortex::dtype::PType;
-use vortex::encodings::fastlanes::BitPackedArray;
+use vortex::encodings::fastlanes::BitPackedData;
+use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::fastlanes::FoRArray;
 use vortex::error::VortexExpect;
 use vortex::scalar::Scalar;
@@ -55,12 +56,11 @@ where
         PrimitiveArray::new(Buffer::from(data), Validity::NonNullable).into_array();
 
     if bp && T::PTYPE != PType::U8 {
-        let child = BitPackedArray::encode(&primitive_array, 8).vortex_expect("failed to bitpack");
-        FoRArray::try_new(child.into_array(), reference.into())
+        let child = BitPackedData::encode(&primitive_array, 8).vortex_expect("failed to bitpack");
+        FoR::try_new(child.into_array(), reference.into())
             .vortex_expect("failed to create FoR array")
     } else {
-        FoRArray::try_new(primitive_array, reference.into())
-            .vortex_expect("failed to create FoR array")
+        FoR::try_new(primitive_array, reference.into()).vortex_expect("failed to create FoR array")
     }
 }
 
@@ -71,7 +71,6 @@ where
     Scalar: From<T>,
 {
     let mut group = c.benchmark_group("for_cuda");
-    group.sample_size(10);
 
     for &(len, len_str) in BENCH_ARGS {
         group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
@@ -110,7 +109,6 @@ where
     Scalar: From<T>,
 {
     let mut group = c.benchmark_group("ffor_cuda");
-    group.sample_size(10);
 
     for &(len, len_str) in BENCH_ARGS {
         group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
@@ -159,7 +157,15 @@ fn benchmark_ffor(c: &mut Criterion) {
     benchmark_ffor_typed::<u64>(c, "u64");
 }
 
-criterion::criterion_group!(benches, benchmark_for, benchmark_ffor);
+criterion::criterion_group! {
+    name = benches;
+    config = Criterion::default().without_plots()
+        .sample_size(10)
+        .warm_up_time(Duration::from_nanos(1))
+        .measurement_time(Duration::from_nanos(1))
+        .nresamples(10);
+    targets = benchmark_for, benchmark_ffor
+}
 
 #[cuda_available]
 criterion::criterion_main!(benches);

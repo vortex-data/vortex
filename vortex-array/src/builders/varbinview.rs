@@ -20,6 +20,8 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::build_views::BinaryView;
 use crate::arrays::varbinview::compact::BufferUtilization;
@@ -165,6 +167,12 @@ impl VarBinViewBuilder {
         self.completed.len()
     }
 
+    /// Returns true if a non-empty in-progress buffer is staged (and would
+    /// become a completed buffer on the next flush), false otherwise.
+    pub fn in_progress(&self) -> bool {
+        !self.in_progress.is_empty()
+    }
+
     /// Pushes buffers and pre-adjusted views into the builder.
     ///
     /// The provided `buffers` contain sections of data from a `VarBinViewArray`, and the
@@ -291,8 +299,14 @@ impl ArrayBuilder for VarBinViewBuilder {
 
         self.push_only_validity_mask(
             array
-                .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+                .as_ref()
+                .validity()
+                .vortex_expect("validity_mask")
+                .to_mask(
+                    array.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )
+                .vortex_expect("Failed to compute validity mask"),
         );
 
         let view_adjustment =
@@ -309,33 +323,41 @@ impl ArrayBuilder for VarBinViewBuilder {
                     .iter()
                     .map(|view| adjustment.adjust_view(view)),
             ),
-            ViewAdjustment::Rewriting(adjustment) => match array
-                .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked")
-            {
-                Mask::AllTrue(_) => {
-                    for (idx, &view) in array.views().iter().enumerate() {
-                        let new_view = self.push_view(view, &adjustment, &array, idx);
-                        self.views_builder.push(new_view);
+            ViewAdjustment::Rewriting(adjustment) => {
+                match array
+                    .as_ref()
+                    .validity()
+                    .vortex_expect("validity_mask")
+                    .to_mask(
+                        array.as_ref().len(),
+                        &mut LEGACY_SESSION.create_execution_ctx(),
+                    )
+                    .vortex_expect("Failed to compute validity mask")
+                {
+                    Mask::AllTrue(_) => {
+                        for (idx, &view) in array.views().iter().enumerate() {
+                            let new_view = self.push_view(view, &adjustment, &array, idx);
+                            self.views_builder.push(new_view);
+                        }
+                    }
+                    Mask::AllFalse(_) => {
+                        self.views_builder
+                            .push_n(BinaryView::empty_view(), array.len());
+                    }
+                    Mask::Values(v) => {
+                        for (idx, (&view, is_valid)) in
+                            array.views().iter().zip(v.bit_buffer().iter()).enumerate()
+                        {
+                            let new_view = if !is_valid {
+                                BinaryView::empty_view()
+                            } else {
+                                self.push_view(view, &adjustment, &array, idx)
+                            };
+                            self.views_builder.push(new_view);
+                        }
                     }
                 }
-                Mask::AllFalse(_) => {
-                    self.views_builder
-                        .push_n(BinaryView::empty_view(), array.len());
-                }
-                Mask::Values(v) => {
-                    for (idx, (&view, is_valid)) in
-                        array.views().iter().zip(v.bit_buffer().iter()).enumerate()
-                    {
-                        let new_view = if !is_valid {
-                            BinaryView::empty_view()
-                        } else {
-                            self.push_view(view, &adjustment, &array, idx)
-                        };
-                        self.views_builder.push(new_view);
-                    }
-                }
-            },
+            }
         }
     }
 
@@ -390,7 +412,7 @@ impl Default for CompletedBuffers {
 }
 
 // Self::push enforces len < u32::max
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 impl CompletedBuffers {
     fn len(&self) -> u32 {
         match self {
@@ -476,7 +498,7 @@ pub struct DeduplicatedBuffers {
 
 impl DeduplicatedBuffers {
     // Self::push enforces len < u32::max
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     fn len(&self) -> u32 {
         self.buffers.len() as u32
     }
@@ -601,7 +623,7 @@ impl BuffersWithOffsets {
             return Self::AllKept {
                 buffers: Arc::from(
                     array
-                        .buffers()
+                        .data_buffers()
                         .to_vec()
                         .into_iter()
                         .map(|b| b.unwrap_host())
@@ -624,20 +646,19 @@ impl BuffersWithOffsets {
             }
         }
 
-        let buffers_with_offsets_iter =
-            buffer_utilizations
-                .iter()
-                .zip(array.buffers().iter())
-                .map(|(utilization, buffer)| {
-                    match compaction_strategy(utilization, compaction_threshold) {
-                        CompactionStrategy::KeepFull => (Some(buffer.as_host().clone()), 0),
-                        CompactionStrategy::Slice { start, end } => (
-                            Some(buffer.as_host().slice(start as usize..end as usize)),
-                            start,
-                        ),
-                        CompactionStrategy::Rewrite => (None, 0),
-                    }
-                });
+        let buffers_with_offsets_iter = buffer_utilizations
+            .iter()
+            .zip(array.data_buffers().iter())
+            .map(|(utilization, buffer)| {
+                match compaction_strategy(utilization, compaction_threshold) {
+                    CompactionStrategy::KeepFull => (Some(buffer.as_host().clone()), 0),
+                    CompactionStrategy::Slice { start, end } => (
+                        Some(buffer.as_host().slice(start as usize..end as usize)),
+                        start,
+                    ),
+                    CompactionStrategy::Rewrite => (None, 0),
+                }
+            });
 
         match (has_rewrite, has_nonzero_offset) {
             // keep all buffers
@@ -906,7 +927,7 @@ mod tests {
             builder.finish_into_varbinview()
         };
 
-        assert_eq!(array.buffers().len(), 1);
+        assert_eq!(array.data_buffers().len(), 1);
         let mut builder =
             VarBinViewBuilder::with_buffer_deduplication(DType::Utf8(Nullability::Nullable), 10);
 

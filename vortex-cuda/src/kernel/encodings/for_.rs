@@ -9,16 +9,18 @@ use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::array::DynArray;
+use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::Slice;
-use vortex::array::arrays::primitive::PrimitiveArrayParts;
+use vortex::array::arrays::primitive::PrimitiveDataParts;
+use vortex::array::arrays::slice::SliceArrayExt;
 use vortex::array::match_each_integer_ptype;
 use vortex::array::match_each_native_simd_ptype;
 use vortex::dtype::NativePType;
 use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::fastlanes::FoRArray;
+use vortex::encodings::fastlanes::FoRArrayExt;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
@@ -36,7 +38,7 @@ pub(crate) struct FoRExecutor;
 
 impl FoRExecutor {
     fn try_specialize(array: ArrayRef) -> Option<FoRArray> {
-        array.try_into::<FoR>().ok()
+        array.try_downcast::<FoR>().ok()
     }
 }
 
@@ -52,9 +54,9 @@ impl CudaExecute for FoRExecutor {
 
         // Fuse FOR + BP => FFOR
         if let Some(bitpacked) = array.encoded().as_opt::<BitPacked>() {
-            match_each_integer_ptype!(bitpacked.ptype(), |P| {
+            match_each_integer_ptype!(bitpacked.ptype(bitpacked.dtype()), |P| {
                 let reference: P = array.reference_scalar().try_into()?;
-                return decode_bitpacked(bitpacked.clone(), reference, ctx).await;
+                return decode_bitpacked(bitpacked.into_owned(), reference, ctx).await;
             })
         }
 
@@ -63,12 +65,16 @@ impl CudaExecute for FoRExecutor {
             && let Some(bitpacked) = slice_array.child().as_opt::<BitPacked>()
         {
             let slice_range = slice_array.slice_range().clone();
-            let unpacked = match_each_integer_ptype!(bitpacked.ptype(), |P| {
+            let unpacked = match_each_integer_ptype!(bitpacked.ptype(bitpacked.dtype()), |P| {
                 let reference: P = array.reference_scalar().try_into()?;
-                decode_bitpacked(bitpacked.clone(), reference, ctx).await?
+                decode_bitpacked(bitpacked.into_owned(), reference, ctx).await?
             });
 
-            return unpacked.into_primitive().slice(slice_range)?.to_canonical();
+            return unpacked
+                .into_primitive()
+                .into_array()
+                .slice(slice_range)?
+                .to_canonical();
         }
 
         match_each_native_simd_ptype!(array.ptype(), |P| { decode_for::<P>(array, ctx).await })
@@ -92,9 +98,9 @@ where
     // Execute child and copy to device
     let canonical = array.encoded().clone().execute_cuda(ctx).await?;
     let primitive = canonical.into_primitive();
-    let PrimitiveArrayParts {
+    let PrimitiveDataParts {
         buffer, validity, ..
-    } = primitive.into_parts();
+    } = primitive.into_data_parts();
 
     let device_buffer = ctx.ensure_on_device(buffer).await?;
 
@@ -127,7 +133,8 @@ mod tests {
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
     use vortex::dtype::NativePType;
-    use vortex::encodings::fastlanes::BitPackedArray;
+    use vortex::encodings::fastlanes::BitPacked;
+    use vortex::encodings::fastlanes::FoR;
     use vortex::encodings::fastlanes::FoRArray;
     use vortex::error::VortexExpect;
     use vortex::scalar::Scalar;
@@ -138,7 +145,7 @@ mod tests {
     use crate::session::CudaSession;
 
     fn make_for_array<T: NativePType + Into<Scalar>>(input_data: Vec<T>, reference: T) -> FoRArray {
-        FoRArray::try_new(
+        FoR::try_new(
             PrimitiveArray::new(Buffer::from(input_data), NonNullable).into_array(),
             reference.into(),
         )
@@ -180,8 +187,8 @@ mod tests {
             .take(1024)
             .collect::<Buffer<_>>()
             .into_array();
-        let packed = BitPackedArray::encode(&values, 3).unwrap().into_array();
-        let for_array = FoRArray::try_new(packed, (-8i8).into()).unwrap();
+        let packed = BitPacked::encode(&values, 3).unwrap().into_array();
+        let for_array = FoR::try_new(packed, (-8i8).into()).unwrap();
 
         let cpu_result = for_array.to_canonical().unwrap();
 

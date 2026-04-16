@@ -7,6 +7,8 @@
 #include <fstream>
 #include <thread>
 #include <iostream>
+#include <random>
+#include <sstream>
 
 #include "vortex/file.hpp"
 #include "vortex/scan.hpp"
@@ -19,19 +21,9 @@
 #include <nanoarrow/nanoarrow.h>
 
 class VortexTest : public ::testing::Test {
-public:
-    static void SetUpTestSuite() {
-        std::string test_data_path = GetTestDataPath("test_data.vortex");
-        auto stream = vortex::testing::CreateTestDataStream();
-        auto write_options = vortex::ffi::write_options_new();
-        vortex::ffi::write_array_stream(std::move(write_options),
-                                        reinterpret_cast<uint8_t *>(&stream),
-                                        test_data_path.c_str());
-    }
-
 protected:
-    // Helper function to construct file paths in system temp directory
-    static std::string GetTestDataPath(const std::string &filename) {
+    // Helper function to create unique temporary files for each test
+    static std::string GetUniqueTempFile(const std::string &suffix = "vortex") {
         std::filesystem::path temp_dir = std::filesystem::temp_directory_path();
         std::filesystem::path vortex_test_dir = temp_dir / "vortex_test";
 
@@ -39,8 +31,20 @@ protected:
             std::filesystem::create_directories(vortex_test_dir);
         }
 
-        std::filesystem::path target_path = vortex_test_dir / filename;
-        return target_path.string();
+        // Use a unique random filename to prevent races between parallel test runs
+        std::string unique_name = "test_" + std::to_string(std::random_device {}()) + "_" + suffix;
+        return (vortex_test_dir / unique_name).string();
+    }
+
+    // Write test data to a unique temporary file and return the path
+    static std::string WriteTestData(const std::string &suffix = "test_data.vortex") {
+        std::string path = GetUniqueTempFile(suffix);
+        auto stream = vortex::testing::CreateTestDataStream();
+        auto write_options = vortex::ffi::write_options_new();
+        vortex::ffi::write_array_stream(std::move(write_options),
+                                        reinterpret_cast<uint8_t *>(&stream),
+                                        path.c_str());
+        return path;
     }
 
     // Helper function to create and initialize array view
@@ -153,7 +157,8 @@ protected:
     // Helper to execute scan builder and get array+schema
     std::pair<nanoarrow::UniqueArray, nanoarrow::UniqueSchema> ScanFirstArrayFromTestData(
         const std::function<ArrowArrayStream(vortex::ScanBuilder &)> &configureScanBuilder) {
-        auto file = vortex::VortexFile::Open(GetTestDataPath("test_data.vortex"));
+        auto test_data_path = WriteTestData();
+        auto file = vortex::VortexFile::Open(test_data_path);
         auto scan_builder = file.CreateScanBuilder();
         auto stream = configureScanBuilder(scan_builder);
 
@@ -260,15 +265,17 @@ TEST_F(VortexTest, ScanBuilderWithRowRangeWithIncludeByIndex) {
 }
 
 TEST_F(VortexTest, WriteArrayStream) {
-    auto file = vortex::VortexFile::Open(GetTestDataPath("test_data.vortex"));
+    auto test_data_path = WriteTestData();
+    auto file = vortex::VortexFile::Open(test_data_path);
     auto stream = file.CreateScanBuilder().IntoStream();
 
     // Write the stream to a new Vortex file
+    std::string test_output_path = GetUniqueTempFile("write_output.vortex");
     vortex::VortexWriteOptions write_options;
-    ASSERT_NO_THROW(write_options.WriteArrayStream(stream, GetTestDataPath("test_output.vortex")));
+    ASSERT_NO_THROW(write_options.WriteArrayStream(stream, test_output_path));
 
     // Verify the written file
-    auto written_file = vortex::VortexFile::Open(GetTestDataPath("test_output.vortex"));
+    auto written_file = vortex::VortexFile::Open(test_output_path);
     ASSERT_EQ(written_file.RowCount(), 5);
 
     // Verify data integrity by reading from the written file
@@ -280,7 +287,7 @@ TEST_F(VortexTest, WriteArrayStream) {
 }
 
 TEST_F(VortexTest, ConcurrentMultiStreamRead) {
-    std::string test_data_path_1m = GetTestDataPath("test_data_1m.vortex");
+    std::string test_data_path_1m = GetUniqueTempFile("concurrent_1m.vortex");
     auto stream_1m = vortex::testing::CreateTestData1MStream();
     auto write_options = vortex::ffi::write_options_new();
     vortex::ffi::write_array_stream(std::move(write_options),
@@ -473,7 +480,7 @@ TEST_F(VortexTest, ScanBuilderWithProjectionSingleColumn) {
 }
 
 TEST_F(VortexTest, OpenFromBuffer) {
-    std::string test_file_path = GetTestDataPath("test_buffer.vortex");
+    std::string test_file_path = GetUniqueTempFile("buffer.vortex");
     auto stream = vortex::testing::CreateTestDataStream();
     auto write_options = vortex::ffi::write_options_new();
     vortex::ffi::write_array_stream(std::move(write_options),
