@@ -19038,6 +19038,8 @@ pub fn vortex_array::validity::Validity::mask_eq(&self, other: &vortex_array::va
 
 pub fn vortex_array::validity::Validity::maybe_len(&self) -> core::option::Option<usize>
 
+pub fn vortex_array::validity::Validity::no_nulls(&self) -> bool
+
 pub fn vortex_array::validity::Validity::not(&self) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::validity::Validity::nullability(&self) -> vortex_array::dtype::Nullability
