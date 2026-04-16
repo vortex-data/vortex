@@ -249,8 +249,8 @@ impl_encode!(i64);
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::dict::DictArraySlotsExt;
@@ -263,6 +263,7 @@ mod tests {
 
     #[test]
     fn test_dict_encode_integer_stats() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let data = buffer![100i32, 200, 100, 0, 100];
         let validity =
             Validity::Array(BoolArray::from_iter([true, true, true, false, true]).into_array());
@@ -283,8 +284,12 @@ mod tests {
             Validity::Array(BoolArray::from_iter([true, true, true, false, true]).into_array()),
         )
         .into_array();
-        #[expect(deprecated)]
-        let undict = dict_array.as_array().to_primitive().into_array();
+        let undict = dict_array
+            .as_array()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap()
+            .into_array();
         assert_arrays_eq!(undict, expected);
     }
 }

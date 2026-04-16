@@ -8,8 +8,7 @@ use std::any::TypeId;
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
+use vortex_array::arrays::Bool;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::VarBinView;
 use vortex_error::VortexExpect;
@@ -142,8 +141,10 @@ impl ArrayAndStats {
         let array = self.array.clone();
 
         self.cache.get_or_insert_with::<BoolStats>(|| {
-            #[expect(deprecated)]
-            let bool_array = array.to_bool();
+            let bool_array = array
+                .as_opt::<Bool>()
+                .vortex_expect("the array is guaranteed to already be canonical by construction")
+                .into_owned();
             BoolStats::generate(&bool_array).vortex_expect("BoolStats shouldn't fail")
         })
     }
@@ -156,8 +157,10 @@ impl ArrayAndStats {
         let opts = self.opts;
 
         self.cache.get_or_insert_with::<IntegerStats>(|| {
-            #[expect(deprecated)]
-            let primitive = array.to_primitive();
+            let primitive = array
+                .as_opt::<Primitive>()
+                .vortex_expect("the array is guaranteed to already be canonical by construction")
+                .into_owned();
             IntegerStats::generate_opts(&primitive, opts)
         })
     }
@@ -168,8 +171,10 @@ impl ArrayAndStats {
         let opts = self.opts;
 
         self.cache.get_or_insert_with::<FloatStats>(|| {
-            #[expect(deprecated)]
-            let primitive = array.to_primitive();
+            let primitive = array
+                .as_opt::<Primitive>()
+                .vortex_expect("the array is guaranteed to already be canonical by construction")
+                .into_owned();
             FloatStats::generate_opts(&primitive, opts)
         })
     }
@@ -180,8 +185,10 @@ impl ArrayAndStats {
         let opts = self.opts;
 
         self.cache.get_or_insert_with::<StringStats>(|| {
-            #[expect(deprecated)]
-            let varbinview = array.to_varbinview();
+            let varbinview = array
+                .as_opt::<VarBinView>()
+                .vortex_expect("the array is guaranteed to already be canonical by construction")
+                .into_owned();
             StringStats::generate_opts(&varbinview, opts)
         })
     }
