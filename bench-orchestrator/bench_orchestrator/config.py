@@ -18,21 +18,13 @@ class Engine(Enum):
     DATAFUSION = "datafusion"
     LANCE = "lance"
 
-
-class ExecutionBackend(Enum):
-    """Concrete benchmark binaries used to execute a target."""
-
-    DUCKDB = "duckdb"
-    DATAFUSION = "datafusion"
-    LANCE = "lance"
-
     @property
     def binary_name(self) -> str:
-        """Return the cargo binary name for this backend."""
+        """Return the cargo binary name for this engine when used to execute benchmarks."""
         return {
-            ExecutionBackend.DUCKDB: "duckdb-bench",
-            ExecutionBackend.DATAFUSION: "datafusion-bench",
-            ExecutionBackend.LANCE: "lance-bench",
+            Engine.DUCKDB: "duckdb-bench",
+            Engine.DATAFUSION: "datafusion-bench",
+            Engine.LANCE: "lance-bench",
         }[self]
 
 
@@ -106,15 +98,15 @@ class BenchmarkTarget:
         return self
 
     @property
-    def backend(self) -> ExecutionBackend:
-        """Return the benchmark binary required for this target."""
+    def backend(self) -> Engine:
+        """Return the engine whose benchmark binary should execute this target."""
         target = self.normalized()
         if target.format == Format.LANCE:
-            return ExecutionBackend.LANCE
+            return Engine.LANCE
         if target.engine == Engine.DATAFUSION:
-            return ExecutionBackend.DATAFUSION
+            return Engine.DATAFUSION
         if target.engine == Engine.DUCKDB:
-            return ExecutionBackend.DUCKDB
+            return Engine.DUCKDB
         raise ValueError(f"Unsupported benchmark target: {target}")
 
     def is_supported(self) -> bool:
@@ -198,9 +190,9 @@ def resolve_axis_targets(
     return _unique_preserve_order(targets), warnings
 
 
-def group_targets_by_backend(targets: Iterable[BenchmarkTarget]) -> dict[ExecutionBackend, list[BenchmarkTarget]]:
+def group_targets_by_backend(targets: Iterable[BenchmarkTarget]) -> dict[Engine, list[BenchmarkTarget]]:
     """Group logical benchmark targets by the backend binary required to run them."""
-    groups: dict[ExecutionBackend, list[BenchmarkTarget]] = {}
+    groups: dict[Engine, list[BenchmarkTarget]] = {}
     for target in _unique_preserve_order(target.normalized() for target in targets):
         groups.setdefault(target.backend, []).append(target)
     return groups
@@ -243,7 +235,7 @@ class RunConfig:
         return _unique_preserve_order(target.format for target in self.targets)
 
     @property
-    def backends(self) -> list[ExecutionBackend]:
+    def backends(self) -> list[Engine]:
         return _unique_preserve_order(target.backend for target in self.targets)
 
     def validate(self) -> list[str]:

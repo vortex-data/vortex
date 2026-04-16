@@ -13,7 +13,7 @@ from typing import final
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from ..config import Benchmark, ExecutionBackend, Format
+from ..config import Benchmark, Engine, Format
 
 console = Console()
 
@@ -22,7 +22,7 @@ console = Console()
 class BenchmarkExecutor:
     """Executes benchmark binaries and captures output."""
 
-    def __init__(self, binary_path: Path, backend: ExecutionBackend, verbose: bool = False):
+    def __init__(self, binary_path: Path, backend: Engine, verbose: bool = False):
         self.binary_path = binary_path
         self.backend = backend
         self.verbose = verbose
@@ -51,9 +51,9 @@ class BenchmarkExecutor:
             "--hide-progress-bar",
         ]
 
-        if self.backend in {ExecutionBackend.DATAFUSION, ExecutionBackend.DUCKDB}:
+        if self.backend in {Engine.DATAFUSION, Engine.DUCKDB}:
             cmd.extend(["--formats", ",".join(fmt.value for fmt in formats)])
-        if self.backend == ExecutionBackend.DUCKDB:
+        if self.backend == Engine.DUCKDB:
             cmd.append("--delete-duckdb-database")
 
         if queries:
@@ -76,7 +76,7 @@ class BenchmarkExecutor:
             else:
                 cmd = cmd_prefix + cmd
 
-        if samply and self.backend == ExecutionBackend.DUCKDB:
+        if samply and self.backend == Engine.DUCKDB:
             # Re-use the same DuckDB instance across runs to keep samply output readable.
             cmd.append("--reuse")
 

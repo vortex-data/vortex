@@ -4,7 +4,6 @@
 from bench_orchestrator.config import (
     BenchmarkTarget,
     Engine,
-    ExecutionBackend,
     Format,
     group_targets_by_backend,
     parse_formats_json,
@@ -59,8 +58,8 @@ def test_group_targets_by_backend_routes_lance_to_lance_binary() -> None:
     )
 
     assert list(groups) == [
-        ExecutionBackend.DATAFUSION,
-        ExecutionBackend.LANCE,
-        ExecutionBackend.DUCKDB,
+        Engine.DATAFUSION,
+        Engine.LANCE,
+        Engine.DUCKDB,
     ]
-    assert groups[ExecutionBackend.LANCE] == [BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.LANCE)]
+    assert groups[Engine.LANCE] == [BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.LANCE)]

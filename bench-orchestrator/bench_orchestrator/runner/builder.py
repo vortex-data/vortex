@@ -10,7 +10,7 @@ from typing import final
 
 from rich.console import Console
 
-from ..config import BuildConfig, ExecutionBackend, get_workspace_root
+from ..config import BuildConfig, Engine, get_workspace_root
 
 console = Console()
 
@@ -29,7 +29,7 @@ class BenchmarkBuilder:
         self.config = config or BuildConfig()
         self.verbose = verbose
 
-    def get_binary_path(self, backend: ExecutionBackend) -> Path:
+    def get_binary_path(self, backend: Engine) -> Path:
         """Get path to built binary."""
         binary_name = backend.binary_name
         return self.workspace_root / "target" / self.config.profile / binary_name
@@ -38,9 +38,9 @@ class BenchmarkBuilder:
         """Get path to the built benchmark data generator binary."""
         return self.workspace_root / "target" / self.config.profile / "data-gen"
 
-    def build(self, backends: list[ExecutionBackend]) -> dict[ExecutionBackend, Path]:
+    def build(self, backends: list[Engine]) -> dict[Engine, Path]:
         """Build binaries for specified engines, return paths."""
-        results: dict[ExecutionBackend, Path] = {}
+        results: dict[Engine, Path] = {}
 
         env = os.environ.copy()
         env["RUSTFLAGS"] = self.config.rustflags

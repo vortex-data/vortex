@@ -21,7 +21,6 @@ from .config import (
     BenchmarkTarget,
     BuildConfig,
     Engine,
-    ExecutionBackend,
     Format,
     RunConfig,
     group_targets_by_backend,
@@ -90,8 +89,8 @@ def targets_from_axes(engine: str, format: str) -> tuple[list[BenchmarkTarget], 
     return resolve_axis_targets(parse_engines(engine), parse_formats(format))
 
 
-def backends_for_engines(engines: list[Engine]) -> list[ExecutionBackend]:
-    """Resolve legacy engine selections to unique execution backends."""
+def backends_for_engines(engines: list[Engine]) -> list[Engine]:
+    """Resolve legacy engine selections to unique execution engines."""
     seed_formats = {
         Engine.DATAFUSION: Format.PARQUET,
         Engine.DUCKDB: Format.PARQUET,

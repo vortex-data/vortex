@@ -5,12 +5,12 @@ import sys
 import textwrap
 from pathlib import Path
 
-from bench_orchestrator.config import Benchmark, ExecutionBackend, Format
+from bench_orchestrator.config import Benchmark, Engine, Format
 from bench_orchestrator.runner.executor import BenchmarkExecutor
 
 
 def test_build_command_adds_duckdb_cleanup_flag() -> None:
-    executor = BenchmarkExecutor(Path("/tmp/duckdb-bench"), ExecutionBackend.DUCKDB)
+    executor = BenchmarkExecutor(Path("/tmp/duckdb-bench"), Engine.DUCKDB)
 
     cmd = executor.build_command(
         benchmark=Benchmark.TPCH,
@@ -34,7 +34,7 @@ def test_build_command_adds_duckdb_cleanup_flag() -> None:
 
 
 def test_build_command_omits_formats_for_lance_backend() -> None:
-    executor = BenchmarkExecutor(Path("/tmp/lance-bench"), ExecutionBackend.LANCE)
+    executor = BenchmarkExecutor(Path("/tmp/lance-bench"), Engine.LANCE)
 
     cmd = executor.build_command(
         benchmark=Benchmark.TPCH,
@@ -64,7 +64,7 @@ def test_run_streams_logs_without_counting_them(tmp_path: Path) -> None:
     )
     script.chmod(0o755)
 
-    executor = BenchmarkExecutor(script, ExecutionBackend.DUCKDB)
+    executor = BenchmarkExecutor(script, Engine.DUCKDB)
     streamed: list[str] = []
 
     results = executor.run(
