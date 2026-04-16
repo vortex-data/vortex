@@ -519,8 +519,6 @@ impl ValidityChild<ALP> for ALP {
 
 #[cfg(test)]
 mod tests {
-    #![expect(deprecated)]
-
     use std::f64::consts::PI;
     use std::sync::LazyLock;
 
@@ -528,6 +526,7 @@ mod tests {
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
@@ -810,6 +809,7 @@ mod tests {
         let slice_len = slice_end - slice_start;
         let sliced_encoded = encoded.slice(slice_start..slice_end).unwrap();
 
+        #[expect(deprecated)]
         let result_primitive = sliced_encoded.to_primitive();
 
         for idx in 0..slice_len {

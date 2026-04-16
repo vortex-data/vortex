@@ -660,10 +660,9 @@ impl ValidityChild<ALPRD> for ALPRD {
 
 #[cfg(test)]
 mod test {
-    #![expect(deprecated)]
-
     use prost::Message;
     use rstest::rstest;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -697,6 +696,7 @@ mod test {
 
         let rd_array = encoder.encode(real_array.as_view());
 
+        #[expect(deprecated)]
         let decoded = rd_array.as_array().to_primitive();
 
         assert_arrays_eq!(decoded, PrimitiveArray::from_option_iter(reals));

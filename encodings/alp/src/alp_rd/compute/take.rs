@@ -56,10 +56,9 @@ impl TakeExecute for ALPRD {
 
 #[cfg(test)]
 mod test {
-    #![expect(deprecated)]
-
     use rstest::rstest;
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -88,6 +87,7 @@ mod test {
                 .is_unsigned_int()
         );
 
+        #[expect(deprecated)]
         let taken = encoded
             .take(buffer![0, 2].into_array())
             .unwrap()
@@ -112,6 +112,7 @@ mod test {
                 .is_unsigned_int()
         );
 
+        #[expect(deprecated)]
         let taken = encoded
             .take(PrimitiveArray::from_option_iter([Some(0), Some(2), None]).into_array())
             .unwrap()

@@ -48,10 +48,9 @@ impl CastReduce for ALPRD {
 
 #[cfg(test)]
 mod tests {
-    #![expect(deprecated)]
-
     use rstest::rstest;
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builtins::ArrayBuiltins;
@@ -78,6 +77,7 @@ mod tests {
             &DType::Primitive(PType::F64, Nullability::NonNullable)
         );
 
+        #[expect(deprecated)]
         let decoded = casted.to_primitive();
         let f64_values = decoded.as_slice::<f64>();
         assert_eq!(f64_values.len(), 5);

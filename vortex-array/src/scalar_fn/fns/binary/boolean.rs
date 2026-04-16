@@ -102,8 +102,6 @@ fn constant_boolean(
 
 #[cfg(test)]
 mod tests {
-    #![expect(deprecated)]
-
     use rstest::rstest;
 
     use crate::ArrayRef;
@@ -112,6 +110,7 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::builtins::ArrayBuiltins;
+    #[expect(deprecated)]
     use crate::canonical::ToCanonical as _;
     use crate::scalar_fn::fns::operators::Operator;
 
@@ -126,6 +125,7 @@ mod tests {
     )]
     fn test_or(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
         let r = lhs.binary(rhs, Operator::Or).unwrap();
+        #[expect(deprecated)]
         let r = r.to_bool().into_array();
 
         let v0 = r
@@ -165,6 +165,7 @@ mod tests {
         BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)]).into_array(),
     )]
     fn test_and(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
+        #[expect(deprecated)]
         let r = lhs
             .binary(rhs, Operator::And)
             .unwrap()

@@ -373,10 +373,10 @@ pub fn data_chunk_to_vortex(
 
 #[cfg(test)]
 mod tests {
-    #![expect(deprecated)]
     use std::ffi::CString;
 
     use vortex::array::LEGACY_SESSION;
+    #[expect(deprecated)]
     use vortex::array::ToCanonical;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::BoolArray;
@@ -430,6 +430,7 @@ mod tests {
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
         let vortex_array = TemporalArray::try_from(result).unwrap();
+        #[expect(deprecated)]
         let vortex_values = vortex_array.temporal_values().to_primitive();
         let values_slice = vortex_values.as_slice::<i64>();
 
@@ -453,6 +454,7 @@ mod tests {
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
         let vortex_array = TemporalArray::try_from(result).unwrap();
+        #[expect(deprecated)]
         let vortex_values = vortex_array.temporal_values().to_primitive();
         let values_slice = vortex_values.as_slice::<i64>();
 
@@ -476,6 +478,7 @@ mod tests {
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
         let vortex_array = TemporalArray::try_from(result).unwrap();
+        #[expect(deprecated)]
         let vortex_values = vortex_array.temporal_values().to_primitive();
         let values_slice = vortex_values.as_slice::<i64>();
 
@@ -504,6 +507,7 @@ mod tests {
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
         let vortex_array = TemporalArray::try_from(result).unwrap();
+        #[expect(deprecated)]
         let vortex_values = vortex_array.temporal_values().to_primitive();
         let values_slice = vortex_values.as_slice::<i64>();
 
@@ -546,6 +550,7 @@ mod tests {
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
         let vortex_array = TemporalArray::try_from(result).unwrap();
+        #[expect(deprecated)]
         let vortex_values = vortex_array.temporal_values().to_primitive();
         let values_slice = vortex_values.as_slice::<i64>();
 
@@ -569,6 +574,7 @@ mod tests {
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
         let vortex_array = TemporalArray::try_from(result).unwrap();
+        #[expect(deprecated)]
         let vortex_values = vortex_array.temporal_values().to_primitive();
         let values_slice = vortex_values.as_slice::<i64>();
 
@@ -591,6 +597,7 @@ mod tests {
 
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
+        #[expect(deprecated)]
         let vortex_array = result.to_bool();
         let expected = BoolArray::new(BitBuffer::from(values), Validity::AllValid);
         assert_arrays_eq!(vortex_array, expected);
@@ -617,6 +624,7 @@ mod tests {
 
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
+        #[expect(deprecated)]
         let vortex_array = result.to_primitive();
         let vortex_slice = vortex_array.as_slice::<i32>();
 
@@ -659,6 +667,7 @@ mod tests {
 
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
+        #[expect(deprecated)]
         let vortex_array = result.to_listview();
 
         assert_eq!(vortex_array.len(), len);
@@ -687,6 +696,7 @@ mod tests {
 
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
+        #[expect(deprecated)]
         let vortex_array = result.to_fixed_size_list();
 
         assert_eq!(vortex_array.len(), len);
@@ -705,6 +715,7 @@ mod tests {
 
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
+        #[expect(deprecated)]
         let vortex_array = result.to_struct();
 
         assert_eq!(vortex_array.len(), len);
@@ -740,6 +751,7 @@ mod tests {
 
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
+        #[expect(deprecated)]
         let vortex_array = result.to_struct();
 
         assert_eq!(vortex_array.len(), len);
@@ -789,6 +801,7 @@ mod tests {
         // Test conversion - the old bug would compute child length as 0+0=0 instead of
         // max(4,0)=4.
         let result = flat_vector_to_vortex(&vector, len).unwrap();
+        #[expect(deprecated)]
         let vortex_array = result.to_listview();
 
         assert_eq!(vortex_array.len(), len);
@@ -842,6 +855,7 @@ mod tests {
         // Test conversion - the old bug would compute child length as 0+2=2 instead of
         // max(4,2)=4.
         let result = flat_vector_to_vortex(&vector, len).unwrap();
+        #[expect(deprecated)]
         let vortex_array = result.to_listview();
 
         assert_eq!(vortex_array.len(), len);
@@ -897,6 +911,7 @@ mod tests {
         // Test conversion. The old code would compute child_min_length as 9999+9999=19998, which
         // would panic when trying to read that much data from the child vector.
         let result = flat_vector_to_vortex(&vector, len).unwrap();
+        #[expect(deprecated)]
         let vortex_array = result.to_listview();
 
         assert_eq!(vortex_array.len(), len);
@@ -912,7 +927,9 @@ mod tests {
         );
 
         // Verify the null entry has sanitized offset/size (offset=2, size=0) rather than garbage.
+        #[expect(deprecated)]
         let offsets = vortex_array.offsets().to_primitive();
+        #[expect(deprecated)]
         let sizes = vortex_array.sizes().to_primitive();
         assert_eq!(offsets.as_slice::<i64>()[1], 2); // Previous end (0+2).
         assert_eq!(sizes.as_slice::<i64>()[1], 0);

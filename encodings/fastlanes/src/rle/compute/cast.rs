@@ -44,9 +44,10 @@ impl CastReduce for RLE {
 
 #[cfg(test)]
 mod tests {
-    #![expect(deprecated)]
     use rstest::rstest;
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
@@ -87,11 +88,12 @@ mod tests {
             Validity::from_iter([true, false, true, true, false]),
         );
         let encoded = rle(&primitive);
-        encoded
+        #[expect(deprecated)]
+        let result = encoded
             .into_array()
             .cast(DType::Primitive(PType::U8, Nullability::NonNullable))
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
-            .unwrap();
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+        result.unwrap();
     }
 
     #[rstest]

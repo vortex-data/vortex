@@ -43,8 +43,6 @@ impl FillNullKernel for Bool {
 
 #[cfg(test)]
 mod tests {
-    #![expect(deprecated)]
-
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::bitbuffer;
@@ -53,6 +51,7 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::arrays::bool::BoolArrayExt;
     use crate::builtins::ArrayBuiltins;
+    #[expect(deprecated)]
     use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -67,6 +66,7 @@ mod tests {
             BitBuffer::from_iter([true, true, false, false]),
             Validity::from_iter([true, false, true, false]),
         );
+        #[expect(deprecated)]
         let non_null_array = bool_array
             .into_array()
             .fill_null(Scalar::from(fill_value))

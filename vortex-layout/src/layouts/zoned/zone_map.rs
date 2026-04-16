@@ -275,12 +275,11 @@ impl StatsAccumulator {
 
 #[cfg(test)]
 mod tests {
-    #![expect(deprecated)]
-
     use std::sync::Arc;
 
     use rstest::rstest;
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -342,20 +341,16 @@ mod tests {
                 MIN_IS_TRUNCATED,
             ]
         );
+        #[expect(deprecated)]
+        let field1_bool = stats_table.array.unmasked_field(1).to_bool();
         assert_eq!(
-            stats_table
-                .array
-                .unmasked_field(1)
-                .to_bool()
-                .to_bit_buffer(),
+            field1_bool.to_bit_buffer(),
             BitBuffer::from(vec![false, true])
         );
+        #[expect(deprecated)]
+        let field3_bool = stats_table.array.unmasked_field(3).to_bool();
         assert_eq!(
-            stats_table
-                .array
-                .unmasked_field(3)
-                .to_bool()
-                .to_bit_buffer(),
+            field3_bool.to_bit_buffer(),
             BitBuffer::from(vec![true, false])
         );
     }
@@ -380,22 +375,12 @@ mod tests {
                 Stat::Sum.name(),
             ]
         );
-        assert_eq!(
-            stats_table
-                .array
-                .unmasked_field(1)
-                .to_bool()
-                .to_bit_buffer(),
-            BitBuffer::from(vec![false])
-        );
-        assert_eq!(
-            stats_table
-                .array
-                .unmasked_field(3)
-                .to_bool()
-                .to_bit_buffer(),
-            BitBuffer::from(vec![false])
-        );
+        #[expect(deprecated)]
+        let field1_bool = stats_table.array.unmasked_field(1).to_bool();
+        assert_eq!(field1_bool.to_bit_buffer(), BitBuffer::from(vec![false]));
+        #[expect(deprecated)]
+        let field3_bool = stats_table.array.unmasked_field(3).to_bool();
+        assert_eq!(field3_bool.to_bit_buffer(), BitBuffer::from(vec![false]));
     }
 
     #[rstest]

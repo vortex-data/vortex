@@ -41,12 +41,11 @@ impl FilterKernel for ALP {
 
 #[cfg(test)]
 mod test {
-    #![expect(deprecated)]
-
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
@@ -65,8 +64,10 @@ mod test {
         11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0
     ].into_array())]
     fn test_filter_alp_conformance(#[case] array: ArrayRef) {
+        #[expect(deprecated)]
+        let array_primitive = array.to_primitive();
         let alp = alp_encode(
-            array.to_primitive().as_view(),
+            array_primitive.as_view(),
             None,
             &mut LEGACY_SESSION.create_execution_ctx(),
         )

@@ -34,10 +34,9 @@ impl CastReduce for Sparse {
 
 #[cfg(test)]
 mod tests {
-    #![expect(deprecated)]
-
     use rstest::rstest;
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -72,7 +71,9 @@ mod tests {
         );
 
         let expected = PrimitiveArray::from_iter([0i64, 0, 100, 0, 0, 200, 0, 0, 300, 0]);
-        assert_arrays_eq!(casted.to_primitive(), expected);
+        #[expect(deprecated)]
+        let casted_primitive = casted.to_primitive();
+        assert_arrays_eq!(casted_primitive, expected);
     }
 
     #[test]
@@ -148,7 +149,9 @@ mod tests {
         );
 
         let expected = PrimitiveArray::from_iter([10u64, 20, 30, 40, 50]);
-        assert_arrays_eq!(casted.to_primitive(), expected);
+        #[expect(deprecated)]
+        let casted_primitive = casted.to_primitive();
+        assert_arrays_eq!(casted_primitive, expected);
         Ok(())
     }
 

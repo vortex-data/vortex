@@ -87,9 +87,9 @@ impl CastReduce for Sequence {
 
 #[cfg(test)]
 mod tests {
-    #![expect(deprecated)]
     use rstest::rstest;
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -131,6 +131,7 @@ mod tests {
         );
 
         // Verify the values
+        #[expect(deprecated)]
         let decoded = casted.to_primitive();
         assert_arrays_eq!(decoded, PrimitiveArray::from_iter([100i64, 110, 120, 130]));
     }
@@ -150,6 +151,7 @@ mod tests {
         );
 
         // Verify the values
+        #[expect(deprecated)]
         let decoded = casted.to_primitive();
         assert_arrays_eq!(
             decoded,
@@ -173,6 +175,7 @@ mod tests {
         );
 
         // Verify the values were correctly converted
+        #[expect(deprecated)]
         let decoded = casted.to_primitive();
         assert_arrays_eq!(
             decoded,

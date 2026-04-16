@@ -33,10 +33,11 @@ impl CastReduce for DateTimeParts {
 
 #[cfg(test)]
 mod tests {
-    #![expect(deprecated)]
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::builtins::ArrayBuiltins;
@@ -92,12 +93,14 @@ mod tests {
     fn test_bad_cast_fails(#[case] validity: Validity) {
         let array = date_time_array(validity);
         // Cast to incompatible type - force evaluation via to_canonical
+        #[expect(deprecated)]
         let result = array
             .cast(DType::Bool(Nullability::NonNullable))
             .and_then(|a| a.to_canonical().map(|c| c.into_array()));
         assert!(result.is_err(), "Expected error, got: {result:?}");
 
         // Cast nullable with nulls to non-nullable - force evaluation via to_canonical
+        #[expect(deprecated)]
         let result = array
             .cast(array.dtype().with_nullability(Nullability::NonNullable))
             .and_then(|a| a.to_canonical().map(|c| c.into_array()));

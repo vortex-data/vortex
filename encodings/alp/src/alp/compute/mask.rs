@@ -54,11 +54,10 @@ impl MaskKernel for ALP {
 
 #[cfg(test)]
 mod test {
-    #![expect(deprecated)]
-
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
@@ -81,8 +80,10 @@ mod test {
         1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0
     ].into_array())]
     fn test_mask_alp_conformance(#[case] array: vortex_array::ArrayRef) {
+        #[expect(deprecated)]
+        let array_primitive = array.to_primitive();
         let alp = alp_encode(
-            array.to_primitive().as_view(),
+            array_primitive.as_view(),
             None,
             &mut LEGACY_SESSION.create_execution_ctx(),
         )

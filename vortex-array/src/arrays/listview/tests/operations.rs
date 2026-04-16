@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-#![expect(deprecated)]
 
 use std::sync::Arc;
 
@@ -13,6 +12,7 @@ use super::common::create_large_listview;
 use super::common::create_nullable_listview;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
+#[expect(deprecated)]
 use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::is_constant::is_constant;
@@ -252,6 +252,7 @@ fn test_cast_numeric_types(#[case] from_ptype: PType, #[case] to_ptype: PType) {
     let result = listview.cast(target_dtype.clone()).unwrap();
     assert_eq!(result.dtype(), &target_dtype);
 
+    #[expect(deprecated)]
     let result_list = result.to_listview();
     assert!(
         result_list.len() == 3 || result_list.len() == 2,
@@ -288,6 +289,7 @@ fn test_cast_with_nulls() {
     let result = listview.cast(target_dtype.clone()).unwrap();
     assert_eq!(result.dtype(), &target_dtype);
 
+    #[expect(deprecated)]
     let result_list = result.to_listview();
     assert!(
         result_list
@@ -338,6 +340,7 @@ fn test_cast_special_patterns(#[case] expected_sizes: Vec<usize>, #[case] list_c
     };
 
     let result = listview.cast(target_dtype).unwrap();
+    #[expect(deprecated)]
     let result_list = result.to_listview();
 
     assert_eq!(result_list.len(), list_count);
@@ -370,6 +373,7 @@ fn test_cast_large_dataset() {
     );
 
     let result = listview.cast(target_dtype).unwrap();
+    #[expect(deprecated)]
     let result_list = result.to_listview();
 
     assert_eq!(result_list.len(), 20);
@@ -538,6 +542,7 @@ fn test_mask_preserves_structure() {
     let result = listview.mask((!&selection).into_array()).unwrap();
 
     assert_eq!(result.len(), 4); // Length is preserved.
+    #[expect(deprecated)]
     let result_list = result.to_listview();
 
     // Check validity: true in selection means null.
@@ -591,6 +596,7 @@ fn test_mask_with_existing_nulls() {
     // Mask additional elements.
     let selection = Mask::from_iter([false, true, true]);
     let result = listview.mask((!&selection).into_array()).unwrap();
+    #[expect(deprecated)]
     let result_list = result.to_listview();
 
     // Check combined validity:
@@ -623,6 +629,7 @@ fn test_mask_with_gaps() {
 
     let selection = Mask::from_iter([true, false, false]);
     let result = listview.mask((!&selection).into_array()).unwrap();
+    #[expect(deprecated)]
     let result_list = result.to_listview();
 
     assert_eq!(result_list.len(), 3);
@@ -667,6 +674,7 @@ fn test_mask_constant_arrays() {
 
     let selection = Mask::from_iter([false, true, false]);
     let result = const_list.mask((!&selection).into_array()).unwrap();
+    #[expect(deprecated)]
     let result_list = result.to_listview();
 
     assert_eq!(result_list.len(), 3);

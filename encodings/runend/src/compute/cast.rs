@@ -33,10 +33,10 @@ impl CastReduce for RunEnd {
 
 #[cfg(test)]
 mod tests {
-    #![expect(deprecated)]
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
@@ -70,6 +70,7 @@ mod tests {
         );
 
         // Verify by decoding to canonical form
+        #[expect(deprecated)]
         let decoded = casted.to_primitive();
         // RunEnd encoding should expand to [100, 100, 100, 200, 200, 100, 100, 100, 300, 300]
         assert_eq!(decoded.len(), 10);

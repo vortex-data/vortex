@@ -388,8 +388,6 @@ impl LayoutReader for StructReader {
 
 #[cfg(test)]
 mod tests {
-    #![expect(deprecated)]
-
     use std::sync::Arc;
 
     use rstest::fixture;
@@ -398,6 +396,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::MaskFuture;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
@@ -692,14 +691,18 @@ mod tests {
         assert_eq!(result.len(), 2);
 
         let expected_a = PrimitiveArray::from_iter([7i32, 2]);
+        #[expect(deprecated)]
+        let result_struct_a = result.to_struct();
         assert_arrays_eq!(
-            result.to_struct().unmasked_field_by_name("a").unwrap(),
+            result_struct_a.unmasked_field_by_name("a").unwrap(),
             expected_a
         );
 
         let expected_b = PrimitiveArray::from_iter([4i32, 5]);
+        #[expect(deprecated)]
+        let result_struct_b = result.to_struct();
         assert_arrays_eq!(
-            result.to_struct().unmasked_field_by_name("b").unwrap(),
+            result_struct_b.unmasked_field_by_name("b").unwrap(),
             expected_b
         );
     }
