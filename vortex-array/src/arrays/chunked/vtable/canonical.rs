@@ -5,12 +5,12 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::ArrayRef;
+use crate::{AnyCanonical, ArrayRef};
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
-use crate::arrays::Chunked;
+use crate::arrays::{Chunked, ListView, Struct};
 use crate::arrays::ChunkedArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
@@ -36,7 +36,7 @@ pub(super) fn _canonicalize(
         return Ok(Canonical::empty(array.dtype()));
     }
     if array.nchunks() == 1 {
-        return array.chunk(0).clone().execute::<Canonical>(ctx);
+        return Ok(Canonical::from(array.chunk(0).as_::<AnyCanonical>()));
     }
 
     let owned_chunks: Vec<ArrayRef> = array.iter_chunks().cloned().collect();
@@ -46,7 +46,6 @@ pub(super) fn _canonicalize(
                 &owned_chunks,
                 Validity::copy_from_array(array.array())?,
                 struct_dtype,
-                ctx,
             )?;
             Canonical::Struct(struct_array)
         }
@@ -72,15 +71,14 @@ fn pack_struct_chunks(
     chunks: &[ArrayRef],
     validity: Validity,
     struct_dtype: &StructFields,
-    ctx: &mut ExecutionCtx,
 ) -> VortexResult<StructArray> {
     let len = chunks.iter().map(|chunk| chunk.len()).sum();
     let mut field_arrays = Vec::new();
 
-    let executed_chunks: Vec<StructArray> = chunks
+    let executed_chunks = chunks
         .iter()
-        .map(|c| c.clone().execute::<StructArray>(ctx))
-        .collect::<VortexResult<_>>()?;
+        .map(|c| c.clone().downcast::<Struct>())
+        .collect::<Vec<_>>();
 
     for (field_idx, field_dtype) in struct_dtype.fields().enumerate() {
         let mut field_chunks = Vec::with_capacity(chunks.len());
@@ -140,7 +138,7 @@ fn swizzle_list_chunks(
     let mut next_list = 0usize;
 
     for chunk in chunks {
-        let chunk_array = chunk.clone().execute::<ListViewArray>(ctx)?;
+        let chunk_array = chunk.clone().downcast::<ListView>();
         // By rebuilding as zero-copy to `List` and trimming all elements (to prevent gaps), we make
         // the final output `ListView` also zero-copyable to `List`.
         let chunk_array = chunk_array.rebuild(ListViewRebuildMode::MakeExact)?;
