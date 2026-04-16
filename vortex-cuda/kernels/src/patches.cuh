@@ -86,8 +86,11 @@ public:
         indices = patches.indices + start;
         values = reinterpret_cast<const T *>(patches.values) + start;
 
-        // Precompute base for within-chunk index calculation
-        chunk_base = patches.offset + chunk * 1024;
+        // The iterator returns indices relative to the start of the chunk.
+        // `chunk_base` is the index of the first element within a chunk, accounting
+        // for the slice offset.
+        chunk_base = chunk * 1024 + patches.offset;
+        chunk_base -= min(chunk_base, patches.offset % 1024);
     }
 
     /// Return the current patch (with within-chunk index) and advance,
