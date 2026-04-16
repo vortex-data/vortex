@@ -17,11 +17,9 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use anyhow::Result;
-use tokio::task::JoinSet;
-use tracing::info;
 
 use crate::datasets::data_downloads::download_data;
-use crate::utils::file::idempotent_async;
+use crate::datasets::data_downloads::download_many;
 use crate::vector_dataset::catalog::VectorDataset;
 use crate::vector_dataset::layout::LayoutSpec;
 use crate::vector_dataset::layout::TrainLayout;
@@ -95,28 +93,23 @@ pub struct DatasetPaths {
 /// This has idempotent semantics, so files already present on disk are skipped, and re-runs only
 /// pay for new files.
 ///
-/// Train shards download in parallel using a shared HTTP client; the small `test.parquet` and
-/// `neighbors.parquet` files use the simple [`download_data`] helper.
+/// Train shards download via [`download_many`] with adaptive parallelism; the small
+/// `test.parquet` and `neighbors.parquet` files use the simple [`download_data`] helper.
+/// All HTTP requests share a single pooled client.
 pub async fn download(ds: VectorDataset, layout: TrainLayout) -> Result<DatasetPaths> {
     let spec = ds.validate_layout(layout)?;
     let urls = train_urls(ds, spec);
     let train_targets = paths::train_files(ds, layout, spec.num_files());
     debug_assert_eq!(urls.len(), train_targets.len());
 
-    let mut tasks: JoinSet<Result<()>> = JoinSet::new();
-    for (url, target) in urls.into_iter().zip(train_targets.iter().cloned()) {
-        tasks.spawn(async move {
-            idempotent_async(target, |tmp| async move {
-                info!("downloading {}", url);
-                download_data(tmp, &url).await
-            })
-            .await?;
-            Ok(())
-        });
-    }
-    while let Some(joined) = tasks.join_next().await {
-        joined.context("train download task panicked")??;
-    }
+    let train_downloads: Vec<(PathBuf, String)> = train_targets
+        .iter()
+        .cloned()
+        .zip(urls.into_iter())
+        .collect();
+    download_many(train_downloads)
+        .await
+        .with_context(|| format!("download train shards for {}", ds.name()))?;
 
     let test = download_data(paths::test_path(ds, layout), &test_url(ds))
         .await
