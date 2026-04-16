@@ -25,6 +25,7 @@ use vortex_array::Precision;
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builtins::ArrayBuiltins;
@@ -454,7 +455,7 @@ impl SparseData {
         } else {
             // TODO(robert): Support other dtypes, only thing missing is getting most common value out of the array
             let (top_pvalue, _) = array
-                .to_primitive()
+                .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?
                 .top_value()?
                 .vortex_expect("Non empty or all null array");
 
@@ -763,7 +764,12 @@ mod test {
                 true, true, false, true, false, true, false, true, true, false, true, false,
             ])
         );
-        assert_arrays_eq!(sparse.to_primitive(), original);
+        assert_arrays_eq!(
+            sparse
+                .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("failed to execute"),
+            original
+        );
     }
 
     #[test]

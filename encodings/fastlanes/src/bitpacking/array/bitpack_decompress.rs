@@ -160,7 +160,7 @@ mod tests {
 
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::Nullability;
@@ -219,7 +219,9 @@ mod tests {
 
     #[test]
     fn test_all_zeros() -> VortexResult<()> {
-        let zeros = buffer![0u16, 0, 0, 0].into_array().to_primitive();
+        let zeros = buffer![0u16, 0, 0, 0]
+            .into_array()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
         let bitpacked = encode(&zeros, 0);
         let actual = unpack(&bitpacked)?;
         assert_arrays_eq!(actual, PrimitiveArray::from_iter([0u16, 0, 0, 0]));
@@ -228,7 +230,9 @@ mod tests {
 
     #[test]
     fn test_simple_patches() -> VortexResult<()> {
-        let zeros = buffer![0u16, 1, 0, 1].into_array().to_primitive();
+        let zeros = buffer![0u16, 1, 0, 1]
+            .into_array()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
         let bitpacked = encode(&zeros, 0);
         let actual = unpack(&bitpacked)?;
         assert_arrays_eq!(actual, PrimitiveArray::from_iter([0u16, 1, 0, 1]));
@@ -237,7 +241,9 @@ mod tests {
 
     #[test]
     fn test_one_full_chunk() -> VortexResult<()> {
-        let zeros = BufferMut::from_iter(0u16..1024).into_array().to_primitive();
+        let zeros = BufferMut::from_iter(0u16..1024)
+            .into_array()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
         let bitpacked = encode(&zeros, 10);
         let actual = unpack(&bitpacked)?;
         assert_arrays_eq!(actual, PrimitiveArray::from_iter(0u16..1024));
@@ -248,7 +254,7 @@ mod tests {
     fn test_three_full_chunks_with_patches() -> VortexResult<()> {
         let zeros = BufferMut::from_iter((5u16..1029).chain(5u16..1029).chain(5u16..1029))
             .into_array()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
         let bitpacked = encode(&zeros, 10);
         assert!(bitpacked.patches().is_some());
         let actual = unpack(&bitpacked)?;
@@ -261,7 +267,9 @@ mod tests {
 
     #[test]
     fn test_one_full_chunk_and_one_short_chunk_no_patch() -> VortexResult<()> {
-        let zeros = BufferMut::from_iter(0u16..1025).into_array().to_primitive();
+        let zeros = BufferMut::from_iter(0u16..1025)
+            .into_array()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
         let bitpacked = encode(&zeros, 11);
         assert!(bitpacked.patches().is_none());
         let actual = unpack(&bitpacked)?;
@@ -273,7 +281,7 @@ mod tests {
     fn test_one_full_chunk_and_one_short_chunk_with_patches() -> VortexResult<()> {
         let zeros = BufferMut::from_iter(512u16..1537)
             .into_array()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
         let bitpacked = encode(&zeros, 10);
         assert_eq!(bitpacked.len(), 1025);
         assert!(bitpacked.patches().is_some());
@@ -286,7 +294,7 @@ mod tests {
     fn test_offset_and_short_chunk_and_patches() -> VortexResult<()> {
         let zeros = BufferMut::from_iter(512u16..1537)
             .into_array()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
         let bitpacked = encode(&zeros, 10);
         assert_eq!(bitpacked.len(), 1025);
         assert!(bitpacked.patches().is_some());
@@ -306,7 +314,7 @@ mod tests {
     fn test_offset_and_short_chunk_with_chunks_between_and_patches() -> VortexResult<()> {
         let zeros = BufferMut::from_iter(512u16..2741)
             .into_array()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
         let bitpacked = encode(&zeros, 10);
         assert_eq!(bitpacked.len(), 2229);
         assert!(bitpacked.patches().is_some());

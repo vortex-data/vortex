@@ -310,12 +310,14 @@ pub fn runend_decode_varbinview(
 
 #[cfg(test)]
 mod test {
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
 
     use crate::compress::runend_decode_primitive;
@@ -325,7 +327,9 @@ mod test {
     fn encode() {
         let arr = PrimitiveArray::from_iter([1i32, 1, 2, 2, 2, 3, 3, 3, 3, 3]);
         let (ends, values) = runend_encode(arr.as_view());
-        let values = values.to_primitive();
+        let values = values
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
 
         let expected_ends = PrimitiveArray::from_iter(vec![2u8, 5, 10]);
         assert_arrays_eq!(ends, expected_ends);
@@ -342,7 +346,9 @@ mod test {
             ])),
         );
         let (ends, values) = runend_encode(arr.as_view());
-        let values = values.to_primitive();
+        let values = values
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
 
         let expected_ends = PrimitiveArray::from_iter(vec![2u8, 4, 5, 8, 10]);
         assert_arrays_eq!(ends, expected_ends);
@@ -358,7 +364,9 @@ mod test {
             Validity::from(BitBuffer::new_unset(5)),
         );
         let (ends, values) = runend_encode(arr.as_view());
-        let values = values.to_primitive();
+        let values = values
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
 
         let expected_ends = PrimitiveArray::from_iter(vec![5u64]);
         assert_arrays_eq!(ends, expected_ends);

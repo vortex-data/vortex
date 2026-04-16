@@ -4,7 +4,7 @@
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
@@ -16,7 +16,7 @@ impl OperationsVTable<Delta> for Delta {
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let decompressed = array.array().slice(index..index + 1)?.to_primitive();
+        let decompressed = array.array().slice(index..index + 1)?.execute::<PrimitiveArray>(ctx)?;
         decompressed.into_array().execute_scalar(0, ctx)
     }
 }

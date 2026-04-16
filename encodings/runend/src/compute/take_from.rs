@@ -53,8 +53,10 @@ impl ExecuteParentKernel<RunEnd> for RunEndTakeFrom {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::Canonical;
     use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::DictArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -91,7 +93,7 @@ mod tests {
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([2i32, 2, 2, 3, 3, 2, 2]);
-        assert_arrays_eq!(result.to_canonical()?.into_array(), expected);
+        assert_arrays_eq!(result.execute::<Canonical>(&mut ctx)?.into_array(), expected);
         Ok(())
     }
 
@@ -114,7 +116,7 @@ mod tests {
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([2i32, 3, 3]);
-        assert_arrays_eq!(result.to_canonical()?.into_array(), expected);
+        assert_arrays_eq!(result.execute::<Canonical>(&mut ctx)?.into_array(), expected);
         Ok(())
     }
 
@@ -137,7 +139,7 @@ mod tests {
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([3i32, 3, 2, 2]);
-        assert_arrays_eq!(result.to_canonical()?.into_array(), expected);
+        assert_arrays_eq!(result.execute::<Canonical>(&mut ctx)?.into_array(), expected);
         Ok(())
     }
 
@@ -160,7 +162,7 @@ mod tests {
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([3i32]);
-        assert_arrays_eq!(result.to_canonical()?.into_array(), expected);
+        assert_arrays_eq!(result.execute::<Canonical>(&mut ctx)?.into_array(), expected);
         Ok(())
     }
 

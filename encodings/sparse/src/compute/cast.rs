@@ -36,7 +36,8 @@ impl CastReduce for Sparse {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
@@ -46,6 +47,7 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
 
     use crate::Sparse;
     use crate::SparseArray;
@@ -70,7 +72,12 @@ mod tests {
         );
 
         let expected = PrimitiveArray::from_iter([0i64, 0, 100, 0, 0, 200, 0, 0, 300, 0]);
-        assert_arrays_eq!(casted.to_primitive(), expected);
+        assert_arrays_eq!(
+            casted
+                .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("failed to execute"),
+            expected
+        );
     }
 
     #[test]
@@ -146,7 +153,12 @@ mod tests {
         );
 
         let expected = PrimitiveArray::from_iter([10u64, 20, 30, 40, 50]);
-        assert_arrays_eq!(casted.to_primitive(), expected);
+        assert_arrays_eq!(
+            casted
+                .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("failed to execute"),
+            expected
+        );
         Ok(())
     }
 

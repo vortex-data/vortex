@@ -136,13 +136,14 @@ mod tests {
     use f64::consts::E;
     use f64::consts::PI;
     use vortex_array::LEGACY_SESSION;
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::NativePType;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
 
     use super::*;
     use crate::alp::array::ALPArrayExt;
@@ -280,7 +281,10 @@ mod tests {
             &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .unwrap();
-        let decompressed = alp_arr.into_array().to_primitive();
+        let decompressed = alp_arr
+            .into_array()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
 
         assert_eq!(
             // The second and third values become exceptions and are replaced
@@ -303,7 +307,10 @@ mod tests {
             &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .unwrap();
-        let decoded = encoded.as_array().to_primitive();
+        let decoded = encoded
+            .as_array()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
         for idx in 0..original.len() {
             let decoded_val = decoded.as_slice::<f32>()[idx];
             let original_val = original.as_slice::<f32>()[idx];
@@ -330,16 +337,28 @@ mod tests {
         )
         .unwrap();
         let patches = encoded.patches().unwrap();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
-        let chunk_offsets = patches.chunk_offsets().clone().unwrap().to_primitive();
+        let chunk_offsets = patches
+            .chunk_offsets()
+            .clone()
+            .unwrap()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("failed to execute");
         let expected_offsets = PrimitiveArray::from_iter(vec![0u64, 1, 3]);
         assert_arrays_eq!(chunk_offsets, expected_offsets);
 
-        let patch_indices = patches.indices().to_primitive();
+        let patch_indices = patches
+            .indices()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("failed to execute");
         let expected_indices = PrimitiveArray::from_iter(vec![1023u64, 1024, 1025]);
         assert_arrays_eq!(patch_indices, expected_indices);
 
-        let patch_values = patches.values().to_primitive();
+        let patch_values = patches
+            .values()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("failed to execute");
         let expected_values = PrimitiveArray::from_iter(vec![PI, E, PI]);
         assert_arrays_eq!(patch_values, expected_values);
     }
@@ -358,16 +377,28 @@ mod tests {
         )
         .unwrap();
         let patches = encoded.patches().unwrap();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
-        let chunk_offsets = patches.chunk_offsets().clone().unwrap().to_primitive();
+        let chunk_offsets = patches
+            .chunk_offsets()
+            .clone()
+            .unwrap()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("failed to execute");
         let expected_offsets = PrimitiveArray::from_iter(vec![0u64, 1, 1]);
         assert_arrays_eq!(chunk_offsets, expected_offsets);
 
-        let patch_indices = patches.indices().to_primitive();
+        let patch_indices = patches
+            .indices()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("failed to execute");
         let expected_indices = PrimitiveArray::from_iter(vec![0u64, 2048]);
         assert_arrays_eq!(patch_indices, expected_indices);
 
-        let patch_values = patches.values().to_primitive();
+        let patch_values = patches
+            .values()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("failed to execute");
         let expected_values = PrimitiveArray::from_iter(vec![PI, E]);
         assert_arrays_eq!(patch_values, expected_values);
     }
@@ -385,16 +416,28 @@ mod tests {
         )
         .unwrap();
         let patches = encoded.patches().unwrap();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
-        let chunk_offsets = patches.chunk_offsets().clone().unwrap().to_primitive();
+        let chunk_offsets = patches
+            .chunk_offsets()
+            .clone()
+            .unwrap()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("failed to execute");
         let expected_offsets = PrimitiveArray::from_iter(vec![0u64, 1, 1]);
         assert_arrays_eq!(chunk_offsets, expected_offsets);
 
-        let patch_indices = patches.indices().to_primitive();
+        let patch_indices = patches
+            .indices()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("failed to execute");
         let expected_indices = PrimitiveArray::from_iter(vec![0u64]);
         assert_arrays_eq!(patch_indices, expected_indices);
 
-        let patch_values = patches.values().to_primitive();
+        let patch_values = patches
+            .values()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("failed to execute");
         let expected_values = PrimitiveArray::from_iter(vec![PI]);
         assert_arrays_eq!(patch_values, expected_values);
     }
@@ -413,16 +456,28 @@ mod tests {
         )
         .unwrap();
         let patches = encoded.patches().unwrap();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
-        let chunk_offsets = patches.chunk_offsets().clone().unwrap().to_primitive();
+        let chunk_offsets = patches
+            .chunk_offsets()
+            .clone()
+            .unwrap()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("failed to execute");
         let expected_offsets = PrimitiveArray::from_iter(vec![0u64]);
         assert_arrays_eq!(chunk_offsets, expected_offsets);
 
-        let patch_indices = patches.indices().to_primitive();
+        let patch_indices = patches
+            .indices()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("failed to execute");
         let expected_indices = PrimitiveArray::from_iter(vec![0u64, 100]);
         assert_arrays_eq!(patch_indices, expected_indices);
 
-        let patch_values = patches.values().to_primitive();
+        let patch_values = patches
+            .values()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("failed to execute");
         let expected_values = PrimitiveArray::from_iter(vec![PI, E]);
         assert_arrays_eq!(patch_values, expected_values);
     }
@@ -524,7 +579,9 @@ mod tests {
         .unwrap();
 
         let sliced_alp = encoded.slice(512..1024).unwrap();
-        let decoded = sliced_alp.to_primitive();
+        let decoded = sliced_alp
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
 
         let expected_slice = original.slice(512..1024).unwrap();
         assert_arrays_eq!(decoded, expected_slice);

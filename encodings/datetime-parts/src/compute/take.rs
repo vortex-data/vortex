@@ -5,7 +5,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::Nullability;
@@ -20,9 +20,10 @@ use crate::array::DateTimePartsArrayExt;
 fn take_datetime_parts(
     array: ArrayView<DateTimeParts>,
     indices: &ArrayRef,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     // we go ahead and canonicalize here to avoid worst-case canonicalizing 3 separate times
-    let indices = indices.to_primitive();
+    let indices = indices.execute::<PrimitiveArray>(ctx)?;
 
     let taken_days = array.days().take(indices.clone().into_array())?;
     let taken_seconds = array.seconds().take(indices.clone().into_array())?;
@@ -85,9 +86,9 @@ impl TakeExecute for DateTimeParts {
     fn take(
         array: ArrayView<'_, Self>,
         indices: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        take_datetime_parts(array, indices).map(Some)
+        take_datetime_parts(array, indices, ctx).map(Some)
     }
 }
 

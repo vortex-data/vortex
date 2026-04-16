@@ -333,10 +333,12 @@ impl<T: TypedArrayRef<crate::BitPacked>> BitPackedArrayExt for T {}
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_buffer::Buffer;
+    use vortex_error::VortexExpect;
 
     use crate::BitPackedData;
     use crate::bitpacking::array::BitPackedArrayExt;
@@ -355,7 +357,13 @@ mod test {
         let uncompressed = PrimitiveArray::from_option_iter(values);
         let packed = BitPackedData::encode(&uncompressed.into_array(), 1).unwrap();
         let expected = PrimitiveArray::from_option_iter(values);
-        assert_arrays_eq!(packed.as_array().to_primitive(), expected);
+        assert_arrays_eq!(
+            packed
+                .as_array()
+                .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("failed to execute"),
+            expected
+        );
     }
 
     #[test]
@@ -376,7 +384,10 @@ mod test {
         let packed_with_patches = BitPackedData::encode(&parray, 9).unwrap();
         assert!(packed_with_patches.patches().is_some());
         assert_arrays_eq!(
-            packed_with_patches.as_array().to_primitive(),
+            packed_with_patches
+                .as_array()
+                .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("failed to execute"),
             PrimitiveArray::new(values, vortex_array::validity::Validity::NonNullable)
         );
     }

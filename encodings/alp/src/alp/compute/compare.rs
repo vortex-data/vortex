@@ -153,11 +153,11 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::LEGACY_SESSION;
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_error::VortexExpect;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
@@ -193,7 +193,11 @@ mod tests {
         .unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded.encoded().to_primitive().as_slice::<i32>(),
+            encoded
+                .encoded()
+                .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("failed to execute")
+                .as_slice::<i32>(),
             vec![1234; 1025]
         );
 
@@ -221,7 +225,11 @@ mod tests {
         .unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded.encoded().to_primitive().as_slice::<i32>(),
+            encoded
+                .encoded()
+                .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("failed to execute")
+                .as_slice::<i32>(),
             vec![1234; 1025]
         );
 
@@ -249,7 +257,11 @@ mod tests {
         .unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded.encoded().to_primitive().as_slice::<i32>(),
+            encoded
+                .encoded()
+                .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("failed to execute")
+                .as_slice::<i32>(),
             vec![605; 10]
         );
 
@@ -293,7 +305,11 @@ mod tests {
         .unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded.encoded().to_primitive().as_slice::<i32>(),
+            encoded
+                .encoded()
+                .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("failed to execute")
+                .as_slice::<i32>(),
             vec![0; 10]
         );
 

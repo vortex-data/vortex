@@ -89,7 +89,8 @@ impl CastReduce for Sequence {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
@@ -97,6 +98,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_error::VortexExpect;
 
     use crate::Sequence;
     use crate::SequenceArray;
@@ -130,7 +132,9 @@ mod tests {
         );
 
         // Verify the values
-        let decoded = casted.to_primitive();
+        let decoded = casted
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
         assert_arrays_eq!(decoded, PrimitiveArray::from_iter([100i64, 110, 120, 130]));
     }
 
@@ -149,7 +153,9 @@ mod tests {
         );
 
         // Verify the values
-        let decoded = casted.to_primitive();
+        let decoded = casted
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
         assert_arrays_eq!(
             decoded,
             PrimitiveArray::from_option_iter([Some(5i32), Some(8), Some(11)])
@@ -172,7 +178,9 @@ mod tests {
         );
 
         // Verify the values were correctly converted
-        let decoded = casted.to_primitive();
+        let decoded = casted
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
         assert_arrays_eq!(
             decoded,
             PrimitiveArray::from_iter([0.0f32, 1.0, 2.0, 3.0, 4.0])

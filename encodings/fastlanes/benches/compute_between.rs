@@ -12,7 +12,6 @@ use vortex_alp::alp_encode;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
-use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
@@ -58,7 +57,10 @@ fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast>(
     )
     .vortex_expect("");
 
-    let encoded = alp.encoded().to_primitive();
+    let encoded = alp
+        .encoded()
+        .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+        .vortex_expect("failed to execute");
 
     let bp = bitpack_to_best_bit_width(&encoded)
         .vortex_expect("")

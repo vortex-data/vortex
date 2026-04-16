@@ -58,10 +58,12 @@ impl TakeExecute for ALPRD {
 mod test {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
+    use vortex_error::VortexExpect;
 
     use crate::ALPRDArrayExt;
     use crate::ALPRDFloat;
@@ -89,7 +91,8 @@ mod test {
         let taken = encoded
             .take(buffer![0, 2].into_array())
             .unwrap()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
 
         assert_arrays_eq!(taken, PrimitiveArray::from_iter([a, outlier]));
     }
@@ -113,7 +116,8 @@ mod test {
         let taken = encoded
             .take(PrimitiveArray::from_option_iter([Some(0), Some(2), None]).into_array())
             .unwrap()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
 
         assert_arrays_eq!(
             taken,

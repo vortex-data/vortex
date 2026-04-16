@@ -3,7 +3,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::builtins::ArrayBuiltins;
@@ -26,7 +26,10 @@ pub struct TemporalParts {
 /// Splitting the components by granularity creates more small values, which enables better
 /// cascading compression.
 pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
-    let temporal_values = array.temporal_values().to_primitive();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let temporal_values = array
+        .temporal_values()
+        .execute::<PrimitiveArray>(&mut ctx)?;
 
     // After this operation, timestamps will be a PrimitiveArray<i64>
     let timestamps = temporal_values
@@ -36,7 +39,7 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
             PType::I64,
             temporal_values.dtype().nullability(),
         ))?
-        .to_primitive();
+        .execute::<PrimitiveArray>(&mut ctx)?;
 
     let length = timestamps.len();
     let mut days = BufferMut::with_capacity(length);
@@ -83,7 +86,6 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
@@ -120,7 +122,8 @@ mod tests {
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert!(
-            days.to_primitive()
+            days.execute::<PrimitiveArray>(&mut ctx)
+                .vortex_expect("failed to execute")
                 .validity()
                 .vortex_expect("days validity should be derivable")
                 .mask_eq(&validity, &mut ctx)
@@ -128,14 +131,16 @@ mod tests {
         );
         assert!(matches!(
             seconds
-                .to_primitive()
+                .execute::<PrimitiveArray>(&mut ctx)
+                .vortex_expect("failed to execute")
                 .validity()
                 .vortex_expect("seconds validity should be derivable"),
             Validity::NonNullable
         ));
         assert!(matches!(
             subseconds
-                .to_primitive()
+                .execute::<PrimitiveArray>(&mut ctx)
+                .vortex_expect("failed to execute")
                 .validity()
                 .vortex_expect("subseconds validity should be derivable"),
             Validity::NonNullable

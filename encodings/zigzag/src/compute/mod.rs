@@ -74,9 +74,9 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_error::VortexExpect;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
@@ -188,7 +188,13 @@ mod tests {
     fn test_take_zigzag_conformance(#[case] array: ArrayRef) -> VortexResult<()> {
         use vortex_array::compute::conformance::take::test_take_conformance;
 
-        let zigzag = zigzag_encode(array.to_primitive().as_view())?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let zigzag = zigzag_encode(
+            array
+                .execute::<PrimitiveArray>(&mut ctx)
+                .vortex_expect("failed to execute")
+                .as_view(),
+        )?;
         test_take_conformance(&zigzag.into_array());
         Ok(())
     }

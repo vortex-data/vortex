@@ -45,11 +45,11 @@ mod test {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
 
     use crate::alp_encode;
 
@@ -63,10 +63,14 @@ mod test {
         11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0
     ].into_array())]
     fn test_filter_alp_conformance(#[case] array: ArrayRef) {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let alp = alp_encode(
-            array.to_primitive().as_view(),
+            array
+                .execute::<PrimitiveArray>(&mut ctx)
+                .vortex_expect("failed to execute")
+                .as_view(),
             None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )
         .unwrap();
         test_filter_conformance(&alp.into_array());

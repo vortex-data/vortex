@@ -45,7 +45,10 @@ impl CastReduce for RLE {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::Canonical;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
@@ -89,7 +92,10 @@ mod tests {
         encoded
             .into_array()
             .cast(DType::Primitive(PType::U8, Nullability::NonNullable))
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
+            .and_then(|a| {
+                a.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                    .map(|c| c.into_array())
+            })
             .unwrap();
     }
 

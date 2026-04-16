@@ -166,9 +166,9 @@ mod test {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_error::VortexExpect;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
@@ -283,7 +283,8 @@ mod test {
         );
         assert_eq!(
             taken_primitive
-                .to_primitive()
+                .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("failed to execute")
                 .invalid_count(&mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             1

@@ -43,9 +43,9 @@ impl OperationsVTable<RLE> for RLE {
 mod tests {
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_error::VortexExpect;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
@@ -174,7 +174,13 @@ mod tests {
         let expected: Vec<u16> = (0..3000).map(|i| (i / 50) as u16).collect();
         let array = values.into_array();
 
-        let encoded = RLEData::encode(array.to_primitive().as_view()).unwrap();
+        let encoded = RLEData::encode(
+            array
+                .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("failed to execute")
+                .as_view(),
+        )
+        .unwrap();
 
         // Access scalars from multiple chunks.
         for &idx in &[1023, 1024, 1025, 2047, 2048, 2049] {
@@ -264,7 +270,11 @@ mod tests {
     #[test]
     fn test_slice_decode_with_nulls() {
         let array = fixture::rle_array_with_nulls();
-        let sliced = array.slice(1..4).unwrap().to_primitive(); // [null, 20, 20]
+        let sliced = array
+            .slice(1..4)
+            .unwrap()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute"); // [null, 20, 20]
 
         let expected = PrimitiveArray::from_option_iter([Option::<u32>::None, Some(20), Some(20)]);
         assert_arrays_eq!(sliced.into_array(), expected.into_array());
@@ -284,7 +294,13 @@ mod tests {
         let expected: Vec<u32> = (0..2100).map(|i| (i / 100) as u32).collect();
         let array = values.into_array();
 
-        let encoded = RLEData::encode(array.to_primitive().as_view()).unwrap();
+        let encoded = RLEData::encode(
+            array
+                .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("failed to execute")
+                .as_view(),
+        )
+        .unwrap();
 
         // Slice across first and second chunk.
         let slice = encoded.slice(500..1500).unwrap();

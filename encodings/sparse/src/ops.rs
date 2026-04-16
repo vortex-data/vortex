@@ -25,10 +25,12 @@ impl OperationsVTable<Sparse> for Sparse {
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
 
     use crate::Sparse;
 
@@ -42,7 +44,9 @@ mod tests {
         let mut expected = vec![999u64; 1000];
         expected[0] = 0;
 
-        let values = sliced.to_primitive();
+        let values = sliced
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
         assert_arrays_eq!(values, PrimitiveArray::from_iter(expected));
     }
 }

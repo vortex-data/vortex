@@ -178,13 +178,15 @@ fn filter_with_indices<T: NativePType + BitPacking>(
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray as _;
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_mask::Mask;
 
     use crate::BitPackedData;
@@ -226,7 +228,9 @@ mod test {
             .filter(Mask::from_indices(4096, (0..1024).collect()))
             .unwrap();
         assert_arrays_eq!(
-            filtered.to_primitive(),
+            filtered
+                .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("failed to execute"),
             PrimitiveArray::from_iter((0..1024).map(|i| (i % 63) as u8))
         );
     }
@@ -239,7 +243,8 @@ mod test {
         let filtered = bitpacked
             .filter(Mask::from_indices(values.len(), (0..250).collect()))
             .unwrap()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
 
         assert_arrays_eq!(
             filtered,
@@ -286,7 +291,8 @@ mod test {
         let filtered = bitpacked
             .filter(Mask::from_indices(values.len(), vec![0, 2, 5, 9]))
             .unwrap()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
 
         assert_arrays_eq!(filtered, PrimitiveArray::from_iter([0i32, 1000, 2000, 70]));
     }
@@ -319,7 +325,8 @@ mod test {
         let filtered = bitpacked
             .filter(Mask::from_indices(values.len(), indices))
             .unwrap()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
 
         let expected: Vec<i32> = values[0..20].to_vec();
         assert_arrays_eq!(filtered, PrimitiveArray::from_iter(expected));

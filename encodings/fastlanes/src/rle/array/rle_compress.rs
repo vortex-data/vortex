@@ -151,7 +151,8 @@ fn padded_validity(array: &PrimitiveArray) -> Validity {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::MaskedArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -159,6 +160,7 @@ mod tests {
     use vortex_array::dtype::half::f16;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
 
     use super::*;
@@ -171,7 +173,10 @@ mod tests {
         let encoded_u8 =
             RLEData::encode(PrimitiveArray::new(array_u8, Validity::NonNullable).as_view())
                 .unwrap();
-        let decoded_u8 = encoded_u8.as_array().to_primitive();
+        let decoded_u8 = encoded_u8
+            .as_array()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
         let expected_u8 = PrimitiveArray::from_iter(vec![1u8, 1, 2, 2, 3, 3]);
         assert_arrays_eq!(decoded_u8, expected_u8);
 
@@ -180,7 +185,10 @@ mod tests {
         let encoded_u16 =
             RLEData::encode(PrimitiveArray::new(array_u16, Validity::NonNullable).as_view())
                 .unwrap();
-        let decoded_u16 = encoded_u16.as_array().to_primitive();
+        let decoded_u16 = encoded_u16
+            .as_array()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
         let expected_u16 = PrimitiveArray::from_iter(vec![100u16, 100, 200, 200]);
         assert_arrays_eq!(decoded_u16, expected_u16);
 
@@ -189,7 +197,10 @@ mod tests {
         let encoded_u64 =
             RLEData::encode(PrimitiveArray::new(array_u64, Validity::NonNullable).as_view())
                 .unwrap();
-        let decoded_u64 = encoded_u64.as_array().to_primitive();
+        let decoded_u64 = encoded_u64
+            .as_array()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
         let expected_u64 = PrimitiveArray::from_iter(vec![1000u64, 1000, 2000]);
         assert_arrays_eq!(decoded_u64, expected_u64);
     }
@@ -220,7 +231,10 @@ mod tests {
             RLEData::encode(PrimitiveArray::new(values, Validity::NonNullable).as_view()).unwrap();
         assert_eq!(encoded.values().len(), 2); // 2 chunks, each storing value 42
 
-        let decoded = encoded.as_array().to_primitive(); // Verify round-trip
+        let decoded = encoded
+            .as_array()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
         let expected = PrimitiveArray::from_iter(vec![42u16; 2000]);
         assert_arrays_eq!(decoded, expected);
     }
@@ -233,7 +247,10 @@ mod tests {
             RLEData::encode(PrimitiveArray::new(values, Validity::NonNullable).as_view()).unwrap();
         assert_eq!(encoded.values().len(), 256);
 
-        let decoded = encoded.as_array().to_primitive(); // Verify round-trip
+        let decoded = encoded
+            .as_array()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
         let expected = PrimitiveArray::from_iter((0u8..=255).collect::<Vec<_>>());
         assert_arrays_eq!(decoded, expected);
     }
@@ -278,9 +295,17 @@ mod tests {
     #[case::f32((-2000..2000).map(|i| i as f32).collect::<Buffer<f32>>())]
     #[case::f64((-2000..2000).map(|i| i as f64).collect::<Buffer<f64>>())]
     fn test_roundtrip_primitive_types<T: NativePType>(#[case] values: Buffer<T>) {
-        let primitive = values.clone().into_array().to_primitive();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let primitive = values
+            .clone()
+            .into_array()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("failed to execute");
         let result = RLEData::encode(primitive.as_view()).unwrap();
-        let decoded = result.as_array().to_primitive();
+        let decoded = result
+            .as_array()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("failed to execute");
         let expected = PrimitiveArray::new(
             values,
             primitive
@@ -297,7 +322,10 @@ mod tests {
     /// fill-forward default at index 0 and the actual value at index 1), which
     /// holds whenever the first position of each chunk is null.
     fn with_masked_constant_indices(rle: &RLEArray) -> VortexResult<RLEArray> {
-        let indices_prim = rle.indices().to_primitive();
+        let indices_prim = rle
+            .indices()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
         let masked_indices = MaskedArray::try_new(
             ConstantArray::new(1u16, indices_prim.len()).into_array(),
             indices_prim.validity()?,
@@ -374,7 +402,10 @@ mod tests {
     /// positions, which can happen when indices are further compressed and the
     /// compressor clobbers invalid entries with arbitrary data.
     fn with_random_invalid_indices(rle: &RLEArray) -> VortexResult<RLEArray> {
-        let indices_prim = rle.indices().to_primitive();
+        let indices_prim = rle
+            .indices()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
         let mut indices_data: Vec<u16> = indices_prim.as_slice::<u16>().to_vec();
 
         // Use a simple deterministic "random" sequence.
@@ -479,7 +510,10 @@ mod tests {
     fn test_float_zeros<T: NativePType + fastlanes::RLE>(#[case] values: Vec<T>) {
         let primitive = PrimitiveArray::from_iter(values);
         let rle = RLEData::encode(primitive.as_view()).unwrap();
-        let decoded = rle.as_array().to_primitive();
+        let decoded = rle
+            .as_array()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
         assert_arrays_eq!(primitive, decoded);
     }
 }

@@ -16,6 +16,7 @@ use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
@@ -418,7 +419,10 @@ impl ALPRDData {
                 let mut patches = patches.cast_values(&left_parts.dtype().as_nonnullable())?;
                 // Force execution of the lazy cast so patch values are materialized
                 // before serialization.
-                *patches.values_mut() = patches.values().to_canonical()?.into_array();
+                *patches.values_mut() = patches
+                    .values()
+                    .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+                    .into_array();
                 Ok(patches)
             })
             .transpose()
@@ -660,12 +664,14 @@ impl ValidityChild<ALPRD> for ALPRD {
 mod test {
     use prost::Message;
     use rstest::rstest;
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::PType;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
+    use vortex_error::VortexExpect;
 
     use super::ALPRDMetadata;
     use crate::ALPRDFloat;
@@ -693,7 +699,10 @@ mod test {
 
         let rd_array = encoder.encode(real_array.as_view());
 
-        let decoded = rd_array.as_array().to_primitive();
+        let decoded = rd_array
+            .as_array()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
 
         assert_arrays_eq!(decoded, PrimitiveArray::from_option_iter(reals));
     }

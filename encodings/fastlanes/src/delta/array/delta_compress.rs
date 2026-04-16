@@ -97,6 +97,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -144,6 +145,12 @@ mod tests {
             array.len(),
         )
         .vortex_expect("Delta array construction should succeed");
-        assert_arrays_eq!(packed_delta.as_array().to_primitive(), array);
+        assert_arrays_eq!(
+            packed_delta
+                .as_array()
+                .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("failed to execute"),
+            array
+        );
     }
 }

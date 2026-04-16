@@ -78,8 +78,11 @@ where
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_error::VortexExpect;
 
     use super::*;
     use crate::ZigZag;
@@ -91,7 +94,9 @@ mod test {
             .into_array();
         assert!(compressed.is::<ZigZag>());
         assert_arrays_eq!(
-            compressed.to_primitive(),
+            compressed
+                .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("failed to execute"),
             PrimitiveArray::from_iter(-100_i8..100)
         );
     }
@@ -102,7 +107,9 @@ mod test {
             .into_array();
         assert!(compressed.is::<ZigZag>());
         assert_arrays_eq!(
-            compressed.to_primitive(),
+            compressed
+                .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("failed to execute"),
             PrimitiveArray::from_iter(-100_i16..100)
         );
     }
@@ -113,7 +120,9 @@ mod test {
             .into_array();
         assert!(compressed.is::<ZigZag>());
         assert_arrays_eq!(
-            compressed.to_primitive(),
+            compressed
+                .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("failed to execute"),
             PrimitiveArray::from_iter(-100_i32..100)
         );
     }
@@ -124,7 +133,9 @@ mod test {
             .into_array();
         assert!(compressed.is::<ZigZag>());
         assert_arrays_eq!(
-            compressed.to_primitive(),
+            compressed
+                .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("failed to execute"),
             PrimitiveArray::from_iter(-100_i64..100)
         );
     }

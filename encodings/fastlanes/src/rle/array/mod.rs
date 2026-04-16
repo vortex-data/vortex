@@ -142,7 +142,6 @@ mod tests {
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::primitive::PrimitiveArrayExt;
@@ -236,9 +235,13 @@ mod tests {
         let rle_array = RLE::try_new(values, indices_with_validity, values_idx_offsets, 0, 5)
             .vortex_expect("RLEData is always valid");
 
-        let valid_slice = rle_array.slice(0..3).unwrap().to_primitive();
-        // TODO(joe): replace with compute null count
         let mut ctx = SESSION.create_execution_ctx();
+        let valid_slice = rle_array
+            .slice(0..3)
+            .unwrap()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("failed to execute");
+        // TODO(joe): replace with compute null count
         assert!(valid_slice.all_valid(&mut ctx).unwrap());
 
         let mixed_slice = rle_array.slice(1..5).unwrap();
@@ -364,7 +367,10 @@ mod tests {
         let rle_array = RLEData::encode(primitive.as_view()).unwrap();
         assert_eq!(rle_array.len(), 2048);
 
-        let original_data = rle_array.as_array().to_primitive();
+        let original_data = rle_array
+            .as_array()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
 
         let ctx = ArrayContext::empty();
         let serialized = rle_array
@@ -388,7 +394,9 @@ mod tests {
             )
             .unwrap();
 
-        let decoded_data = decoded.to_primitive();
+        let decoded_data = decoded
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
 
         assert_arrays_eq!(original_data, decoded_data);
     }
@@ -431,8 +439,13 @@ mod tests {
             )
             .unwrap();
 
-        let original_data = sliced.as_array().to_primitive();
-        let decoded_data = decoded.to_primitive();
+        let original_data = sliced
+            .as_array()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
+        let decoded_data = decoded
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
 
         assert_arrays_eq!(original_data, decoded_data);
     }
@@ -459,7 +472,11 @@ mod tests {
 
         // Simulate cascading compression: narrow u16->u8 then re-encode with RLE,
         // matching the path taken by the BtrBlocks compressor.
-        let indices_prim = rle.indices().to_primitive().narrow()?;
+        let indices_prim = rle
+            .indices()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute")
+            .narrow()?;
         let re_encoded = RLEData::encode(indices_prim.as_view())?;
 
         // Reconstruct the outer RLE with re-encoded indices.
@@ -475,7 +492,10 @@ mod tests {
         };
 
         // Decompress — panicked before the fill_forward_nulls chunk-boundary fix.
-        let decoded = reconstructed.as_array().to_primitive();
+        let decoded = reconstructed
+            .as_array()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
         assert_arrays_eq!(decoded, original);
         Ok(())
     }

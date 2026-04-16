@@ -153,9 +153,11 @@ fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSu
 mod tests {
     #[expect(unused_imports)]
     use itertools::Itertools;
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_error::VortexExpect;
 
     use crate::sequence_encode;
 
@@ -164,7 +166,10 @@ mod tests {
         let primitive_array = PrimitiveArray::from_iter([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
         let encoded = sequence_encode(primitive_array.as_view()).unwrap();
         assert!(encoded.is_some());
-        let decoded = encoded.unwrap().to_primitive();
+        let decoded = encoded
+            .unwrap()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
         assert_arrays_eq!(decoded, primitive_array);
     }
 
@@ -173,7 +178,10 @@ mod tests {
         let primitive_array = PrimitiveArray::from_iter([0]);
         let encoded = sequence_encode(primitive_array.as_view()).unwrap();
         assert!(encoded.is_some());
-        let decoded = encoded.unwrap().to_primitive();
+        let decoded = encoded
+            .unwrap()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
         assert_arrays_eq!(decoded, primitive_array);
     }
 
@@ -198,7 +206,10 @@ mod tests {
         let primitive_array = PrimitiveArray::from_iter(0u8..=255);
         let encoded = sequence_encode(primitive_array.as_view()).unwrap();
         assert!(encoded.is_some());
-        let decoded = encoded.unwrap().to_primitive();
+        let decoded = encoded
+            .unwrap()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
         assert_arrays_eq!(decoded, primitive_array);
     }
 }

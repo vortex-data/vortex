@@ -46,8 +46,10 @@ impl CastReduce for DecimalByteParts {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::Canonical;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
@@ -90,11 +92,11 @@ mod tests {
         )
         .unwrap();
 
-        // Cast to non-nullable should fail due to nulls - force evaluation via to_canonical
+        // Cast to non-nullable should fail due to nulls - force evaluation via execute
         let result = array
             .into_array()
             .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+            .and_then(|a| a.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx()).map(|c| c.into_array()));
         assert!(result.is_err());
     }
 

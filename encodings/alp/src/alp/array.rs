@@ -526,7 +526,6 @@ mod tests {
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -808,17 +807,18 @@ mod tests {
         let slice_len = slice_end - slice_start;
         let sliced_encoded = encoded.slice(slice_start..slice_end).unwrap();
 
-        let result_primitive = sliced_encoded.to_primitive();
+        let result_primitive = sliced_encoded
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute");
 
         for idx in 0..slice_len {
             let expected_value = values[slice_start + idx];
 
             let result_valid = result_primitive
-                .as_ref()
                 .validity()
                 .unwrap()
                 .to_mask(
-                    result_primitive.as_ref().len(),
+                    result_primitive.len(),
                     &mut LEGACY_SESSION.create_execution_ctx(),
                 )
                 .unwrap()

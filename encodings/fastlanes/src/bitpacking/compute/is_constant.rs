@@ -8,7 +8,6 @@ use lending_iterator::LendingIterator;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
-use vortex_array::ToCanonical;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
 use vortex_array::aggregate_fn::fns::is_constant::primitive::IS_CONST_LANE_WIDTH;
@@ -45,7 +44,7 @@ impl DynAggregateKernel for BitPackedIsConstantKernel {
         };
 
         let result = match_each_integer_ptype!(array.dtype().as_ptype(), |P| {
-            bitpacked_is_constant::<P, { IS_CONST_LANE_WIDTH / size_of::<P>() }>(array)?
+            bitpacked_is_constant::<P, { IS_CONST_LANE_WIDTH / size_of::<P>() }>(array, ctx)?
         });
 
         Ok(Some(IsConstant::make_partial(batch, result, ctx)?))
@@ -54,14 +53,17 @@ impl DynAggregateKernel for BitPackedIsConstantKernel {
 
 fn bitpacked_is_constant<T: BitPackedUnpack, const WIDTH: usize>(
     array: ArrayView<'_, BitPacked>,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
     let mut bit_unpack_iterator = array.unpacked_chunks::<T>()?;
-    let patches = array.patches().map(|p| {
-        let values = p.values().to_primitive();
-        let indices = p.indices().to_primitive();
+    let patches = if let Some(p) = array.patches() {
+        let values = p.values().clone().execute::<PrimitiveArray>(ctx)?;
+        let indices = p.indices().clone().execute::<PrimitiveArray>(ctx)?;
         let offset = p.offset();
-        (indices, values, offset)
-    });
+        Some((indices, values, offset))
+    } else {
+        None
+    };
 
     let mut header_constant_value = None;
     let mut current_idx = 0;

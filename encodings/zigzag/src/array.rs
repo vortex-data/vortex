@@ -271,8 +271,8 @@ impl ValidityChild<ZigZag> for ZigZag {
 mod test {
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
 
@@ -281,9 +281,10 @@ mod test {
 
     #[test]
     fn test_compute_statistics() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10]
             .into_array()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let zigzag = zigzag_encode(array.as_view())?;
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
 

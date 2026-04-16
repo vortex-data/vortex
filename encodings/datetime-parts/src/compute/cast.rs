@@ -35,7 +35,10 @@ impl CastReduce for DateTimeParts {
 mod tests {
     use rstest::rstest;
     use vortex_array::ArrayRef;
+    use vortex_array::Canonical;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::builtins::ArrayBuiltins;
@@ -90,16 +93,16 @@ mod tests {
     #[case(Validity::from_iter([true, false, true]))]
     fn test_bad_cast_fails(#[case] validity: Validity) {
         let array = date_time_array(validity);
-        // Cast to incompatible type - force evaluation via to_canonical
+        // Cast to incompatible type - force evaluation via execute
         let result = array
             .cast(DType::Bool(Nullability::NonNullable))
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+            .and_then(|a| a.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx()).map(|c| c.into_array()));
         assert!(result.is_err(), "Expected error, got: {result:?}");
 
-        // Cast nullable with nulls to non-nullable - force evaluation via to_canonical
+        // Cast nullable with nulls to non-nullable - force evaluation via execute
         let result = array
             .cast(array.dtype().with_nullability(Nullability::NonNullable))
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+            .and_then(|a| a.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx()).map(|c| c.into_array()));
         assert!(result.is_err(), "Expected error, got: {result:?}");
     }
 

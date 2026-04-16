@@ -52,9 +52,11 @@ mod test {
     use std::sync::LazyLock;
 
     use itertools::Itertools;
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::primitive::PrimitiveArrayExt;
+    use vortex_error::VortexExpect;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::PType;
     use vortex_array::expr::stats::StatsProvider;
@@ -168,7 +170,8 @@ mod test {
 
         let encoded = compressed
             .encoded()
-            .to_primitive()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("failed to execute")
             .reinterpret_cast(PType::U8);
         let unsigned: Vec<u8> = (0..=u8::MAX).collect_vec();
         let expected_unsigned = PrimitiveArray::from_iter(unsigned);
