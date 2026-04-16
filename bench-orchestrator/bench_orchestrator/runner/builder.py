@@ -29,21 +29,24 @@ class BenchmarkBuilder:
         self.config = config or BuildConfig()
         self.verbose = verbose
 
-    def get_binary_path(self, engine: Engine) -> Path:
+    def get_binary_path(self, backend: Engine) -> Path:
         """Get path to built binary."""
-        binary_name = engine.binary_name
+        binary_name = backend.binary_name
         return self.workspace_root / "target" / self.config.profile / binary_name
 
-    def build(self, engines: list[Engine]) -> dict[Engine, Path]:
-        """Build binaries for specified engines, return paths."""
-        results = {}
+    def get_data_generator_path(self) -> Path:
+        """Get path to the built benchmark data generator binary."""
+        return self.workspace_root / "target" / self.config.profile / "data-gen"
 
-        # Build each binary
+    def build(self, backends: list[Engine]) -> dict[Engine, Path]:
+        """Build binaries for specified engines, return paths."""
+        results: dict[Engine, Path] = {}
+
         env = os.environ.copy()
         env["RUSTFLAGS"] = self.config.rustflags
 
-        for engine in engines:
-            binary_name = engine.binary_name
+        for backend in backends:
+            binary_name = backend.binary_name
             console.print(f"[blue]Building {binary_name}...[/blue]")
 
             cmd = [
@@ -54,6 +57,8 @@ class BenchmarkBuilder:
                 "--profile",
                 self.config.profile,
             ]
+            if self.config.features:
+                cmd.extend(["--features", ",".join(self.config.features)])
 
             if self.verbose:
                 console.print(f"[dim]$ RUSTFLAGS='{self.config.rustflags}' {' '.join(cmd)}[/dim]")
@@ -65,7 +70,7 @@ class BenchmarkBuilder:
                     env=env,
                     check=True,
                 )
-                results[engine] = self.get_binary_path(engine)
+                results[backend] = self.get_binary_path(backend)
                 console.print(f"[green]Built {binary_name}[/green]")
             except subprocess.CalledProcessError as e:
                 console.print(f"[red]Failed to build {binary_name}: {e}[/red]")

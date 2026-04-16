@@ -19,6 +19,8 @@
   },
   "autoApprove": true,
   "automergeStrategy": "squash",
+  "prHourlyLimit": 0,
+  "prConcurrentLimit": 20,
   "rebaseWhen": "conflicted",
   "cloneSubmodules": true,
   "platformAutomerge": true,

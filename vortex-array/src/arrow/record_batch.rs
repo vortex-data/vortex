@@ -5,43 +5,13 @@ use arrow_array::RecordBatch;
 use arrow_array::cast::AsArray;
 use arrow_schema::DataType;
 use arrow_schema::Schema;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 
-use crate::ArrayRef;
-use crate::Canonical;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::IntoArray;
 use crate::arrays::StructArray;
 use crate::arrow::ArrowArrayExecutor;
-use crate::validity::Validity;
-
-// deprecated(note = "Use ArrowArrayExecutor::execute_record_batch instead")
-impl TryFrom<&ArrayRef> for RecordBatch {
-    type Error = VortexError;
-
-    fn try_from(value: &ArrayRef) -> VortexResult<Self> {
-        #[expect(deprecated)]
-        let canonical = value.to_canonical()?;
-        let Canonical::Struct(struct_array) = canonical else {
-            vortex_bail!("RecordBatch can only be constructed from ")
-        };
-
-        vortex_ensure!(
-            matches!(struct_array.validity()?, Validity::AllValid),
-            "RecordBatch can only be constructed from StructArray with no nulls"
-        );
-
-        let data_type = struct_array.dtype().to_arrow_dtype()?;
-        let array_ref = struct_array
-            .into_array()
-            .execute_arrow(Some(&data_type), &mut LEGACY_SESSION.create_execution_ctx())?;
-        Ok(RecordBatch::from(array_ref.as_struct()))
-    }
-}
 
 impl StructArray {
     pub fn into_record_batch_with_schema(

@@ -115,6 +115,8 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_error::VortexResult;
@@ -140,6 +142,45 @@ mod tests {
                 PrimitiveArray::from_iter([1i32, 4, 2]).into_array()
             )
         );
+        Ok(())
+    }
+
+    /// Regression: Filter(Slice(RunEnd)) must preserve RunEnd after execution.
+    /// Previously Filter.execute() forced its child to canonical, decoding
+    /// Slice(RunEnd) → Primitive and destroying run structure. The fix lets
+    /// Filter unwrap one layer at a time so RunEnd's FilterKernel can fire.
+    #[test]
+    fn filter_sliced_run_end_preserves_encoding() -> VortexResult<()> {
+        // 4 runs of 32 each = 128 rows. Large enough that FilterKernel takes
+        // the run-preserving path (true_count >= 25).
+        let values: Vec<i32> = [10, 20, 30, 40]
+            .iter()
+            .flat_map(|&v| std::iter::repeat_n(v, 32))
+            .collect();
+        let arr = RunEnd::encode(PrimitiveArray::from_iter(values).into_array())?;
+
+        // Slice off the first 16 rows. Slice(RunEnd), 112 rows, 4 runs.
+        let sliced = arr.into_array().slice(16..128)?;
+
+        // Keep every other row = 112/2 = 56 rows.
+        let mask = Mask::from_iter((0..sliced.len()).map(|i| i % 2 == 0));
+        let filtered = sliced.filter(mask)?;
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let executed = filtered.execute_until::<RunEnd>(&mut ctx)?;
+        assert_eq!(
+            executed.encoding_id().as_ref(),
+            "vortex.runend",
+            "Filter(Slice(RunEnd)) should preserve RunEnd encoding"
+        );
+
+        let expected: Vec<i32> = std::iter::repeat_n(10, 8)
+            .chain(std::iter::repeat_n(20, 16))
+            .chain(std::iter::repeat_n(30, 16))
+            .chain(std::iter::repeat_n(40, 16))
+            .collect();
+        assert_arrays_eq!(executed, PrimitiveArray::from_iter(expected));
+
         Ok(())
     }
 }

@@ -1,0 +1,1 @@
+{"all_runtimes":[140238709],"commit_id":"5b3726ee1725a1c21e3ab935d21ef48435e97197","dataset":{"tpch":{"scale_factor":"10.0"}},"env_triple":{"architecture":"aarch64","environment":"unknown","operating_system":"darwin"},"name":"tpch_q06/datafusion:parquet","storage":"nvme","target":{"engine":"datafusion","format":"parquet"},"unit":"ns","value":140238709}

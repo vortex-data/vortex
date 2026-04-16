@@ -106,35 +106,39 @@ jobs:
           if-no-files-found: error
 
   prepare-java-linux:
-    runs-on: ${{ matrix.target.runs-on }}
-    container:
-      image: "ubuntu:20.04"
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        target:
-          - { os: ubuntu, runs-on: "ubuntu-24.04-arm", target: aarch64-unknown-linux-gnu }
-          - { os: ubuntu, runs-on: "ubuntu-24.04", target: x86_64-unknown-linux-gnu }
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: runs-on=${{ github.run_id }}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=prepare-java-linux-amd64
+          - target: aarch64-unknown-linux-gnu
+            runner: runs-on=${{ github.run_id }}/runner=arm64-medium/image=ubuntu24-full-arm64-pre-v2/tag=prepare-java-linux-arm64
+    runs-on: ${{ matrix.runner }}
     steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - uses: ./.github/actions/prepare-java-linux
       - uses: actions/setup-java@v5
         with:
           distribution: "corretto"
           java-version: "17"
-      - uses: ./.github/actions/setup-rust
+      - uses: ./.github/actions/setup-prebuild
+      - uses: mlugg/setup-zig@v2.2.1
+      - name: Install cargo-zigbuild
+        uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:
-          targets: ${{ matrix.target.target }}
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          enable-sccache: "false"
-      - run: cargo build --release --package vortex-jni
+          tool: cargo-zigbuild
+      - run: cargo zigbuild --release --target ${{ matrix.target }}.2.31 --package vortex-jni
       - uses: actions/upload-artifact@v7
         with:
-          name: "libvortex_jni_${{ matrix.target.target }}.zip"
-          path: "target/release/libvortex_jni.so"
+          name: "libvortex_jni_${{ matrix.target }}.zip"
+          path: "target/${{ matrix.target }}/release/libvortex_jni.so"
           retention-days: 7
           if-no-files-found: error
 

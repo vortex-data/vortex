@@ -19038,6 +19038,8 @@ pub fn vortex_array::validity::Validity::mask_eq(&self, other: &vortex_array::va
 
 pub fn vortex_array::validity::Validity::maybe_len(&self) -> core::option::Option<usize>
 
+pub fn vortex_array::validity::Validity::no_nulls(&self) -> bool
+
 pub fn vortex_array::validity::Validity::not(&self) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::validity::Validity::nullability(&self) -> vortex_array::dtype::Nullability
@@ -22117,12 +22119,6 @@ pub fn vortex_array::ArrayRef::from(value: vortex_array::Canonical) -> Self
 impl core::convert::From<vortex_array::arrays::datetime::TemporalData> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from(value: vortex_array::arrays::datetime::TemporalData) -> Self
-
-impl core::convert::TryFrom<&vortex_array::ArrayRef> for arrow_array::record_batch::RecordBatch
-
-pub type arrow_array::record_batch::RecordBatch::Error = vortex_error::VortexError
-
-pub fn arrow_array::record_batch::RecordBatch::try_from(value: &vortex_array::ArrayRef) -> vortex_error::VortexResult<Self>
 
 impl core::convert::TryFrom<vortex_array::ArrayRef> for vortex_array::arrays::datetime::TemporalData
 
