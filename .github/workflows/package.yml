@@ -113,14 +113,9 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             runner: runs-on=${{ github.run_id }}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=prepare-java-linux-amd64
-            fallback_runner: ubuntu-24.04
           - target: aarch64-unknown-linux-gnu
             runner: runs-on=${{ github.run_id }}/runner=arm64-medium/image=ubuntu24-full-arm64-pre-v2/tag=prepare-java-linux-arm64
-            fallback_runner: ubuntu-24.04-arm
-    runs-on: >-
-      ${{ github.repository == 'vortex-data/vortex'
-          && matrix.runner
-          || matrix.fallback_runner }}
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: runs-on/action@v2
         if: github.repository == 'vortex-data/vortex'
