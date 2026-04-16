@@ -42,6 +42,7 @@ impl FillNullKernel for Bool {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use rstest::rstest;
     use vortex_buffer::BitBuffer;

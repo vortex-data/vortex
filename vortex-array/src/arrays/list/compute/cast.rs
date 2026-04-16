@@ -75,6 +75,7 @@ mod tests {
         assert_eq!(result.len(), list.len());
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_cast_to_wrong_type() {
         let list = ListArray::try_new(
@@ -94,6 +95,7 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_cant_cast_nulls_to_non_null() {
         // Test that if list has nulls, the conversion will fail

@@ -16,6 +16,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::LEGACY_SESSION;
+#[allow(deprecated)]
 use crate::ToCanonical;
 use crate::VortexSessionExecute;
 use crate::array::Array;
@@ -144,6 +145,7 @@ pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
     }
 
     /// Narrow the array to the smallest possible integer type that can represent all values.
+    #[expect(deprecated)]
     fn narrow(&self) -> VortexResult<PrimitiveArray> {
         if !self.ptype().is_int() {
             return Ok(self.to_owned());
@@ -465,6 +467,7 @@ impl Array<Primitive> {
         }
     }
 
+    #[expect(deprecated)]
     pub fn map_each_with_validity<T, R, F>(self, f: F) -> VortexResult<Self>
     where
         T: NativePType,
@@ -524,6 +527,7 @@ impl PrimitiveData {
     }
 
     /// Create a PrimitiveArray from a byte buffer containing only the valid elements.
+    #[expect(deprecated)]
     pub fn from_values_byte_buffer(
         valid_elems_buffer: ByteBuffer,
         ptype: PType,

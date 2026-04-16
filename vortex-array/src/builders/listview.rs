@@ -21,6 +21,7 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::LEGACY_SESSION;
+#[allow(deprecated)]
 use crate::ToCanonical;
 use crate::VortexSessionExecute;
 use crate::array::IntoArray;
@@ -292,6 +293,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         self.append_value(list_scalar)
     }
 
+    #[expect(deprecated)]
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let listview = array.to_listview();
         if listview.is_empty() {

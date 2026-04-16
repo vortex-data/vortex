@@ -13,6 +13,7 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::LEGACY_SESSION;
+#[allow(deprecated)]
 use crate::ToCanonical;
 use crate::VortexSessionExecute;
 use crate::array::Array;
@@ -177,6 +178,7 @@ impl VarBinData {
     /// Validates the components that would be used to create a `VarBinArray`.
     ///
     /// This function checks all the invariants required by `VarBinArray::new_unchecked`.
+    #[expect(deprecated)]
     pub fn validate(
         offsets: &ArrayRef,
         bytes: &BufferHandle,

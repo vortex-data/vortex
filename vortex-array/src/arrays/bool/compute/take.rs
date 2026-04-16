@@ -84,6 +84,7 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::IntoArray as _;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
@@ -93,6 +94,7 @@ mod test {
     use crate::validity::Validity;
 
     #[test]
+    #[expect(deprecated)]
     fn take_nullable() {
         let reference = BoolArray::from_iter(vec![
             Some(false),

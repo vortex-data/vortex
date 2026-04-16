@@ -20,6 +20,7 @@ use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
+#[allow(deprecated)]
 use crate::canonical::ToCanonical;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -114,6 +115,7 @@ impl ArrayBuilder for BoolBuilder {
         Ok(())
     }
 
+    #[expect(deprecated)]
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let bool_array = array.to_bool();
 
@@ -168,6 +170,7 @@ mod tests {
     use crate::builders::BoolBuilder;
     use crate::builders::bool::BoolArray;
     use crate::builders::builder_with_capacity;
+    #[allow(deprecated)]
     use crate::canonical::ToCanonical;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -190,6 +193,7 @@ mod tests {
             .into_array()
     }
 
+    #[expect(deprecated)]
     #[test]
     fn tests() -> VortexResult<()> {
         let len = 1000;

@@ -31,6 +31,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::RecursiveCanonical;
+#[allow(deprecated)]
 use crate::ToCanonical;
 use crate::VortexSessionExecute;
 use crate::arrays::ConstantArray;
@@ -88,6 +89,7 @@ where
     test_binary_numeric_edge_cases(array);
 }
 
+#[expect(deprecated)]
 fn test_standard_binary_numeric<T: NativePType + Num + Copy>(array: ArrayRef)
 where
     Scalar: From<T>,
@@ -323,6 +325,7 @@ where
     test_binary_numeric_with_scalar(array, T::neg_infinity());
 }
 
+#[expect(deprecated)]
 fn test_binary_numeric_with_scalar<T>(array: ArrayRef, scalar_value: T)
 where
     T: NativePType + Num + Copy + std::fmt::Debug,

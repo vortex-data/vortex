@@ -22,6 +22,7 @@ use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
+#[allow(deprecated)]
 use crate::canonical::ToCanonical;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -236,6 +237,7 @@ impl ArrayBuilder for FixedSizeListBuilder {
 
     /// This will increase the capacity if extending with this `array` would go past the original
     /// capacity.
+    #[expect(deprecated)]
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let fsl = array.to_fixed_size_list();
         if fsl.is_empty() {
@@ -282,6 +284,7 @@ mod tests {
     use super::FixedSizeListBuilder;
     use crate::IntoArray as _;
     use crate::LEGACY_SESSION;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
@@ -304,6 +307,7 @@ mod tests {
         assert_eq!(fsl.len(), 0);
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_values() {
         let dtype: Arc<DType> = Arc::new(I32.into());
@@ -340,6 +344,7 @@ mod tests {
         assert_eq!(fsl_array.list_size(), 3);
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_degenerate_size_zero_non_nullable() {
         let dtype: Arc<DType> = Arc::new(I32.into());
@@ -364,6 +369,7 @@ mod tests {
         assert_eq!(fsl_array.elements().len(), 0);
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_degenerate_size_zero_nullable() {
         // Use nullable elements since we'll be appending nulls
@@ -392,6 +398,7 @@ mod tests {
         assert_eq!(fsl_array.elements().len(), 0);
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_capacity_growth() {
         let dtype: Arc<DType> = Arc::new(I32.into());
@@ -420,6 +427,7 @@ mod tests {
         assert_eq!(fsl_array.elements().len(), 10);
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_large_size_zero_capacity_empty_result() {
         let dtype: Arc<DType> = Arc::new(I32.into());
@@ -434,6 +442,7 @@ mod tests {
         assert_eq!(fsl_array.elements().len(), 0);
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_nullable_lists_non_nullable_elements() {
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, NonNullable));
@@ -485,6 +494,7 @@ mod tests {
         );
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_non_nullable_lists_nullable_elements() {
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, Nullable));
@@ -528,6 +538,7 @@ mod tests {
         assert_eq!(fsl_array.elements().len(), 6);
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_append_zeros() {
         let dtype: Arc<DType> = Arc::new(I32.into());
@@ -548,6 +559,7 @@ mod tests {
         assert!(elements.iter().all(|&x| x == 0));
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_append_nulls() {
         // Elements must be nullable if we're going to append null lists
@@ -576,6 +588,7 @@ mod tests {
         }
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_append_scalar_nulls() {
         // Elements must be nullable if we're going to append null lists
@@ -604,6 +617,7 @@ mod tests {
         );
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_append_zeros_degenerate() {
         let dtype: Arc<DType> = Arc::new(I32.into());
@@ -646,6 +660,7 @@ mod tests {
         );
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_extend_from_array() {
         let dtype: Arc<DType> = Arc::new(I32.into());
@@ -715,6 +730,7 @@ mod tests {
         );
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_extend_degenerate_arrays() {
         let dtype: Arc<DType> = Arc::new(I32.into());
@@ -818,6 +834,7 @@ mod tests {
         assert_eq!(fsl.len(), 1);
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_mixed_operations() {
         // Use nullable elements since we'll be appending nulls
@@ -974,6 +991,7 @@ mod tests {
         assert!(builder.append_scalar(&wrong_scalar).is_err());
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_append_array_as_list() {
         let dtype: Arc<DType> = Arc::new(I32.into());

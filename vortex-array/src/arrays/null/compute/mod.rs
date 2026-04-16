@@ -16,6 +16,7 @@ mod test {
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::VortexSessionExecute;
     use crate::arrays::NullArray;
@@ -26,6 +27,7 @@ mod test {
     use crate::dtype::DType;
 
     #[test]
+    #[expect(deprecated)]
     fn test_slice_nulls() {
         let nulls = NullArray::new(10);
         let sliced = nulls.slice(0..4).unwrap().to_null();
@@ -43,6 +45,7 @@ mod test {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn test_take_nulls() {
         let nulls = NullArray::new(10);
         let taken = nulls

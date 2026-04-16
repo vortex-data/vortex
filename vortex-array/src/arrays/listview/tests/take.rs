@@ -11,6 +11,7 @@ use super::common::create_nullable_listview;
 use super::common::create_overlapping_listview;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
+#[allow(deprecated)]
 use crate::ToCanonical;
 use crate::VortexSessionExecute;
 use crate::arrays::ConstantArray;
@@ -35,6 +36,7 @@ fn test_take_listview_conformance(#[case] listview: ListViewArray) {
 // ListView-specific tests that aren't covered by conformance.
 
 #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `take`"]
+#[expect(deprecated)]
 #[test]
 fn test_take_preserves_unreferenced_elements() {
     // ListView-specific: Test that take preserves the entire elements array
@@ -64,6 +66,7 @@ fn test_take_preserves_unreferenced_elements() {
 }
 
 #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `take`"]
+#[expect(deprecated)]
 #[test]
 fn test_take_with_gaps() {
     // ListView-specific: Test with gaps in elements array.
@@ -92,6 +95,7 @@ fn test_take_with_gaps() {
 }
 
 #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `take`"]
+#[expect(deprecated)]
 #[test]
 fn test_take_constant_arrays() {
     // ListView-specific: Test with ConstantArray for offsets/sizes.
@@ -145,6 +149,7 @@ fn test_take_constant_arrays() {
 }
 
 #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `take`"]
+#[expect(deprecated)]
 #[test]
 fn test_take_extreme_offsets() {
     // ListView-specific: Test with very large offsets to demonstrate

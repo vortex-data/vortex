@@ -102,6 +102,8 @@ fn constant_boolean(
 
 #[cfg(test)]
 mod tests {
+    #![allow(deprecated)]
+
     use rstest::rstest;
 
     use crate::ArrayRef;

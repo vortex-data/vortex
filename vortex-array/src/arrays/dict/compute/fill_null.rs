@@ -95,6 +95,7 @@ mod tests {
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::VortexSessionExecute;
     use crate::arrays::DictArray;
@@ -105,6 +106,7 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
+    #[expect(deprecated)]
     #[test]
     fn nullable_codes_fill_in_values() {
         let dict = DictArray::try_new(

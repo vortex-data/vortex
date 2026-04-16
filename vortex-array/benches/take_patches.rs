@@ -11,6 +11,7 @@ use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
+#[allow(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::patches::Patches;
@@ -37,6 +38,7 @@ const BENCH_ARGS: &[(f64, f64)] = &[
 ];
 
 #[divan::bench(args = BENCH_ARGS)]
+#[expect(deprecated)]
 fn take_search(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
     let mut rng = StdRng::seed_from_u64(0);
     let patches = fixture(65536, patches_sparsity, &mut rng);
@@ -54,6 +56,7 @@ fn take_search(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64))
 }
 
 #[divan::bench(args = BENCH_ARGS)]
+#[expect(deprecated)]
 fn take_search_chunked(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
     let mut rng = StdRng::seed_from_u64(0);
     let patches = fixture_with_chunk_offsets(65536, patches_sparsity, &mut rng);
@@ -71,6 +74,7 @@ fn take_search_chunked(bencher: Bencher, (patches_sparsity, index_multiple): (f6
 }
 
 #[divan::bench(args = BENCH_ARGS)]
+#[expect(deprecated)]
 fn take_map(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
     let mut rng = StdRng::seed_from_u64(0);
     let patches = fixture(65536, patches_sparsity, &mut rng);

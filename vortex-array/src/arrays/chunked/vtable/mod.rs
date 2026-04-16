@@ -21,6 +21,7 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
+#[allow(deprecated)]
 use crate::ToCanonical;
 use crate::array::Array;
 use crate::array::ArrayId;
@@ -161,6 +162,7 @@ impl VTable for Chunked {
         Ok(Some(vec![]))
     }
 
+    #[expect(deprecated)]
     fn deserialize(
         &self,
         dtype: &DType,

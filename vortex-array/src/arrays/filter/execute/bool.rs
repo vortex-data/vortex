@@ -31,9 +31,11 @@ mod test {
 
     use crate::IntoArray;
     use crate::arrays::filter::execute::bool::BoolArray;
+    #[allow(deprecated)]
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::filter::test_filter_conformance;
 
+    #[expect(deprecated)]
     #[test]
     fn filter_bool_test() {
         let arr = BoolArray::from_iter([true, true, false]);

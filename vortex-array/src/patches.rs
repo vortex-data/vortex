@@ -22,6 +22,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
+#[allow(deprecated)]
 use crate::ToCanonical;
 use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
@@ -405,6 +406,7 @@ impl Patches {
     /// # Returns
     /// [`SearchResult::Found`] with the position if needle exists, or [`SearchResult::NotFound`]
     /// with the insertion point if not found.
+    #[expect(deprecated)]
     fn search_index_binary_search(indices: &ArrayRef, needle: usize) -> VortexResult<SearchResult> {
         if indices.is_canonical() {
             let primitive = indices.to_primitive();
@@ -1115,6 +1117,7 @@ mod test {
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::VortexSessionExecute;
     use crate::assert_arrays_eq;
@@ -1147,6 +1150,7 @@ mod test {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn take_with_nulls() {
         let patches = Patches::new(
             20,
@@ -1188,6 +1192,7 @@ mod test {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn take_search_with_nulls_chunked() {
         let patches = Patches::new(
             20,
@@ -1476,6 +1481,7 @@ mod test {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn test_mask_nullable_values() {
         let patches = Patches::new(
             10,
@@ -1664,6 +1670,7 @@ mod test {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn test_patch_values() {
         let patches = Patches::new(
             10,

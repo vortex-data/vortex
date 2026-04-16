@@ -56,6 +56,7 @@ mod tests {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::arrays::ConstantArray;
     use crate::arrays::Extension;
@@ -118,6 +119,7 @@ mod tests {
         .erased()
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_filter_pushdown() {
         let ext_dtype = test_ext_dtype();
@@ -147,6 +149,7 @@ mod tests {
         assert_eq!(storage_result, &[1, 3, 5]);
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_filter_pushdown_nullable() {
         let ext_dtype = ExtDType::<TestExt>::try_new(

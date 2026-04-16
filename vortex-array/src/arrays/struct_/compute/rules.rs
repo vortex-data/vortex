@@ -153,6 +153,7 @@ mod tests {
     use crate::arrays::struct_::compute::rules::ConstantArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
+    #[allow(deprecated)]
     use crate::canonical::ToCanonical;
     use crate::dtype::DType;
     use crate::dtype::FieldNames;
@@ -163,6 +164,7 @@ mod tests {
     use crate::validity::Validity;
 
     #[test]
+    #[expect(deprecated)]
     fn test_struct_cast_field_reorder() {
         // Source: {a, b}, Target: {c, b, a} - reordered + new null field
         let source = StructArray::try_new(
@@ -230,6 +232,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn cast_struct_drop_field() {
         // Casting to a struct with a subset of fields should succeed.
         let source = StructArray::try_new(
@@ -268,6 +271,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn cast_struct_field_type_widening() {
         // Casting struct fields to wider types (i32 -> i64).
         let source = StructArray::try_new(

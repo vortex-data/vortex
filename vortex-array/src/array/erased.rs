@@ -301,11 +301,14 @@ impl ArrayRef {
     }
 
     /// Returns the canonical representation of the array.
+    #[deprecated(note = "use `array.execute::<Canonical>(ctx)` instead")]
     pub fn into_canonical(self) -> VortexResult<Canonical> {
         self.execute(&mut LEGACY_SESSION.create_execution_ctx())
     }
 
     /// Returns the canonical representation of the array.
+    #[deprecated(note = "use `array.execute::<Canonical>(ctx)` instead")]
+    #[expect(deprecated)]
     pub fn to_canonical(&self) -> VortexResult<Canonical> {
         self.clone().into_canonical()
     }

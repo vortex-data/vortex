@@ -220,6 +220,7 @@ mod tests {
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::VortexSessionExecute;
     use crate::accessor::ArrayAccessor;
@@ -255,6 +256,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     pub fn pack_nested_structs() {
         let struct_array = StructArray::try_new(
             ["a"].into(),
@@ -285,6 +287,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     pub fn pack_nested_lists() {
         let l1 = ListArray::try_new(
             buffer![1, 2, 3, 4].into_array(),

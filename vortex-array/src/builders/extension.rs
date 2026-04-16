@@ -15,6 +15,7 @@ use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
+#[allow(deprecated)]
 use crate::canonical::ToCanonical;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
@@ -98,6 +99,7 @@ impl ArrayBuilder for ExtensionBuilder {
         self.append_value(scalar.as_extension())
     }
 
+    #[expect(deprecated)]
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let ext_array = array.to_extension();
         self.storage.extend_from_array(ext_array.storage_array())

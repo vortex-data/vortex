@@ -86,6 +86,7 @@ mod test {
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::VortexSessionExecute;
     use crate::arrays::ListViewArray;
@@ -179,6 +180,7 @@ mod test {
         assert_arrays_eq!(filtered, expected);
     }
 
+    #[expect(deprecated)]
     #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `filter`"]
     #[test]
     fn test_filter_preserves_unreferenced_elements() {
@@ -211,6 +213,7 @@ mod test {
         assert_eq!(result_list.offset_at(1), 0, "Wrong offset at index 3");
     }
 
+    #[expect(deprecated)]
     #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `filter`"]
     #[test]
     fn test_filter_with_gaps() {
@@ -250,6 +253,7 @@ mod test {
         );
     }
 
+    #[expect(deprecated)]
     #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `filter`"]
     #[test]
     fn test_filter_constant_arrays() {
@@ -303,6 +307,7 @@ mod test {
         assert_eq!(result2_list.size_at(1), 3);
     }
 
+    #[expect(deprecated)]
     #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `filter`"]
     #[test]
     fn test_filter_extreme_offsets() {

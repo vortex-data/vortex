@@ -167,6 +167,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn test_take_basic() -> VortexResult<()> {
         // Array with base values [0, 0, 0, 0, 0] patched at indices [1, 3] with values [10, 30]
         let array = make_patched_array(&[0; 5], &[1, 3], &[10, 30], 0..5)?;
@@ -182,6 +183,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn test_take_sliced() -> VortexResult<()> {
         let array = make_patched_array(&[0; 10], &[1, 3], &[100, 200], 2..10)?;
 
@@ -195,6 +197,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn test_take_out_of_order() -> VortexResult<()> {
         // Array with base values [0, 0, 0, 0, 0] patched at indices [1, 3] with values [10, 30]
         let array = make_patched_array(&[0; 5], &[1, 3], &[10, 30], 0..5)?;
@@ -210,6 +213,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn test_take_duplicates() -> VortexResult<()> {
         // Array with base values [0, 0, 0, 0, 0] patched at index [2] with value [99]
         let array = make_patched_array(&[0; 5], &[2], &[99], 0..5)?;
@@ -228,6 +232,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn test_take_with_null_indices() -> VortexResult<()> {
         use crate::arrays::BoolArray;
         use crate::validity::Validity;

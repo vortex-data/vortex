@@ -324,6 +324,8 @@ impl ScalarFnVTable for Between {
 
 #[cfg(test)]
 mod tests {
+    #![allow(deprecated)]
+
     use rstest::rstest;
     use vortex_buffer::buffer;
 

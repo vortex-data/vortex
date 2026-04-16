@@ -15,8 +15,10 @@ mod tests {
     use crate::IntoArray;
     use crate::accessor::ArrayAccessor;
     use crate::arrays::VarBinViewArray;
+    #[allow(deprecated)]
     use crate::canonical::ToCanonical;
     #[test]
+    #[expect(deprecated)]
     fn take_nullable() {
         let arr = VarBinViewArray::from_iter_nullable_str([
             Some("one"),

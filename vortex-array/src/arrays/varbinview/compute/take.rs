@@ -95,6 +95,7 @@ mod tests {
     use crate::accessor::ArrayAccessor;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::varbinview::compute::take::PrimitiveArray;
+    #[allow(deprecated)]
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::dtype::DType;
@@ -102,6 +103,7 @@ mod tests {
     use crate::validity::Validity;
 
     #[test]
+    #[expect(deprecated)]
     fn take_nullable() {
         let arr = VarBinViewArray::from_iter_nullable_str([
             Some("one"),
@@ -124,6 +126,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn take_nullable_indices() {
         let arr = VarBinViewArray::from_iter(["one", "two"].map(Some), DType::Utf8(NonNullable));
 

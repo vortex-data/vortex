@@ -5,12 +5,14 @@ use std::iter;
 
 use vortex_error::VortexExpect;
 
+#[allow(deprecated)]
 use crate::ToCanonical;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::VarBinViewArray;
 use crate::validity::Validity;
 
 impl ArrayAccessor<[u8]> for VarBinViewArray {
+    #[expect(deprecated)]
     fn with_iterator<F: for<'a> FnOnce(&mut dyn Iterator<Item = Option<&'a [u8]>>) -> R, R>(
         &self,
         f: F,

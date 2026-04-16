@@ -1008,6 +1008,7 @@ fn test_boolean_demorgan_consistency(array: &ArrayRef) {
 /// # Why This Matters
 /// Aggregate operations on sliced arrays must produce correct results
 /// regardless of the underlying encoding's offset handling.
+#[expect(deprecated)]
 fn test_slice_aggregate_consistency(array: &ArrayRef) {
     use crate::aggregate_fn::fns::min_max::min_max;
     use crate::aggregate_fn::fns::nan_count::nan_count;
@@ -1119,6 +1120,7 @@ fn test_slice_aggregate_consistency(array: &ArrayRef) {
 /// This test specifically catches bugs where encodings (like RunEndArray) fail to preserve
 /// offset information during cast operations. Such bugs can lead to incorrect data being
 /// returned after casting a sliced array.
+#[expect(deprecated)]
 fn test_cast_slice_consistency(array: &ArrayRef) {
     let len = array.len();
     if len < 5 {

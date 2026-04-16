@@ -52,6 +52,7 @@ mod tests {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::VortexSessionExecute;
     use crate::arrays::Chunked;
@@ -63,6 +64,7 @@ mod tests {
     use crate::dtype::PType;
 
     #[test]
+    #[expect(deprecated)]
     fn test_chunked_zip_aligns_across_boundaries() {
         let if_true = ChunkedArray::try_new(
             vec![

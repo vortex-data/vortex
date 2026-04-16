@@ -7,6 +7,7 @@ use vortex_buffer::buffer;
 
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
+#[allow(deprecated)]
 use crate::ToCanonical;
 use crate::VortexSessionExecute;
 use crate::arrays::FixedSizeListArray;
@@ -27,6 +28,7 @@ use crate::validity::Validity;
 // FSL of FSL tests
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#[expect(deprecated)]
 #[test]
 fn test_fsl_of_fsl_basic() {
     let outer_len = 2;
@@ -261,6 +263,7 @@ fn test_fsl_of_fsl_with_nulls() {
     );
 }
 
+#[expect(deprecated)]
 #[test]
 fn test_deeply_nested_fsl() {
     let _len = 2;

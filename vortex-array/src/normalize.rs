@@ -197,6 +197,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn normalize_slice_of_dict_returns_dict() -> VortexResult<()> {
         let codes = PrimitiveArray::from_iter(vec![0u32, 1, 0, 1, 2]).into_array();
         let values = PrimitiveArray::from_iter(vec![10i32, 20, 30]).into_array();

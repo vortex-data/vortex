@@ -72,6 +72,7 @@ mod tests {
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
@@ -82,6 +83,7 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
+    #[expect(deprecated)]
     #[test]
     fn take_nullable_indices() {
         let array = ConstantArray::new(42, 10).into_array();
@@ -117,6 +119,7 @@ mod tests {
         );
     }
 
+    #[expect(deprecated)]
     #[test]
     fn take_all_valid_indices() {
         let array = ConstantArray::new(42, 10).into_array();

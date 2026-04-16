@@ -168,6 +168,7 @@ mod tests {
     use super::PackOptions;
     use crate::ArrayRef;
     use crate::IntoArray;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::struct_::StructArrayExt;
@@ -188,6 +189,7 @@ mod tests {
         .into_array()
     }
 
+    #[expect(deprecated)]
     fn primitive_field(array: &ArrayRef, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
 
@@ -203,6 +205,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     pub fn test_empty_pack() {
         let expr = Pack.new_expr(
             PackOptions {
@@ -219,6 +222,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     pub fn test_simple_pack() {
         let expr = Pack.new_expr(
             PackOptions {
@@ -248,6 +252,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     pub fn test_nested_pack() {
         let expr = Pack.new_expr(
             PackOptions {
@@ -290,6 +295,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     pub fn test_pack_nullable() {
         let expr = Pack.new_expr(
             PackOptions {

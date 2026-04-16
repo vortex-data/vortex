@@ -53,6 +53,7 @@ pub fn test_take_conformance(array: &ArrayRef) {
     }
 }
 
+#[expect(deprecated)]
 fn test_take_all(array: &ArrayRef) {
     let len = array.len();
     let indices = PrimitiveArray::from_iter(0..len as u64);

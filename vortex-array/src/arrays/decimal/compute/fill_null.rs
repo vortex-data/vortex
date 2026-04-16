@@ -94,6 +94,7 @@ mod tests {
     use crate::arrays::DecimalArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
+    #[allow(deprecated)]
     use crate::canonical::ToCanonical;
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
@@ -101,6 +102,7 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
+    #[expect(deprecated)]
     #[test]
     fn fill_null_leading_none() {
         let decimal_dtype = DecimalDType::new(19, 2);
@@ -135,6 +137,7 @@ mod tests {
         );
     }
 
+    #[expect(deprecated)]
     #[test]
     fn fill_null_all_none() {
         let decimal_dtype = DecimalDType::new(19, 2);
@@ -160,6 +163,7 @@ mod tests {
     }
 
     /// fill_null with a value that overflows the array's storage type should upcast the array.
+    #[expect(deprecated)]
     #[test]
     fn fill_null_overflow_upcasts() {
         let decimal_dtype = DecimalDType::new(3, 0);
@@ -180,6 +184,7 @@ mod tests {
         );
     }
 
+    #[expect(deprecated)]
     #[test]
     fn fill_null_non_nullable() {
         let decimal_dtype = DecimalDType::new(19, 2);

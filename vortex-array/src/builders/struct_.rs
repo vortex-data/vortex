@@ -22,6 +22,7 @@ use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
+#[allow(deprecated)]
 use crate::canonical::ToCanonical;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -167,6 +168,7 @@ impl ArrayBuilder for StructBuilder {
         self.append_value(scalar.as_struct())
     }
 
+    #[expect(deprecated)]
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let array = array.to_struct();
 

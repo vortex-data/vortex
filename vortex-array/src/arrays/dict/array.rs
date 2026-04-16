@@ -13,6 +13,7 @@ use vortex_mask::AllOr;
 
 use crate::ArrayRef;
 use crate::LEGACY_SESSION;
+#[allow(deprecated)]
 use crate::ToCanonical;
 use crate::VortexSessionExecute;
 use crate::array::Array;
@@ -140,6 +141,7 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
         Ok(())
     }
 
+    #[expect(deprecated)]
     fn compute_referenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
         let codes = self.codes();
         let codes_validity = codes
@@ -270,6 +272,7 @@ mod test {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::VortexSessionExecute;
     use crate::arrays::ChunkedArray;
@@ -421,6 +424,7 @@ mod test {
             .into_array()
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_dict_array_from_primitive_chunks() -> VortexResult<()> {
         let len = 2;

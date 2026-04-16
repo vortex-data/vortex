@@ -35,11 +35,13 @@ mod test {
 
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
+    #[allow(deprecated)]
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::filter::LARGE_SIZE;
     use crate::compute::conformance::filter::MEDIUM_SIZE;
     use crate::compute::conformance::filter::test_filter_conformance;
 
+    #[expect(deprecated)]
     #[test]
     fn filter_run_variant_mixed_test() {
         let mask = [true, true, false, true, true, true, false, true];

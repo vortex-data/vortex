@@ -333,6 +333,7 @@ mod tests {
     use crate::arrays::listview::ListViewRebuildMode;
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
+    #[allow(deprecated)]
     use crate::canonical::ToCanonical;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -343,6 +344,7 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
+    #[expect(deprecated)]
     #[test]
     fn test_canonicalize_null() {
         let const_null = ConstantArray::new(Scalar::null(DType::Null), 42);
@@ -364,6 +366,7 @@ mod tests {
         assert_arrays_eq!(const_array, expected);
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_canonicalize_propagates_stats() -> VortexResult<()> {
         let scalar = Scalar::bool(true, Nullability::NonNullable);
@@ -393,6 +396,7 @@ mod tests {
         Ok(())
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_canonicalize_scalar_values() {
         let f16_value = f16::from_f32(5.722046e-6);
@@ -411,6 +415,7 @@ mod tests {
         );
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_canonicalize_lists() -> VortexResult<()> {
         let list_scalar = Scalar::list(
@@ -436,6 +441,7 @@ mod tests {
         Ok(())
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_canonicalize_empty_list() {
         let list_scalar = Scalar::list(
@@ -456,6 +462,7 @@ mod tests {
         );
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_canonicalize_null_list() {
         let list_scalar = Scalar::null(DType::List(
@@ -475,6 +482,7 @@ mod tests {
         );
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_canonicalize_nullable_struct() {
         let array = ConstantArray::new(
@@ -507,6 +515,7 @@ mod tests {
         );
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_canonicalize_fixed_size_list_non_null() {
         // Test with a non-null fixed-size list constant.
@@ -535,6 +544,7 @@ mod tests {
         }
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_canonicalize_fixed_size_list_nullable() {
         // Test with a nullable but non-null fixed-size list constant.
@@ -562,6 +572,7 @@ mod tests {
         );
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_canonicalize_fixed_size_list_null() {
         // Test with a null fixed-size list constant.
@@ -584,6 +595,7 @@ mod tests {
         assert!(elements.as_slice::<u64>().iter().all(|&x| x == 0));
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_canonicalize_fixed_size_list_empty() {
         // Test with size-0 lists (edge case).
@@ -604,6 +616,7 @@ mod tests {
         assert!(canonical.elements().is_empty());
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_canonicalize_fixed_size_list_nested() {
         // Test with nested data types (list of strings).
@@ -647,6 +660,7 @@ mod tests {
         );
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_canonicalize_fixed_size_list_single_element() {
         // Test with a single-element list.
@@ -666,6 +680,7 @@ mod tests {
         assert_arrays_eq!(elements, PrimitiveArray::from_iter([42i16]));
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_canonicalize_fixed_size_list_with_null_elements() {
         // Test FSL with nullable element type where some elements are null.
@@ -721,6 +736,7 @@ mod tests {
         assert!(element_validity.is_valid(5).unwrap());
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_canonicalize_fixed_size_list_large() {
         // Test with a large constant array.

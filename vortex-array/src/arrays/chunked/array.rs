@@ -179,6 +179,7 @@ impl Array<Chunked> {
         })
     }
 
+    #[expect(deprecated)]
     pub fn rechunk(&self, target_bytesize: u64, target_rowsize: usize) -> VortexResult<Self> {
         let mut new_chunks = Vec::new();
         let mut chunks_to_combine = Vec::new();

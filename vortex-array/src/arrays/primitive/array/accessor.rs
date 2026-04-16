@@ -5,6 +5,7 @@ use std::iter;
 
 use vortex_error::VortexExpect;
 
+#[allow(deprecated)]
 use crate::ToCanonical;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::PrimitiveArray;
@@ -12,6 +13,7 @@ use crate::dtype::NativePType;
 use crate::validity::Validity;
 
 impl<T: NativePType> ArrayAccessor<T> for PrimitiveArray {
+    #[expect(deprecated)]
     fn with_iterator<F, R>(&self, f: F) -> R
     where
         F: for<'a> FnOnce(&mut dyn Iterator<Item = Option<&'a T>>) -> R,

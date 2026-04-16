@@ -12,6 +12,7 @@ use super::common::create_nullable_listview;
 use super::common::create_overlapping_listview;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
+#[allow(deprecated)]
 use crate::ToCanonical;
 use crate::VortexSessionExecute;
 use crate::arrays::ConstantArray;
@@ -34,6 +35,7 @@ fn test_filter_listview_conformance(#[case] listview: ListViewArray) {
 }
 
 #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `filter`"]
+#[expect(deprecated)]
 #[test]
 fn test_filter_preserves_unreferenced_elements() {
     // ListView-specific: Test that filter preserves the entire elements array.
@@ -65,6 +67,7 @@ fn test_filter_preserves_unreferenced_elements() {
 }
 
 #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `filter`"]
+#[expect(deprecated)]
 #[test]
 fn test_filter_with_gaps() {
     // ListView-specific: Test filtering with gaps in elements array.
@@ -103,6 +106,7 @@ fn test_filter_with_gaps() {
 }
 
 #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `filter`"]
+#[expect(deprecated)]
 #[test]
 fn test_filter_constant_arrays() {
     // ListView-specific: Test filter with ConstantArray for offsets/sizes.
@@ -156,6 +160,7 @@ fn test_filter_constant_arrays() {
 }
 
 #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `filter`"]
+#[expect(deprecated)]
 #[test]
 fn test_filter_extreme_offsets() {
     // ListView-specific: Test with very large offsets.

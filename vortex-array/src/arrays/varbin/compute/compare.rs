@@ -146,6 +146,7 @@ mod test {
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
@@ -159,6 +160,7 @@ mod test {
     use crate::scalar_fn::fns::operators::Operator;
 
     #[test]
+    #[expect(deprecated)]
     fn test_binary_compare() {
         let array = VarBinArray::from_iter(
             [Some(b"abc".to_vec()), None, Some(b"def".to_vec())],
@@ -197,6 +199,7 @@ mod test {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn varbinview_compare() {
         let array = VarBinArray::from_iter(
             [Some(b"abc".to_vec()), None, Some(b"def".to_vec())],

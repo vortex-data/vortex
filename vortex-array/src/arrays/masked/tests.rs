@@ -9,6 +9,7 @@ use super::*;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
+#[allow(deprecated)]
 use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
@@ -56,6 +57,7 @@ fn test_canonical_dtype_matches_array_dtype() -> VortexResult<()> {
 }
 
 #[test]
+#[expect(deprecated)]
 fn test_masked_child_with_validity() {
     // When validity has nulls, masked_child should apply inverted mask.
     let child = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]).into_array();

@@ -15,6 +15,7 @@ use super::DictConstraints;
 use super::DictEncoder;
 use crate::ArrayRef;
 use crate::IntoArray;
+#[allow(deprecated)]
 use crate::ToCanonical;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::PrimitiveArray;
@@ -122,6 +123,7 @@ where
     NativeValue<T>: Hash + Eq,
     Code: UnsignedPType,
 {
+    #[expect(deprecated)]
     fn encode(&mut self, array: &ArrayRef) -> ArrayRef {
         let mut codes = BufferMut::<Code>::with_capacity(array.len());
 

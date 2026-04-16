@@ -250,6 +250,7 @@ mod tests {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
@@ -278,6 +279,7 @@ mod tests {
     use crate::validity::Validity;
 
     #[test]
+    #[expect(deprecated)]
     fn test_bool_basic_comparisons() {
         use vortex_buffer::BitBuffer;
 

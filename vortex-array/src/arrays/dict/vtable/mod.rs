@@ -198,7 +198,7 @@ impl VTable for Dict {
         let values = array.values().clone();
         debug_assert!(values.is_canonical());
         // TODO: add canonical owned cast.
-        let values = values.to_canonical()?;
+        let values = values.execute::<Canonical>(ctx)?;
 
         Ok(ExecutionResult::done(take_canonical(values, &codes, ctx)?))
     }

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![allow(deprecated)]
+
 use std::sync::Arc;
 
 use rstest::rstest;
@@ -216,6 +218,7 @@ fn test_slice_edge_cases(
 #[case::i32_to_i64(PType::I32, PType::I64)]
 #[case::f32_to_f64(PType::F32, PType::F64)]
 #[case::u8_to_u16(PType::U8, PType::U16)]
+#[allow(deprecated)]
 fn test_cast_numeric_types(#[case] from_ptype: PType, #[case] to_ptype: PType) {
     let elements = match from_ptype {
         PType::I32 => buffer![1i32, 2, 3, 4, 5, 6].into_array(),
@@ -303,6 +306,7 @@ fn test_cast_with_nulls() {
 #[rstest]
 #[case::empty_lists(vec![0, 1, 0, 1], 4)]
 #[case::overlapping(vec![3, 3, 5], 3)]
+#[allow(deprecated)]
 fn test_cast_special_patterns(#[case] expected_sizes: Vec<usize>, #[case] list_count: usize) {
     let is_empty_case = list_count == 4;
 

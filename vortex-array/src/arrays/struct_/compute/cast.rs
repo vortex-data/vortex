@@ -91,6 +91,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
@@ -193,6 +194,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn cast_duplicate_field_names_to_nullable() {
         let names = FieldNames::from(["a", "a"]);
         let field1 = buffer![1i32, 2, 3].into_array();
@@ -213,6 +215,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn cast_add_fields() {
         let names = FieldNames::from(["a", "b"]);
         let field1 = buffer![1i32, 2, 3].into_array();

@@ -121,6 +121,7 @@ mod test {
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
+    #[allow(deprecated)]
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::DType;
@@ -129,6 +130,7 @@ mod test {
     use crate::validity::Validity;
 
     #[test]
+    #[expect(deprecated)]
     fn cast_u32_u8() {
         let arr = buffer![0u32, 10, 200].into_array();
 
@@ -181,6 +183,7 @@ mod test {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn cast_u32_f32() {
         let arr = buffer![0u32, 10, 200].into_array();
         let u8arr = arr.cast(PType::F32.into()).unwrap().to_primitive();
@@ -188,6 +191,7 @@ mod test {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn cast_i32_u32() {
         let arr = buffer![-1i32].into_array();
         let error = arr
@@ -199,6 +203,7 @@ mod test {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn cast_array_with_nulls_to_nonnullable() {
         let arr = PrimitiveArray::from_option_iter([Some(-1i32), None, Some(10)]);
         let err = arr
@@ -215,6 +220,7 @@ mod test {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn cast_with_invalid_nulls() {
         let arr = PrimitiveArray::new(
             buffer![-1i32, 0, 10],
@@ -242,6 +248,7 @@ mod test {
     /// Same-width integer cast where all values fit: should reinterpret the
     /// buffer without allocation (pointer identity).
     #[test]
+    #[expect(deprecated)]
     fn cast_same_width_int_reinterprets_buffer() -> vortex_error::VortexResult<()> {
         let src = PrimitiveArray::from_iter([0u32, 10, 100]);
         let src_ptr = src.as_slice::<u32>().as_ptr();
@@ -258,6 +265,7 @@ mod test {
     /// Same-width integer cast where values don't fit: should fall through
     /// to the allocating path and produce an error.
     #[test]
+    #[expect(deprecated)]
     fn cast_same_width_int_out_of_range_errors() {
         let arr = buffer![u32::MAX].into_array();
         let err = arr
@@ -270,6 +278,7 @@ mod test {
     /// All-null array cast between same-width types should succeed without
     /// touching the buffer contents.
     #[test]
+    #[expect(deprecated)]
     fn cast_same_width_all_null() -> vortex_error::VortexResult<()> {
         let arr = PrimitiveArray::new(buffer![0xFFu8, 0xFF], Validity::AllInvalid);
         let casted = arr
@@ -284,6 +293,7 @@ mod test {
     /// Same-width integer cast with nullable values: out-of-range nulls should
     /// not prevent the cast from succeeding.
     #[test]
+    #[expect(deprecated)]
     fn cast_same_width_int_nullable_with_out_of_range_nulls() -> vortex_error::VortexResult<()> {
         // The null position holds u32::MAX which doesn't fit in i32, but it's
         // masked as invalid so the cast should still succeed via reinterpret.
@@ -303,6 +313,7 @@ mod test {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn cast_u32_to_u8_with_out_of_range_nulls() -> vortex_error::VortexResult<()> {
         let arr = PrimitiveArray::new(
             buffer![1000u32, 10u32, 42u32],

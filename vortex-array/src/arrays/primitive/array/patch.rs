@@ -135,6 +135,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use super::*;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::assert_arrays_eq;
     use crate::validity::Validity;
@@ -171,6 +172,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn patch_sliced() {
         let input = PrimitiveArray::new(buffer![2u32; 10], Validity::AllValid);
         let sliced = input.slice(2..8).unwrap();

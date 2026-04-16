@@ -324,6 +324,7 @@ pub trait ListArrayExt: TypedArrayRef<List> {
         self.elements().dtype()
     }
 
+    #[expect(deprecated)]
     fn reset_offsets(&self, recurse: bool) -> VortexResult<Array<List>> {
         let mut elements = self.sliced_elements()?;
         if recurse && elements.is_canonical() {

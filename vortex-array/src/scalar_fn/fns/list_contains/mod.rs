@@ -461,6 +461,7 @@ mod tests {
     use crate::arrays::ListArray;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
+    #[allow(deprecated)]
     use crate::canonical::ToCanonical;
     use crate::dtype::DType;
     use crate::dtype::Field;
@@ -710,6 +711,7 @@ mod tests {
 
     // -- Tests migrated from compute/list_contains.rs --
 
+    #[expect(deprecated)]
     fn nonnull_strings(values: Vec<Vec<&str>>) -> ArrayRef {
         ListArray::from_iter_slow::<u64, _>(values, Arc::new(DType::Utf8(Nullability::NonNullable)))
             .unwrap()
@@ -717,6 +719,7 @@ mod tests {
             .into_array()
     }
 
+    #[expect(deprecated)]
     fn null_strings(values: Vec<Vec<Option<&str>>>) -> ArrayRef {
         let elements = values.iter().flatten().cloned().collect_vec();
 

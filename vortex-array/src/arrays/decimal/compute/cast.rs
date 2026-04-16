@@ -150,6 +150,7 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::DecimalArray;
     use crate::builtins::ArrayBuiltins;
+    #[allow(deprecated)]
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::DType;
@@ -158,6 +159,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::validity::Validity;
 
+    #[expect(deprecated)]
     #[test]
     fn cast_decimal_to_nullable() {
         let decimal_dtype = DecimalDType::new(10, 2);
@@ -180,6 +182,7 @@ mod tests {
         assert_eq!(casted.len(), 3);
     }
 
+    #[expect(deprecated)]
     #[test]
     fn cast_nullable_to_non_nullable() {
         let decimal_dtype = DecimalDType::new(10, 2);
@@ -199,6 +202,7 @@ mod tests {
         assert!(matches!(casted.validity(), Ok(Validity::NonNullable)));
     }
 
+    #[expect(deprecated)]
     #[test]
     #[should_panic(expected = "Cannot cast array with invalid values to non-nullable type")]
     fn cast_nullable_with_nulls_to_non_nullable_fails() {
@@ -216,6 +220,7 @@ mod tests {
             .unwrap();
     }
 
+    #[expect(deprecated)]
     #[test]
     fn cast_different_scale_fails() {
         let array = DecimalArray::new(
@@ -240,6 +245,7 @@ mod tests {
         );
     }
 
+    #[expect(deprecated)]
     #[test]
     fn cast_downcast_precision_fails() {
         let array = DecimalArray::new(
@@ -264,6 +270,7 @@ mod tests {
         );
     }
 
+    #[expect(deprecated)]
     #[test]
     fn cast_upcast_precision_succeeds() {
         let array = DecimalArray::new(
@@ -283,6 +290,7 @@ mod tests {
         assert_eq!(casted.values_type(), DecimalType::I128);
     }
 
+    #[expect(deprecated)]
     #[test]
     fn cast_to_non_decimal_returns_err() {
         let array = DecimalArray::new(

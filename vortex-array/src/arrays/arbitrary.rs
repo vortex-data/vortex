@@ -13,6 +13,7 @@ use vortex_error::VortexExpect;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+#[allow(deprecated)]
 use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
@@ -83,6 +84,7 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
 }
 
 /// Creates a random array chunk.
+#[expect(deprecated)]
 fn random_array_chunk(
     u: &mut Unstructured<'_>,
     dtype: &DType,

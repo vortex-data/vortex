@@ -25,6 +25,7 @@ use crate::arrays::VarBin;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::build_views::BinaryView;
+#[allow(deprecated)]
 use crate::canonical::ToCanonical;
 use crate::dtype::DType;
 use crate::dtype::PType;
@@ -172,7 +173,9 @@ impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
         } else {
             // NOTE(aduffy): it is very rare that this path would be taken, only e.g.
             //  if we're performing dictionary encoding downstream of some other compression.
-            self.encode_bytes(&array.to_varbinview(), len)
+            #[expect(deprecated)]
+            let varbinview = array.to_varbinview();
+            self.encode_bytes(&varbinview, len)
         }
     }
 
@@ -204,12 +207,14 @@ mod test {
     use std::str;
 
     use crate::IntoArray;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::accessor::ArrayAccessor;
     use crate::arrays::VarBinArray;
     use crate::arrays::dict::DictArraySlotsExt;
     use crate::builders::dict::dict_encode;
 
+    #[expect(deprecated)]
     #[test]
     fn encode_varbin() {
         let arr = VarBinArray::from(vec!["hello", "world", "hello", "again", "world"]);
@@ -228,6 +233,7 @@ mod test {
         });
     }
 
+    #[expect(deprecated)]
     #[test]
     fn encode_varbin_nulls() {
         let arr: VarBinArray = vec![
@@ -256,6 +262,7 @@ mod test {
         });
     }
 
+    #[expect(deprecated)]
     #[test]
     fn repeated_values() {
         let arr = VarBinArray::from(vec!["a", "a", "b", "b", "a", "b", "a", "b"]);

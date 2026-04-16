@@ -7,6 +7,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+#[allow(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builders::VarBinViewBuilder;
@@ -37,6 +38,7 @@ fn compact_sliced(bencher: Bencher, args: (usize, usize)) {
     compact_sliced_impl(bencher, args);
 }
 
+#[expect(deprecated)]
 fn compact_impl(bencher: Bencher, (output_size, utilization_pct): (usize, usize)) {
     let base_size = (output_size * 100) / utilization_pct;
     let base_array = build_varbinview_fixture(base_size);
@@ -54,6 +56,7 @@ fn compact_impl(bencher: Bencher, (output_size, utilization_pct): (usize, usize)
     })
 }
 
+#[expect(deprecated)]
 fn compact_sliced_impl(bencher: Bencher, (output_size, utilization_pct): (usize, usize)) {
     let base_size = (output_size * 100) / utilization_pct;
     let base_array = build_varbinview_fixture(base_size);

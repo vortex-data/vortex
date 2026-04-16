@@ -57,11 +57,13 @@ mod test {
     use crate::arrays::primitive::compute::fill_null::BoolArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
+    #[allow(deprecated)]
     use crate::canonical::ToCanonical;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]
+    #[expect(deprecated)]
     fn fill_null_leading_none() {
         let arr = PrimitiveArray::from_option_iter([None, Some(8u8), None, Some(10), None]);
         let p = arr
@@ -81,6 +83,7 @@ mod test {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn fill_null_all_none() {
         let arr = PrimitiveArray::from_option_iter([Option::<u8>::None, None, None, None, None]);
 
@@ -101,6 +104,7 @@ mod test {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn fill_null_nullable_non_null() {
         let arr = PrimitiveArray::new(
             buffer![8u8, 10, 12, 14, 16],
@@ -123,6 +127,7 @@ mod test {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn fill_null_non_nullable() {
         let arr = buffer![8u8, 10, 12, 14, 16].into_array();
         let p = arr.fill_null(Scalar::from(255u8)).unwrap().to_primitive();

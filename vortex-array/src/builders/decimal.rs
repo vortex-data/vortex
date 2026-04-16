@@ -14,6 +14,7 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
+#[allow(deprecated)]
 use crate::ToCanonical;
 use crate::VortexSessionExecute;
 use crate::arrays::DecimalArray;
@@ -194,6 +195,7 @@ impl ArrayBuilder for DecimalBuilder {
         Ok(())
     }
 
+    #[expect(deprecated)]
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let decimal_array = array.to_decimal();
 

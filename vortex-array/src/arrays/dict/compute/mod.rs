@@ -60,6 +60,7 @@ mod test {
 
     use crate::ArrayRef;
     use crate::IntoArray;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::accessor::ArrayAccessor;
     use crate::arrays::ConstantArray;
@@ -76,6 +77,7 @@ mod test {
     use crate::dtype::Nullability;
     use crate::dtype::PType::I32;
     use crate::scalar_fn::fns::operators::Operator;
+    #[expect(deprecated)]
     #[test]
     fn canonicalise_nullable_primitive() {
         let values: Vec<Option<i32>> = (0..65)
@@ -96,6 +98,7 @@ mod test {
         assert_arrays_eq!(actual, expected);
     }
 
+    #[expect(deprecated)]
     #[test]
     fn canonicalise_non_nullable_primitive_32_unique_values() {
         let unique_values: Vec<i32> = (0..32).collect();
@@ -107,6 +110,7 @@ mod test {
         assert_arrays_eq!(actual, expected);
     }
 
+    #[expect(deprecated)]
     #[test]
     fn canonicalise_non_nullable_primitive_100_unique_values() {
         let unique_values: Vec<i32> = (0..100).collect();
@@ -118,6 +122,7 @@ mod test {
         assert_arrays_eq!(actual, expected);
     }
 
+    #[expect(deprecated)]
     #[test]
     fn canonicalise_nullable_varbin() {
         let reference = VarBinViewArray::from_iter(

@@ -132,10 +132,12 @@ mod tests {
     }
 
     #[expect(clippy::type_complexity)]
+    #[expect(deprecated)]
     fn collect_pairs(
         left: &ChunkedArray,
         right: &ChunkedArray,
     ) -> VortexResult<Vec<(Vec<i32>, Vec<i32>, std::ops::Range<usize>)>> {
+        #[allow(deprecated)]
         use crate::ToCanonical;
         let mut result = Vec::new();
         for pair in left.paired_chunks(right) {

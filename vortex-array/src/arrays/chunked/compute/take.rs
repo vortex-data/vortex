@@ -126,6 +126,7 @@ mod test {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
@@ -254,6 +255,7 @@ mod test {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn test_take_shuffled_large() -> VortexResult<()> {
         let nchunks: i32 = 100;
         let chunk_len: i32 = 1_000;

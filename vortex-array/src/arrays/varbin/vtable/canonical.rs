@@ -44,6 +44,7 @@ pub(crate) fn varbin_to_canonical(
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use rstest::rstest;
 

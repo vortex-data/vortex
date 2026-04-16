@@ -28,6 +28,7 @@ use crate::arrays::varbinview::compact::BufferUtilization;
 use crate::builders::ArrayBuilder;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
+#[allow(deprecated)]
 use crate::canonical::ToCanonical;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
@@ -293,6 +294,7 @@ impl ArrayBuilder for VarBinViewBuilder {
         Ok(())
     }
 
+    #[expect(deprecated)]
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let array = array.to_varbinview();
         self.flush_in_progress();

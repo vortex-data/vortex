@@ -214,11 +214,13 @@ mod tests {
     use crate::accessor::ArrayAccessor;
     use crate::arrays::VarBinViewArray;
     use crate::builtins::ArrayBuiltins;
+    #[allow(deprecated)]
     use crate::canonical::ToCanonical;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
 
     #[test]
+    #[expect(deprecated)]
     fn zip_varbinview_kernel_zips() {
         let a = VarBinViewArray::from_iter(
             [

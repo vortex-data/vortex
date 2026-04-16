@@ -8,6 +8,7 @@ use vortex_error::VortexResult;
 
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
+#[allow(deprecated)]
 use crate::ToCanonical;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::min_max::min_max;
@@ -113,6 +114,7 @@ impl ListViewArray {
     /// Picks between [`rebuild_with_take`](Self::rebuild_with_take) and
     /// [`rebuild_list_by_list`](Self::rebuild_list_by_list) based on element dtype and average
     /// list size.
+    #[expect(deprecated)]
     fn naive_rebuild<O: IntegerPType, NewOffset: IntegerPType, S: IntegerPType>(
         &self,
     ) -> VortexResult<ListViewArray> {
@@ -146,6 +148,7 @@ impl ListViewArray {
 
     /// Rebuilds elements using a single bulk `take`: collect all element indices into a flat
     /// `BufferMut<u64>`, perform a single `take`.
+    #[expect(deprecated)]
     fn rebuild_with_take<O: IntegerPType, NewOffset: IntegerPType, S: IntegerPType>(
         &self,
     ) -> VortexResult<ListViewArray> {
@@ -194,6 +197,7 @@ impl ListViewArray {
 
     /// Rebuilds elements list-by-list: canonicalize elements upfront, then for each list `slice`
     /// the relevant range and `extend_from_array` into a typed builder.
+    #[expect(deprecated)]
     fn rebuild_list_by_list<O: IntegerPType, NewOffset: IntegerPType, S: IntegerPType>(
         &self,
     ) -> VortexResult<ListViewArray> {
@@ -379,6 +383,7 @@ mod tests {
     use super::ListViewRebuildMode;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::VortexSessionExecute;
     use crate::arrays::ListViewArray;
@@ -463,6 +468,7 @@ mod tests {
         Ok(())
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_rebuild_trim_elements_basic() -> VortexResult<()> {
         // Test trimming both leading and trailing unused elements while preserving gaps in the

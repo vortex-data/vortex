@@ -291,6 +291,7 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::struct_::StructArrayExt;
@@ -310,6 +311,7 @@ mod tests {
     use crate::scalar_fn::fns::merge::StructArray;
     use crate::scalar_fn::fns::pack::Pack;
 
+    #[expect(deprecated)]
     fn primitive_field(array: &ArrayRef, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
 
@@ -454,6 +456,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     pub fn test_nested_merge() {
         // Nested structs are not merged!
 
@@ -507,6 +510,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     pub fn test_merge_order() {
         let expr = merge(vec![get_item("0", root()), get_item("1", root())]);
 

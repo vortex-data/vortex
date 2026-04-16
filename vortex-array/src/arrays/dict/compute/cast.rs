@@ -57,6 +57,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::arrays::Dict;
     use crate::arrays::PrimitiveArray;
@@ -69,6 +70,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
 
+    #[expect(deprecated)]
     #[test]
     fn test_cast_dict_to_wider_type() {
         let values = buffer![1i32, 2, 3, 2, 1].into_array();
@@ -103,6 +105,7 @@ mod tests {
         );
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_cast_dict_allvalid_to_nonnullable_and_back() {
         // Create an AllValid dict array (no nulls)
@@ -182,6 +185,7 @@ mod tests {
         test_cast_conformance(&array);
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_cast_dict_with_unreferenced_null_values_to_nonnullable() {
         use crate::arrays::DictArray;

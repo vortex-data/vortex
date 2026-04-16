@@ -23,6 +23,7 @@ use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::builders::builder_with_capacity;
+#[allow(deprecated)]
 use crate::canonical::ToCanonical;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -216,6 +217,7 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
         self.append_value(scalar.as_list())
     }
 
+    #[expect(deprecated)]
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let list = array.to_listview();
         if list.is_empty() {
@@ -304,6 +306,7 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
         self.finish_into_list().into_array()
     }
 
+    #[expect(deprecated)]
     fn finish_into_canonical(&mut self) -> Canonical {
         Canonical::List(self.finish_into_list().into_array().to_listview())
     }
@@ -320,6 +323,7 @@ mod tests {
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
@@ -346,6 +350,7 @@ mod tests {
         assert_eq!(list.len(), 0);
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_values() {
         let dtype: Arc<DType> = Arc::new(I32.into());
@@ -394,6 +399,7 @@ mod tests {
         )
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_nullable_values() {
         let dtype: Arc<DType> = Arc::new(I32.into());
@@ -435,6 +441,7 @@ mod tests {
         assert_eq!(list_array.list_elements_at(2).unwrap().len(), 3);
     }
 
+    #[expect(deprecated)]
     fn test_extend_builder_gen<O: IntegerPType>() {
         let list = ListArray::from_iter_opt_slow::<O, _, _>(
             [Some(vec![0, 1, 2]), None, Some(vec![4, 5])],
@@ -500,6 +507,7 @@ mod tests {
         test_extend_builder_gen::<u64>();
     }
 
+    #[expect(deprecated)]
     #[test]
     pub fn test_array_with_gap() {
         let one_trailing_unused_element = ListArray::try_new(

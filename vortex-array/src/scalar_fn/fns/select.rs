@@ -307,6 +307,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::arrays::struct_::StructArrayExt;
     use crate::dtype::DType;
@@ -332,6 +333,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     pub fn include_columns() {
         let st = test_array();
         let select = select(vec![FieldName::from("a")], root());
@@ -341,6 +343,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     pub fn exclude_columns() {
         let st = test_array();
         let select = select_exclude(vec![FieldName::from("a")], root());

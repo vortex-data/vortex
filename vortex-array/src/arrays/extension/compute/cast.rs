@@ -95,6 +95,7 @@ mod tests {
         assert_eq!(output.dtype(), &new_dtype);
     }
 
+    #[expect(deprecated)]
     #[test]
     fn cast_different_ext_dtype() {
         let original_dtype =

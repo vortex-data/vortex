@@ -14,6 +14,7 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::LEGACY_SESSION;
+#[allow(deprecated)]
 use crate::ToCanonical;
 use crate::VortexSessionExecute;
 use crate::array::Array;
@@ -208,6 +209,7 @@ impl ListViewData {
     }
 
     /// Validates the components that would be used to create a `ListViewArray`.
+    #[expect(deprecated)]
     pub fn validate(
         elements: &ArrayRef,
         offsets: &ArrayRef,
@@ -381,6 +383,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
         self.elements().slice(offset..offset + size)
     }
 
+    #[expect(deprecated)]
     fn verify_is_zero_copy_to_list(&self) -> bool {
         validate_zctl(
             self.elements(),
@@ -454,6 +457,7 @@ impl Array<ListView> {
     /// # Safety
     ///
     /// See [`ListViewData::with_zero_copy_to_list`].
+    #[expect(deprecated)]
     pub unsafe fn with_zero_copy_to_list(self, is_zctl: bool) -> Self {
         if cfg!(debug_assertions) && is_zctl {
             validate_zctl(

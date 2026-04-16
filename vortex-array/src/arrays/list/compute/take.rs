@@ -200,6 +200,7 @@ mod test {
 
     use crate::IntoArray as _;
     use crate::LEGACY_SESSION;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
@@ -212,6 +213,7 @@ mod test {
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
+    #[expect(deprecated)]
     #[test]
     fn nullable_take() {
         let list = ListArray::try_new(
@@ -315,6 +317,7 @@ mod test {
         );
     }
 
+    #[expect(deprecated)]
     #[test]
     fn non_nullable_take() {
         let list = ListArray::try_new(
@@ -453,6 +456,7 @@ mod test {
         test_take_conformance(&list.into_array());
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_u64_offset_accumulation_non_nullable() {
         let elements = buffer![0i32; 200].into_array();
@@ -481,6 +485,7 @@ mod test {
         );
     }
 
+    #[expect(deprecated)]
     #[test]
     fn test_u64_offset_accumulation_nullable() {
         let elements = buffer![0i32; 150].into_array();

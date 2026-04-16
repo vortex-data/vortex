@@ -28,12 +28,14 @@ mod tests {
     use std::iter;
 
     use crate::IntoArray;
+    #[allow(deprecated)]
     use crate::ToCanonical;
     use crate::arrays::BoolArray;
     use crate::arrays::bool::BoolArrayExt;
     use crate::assert_arrays_eq;
 
     #[test]
+    #[expect(deprecated)]
     fn test_slice_hundred_elements() {
         let arr = BoolArray::from_iter(iter::repeat_n(Some(true), 100));
         let sliced_arr = arr.into_array().slice(8..16).unwrap().to_bool();
@@ -43,6 +45,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn test_slice() {
         let arr = BoolArray::from_iter([Some(true), Some(true), None, Some(false), None]);
         let sliced_arr = arr.into_array().slice(1..4).unwrap().to_bool();

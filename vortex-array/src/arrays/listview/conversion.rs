@@ -8,6 +8,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+#[allow(deprecated)]
 use crate::ToCanonical;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
@@ -139,6 +140,7 @@ pub fn list_from_list_view(list_view: ListViewArray) -> VortexResult<ListArray> 
 ///
 /// The `ListViewArray` must have offsets that are sorted, and every size must be equal to the gap
 /// between `offset[i]` and `offset[i + 1]`.
+#[expect(deprecated)]
 unsafe fn build_list_offsets_from_list_view<O: IntegerPType>(
     list_view: &ListViewArray,
 ) -> ArrayRef {
@@ -182,6 +184,7 @@ unsafe fn build_list_offsets_from_list_view<O: IntegerPType>(
 /// Recursively converts all `ListViewArray`s to `ListArray`s in a nested array structure.
 ///
 /// The conversion happens bottom-up, processing children before parents.
+#[expect(deprecated)]
 pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> {
     if !array.dtype().is_nested() {
         return Ok(array);

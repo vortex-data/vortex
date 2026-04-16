@@ -19,6 +19,7 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::struct_::StructArrayExt;
 use crate::assert_arrays_eq;
+#[allow(deprecated)]
 use crate::canonical::ToCanonical;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -171,6 +172,7 @@ fn scalar_at_empty_children_leading() {
 }
 
 #[test]
+#[expect(deprecated)]
 pub fn pack_nested_structs() {
     let struct_array = StructArray::try_new(
         ["a"].into(),
@@ -201,6 +203,7 @@ pub fn pack_nested_structs() {
 }
 
 #[test]
+#[expect(deprecated)]
 pub fn pack_nested_lists() {
     let l1 = ListArray::try_new(
         buffer![1, 2, 3, 4].into_array(),
