@@ -154,6 +154,7 @@ where
             indices: p.indices.cuda_device_ptr()? as _,
             values: p.values.cuda_device_ptr()? as _,
             offset: p.offset as u32,
+            offset_within_chunk: p.offset_within_chunk as u32,
             num_patches: p.num_patches as u32,
             n_chunks: p.n_chunks as u32,
         }
@@ -165,6 +166,7 @@ where
             indices: std::ptr::null_mut(),
             values: std::ptr::null_mut(),
             offset: 0,
+            offset_within_chunk: 0,
             num_patches: 0,
             n_chunks: 0,
         }
@@ -547,6 +549,155 @@ mod tests {
         let sliced_array = bitpacked_array.into_array().slice(67..3969)?;
         assert!(sliced_array.is::<BitPacked>());
         let cpu_result = crate::canonicalize_cpu(sliced_array.clone())?;
+        let gpu_result = block_on(async {
+            BitPackedExecutor
+                .execute(sliced_array, &mut cuda_ctx)
+                .await
+                .vortex_expect("GPU decompression failed")
+                .into_host()
+                .await
+                .map(|a| a.into_array())
+        })?;
+
+        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+
+        Ok(())
+    }
+
+    /// Test slicing a bitpacked array with patches where the slice boundary
+    /// falls in the middle of a chunk's patch range, creating a non-zero
+    /// offset_within_chunk.
+    #[crate::test]
+    fn test_cuda_bitunpack_sliced_patches_offset_within_chunk() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        // Create an array with values that will generate patches.
+        // We use values 0-511 (fits in 9 bits) but include some larger values
+        // that will become patches.
+        let mut values: Vec<u16> = Vec::with_capacity(3072);
+        for i in 0u16..3072 {
+            if i == 100 || i == 200 || i == 300 || i == 1100 || i == 1200 || i == 2100 {
+                // These will be patches (values > 511)
+                values.push(600);
+            } else {
+                values.push(i % 512);
+            }
+        }
+
+        let primitive_array =
+            PrimitiveArray::new(Buffer::from_iter(values.iter().copied()), NonNullable);
+
+        // Encode with bit width 9 (max value 511)
+        let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), 9)?;
+        assert!(
+            bitpacked_array.patches().is_some(),
+            "Expected patches to be present"
+        );
+
+        // Slice to create non-zero offset_within_chunk.
+        // The first chunk (0-1023) has patches at indices 100, 200, 300.
+        // Slicing from 150 should skip the patch at 100, creating offset_within_chunk=1.
+        let sliced_array = bitpacked_array.into_array().slice(150..2500)?;
+        assert!(sliced_array.is::<BitPacked>());
+
+        let cpu_result = sliced_array.to_canonical()?;
+        let gpu_result = block_on(async {
+            BitPackedExecutor
+                .execute(sliced_array, &mut cuda_ctx)
+                .await
+                .vortex_expect("GPU decompression failed")
+                .into_host()
+                .await
+                .map(|a| a.into_array())
+        })?;
+
+        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+
+        Ok(())
+    }
+
+    /// Test slicing a bitpacked array multiple times, accumulating offset_within_chunk.
+    #[crate::test]
+    fn test_cuda_bitunpack_double_sliced_patches() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        // Create an array with values that will generate patches.
+        let mut values: Vec<u16> = Vec::with_capacity(3072);
+        for i in 0u16..3072 {
+            if i == 50 || i == 100 || i == 200 || i == 300 || i == 400 || i == 1100 || i == 2100 {
+                values.push(600);
+            } else {
+                values.push(i % 512);
+            }
+        }
+
+        let primitive_array =
+            PrimitiveArray::new(Buffer::from_iter(values.iter().copied()), NonNullable);
+
+        let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), 9)?;
+        assert!(
+            bitpacked_array.patches().is_some(),
+            "Expected patches to be present"
+        );
+
+        // First slice: drop the patch at index 50 from the front of chunk 0.
+        let first_slice = bitpacked_array.into_array().slice(75..3000)?;
+        // Second slice (relative to first): drop patch at original index 100.
+        // The second slice's range is kept wide enough that num_blocks still
+        // covers every chunk in the packed buffer.
+        let second_slice = first_slice.slice(50..2900)?;
+        assert!(second_slice.is::<BitPacked>());
+
+        let cpu_result = second_slice.to_canonical()?;
+        let gpu_result = block_on(async {
+            BitPackedExecutor
+                .execute(second_slice, &mut cuda_ctx)
+                .await
+                .vortex_expect("GPU decompression failed")
+                .into_host()
+                .await
+                .map(|a| a.into_array())
+        })?;
+
+        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+
+        Ok(())
+    }
+
+    /// Test slicing to skip an entire chunk's worth of patches.
+    #[crate::test]
+    fn test_cuda_bitunpack_sliced_skip_first_chunk_patches() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        // Create patches in first chunk only, then slice past them all.
+        let mut values: Vec<u16> = Vec::with_capacity(3072);
+        for i in 0u16..3072 {
+            if i == 100 || i == 200 || i == 300 {
+                values.push(600);
+            } else if i == 1500 || i == 2500 {
+                values.push(700);
+            } else {
+                values.push(i % 512);
+            }
+        }
+
+        let primitive_array =
+            PrimitiveArray::new(Buffer::from_iter(values.iter().copied()), NonNullable);
+
+        let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), 9)?;
+        assert!(
+            bitpacked_array.patches().is_some(),
+            "Expected patches to be present"
+        );
+
+        // Slice to skip past all first chunk patches
+        let sliced_array = bitpacked_array.into_array().slice(1024..3072)?;
+        assert!(sliced_array.is::<BitPacked>());
+
+        let cpu_result = sliced_array.to_canonical()?;
         let gpu_result = block_on(async {
             BitPackedExecutor
                 .execute(sliced_array, &mut cuda_ctx)

@@ -26,6 +26,7 @@ typedef struct {
     uint32_t *indices;
     void *values;
     uint32_t offset;
+    uint32_t offset_within_chunk;
     uint32_t num_patches;
     uint32_t n_chunks;
 } GPUPatches;

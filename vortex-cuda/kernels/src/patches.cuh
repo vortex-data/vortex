@@ -55,9 +55,15 @@ public:
             return;
         }
 
-        // Get patch range for this chunk.
-        // chunk_offsets has n_chunks elements; the final offset is implicit (num_patches).
+        // get index into patch indices/values for `chunk`.
         uint32_t chunk_start = load_chunk_offset(patches, chunk);
+
+        // IF this is chunk 0, we need to apply the offset_within_chunk to
+        // the iteration start. This does not affect where the iteration ends.
+        if (chunk == 0) {
+            chunk_start += patches.offset_within_chunk;
+        }
+
         uint32_t chunk_end =
             (chunk + 1 < patches.n_chunks) ? load_chunk_offset(patches, chunk + 1) : patches.num_patches;
         uint32_t num_patches = chunk_end - chunk_start;
