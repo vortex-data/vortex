@@ -1,0 +1,221 @@
+name: Rust Instrumented
+
+# Concurrency control:
+# - PRs: new commits on a feature branch will cancel in-progress (outdated) runs.
+# - Push to develop: runs queue sequentially, never cancelled.
+# - `workflow_dispatch`: groups by branch and queues if run on develop.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
+on:
+  push:
+    branches: [develop]
+  pull_request: { }
+  workflow_dispatch: { }
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  NIGHTLY_TOOLCHAIN: nightly-2026-02-05
+
+jobs:
+  rust-coverage:
+    name: "Rust tests (coverage) (${{ matrix.suite }})"
+    timeout-minutes: 30
+    permissions:
+      id-token: write
+    strategy:
+      matrix:
+        include:
+          - suite: tests
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-large/image=ubuntu24-full-x64-pre-v2/tag=rust-coverage-suite-{1}', github.run_id, matrix.suite)
+          || 'ubuntu-latest' }}
+    env:
+      RUSTFLAGS: "-Cinstrument-coverage -A warnings"
+      CARGO_INCREMENTAL: 0  # Disable incremental compilation to get accurate coverage
+      LLVM_PROFILE_FILE: "target/coverage/vortex-%p-%m.profraw"
+      GRCOV_OUTPUT_FILE: "target/coverage/vortex.lcov"
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-prebuild
+      - name: Rust Tests
+        if: ${{ matrix.suite == 'tests' }}
+        run: |
+          cargo nextest run --locked --workspace --all-features --no-fail-fast
+      - name: Generate coverage report
+        run: |
+          grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
+            --threads $(nproc) \
+            --ignore '../*' --ignore '/*' --ignore 'fuzz/*' --ignore 'vortex-bench/*' \
+            --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*' --ignore 'vortex-error/*' \
+            --ignore 'vortex-python/*' --ignore 'vortex-jni/*' --ignore 'vortex-flatbuffers/*' \
+            --ignore 'vortex-proto/*' --ignore 'vortex-tui/*' --ignore 'vortex-datafusion/examples/*' \
+            --ignore 'vortex-ffi/examples/*' --ignore '*/arbitrary/*' --ignore '*/arbitrary.rs' --ignore 'vortex-cxx/*' \
+            --ignore benchmarks/* --ignore 'vortex-test/*' \
+            -o ${{ env.GRCOV_OUTPUT_FILE }}
+      - name: Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          name: run-${{ matrix.suite }}
+          files: ${{ env.GRCOV_OUTPUT_FILE }}
+          disable_search: true
+          flags: ${{ matrix.suite }}
+          use_oidc: true
+
+  rust-test-sanitizer:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # We don't run memory sanitizer as it provides many false positives
+          # for std
+          - sanitizer: asan
+            sanitizer_flags: "-Zsanitizer=address,leak"
+          - sanitizer: tsan
+            sanitizer_flags: "-Zsanitizer=thread"
+    name: "Rust tests (${{ matrix.sanitizer }})"
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/pool=amd64-medium-pre-v2/tag=rust-test-sanitizer', github.run_id)
+          || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    env:
+      ASAN_OPTIONS: "symbolize=1:check_initialization_order=1:detect_leaks=1:leak_check_at_exit=1"
+      LSAN_OPTIONS: "report_objects=1"
+      ASAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
+      MSAN_OPTIONS: "symbolize=1"
+      MSAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
+      TSAN_OPTIONS: "symbolize=1:suppressions=${{ github.workspace }}/vortex-ffi/tsan_suppressions.txt"
+      TSAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
+      VORTEX_SKIP_SLOW_TESTS: "1"
+      # -Cunsafe-allow-abi-mismatch=sanitizer: libraries like compiler_builtins
+      # unset -Zsanitizer flag and we should allow that.
+      RUSTFLAGS: "-A warnings -Cunsafe-allow-abi-mismatch=sanitizer -C debuginfo=2 -C opt-level=0 -C strip=none"
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-prebuild
+      - name: Install Rust nightly toolchain
+        run: |
+          rustup toolchain install $NIGHTLY_TOOLCHAIN
+          rustup component add --toolchain $NIGHTLY_TOOLCHAIN rust-src rustfmt clippy llvm-tools-preview
+      - name: Build tests with sanitizer
+        run: |
+          RUSTFLAGS="${RUSTFLAGS} ${{ matrix.sanitizer_flags }}" \
+          cargo +$NIGHTLY_TOOLCHAIN build --locked --all-features \
+            --target x86_64-unknown-linux-gnu -Zbuild-std \
+            -p vortex-buffer -p vortex-fastlanes -p vortex-fsst -p vortex-alp -p vortex-array
+
+      - name: Run tests with sanitizer
+        run: |
+          RUSTFLAGS="${RUSTFLAGS} ${{ matrix.sanitizer_flags }}" \
+          cargo +$NIGHTLY_TOOLCHAIN nextest run --locked --all-features \
+            --target x86_64-unknown-linux-gnu --no-fail-fast -Zbuild-std \
+            -p vortex-buffer -p vortex-fastlanes -p vortex-fsst -p vortex-alp -p vortex-array
+
+        # vortex-ffi requires --no-default-features as otherwise we pull in
+        # Mimalloc which interferes with sanitizers
+        # cargo nextest reports less sanitizer issues than cargo test
+        # TODO(myrrc): remove --no-default-features once we make Mimalloc opt-in
+      - name: Run vortex-ffi tests with sanitizer
+        run: |
+          RUSTFLAGS="${RUSTFLAGS} ${{ matrix.sanitizer_flags }}" \
+          cargo +$NIGHTLY_TOOLCHAIN test --locked --no-default-features \
+            --target x86_64-unknown-linux-gnu --no-fail-fast -Zbuild-std \
+            -p vortex-ffi -- --no-capture
+
+  rust-ffi-test-sanitizer:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # We don't run memory sanitizer as it's clang-only and provides many
+          # false positives for Catch2
+          - sanitizer: asan
+            sanitizer_flags: "-Zsanitizer=address,leak"
+          - sanitizer: tsan
+            sanitizer_flags: "-Zsanitizer=thread"
+    name: "Rust/C++ FFI tests (${{ matrix.sanitizer }})"
+    timeout-minutes: 30
+    env:
+      ASAN_OPTIONS: "symbolize=1:check_initialization_order=1:detect_leaks=1:leak_check_at_exit=1"
+      LSAN_OPTIONS: "report_objects=1"
+      ASAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
+      MSAN_OPTIONS: "symbolize=1"
+      MSAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
+      TSAN_OPTIONS: "symbolize=1"
+      TSAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
+      VORTEX_SKIP_SLOW_TESTS: "1"
+      # -Cunsafe-allow-abi-mismatch=sanitizer: libraries like compiler_builtins
+      # unset -Zsanitizer flag and we should allow that.
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=rust-ffi-test-sanitizer', github.run_id)
+          || 'ubuntu-latest' }}
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-prebuild
+      - name: Install rustfilt
+        run: |
+          cargo install rustfilt
+      - name: Install Rust nightly toolchain
+        run: |
+          rustup toolchain install $NIGHTLY_TOOLCHAIN
+          rustup component add --toolchain $NIGHTLY_TOOLCHAIN rust-src rustfmt clippy llvm-tools-preview
+      - name: Build FFI library
+        run: |
+          # TODO(myrrc): remove --no-default-features
+          RUSTFLAGS="-A warnings -Cunsafe-allow-abi-mismatch=sanitizer \
+                -C debuginfo=2 -C opt-level=0 -C strip=none -Zexternal-clangrt \
+                ${{ matrix.sanitizer_flags }}" \
+          cargo +$NIGHTLY_TOOLCHAIN build --locked --no-default-features \
+            --target x86_64-unknown-linux-gnu -Zbuild-std \
+            -p vortex-ffi
+      - name: Build FFI library tests
+        run: |
+          cd vortex-ffi
+          cmake -Bbuild -DBUILD_TESTS=1 -DSANITIZER=${{ matrix.sanitizer }} -DTARGET_TRIPLE="x86_64-unknown-linux-gnu"
+          cmake --build build -j
+      - name: Run tests
+        run: |
+          set -o pipefail
+          ./vortex-ffi/build/test/vortex_ffi_test 2>&1 | rustfilt -i-
+
+  miri:
+    name: "Rust tests (miri)"
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=rust-miri', github.run_id)
+          || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    env:
+      MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation -Zmiri-env-forward=RUST_BACKTRACE
+      RUSTFLAGS: "-A warnings"
+      RUST_BACKTRACE: full
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-prebuild
+      - name: Install nightly with miri
+        run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rust-src,rustfmt,clippy,miri
+      - name: Run Miri
+        run: cargo +$NIGHTLY_TOOLCHAIN miri nextest run --no-fail-fast -p vortex-buffer -p vortex-ffi
