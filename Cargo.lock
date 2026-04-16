@@ -10056,6 +10056,7 @@ dependencies = [
  "arrow-array 58.0.0",
  "codspeed-divan-compat",
  "fastlanes",
+ "futures",
  "mimalloc",
  "parquet 58.0.0",
  "paste",
@@ -10068,6 +10069,7 @@ dependencies = [
  "vortex",
  "vortex-alp",
  "vortex-array",
+ "vortex-bench",
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",
@@ -10230,6 +10232,7 @@ dependencies = [
  "url",
  "uuid",
  "vortex",
+ "vortex-tensor",
 ]
 
 [[package]]
