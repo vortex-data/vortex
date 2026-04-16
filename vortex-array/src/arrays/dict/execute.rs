@@ -46,7 +46,7 @@ pub fn take_canonical(
         Canonical::Primitive(a) => Canonical::Primitive(take_primitive(&a, codes, ctx)),
         Canonical::Decimal(a) => Canonical::Decimal(take_decimal(&a, codes, ctx)),
         Canonical::VarBinView(a) => Canonical::VarBinView(take_varbinview(&a, codes, ctx)),
-        Canonical::List(a) => Canonical::List(take_listview(&a, codes)),
+        Canonical::List(a) => Canonical::List(take_listview(&a, codes, ctx)),
         Canonical::FixedSizeList(a) => {
             Canonical::FixedSizeList(take_fixed_size_list(&a, codes, ctx))
         }
@@ -123,12 +123,16 @@ fn take_varbinview(
         .into_owned()
 }
 
-fn take_listview(array: &ListViewArray, codes: &PrimitiveArray) -> ListViewArray {
+fn take_listview(
+    array: &ListViewArray,
+    codes: &PrimitiveArray,
+    ctx: &mut ExecutionCtx,
+) -> ListViewArray {
     let codes_ref = codes.clone().into_array();
     let array = array.as_view();
-    <ListView as TakeReduce>::take(array, &codes_ref)
-        .vortex_expect("take listview array")
-        .vortex_expect("take listview should not return None")
+    <ListView as TakeExecute>::take(array, &codes_ref, ctx)
+        .vortex_expect("take listview execute")
+        .vortex_expect("ListView TakeExecute should not return None")
         .as_::<ListView>()
         .into_owned()
 }
