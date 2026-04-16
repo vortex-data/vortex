@@ -3,7 +3,9 @@
 
 """Benchmark binary execution."""
 
+import selectors
 import subprocess
+from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 from typing import final
@@ -126,7 +128,8 @@ class BenchmarkExecutor:
         if self.verbose:
             console.print(f"[dim]$ {' '.join(cmd)}[/dim]")
 
-        results = []
+        results: list[str] = []
+        diagnostic_lines: deque[str] = deque(maxlen=200)
 
         with Progress(
             SpinnerColumn(),
@@ -136,28 +139,49 @@ class BenchmarkExecutor:
         ) as progress:
             _task = progress.add_task(f"Running {self.backend.value} {benchmark.value}...", total=None)
 
+            # Merge stderr into stdout so verbose benchmark logs cannot fill a separate pipe and
+            # block the child process before it emits JSON results.
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 text=True,
+                bufsize=1,
             )
 
             assert process.stdout is not None
-            for line in iter(process.stdout.readline, ""):
-                line = line.strip()
-                if line:
-                    results.append(line)
-                    if on_result:
-                        on_result(line)
+            selector = selectors.DefaultSelector()
+            selector.register(process.stdout, selectors.EVENT_READ)
+
+            try:
+                while selector.get_map():
+                    for key, _mask in selector.select(timeout=0.1):
+                        line = key.fileobj.readline()
+                        if line == "":
+                            selector.unregister(key.fileobj)
+                            continue
+
+                        line = line.rstrip()
+                        if not line:
+                            continue
+
+                        if line.startswith("{"):
+                            results.append(line)
+                            if on_result:
+                                on_result(line)
+                        else:
+                            diagnostic_lines.append(line)
+                            console.print(line, markup=False)
+            finally:
+                selector.close()
 
             ret_code = process.wait()
 
             if ret_code != 0:
-                stderr = process.stderr.read() if process.stderr else ""
                 console.print(f"[red]Benchmark failed with code {process.returncode}[/red]")
-                if stderr:
-                    console.print(f"[red]{stderr}[/red]")
-                raise RuntimeError(f"Benchmark {self.backend.value} {benchmark.value} failed: {stderr}")
+                diagnostics = "\n".join(diagnostic_lines)
+                if diagnostics:
+                    console.print(f"[red]{diagnostics}[/red]")
+                raise RuntimeError(f"Benchmark {self.backend.value} {benchmark.value} failed: {diagnostics}")
 
         return results
