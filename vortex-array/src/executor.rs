@@ -21,7 +21,6 @@ use std::env::VarError;
 use std::fmt;
 use std::fmt::Display;
 use std::sync::LazyLock;
-#[cfg(debug_assertions)]
 use std::sync::atomic::AtomicUsize;
 
 use vortex_error::VortexExpect;
@@ -186,12 +185,11 @@ pub struct ExecutionCtx {
 impl ExecutionCtx {
     /// Create a new execution context with the given session.
     pub fn new(session: VortexSession) -> Self {
+        static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
+        let id = EXEC_CTX_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Self {
             session,
-            id: {
-                static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
-                EXEC_CTX_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            },
+            id,
             ops: Vec::new(),
         }
     }
