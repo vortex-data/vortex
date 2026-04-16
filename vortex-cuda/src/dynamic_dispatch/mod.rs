@@ -500,8 +500,6 @@ mod tests {
     use cudarc::driver::PushKernelArg;
     use rstest::rstest;
     use vortex::array::IntoArray;
-    #[expect(deprecated)]
-    use vortex::array::ToCanonical;
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::scalar::Scalar;
@@ -874,6 +872,7 @@ mod tests {
     fn test_alp_for_bitpacked() -> VortexResult<()> {
         // ALP(FoR(BitPacked)): encode each layer, then reassemble the tree
         // bottom-up because encode() methods produce flat outputs.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let len = 3000;
         let exponents = Exponents { e: 2, f: 0 };
         let floats: Vec<f32> = (0..len)
@@ -881,14 +880,9 @@ mod tests {
             .collect();
         let float_prim = PrimitiveArray::new(Buffer::from(floats.clone()), NonNullable);
 
-        let alp = alp_encode(
-            float_prim.as_view(),
-            Some(exponents),
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )?;
+        let alp = alp_encode(float_prim.as_view(), Some(exponents), &mut ctx)?;
         assert!(alp.patches().is_none());
-        #[expect(deprecated)]
-        let for_arr = FoR::encode(alp.encoded().to_primitive())?;
+        let for_arr = FoR::encode(alp.encoded().clone().execute::<PrimitiveArray>(&mut ctx)?)?;
         let bp = BitPacked::encode(for_arr.encoded(), 6)?;
 
         let tree = ALP::new(

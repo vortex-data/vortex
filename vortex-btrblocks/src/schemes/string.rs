@@ -6,8 +6,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::varbin::VarBinArrayExt;
@@ -89,8 +88,11 @@ impl Scheme for FSSTScheme {
         let compressor_fsst = fsst_train_compressor(&utf8);
         let fsst = fsst_compress(&utf8, utf8.len(), utf8.dtype(), &compressor_fsst);
 
-        #[expect(deprecated)]
-        let uncompressed_lengths_primitive = fsst.uncompressed_lengths().to_primitive().narrow()?;
+        let uncompressed_lengths_primitive = fsst
+            .uncompressed_lengths()
+            .clone()
+            .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?
+            .narrow()?;
         let compressed_original_lengths = compressor.compress_child(
             &uncompressed_lengths_primitive.into_array(),
             &ctx,
@@ -98,8 +100,12 @@ impl Scheme for FSSTScheme {
             0,
         )?;
 
-        #[expect(deprecated)]
-        let codes_offsets_primitive = fsst.codes().offsets().to_primitive().narrow()?;
+        let codes_offsets_primitive = fsst
+            .codes()
+            .offsets()
+            .clone()
+            .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?
+            .narrow()?;
         let compressed_codes_offsets =
             compressor.compress_child(&codes_offsets_primitive.into_array(), &ctx, self.id(), 1)?;
         let compressed_codes = VarBinArray::try_new(
@@ -183,8 +189,12 @@ impl Scheme for NullDominatedSparseScheme {
 
         if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
             // Compress the indices only (not the values for strings).
-            #[expect(deprecated)]
-            let indices = sparse.patches().indices().to_primitive().narrow()?;
+            let indices = sparse
+                .patches()
+                .indices()
+                .clone()
+                .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?
+                .narrow()?;
             let compressed_indices =
                 compressor.compress_child(&indices.into_array(), &ctx, self.id(), 0)?;
 

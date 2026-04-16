@@ -6,12 +6,9 @@
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Patched;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::scalar::Scalar;
@@ -187,11 +184,15 @@ impl Scheme for FoRScheme {
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        #[expect(deprecated)]
-        let primitive = data.array().to_primitive();
+        let primitive = data
+            .array()
+            .clone()
+            .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?;
         let for_array = FoR::encode(primitive)?;
-        #[expect(deprecated)]
-        let biased = for_array.encoded().to_primitive();
+        let biased = for_array
+            .encoded()
+            .clone()
+            .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?;
 
         // Immediately bitpack. If any other scheme was preferable, it would be chosen instead
         // of bitpacking.
@@ -293,8 +294,10 @@ impl Scheme for ZigZagScheme {
     ) -> VortexResult<ArrayRef> {
         // Zigzag encode the values, then recursively compress the inner values.
         let zag = zigzag_encode(data.array_as_primitive())?;
-        #[expect(deprecated)]
-        let encoded = zag.encoded().to_primitive();
+        let encoded = zag
+            .encoded()
+            .clone()
+            .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?;
 
         let compressed = compressor.compress_child(&encoded.into_array(), &ctx, self.id(), 0)?;
 
@@ -330,7 +333,7 @@ impl Scheme for BitPackingScheme {
 
     fn compress(
         &self,
-        _compressor: &CascadingCompressor,
+        compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
@@ -371,14 +374,18 @@ impl Scheme for BitPackingScheme {
                 Some(p) => Patched::from_array_and_patches(
                     array,
                     &p,
-                    &mut LEGACY_SESSION.create_execution_ctx(),
+                    &mut compressor.execution_ctx(),
                 )?
                 .with_stats_set(packed_stats)
                 .into_array(),
             }
         } else {
             // Compress patches and place back into BitPackedArray.
-            let patches = parts.patches.take().map(compress_patches).transpose()?;
+            let patches = parts
+                .patches
+                .take()
+                .map(|p| compress_patches(p, &mut compressor.execution_ctx()))
+                .transpose()?;
             parts.patches = patches;
             BitPacked::try_new(
                 parts.packed,
@@ -525,8 +532,11 @@ impl Scheme for SparseScheme {
         )?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
-            #[expect(deprecated)]
-            let sparse_values_primitive = sparse.patches().values().to_primitive();
+            let sparse_values_primitive = sparse
+                .patches()
+                .values()
+                .clone()
+                .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?;
             let compressed_values = compressor.compress_child(
                 &sparse_values_primitive.into_array(),
                 &ctx,
@@ -534,8 +544,12 @@ impl Scheme for SparseScheme {
                 0,
             )?;
 
-            #[expect(deprecated)]
-            let indices = sparse.patches().indices().to_primitive().narrow()?;
+            let indices = sparse
+                .patches()
+                .indices()
+                .clone()
+                .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?
+                .narrow()?;
 
             let compressed_indices =
                 compressor.compress_child(&indices.into_array(), &ctx, self.id(), 1)?;
@@ -631,8 +645,7 @@ impl Scheme for RunEndScheme {
         // Run-end encode the ends.
         let (ends, values) = runend_encode(data.array_as_primitive());
 
-        #[expect(deprecated)]
-        let values_primitive = values.to_primitive();
+        let values_primitive = values.execute::<PrimitiveArray>(&mut compressor.execution_ctx())?;
         let compressed_values =
             compressor.compress_child(&values_primitive.into_array(), &ctx, self.id(), 0)?;
 
@@ -785,16 +798,21 @@ pub(crate) fn rle_compress(
 ) -> VortexResult<ArrayRef> {
     let rle_array = RLE::encode(data.array_as_primitive())?;
 
-    #[expect(deprecated)]
-    let rle_values_primitive = rle_array.values().to_primitive();
+    let rle_values_primitive = rle_array
+        .values()
+        .clone()
+        .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?;
     let compressed_values =
         compressor.compress_child(&rle_values_primitive.into_array(), &ctx, scheme.id(), 0)?;
 
     // Delta is an unstable encoding, once we deem it stable we can switch over to this always.
     #[cfg(feature = "unstable_encodings")]
     let compressed_indices = {
-        #[expect(deprecated)]
-        let rle_indices_primitive = rle_array.indices().to_primitive().narrow()?;
+        let rle_indices_primitive = rle_array
+            .indices()
+            .clone()
+            .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?
+            .narrow()?;
         try_compress_delta(
             compressor,
             &rle_indices_primitive.into_array(),
@@ -806,13 +824,19 @@ pub(crate) fn rle_compress(
 
     #[cfg(not(feature = "unstable_encodings"))]
     let compressed_indices = {
-        #[expect(deprecated)]
-        let rle_indices_primitive = rle_array.indices().to_primitive().narrow()?;
+        let rle_indices_primitive = rle_array
+            .indices()
+            .clone()
+            .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?
+            .narrow()?;
         compressor.compress_child(&rle_indices_primitive.into_array(), &ctx, scheme.id(), 1)?
     };
 
-    #[expect(deprecated)]
-    let rle_offsets_primitive = rle_array.values_idx_offsets().to_primitive().narrow()?;
+    let rle_offsets_primitive = rle_array
+        .values_idx_offsets()
+        .clone()
+        .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?
+        .narrow()?;
     let compressed_offsets =
         compressor.compress_child(&rle_offsets_primitive.into_array(), &ctx, scheme.id(), 2)?;
 
@@ -837,8 +861,9 @@ fn try_compress_delta(
     parent_id: SchemeId,
     child_index: usize,
 ) -> VortexResult<ArrayRef> {
-    #[expect(deprecated)]
-    let child_primitive = child.to_primitive();
+    let child_primitive = child
+        .clone()
+        .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?;
     let (bases, deltas) =
         vortex_fastlanes::delta_compress(&child_primitive, &mut compressor.execution_ctx())?;
 

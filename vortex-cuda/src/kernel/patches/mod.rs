@@ -103,8 +103,6 @@ mod tests {
     use cudarc::driver::DeviceRepr;
     use vortex::array::IntoArray;
     use vortex::array::LEGACY_SESSION;
-    #[expect(deprecated)]
-    use vortex::array::ToCanonical;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::primitive::PrimitiveDataParts;
@@ -200,12 +198,12 @@ mod tests {
     }
 
     fn force_cast<T: NativePType>(array: PrimitiveArray) -> PrimitiveArray {
-        #[expect(deprecated)]
-        let result = array
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        array
             .into_array()
             .cast(DType::Primitive(T::PTYPE, Nullability::NonNullable))
             .unwrap()
-            .to_primitive();
-        result
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap()
     }
 }

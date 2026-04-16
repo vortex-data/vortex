@@ -19,8 +19,6 @@ use cudarc::driver::PushKernelArg;
 use cudarc::driver::sys::CUevent_flags;
 use vortex::array::IntoArray;
 use vortex::array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex::array::ToCanonical;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -361,6 +359,7 @@ fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
 // Benchmark: ALP(FoR(BitPacked)) for f32
 // ---------------------------------------------------------------------------
 fn bench_alp_for_bitpacked(c: &mut Criterion) {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let mut group = c.benchmark_group("alp_for_bp_6bw_f32");
 
     let exponents = Exponents { e: 2, f: 0 };
@@ -376,15 +375,16 @@ fn bench_alp_for_bitpacked(c: &mut Criterion) {
         let float_prim = PrimitiveArray::new(Buffer::from(floats), NonNullable);
 
         // Encode: ALP → FoR → BitPacked
-        let alp = alp_encode(
-            float_prim.as_view(),
-            Some(exponents),
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .vortex_expect("alp_encode");
+        let alp =
+            alp_encode(float_prim.as_view(), Some(exponents), &mut ctx).vortex_expect("alp_encode");
         assert!(alp.patches().is_none());
-        #[expect(deprecated)]
-        let for_arr = FoRData::encode(alp.encoded().to_primitive()).vortex_expect("for encode");
+        let for_arr = FoRData::encode(
+            alp.encoded()
+                .clone()
+                .execute::<PrimitiveArray>(&mut ctx)
+                .vortex_expect("canonicalize alp encoded"),
+        )
+        .vortex_expect("for encode");
         let bp =
             BitPackedData::encode(for_arr.encoded(), bit_width).vortex_expect("bitpack encode");
 
