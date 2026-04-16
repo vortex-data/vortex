@@ -103,6 +103,7 @@ mod tests {
     use super::NormalizeOptions;
     use super::Operation;
     use crate::ArrayRef;
+    use crate::Canonical;
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::array::VTable;
@@ -219,10 +220,8 @@ mod tests {
         assert_eq!(normalized.len(), 3);
 
         // Verify the data: codes [1,0,1] -> values [20, 10, 20]
-        #[expect(deprecated)]
-        let normalized_canonical = normalized.to_canonical()?;
         assert_arrays_eq!(
-            normalized_canonical,
+            normalized.execute::<Canonical>(&mut ctx)?,
             PrimitiveArray::from_iter(vec![20i32, 10, 20])
         );
 

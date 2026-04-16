@@ -63,16 +63,19 @@ fn test_take_all(array: &ArrayRef) {
     assert_eq!(result.len(), len);
     assert_eq!(result.dtype(), array.dtype());
 
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
     // Verify elements match
-    #[expect(deprecated)]
-    let array_canonical = array
-        .to_canonical()
-        .vortex_expect("to_canonical failed on array");
-    #[expect(deprecated)]
-    let result_canonical = result
-        .to_canonical()
-        .vortex_expect("to_canonical failed on result");
-    match (array_canonical, result_canonical) {
+    match (
+        array
+            .clone()
+            .execute::<Canonical>(&mut ctx)
+            .vortex_expect("to_canonical failed on array"),
+        result
+            .clone()
+            .execute::<Canonical>(&mut ctx)
+            .vortex_expect("to_canonical failed on result"),
+    ) {
         (Canonical::Primitive(orig_prim), Canonical::Primitive(result_prim)) => {
             assert_eq!(
                 orig_prim.buffer_handle().to_host_sync(),
@@ -84,10 +87,10 @@ fn test_take_all(array: &ArrayRef) {
             for i in 0..len {
                 assert_eq!(
                     array
-                        .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                        .execute_scalar(i, &mut ctx)
                         .vortex_expect("scalar_at should succeed in conformance test"),
                     result
-                        .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                        .execute_scalar(i, &mut ctx)
                         .vortex_expect("scalar_at should succeed in conformance test")
                 );
             }

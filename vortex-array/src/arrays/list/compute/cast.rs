@@ -37,6 +37,7 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
 
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::RecursiveCanonical;
@@ -87,11 +88,13 @@ mod tests {
         let target_dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
         // can't cast list to u64
 
-        let result = list.into_array().cast(target_dtype).and_then(|a| {
-            #[expect(deprecated)]
-            let canonical = a.to_canonical().map(|c| c.into_array());
-            canonical
-        });
+        let result = list
+            .into_array()
+            .cast(target_dtype)
+            .and_then(|a| {
+                a.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                    .map(|c| c.into_array())
+            });
         assert!(result.is_err());
     }
 
@@ -112,11 +115,13 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let result = list.into_array().cast(target_dtype).and_then(|a| {
-            #[expect(deprecated)]
-            let canonical = a.to_canonical().map(|c| c.into_array());
-            canonical
-        });
+        let result = list
+            .into_array()
+            .cast(target_dtype)
+            .and_then(|a| {
+                a.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                    .map(|c| c.into_array())
+            });
         assert!(result.is_err());
 
         // Nulls in list element array — the inner cast error is deferred until

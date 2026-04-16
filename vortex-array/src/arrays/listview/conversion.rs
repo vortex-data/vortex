@@ -8,6 +8,8 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
 use crate::arrays::ExtensionArray;
@@ -189,8 +191,8 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> 
         return Ok(array);
     }
 
-    #[expect(deprecated)]
-    let canonical = array.to_canonical()?;
+    let canonical = array
+        .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?;
 
     Ok(match canonical {
         Canonical::List(listview) => {

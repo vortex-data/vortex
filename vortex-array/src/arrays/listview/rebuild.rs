@@ -6,6 +6,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use crate::Canonical;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 #[expect(deprecated)]
@@ -226,7 +227,8 @@ impl ListViewArray {
         #[expect(deprecated)]
         let elements_canonical = self
             .elements()
-            .to_canonical()
+            .clone()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
             .vortex_expect("canonicalize elements for rebuild")
             .into_array();
 

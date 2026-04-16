@@ -27,6 +27,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
@@ -1029,8 +1030,10 @@ fn test_slice_aggregate_consistency(array: &ArrayRef) {
     let sliced = array
         .slice(start..end)
         .vortex_expect("slice should succeed in conformance test");
-    #[expect(deprecated)]
-    let canonical = array.to_canonical().vortex_expect("to_canonical failed");
+    let canonical = array
+        .clone()
+        .execute::<Canonical>(&mut ctx)
+        .vortex_expect("to_canonical failed");
     let canonical_sliced = canonical
         .into_array()
         .slice(start..end)
@@ -1131,8 +1134,10 @@ fn test_cast_slice_consistency(array: &ArrayRef) {
     let end = 7.min(len - 2).max(start + 1); // Ensure we have at least 1 element
 
     // Get canonical form of the original array
-    #[expect(deprecated)]
-    let canonical = array.to_canonical().vortex_expect("to_canonical failed");
+    let canonical = array
+        .clone()
+        .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+        .vortex_expect("to_canonical failed");
 
     // Choose appropriate target dtype based on the array's type
     let target_dtypes = match array.dtype() {
@@ -1256,10 +1261,13 @@ fn test_cast_slice_consistency(array: &ArrayRef) {
             .vortex_expect("slice should succeed in conformance test");
 
         // Try to cast the sliced array (force execution via to_canonical)
-        let slice_then_cast = match sliced.cast(target_dtype.clone()).and_then(|a| {
-            #[expect(deprecated)]
-            a.to_canonical().map(|c| c.into_array())
-        }) {
+        let slice_then_cast = match sliced
+            .cast(target_dtype.clone())
+            .and_then(|a| {
+                a.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                    .map(|c| c.into_array())
+            })
+        {
             Ok(result) => result,
             Err(_) => continue, // Skip if cast fails
         };
@@ -1308,10 +1316,14 @@ fn test_cast_slice_consistency(array: &ArrayRef) {
         }
 
         // Also test the other way: cast then slice
-        let casted = match array.clone().cast(target_dtype.clone()).and_then(|a| {
-            #[expect(deprecated)]
-            a.to_canonical().map(|c| c.into_array())
-        }) {
+        let casted = match array
+            .clone()
+            .cast(target_dtype.clone())
+            .and_then(|a| {
+                a.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                    .map(|c| c.into_array())
+            })
+        {
             Ok(result) => result,
             Err(_) => continue, // Skip if cast fails
         };

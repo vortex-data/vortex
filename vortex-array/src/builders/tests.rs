@@ -6,6 +6,7 @@ use std::sync::Arc;
 use rstest::rstest;
 use vortex_error::VortexExpect;
 
+use crate::Canonical;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::builders::ArrayBuilder;
@@ -240,7 +241,7 @@ where
     #[expect(deprecated)]
     let canonical_indirect = builder2
         .finish()
-        .to_canonical()
+        .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
         .vortex_expect("to_canonical failed");
 
     // Convert both to arrays for comparison.

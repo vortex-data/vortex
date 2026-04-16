@@ -145,6 +145,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use super::upcast_decimal_values;
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
@@ -212,12 +213,14 @@ mod tests {
 
         // Attempt to cast to non-nullable should fail
         let non_nullable_dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
-        #[expect(deprecated)]
         let result = array
             .into_array()
             .cast(non_nullable_dtype)
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
-        result.unwrap();
+            .and_then(|a| {
+                a.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                    .map(|c| c.into_array())
+            })
+            .unwrap();
     }
 
     #[test]
@@ -234,7 +237,10 @@ mod tests {
         let result = array
             .into_array()
             .cast(different_dtype)
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+            .and_then(|a| {
+            a.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .map(|c| c.into_array())
+        });
 
         assert!(result.is_err());
         assert!(
@@ -259,7 +265,10 @@ mod tests {
         let result = array
             .into_array()
             .cast(smaller_dtype)
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+            .and_then(|a| {
+            a.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .map(|c| c.into_array())
+        });
 
         assert!(result.is_err());
         assert!(
@@ -303,7 +312,10 @@ mod tests {
         let result = array
             .into_array()
             .cast(DType::Utf8(Nullability::NonNullable))
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+            .and_then(|a| {
+            a.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .map(|c| c.into_array())
+        });
 
         assert!(result.is_err());
         assert!(

@@ -51,7 +51,10 @@ mod tests {
     use vortex_buffer::buffer;
 
     use super::*;
+    use crate::Canonical;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
@@ -105,12 +108,15 @@ mod tests {
         let storage = buffer![1i64].into_array();
         let arr = ExtensionArray::new(original_dtype, storage);
 
-        #[expect(deprecated)]
-        let result = arr
-            .into_array()
-            .cast(DType::Extension(target_dtype))
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
-        assert!(result.is_err());
+        assert!(
+            arr.into_array()
+                .cast(DType::Extension(target_dtype))
+                .and_then(|a| {
+                    a.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                        .map(|c| c.into_array())
+                })
+                .is_err()
+        );
     }
 
     #[test]

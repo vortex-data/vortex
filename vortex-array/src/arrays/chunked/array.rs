@@ -16,7 +16,10 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -184,6 +187,7 @@ impl Array<Chunked> {
         let mut chunks_to_combine = Vec::new();
         let mut new_chunk_n_bytes = 0;
         let mut new_chunk_n_elements = 0;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         for chunk in self.iter_chunks() {
             let n_bytes = chunk.nbytes();
             let n_elements = chunk.len();
@@ -192,14 +196,14 @@ impl Array<Chunked> {
                 || new_chunk_n_elements + n_elements > target_rowsize)
                 && !chunks_to_combine.is_empty()
             {
-                #[expect(deprecated)]
-                let canonical = unsafe {
-                    Array::<Chunked>::new_unchecked(chunks_to_combine, self.dtype().clone())
-                }
-                .into_array()
-                .to_canonical()?
-                .into_array();
-                new_chunks.push(canonical);
+                new_chunks.push(
+                    unsafe {
+                        Array::<Chunked>::new_unchecked(chunks_to_combine, self.dtype().clone())
+                    }
+                    .into_array()
+                    .execute::<Canonical>(&mut ctx)?
+                    .into_array(),
+                );
 
                 new_chunk_n_bytes = 0;
                 new_chunk_n_elements = 0;
@@ -216,13 +220,12 @@ impl Array<Chunked> {
         }
 
         if !chunks_to_combine.is_empty() {
-            #[expect(deprecated)]
-            let canonical =
+            new_chunks.push(
                 unsafe { Array::<Chunked>::new_unchecked(chunks_to_combine, self.dtype().clone()) }
                     .into_array()
-                    .to_canonical()?
-                    .into_array();
-            new_chunks.push(canonical);
+                    .execute::<Canonical>(&mut ctx)?
+                    .into_array(),
+            );
         }
 
         unsafe { Ok(Self::new_unchecked(new_chunks, self.dtype().clone())) }

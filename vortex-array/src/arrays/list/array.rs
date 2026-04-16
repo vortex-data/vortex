@@ -13,6 +13,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
@@ -327,9 +328,10 @@ pub trait ListArrayExt: TypedArrayRef<List> {
     fn reset_offsets(&self, recurse: bool) -> VortexResult<Array<List>> {
         let mut elements = self.sliced_elements()?;
         if recurse && elements.is_canonical() {
-            #[expect(deprecated)]
-            let compacted = elements.to_canonical()?.compact()?.into_array();
-            elements = compacted;
+            elements = elements
+                .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+                .compact()?
+                .into_array();
         } else if recurse && let Some(child_list_array) = elements.as_opt::<List>() {
             elements = child_list_array
                 .into_owned()

@@ -115,6 +115,7 @@ mod test {
     use vortex_error::VortexError;
     use vortex_mask::Mask;
 
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
@@ -200,7 +201,10 @@ mod test {
         #[expect(deprecated)]
         let error = arr
             .cast(PType::U32.into())
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
+            .and_then(|a| {
+                a.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                    .map(|c| c.into_array())
+            })
             .unwrap_err();
         assert!(matches!(error, VortexError::Compute(..)));
         assert!(error.to_string().contains("values exceed target range"));
@@ -213,7 +217,10 @@ mod test {
         let err = arr
             .into_array()
             .cast(PType::I32.into())
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
+            .and_then(|a| {
+                a.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                    .map(|c| c.into_array())
+            })
             .unwrap_err();
 
         assert!(matches!(err, VortexError::InvalidArgument(..)));
@@ -274,7 +281,10 @@ mod test {
         #[expect(deprecated)]
         let err = arr
             .cast(PType::I32.into())
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
+            .and_then(|a| {
+                a.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                    .map(|c| c.into_array())
+            })
             .unwrap_err();
         assert!(matches!(err, VortexError::Compute(..)));
     }

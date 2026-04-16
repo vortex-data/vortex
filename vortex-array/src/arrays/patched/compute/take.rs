@@ -136,8 +136,11 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::ArrayRef;
+    use crate::Canonical;
     use crate::ExecutionCtx;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::Patched;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -173,8 +176,10 @@ mod tests {
 
         // Take indices [0, 1, 2, 3, 4] - should get [0, 10, 0, 30, 0]
         let indices = buffer![0u32, 1, 2, 3, 4].into_array();
-        #[expect(deprecated)]
-        let result = array.take(indices)?.to_canonical()?.into_array();
+        let result = array
+            .take(indices)?
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
 
         let expected = PrimitiveArray::from_iter([0u16, 10, 0, 30, 0]).into_array();
         assert_arrays_eq!(expected, result);
@@ -187,8 +192,10 @@ mod tests {
         let array = make_patched_array(&[0; 10], &[1, 3], &[100, 200], 2..10)?;
 
         let indices = buffer![0u32, 1, 2, 3, 7].into_array();
-        #[expect(deprecated)]
-        let result = array.take(indices)?.to_canonical()?.into_array();
+        let result = array
+            .take(indices)?
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
 
         let expected = PrimitiveArray::from_iter([0u16, 200, 0, 0, 0]).into_array();
         assert_arrays_eq!(expected, result);
@@ -203,8 +210,10 @@ mod tests {
 
         // Take indices in reverse order
         let indices = buffer![4u32, 3, 2, 1, 0].into_array();
-        #[expect(deprecated)]
-        let result = array.take(indices)?.to_canonical()?.into_array();
+        let result = array
+            .take(indices)?
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
 
         let expected = PrimitiveArray::from_iter([0u16, 30, 0, 10, 0]).into_array();
         assert_arrays_eq!(expected, result);
@@ -219,12 +228,17 @@ mod tests {
 
         // Take the same patched index multiple times
         let indices = buffer![2u32, 2, 0, 2].into_array();
-        #[expect(deprecated)]
-        let result = array.take(indices)?.to_canonical()?.into_array();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let result = array
+            .take(indices)?
+            .execute::<Canonical>(&mut ctx)?
+            .into_array();
 
         // execute the array.
-        #[expect(deprecated)]
-        let _canonical = result.to_canonical()?.into_primitive();
+        let _canonical = result
+            .clone()
+            .execute::<Canonical>(&mut ctx)?
+            .into_primitive();
 
         let expected = PrimitiveArray::from_iter([99u16, 99, 0, 99]).into_array();
         assert_arrays_eq!(expected, result);
@@ -258,7 +272,7 @@ mod tests {
         #[expect(deprecated)]
         let result = array
             .take(indices.into_array())?
-            .to_canonical()?
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
             .into_array();
 
         // Expected: [0, 20, null, 50, 80, null, 50, 80, null, 0]
