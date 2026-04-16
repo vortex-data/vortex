@@ -180,7 +180,9 @@ def parse_formats_json(value: str) -> list[Format]:
     return _unique_preserve_order(formats)
 
 
-def resolve_axis_targets(engines: Iterable[Engine], formats: Iterable[Format]) -> tuple[list[BenchmarkTarget], list[str]]:
+def resolve_axis_targets(
+    engines: Iterable[Engine], formats: Iterable[Format]
+) -> tuple[list[BenchmarkTarget], list[str]]:
     """Expand engine/format axes into supported explicit targets."""
     warnings: list[str] = []
     targets: list[BenchmarkTarget] = []

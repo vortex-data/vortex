@@ -2,13 +2,11 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import json
-from pathlib import Path
-
-from typer.testing import CliRunner
 
 from bench_orchestrator import cli as cli_module
 from bench_orchestrator.runner.executor import BenchmarkExecutor
 from bench_orchestrator.storage.store import ResultStore
+from typer.testing import CliRunner
 
 runner = CliRunner()
 

@@ -97,7 +97,9 @@ def backends_for_engines(engines: list[Engine]) -> list[ExecutionBackend]:
         Engine.DUCKDB: Format.PARQUET,
         Engine.LANCE: Format.LANCE,
     }
-    return list(group_targets_by_backend(BenchmarkTarget(engine=engine, format=seed_formats[engine]) for engine in engines))
+    return list(
+        group_targets_by_backend(BenchmarkTarget(engine=engine, format=seed_formats[engine]) for engine in engines)
+    )
 
 
 @contextmanager
@@ -288,10 +290,12 @@ def run(
                         samply=samply,
                         sample_rate=sample_rate,
                         tracing=tracing,
-                        on_result=lambda line, store_writer=ctx.write_raw_json, compatibility=compatibility_file: write_result_line(
-                            line,
-                            store_writer,
-                            compatibility,
+                        on_result=lambda line, store_writer=ctx.write_raw_json, compatibility=compatibility_file: (
+                            write_result_line(
+                                line,
+                                store_writer,
+                                compatibility,
+                            )
                         ),
                     )
                     console.print(f"[green]{backend.value}: {len(results)} results[/green]")
@@ -540,8 +544,7 @@ def show(
     console.print(f"  Formats: {', '.join(metadata.formats)}")
     if metadata.targets:
         console.print(
-            "  Targets: "
-            + ", ".join(f"{target['engine']}:{target['format']}" for target in metadata.targets)
+            "  Targets: " + ", ".join(f"{target['engine']}:{target['format']}" for target in metadata.targets)
         )
     console.print(f"  Iterations: {metadata.iterations}")
     console.print(f"  Git commit: {metadata.git_commit[:8]}")

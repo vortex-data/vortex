@@ -15,9 +15,7 @@ from bench_orchestrator.config import (
 
 
 def test_parse_targets_json_normalizes_and_dedupes_lance_targets() -> None:
-    targets = parse_targets_json(
-        '[{"engine":"lance","format":"lance"},{"engine":"datafusion","format":"lance"}]'
-    )
+    targets = parse_targets_json('[{"engine":"lance","format":"lance"},{"engine":"datafusion","format":"lance"}]')
 
     assert targets == [BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.LANCE)]
 
@@ -65,6 +63,4 @@ def test_group_targets_by_backend_routes_lance_to_lance_binary() -> None:
         ExecutionBackend.LANCE,
         ExecutionBackend.DUCKDB,
     ]
-    assert groups[ExecutionBackend.LANCE] == [
-        BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.LANCE)
-    ]
+    assert groups[ExecutionBackend.LANCE] == [BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.LANCE)]
