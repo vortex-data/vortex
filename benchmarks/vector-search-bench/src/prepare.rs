@@ -4,9 +4,9 @@
 //! Per-flavor on-disk ingest.
 //!
 //! For each `(dataset, layout, flavor)` triple, [`prepare_flavor`] streams every parquet shard
-//! through the [`crate::ingest::ChunkTransform`] and writes one `.vortex` file per shard. The
-//! pipeline is idempotent (existing `.vortex` files are skipped) and reports end-to-end wall-clock
-//! time, summed input parquet bytes, and total output bytes.
+//! and writes one `.vortex` file per shard. The pipeline is idempotent (existing `.vortex` files
+//! are skipped) and reports end-to-end wall-clock time, summed input parquet bytes, and total
+//! output bytes.
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -19,6 +19,8 @@ use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tracing::info;
 use tracing::warn;
+use vortex::array::ArrayRef;
+use vortex::array::ExecutionCtx;
 use vortex::array::VortexSessionExecute;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::array::stream::ArrayStreamExt;
@@ -33,25 +35,25 @@ use vortex_bench::vector_dataset::VectorDataset;
 
 use crate::SESSION;
 use crate::compression::VectorFlavor;
-use crate::ingest::ChunkTransform;
+use crate::ingest::transform_chunk;
 
 /// The paths of the vortex files that result from preparing one `(dataset, layout, flavor)` triple.
 #[derive(Debug, Clone)]
-pub struct CompressedVortexDataSet {
+pub struct CompressedVortexDataset {
     pub dataset: VectorDataset,
     pub layout: TrainLayout,
     pub flavor: VectorFlavor,
     pub vortex_files: Vec<PathBuf>,
 }
 
-/// Drive [`prepare_flavor`] across a list of flavors, returning a [`CompressedVortexDataSet`] per flavor
-/// in input order.
+/// Drive [`prepare_flavor`] across a list of flavors, returning a [`CompressedVortexDataset`] per
+/// flavor in input order.
 pub async fn prepare_all(
     dataset: VectorDataset,
     layout: TrainLayout,
     paths_for_dataset: &DatasetPaths,
     flavors: &[VectorFlavor],
-) -> Result<Vec<CompressedVortexDataSet>> {
+) -> Result<Vec<CompressedVortexDataset>> {
     let mut results = Vec::with_capacity(flavors.len());
 
     for &flavor in flavors {
@@ -62,7 +64,6 @@ pub async fn prepare_all(
     Ok(results)
 }
 
-// TODO(connor): This should probably download things in parallel?
 /// Prepare one flavor of one dataset by writing one `.vortex` file per train shard.
 ///
 /// This function is sequential (for now).
@@ -71,11 +72,7 @@ pub async fn prepare_flavor(
     layout: TrainLayout,
     paths_for_dataset: &DatasetPaths,
     flavor: VectorFlavor,
-) -> Result<CompressedVortexDataSet> {
-    let transform = ChunkTransform {
-        src_ptype: dataset.element_ptype(),
-    };
-
+) -> Result<CompressedVortexDataset> {
     let mut vortex_files = Vec::with_capacity(paths_for_dataset.train_files.len());
 
     for parquet_path in &paths_for_dataset.train_files {
@@ -99,14 +96,14 @@ pub async fn prepare_flavor(
         }
 
         let written_path = idempotent_async(vortex_path.as_path(), |tmp| async move {
-            write_shard_streaming(&parquet_path, &tmp, flavor, transform).await
+            write_shard_streaming(&parquet_path, &tmp, flavor).await
         })
         .await?;
 
         vortex_files.push(written_path);
     }
 
-    Ok(CompressedVortexDataSet {
+    Ok(CompressedVortexDataset {
         dataset,
         layout,
         flavor,
@@ -122,7 +119,6 @@ async fn write_shard_streaming(
     parquet_path: &Path,
     vortex_path: &Path,
     flavor: VectorFlavor,
-    transform: ChunkTransform,
 ) -> Result<()> {
     let file = File::open(parquet_path).await?;
     let builder = ParquetRecordBatchStreamBuilder::new(file).await?;
@@ -132,7 +128,7 @@ async fn write_shard_streaming(
 
     // We need to get the first chunk so that we know what the dtype of the file is.
     let first = match array_stream.next().await {
-        Some(chunk) => transform_chunk(transform, chunk, &mut ctx, parquet_path, 1)?,
+        Some(chunk) => transform_chunk_with_error(chunk, &mut ctx, parquet_path, 1)?,
         None => {
             return Err(vortex_err!(
                 "ingest: parquet shard {} produced no chunks",
@@ -148,8 +144,7 @@ async fn write_shard_streaming(
         futures::stream::iter(std::iter::once(Ok(first))).chain(array_stream.enumerate().map(
             move |(chunk_offset, chunk_or_err)| {
                 let mut local_ctx = SESSION.create_execution_ctx();
-                transform_chunk(
-                    transform,
+                transform_chunk_with_error(
                     chunk_or_err,
                     &mut local_ctx,
                     &shard_path,
@@ -167,6 +162,8 @@ async fn write_shard_streaming(
         .open(vortex_path)
         .await?;
 
+    // This will write in parallel, using `std::thread::available_parallelism()`.
+    // See `CompressingStrategy` for more details.
     flavor
         .create_write_options(&SESSION)
         .write(&mut output, stream)
@@ -176,13 +173,12 @@ async fn write_shard_streaming(
     Ok(())
 }
 
-fn transform_chunk(
-    transform: ChunkTransform,
-    chunk_or_err: VortexResult<vortex::array::ArrayRef>,
-    ctx: &mut vortex::array::ExecutionCtx,
+fn transform_chunk_with_error(
+    chunk_or_err: VortexResult<ArrayRef>,
+    ctx: &mut ExecutionCtx,
     parquet_path: &Path,
     chunk_idx: usize,
-) -> VortexResult<vortex::array::ArrayRef> {
+) -> VortexResult<ArrayRef> {
     let chunk = chunk_or_err.map_err(|err| {
         vortex_err!(
             "ingest: failed to read chunk {} from {}: {err:#}",
@@ -191,7 +187,7 @@ fn transform_chunk(
         )
     })?;
 
-    transform.apply(chunk, ctx).map_err(|err| {
+    transform_chunk(chunk, ctx).map_err(|err| {
         vortex_err!(
             "ingest: failed to transform chunk {} from {}: {err:#}",
             chunk_idx,
