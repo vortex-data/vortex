@@ -33,6 +33,10 @@ vortex-session = { workspace = true }
 vortex-tensor = { workspace = true }
 
 [dev-dependencies]
+futures = { workspace = true }
 rstest = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros"] }
+vortex-file = { workspace = true }
 vortex-io = { workspace = true, features = ["tokio"] }
 vortex-layout = { workspace = true, features = ["_test-harness"] }
+vortex-utils = { workspace = true }

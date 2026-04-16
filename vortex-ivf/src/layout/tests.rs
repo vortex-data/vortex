@@ -89,8 +89,7 @@ fn literal_query_expression(query: &[f32]) -> Expression {
         .iter()
         .map(|&v| Scalar::primitive(v, Nullability::NonNullable))
         .collect();
-    let storage_scalar =
-        Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
+    let storage_scalar = Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
     let storage_dtype = storage_scalar.dtype().clone();
     let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, storage_dtype)
         .unwrap()
