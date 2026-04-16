@@ -11,7 +11,7 @@ from typing import final
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from ..config import Benchmark, Engine, Format
+from ..config import Benchmark, ExecutionBackend, Format
 
 console = Console()
 
@@ -20,10 +20,65 @@ console = Console()
 class BenchmarkExecutor:
     """Executes benchmark binaries and captures output."""
 
-    def __init__(self, binary_path: Path, engine: Engine, verbose: bool = False):
+    def __init__(self, binary_path: Path, backend: ExecutionBackend, verbose: bool = False):
         self.binary_path = binary_path
-        self.engine = engine
+        self.backend = backend
         self.verbose = verbose
+
+    def build_command(
+        self,
+        benchmark: Benchmark,
+        formats: list[Format],
+        queries: list[int] | None = None,
+        exclude_queries: list[int] | None = None,
+        iterations: int = 5,
+        options: dict[str, str] | None = None,
+        track_memory: bool = False,
+        samply: bool = False,
+        sample_rate: int | None = None,
+        tracing: bool = False,
+    ) -> list[str]:
+        """Build the command used to execute a benchmark binary."""
+        cmd = [
+            str(self.binary_path),
+            benchmark.value,
+            "--display-format",
+            "gh-json",
+            "--iterations",
+            str(iterations),
+            "--hide-progress-bar",
+        ]
+
+        if self.backend in {ExecutionBackend.DATAFUSION, ExecutionBackend.DUCKDB}:
+            cmd.extend(["--formats", ",".join(fmt.value for fmt in formats)])
+        if self.backend == ExecutionBackend.DUCKDB:
+            cmd.append("--delete-duckdb-database")
+
+        if queries:
+            cmd.extend(["--queries", ",".join(map(str, queries))])
+        if exclude_queries:
+            cmd.extend(["--exclude-queries", ",".join(map(str, exclude_queries))])
+        if track_memory:
+            cmd.append("--track-memory")
+        if tracing:
+            cmd.append("--tracing")
+        if options:
+            for key, value in options.items():
+                cmd.extend(["--opt", f"{key}={value}"])
+
+        if samply:
+            cmd = ["--"] + cmd
+            cmd_prefix = ["samply", "record"]
+            if sample_rate:
+                cmd = cmd_prefix + ["--rate", str(sample_rate)] + cmd
+            else:
+                cmd = cmd_prefix + cmd
+
+        if samply and self.backend == ExecutionBackend.DUCKDB:
+            # Re-use the same DuckDB instance across runs to keep samply output readable.
+            cmd.append("--reuse")
+
+        return cmd
 
     def run(
         self,
@@ -55,41 +110,18 @@ class BenchmarkExecutor:
         Returns:
             List of JSON lines from the benchmark output
         """
-        cmd = [
-            str(self.binary_path),
-            benchmark.value,
-            "--display-format",
-            "gh-json",
-            "--iterations",
-            str(iterations),
-            "--formats",
-            ",".join(f.value for f in formats),
-            "--hide-progress-bar",
-        ]
-
-        if queries:
-            cmd.extend(["--queries", ",".join(map(str, queries))])
-        if exclude_queries:
-            cmd.extend(["--exclude-queries", ",".join(map(str, exclude_queries))])
-        if track_memory:
-            cmd.append("--track-memory")
-        if tracing:
-            cmd.append("--tracing")
-        if options:
-            for k, v in options.items():
-                cmd.extend(["--opt", f"{k}={v}"])
-
-        if samply:
-            cmd = ["--"] + cmd
-            cmd_prefix = ["samply", "record"]
-            if sample_rate:
-                cmd = cmd_prefix + ["--rate", sample_rate] + cmd
-            else:
-                cmd = cmd_prefix + cmd
-
-        if samply and self.engine == Engine.DUCKDB:
-            # Re-use the same DuckDB instance across runs make samply output readable
-            cmd += ["--reuse"]
+        cmd = self.build_command(
+            benchmark=benchmark,
+            formats=formats,
+            queries=queries,
+            exclude_queries=exclude_queries,
+            iterations=iterations,
+            options=options,
+            track_memory=track_memory,
+            samply=samply,
+            sample_rate=sample_rate,
+            tracing=tracing,
+        )
 
         if self.verbose:
             console.print(f"[dim]$ {' '.join(cmd)}[/dim]")
@@ -102,14 +134,16 @@ class BenchmarkExecutor:
             console=console,
             transient=True,
         ) as progress:
-            _task = progress.add_task(f"Running {self.engine.value} {benchmark.value}...", total=None)
+            _task = progress.add_task(f"Running {self.backend.value} {benchmark.value}...", total=None)
 
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
             )
 
+            assert process.stdout is not None
             for line in iter(process.stdout.readline, ""):
                 line = line.strip()
                 if line:
@@ -124,6 +158,6 @@ class BenchmarkExecutor:
                 console.print(f"[red]Benchmark failed with code {process.returncode}[/red]")
                 if stderr:
                     console.print(f"[red]{stderr}[/red]")
-                raise RuntimeError(f"Benchmark {self.engine.value} {benchmark.value} failed: {stderr}")
+                raise RuntimeError(f"Benchmark {self.backend.value} {benchmark.value} failed: {stderr}")
 
         return results
