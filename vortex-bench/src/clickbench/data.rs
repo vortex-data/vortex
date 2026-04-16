@@ -14,14 +14,15 @@ use arrow_schema::TimeUnit;
 use clap::ValueEnum;
 use serde::Deserialize;
 use serde::Serialize;
-use tokio::task::JoinSet;
 use tracing::info;
 use vortex::error::VortexExpect;
 
 use crate::Format;
 // Re-export for use by clickbench_benchmark
 pub use crate::conversions::convert_parquet_directory_to_vortex;
+use crate::datasets::data_downloads::DEFAULT_DOWNLOAD_CONCURRENCY;
 use crate::datasets::data_downloads::download_data;
+use crate::datasets::data_downloads::download_many;
 
 pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
     use DataType::*;
@@ -193,18 +194,14 @@ impl Flavor {
             Flavor::Partitioned => {
                 // The clickbench-provided file is missing some higher-level type info, so we reprocess it
                 // to add that info, see https://github.com/ClickHouse/ClickBench/issues/7.
-
-                let mut tasks = (0_u32..100).map(|idx| {
-                    let output_path = basepath.join(Format::Parquet.name()).join(format!("hits_{idx}.parquet"));
-
-                    info!("Downloading file {idx}");
+                info!("Downloading 100 ClickBench parquet shards");
+                let parquet_dir = basepath.join(Format::Parquet.name());
+                let downloads = (0_u32..100).map(|idx| {
+                    let output_path = parquet_dir.join(format!("hits_{idx}.parquet"));
                     let url = format!("https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_{idx}.parquet");
-                    download_data(output_path, url)
-                }).collect::<JoinSet<_>>();
-
-                while let Some(task) = tasks.join_next().await {
-                    task??;
-                }
+                    (output_path, url)
+                });
+                download_many(downloads, DEFAULT_DOWNLOAD_CONCURRENCY).await?;
             }
         }
         Ok(())

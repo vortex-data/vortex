@@ -7,13 +7,13 @@ use std::path::Path;
 
 use anyhow::Result;
 use url::Url;
-use vortex::error::VortexExpect;
 
 use crate::Benchmark;
 use crate::BenchmarkDataset;
 use crate::IdempotentPath;
 use crate::TableSpec;
 use crate::clickbench::*;
+use crate::utils::file::resolve_data_url;
 
 /// ClickBench benchmark implementation
 pub struct ClickBenchBenchmark {
@@ -37,31 +37,7 @@ impl ClickBenchBenchmark {
     }
 
     fn create_data_url(remote_data_dir: &Option<String>, flavor: Flavor) -> Result<Url> {
-        match remote_data_dir {
-            None => {
-                let basepath = format!("clickbench_{flavor}").to_data_path();
-                Ok(Url::parse(&format!(
-                    "file:{}/",
-                    basepath.to_str().vortex_expect("path should be utf8")
-                ))?)
-            }
-            Some(remote_data_dir) => {
-                if !remote_data_dir.ends_with("/") {
-                    tracing::warn!(
-                        "Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev-eu/parquet/"
-                    );
-                }
-                tracing::info!(
-                    concat!(
-                        "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\\n",
-                        "If it does not, you should kill this command, locally generate the files (by running without\\n",
-                        "--use-remote-data-dir) and upload data/clickbench/ to some remote location.",
-                    ),
-                    remote_data_dir,
-                );
-                Ok(Url::parse(remote_data_dir)?)
-            }
-        }
+        resolve_data_url(remote_data_dir.as_deref(), &format!("clickbench_{flavor}"))
     }
 }
 
