@@ -14,6 +14,7 @@
 mod array;
 mod canonical;
 mod compress;
+pub mod decompressor;
 mod compute;
 mod dfa;
 mod kernel;
