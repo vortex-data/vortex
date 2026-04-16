@@ -17,6 +17,7 @@ pub use extractors::NbytesExtractor;
 pub use extractors::StatsExtractor;
 use itertools::Itertools as _;
 pub use tree_display::TreeDisplay;
+use vortex_error::VortexExpect as _;
 
 use crate::ArrayRef;
 use crate::LEGACY_SESSION;
@@ -579,8 +580,8 @@ impl ArrayRef {
             }
             #[cfg(feature = "table-display")]
             DisplayOptions::TableDisplay => {
-                #[expect(deprecated)]
-                use crate::canonical::ToCanonical as _;
+                use crate::Canonical;
+                use crate::arrays::StructArray;
                 use crate::dtype::DType;
 
                 let mut ctx = LEGACY_SESSION.create_execution_ctx();
@@ -602,8 +603,11 @@ impl ArrayRef {
                     return write!(f, "{table}");
                 };
 
-                #[expect(deprecated)]
-                let struct_ = self.to_struct();
+                let struct_ = self
+                    .clone()
+                    .execute::<Canonical>(&mut ctx)
+                    .vortex_expect("to_canonical failed")
+                    .into_struct();
                 builder.push_record(sf.names().iter().map(|name| name.to_string()));
 
                 for row_idx in 0..self.len() {

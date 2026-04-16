@@ -9,8 +9,6 @@ use super::*;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;

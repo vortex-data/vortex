@@ -12,8 +12,6 @@ use super::common::create_large_listview;
 use super::common::create_nullable_listview;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::is_constant::is_constant;
 use crate::arrays::BoolArray;

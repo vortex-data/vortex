@@ -21,8 +21,6 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;

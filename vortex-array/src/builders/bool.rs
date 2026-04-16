@@ -158,6 +158,7 @@ mod tests {
     use rand::RngExt;
     use rand::SeedableRng;
     use rand::prelude::StdRng;
+    use vortex_error::VortexExpect as _;
     use vortex_error::VortexResult;
 
     use crate::ArrayRef;
@@ -171,8 +172,6 @@ mod tests {
     use crate::builders::BoolBuilder;
     use crate::builders::bool::BoolArray;
     use crate::builders::builder_with_capacity;
-    #[expect(deprecated)]
-    use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
@@ -206,10 +205,13 @@ mod tests {
             .clone()
             .append_to_builder(builder.as_mut(), &mut ctx)?;
 
-        #[expect(deprecated)]
-        let canon_into = builder.finish().to_bool();
-        #[expect(deprecated)]
-        let into_canon = chunk.to_bool();
+        let canon_into = builder
+            .finish()
+            .execute::<BoolArray>(&mut ctx)
+            .vortex_expect("to_bool failed");
+        let into_canon = chunk
+            .execute::<BoolArray>(&mut ctx)
+            .vortex_expect("to_bool failed");
 
         assert!(
             canon_into

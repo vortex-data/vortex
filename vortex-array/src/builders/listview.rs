@@ -22,8 +22,6 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
-#[expect(deprecated)]
-use crate::canonical::ToCanonical as _;
 use crate::array::IntoArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
@@ -346,8 +344,11 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         let uninit_range = self.offsets_builder.uninit_range(extend_length);
 
         // This should be cheap because we didn't compress after rebuilding.
-        #[expect(deprecated)]
-        let new_offsets = listview.offsets().to_primitive();
+        let new_offsets = listview
+            .offsets()
+            .clone()
+            .execute::<crate::arrays::PrimitiveArray>(&mut ctx)
+            .vortex_expect("listview offsets should be primitive");
 
         match_each_integer_ptype!(new_offsets.ptype(), |A| {
             adjust_and_extend_offsets::<O, A>(

@@ -3,20 +3,21 @@
 
 use std::any::Any;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::ExtensionArray;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::builder_with_capacity;
-use crate::canonical::Canonical;
-#[expect(deprecated)]
-use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::scalar::ExtScalar;
@@ -100,8 +101,11 @@ impl ArrayBuilder for ExtensionBuilder {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        #[expect(deprecated)]
-        let ext_array = array.to_extension();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let ext_array = array
+            .clone()
+            .execute::<ExtensionArray>(&mut ctx)
+            .vortex_expect("extend_from_array_unchecked: failed to get extension array");
         self.storage.extend_from_array(ext_array.storage_array())
     }
 

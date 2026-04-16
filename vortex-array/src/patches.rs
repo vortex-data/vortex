@@ -10,6 +10,7 @@ use num_traits::NumCast;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexError;
+use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -22,8 +23,6 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
@@ -411,8 +410,11 @@ impl Patches {
     /// with the insertion point if not found.
     fn search_index_binary_search(indices: &ArrayRef, needle: usize) -> VortexResult<SearchResult> {
         if indices.is_canonical() {
-            #[expect(deprecated)]
-            let primitive = indices.to_primitive();
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
+            let primitive = indices
+                .clone()
+                .execute::<PrimitiveArray>(&mut ctx)
+                .vortex_expect("to_primitive failed");
             match_each_integer_ptype!(primitive.ptype(), |T| {
                 let Ok(needle) = T::try_from(needle) else {
                     // If the needle is not of type T, then it cannot possibly be in this array.
@@ -1121,10 +1123,10 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
+    use vortex_error::VortexExpect as _;
+
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::assert_arrays_eq;
     use crate::patches::Patches;
@@ -1176,10 +1178,16 @@ mod test {
             )
             .unwrap()
             .unwrap();
-        #[expect(deprecated)]
-        let primitive_values = taken.values().to_primitive();
-        #[expect(deprecated)]
-        let primitive_indices = taken.indices().to_primitive();
+        let primitive_values = taken
+            .values()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("to_primitive failed");
+        let primitive_indices = taken
+            .indices()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("to_primitive failed");
         assert_eq!(taken.array_len(), 2);
         assert_arrays_eq!(
             primitive_values,
@@ -1221,8 +1229,11 @@ mod test {
             .unwrap()
             .unwrap();
 
-        #[expect(deprecated)]
-        let primitive_values = taken.values().to_primitive();
+        let primitive_values = taken
+            .values()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("to_primitive failed");
         assert_eq!(taken.array_len(), 2);
         assert_arrays_eq!(
             primitive_values,
@@ -1523,8 +1534,11 @@ mod test {
         assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([5u64, 8]));
 
         // Values should be the null and 300
-        #[expect(deprecated)]
-        let masked_values = masked.values().to_primitive();
+        let masked_values = masked
+            .values()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("to_primitive failed");
         assert_eq!(masked_values.len(), 2);
         assert!(
             !masked_values
@@ -1703,8 +1717,11 @@ mod test {
         )
         .unwrap();
 
-        #[expect(deprecated)]
-        let values = patches.values().to_primitive();
+        let values = patches
+            .values()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("to_primitive failed");
         assert_eq!(
             i32::try_from(
                 &values

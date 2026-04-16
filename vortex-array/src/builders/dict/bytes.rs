@@ -19,14 +19,14 @@ use super::DictConstraints;
 use super::DictEncoder;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::build_views::BinaryView;
-#[expect(deprecated)]
-use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
@@ -173,8 +173,11 @@ impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
         } else {
             // NOTE(aduffy): it is very rare that this path would be taken, only e.g.
             //  if we're performing dictionary encoding downstream of some other compression.
-            #[expect(deprecated)]
-            let varbinview = array.to_varbinview();
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
+            let varbinview = array
+                .clone()
+                .execute::<VarBinViewArray>(&mut ctx)
+                .vortex_expect("to_varbinview failed");
             self.encode_bytes(&varbinview, len)
         }
     }
@@ -206,23 +209,34 @@ impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
 mod test {
     use std::str;
 
+    use vortex_error::VortexExpect as _;
+
     use crate::IntoArray;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::accessor::ArrayAccessor;
+    use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
+    use crate::arrays::VarBinViewArray;
     use crate::arrays::dict::DictArraySlotsExt;
     use crate::builders::dict::dict_encode;
 
     #[test]
     fn encode_varbin() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = VarBinArray::from(vec!["hello", "world", "hello", "again", "world"]);
         let dict = dict_encode(&arr.into_array()).unwrap();
-        #[expect(deprecated)]
-        let codes = dict.codes().to_primitive();
+        let codes = dict
+            .codes()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("to_primitive failed");
         assert_eq!(codes.as_slice::<u8>(), &[0, 1, 0, 2, 1]);
-        #[expect(deprecated)]
-        let values = dict.values().to_varbinview();
+        let values = dict
+            .values()
+            .clone()
+            .execute::<VarBinViewArray>(&mut ctx)
+            .vortex_expect("to_varbinview failed");
         values.with_iterator(|iter| {
             assert_eq!(
                 iter.flatten()
@@ -235,6 +249,7 @@ mod test {
 
     #[test]
     fn encode_varbin_nulls() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr: VarBinArray = vec![
             Some("hello"),
             None,
@@ -248,11 +263,17 @@ mod test {
         .into_iter()
         .collect();
         let dict = dict_encode(&arr.into_array()).unwrap();
-        #[expect(deprecated)]
-        let codes = dict.codes().to_primitive();
+        let codes = dict
+            .codes()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("to_primitive failed");
         assert_eq!(codes.as_slice::<u8>(), &[0, 1, 2, 0, 1, 3, 2, 1]);
-        #[expect(deprecated)]
-        let values = dict.values().to_varbinview();
+        let values = dict
+            .values()
+            .clone()
+            .execute::<VarBinViewArray>(&mut ctx)
+            .vortex_expect("to_varbinview failed");
         values.with_iterator(|iter| {
             assert_eq!(
                 iter.map(|b| b.map(|v| unsafe { str::from_utf8_unchecked(v) }))
@@ -264,10 +285,14 @@ mod test {
 
     #[test]
     fn repeated_values() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = VarBinArray::from(vec!["a", "a", "b", "b", "a", "b", "a", "b"]);
         let dict = dict_encode(&arr.into_array()).unwrap();
-        #[expect(deprecated)]
-        let values = dict.values().to_varbinview();
+        let values = dict
+            .values()
+            .clone()
+            .execute::<VarBinViewArray>(&mut ctx)
+            .vortex_expect("to_varbinview failed");
         values.with_iterator(|iter| {
             assert_eq!(
                 iter.flatten()
@@ -276,8 +301,11 @@ mod test {
                 vec!["a", "b"]
             );
         });
-        #[expect(deprecated)]
-        let codes = dict.codes().to_primitive();
+        let codes = dict
+            .codes()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("to_primitive failed");
         assert_eq!(codes.as_slice::<u8>(), &[0, 0, 1, 1, 0, 1, 0, 1]);
     }
 }

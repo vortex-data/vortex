@@ -20,8 +20,6 @@ use crate::arrays::ListArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::builders::ArrayBuilder;
-#[expect(deprecated)]
-use crate::canonical::ToCanonical as _;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::builders::PrimitiveBuilder;
@@ -239,10 +237,16 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
 
         // Note that `ListViewArray` has `n` offsets and sizes, not `n+1` offsets like `ListArray`.
         let elements = list.elements();
-        #[expect(deprecated)]
-        let offsets = list.offsets().to_primitive();
-        #[expect(deprecated)]
-        let sizes = list.sizes().to_primitive();
+        let offsets = list
+            .offsets()
+            .clone()
+            .execute::<crate::arrays::PrimitiveArray>(&mut ctx)
+            .vortex_expect("list offsets should be primitive");
+        let sizes = list
+            .sizes()
+            .clone()
+            .execute::<crate::arrays::PrimitiveArray>(&mut ctx)
+            .vortex_expect("list sizes should be primitive");
 
         fn extend_inner<O, OffsetType, SizeType>(
             builder: &mut ListBuilder<O>,
@@ -313,8 +317,12 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
     }
 
     fn finish_into_canonical(&mut self) -> Canonical {
-        #[expect(deprecated)]
-        let listview = self.finish_into_list().into_array().to_listview();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let listview = self
+            .finish_into_list()
+            .into_array()
+            .execute::<ListViewArray>(&mut ctx)
+            .vortex_expect("finish_into_canonical: failed to get listview");
         Canonical::List(listview)
     }
 }
@@ -330,9 +338,9 @@ mod tests {
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
+    use crate::VortexSessionExecute;
     use crate::arrays::ChunkedArray;
+    use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::list::ListArrayExt;
     use crate::arrays::listview::ListViewArrayExt;
@@ -344,7 +352,6 @@ mod tests {
     use crate::dtype::IntegerPType;
     use crate::dtype::Nullability;
     use crate::dtype::PType::I32;
-    use crate::executor::VortexSessionExecute;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
@@ -387,8 +394,10 @@ mod tests {
         let list = builder.finish();
         assert_eq!(list.len(), 2);
 
-        #[expect(deprecated)]
-        let list_array = list.to_listview();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let list_array = list
+            .execute::<ListViewArray>(&mut ctx)
+            .vortex_expect("to listview");
 
         assert_eq!(list_array.list_elements_at(0).unwrap().len(), 3);
         assert_eq!(list_array.list_elements_at(1).unwrap().len(), 3);
@@ -440,8 +449,10 @@ mod tests {
         let list = builder.finish();
         assert_eq!(list.len(), 3);
 
-        #[expect(deprecated)]
-        let list_array = list.to_listview();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let list_array = list
+            .execute::<ListViewArray>(&mut ctx)
+            .vortex_expect("to listview");
 
         assert_eq!(list_array.list_elements_at(0).unwrap().len(), 3);
         assert_eq!(list_array.list_elements_at(1).unwrap().len(), 0);
@@ -464,7 +475,6 @@ mod tests {
         builder.extend_from_array(&list.slice(0..0).unwrap());
         builder.extend_from_array(&list.slice(1..3).unwrap());
 
-        #[expect(deprecated)]
         let expected = ListArray::from_iter_opt_slow::<O, _, _>(
             [
                 Some(vec![0, 1, 2]),
@@ -479,7 +489,9 @@ mod tests {
             Arc::new(DType::Primitive(I32, NonNullable)),
         )
         .unwrap()
-        .to_listview();
+        .into_array()
+        .execute::<ListViewArray>(&mut ctx)
+        .vortex_expect("to listview");
 
         let actual = builder.finish_into_canonical().into_listview();
 
@@ -539,8 +551,12 @@ mod tests {
             DType::List(Arc::new(DType::Primitive(I32, NonNullable)), NonNullable),
         );
 
-        #[expect(deprecated)]
-        let canon_values = chunked_list.unwrap().as_array().to_listview();
+        let canon_values = chunked_list
+            .unwrap()
+            .as_array()
+            .clone()
+            .execute::<ListViewArray>(&mut ctx)
+            .vortex_expect("to listview");
 
         assert_eq!(
             one_trailing_unused_element

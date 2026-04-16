@@ -9,8 +9,6 @@ use vortex_error::VortexResult;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::arrays::ConstantArray;
@@ -388,8 +386,6 @@ mod tests {
     use super::ListViewRebuildMode;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;

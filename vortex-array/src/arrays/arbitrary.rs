@@ -13,8 +13,8 @@ use vortex_error::VortexExpect;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::NullArray;
@@ -107,9 +107,10 @@ fn random_array_chunk(
             PType::I32 => random_primitive::<i32>(u, *n, chunk_len),
             PType::I64 => random_primitive::<i64>(u, *n, chunk_len),
             PType::F16 => {
-                #[expect(deprecated)]
+                let mut ctx = LEGACY_SESSION.create_execution_ctx();
                 let prim = random_primitive::<u16>(u, *n, chunk_len)?
-                    .to_primitive()
+                    .execute::<PrimitiveArray>(&mut ctx)
+                    .vortex_expect("to_primitive failed")
                     .reinterpret_cast(PType::F16)
                     .into_array();
                 Ok(prim)
