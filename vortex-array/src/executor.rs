@@ -178,8 +178,8 @@ impl ArrayRef {
 /// Execution context for batch CPU compute.
 #[derive(Debug, Clone)]
 pub struct ExecutionCtx {
-    session: VortexSession,
     id: usize,
+    session: VortexSession,
     ops: Vec<String>,
 }
 
