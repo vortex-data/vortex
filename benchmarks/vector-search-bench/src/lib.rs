@@ -4,9 +4,12 @@
 //! `vector-search-bench` vector similarity-search benchmark over several datasets.
 
 pub mod compression;
+pub mod display;
 pub mod expression;
 pub mod ingest;
 pub mod prepare;
+pub mod query;
+pub mod scan;
 
 use std::sync::LazyLock;
 
