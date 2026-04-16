@@ -117,9 +117,8 @@ Available types: {func}`~vortex.null`, {func}`~vortex.bool_`,
 
 ## Expressions
 
-The `vortex.expr` module provides expressions for filtering and projecting. These
-are primarily used with {meth}`.VortexFile.scan` and {meth}`.VortexFile.to_arrow` but can also be
-applied directly:
+The `vortex.expr` module provides expressions for filtering and projecting. Use `vx.col` or
+`vortex.expr.col` to build the stable predicate DSL for pushdown:
 
 ```{doctest} pycon
 >>> import vortex.expr as ve
@@ -128,9 +127,19 @@ applied directly:
 ...     {'name': 'Bob', 'age': 25},
 ...     {'name': 'Carol', 'age': 35},
 ... ])
->>> expr = ve.column('age') > 28
+>>> expr = vx.col('age') > 28
 >>> arr.apply(expr).to_arrow_array().to_pylist()
 [True, False, True]
+```
+
+When a filter is used to read a file, PyVortex plans it against the file schema. Planning inserts
+the casts required by the Vortex expression engine, simplifies the expression, and validates that
+filters return Boolean values. You can run the same step directly:
+
+```{doctest} pycon
+>>> planned = ve.plan(vx.col('age') > 28, schema=arr.dtype.to_arrow_schema(), kind="filter")
+>>> isinstance(planned, ve.Expr)
+True
 ```
 
 ## VortexFile
@@ -146,19 +155,16 @@ applied directly:
 1000
 ```
 
-Use {meth}`.VortexFile.scan` to read data with optional projection, filtering, and limit:
+Use {meth}`.VortexFile.to_table` or {meth}`.VortexFile.to_arrow` to read Arrow data with optional
+column projection, filtering, and limit:
 
 ```{doctest} pycon
->>> result = f.scan(['tip_amount'], limit=3).read_all()
->>> result.to_arrow_array()
-<pyarrow.lib.StructArray object at ...>
--- is_valid: all not null
--- child 0 type: double
-  [
-    0,
-    5.1,
-    16.54
-  ]
+>>> table = f.to_table(columns=['tip_amount'], limit=3)
+>>> table.to_pydict()
+{'tip_amount': [0.0, 5.1, 16.54]}
+>>> filtered = f.to_table(columns=['tip_amount'], filter=vx.col('tip_amount') > 10)
+>>> filtered.num_rows > 0
+True
 ```
 
 ## ArrayIterator

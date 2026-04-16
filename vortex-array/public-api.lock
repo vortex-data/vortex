@@ -12402,6 +12402,10 @@ pub fn vortex_array::expr::or_collect<I>(iter: I) -> core::option::Option<vortex
 
 pub fn vortex_array::expr::pack(elements: impl core::iter::traits::collect::IntoIterator<Item = (impl core::convert::Into<vortex_array::dtype::FieldName>, vortex_array::expr::Expression)>, nullability: vortex_array::dtype::Nullability) -> vortex_array::expr::Expression
 
+pub fn vortex_array::expr::plan_expression(expr: vortex_array::expr::Expression, scope: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::expr::Expression>
+
+pub fn vortex_array::expr::plan_filter_expression(expr: vortex_array::expr::Expression, scope: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::expr::Expression>
+
 pub fn vortex_array::expr::root() -> vortex_array::expr::Expression
 
 pub fn vortex_array::expr::select(field_names: impl core::convert::Into<vortex_array::dtype::FieldNames>, child: vortex_array::expr::Expression) -> vortex_array::expr::Expression

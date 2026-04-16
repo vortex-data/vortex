@@ -10,6 +10,7 @@ use crate::expr::Expression;
 use crate::expr::cast;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::Transformed;
+use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::root::Root;
 
@@ -35,7 +36,17 @@ pub fn coerce_expression(expr: Expression, scope: &DType) -> VortexResult<Expres
             .collect::<VortexResult<_>>()?;
 
         // Ask the scalar function what types it wants.
-        let coerced_dtypes = node.scalar_fn().coerce_args(&child_dtypes)?;
+        let coerced_dtypes = if node
+            .as_opt::<Binary>()
+            .is_some_and(|operator| operator.is_comparison())
+        {
+            match comparison_literal_coercions(&node, &child_dtypes) {
+                Some(coerced_dtypes) => coerced_dtypes,
+                None => node.scalar_fn().coerce_args(&child_dtypes)?,
+            }
+        } else {
+            node.scalar_fn().coerce_args(&child_dtypes)?
+        };
 
         // If nothing changed, skip.
         if child_dtypes == coerced_dtypes {
@@ -63,6 +74,31 @@ pub fn coerce_expression(expr: Expression, scope: &DType) -> VortexResult<Expres
         Ok(Transformed::yes(new_expr))
     })
     .map(|t| t.into_inner())
+}
+
+fn comparison_literal_coercions(node: &Expression, child_dtypes: &[DType]) -> Option<Vec<DType>> {
+    let lhs_literal = node.child(0).is::<Literal>();
+    let rhs_literal = node.child(1).is::<Literal>();
+    if lhs_literal == rhs_literal {
+        return None;
+    }
+
+    let literal_idx = usize::from(rhs_literal);
+    let context_idx = usize::from(lhs_literal);
+    let literal_dtype = &child_dtypes[literal_idx];
+    let context_dtype = &child_dtypes[context_idx];
+
+    if !(matches!(literal_dtype, DType::Null)
+        || context_dtype.can_coerce_from(literal_dtype)
+        || literal_dtype.is_numeric() && context_dtype.is_numeric())
+    {
+        return None;
+    }
+
+    let mut coerced_dtypes = child_dtypes.to_vec();
+    coerced_dtypes[literal_idx] =
+        context_dtype.with_nullability(context_dtype.nullability() | literal_dtype.nullability());
+    Some(coerced_dtypes)
 }
 
 #[cfg(test)]
@@ -188,6 +224,27 @@ mod tests {
         assert_eq!(
             coerced.child(1).return_dtype(&scope)?,
             DType::Primitive(PType::I64, NonNullable)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn comparison_literal_coerces_to_column_type() -> VortexResult<()> {
+        let scope = DType::Struct(
+            StructFields::new(
+                ["x"].into(),
+                vec![DType::Primitive(PType::I32, NonNullable)],
+            ),
+            NonNullable,
+        );
+        let expr = Binary.new_expr(Operator::Eq, [col("x"), lit(1i64)]);
+        let coerced = coerce_expression(expr, &scope)?;
+
+        assert!(!coerced.child(0).is::<Cast>());
+        assert!(coerced.child(1).is::<Cast>());
+        assert_eq!(
+            coerced.child(1).return_dtype(&scope)?,
+            DType::Primitive(PType::I32, NonNullable)
         );
         Ok(())
     }

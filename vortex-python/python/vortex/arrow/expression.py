@@ -11,21 +11,24 @@ from substrait.proto import (  # pyright: ignore[reportMissingTypeStubs]
 
 from vortex._lib.expr import Expr  # pyright: ignore[reportMissingModuleSource]
 
+from ..expr import plan as plan_expression
 from ..substrait import extended_expression
 
 
 @overload
-def ensure_vortex_expression(expression: None, *, schema: pa.Schema) -> None: ...
+def ensure_vortex_expression(expression: None, *, schema: pa.Schema, kind: str = "filter") -> None: ...
 @overload
-def ensure_vortex_expression(expression: pc.Expression | Expr, *, schema: pa.Schema) -> Expr: ...
+def ensure_vortex_expression(expression: pc.Expression | Expr, *, schema: pa.Schema, kind: str = "filter") -> Expr: ...
 
 
-def ensure_vortex_expression(expression: pc.Expression | Expr | None, *, schema: pa.Schema) -> Expr | None:
+def ensure_vortex_expression(
+    expression: pc.Expression | Expr | None, *, schema: pa.Schema, kind: str = "filter"
+) -> Expr | None:
     if expression is None:
         return None
     if isinstance(expression, pc.Expression):
-        return arrow_to_vortex(expression, schema)
-    return expression
+        expression = arrow_to_vortex(expression, schema)
+    return plan_expression(expression, schema=schema, kind=kind)
 
 
 def _schema_for_substrait(schema: pa.Schema) -> pa.Schema:
@@ -51,6 +54,6 @@ def arrow_to_vortex(arrow_expression: pc.Expression, schema: pa.Schema) -> Expr:
 
     expressions = extended_expression(substrait_object)
 
-    if len(expressions) < 0 or len(expressions) > 1:
+    if len(expressions) != 1:
         raise ValueError("arrow_to_vortex: extended expression must have exactly one child")
     return expressions[0]

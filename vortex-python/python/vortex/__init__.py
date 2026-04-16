@@ -81,6 +81,7 @@ from .arrays import (
     _unpickle_array,  # pyright: ignore[reportPrivateUsage]
     array,
 )
+from .expr import col
 from .file import VortexFile, open
 from .scan import RepeatedScan
 
@@ -109,6 +110,7 @@ __all__ = [
     # --- Objects and Functions ---
     "array",
     "compress",
+    "col",
     # Arrays
     "Array",
     "PyArray",

@@ -135,6 +135,16 @@ impl ScalarFnVTable for Binary {
             vortex_bail!("Cannot compare different DTypes {} and {}", lhs, rhs);
         }
 
+        if matches!(operator, Operator::And | Operator::Or)
+            && (!lhs.is_boolean() || !rhs.is_boolean())
+        {
+            vortex_bail!(
+                "logical operation requires boolean operands, got {} and {}",
+                lhs,
+                rhs
+            );
+        }
+
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
     }
 

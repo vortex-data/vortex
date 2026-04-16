@@ -7,14 +7,16 @@ the following expression represents the set of rows for which the `age` column l
 
 .. doctest::
 
-   >>> import vortex.expr
-   >>> age = vortex.expr.column("age")
+   >>> import vortex as vx
+   >>> age = vx.col("age")
    >>> (23 > age) & (age < 55)  # doctest: +SKIP
 
 .. autosummary::
    :nosignatures:
 
    ~vortex.expr.column
+   ~vortex.expr.col
+   ~vortex.expr.plan
    ~vortex.expr.Expr
 
 .. raw:: html
@@ -23,9 +25,19 @@ the following expression represents the set of rows for which the `age` column l
 
 .. autofunction:: vortex.expr.column
 
+.. autofunction:: vortex.expr.col
+
 .. autofunction:: vortex.expr.not_
 
 .. autofunction:: vortex.expr.and_
+
+.. autofunction:: vortex.expr.cast
+
+.. autofunction:: vortex.expr.is_null
+
+.. autofunction:: vortex.expr.is_not_null
+
+.. autofunction:: vortex.expr.plan
 
 .. autofunction:: vortex.expr.root
 
@@ -64,4 +76,3 @@ the following expression represents the set of rows for which the `age` column l
       ...    .to_pylist()
       ... )
       [{'x': 1, 'y': {'yy': 'a'}}]
-

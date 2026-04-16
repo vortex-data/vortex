@@ -20,6 +20,7 @@ use vortex::scalar_fn::fns::get_item::GetItem;
 use vortex::scalar_fn::fns::operators::Operator;
 
 use crate::dtype::PyDType;
+use crate::error::PyVortexResult;
 use crate::install_module;
 use crate::scalar::factory::scalar_helper;
 
@@ -36,6 +37,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(cast, &m)?)?;
     m.add_function(wrap_pyfunction!(is_null, &m)?)?;
     m.add_function(wrap_pyfunction!(is_not_null, &m)?)?;
+    m.add_function(wrap_pyfunction!(plan, &m)?)?;
     m.add_class::<PyExpr>()?;
 
     Ok(())
@@ -406,6 +408,24 @@ pub fn cast(child: PyExpr, dtype: PyDType) -> PyResult<PyExpr> {
     })
 }
 
+/// Plan an expression against a Vortex dtype.
+#[pyfunction]
+#[pyo3(signature = (expr, scope, *, kind = "expr"))]
+pub fn plan(expr: PyExpr, scope: &Bound<PyDType>, kind: &str) -> PyVortexResult<PyExpr> {
+    let scope = scope.borrow().inner().clone();
+    let planned = match kind {
+        "expr" => expr::plan_expression(expr.into_inner(), &scope)?,
+        "filter" => expr::plan_filter_expression(expr.into_inner(), &scope)?,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "kind must be 'expr' or 'filter', got {other:?}"
+            ))
+            .into());
+        }
+    };
+    Ok(PyExpr { inner: planned })
+}
+
 /// Checks which elements of its child are null.
 ///
 /// Parameters
@@ -416,7 +436,6 @@ pub fn cast(child: PyExpr, dtype: PyDType) -> PyResult<PyExpr> {
 /// Returns
 /// -------
 /// :class:`vortex.Expr`
-/// ```
 #[pyfunction]
 pub fn is_null(child: PyExpr) -> PyResult<PyExpr> {
     Ok(PyExpr {

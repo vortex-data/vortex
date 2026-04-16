@@ -18,6 +18,7 @@ use std::ops::Deref;
 
 use arrow_schema::DataType;
 use arrow_schema::Field;
+use arrow_schema::Schema;
 pub(crate) use ptype::*;
 use pyo3::Bound;
 use pyo3::Py;
@@ -196,8 +197,21 @@ impl PyDType {
             DType::from_arrow(&Field::new("_", arrow_dtype, !non_nullable)),
         )
     }
+
+    /// Construct a Vortex data type from an Arrow schema.
+    #[classmethod]
+    fn from_arrow_schema<'py>(
+        cls: &'py Bound<'py, PyType>,
+        #[pyo3(from_py_with = import_arrow_schema)] arrow_schema: Schema,
+    ) -> PyResult<Bound<'py, PyDType>> {
+        Self::init(cls.py(), DType::from_arrow(&arrow_schema))
+    }
 }
 
 fn import_arrow_dtype(obj: &Bound<PyAny>) -> PyResult<DataType> {
     DataType::from_pyarrow(&obj.as_borrowed())
+}
+
+fn import_arrow_schema(obj: &Bound<PyAny>) -> PyResult<Schema> {
+    Schema::from_pyarrow(&obj.as_borrowed())
 }

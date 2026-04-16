@@ -45,6 +45,7 @@ class VortexFile:
         *,
         expr: Expr | None = None,
         limit: int | None = None,
+        indices: Array | None = None,
         batch_size: int | None = None,
     ) -> pa.RecordBatchReader: ...
     def to_dataset(self) -> VortexDataset: ...

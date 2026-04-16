@@ -21,6 +21,8 @@ use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldPath;
 use vortex_array::expr::Expression;
 use vortex_array::expr::analysis::immediate_access::immediate_scope_access;
+use vortex_array::expr::plan_expression;
+use vortex_array::expr::plan_filter_expression;
 use vortex_array::expr::root;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
@@ -205,7 +207,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     /// The [`DType`] returned by the scan, after applying the projection.
     pub fn dtype(&self) -> VortexResult<DType> {
-        self.projection.return_dtype(self.layout_reader.dtype())
+        plan_expression(self.projection.clone(), self.layout_reader.dtype())?
+            .return_dtype(self.layout_reader.dtype())
     }
 
     /// The session used by the scan.
@@ -238,8 +241,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
     }
 
     pub fn prepare(self) -> VortexResult<RepeatedScan<A>> {
-        let dtype = self.dtype()?;
-
         if self.filter.is_some() && self.limit.is_some() {
             vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
         }
@@ -258,12 +259,14 @@ impl<A: 'static + Send> ScanBuilder<A> {
         ));
 
         // Normalize and simplify the expressions.
-        let projection = self.projection.optimize_recursive(layout_reader.dtype())?;
+        let projection = plan_expression(self.projection, layout_reader.dtype())?;
 
         let filter = self
             .filter
-            .map(|f| f.optimize_recursive(layout_reader.dtype()))
+            .map(|f| plan_filter_expression(f, layout_reader.dtype()))
             .transpose()?;
+
+        let dtype = projection.return_dtype(layout_reader.dtype())?;
 
         // Construct field masks and compute the row splits of the scan.
         let (filter_mask, projection_mask) =

@@ -5,6 +5,7 @@ import math
 import os
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pytest
 
 import vortex as vx
@@ -36,6 +37,12 @@ def test_dtype(vxf: VortexFile):
     )
 
 
+def test_schema(vxf: VortexFile):
+    assert vxf.schema == pa.schema(
+        [("bool", pa.bool_()), ("float", pa.float64()), ("index", pa.int64()), ("string", pa.string_view())]
+    )
+
+
 def test_row_count(vxf: VortexFile):
     assert len(vxf) == 1_000_000
 
@@ -60,6 +67,35 @@ def test_to_arrow_batch_size(vxf: VortexFile):
 def test_to_arrow_columns(vxf: VortexFile):
     rbr = vxf.to_arrow(projection=["string", "bool"])
     assert rbr.schema == pa.schema([("string", pa.string_view()), ("bool", pa.bool_())])
+
+
+def test_to_table_with_vortex_filter_plans(tmp_path):
+    path = tmp_path / "filter.vortex"
+    vx.io.write(
+        pa.table({"x": pa.array([1, 2, 3], type=pa.int32()), "name": ["a", "b", "c"]}),
+        str(path),
+    )
+
+    actual = vx.open(str(path)).to_table(filter=vx.col("x") > 1)
+
+    assert actual.to_pylist() == [{"x": 2, "name": "b"}, {"x": 3, "name": "c"}]
+
+
+def test_to_table_with_pyarrow_filter_fallback(tmp_path):
+    path = tmp_path / "filter.vortex"
+    vx.io.write(
+        pa.table({"x": pa.array([1, 2, 3], type=pa.int32()), "name": ["a", "b", "c"]}),
+        str(path),
+    )
+    vxf = vx.open(str(path))
+    filter_expr = pc.field("x").isin([1, 3])
+
+    with pytest.raises(Exception):
+        vxf.to_table(filter=filter_expr)
+
+    actual = vxf.to_table(columns=["name"], filter=filter_expr, filter_policy="fallback")
+
+    assert actual.to_pylist() == [{"name": "a"}, {"name": "c"}]
 
 
 def test_empty_file(tmpdir_factory):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]

@@ -29,24 +29,49 @@ Use {func}`~vortex.open` to lazily open a Vortex file:
 
 ### As an Arrow Table
 
-{meth}`.VortexFile.to_arrow` returns a {class}`pyarrow.RecordBatchReader`. Call
-{meth}`~pyarrow.RecordBatchReader.read_all` to collect into a {class}`pyarrow.Table`:
+{meth}`.VortexFile.to_table` collects the scan into a {class}`pyarrow.Table`:
 
 ```{doctest} pycon
->>> table = f.to_arrow().read_all()
+>>> table = f.to_table()
 >>> table.num_rows
 1000
 ```
+
+{meth}`.VortexFile.to_arrow` returns a streaming {class}`pyarrow.RecordBatchReader`.
 
 ### Column Projection
 
 Read only the columns you need:
 
 ```{doctest} pycon
->>> table = f.to_arrow(['tip_amount', 'fare_amount']).read_all()
+>>> table = f.to_table(columns=['tip_amount', 'fare_amount'])
 >>> table.column_names
 ['tip_amount', 'fare_amount']
 ```
+
+### Filters
+
+Vortex expressions are the stable pushdown API. PyVortex plans them against the file schema before
+the scan runs:
+
+```{doctest} pycon
+>>> table = f.to_table(columns=['tip_amount'], filter=vx.col('tip_amount') > 10)
+>>> table.num_rows > 0
+True
+```
+
+PyArrow compute expressions are accepted as compatibility input. PyVortex converts them through
+Substrait, then runs the same Vortex planner:
+
+```{doctest} pycon
+>>> import pyarrow.compute as pc
+>>> table = f.to_table(columns=['tip_amount'], filter=pc.field('tip_amount') > 10)
+>>> table.num_rows > 0
+True
+```
+
+Use `filter_policy="pushdown"` to raise when a PyArrow expression cannot be pushed into Vortex. Use
+`filter_policy="fallback"` to read the rows and apply the PyArrow filter after the scan.
 
 ### Streaming Record Batches
 

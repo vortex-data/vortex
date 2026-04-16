@@ -1,7 +1,44 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+from __future__ import annotations
 
-from ._lib.expr import Expr, and_, cast, column, literal, not_, root  # pyright: ignore[reportMissingModuleSource]
+import pyarrow as pa
 
-__all__ = ["Expr", "column", "literal", "root", "not_", "and_", "cast"]
+from ._lib import expr as _expr  # pyright: ignore[reportMissingModuleSource]
+from ._lib.dtype import DType  # pyright: ignore[reportMissingModuleSource]
+
+Expr = _expr.Expr
+and_ = _expr.and_
+cast = _expr.cast
+column = _expr.column
+col = column
+is_null = _expr.is_null
+is_not_null = _expr.is_not_null
+literal = _expr.literal
+not_ = _expr.not_
+root = _expr.root
+
+
+def plan(expr: Expr, *, schema: pa.Schema | None = None, file=None, kind: str = "expr") -> Expr:  # pyright: ignore[reportUnknownParameterType]
+    """Plan an expression against an Arrow schema or Vortex file."""
+    if (schema is None) == (file is None):
+        raise ValueError("exactly one of schema or file must be provided")
+
+    scope = DType.from_arrow_schema(schema) if schema is not None else file.dtype
+    return _expr.plan(expr, scope, kind=kind)
+
+
+__all__ = [
+    "Expr",
+    "column",
+    "col",
+    "literal",
+    "root",
+    "not_",
+    "and_",
+    "cast",
+    "is_null",
+    "is_not_null",
+    "plan",
+]

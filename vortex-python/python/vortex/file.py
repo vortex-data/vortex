@@ -7,12 +7,15 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, final
 
 import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.dataset as ds
 
 from ._lib import file as _file  # pyright: ignore[reportMissingModuleSource]
 from ._lib.arrays import Array  # pyright: ignore[reportMissingModuleSource]
 from ._lib.dtype import DType  # pyright: ignore[reportMissingModuleSource]
 from ._lib.expr import Expr  # pyright: ignore[reportMissingModuleSource]
 from ._lib.iter import ArrayIterator  # pyright: ignore[reportMissingModuleSource]
+from .arrow.expression import ensure_vortex_expression
 from .dataset import VortexDataset
 from .scan import RepeatedScan
 from .store import (
@@ -74,6 +77,11 @@ class VortexFile:
     def dtype(self) -> DType:
         """The dtype of the file."""
         return self._file.dtype
+
+    @property
+    def schema(self) -> pa.Schema:
+        """The Arrow schema of the file."""
+        return self.dtype.to_arrow_schema()
 
     def splits(self) -> list[tuple[int, int]]:
         return self._file.splits()
@@ -197,26 +205,147 @@ class VortexFile:
 
     def to_arrow(
         self,
-        projection: IntoProjection = None,
+        columns: IntoProjection = None,
         *,
+        projection: IntoProjection = None,
+        filter: pc.Expression | Expr | None = None,
         limit: int | None = None,
         expr: Expr | None = None,
+        indices: Array | None = None,
         batch_size: int | None = None,
+        filter_policy: str = "pushdown",
     ) -> RecordBatchReader:
         """Scan the Vortex file as a :class:`pyarrow.RecordBatchReader`.
 
         Parameters
         ----------
-        projection : :class:`vortex.Expr` | list[str] | None
+        columns : :class:`vortex.Expr` | list[str] | None
             Either an expression over the columns of the file (only referenced columns will be read
             from the file) or an explicit list of desired columns.
-        expr : :class:`vortex.Expr` | None
+        filter : :class:`vortex.Expr` | :class:`pyarrow.compute.Expression` | None
             The predicate used to filter rows. The filter columns need not appear in the projection.
+        limit : :class:`int` | None
+            The maximum number of rows to read after filtering. If None, read all rows.
+        indices : :class:`vortex.Array` | None
+            The indices of the rows to read. Must be sorted and non-null.
         batch_size : :class:`int` | None
             The number of rows to read per chunk.
+        filter_policy : :class:`str`
+            ``"pushdown"`` raises if a PyArrow filter cannot be pushed into Vortex. ``"fallback"``
+            reads the requested rows and applies the PyArrow filter with Arrow after the scan.
 
         """
-        return self._file.to_arrow(projection, expr=expr, limit=limit, batch_size=batch_size)
+        columns = self._resolve_columns(columns, projection)
+        filter = self._resolve_filter(filter, expr)
+        self._check_filter_policy(filter_policy)
+
+        planned_filter: Expr | None = None
+        if filter is not None:
+            if isinstance(filter, pc.Expression):
+                try:
+                    planned_filter = ensure_vortex_expression(filter, schema=self.schema)
+                except Exception:
+                    if filter_policy == "fallback":
+                        return self._to_arrow_with_arrow_filter_fallback(
+                            columns,
+                            filter,
+                            limit=limit,
+                            indices=indices,
+                            batch_size=batch_size,
+                        )
+                    raise
+            else:
+                planned_filter = ensure_vortex_expression(filter, schema=self.schema)
+
+        return self._file.to_arrow(columns, expr=planned_filter, limit=limit, indices=indices, batch_size=batch_size)
+
+    def to_table(
+        self,
+        columns: IntoProjection = None,
+        *,
+        projection: IntoProjection = None,
+        filter: pc.Expression | Expr | None = None,
+        limit: int | None = None,
+        expr: Expr | None = None,
+        indices: Array | None = None,
+        batch_size: int | None = None,
+        filter_policy: str = "pushdown",
+    ) -> pa.Table:
+        """Scan the Vortex file as a :class:`pyarrow.Table`."""
+        return self.to_arrow(
+            columns,
+            projection=projection,
+            filter=filter,
+            limit=limit,
+            expr=expr,
+            indices=indices,
+            batch_size=batch_size,
+            filter_policy=filter_policy,
+        ).read_all()
+
+    @staticmethod
+    def _resolve_columns(columns: IntoProjection, projection: IntoProjection) -> IntoProjection:
+        if projection is not None:
+            if columns is not None:
+                raise ValueError("use either columns or projection, not both")
+            return projection
+        return columns
+
+    @staticmethod
+    def _resolve_filter(
+        filter: pc.Expression | Expr | None,
+        expr: Expr | None,
+    ) -> pc.Expression | Expr | None:
+        if expr is not None:
+            if filter is not None:
+                raise ValueError("use either filter or expr, not both")
+            return expr
+        return filter
+
+    @staticmethod
+    def _check_filter_policy(filter_policy: str) -> None:
+        if filter_policy not in {"pushdown", "fallback"}:
+            raise ValueError("filter_policy must be 'pushdown' or 'fallback'")
+
+    def _to_arrow_with_arrow_filter_fallback(
+        self,
+        columns: IntoProjection,
+        filter: pc.Expression,
+        *,
+        limit: int | None,
+        indices: Array | None,
+        batch_size: int | None,
+    ) -> RecordBatchReader:
+        if columns is not None and not isinstance(columns, list):
+            raise ValueError("filter_policy='fallback' only supports list[str] column selections")
+
+        table = self._file.to_arrow(None, expr=None, limit=None, indices=indices, batch_size=batch_size).read_all()
+        table = self._arrow_filter_compatible_table(table)
+        table = ds.dataset(table).to_table(filter=filter)
+        if limit is not None:
+            table = table.slice(0, limit)
+        if columns is not None:
+            table = table.select(columns)
+
+        batches = table.to_batches(max_chunksize=batch_size) if batch_size is not None else table.to_batches()
+        return pa.RecordBatchReader.from_batches(table.schema, batches)
+
+    @staticmethod
+    def _arrow_filter_compatible_table(table: pa.Table) -> pa.Table:
+        fields = []
+        changed = False
+        for field in table.schema:
+            if field.type == pa.string_view():
+                fields.append(field.with_type(pa.string()))
+                changed = True
+            elif field.type == pa.binary_view():
+                fields.append(field.with_type(pa.binary()))
+                changed = True
+            else:
+                fields.append(field)
+        if not changed:
+            return table
+        return table.cast(pa.schema(fields))
 
     def to_dataset(self) -> VortexDataset:
         """Scan the Vortex file using the :class:`pyarrow.dataset.Dataset` API."""
@@ -239,7 +368,7 @@ class VortexFile:
         ) -> Iterator[pl.DataFrame]:
             vx_predicate: Expr | None = None if predicate is None else polars_to_vortex(predicate)
 
-            reader = self.to_arrow(projection=with_columns, expr=vx_predicate, limit=n_rows)
+            reader = self.to_arrow(columns=with_columns, filter=vx_predicate, limit=n_rows)
 
             for batch in reader:
                 batch = pl.DataFrame._from_arrow(batch, rechunk=False)  # pyright: ignore[reportPrivateUsage]

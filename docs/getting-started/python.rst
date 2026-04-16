@@ -56,7 +56,7 @@ Use :func:`~vortex.open` to open and read the Vortex array from disk:
 .. doctest::
 
    >>> import vortex as vx
-   >>> cvtx = vx.open("example.vortex").scan().read_all()  # doctest: +SKIP
+   >>> table = vx.open("example.vortex").to_table()  # doctest: +SKIP
 
 
 Vortex is architected to achieve fast random access, in many cases hundreds of times faster

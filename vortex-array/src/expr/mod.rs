@@ -33,6 +33,7 @@ mod exprs;
 pub(crate) mod field;
 pub mod forms;
 mod optimize;
+mod plan;
 pub mod proto;
 pub mod pruning;
 pub mod stats;
@@ -42,6 +43,7 @@ pub mod traversal;
 pub use analysis::*;
 pub use expression::*;
 pub use exprs::*;
+pub use plan::*;
 pub use pruning::StatsCatalog;
 
 pub trait VortexExprExt {

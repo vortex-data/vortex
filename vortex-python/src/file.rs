@@ -147,30 +147,24 @@ impl PyVortexFile {
         })
     }
 
-    #[pyo3(signature = (projection = None, *, expr = None, limit = None, batch_size = None))]
+    #[pyo3(signature = (projection = None, *, expr = None, limit = None, indices = None, batch_size = None))]
     fn to_arrow(
         slf: Bound<Self>,
         projection: Option<PyIntoProjection>,
         expr: Option<PyExpr>,
         limit: Option<u64>,
+        indices: Option<PyArrayRef>,
         batch_size: Option<usize>,
     ) -> PyVortexResult<Py<PyAny>> {
-        let vxf = slf.get().vxf.clone();
+        let builder = slf.get().scan_builder(
+            projection.map(|p| p.0),
+            expr.map(|e| e.into_inner()),
+            limit,
+            indices.map(|i| i.into_inner()),
+            batch_size,
+        )?;
 
         let reader = slf.py().detach(|| {
-            let mut builder = vxf
-                .scan()?
-                .with_some_filter(expr.map(|e| e.into_inner()))
-                .with_projection(projection.map(|p| p.0).unwrap_or_else(root));
-
-            if let Some(limit) = limit {
-                builder = builder.with_limit(limit);
-            }
-
-            if let Some(batch_size) = batch_size {
-                builder = builder.with_split_by(SplitBy::RowCount(batch_size));
-            }
-
             let schema = Arc::new(builder.dtype()?.to_arrow_schema()?);
             builder.into_record_batch_reader(schema, &*RUNTIME)
         })?;
