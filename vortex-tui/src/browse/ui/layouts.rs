@@ -28,7 +28,7 @@ use ratatui::widgets::Widget;
 use ratatui::widgets::Wrap;
 use vortex::array::ArrayRef;
 use vortex::array::LEGACY_SESSION;
-use vortex::array::StructArray;
+use vortex::array::arrays::StructArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::error::VortexExpect;

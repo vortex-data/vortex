@@ -8,10 +8,11 @@ use async_trait::async_trait;
 use futures::TryStreamExt;
 use glob::glob;
 use vortex::array::ArrayRef;
+use vortex::array::Canonical;
 use vortex::array::IntoArray;
-#[expect(deprecated)]
-use vortex::array::ToCanonical;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ChunkedArray;
+use vortex::array::arrays::StructArray;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::expr::col;
 use vortex::expr::pack;
@@ -78,8 +79,8 @@ impl Dataset for TPCHLCommentChunked {
                 .scan()?
                 .with_projection(pack(vec![("l_comment", col("l_comment"))], NonNullable))
                 .map(|a| {
-                    #[expect(deprecated)]
-                    let canonical = a.to_canonical()?;
+                    let mut ctx = SESSION.create_execution_ctx();
+                    let canonical = a.clone().execute::<Canonical>(&mut ctx)?;
                     Ok(canonical.into_array())
                 })
                 .into_array_stream()?
@@ -106,8 +107,11 @@ impl Dataset for TPCHLCommentCanonical {
 
     async fn to_vortex_array(&self) -> Result<ArrayRef> {
         let comments_chunked = TPCHLCommentChunked.to_vortex_array().await?;
-        #[expect(deprecated)]
-        let comments_canonical = comments_chunked.to_struct().into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let comments_canonical = comments_chunked
+            .clone()
+            .execute::<StructArray>(&mut ctx)?
+            .into_array();
         Ok(ChunkedArray::from_iter([comments_canonical]).into_array())
     }
 

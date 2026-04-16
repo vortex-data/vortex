@@ -463,7 +463,7 @@ mod tests {
     fn reading_is_null_works() {
         block_on(|handle| async move {
             let session = session_with_handle(handle);
-            let mut ctx = session.create_execution_ctx();
+            let mut exec_ctx = session.create_execution_ctx();
             let strategy = DictStrategy::new(
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
@@ -522,11 +522,11 @@ mod tests {
             let expected = array
                 .validity()
                 .unwrap()
-                .to_mask(array.len(), &mut ctx)
+                .to_mask(array.len(), &mut exec_ctx)
                 .unwrap()
                 .into_array();
             let actual_canonical = actual
-                .execute::<Canonical>(&mut ctx)
+                .execute::<Canonical>(&mut exec_ctx)
                 .vortex_expect("to_canonical failed")
                 .into_array();
             assert_arrays_eq!(actual_canonical, expected);

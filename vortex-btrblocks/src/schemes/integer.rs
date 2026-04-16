@@ -371,13 +371,11 @@ impl Scheme for BitPackingScheme {
 
             match patches {
                 None => array,
-                Some(p) => Patched::from_array_and_patches(
-                    array,
-                    &p,
-                    &mut compressor.execution_ctx(),
-                )?
-                .with_stats_set(packed_stats)
-                .into_array(),
+                Some(p) => {
+                    Patched::from_array_and_patches(array, &p, &mut compressor.execution_ctx())?
+                        .with_stats_set(packed_stats)
+                        .into_array()
+                }
             }
         } else {
             // Compress patches and place back into BitPackedArray.

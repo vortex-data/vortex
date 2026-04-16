@@ -16,8 +16,6 @@ use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex::array::ToCanonical;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -74,23 +72,24 @@ mod setup {
     use super::*;
 
     fn setup_primitive_arrays() -> (PrimitiveArray, PrimitiveArray, PrimitiveArray) {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut rng = StdRng::seed_from_u64(0);
         let uint_array =
             PrimitiveArray::from_iter((0..NUM_VALUES).map(|_| rng.random_range(42u32..256)));
-        #[expect(deprecated)]
         let int_array = uint_array
             .clone()
             .into_array()
             .cast(PType::I32.into())
             .unwrap()
-            .to_primitive();
-        #[expect(deprecated)]
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         let float_array = uint_array
             .clone()
             .into_array()
             .cast(PType::F64.into())
             .unwrap()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         (uint_array, int_array, float_array)
     }
 
@@ -107,17 +106,16 @@ mod setup {
 
     /// Create ALP <- FoR <- BitPacked encoding tree for f64
     pub fn alp_for_bp_f64() -> ArrayRef {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let (_, _, float_array) = setup_primitive_arrays();
-        let alp_compressed = alp_encode(
-            float_array.as_view(),
-            None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let alp_compressed = alp_encode(float_array.as_view(), None, &mut ctx).unwrap();
 
         // Manually construct ALP <- FoR <- BitPacked tree
-        #[expect(deprecated)]
-        let alp_encoded_prim = alp_compressed.encoded().to_primitive();
+        let alp_encoded_prim = alp_compressed
+            .encoded()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         let for_array = FoR::encode(alp_encoded_prim).unwrap();
         let inner = for_array.encoded();
         let bp = BitPacked::encode(inner, 8).unwrap();
@@ -170,6 +168,7 @@ mod setup {
     /// Create RunEnd <- FoR <- BitPacked encoding tree for u32
     #[expect(clippy::cast_possible_truncation)]
     pub fn runend_for_bp_u32() -> ArrayRef {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut rng = StdRng::seed_from_u64(42);
         // Create data with runs of repeated values
         let mut values = Vec::with_capacity(NUM_VALUES as usize);
@@ -189,8 +188,11 @@ mod setup {
         let runend = RunEnd::encode(prim_array.into_array()).unwrap();
 
         // Compress the ends with FoR <- BitPacked
-        #[expect(deprecated)]
-        let ends_prim = runend.ends().to_primitive();
+        let ends_prim = runend
+            .ends()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         let ends_for = FoR::encode(ends_prim).unwrap();
         let ends_inner = ends_for.encoded();
         let ends_bp = BitPacked::encode(ends_inner, 8).unwrap();
@@ -200,8 +202,11 @@ mod setup {
                 .into_array();
 
         // Compress the values with BitPacked
-        #[expect(deprecated)]
-        let values_prim = runend.values().to_primitive();
+        let values_prim = runend
+            .values()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         let compressed_values = BitPacked::encode(&values_prim.into_array(), 8)
             .unwrap()
             .into_array();
@@ -251,6 +256,7 @@ mod setup {
     /// Compress the VarBin offsets inside FSST with BitPacked
     #[expect(clippy::cast_possible_truncation)]
     pub fn dict_fsst_varbin_bp_string() -> ArrayRef {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut rng = StdRng::seed_from_u64(45);
 
         // Create unique values (1% uniqueness = 10,000 unique strings)
@@ -275,8 +281,11 @@ mod setup {
 
         // Compress the VarBin offsets with BitPacked
         let codes = fsst.codes();
-        #[expect(deprecated)]
-        let offsets_prim = codes.offsets().to_primitive();
+        let offsets_prim = codes
+            .offsets()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         let offsets_bp = BitPacked::encode(&offsets_prim.into_array(), 20).unwrap();
 
         // Rebuild VarBin with compressed offsets
@@ -313,6 +322,7 @@ mod setup {
 
     /// Create DateTimeParts <- FoR <- BitPacked encoding tree
     pub fn datetime_for_bp() -> ArrayRef {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create timestamp data (microseconds since epoch)
         let mut rng = StdRng::seed_from_u64(123);
         let base_timestamp = 1_600_000_000_000_000i64; // Sept 2020 in microseconds
@@ -329,8 +339,7 @@ mod setup {
         let parts = split_temporal(temporal_array.clone()).unwrap();
 
         // Compress days with FoR <- BitPacked
-        #[expect(deprecated)]
-        let days_prim = parts.days.to_primitive();
+        let days_prim = parts.days.execute::<PrimitiveArray>(&mut ctx).unwrap();
         let days_for = FoR::encode(days_prim).unwrap();
         let days_inner = days_for.encoded();
         let days_bp = BitPacked::encode(days_inner, 16).unwrap();
@@ -340,8 +349,7 @@ mod setup {
                 .into_array();
 
         // Compress seconds with FoR <- BitPacked
-        #[expect(deprecated)]
-        let seconds_prim = parts.seconds.to_primitive();
+        let seconds_prim = parts.seconds.execute::<PrimitiveArray>(&mut ctx).unwrap();
         let seconds_for = FoR::encode(seconds_prim).unwrap();
         let seconds_inner = seconds_for.encoded();
         let seconds_bp = BitPacked::encode(seconds_inner, 17).unwrap();
@@ -353,8 +361,10 @@ mod setup {
         .into_array();
 
         // Compress subseconds with FoR <- BitPacked
-        #[expect(deprecated)]
-        let subseconds_prim = parts.subseconds.to_primitive();
+        let subseconds_prim = parts
+            .subseconds
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         let subseconds_for = FoR::encode(subseconds_prim).unwrap();
         let subseconds_inner = subseconds_for.encoded();
         let subseconds_bp = BitPacked::encode(subseconds_inner, 20).unwrap();

@@ -352,10 +352,10 @@ where
         });
     }
 
-    let validity = array.as_ref().validity()?.to_mask(
-        array.as_ref().len(),
-        &mut LEGACY_SESSION.create_execution_ctx(),
-    )?;
+    let validity = array
+        .as_ref()
+        .validity()?
+        .to_mask(array.as_ref().len(), &mut ctx)?;
     let null_count = validity.false_count();
     let value_count = validity.true_count();
 

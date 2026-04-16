@@ -342,7 +342,7 @@ mod tests {
     fn struct_array_round_trip() {
         block_on(|handle| async {
             let session = SESSION.clone().with_handle(handle);
-            let mut ctx = session.create_execution_ctx();
+            let mut exec_ctx = session.create_execution_ctx();
             let mut validity_builder = BitBufferMut::with_capacity(2);
             validity_builder.append(true);
             validity_builder.append(false);
@@ -398,25 +398,31 @@ mod tests {
                 result
                     .validity()
                     .unwrap()
-                    .to_mask(result.len(), &mut ctx)
+                    .to_mask(result.len(), &mut exec_ctx)
                     .unwrap()
                     .bit_buffer(),
                 AllOr::Some(&validity_boolean_buffer)
             );
-            let result_struct = result.clone().execute::<StructArray>(&mut ctx).unwrap();
+            let result_struct = result
+                .clone()
+                .execute::<StructArray>(&mut exec_ctx)
+                .unwrap();
             let field_a = result_struct
                 .unmasked_field_by_name("a")
                 .unwrap()
                 .clone()
-                .execute::<PrimitiveArray>(&mut ctx)
+                .execute::<PrimitiveArray>(&mut exec_ctx)
                 .unwrap();
             assert_eq!(field_a.as_slice::<u64>(), &[1, 2]);
-            let result_struct_b = result.clone().execute::<StructArray>(&mut ctx).unwrap();
+            let result_struct_b = result
+                .clone()
+                .execute::<StructArray>(&mut exec_ctx)
+                .unwrap();
             let field_b = result_struct_b
                 .unmasked_field_by_name("b")
                 .unwrap()
                 .clone()
-                .execute::<PrimitiveArray>(&mut ctx)
+                .execute::<PrimitiveArray>(&mut exec_ctx)
                 .unwrap();
             assert_eq!(field_b.as_slice::<u64>(), &[3, 4]);
         })

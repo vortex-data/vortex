@@ -310,11 +310,10 @@ macro_rules! get_primitive {
                         .inner
                         .clone()
                         .execute::<ExtensionArray>(&mut ctx)?;
-                    ext.storage_array().execute_scalar(index as usize, &mut ctx)?
-                } else {
-                    array_ref
-                        .inner
+                    ext.storage_array()
                         .execute_scalar(index as usize, &mut ctx)?
+                } else {
+                    array_ref.inner.execute_scalar(index as usize, &mut ctx)?
                 };
 
                 Ok(scalar_value
@@ -352,11 +351,10 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBigDecimal(
                 .inner
                 .clone()
                 .execute::<ExtensionArray>(&mut ctx)?;
-            ext.storage_array().execute_scalar(index as usize, &mut ctx)?
-        } else {
-            array_ref
-                .inner
+            ext.storage_array()
                 .execute_scalar(index as usize, &mut ctx)?
+        } else {
+            array_ref.inner.execute_scalar(index as usize, &mut ctx)?
         };
 
         let decimal_scalar = scalar_value.as_decimal();

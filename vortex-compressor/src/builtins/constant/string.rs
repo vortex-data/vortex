@@ -70,10 +70,10 @@ impl Scheme for StringConstantScheme {
 
     fn compress(
         &self,
-        _compressor: &CascadingCompressor,
+        compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        compress_constant_array_with_validity(data.array())
+        compress_constant_array_with_validity(data.array(), &mut compressor.execution_ctx())
     }
 }
