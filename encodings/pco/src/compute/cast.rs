@@ -59,6 +59,8 @@ impl CastReduce for Pco {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
@@ -68,18 +70,19 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
     use crate::Pco;
 
     #[test]
-    fn test_cast_pco_f32_to_f64() {
+    fn test_cast_pco_f32_to_f64() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_iter([1.0f32, 2.0, 3.0, 4.0, 5.0]);
-        let pco = Pco::from_primitive(values.as_view(), 0, 128).unwrap();
+        let pco = Pco::from_primitive(values.as_view(), 0, 128, &mut ctx)?;
 
         let casted = pco
             .into_array()
-            .cast(DType::Primitive(PType::F64, Nullability::NonNullable))
-            .unwrap();
+            .cast(DType::Primitive(PType::F64, Nullability::NonNullable))?;
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::F64, Nullability::NonNullable)
@@ -89,45 +92,48 @@ mod tests {
             casted,
             PrimitiveArray::from_iter([1.0f64, 2.0, 3.0, 4.0, 5.0])
         );
+        Ok(())
     }
 
     #[test]
-    fn test_cast_pco_nullability_change() {
+    fn test_cast_pco_nullability_change() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Test casting from NonNullable to Nullable
         let values = PrimitiveArray::from_iter([10u32, 20, 30, 40]);
-        let pco = Pco::from_primitive(values.as_view(), 0, 128).unwrap();
+        let pco = Pco::from_primitive(values.as_view(), 0, 128, &mut ctx)?;
 
         let casted = pco
             .into_array()
-            .cast(DType::Primitive(PType::U32, Nullability::Nullable))
-            .unwrap();
+            .cast(DType::Primitive(PType::U32, Nullability::Nullable))?;
         assert_arrays_eq!(
             casted,
             PrimitiveArray::new(buffer![10u32, 20, 30, 40], Validity::AllValid,)
         );
+        Ok(())
     }
 
     #[test]
-    fn test_cast_sliced_pco_nullable_to_nonnullable() {
+    fn test_cast_sliced_pco_nullable_to_nonnullable() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = PrimitiveArray::new(
             buffer![10u32, 20, 30, 40, 50, 60],
             Validity::from_iter([true, true, true, true, true, true]),
         );
-        let pco = Pco::from_primitive(values.as_view(), 0, 128).unwrap();
-        let sliced = pco.slice(1..5).unwrap();
-        let casted = sliced
-            .cast(DType::Primitive(PType::U32, Nullability::NonNullable))
-            .unwrap();
+        let pco = Pco::from_primitive(values.as_view(), 0, 128, &mut ctx)?;
+        let sliced = pco.slice(1..5)?;
+        let casted = sliced.cast(DType::Primitive(PType::U32, Nullability::NonNullable))?;
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::NonNullable)
         );
         // Verify the values are correct
         assert_arrays_eq!(casted, PrimitiveArray::from_iter([20u32, 30, 40, 50]));
+        Ok(())
     }
 
     #[test]
-    fn test_cast_sliced_pco_part_valid_to_nonnullable() {
+    fn test_cast_sliced_pco_part_valid_to_nonnullable() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_option_iter([
             None,
             Some(20u32),
@@ -136,16 +142,15 @@ mod tests {
             Some(50),
             Some(60),
         ]);
-        let pco = Pco::from_primitive(values.as_view(), 0, 128).unwrap();
-        let sliced = pco.slice(1..5).unwrap();
-        let casted = sliced
-            .cast(DType::Primitive(PType::U32, Nullability::NonNullable))
-            .unwrap();
+        let pco = Pco::from_primitive(values.as_view(), 0, 128, &mut ctx)?;
+        let sliced = pco.slice(1..5)?;
+        let casted = sliced.cast(DType::Primitive(PType::U32, Nullability::NonNullable))?;
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::NonNullable)
         );
         assert_arrays_eq!(casted, PrimitiveArray::from_iter([20u32, 30, 40, 50]));
+        Ok(())
     }
 
     #[rstest]
@@ -169,8 +174,10 @@ mod tests {
         buffer![42.42f64],
         Validity::NonNullable,
     ))]
-    fn test_cast_pco_conformance(#[case] values: PrimitiveArray) {
-        let pco = Pco::from_primitive(values.as_view(), 0, 128).unwrap();
+    fn test_cast_pco_conformance(#[case] values: PrimitiveArray) -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let pco = Pco::from_primitive(values.as_view(), 0, 128, &mut ctx)?;
         test_cast_conformance(&pco.into_array());
+        Ok(())
     }
 }

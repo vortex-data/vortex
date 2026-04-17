@@ -294,10 +294,10 @@ impl RunEnd {
         Self::try_new(ends, values).vortex_expect("RunEndData is always valid")
     }
 
-    /// Run the array through run-end encoding.
-    pub fn encode(array: ArrayRef) -> VortexResult<RunEndArray> {
+    /// Run the array through run-end encoding using the provided execution context.
+    pub fn encode(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<RunEndArray> {
         if let Some(parray) = array.as_opt::<Primitive>() {
-            let (ends, values) = runend_encode(parray);
+            let (ends, values) = runend_encode(parray, ctx)?;
             let ends = ends.into_array();
             let len = array.len();
             let dtype = values.dtype().clone();
@@ -444,9 +444,9 @@ impl RunEndData {
     }
 
     /// Run the array through run-end encoding.
-    pub fn encode(array: ArrayRef) -> VortexResult<Self> {
+    pub fn encode(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         if let Some(parray) = array.as_opt::<Primitive>() {
-            let (_ends, _values) = runend_encode(parray);
+            let (_ends, _values) = runend_encode(parray, ctx)?;
             // SAFETY: runend_encode handles this
             unsafe { Ok(Self::new_unchecked(0)) }
         } else {
@@ -490,18 +490,18 @@ pub(super) fn run_end_canonicalize(
     Ok(match array.dtype() {
         DType::Bool(_) => {
             let bools = array.values().clone().execute_as("values", ctx)?;
-            runend_decode_bools(pends, bools, array.offset(), array.len())?
+            runend_decode_bools(pends, bools, array.offset(), array.len(), ctx)?
         }
         DType::Primitive(..) => {
             let pvalues = array.values().clone().execute_as("values", ctx)?;
-            runend_decode_primitive(pends, pvalues, array.offset(), array.len())?.into_array()
+            runend_decode_primitive(pends, pvalues, array.offset(), array.len(), ctx)?.into_array()
         }
         DType::Utf8(_) | DType::Binary(_) => {
             let values = array
                 .values()
                 .clone()
                 .execute_as::<VarBinViewArray>("values", ctx)?;
-            runend_decode_varbinview(pends, values, array.offset(), array.len())?.into_array()
+            runend_decode_varbinview(pends, values, array.offset(), array.len(), ctx)?.into_array()
         }
         _ => vortex_bail!("Unsupported RunEnd value type: {}", array.dtype()),
     })

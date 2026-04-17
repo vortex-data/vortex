@@ -5,8 +5,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::Nullability;
@@ -21,10 +20,10 @@ use crate::array::DateTimePartsArrayExt;
 fn take_datetime_parts(
     array: ArrayView<DateTimeParts>,
     indices: &ArrayRef,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     // we go ahead and canonicalize here to avoid worst-case canonicalizing 3 separate times
-    #[expect(deprecated)]
-    let indices = indices.to_primitive();
+    let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
 
     let taken_days = array.days().take(indices.clone().into_array())?;
     let taken_seconds = array.seconds().take(indices.clone().into_array())?;
@@ -87,9 +86,9 @@ impl TakeExecute for DateTimeParts {
     fn take(
         array: ArrayView<'_, Self>,
         indices: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        take_datetime_parts(array, indices).map(Some)
+        take_datetime_parts(array, indices, ctx).map(Some)
     }
 }
 
@@ -97,6 +96,8 @@ impl TakeExecute for DateTimeParts {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::compute::conformance::take::test_take_conformance;
@@ -106,8 +107,13 @@ mod tests {
     use crate::DateTimeParts;
     use crate::DateTimePartsArray;
 
+    fn dtp_from_temporal(temporal: TemporalArray) -> DateTimePartsArray {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        DateTimeParts::try_from_temporal(temporal, &mut ctx).unwrap()
+    }
+
     #[rstest]
-    #[case(DateTimeParts::try_from_temporal(TemporalArray::new_timestamp(
+    #[case(dtp_from_temporal(TemporalArray::new_timestamp(
         buffer![
             0i64,
             86_400_000,  // 1 day in ms
@@ -117,8 +123,8 @@ mod tests {
         ].into_array(),
         TimeUnit::Milliseconds,
         Some("UTC".into())
-    )).unwrap())]
-    #[case(DateTimeParts::try_from_temporal(TemporalArray::new_timestamp(
+    )))]
+    #[case(dtp_from_temporal(TemporalArray::new_timestamp(
         PrimitiveArray::from_option_iter([
             Some(0i64),
             None,
@@ -128,12 +134,12 @@ mod tests {
         ]).into_array(),
         TimeUnit::Milliseconds,
         Some("UTC".into())
-    )).unwrap())]
-    #[case(DateTimeParts::try_from_temporal(TemporalArray::new_timestamp(
+    )))]
+    #[case(dtp_from_temporal(TemporalArray::new_timestamp(
         buffer![86_400_000i64].into_array(),
         TimeUnit::Milliseconds,
         Some("UTC".into())
-    )).unwrap())]
+    )))]
     fn test_take_datetime_parts_conformance(#[case] array: DateTimePartsArray) {
         test_take_conformance(&array.into_array());
     }

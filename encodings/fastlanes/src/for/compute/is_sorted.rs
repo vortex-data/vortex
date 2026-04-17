@@ -4,8 +4,6 @@
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
 use vortex_array::aggregate_fn::fns::is_sorted::is_sorted;
@@ -36,8 +34,7 @@ impl DynAggregateKernel for FoRIsSortedKernel {
             return Ok(None);
         };
 
-        #[expect(deprecated)]
-        let encoded = array.encoded().to_primitive();
+        let encoded = array.encoded().clone().execute::<PrimitiveArray>(ctx)?;
         let unsigned_array = PrimitiveArray::from_buffer_handle(
             encoded.buffer_handle().clone(),
             encoded.ptype().to_unsigned(),
@@ -69,16 +66,17 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
     use crate::FoRData;
     use crate::r#for::array::FoRArrayExt;
 
     #[test]
-    fn test_sorted() {
+    fn test_sorted() -> VortexResult<()> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
         let a = PrimitiveArray::new(buffer![-1, 0, i8::MAX], Validity::NonNullable);
-        let b = FoRData::encode(a).unwrap();
+        let b = FoRData::encode(a, &mut ctx)?;
         assert!(
             is_sorted(&b.clone().into_array(), &mut ctx).unwrap(),
             "{}",
@@ -86,7 +84,7 @@ mod test {
         );
 
         let a = PrimitiveArray::new(buffer![i8::MIN, 0, i8::MAX], Validity::NonNullable);
-        let b = FoRData::encode(a).unwrap();
+        let b = FoRData::encode(a, &mut ctx)?;
         assert!(
             is_sorted(&b.clone().into_array(), &mut ctx).unwrap(),
             "{}",
@@ -94,7 +92,7 @@ mod test {
         );
 
         let a = PrimitiveArray::new(buffer![i8::MIN, 0, 30, 127], Validity::NonNullable);
-        let b = FoRData::encode(a).unwrap();
+        let b = FoRData::encode(a, &mut ctx)?;
         assert!(
             is_sorted(&b.clone().into_array(), &mut ctx).unwrap(),
             "{}",
@@ -102,7 +100,7 @@ mod test {
         );
 
         let a = PrimitiveArray::new(buffer![i8::MIN, -3, -1], Validity::NonNullable);
-        let b = FoRData::encode(a).unwrap();
+        let b = FoRData::encode(a, &mut ctx)?;
         assert!(
             is_sorted(&b.clone().into_array(), &mut ctx).unwrap(),
             "{}",
@@ -110,7 +108,7 @@ mod test {
         );
 
         let a = PrimitiveArray::new(buffer![-10, -3, -1], Validity::NonNullable);
-        let b = FoRData::encode(a).unwrap();
+        let b = FoRData::encode(a, &mut ctx)?;
         assert!(
             is_sorted(&b.clone().into_array(), &mut ctx).unwrap(),
             "{}",
@@ -118,7 +116,7 @@ mod test {
         );
 
         let a = PrimitiveArray::new(buffer![-10, -11, -1], Validity::NonNullable);
-        let b = FoRData::encode(a).unwrap();
+        let b = FoRData::encode(a, &mut ctx)?;
         assert!(
             !is_sorted(&b.clone().into_array(), &mut ctx).unwrap(),
             "{}",
@@ -126,11 +124,12 @@ mod test {
         );
 
         let a = PrimitiveArray::new(buffer![-10, i8::MIN, -1], Validity::NonNullable);
-        let b = FoRData::encode(a).unwrap();
+        let b = FoRData::encode(a, &mut ctx)?;
         assert!(
             !is_sorted(&b.clone().into_array(), &mut ctx).unwrap(),
             "{}",
             b.encoded().display_values()
         );
+        Ok(())
     }
 }

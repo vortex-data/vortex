@@ -136,8 +136,6 @@ mod tests {
     use f64::consts::E;
     use f64::consts::PI;
     use vortex_array::LEGACY_SESSION;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::NativePType;
@@ -272,17 +270,12 @@ mod tests {
     }
 
     #[test]
-    fn roundtrips_all_null() {
+    fn roundtrips_all_null() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let original =
             PrimitiveArray::new(buffer![195.26274f64, PI, -48.815685], Validity::AllInvalid);
-        let alp_arr = alp_encode(
-            original.as_view(),
-            None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .unwrap();
-        #[expect(deprecated)]
-        let decompressed = alp_arr.into_array().to_primitive();
+        let alp_arr = alp_encode(original.as_view(), None, &mut ctx)?;
+        let decompressed = alp_arr.into_array().execute::<PrimitiveArray>(&mut ctx)?;
 
         assert_eq!(
             // The second and third values become exceptions and are replaced
@@ -291,22 +284,21 @@ mod tests {
         );
 
         assert_arrays_eq!(decompressed, original);
+        Ok(())
     }
 
     #[test]
-    fn non_finite_numbers() {
+    fn non_finite_numbers() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let original = PrimitiveArray::new(
             buffer![0.0f32, -0.0, f32::NAN, f32::NEG_INFINITY, f32::INFINITY],
             Validity::NonNullable,
         );
-        let encoded = alp_encode(
-            original.as_view(),
-            None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .unwrap();
-        #[expect(deprecated)]
-        let decoded = encoded.as_array().to_primitive();
+        let encoded = alp_encode(original.as_view(), None, &mut ctx)?;
+        let decoded = encoded
+            .as_array()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         for idx in 0..original.len() {
             let decoded_val = decoded.as_slice::<f32>()[idx];
             let original_val = original.as_slice::<f32>()[idx];
@@ -315,10 +307,12 @@ mod tests {
                 "Expected {original_val} but got {decoded_val}"
             );
         }
+        Ok(())
     }
 
     #[test]
-    fn test_chunk_offsets() {
+    fn test_chunk_offsets() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut values = vec![1.0f64; 3072];
 
         values[1023] = PI;
@@ -326,120 +320,135 @@ mod tests {
         values[1025] = PI;
 
         let array = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
-        let encoded = alp_encode(
-            array.as_view(),
-            None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let encoded = alp_encode(array.as_view(), None, &mut ctx)?;
         let patches = encoded.patches().unwrap();
 
-        #[expect(deprecated)]
-        let chunk_offsets = patches.chunk_offsets().clone().unwrap().to_primitive();
+        let chunk_offsets = patches
+            .chunk_offsets()
+            .clone()
+            .unwrap()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let expected_offsets = PrimitiveArray::from_iter(vec![0u64, 1, 3]);
         assert_arrays_eq!(chunk_offsets, expected_offsets);
 
-        #[expect(deprecated)]
-        let patch_indices = patches.indices().to_primitive();
+        let patch_indices = patches
+            .indices()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let expected_indices = PrimitiveArray::from_iter(vec![1023u64, 1024, 1025]);
         assert_arrays_eq!(patch_indices, expected_indices);
 
-        #[expect(deprecated)]
-        let patch_values = patches.values().to_primitive();
+        let patch_values = patches
+            .values()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let expected_values = PrimitiveArray::from_iter(vec![PI, E, PI]);
         assert_arrays_eq!(patch_values, expected_values);
+        Ok(())
     }
 
     #[test]
-    fn test_chunk_offsets_no_patches_in_middle() {
+    fn test_chunk_offsets_no_patches_in_middle() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut values = vec![1.0f64; 3072];
         values[0] = PI;
         values[2048] = E;
 
         let array = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
-        let encoded = alp_encode(
-            array.as_view(),
-            None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let encoded = alp_encode(array.as_view(), None, &mut ctx)?;
         let patches = encoded.patches().unwrap();
 
-        #[expect(deprecated)]
-        let chunk_offsets = patches.chunk_offsets().clone().unwrap().to_primitive();
+        let chunk_offsets = patches
+            .chunk_offsets()
+            .clone()
+            .unwrap()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let expected_offsets = PrimitiveArray::from_iter(vec![0u64, 1, 1]);
         assert_arrays_eq!(chunk_offsets, expected_offsets);
 
-        #[expect(deprecated)]
-        let patch_indices = patches.indices().to_primitive();
+        let patch_indices = patches
+            .indices()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let expected_indices = PrimitiveArray::from_iter(vec![0u64, 2048]);
         assert_arrays_eq!(patch_indices, expected_indices);
 
-        #[expect(deprecated)]
-        let patch_values = patches.values().to_primitive();
+        let patch_values = patches
+            .values()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let expected_values = PrimitiveArray::from_iter(vec![PI, E]);
         assert_arrays_eq!(patch_values, expected_values);
+        Ok(())
     }
 
     #[test]
-    fn test_chunk_offsets_trailing_empty_chunks() {
+    fn test_chunk_offsets_trailing_empty_chunks() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut values = vec![1.0f64; 3072];
         values[0] = PI;
 
         let array = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
-        let encoded = alp_encode(
-            array.as_view(),
-            None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let encoded = alp_encode(array.as_view(), None, &mut ctx)?;
         let patches = encoded.patches().unwrap();
 
-        #[expect(deprecated)]
-        let chunk_offsets = patches.chunk_offsets().clone().unwrap().to_primitive();
+        let chunk_offsets = patches
+            .chunk_offsets()
+            .clone()
+            .unwrap()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let expected_offsets = PrimitiveArray::from_iter(vec![0u64, 1, 1]);
         assert_arrays_eq!(chunk_offsets, expected_offsets);
 
-        #[expect(deprecated)]
-        let patch_indices = patches.indices().to_primitive();
+        let patch_indices = patches
+            .indices()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let expected_indices = PrimitiveArray::from_iter(vec![0u64]);
         assert_arrays_eq!(patch_indices, expected_indices);
 
-        #[expect(deprecated)]
-        let patch_values = patches.values().to_primitive();
+        let patch_values = patches
+            .values()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let expected_values = PrimitiveArray::from_iter(vec![PI]);
         assert_arrays_eq!(patch_values, expected_values);
+        Ok(())
     }
 
     #[test]
-    fn test_chunk_offsets_single_chunk() {
+    fn test_chunk_offsets_single_chunk() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut values = vec![1.0f64; 512];
         values[0] = PI;
         values[100] = E;
 
         let array = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
-        let encoded = alp_encode(
-            array.as_view(),
-            None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let encoded = alp_encode(array.as_view(), None, &mut ctx)?;
         let patches = encoded.patches().unwrap();
 
-        #[expect(deprecated)]
-        let chunk_offsets = patches.chunk_offsets().clone().unwrap().to_primitive();
+        let chunk_offsets = patches
+            .chunk_offsets()
+            .clone()
+            .unwrap()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let expected_offsets = PrimitiveArray::from_iter(vec![0u64]);
         assert_arrays_eq!(chunk_offsets, expected_offsets);
 
-        #[expect(deprecated)]
-        let patch_indices = patches.indices().to_primitive();
+        let patch_indices = patches
+            .indices()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let expected_indices = PrimitiveArray::from_iter(vec![0u64, 100]);
         assert_arrays_eq!(patch_indices, expected_indices);
 
-        #[expect(deprecated)]
-        let patch_values = patches.values().to_primitive();
+        let patch_values = patches
+            .values()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let expected_values = PrimitiveArray::from_iter(vec![PI, E]);
         assert_arrays_eq!(patch_values, expected_values);
+        Ok(())
     }
 
     #[test]
@@ -525,25 +534,21 @@ mod tests {
     }
 
     #[test]
-    fn test_slice_half_chunk_nullable_roundtrip() {
+    fn test_slice_half_chunk_nullable_roundtrip() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = (0..1024)
             .map(|i| if i % 3 == 0 { None } else { Some(2.5f32) })
             .collect::<Vec<_>>();
 
         let original = PrimitiveArray::from_option_iter(values);
-        let encoded = alp_encode(
-            original.as_view(),
-            None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let encoded = alp_encode(original.as_view(), None, &mut ctx)?;
 
-        let sliced_alp = encoded.slice(512..1024).unwrap();
-        #[expect(deprecated)]
-        let decoded = sliced_alp.to_primitive();
+        let sliced_alp = encoded.slice(512..1024)?;
+        let decoded = sliced_alp.execute::<PrimitiveArray>(&mut ctx)?;
 
-        let expected_slice = original.slice(512..1024).unwrap();
+        let expected_slice = original.slice(512..1024)?;
         assert_arrays_eq!(decoded, expected_slice);
+        Ok(())
     }
 
     #[test]

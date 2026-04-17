@@ -566,8 +566,6 @@ mod test {
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::DecimalArray;
@@ -604,12 +602,12 @@ mod test {
     #[case(Some(true))]
     #[case(Some(false))]
     #[case(None)]
-    fn test_sparse_bool(#[case] fill_value: Option<bool>) {
+    fn test_sparse_bool(#[case] fill_value: Option<bool>) -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let indices = buffer![0u64, 1, 7].into_array();
         let values = BoolArray::from_iter([Some(true), None, Some(false)]).into_array();
-        let sparse_bools = Sparse::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
-        #[expect(deprecated)]
-        let actual = sparse_bools.as_array().to_bool();
+        let sparse_bools = Sparse::try_new(indices, values, 10, Scalar::from(fill_value))?;
+        let actual = sparse_bools.into_array().execute::<BoolArray>(&mut ctx)?;
 
         let expected = BoolArray::from_iter([
             Some(true),
@@ -625,20 +623,23 @@ mod test {
         ]);
 
         assert_arrays_eq!(actual, expected);
+        Ok(())
     }
 
     #[rstest]
     #[case(Some(0i32))]
     #[case(Some(-1i32))]
     #[case(None)]
-    fn test_sparse_primitive(#[case] fill_value: Option<i32>) {
+    fn test_sparse_primitive(#[case] fill_value: Option<i32>) -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let indices = buffer![0u64, 1, 7].into_array();
         let values = PrimitiveArray::from_option_iter([Some(0i32), None, Some(1)]).into_array();
-        let sparse_ints = Sparse::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
+        let sparse_ints = Sparse::try_new(indices, values, 10, Scalar::from(fill_value))?;
         assert_eq!(*sparse_ints.dtype(), DType::Primitive(PType::I32, Nullable));
 
-        #[expect(deprecated)]
-        let flat_ints = sparse_ints.as_array().to_primitive();
+        let flat_ints = sparse_ints
+            .into_array()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let expected = PrimitiveArray::from_option_iter([
             Some(0i32),
             None,
@@ -653,10 +654,12 @@ mod test {
         ]);
 
         assert_arrays_eq!(&flat_ints, &expected);
+        Ok(())
     }
 
     #[test]
-    fn test_sparse_struct_valid_fill() {
+    fn test_sparse_struct_valid_fill() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let field_names = FieldNames::from_iter(["a", "b"]);
         let field_types = vec![
             DType::Primitive(PType::I32, Nullable),
@@ -677,8 +680,7 @@ mod test {
             Validity::Array(
                 BoolArray::from_indices(4, vec![0, 1, 2], Validity::NonNullable).into_array(),
             ),
-        )
-        .unwrap()
+        )?
         .into_array();
 
         let fill_scalar = Scalar::struct_(
@@ -686,7 +688,7 @@ mod test {
             vec![Scalar::from(Some(-10i32)), Scalar::from(Some(-1i32))],
         );
         let len = 10;
-        let sparse_struct = Sparse::try_new(indices, patch_values, len, fill_scalar).unwrap();
+        let sparse_struct = Sparse::try_new(indices, patch_values, len, fill_scalar)?;
 
         let expected_a = PrimitiveArray::from_option_iter((0..len).map(|i| {
             if i == 0 {
@@ -717,17 +719,19 @@ mod test {
             len,
             // NB: patch indices: [0, 1, 7, 8]; patch validity: [Valid, Valid, Valid, Invalid]; ergo 8 is Invalid.
             Validity::from_mask(Mask::from_excluded_indices(10, vec![8]), Nullable),
-        )
-        .unwrap()
+        )?
         .into_array();
 
-        #[expect(deprecated)]
-        let actual = sparse_struct.as_array().to_struct();
+        let actual = sparse_struct
+            .into_array()
+            .execute::<StructArray>(&mut ctx)?;
         assert_arrays_eq!(actual, expected);
+        Ok(())
     }
 
     #[test]
-    fn test_sparse_struct_invalid_fill() {
+    fn test_sparse_struct_invalid_fill() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let field_names = FieldNames::from_iter(["a", "b"]);
         let field_types = vec![
             DType::Primitive(PType::I32, Nullable),
@@ -748,13 +752,12 @@ mod test {
             Validity::Array(
                 BoolArray::from_indices(4, vec![0, 1, 2], Validity::NonNullable).into_array(),
             ),
-        )
-        .unwrap()
+        )?
         .into_array();
 
         let fill_scalar = Scalar::null(struct_dtype);
         let len = 10;
-        let sparse_struct = Sparse::try_new(indices, patch_values, len, fill_scalar).unwrap();
+        let sparse_struct = Sparse::try_new(indices, patch_values, len, fill_scalar)?;
 
         let expected_a = PrimitiveArray::from_option_iter((0..len).map(|i| {
             if i == 0 {
@@ -785,17 +788,19 @@ mod test {
             len,
             // NB: patch indices: [0, 1, 7, 8]; patch validity: [Valid, Valid, Valid, Invalid]; ergo 0, 1, 7 are valid.
             Validity::from_mask(Mask::from_indices(10, vec![0, 1, 7]), Nullable),
-        )
-        .unwrap()
+        )?
         .into_array();
 
-        #[expect(deprecated)]
-        let actual = sparse_struct.as_array().to_struct();
+        let actual = sparse_struct
+            .into_array()
+            .execute::<StructArray>(&mut ctx)?;
         assert_arrays_eq!(actual, expected);
+        Ok(())
     }
 
     #[test]
-    fn test_sparse_decimal() {
+    fn test_sparse_decimal() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let indices = buffer![0u32, 1u32, 7u32, 8u32].into_array();
         let decimal_dtype = DecimalDType::new(3, 2);
         let patch_values = DecimalArray::new(
@@ -806,7 +811,7 @@ mod test {
         .into_array();
         let len = 10;
         let fill_scalar = Scalar::decimal(DecimalValue::I32(123), decimal_dtype, Nullable);
-        let sparse_struct = Sparse::try_new(indices, patch_values, len, fill_scalar).unwrap();
+        let sparse_struct = Sparse::try_new(indices, patch_values, len, fill_scalar)?;
 
         let expected = DecimalArray::new(
             buffer![100i128, 200, 123, 123, 123, 123, 123, 300, 4000, 123],
@@ -815,23 +820,22 @@ mod test {
             Validity::from_mask(Mask::from_excluded_indices(10, vec![8]), Nullable),
         )
         .into_array()
-        .into_arrow_preferred()
-        .unwrap();
+        .into_arrow_preferred()?;
 
-        #[expect(deprecated)]
         let actual = sparse_struct
-            .as_array()
-            .to_decimal()
             .into_array()
-            .into_arrow_preferred()
-            .unwrap();
+            .execute::<DecimalArray>(&mut ctx)?
+            .into_array()
+            .into_arrow_preferred()?;
 
         assert_eq!(expected.data_type(), actual.data_type());
         assert_eq!(&expected, &actual);
+        Ok(())
     }
 
     #[test]
-    fn test_sparse_utf8_varbinview_non_null_fill() {
+    fn test_sparse_utf8_varbinview_non_null_fill() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let strings = <VarBinViewArray as FromIterator<_>>::from_iter([
             Some("hello"),
             Some("goodbye"),
@@ -848,11 +852,12 @@ mod test {
             strings,
             12,
             Scalar::from(Some("123".to_owned())),
-        )
-        .unwrap();
+        )?;
 
-        #[expect(deprecated)]
-        let actual = array.as_array().to_varbinview().into_array();
+        let actual = array
+            .into_array()
+            .execute::<VarBinViewArray>(&mut ctx)?
+            .into_array();
         let expected = <VarBinViewArray as FromIterator<_>>::from_iter([
             Some("hello"),
             Some("123"),
@@ -870,10 +875,12 @@ mod test {
         .into_array();
 
         assert_arrays_eq!(actual, expected);
+        Ok(())
     }
 
     #[test]
-    fn test_sparse_utf8_varbinview_null_fill() {
+    fn test_sparse_utf8_varbinview_null_fill() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let strings = <VarBinViewArray as FromIterator<_>>::from_iter([
             Some("hello"),
             Some("goodbye"),
@@ -890,11 +897,12 @@ mod test {
             strings,
             12,
             Scalar::null(DType::Utf8(Nullable)),
-        )
-        .unwrap();
+        )?;
 
-        #[expect(deprecated)]
-        let actual = array.as_array().to_varbinview().into_array();
+        let actual = array
+            .into_array()
+            .execute::<VarBinViewArray>(&mut ctx)?
+            .into_array();
         let expected = <VarBinViewArray as FromIterator<_>>::from_iter([
             Some("hello"),
             None,
@@ -912,10 +920,12 @@ mod test {
         .into_array();
 
         assert_arrays_eq!(actual, expected);
+        Ok(())
     }
 
     #[test]
-    fn test_sparse_utf8_varbinview_non_nullable() {
+    fn test_sparse_utf8_varbinview_non_nullable() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let strings =
             VarBinViewArray::from_iter_str(["hello", "goodbye", "hello", "bonjour", "你好"])
                 .into_array();
@@ -925,21 +935,24 @@ mod test {
             strings,
             9,
             Scalar::from("123".to_owned()),
-        )
-        .unwrap();
+        )?;
 
-        #[expect(deprecated)]
-        let actual = array.as_array().to_varbinview().into_array();
+        let actual = array
+            .into_array()
+            .execute::<VarBinViewArray>(&mut ctx)?
+            .into_array();
         let expected = VarBinViewArray::from_iter_str([
             "hello", "123", "123", "goodbye", "hello", "bonjour", "123", "123", "你好",
         ])
         .into_array();
 
         assert_arrays_eq!(actual, expected);
+        Ok(())
     }
 
     #[test]
-    fn test_sparse_utf8_varbin_null_fill() {
+    fn test_sparse_utf8_varbin_null_fill() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let strings = <VarBinArray as FromIterator<_>>::from_iter([
             Some("hello"),
             Some("goodbye"),
@@ -956,11 +969,12 @@ mod test {
             strings,
             12,
             Scalar::null(DType::Utf8(Nullable)),
-        )
-        .unwrap();
+        )?;
 
-        #[expect(deprecated)]
-        let actual = array.as_array().to_varbinview().into_array();
+        let actual = array
+            .into_array()
+            .execute::<VarBinViewArray>(&mut ctx)?
+            .into_array();
         let expected = <VarBinViewArray as FromIterator<_>>::from_iter([
             Some("hello"),
             None,
@@ -978,10 +992,12 @@ mod test {
         .into_array();
 
         assert_arrays_eq!(actual, expected);
+        Ok(())
     }
 
     #[test]
-    fn test_sparse_binary_varbinview_non_null_fill() {
+    fn test_sparse_binary_varbinview_non_null_fill() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let binaries = VarBinViewArray::from_iter_nullable_bin([
             Some(b"hello" as &[u8]),
             Some(b"goodbye"),
@@ -998,11 +1014,12 @@ mod test {
             binaries,
             12,
             Scalar::from(Some(ByteBuffer::from(b"123".to_vec()))),
-        )
-        .unwrap();
+        )?;
 
-        #[expect(deprecated)]
-        let actual = array.as_array().to_varbinview().into_array();
+        let actual = array
+            .into_array()
+            .execute::<VarBinViewArray>(&mut ctx)?
+            .into_array();
         let expected = VarBinViewArray::from_iter_nullable_bin([
             Some(b"hello" as &[u8]),
             Some(b"123"),
@@ -1020,10 +1037,12 @@ mod test {
         .into_array();
 
         assert_arrays_eq!(actual, expected);
+        Ok(())
     }
 
     #[test]
     fn test_sparse_list_null_fill() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Use ListViewArray consistently
         let elements = buffer![1i32, 2, 1, 2].into_array();
         // Create ListView with offsets and sizes
@@ -1041,15 +1060,9 @@ mod test {
 
         let indices = buffer![0u8, 3u8, 4u8, 5u8].into_array();
         let fill_value = Scalar::null(lists.dtype().clone());
-        let sparse = Sparse::try_new(indices, lists, 6, fill_value)
-            .unwrap()
-            .into_array();
+        let sparse = Sparse::try_new(indices, lists, 6, fill_value)?.into_array();
 
-        let actual = sparse
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
-            .into_array();
-        #[expect(deprecated)]
-        let result_listview = actual.to_listview();
+        let result_listview = sparse.execute::<ListViewArray>(&mut ctx)?;
 
         // Check the structure
         assert_eq!(result_listview.len(), 6);
@@ -1063,8 +1076,10 @@ mod test {
         assert_eq!(result_listview.size_at(5), 1); // [2]
 
         // Verify actual values
-        #[expect(deprecated)]
-        let elements_array = result_listview.elements().to_primitive();
+        let elements_array = result_listview
+            .elements()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let elements_slice = elements_array.as_slice::<i32>();
 
         let list0_offset = result_listview.offset_at(0);
@@ -1083,7 +1098,8 @@ mod test {
     }
 
     #[test]
-    fn test_sparse_list_null_fill_sliced_sparse_values() {
+    fn test_sparse_list_null_fill_sliced_sparse_values() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create ListViewArray with 8 elements forming 8 single-element lists
         let elements = buffer![1i32, 2, 1, 2, 1, 2, 1, 2].into_array();
         let offsets = buffer![0u32, 1, 2, 3, 4, 5, 6, 7].into_array();
@@ -1095,20 +1111,15 @@ mod test {
         .into_array();
 
         // Slice to get lists 2..6, which are: [1], [2], [1], [2]
-        let lists = lists.slice(2..6).unwrap();
+        let lists = lists.slice(2..6)?;
 
         let indices = buffer![0u8, 3u8, 4u8, 5u8].into_array();
         let fill_value = Scalar::null(lists.dtype().clone());
-        let sparse = Sparse::try_new(indices, lists, 6, fill_value)
-            .unwrap()
-            .into_array();
+        let sparse = Sparse::try_new(indices, lists, 6, fill_value)?.into_array();
 
-        let actual = sparse
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
-            .vortex_expect("no fail")
-            .into_array();
-        #[expect(deprecated)]
-        let result_listview = actual.to_listview();
+        let result_listview = sparse
+            .execute::<ListViewArray>(&mut ctx)
+            .vortex_expect("no fail");
 
         // Check the structure
         assert_eq!(result_listview.len(), 6);
@@ -1122,8 +1133,10 @@ mod test {
         assert_eq!(result_listview.size_at(5), 1); // [2] - extra element beyond original slice
 
         // Verify actual values
-        #[expect(deprecated)]
-        let elements_array = result_listview.elements().to_primitive();
+        let elements_array = result_listview
+            .elements()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let elements_slice = elements_array.as_slice::<i32>();
 
         let list0_offset = result_listview.offset_at(0);
@@ -1131,10 +1144,12 @@ mod test {
 
         let list3_offset = result_listview.offset_at(3);
         assert_eq!(elements_slice[list3_offset], 2);
+        Ok(())
     }
 
     #[test]
     fn test_sparse_list_non_null_fill() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create ListViewArray with 4 single-element lists
         let elements = buffer![1i32, 2, 1, 2].into_array();
         let offsets = buffer![0u32, 1, 2, 3].into_array();
@@ -1147,15 +1162,9 @@ mod test {
 
         let indices = buffer![0u8, 3u8, 4u8, 5u8].into_array();
         let fill_value = Scalar::from(Some(vec![5i32, 6, 7, 8]));
-        let sparse = Sparse::try_new(indices, lists, 6, fill_value)
-            .unwrap()
-            .into_array();
+        let sparse = Sparse::try_new(indices, lists, 6, fill_value)?.into_array();
 
-        let actual = sparse
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
-            .into_array();
-        #[expect(deprecated)]
-        let result_listview = actual.to_listview();
+        let result_listview = sparse.execute::<ListViewArray>(&mut ctx)?;
 
         // Check the structure
         assert_eq!(result_listview.len(), 6);
@@ -1169,8 +1178,10 @@ mod test {
         assert_eq!(result_listview.size_at(5), 1); // [2] from sparse
 
         // Verify actual values
-        #[expect(deprecated)]
-        let elements_array = result_listview.elements().to_primitive();
+        let elements_array = result_listview
+            .elements()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let elements_slice = elements_array.as_slice::<i32>();
 
         // List 0: [1]
@@ -1208,7 +1219,8 @@ mod test {
     }
 
     #[test]
-    fn test_sparse_binary_varbin_null_fill() {
+    fn test_sparse_binary_varbin_null_fill() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let strings = <VarBinArray as FromIterator<_>>::from_iter([
             Some(b"hello" as &[u8]),
             Some(b"goodbye"),
@@ -1225,11 +1237,12 @@ mod test {
             strings,
             12,
             Scalar::null(DType::Binary(Nullable)),
-        )
-        .unwrap();
+        )?;
 
-        #[expect(deprecated)]
-        let actual = array.as_array().to_varbinview().into_array();
+        let actual = array
+            .into_array()
+            .execute::<VarBinViewArray>(&mut ctx)?
+            .into_array();
         let expected = VarBinViewArray::from_iter_nullable_bin([
             Some(b"hello" as &[u8]),
             None,
@@ -1247,6 +1260,7 @@ mod test {
         .into_array();
 
         assert_arrays_eq!(actual, expected);
+        Ok(())
     }
 
     #[test]
@@ -1472,33 +1486,26 @@ mod test {
 
     #[test]
     fn test_sparse_list_grows_offset_type() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let elements = buffer![1i32, 2, 1, 2].into_array();
         let offsets = buffer![0u8, 1, 2, 3, 4].into_array();
-        let lists = ListArray::try_new(elements, offsets, Validity::AllValid)
-            .unwrap()
-            .into_array();
+        let lists = ListArray::try_new(elements, offsets, Validity::AllValid)?.into_array();
 
         let indices = buffer![0u8, 1u8, 2u8, 3u8].into_array();
         let fill_value = Scalar::from(Some(vec![42i32; 252])); // 252 + 4 elements = 256 > u8::MAX
-        let sparse = Sparse::try_new(indices, lists, 5, fill_value)
-            .unwrap()
-            .into_array();
+        let sparse = Sparse::try_new(indices, lists, 5, fill_value)?.into_array();
 
-        let actual = sparse
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
-            .into_array();
+        let actual = sparse.execute::<Canonical>(&mut ctx)?.into_array();
         let mut expected_elements = buffer_mut![1, 2, 1, 2];
         expected_elements.extend(buffer![42i32; 252]);
         let expected = ListArray::try_new(
             expected_elements.freeze().into_array(),
             buffer![0u16, 1, 2, 3, 4, 256].into_array(),
             Validity::AllValid,
-        )
-        .unwrap()
+        )?
         .into_array();
 
-        #[expect(deprecated)]
-        let actual_listview = actual.to_listview();
+        let actual_listview = actual.clone().execute::<ListViewArray>(&mut ctx)?;
         assert_eq!(
             actual_listview.offsets().dtype(),
             &DType::Primitive(PType::U16, NonNullable)
@@ -1506,9 +1513,9 @@ mod test {
         assert_arrays_eq!(&actual, &expected);
 
         // Note that the preferred arrow list representation is `List` (not `ListView`).
-        let arrow_dtype = expected.dtype().to_arrow_dtype().unwrap();
-        let actual = actual.into_arrow(&arrow_dtype).unwrap();
-        let expected = expected.into_arrow(&arrow_dtype).unwrap();
+        let arrow_dtype = expected.dtype().to_arrow_dtype()?;
+        let actual = actual.into_arrow(&arrow_dtype)?;
+        let expected = expected.into_arrow(&arrow_dtype)?;
 
         assert_eq!(actual.data_type(), expected.data_type());
         Ok(())
@@ -1520,6 +1527,7 @@ mod test {
         // incorrectly tracked `last_valid_offset` as the START of the last list
         // instead of properly handling ListView's offset/size pairs.
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create a ListViewArray with non-trivial offsets and sizes.
         // Elements: [10, 11, 12, 20, 21, 30, 31, 32, 33]
         // List 0: elements[0..3] = [10, 11, 12]
@@ -1551,30 +1559,26 @@ mod test {
             list_view.into_array(),
             10,
             Scalar::null(list_dtype),
-        )
-        .unwrap();
+        )?;
 
         // Convert to canonical form - this triggers the function we're testing
-        let canonical = sparse
-            .into_array()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
-            .into_array();
-        #[expect(deprecated)]
-        let result_listview = canonical.to_listview();
+        let result_listview = sparse.into_array().execute::<ListViewArray>(&mut ctx)?;
 
         // Verify the structure
         assert_eq!(result_listview.len(), 10);
 
         // Helper to get list values at an index
+        let elements_array = result_listview
+            .elements()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let get_list_values = |idx: usize| -> Vec<i32> {
             let offset = result_listview.offset_at(idx);
             let size = result_listview.size_at(idx);
             if size == 0 {
                 vec![] // null/empty list
             } else {
-                #[expect(deprecated)]
-                let elements = result_listview.elements().to_primitive();
-                let slice = elements.as_slice::<i32>();
+                let slice = elements_array.as_slice::<i32>();
                 slice[offset..offset + size].to_vec()
             }
         };
@@ -1600,6 +1604,7 @@ mod test {
         // This test uses sliced ListView values to ensure proper handling
         // of non-zero starting offsets in the source data.
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create a larger ListViewArray and then slice it
         // Original elements: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         let elements = buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
@@ -1624,7 +1629,7 @@ mod test {
         // - Index 0: [2, 3, 4] (original list 1)
         // - Index 1: [5] (original list 2)
         // - Index 2: [6, 7] (original list 3)
-        let sliced = full_listview.slice(1..4).unwrap();
+        let sliced = full_listview.slice(1..4)?;
 
         // Create sparse array with indices [0, 1] and length 5
         // Expected result:
@@ -1635,29 +1640,25 @@ mod test {
         // - Index 4: null
         let indices = buffer![0u8, 1].into_array();
         // Extract only the values we need from the sliced array
-        let values = sliced.slice(0..2).unwrap();
-        let sparse =
-            Sparse::try_new(indices, values, 5, Scalar::null(sliced.dtype().clone())).unwrap();
+        let values = sliced.slice(0..2)?;
+        let sparse = Sparse::try_new(indices, values, 5, Scalar::null(sliced.dtype().clone()))?;
 
-        let canonical = sparse
-            .into_array()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
-            .into_array();
-        #[expect(deprecated)]
-        let result_listview = canonical.to_listview();
+        let result_listview = sparse.into_array().execute::<ListViewArray>(&mut ctx)?;
 
         assert_eq!(result_listview.len(), 5);
 
         // Helper to get list values at an index
+        let elements_array = result_listview
+            .elements()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let get_list_values = |idx: usize| -> Vec<i32> {
             let offset = result_listview.offset_at(idx);
             let size = result_listview.size_at(idx);
             if size == 0 {
                 vec![] // null/empty list
             } else {
-                #[expect(deprecated)]
-                let elements = result_listview.elements().to_primitive();
-                let slice = elements.as_slice::<i32>();
+                let slice = elements_array.as_slice::<i32>();
                 slice[offset..offset + size].to_vec()
             }
         };

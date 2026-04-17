@@ -150,10 +150,14 @@ mod tests {
 
     #[test]
     fn ree_scalar_at_end() {
-        let scalar = RunEnd::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array())
-            .unwrap()
-            .execute_scalar(11, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let scalar = RunEnd::encode(
+            buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array(),
+            &mut ctx,
+        )
+        .unwrap()
+        .execute_scalar(11, &mut ctx)
+        .unwrap();
         assert_eq!(scalar, 5.into());
     }
 

@@ -40,6 +40,8 @@ impl OperationsVTable<FoR> for FoR {
 
 #[cfg(test)]
 mod test {
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
 
@@ -47,7 +49,12 @@ mod test {
 
     #[test]
     fn for_scalar_at() {
-        let for_arr = FoRData::encode(PrimitiveArray::from_iter([-100, 1100, 1500, 1900])).unwrap();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let for_arr = FoRData::encode(
+            PrimitiveArray::from_iter([-100, 1100, 1500, 1900]),
+            &mut ctx,
+        )
+        .unwrap();
         let expected = PrimitiveArray::from_iter([-100, 1100, 1500, 1900]);
         assert_arrays_eq!(for_arr, expected);
     }

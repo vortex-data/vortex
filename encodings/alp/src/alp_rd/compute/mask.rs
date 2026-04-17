@@ -20,17 +20,19 @@ impl MaskReduce for ALPRD {
             EmptyOptions,
             [array.left_parts().clone(), mask.clone()],
         )?;
-        Ok(Some(
-            ALPRD::try_new(
+        // SAFETY: patches carried over from an already-validated ALPRDArray are
+        // already canonical, so we can skip re-canonicalization.
+        Ok(Some(unsafe {
+            ALPRD::new_unchecked(
                 array.dtype().as_nullable(),
                 masked_left_parts,
                 array.left_parts_dictionary().clone(),
                 array.right_parts().clone(),
                 array.right_bit_width(),
                 array.left_parts_patches(),
-            )?
-            .into_array(),
-        ))
+            )
+            .into_array()
+        }))
     }
 }
 

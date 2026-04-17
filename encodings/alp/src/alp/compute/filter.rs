@@ -45,12 +45,11 @@ mod test {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
     use crate::alp_encode;
 
@@ -63,15 +62,11 @@ mod test {
         1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0,
         11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0
     ].into_array())]
-    fn test_filter_alp_conformance(#[case] array: ArrayRef) {
-        #[expect(deprecated)]
-        let array_primitive = array.to_primitive();
-        let alp = alp_encode(
-            array_primitive.as_view(),
-            None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+    fn test_filter_alp_conformance(#[case] array: ArrayRef) -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let array_primitive = array.execute::<PrimitiveArray>(&mut ctx)?;
+        let alp = alp_encode(array_primitive.as_view(), None, &mut ctx)?;
         test_filter_conformance(&alp.into_array());
+        Ok(())
     }
 }

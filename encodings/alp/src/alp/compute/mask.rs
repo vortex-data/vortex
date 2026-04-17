@@ -57,8 +57,6 @@ mod test {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -66,6 +64,7 @@ mod test {
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar_fn::fns::mask::MaskKernel;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
     use crate::alp::array::ALPArrayExt;
     use crate::alp_encode;
@@ -79,57 +78,45 @@ mod test {
         0.1f32, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0,
         1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0
     ].into_array())]
-    fn test_mask_alp_conformance(#[case] array: vortex_array::ArrayRef) {
-        #[expect(deprecated)]
-        let array_primitive = array.to_primitive();
-        let alp = alp_encode(
-            array_primitive.as_view(),
-            None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+    fn test_mask_alp_conformance(#[case] array: vortex_array::ArrayRef) -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let array_primitive = array.execute::<PrimitiveArray>(&mut ctx)?;
+        let alp = alp_encode(array_primitive.as_view(), None, &mut ctx)?;
         test_mask_conformance(&alp.into_array());
+        Ok(())
     }
 
     #[test]
-    fn test_mask_alp_with_patches() {
+    fn test_mask_alp_with_patches() -> VortexResult<()> {
         use std::f64::consts::PI;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // PI doesn't encode cleanly with ALP, so it creates patches.
         let values: Vec<f64> = (0..100)
             .map(|i| if i % 4 == 3 { PI } else { 1.0 })
             .collect();
         let array = PrimitiveArray::from_iter(values);
-        let alp = alp_encode(
-            array.as_view(),
-            None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let alp = alp_encode(array.as_view(), None, &mut ctx)?;
         assert!(alp.patches().is_some(), "expected patches");
         test_mask_conformance(&alp.into_array());
+        Ok(())
     }
 
     #[test]
-    fn test_mask_alp_with_patches_casts_surviving_patch_values_to_nullable() {
+    fn test_mask_alp_with_patches_casts_surviving_patch_values_to_nullable() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_iter([1.234f32, f32::NAN, 2.345, f32::INFINITY, 3.456]);
-        let alp = alp_encode(
-            values.as_view(),
-            None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let alp = alp_encode(values.as_view(), None, &mut ctx)?;
         assert!(alp.patches().is_some(), "expected patches");
 
         let keep_mask = BoolArray::from_iter([false, true, true, true, true]).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let masked = <crate::ALP as MaskKernel>::mask(alp.as_view(), &keep_mask, &mut ctx)
-            .unwrap()
-            .unwrap();
+        let masked =
+            <crate::ALP as MaskKernel>::mask(alp.as_view(), &keep_mask, &mut ctx)?.unwrap();
 
         let masked_alp = masked.as_opt::<crate::ALP>().unwrap();
         let masked_patches = masked_alp.patches().unwrap();
 
         assert_eq!(masked.dtype().nullability(), Nullability::Nullable);
         assert_eq!(masked_patches.dtype().nullability(), Nullability::Nullable);
+        Ok(())
     }
 }

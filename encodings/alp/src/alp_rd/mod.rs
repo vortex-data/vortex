@@ -278,15 +278,18 @@ impl RDEncoder {
             .vortex_expect("Patches construction in encode")
         });
 
-        ALPRD::try_new(
-            DType::Primitive(T::PTYPE, packed_left.dtype().nullability()),
-            packed_left,
-            Buffer::<u16>::copy_from(&self.codes),
-            packed_right,
-            self.right_bit_width,
-            exceptions,
-        )
-        .vortex_expect("ALPRDArray construction in encode")
+        // SAFETY: patches are freshly constructed from non-nullable primitive exception
+        // values, so they are already canonical and all-valid.
+        unsafe {
+            ALPRD::new_unchecked(
+                DType::Primitive(T::PTYPE, packed_left.dtype().nullability()),
+                packed_left,
+                Buffer::<u16>::copy_from(&self.codes),
+                packed_right,
+                self.right_bit_width,
+                exceptions,
+            )
+        }
     }
 }
 

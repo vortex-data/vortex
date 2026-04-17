@@ -4,7 +4,10 @@
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
+use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
@@ -20,9 +23,9 @@ use crate::fixtures::FlatLayoutFixture;
 
 pub struct DateTimePartsFixture;
 
-fn encode_temporal(temporal: TemporalArray) -> VortexResult<ArrayRef> {
+fn encode_temporal(temporal: TemporalArray, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
     let dtype = temporal.dtype().clone();
-    let parts = split_temporal(temporal)?;
+    let parts = split_temporal(temporal, ctx)?;
     Ok(DateTimeParts::try_new(dtype, parts.days, parts.seconds, parts.subseconds)?.into_array())
 }
 
@@ -40,6 +43,7 @@ impl FlatLayoutFixture for DateTimePartsFixture {
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let base_us: i64 = 1_704_067_200_000_000;
         let ts_us: PrimitiveArray = (0..N as i64).map(|i| base_us + i * 3_600_000_000).collect();
         let ts_us_arr =
@@ -114,16 +118,16 @@ impl FlatLayoutFixture for DateTimePartsFixture {
                 "ts_head_tail_null",
             ]),
             vec![
-                encode_temporal(ts_us_arr)?,
-                encode_temporal(ts_ns_arr)?,
-                encode_temporal(ts_ms_arr)?,
-                encode_temporal(ts_us_nullable_arr)?,
-                encode_temporal(ts_s_arr)?,
-                encode_temporal(ts_ms_tz_arr)?,
-                encode_temporal(ts_pre_1970_arr)?,
-                encode_temporal(ts_day_boundary_arr)?,
-                encode_temporal(ts_ns_subsecond_arr)?,
-                encode_temporal(ts_head_tail_null_arr)?,
+                encode_temporal(ts_us_arr, &mut ctx)?,
+                encode_temporal(ts_ns_arr, &mut ctx)?,
+                encode_temporal(ts_ms_arr, &mut ctx)?,
+                encode_temporal(ts_us_nullable_arr, &mut ctx)?,
+                encode_temporal(ts_s_arr, &mut ctx)?,
+                encode_temporal(ts_ms_tz_arr, &mut ctx)?,
+                encode_temporal(ts_pre_1970_arr, &mut ctx)?,
+                encode_temporal(ts_day_boundary_arr, &mut ctx)?,
+                encode_temporal(ts_ns_subsecond_arr, &mut ctx)?,
+                encode_temporal(ts_head_tail_null_arr, &mut ctx)?,
             ],
             N,
             Validity::NonNullable,

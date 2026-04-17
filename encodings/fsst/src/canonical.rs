@@ -88,32 +88,25 @@ pub(crate) fn fsst_decode_views(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::LazyLock;
-
     use rand::RngExt;
     use rand::SeedableRng;
     use rand::prelude::StdRng;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::VarBinArray;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
-    use vortex_array::session::ArraySession;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
-
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     fn make_data() -> (VarBinArray, Vec<Option<Vec<u8>>>) {
         const STRING_COUNT: usize = 1000;
@@ -169,6 +162,7 @@ mod tests {
 
     #[test]
     fn test_to_canonical() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let (chunked_arr, data) = make_data_chunked();
 
         let mut builder =
@@ -176,7 +170,7 @@ mod tests {
         chunked_arr
             .clone()
             .into_array()
-            .append_to_builder(&mut builder, &mut SESSION.create_execution_ctx())?;
+            .append_to_builder(&mut builder, &mut ctx)?;
 
         {
             let arr = builder.finish_into_canonical().into_varbinview();
@@ -186,8 +180,10 @@ mod tests {
         };
 
         {
-            #[expect(deprecated)]
-            let arr2 = chunked_arr.as_array().to_varbinview();
+            let arr2 = chunked_arr
+                .as_array()
+                .clone()
+                .execute::<VarBinViewArray>(&mut ctx)?;
             let res2 =
                 arr2.with_iterator(|iter| iter.map(|b| b.map(|v| v.to_vec())).collect::<Vec<_>>());
             assert_eq!(data, res2)
@@ -197,6 +193,7 @@ mod tests {
 
     #[test]
     fn test_append_after_in_progress_buffer() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype = DType::Binary(Nullability::NonNullable);
         let mut builder = VarBinViewBuilder::with_capacity(dtype.clone(), 2);
         builder.append_value(b"long enough!!!");
@@ -212,7 +209,7 @@ mod tests {
             &fsst_train_compressor(&varbin),
         )
         .into_array();
-        fsst_array.append_to_builder(&mut builder, &mut SESSION.create_execution_ctx())?;
+        fsst_array.append_to_builder(&mut builder, &mut ctx)?;
 
         let _result = builder.finish_into_varbinview();
         Ok(())

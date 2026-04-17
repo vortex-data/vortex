@@ -54,13 +54,14 @@ impl<T: PhysicalPType<Physical: BitPacking>> UnpackStrategy<T> for BitPackingStr
 /// use lending_iterator::prelude::Item;
 /// #[gat(Item)]
 /// use lending_iterator::prelude::LendingIterator;
-/// use vortex_array::IntoArray;
+/// use vortex_array::{IntoArray, LEGACY_SESSION, VortexSessionExecute};
 /// use vortex_buffer::buffer;
 /// use vortex_fastlanes::BitPackedData;
 /// use vortex_fastlanes::BitPackedArrayExt;
 /// use vortex_fastlanes::unpack_iter::BitUnpackedChunks;
 ///
-/// let array = BitPackedData::encode(&buffer![2, 3, 4, 5].into_array(), 2).unwrap();
+/// let mut ctx = LEGACY_SESSION.create_execution_ctx();
+/// let array = BitPackedData::encode(&buffer![2, 3, 4, 5].into_array(), 2, &mut ctx).unwrap();
 /// let mut unpacked_chunks: BitUnpackedChunks<i32> = array.unpacked_chunks().unwrap();
 ///
 /// if let Some(header) = unpacked_chunks.initial() {

@@ -146,7 +146,7 @@ impl vortex_alp::ALPRD
 
 pub unsafe fn vortex_alp::ALPRD::new_unchecked(dtype: vortex_array::dtype::DType, left_parts: vortex_array::array::erased::ArrayRef, left_parts_dictionary: vortex_buffer::buffer::Buffer<u16>, right_parts: vortex_array::array::erased::ArrayRef, right_bit_width: u8, left_parts_patches: core::option::Option<vortex_array::patches::Patches>) -> vortex_alp::ALPRDArray
 
-pub fn vortex_alp::ALPRD::try_new(dtype: vortex_array::dtype::DType, left_parts: vortex_array::array::erased::ArrayRef, left_parts_dictionary: vortex_buffer::buffer::Buffer<u16>, right_parts: vortex_array::array::erased::ArrayRef, right_bit_width: u8, left_parts_patches: core::option::Option<vortex_array::patches::Patches>) -> vortex_error::VortexResult<vortex_alp::ALPRDArray>
+pub fn vortex_alp::ALPRD::try_new(dtype: vortex_array::dtype::DType, left_parts: vortex_array::array::erased::ArrayRef, left_parts_dictionary: vortex_buffer::buffer::Buffer<u16>, right_parts: vortex_array::array::erased::ArrayRef, right_bit_width: u8, left_parts_patches: core::option::Option<vortex_array::patches::Patches>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_alp::ALPRDArray>
 
 impl core::clone::Clone for vortex_alp::ALPRD
 
@@ -168,7 +168,7 @@ pub fn vortex_alp::ALPRD::buffer(_array: vortex_array::array::view::ArrayView<'_
 
 pub fn vortex_alp::ALPRD::buffer_name(_array: vortex_array::array::view::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
 
-pub fn vortex_alp::ALPRD::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::typed::ArrayParts<Self>>
+pub fn vortex_alp::ALPRD::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::typed::ArrayParts<Self>>
 
 pub fn vortex_alp::ALPRD::execute(array: vortex_array::array::typed::Array<Self>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 

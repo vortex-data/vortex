@@ -153,8 +153,6 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::LEGACY_SESSION;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
@@ -184,71 +182,61 @@ mod tests {
     }
 
     #[test]
-    fn basic_comparison_test() {
+    fn basic_comparison_test() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_iter([1.234f32; 1025]);
-        let encoded = alp_encode(
-            array.as_view(),
-            None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let encoded = alp_encode(array.as_view(), None, &mut ctx)?;
         assert!(encoded.patches().is_none());
-        #[expect(deprecated)]
-        let encoded_prim = encoded.encoded().to_primitive();
+        let encoded_prim = encoded
+            .encoded()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         assert_eq!(encoded_prim.as_slice::<i32>(), vec![1234; 1025]);
 
-        let r = alp_scalar_compare(encoded.as_view(), 1.3_f32, CompareOperator::Eq)
-            .unwrap()
-            .unwrap();
+        let r = alp_scalar_compare(encoded.as_view(), 1.3_f32, CompareOperator::Eq)?.unwrap();
         let expected = BoolArray::from_iter([false; 1025]);
         assert_arrays_eq!(r, expected);
 
-        let r = alp_scalar_compare(encoded.as_view(), 1.234f32, CompareOperator::Eq)
-            .unwrap()
-            .unwrap();
+        let r = alp_scalar_compare(encoded.as_view(), 1.234f32, CompareOperator::Eq)?.unwrap();
         let expected = BoolArray::from_iter([true; 1025]);
         assert_arrays_eq!(r, expected);
+        Ok(())
     }
 
     #[test]
-    fn comparison_with_unencodable_value() {
+    fn comparison_with_unencodable_value() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_iter([1.234f32; 1025]);
-        let encoded = alp_encode(
-            array.as_view(),
-            None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let encoded = alp_encode(array.as_view(), None, &mut ctx)?;
         assert!(encoded.patches().is_none());
-        #[expect(deprecated)]
-        let encoded_prim = encoded.encoded().to_primitive();
+        let encoded_prim = encoded
+            .encoded()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         assert_eq!(encoded_prim.as_slice::<i32>(), vec![1234; 1025]);
 
-        let r_eq = alp_scalar_compare(encoded.as_view(), 1.234444_f32, CompareOperator::Eq)
-            .unwrap()
-            .unwrap();
+        let r_eq =
+            alp_scalar_compare(encoded.as_view(), 1.234444_f32, CompareOperator::Eq)?.unwrap();
         let expected = BoolArray::from_iter([false; 1025]);
         assert_arrays_eq!(r_eq, expected);
 
-        let r_neq = alp_scalar_compare(encoded.as_view(), 1.234444f32, CompareOperator::NotEq)
-            .unwrap()
-            .unwrap();
+        let r_neq =
+            alp_scalar_compare(encoded.as_view(), 1.234444f32, CompareOperator::NotEq)?.unwrap();
         let expected = BoolArray::from_iter([true; 1025]);
         assert_arrays_eq!(r_neq, expected);
+        Ok(())
     }
 
     #[test]
-    fn comparison_range() {
+    fn comparison_range() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_iter([0.0605_f32; 10]);
-        let encoded = alp_encode(
-            array.as_view(),
-            None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let encoded = alp_encode(array.as_view(), None, &mut ctx)?;
         assert!(encoded.patches().is_none());
-        #[expect(deprecated)]
-        let encoded_prim = encoded.encoded().to_primitive();
+        let encoded_prim = encoded
+            .encoded()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         assert_eq!(encoded_prim.as_slice::<i32>(), vec![605; 10]);
 
         // !(0.0605_f32 >= 0.06051_f32);
@@ -278,20 +266,19 @@ mod tests {
             .unwrap();
         let expected = BoolArray::from_iter([true; 10]);
         assert_arrays_eq!(r_lt, expected);
+        Ok(())
     }
 
     #[test]
-    fn comparison_zeroes() {
+    fn comparison_zeroes() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_iter([0.0_f32; 10]);
-        let encoded = alp_encode(
-            array.as_view(),
-            None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let encoded = alp_encode(array.as_view(), None, &mut ctx)?;
         assert!(encoded.patches().is_none());
-        #[expect(deprecated)]
-        let encoded_prim = encoded.encoded().to_primitive();
+        let encoded_prim = encoded
+            .encoded()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         assert_eq!(encoded_prim.as_slice::<i32>(), vec![0; 10]);
 
         let r_gte =
@@ -323,6 +310,7 @@ mod tests {
         let r_lt = test_alp_compare(encoded.as_view(), -0.00001_f32, CompareOperator::Lt).unwrap();
         let expected = BoolArray::from_iter([false; 10]);
         assert_arrays_eq!(r_lt, expected);
+        Ok(())
     }
 
     #[test]

@@ -526,8 +526,6 @@ mod tests {
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -784,7 +782,11 @@ mod tests {
     #[case(500, 100)]
     #[case(1000, 200)]
     #[case(2048, 512)]
-    fn test_sliced_to_primitive(#[case] size: usize, #[case] slice_start: usize) {
+    fn test_sliced_to_primitive(
+        #[case] size: usize,
+        #[case] slice_start: usize,
+    ) -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values: Vec<Option<f64>> = (0..size)
             .map(|i| {
                 if i % 5 == 0 {
@@ -798,32 +800,21 @@ mod tests {
             .collect();
 
         let array = PrimitiveArray::from_option_iter(values.clone());
-        let encoded = alp_encode(
-            array.as_view(),
-            None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let encoded = alp_encode(array.as_view(), None, &mut ctx)?;
 
         let slice_end = size - slice_start;
         let slice_len = slice_end - slice_start;
-        let sliced_encoded = encoded.slice(slice_start..slice_end).unwrap();
+        let sliced_encoded = encoded.slice(slice_start..slice_end)?;
 
-        #[expect(deprecated)]
-        let result_primitive = sliced_encoded.to_primitive();
+        let result_primitive = sliced_encoded.execute::<PrimitiveArray>(&mut ctx)?;
 
         for idx in 0..slice_len {
             let expected_value = values[slice_start + idx];
 
             let result_valid = result_primitive
                 .as_ref()
-                .validity()
-                .unwrap()
-                .to_mask(
-                    result_primitive.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )
-                .unwrap()
+                .validity()?
+                .to_mask(result_primitive.as_ref().len(), &mut ctx)?
                 .value(idx);
             assert_eq!(
                 result_valid,
@@ -837,6 +828,7 @@ mod tests {
                 assert_eq!(result_val, expected_val, "Value mismatch at idx={idx}",);
             }
         }
+        Ok(())
     }
 
     /// Regression test for issue #5948: execute_decompress drops patches when chunk_offsets is

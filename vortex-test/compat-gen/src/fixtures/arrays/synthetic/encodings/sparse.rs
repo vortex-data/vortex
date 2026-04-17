@@ -5,6 +5,8 @@ use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -75,6 +77,7 @@ impl FlatLayoutFixture for SparseFixture {
         }));
         let mixed_null_fill = Scalar::null(mixed_null_and_values.dtype().clone());
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = StructArray::try_new(
             FieldNames::from([
                 "sparse_i64",
@@ -89,22 +92,28 @@ impl FlatLayoutFixture for SparseFixture {
                 "mixed_null_and_values",
             ]),
             vec![
-                Sparse::encode(&sparse_i64_col.into_array(), None)?,
-                Sparse::encode(&sparse_str_col.into_array(), None)?,
-                Sparse::encode(&sparse_bool_col.into_array(), None)?,
-                Sparse::encode(&sparse_f64.into_array(), None)?,
-                Sparse::encode(&sparse_boundary.into_array(), None)?,
+                Sparse::encode(&sparse_i64_col.into_array(), None, &mut ctx)?,
+                Sparse::encode(&sparse_str_col.into_array(), None, &mut ctx)?,
+                Sparse::encode(&sparse_bool_col.into_array(), None, &mut ctx)?,
+                Sparse::encode(&sparse_f64.into_array(), None, &mut ctx)?,
+                Sparse::encode(&sparse_boundary.into_array(), None, &mut ctx)?,
                 Sparse::encode(
                     &explicit_fill_values.into_array(),
                     Some(Scalar::primitive(10i32, Nullability::Nullable)),
+                    &mut ctx,
                 )?,
-                Sparse::encode(&all_default, Some(Scalar::from(10i32)))?,
-                Sparse::encode(&clustered_edges.into_array(), None)?,
+                Sparse::encode(&all_default, Some(Scalar::from(10i32)), &mut ctx)?,
+                Sparse::encode(&clustered_edges.into_array(), None, &mut ctx)?,
                 Sparse::encode(
                     &almost_dense.into_array(),
                     Some(Scalar::primitive(0i32, Nullability::Nullable)),
+                    &mut ctx,
                 )?,
-                Sparse::encode(&mixed_null_and_values.into_array(), Some(mixed_null_fill))?,
+                Sparse::encode(
+                    &mixed_null_and_values.into_array(),
+                    Some(mixed_null_fill),
+                    &mut ctx,
+                )?,
             ],
             N,
             Validity::NonNullable,

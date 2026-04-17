@@ -76,7 +76,7 @@ pub fn vortex_fsst::FSST::cast(array: vortex_array::array::view::ArrayView<'_, S
 
 impl vortex_array::scalar_fn::fns::like::kernel::LikeKernel for vortex_fsst::FSST
 
-pub fn vortex_fsst::FSST::like(array: vortex_array::array::view::ArrayView<'_, Self>, pattern: &vortex_array::array::erased::ArrayRef, options: vortex_array::scalar_fn::fns::like::LikeOptions, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+pub fn vortex_fsst::FSST::like(array: vortex_array::array::view::ArrayView<'_, Self>, pattern: &vortex_array::array::erased::ArrayRef, options: vortex_array::scalar_fn::fns::like::LikeOptions, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
 pub struct vortex_fsst::FSSTData
 

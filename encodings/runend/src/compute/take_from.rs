@@ -53,6 +53,7 @@ impl ExecuteParentKernel<RunEnd> for RunEndTakeFrom {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::Canonical;
     use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
     use vortex_array::arrays::DictArray;
@@ -75,7 +76,8 @@ mod tests {
     /// Codes:       `[0, 0, 0, 1, 1, 0, 0]`
     /// RunEnd encoded codes: ends=`[3, 5, 7]`, values=`[0, 1, 0]`
     fn make_dict_with_runend_codes() -> (RunEndArray, DictArray) {
-        let codes = RunEnd::encode(buffer![0u32, 0, 0, 1, 1, 0, 0].into_array()).unwrap();
+        let mut ctx = ExecutionCtx::new(VortexSession::empty());
+        let codes = RunEnd::encode(buffer![0u32, 0, 0, 1, 1, 0, 0].into_array(), &mut ctx).unwrap();
         let values = buffer![2i32, 3].into_array();
         let dict = DictArray::try_new(codes.clone().into_array(), values).unwrap();
         (codes, dict)
@@ -91,8 +93,7 @@ mod tests {
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([2i32, 2, 2, 3, 3, 2, 2]);
-        #[expect(deprecated)]
-        let canonical = result.to_canonical()?.into_array();
+        let canonical = result.execute::<Canonical>(&mut ctx)?.into_array();
         assert_arrays_eq!(canonical, expected);
         Ok(())
     }
@@ -116,8 +117,7 @@ mod tests {
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([2i32, 3, 3]);
-        #[expect(deprecated)]
-        let canonical = result.to_canonical()?.into_array();
+        let canonical = result.execute::<Canonical>(&mut ctx)?.into_array();
         assert_arrays_eq!(canonical, expected);
         Ok(())
     }
@@ -141,8 +141,7 @@ mod tests {
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([3i32, 3, 2, 2]);
-        #[expect(deprecated)]
-        let canonical = result.to_canonical()?.into_array();
+        let canonical = result.execute::<Canonical>(&mut ctx)?.into_array();
         assert_arrays_eq!(canonical, expected);
         Ok(())
     }
@@ -166,8 +165,7 @@ mod tests {
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([3i32]);
-        #[expect(deprecated)]
-        let canonical = result.to_canonical()?.into_array();
+        let canonical = result.execute::<Canonical>(&mut ctx)?.into_array();
         assert_arrays_eq!(canonical, expected);
         Ok(())
     }

@@ -5,6 +5,8 @@ use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::dtype::FieldNames;
@@ -31,6 +33,7 @@ impl FlatLayoutFixture for FoRFixture {
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let clustered_i32: PrimitiveArray = (0..N as i32).map(|i| 1_000_000 + (i % 100)).collect();
         let clustered_u64: PrimitiveArray =
             (0..N as u64).map(|i| 10_000_000_000 + (i % 256)).collect();
@@ -69,16 +72,16 @@ impl FlatLayoutFixture for FoRFixture {
                 "near_max_u64",
             ]),
             vec![
-                FoR::encode(clustered_i32)?.into_array(),
-                FoR::encode(clustered_u64)?.into_array(),
-                FoR::encode(clustered_i64)?.into_array(),
-                FoR::encode(negative_i32)?.into_array(),
-                FoR::encode(nullable_i32)?.into_array(),
-                FoR::encode(clustered_i16)?.into_array(),
-                FoR::encode(constant_offsets)?.into_array(),
-                FoR::encode(zero_crossing_i32)?.into_array(),
-                FoR::encode(far_outlier_i64)?.into_array(),
-                FoR::encode(near_max_u64)?.into_array(),
+                FoR::encode(clustered_i32, &mut ctx)?.into_array(),
+                FoR::encode(clustered_u64, &mut ctx)?.into_array(),
+                FoR::encode(clustered_i64, &mut ctx)?.into_array(),
+                FoR::encode(negative_i32, &mut ctx)?.into_array(),
+                FoR::encode(nullable_i32, &mut ctx)?.into_array(),
+                FoR::encode(clustered_i16, &mut ctx)?.into_array(),
+                FoR::encode(constant_offsets, &mut ctx)?.into_array(),
+                FoR::encode(zero_crossing_i32, &mut ctx)?.into_array(),
+                FoR::encode(far_outlier_i64, &mut ctx)?.into_array(),
+                FoR::encode(near_max_u64, &mut ctx)?.into_array(),
             ],
             N,
             Validity::NonNullable,

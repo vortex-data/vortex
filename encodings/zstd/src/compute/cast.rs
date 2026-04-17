@@ -88,8 +88,8 @@ impl CastReduce for Zstd {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
@@ -99,66 +99,68 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
     use crate::Zstd;
 
     #[test]
-    fn test_cast_zstd_i32_to_i64() {
+    fn test_cast_zstd_i32_to_i64() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
-        let zstd = Zstd::from_primitive(&values, 0, 0).unwrap();
+        let zstd = Zstd::from_primitive(&values, 0, 0, &mut ctx)?;
 
         let casted = zstd
             .into_array()
-            .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
-            .unwrap();
+            .cast(DType::Primitive(PType::I64, Nullability::NonNullable))?;
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::I64, Nullability::NonNullable)
         );
 
-        #[expect(deprecated)]
-        let decoded = casted.to_primitive();
+        let decoded = casted.execute::<PrimitiveArray>(&mut ctx)?;
         assert_arrays_eq!(decoded, PrimitiveArray::from_iter([1i64, 2, 3, 4, 5]));
+        Ok(())
     }
 
     #[test]
-    fn test_cast_zstd_nullability_change() {
+    fn test_cast_zstd_nullability_change() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_iter([10u32, 20, 30, 40]);
-        let zstd = Zstd::from_primitive(&values, 0, 0).unwrap();
+        let zstd = Zstd::from_primitive(&values, 0, 0, &mut ctx)?;
 
         let casted = zstd
             .into_array()
-            .cast(DType::Primitive(PType::U32, Nullability::Nullable))
-            .unwrap();
+            .cast(DType::Primitive(PType::U32, Nullability::Nullable))?;
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::Nullable)
         );
+        Ok(())
     }
 
     #[test]
-    fn test_cast_sliced_zstd_nullable_to_nonnullable() {
+    fn test_cast_sliced_zstd_nullable_to_nonnullable() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = PrimitiveArray::new(
             buffer![10u32, 20, 30, 40, 50, 60],
             Validity::from_iter([true, true, true, true, true, true]),
         );
-        let zstd = Zstd::from_primitive(&values, 0, 128).unwrap();
-        let sliced = zstd.slice(1..5).unwrap();
-        let casted = sliced
-            .cast(DType::Primitive(PType::U32, Nullability::NonNullable))
-            .unwrap();
+        let zstd = Zstd::from_primitive(&values, 0, 128, &mut ctx)?;
+        let sliced = zstd.slice(1..5)?;
+        let casted = sliced.cast(DType::Primitive(PType::U32, Nullability::NonNullable))?;
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::NonNullable)
         );
         // Verify the values are correct
-        #[expect(deprecated)]
-        let decoded = casted.to_primitive();
+        let decoded = casted.execute::<PrimitiveArray>(&mut ctx)?;
         assert_arrays_eq!(decoded, PrimitiveArray::from_iter([20u32, 30, 40, 50]));
+        Ok(())
     }
 
     #[test]
-    fn test_cast_sliced_zstd_part_valid_to_nonnullable() {
+    fn test_cast_sliced_zstd_part_valid_to_nonnullable() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_option_iter([
             None,
             Some(20u32),
@@ -167,19 +169,17 @@ mod tests {
             Some(50),
             Some(60),
         ]);
-        let zstd = Zstd::from_primitive(&values, 0, 128).unwrap();
-        let sliced = zstd.slice(1..5).unwrap();
-        let casted = sliced
-            .cast(DType::Primitive(PType::U32, Nullability::NonNullable))
-            .unwrap();
+        let zstd = Zstd::from_primitive(&values, 0, 128, &mut ctx)?;
+        let sliced = zstd.slice(1..5)?;
+        let casted = sliced.cast(DType::Primitive(PType::U32, Nullability::NonNullable))?;
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::NonNullable)
         );
-        #[expect(deprecated)]
-        let decoded = casted.to_primitive();
+        let decoded = casted.execute::<PrimitiveArray>(&mut ctx)?;
         let expected = PrimitiveArray::from_iter([20u32, 30, 40, 50]);
         assert_arrays_eq!(decoded, expected);
+        Ok(())
     }
 
     #[rstest]
@@ -199,8 +199,10 @@ mod tests {
         buffer![0u32..1000],
         Validity::NonNullable,
     ))]
-    fn test_cast_zstd_conformance(#[case] values: PrimitiveArray) {
-        let zstd = Zstd::from_primitive(&values, 0, 0).unwrap();
+    fn test_cast_zstd_conformance(#[case] values: PrimitiveArray) -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let zstd = Zstd::from_primitive(&values, 0, 0, &mut ctx)?;
         test_cast_conformance(&zstd.into_array());
+        Ok(())
     }
 }

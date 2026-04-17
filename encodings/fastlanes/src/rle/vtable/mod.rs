@@ -244,8 +244,11 @@ impl RLE {
     }
 
     /// Encode a primitive array using FastLanes RLE.
-    pub fn encode(array: ArrayView<'_, Primitive>) -> VortexResult<RLEArray> {
-        RLEData::encode(array)
+    pub fn encode(
+        array: ArrayView<'_, Primitive>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<RLEArray> {
+        RLEData::encode(array, ctx)
     }
 }
 

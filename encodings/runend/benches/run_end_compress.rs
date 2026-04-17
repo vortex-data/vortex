@@ -47,8 +47,8 @@ fn compress(bencher: Bencher, (length, run_step): (usize, usize)) {
     );
 
     bencher
-        .with_inputs(|| &values)
-        .bench_refs(|values| runend_encode(values.as_view()));
+        .with_inputs(|| (&values, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(values, ctx)| runend_encode(values.as_view(), ctx).unwrap());
 }
 
 #[divan::bench(types = [u8, u16, u32, u64], args = BENCH_ARGS)]
@@ -88,7 +88,8 @@ fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
     );
 
     let source_array = PrimitiveArray::from_iter(0..(length as i32)).into_array();
-    let (ends, values) = runend_encode(values.as_view());
+    let (ends, values) =
+        runend_encode(values.as_view(), &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
     let runend_array = RunEnd::try_new(ends.into_array(), values)
         .unwrap()
         .into_array();

@@ -179,6 +179,8 @@ fn is_constant_zero(array: &ArrayRef) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
@@ -200,6 +202,7 @@ mod tests {
 
     /// Create a DTP array with the given day values (all at midnight).
     fn dtp_at_midnight(days: &[i64], time_unit: TimeUnit) -> DateTimePartsArray {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let multiplier = match time_unit {
             TimeUnit::Seconds => 1,
             TimeUnit::Milliseconds => 1_000,
@@ -217,7 +220,7 @@ mod tests {
             time_unit,
             None,
         );
-        DateTimeParts::try_from_temporal(temporal)
+        DateTimeParts::try_from_temporal(temporal, &mut ctx)
             .vortex_expect("TemporalArray must produce valid DateTimeParts")
     }
 
@@ -338,6 +341,7 @@ mod tests {
 
     #[test]
     fn test_no_pushdown_non_zero_dtp_seconds() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create a DTP with non-zero seconds (not at midnight)
         let timestamps: Buffer<i64> = vec![
             3600,                       // day 0 + 1 hour
@@ -350,7 +354,7 @@ mod tests {
             TimeUnit::Seconds,
             None,
         );
-        let dtp = DateTimeParts::try_from_temporal(temporal).unwrap();
+        let dtp = DateTimeParts::try_from_temporal(temporal, &mut ctx).unwrap();
         let len = dtp.len();
 
         // Compare against midnight constant

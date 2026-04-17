@@ -28,17 +28,19 @@ impl CastReduce for ALPRD {
                     .with_nullability(dtype.nullability()),
             )?;
 
-            return Ok(Some(
-                ALPRD::try_new(
+            // SAFETY: patches carried over from an already-validated ALPRDArray are
+            // already canonical, so we can skip re-canonicalization.
+            return Ok(Some(unsafe {
+                ALPRD::new_unchecked(
                     dtype.clone(),
                     new_left_parts,
                     array.left_parts_dictionary().clone(),
                     array.right_parts().clone(),
                     array.right_bit_width(),
                     array.left_parts_patches(),
-                )?
-                .into_array(),
-            ));
+                )
+                .into_array()
+            }));
         }
 
         // For other casts (e.g., f32 to f64), decode to canonical and let PrimitiveArray handle it
@@ -50,19 +52,21 @@ impl CastReduce for ALPRD {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_error::VortexResult;
 
     use crate::RDEncoder;
 
     #[test]
-    fn test_cast_alprd_f32_to_f64() {
+    fn test_cast_alprd_f32_to_f64() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = vec![1.0f32, 1.1, 1.2, 1.3, 1.4];
         let arr = PrimitiveArray::from_iter(values.clone());
         let encoder = RDEncoder::new(&values);
@@ -70,19 +74,18 @@ mod tests {
 
         let casted = alprd
             .into_array()
-            .cast(DType::Primitive(PType::F64, Nullability::NonNullable))
-            .unwrap();
+            .cast(DType::Primitive(PType::F64, Nullability::NonNullable))?;
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::F64, Nullability::NonNullable)
         );
 
-        #[expect(deprecated)]
-        let decoded = casted.to_primitive();
+        let decoded = casted.execute::<PrimitiveArray>(&mut ctx)?;
         let f64_values = decoded.as_slice::<f64>();
         assert_eq!(f64_values.len(), 5);
         assert!((f64_values[0] - 1.0).abs() < f64::EPSILON);
         assert!((f64_values[1] - 1.1).abs() < 1e-6); // Use larger epsilon for f32->f64 conversion
+        Ok(())
     }
 
     #[test]

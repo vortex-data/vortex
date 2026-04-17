@@ -36,8 +36,6 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -48,68 +46,48 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
     use crate::RunEnd;
     use crate::RunEndArray;
 
     #[test]
-    fn test_cast_runend_i32_to_i64() {
+    fn test_cast_runend_i32_to_i64() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let runend = RunEnd::try_new(
             buffer![3u64, 5, 8, 10].into_array(),
             buffer![100i32, 200, 100, 300].into_array(),
-        )
-        .unwrap();
+        )?;
 
         let casted = runend
             .into_array()
-            .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
-            .unwrap();
+            .cast(DType::Primitive(PType::I64, Nullability::NonNullable))?;
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::I64, Nullability::NonNullable)
         );
 
         // Verify by decoding to canonical form
-        #[expect(deprecated)]
-        let decoded = casted.to_primitive();
+        let decoded = casted.execute::<PrimitiveArray>(&mut ctx)?;
         // RunEnd encoding should expand to [100, 100, 100, 200, 200, 100, 100, 100, 300, 300]
         assert_eq!(decoded.len(), 10);
         assert_eq!(
-            TryInto::<i64>::try_into(
-                &decoded
-                    .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-                    .unwrap()
-            )
-            .unwrap(),
+            TryInto::<i64>::try_into(&decoded.execute_scalar(0, &mut ctx)?)?,
             100i64
         );
         assert_eq!(
-            TryInto::<i64>::try_into(
-                &decoded
-                    .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
-                    .unwrap()
-            )
-            .unwrap(),
+            TryInto::<i64>::try_into(&decoded.execute_scalar(3, &mut ctx)?)?,
             200i64
         );
         assert_eq!(
-            TryInto::<i64>::try_into(
-                &decoded
-                    .execute_scalar(5, &mut LEGACY_SESSION.create_execution_ctx())
-                    .unwrap()
-            )
-            .unwrap(),
+            TryInto::<i64>::try_into(&decoded.execute_scalar(5, &mut ctx)?)?,
             100i64
         );
         assert_eq!(
-            TryInto::<i64>::try_into(
-                &decoded
-                    .execute_scalar(8, &mut LEGACY_SESSION.create_execution_ctx())
-                    .unwrap()
-            )
-            .unwrap(),
+            TryInto::<i64>::try_into(&decoded.execute_scalar(8, &mut ctx)?)?,
             300i64
         );
+        Ok(())
     }
 
     #[test]

@@ -178,24 +178,26 @@ fn filter_with_indices<T: NativePType + BitPacking>(
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray as _;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
     use crate::BitPackedData;
     use crate::bitpacking::array::BitPackedArrayExt;
 
     #[test]
-    fn take_indices() {
+    fn take_indices() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6, &mut ctx)?;
 
         let mask = Mask::from_indices(bitpacked.len(), vec![0, 125, 2047, 2049, 2151, 2790]);
 
@@ -204,69 +206,76 @@ mod test {
             primitive_result,
             PrimitiveArray::from_iter([0u8, 62, 31, 33, 9, 18])
         );
+        Ok(())
     }
 
     #[test]
-    fn take_sliced_indices() {
+    fn take_sliced_indices() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6, &mut ctx)?;
         let sliced = bitpacked.slice(128..2050).unwrap();
 
         let mask = Mask::from_indices(sliced.len(), vec![1919, 1921]);
 
         let primitive_result = sliced.filter(mask).unwrap();
         assert_arrays_eq!(primitive_result, PrimitiveArray::from_iter([31u8, 33]));
+        Ok(())
     }
 
     #[test]
-    fn filter_bitpacked() {
+    fn filter_bitpacked() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6, &mut ctx)?;
         let filtered = bitpacked
             .filter(Mask::from_indices(4096, (0..1024).collect()))
             .unwrap();
-        #[expect(deprecated)]
-        let filtered_prim = filtered.to_primitive();
+        let filtered_prim = filtered.execute::<PrimitiveArray>(&mut ctx)?;
         assert_arrays_eq!(
             filtered_prim,
             PrimitiveArray::from_iter((0..1024).map(|i| (i % 63) as u8))
         );
+        Ok(())
     }
 
     #[test]
-    fn filter_bitpacked_signed() {
+    fn filter_bitpacked_signed() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values: Buffer<i64> = (0..500).collect();
         let unpacked = PrimitiveArray::new(values.clone(), Validity::NonNullable);
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 9).unwrap();
-        #[expect(deprecated)]
+        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 9, &mut ctx)?;
         let filtered = bitpacked
             .filter(Mask::from_indices(values.len(), (0..250).collect()))
             .unwrap()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)?;
 
         assert_arrays_eq!(
             filtered,
             PrimitiveArray::from_iter(values[0..250].iter().copied())
         );
+        Ok(())
     }
 
     #[test]
-    fn test_filter_bitpacked_conformance() {
+    fn test_filter_bitpacked_conformance() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Test with u8 values
         let unpacked = buffer![1u8, 2, 3, 4, 5].into_array();
-        let bitpacked = BitPackedData::encode(&unpacked, 3).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked, 3, &mut ctx)?;
         test_filter_conformance(&bitpacked.into_array());
 
         // Test with u32 values
         let unpacked = buffer![100u32, 200, 300, 400, 500].into_array();
-        let bitpacked = BitPackedData::encode(&unpacked, 9).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked, 9, &mut ctx)?;
         test_filter_conformance(&bitpacked.into_array());
 
         // Test with nullable values
         let unpacked = PrimitiveArray::from_option_iter([Some(1u16), None, Some(3), Some(4), None]);
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 3).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 3, &mut ctx)?;
         test_filter_conformance(&bitpacked.into_array());
+        Ok(())
     }
 
     /// Regression test for signed integers with patches.
@@ -275,25 +284,26 @@ mod test {
     /// are stored with the signed type but FastLanes uses unsigned types internally.
     /// This test ensures that the type handling is correct.
     #[test]
-    fn filter_bitpacked_signed_with_patches() {
+    fn filter_bitpacked_signed_with_patches() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create signed integer values where some exceed the bit width (causing patches).
         // Values 0-127 fit in 7 bits, but 1000 and 2000 do not.
         let values: Vec<i32> = vec![0, 10, 1000, 20, 30, 2000, 40, 50, 60, 70];
         let unpacked = PrimitiveArray::from_iter(values.clone());
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 7).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 7, &mut ctx)?;
         assert!(
             bitpacked.patches().is_some(),
             "Expected patches for values exceeding bit width"
         );
 
         // Filter to include some patched and some non-patched values.
-        #[expect(deprecated)]
         let filtered = bitpacked
             .filter(Mask::from_indices(values.len(), vec![0, 2, 5, 9]))
             .unwrap()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)?;
 
         assert_arrays_eq!(filtered, PrimitiveArray::from_iter([0i32, 1000, 2000, 70]));
+        Ok(())
     }
 
     /// Regression test for signed integers with patches using low selectivity.
@@ -301,7 +311,8 @@ mod test {
     /// This test uses a low selectivity filter which takes a different code path
     /// that doesn't fully decompress the array first.
     #[test]
-    fn filter_bitpacked_signed_with_patches_low_selectivity() {
+    fn filter_bitpacked_signed_with_patches_low_selectivity() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create a larger array with signed integers and some patches.
         let values: Vec<i32> = (0..1000)
             .map(|i| {
@@ -313,7 +324,7 @@ mod test {
             })
             .collect();
         let unpacked = PrimitiveArray::from_iter(values.clone());
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 7).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 7, &mut ctx)?;
         assert!(
             bitpacked.patches().is_some(),
             "Expected patches for values exceeding bit width"
@@ -321,13 +332,13 @@ mod test {
 
         // Use low selectivity (only select 2% of values) to avoid full decompression.
         let indices: Vec<usize> = (0..20).collect();
-        #[expect(deprecated)]
         let filtered = bitpacked
             .filter(Mask::from_indices(values.len(), indices))
             .unwrap()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)?;
 
         let expected: Vec<i32> = values[0..20].to_vec();
         assert_arrays_eq!(filtered, PrimitiveArray::from_iter(expected));
+        Ok(())
     }
 }

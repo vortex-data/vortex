@@ -2,32 +2,33 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::patches::Patches;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 
 /// Compresses the given patches by downscaling integers and checking for constant values.
-pub fn compress_patches(patches: Patches) -> VortexResult<Patches> {
+pub fn compress_patches(patches: Patches, ctx: &mut ExecutionCtx) -> VortexResult<Patches> {
     // Downscale the patch indices.
-    #[expect(deprecated)]
-    let indices = patches.indices().to_primitive().narrow()?.into_array();
+    let indices = patches
+        .indices()
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?
+        .narrow()?
+        .into_array();
 
     // Check if the values are constant.
     let values = patches.values();
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let values = if values
         .statistics()
-        .compute_is_constant(&mut ctx)
+        .compute_is_constant(ctx)
         .unwrap_or_default()
     {
-        ConstantArray::new(values.execute_scalar(0, &mut ctx)?, values.len()).into_array()
+        ConstantArray::new(values.execute_scalar(0, ctx)?, values.len()).into_array()
     } else {
         values.clone()
     };
@@ -35,8 +36,11 @@ pub fn compress_patches(patches: Patches) -> VortexResult<Patches> {
         .chunk_offsets()
         .as_ref()
         .map(|offsets| {
-            #[expect(deprecated)]
-            let offsets_primitive = offsets.to_primitive().narrow()?.into_array();
+            let offsets_primitive = offsets
+                .clone()
+                .execute::<PrimitiveArray>(ctx)?
+                .narrow()?
+                .into_array();
             Ok::<ArrayRef, VortexError>(offsets_primitive)
         })
         .transpose()?;

@@ -46,9 +46,11 @@ impl CastReduce for DecimalByteParts {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::Canonical;
     use vortex_array::IntoArray;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
@@ -56,35 +58,36 @@ mod tests {
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::Nullability;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
     use crate::DecimalByteParts;
     use crate::DecimalBytePartsArray;
 
     #[test]
-    fn test_cast_decimal_byte_parts_nullability() {
+    fn test_cast_decimal_byte_parts_nullability() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(10, 2);
         let array =
-            DecimalByteParts::try_new(buffer![100i32, 200, 300, 400].into_array(), decimal_dtype)
-                .unwrap();
+            DecimalByteParts::try_new(buffer![100i32, 200, 300, 400].into_array(), decimal_dtype)?;
 
         // Cast to nullable decimal
         let casted = array
             .into_array()
-            .cast(DType::Decimal(decimal_dtype, Nullability::Nullable))
-            .unwrap();
+            .cast(DType::Decimal(decimal_dtype, Nullability::Nullable))?;
         assert_eq!(
             casted.dtype(),
             &DType::Decimal(decimal_dtype, Nullability::Nullable)
         );
 
         // Verify the values are preserved
-        #[expect(deprecated)]
-        let decoded = casted.to_decimal();
+        let decoded = casted.execute::<DecimalArray>(&mut ctx)?;
         assert_eq!(decoded.len(), 4);
+        Ok(())
     }
 
     #[test]
     fn test_cast_decimal_byte_parts_nullable_to_non_nullable() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(10, 2);
         let array = DecimalByteParts::try_new(
             PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
@@ -92,12 +95,11 @@ mod tests {
         )
         .unwrap();
 
-        // Cast to non-nullable should fail due to nulls - force evaluation via to_canonical
-        #[expect(deprecated)]
+        // Cast to non-nullable should fail due to nulls - force evaluation via execute
         let result = array
             .into_array()
             .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+            .and_then(|a| a.execute::<Canonical>(&mut ctx).map(|c| c.into_array()));
         assert!(result.is_err());
     }
 

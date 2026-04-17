@@ -130,9 +130,14 @@ fn bench_bitpacked_decompress_u32(bencher: Bencher) {
 
     let (uint_array, ..) = setup_primitive_arrays();
     let bit_width = 8;
-    let compressed = bitpack_encode(&uint_array, bit_width, None)
-        .unwrap()
-        .into_array();
+    let compressed = bitpack_encode(
+        &uint_array,
+        bit_width,
+        None,
+        &mut SESSION.create_execution_ctx(),
+    )
+    .unwrap()
+    .into_array();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
@@ -144,14 +149,15 @@ fn bench_runend_compress_u32(bencher: Bencher) {
     let (uint_array, ..) = setup_primitive_arrays();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
-        .with_inputs(|| uint_array.clone())
-        .bench_values(|a| RunEnd::encode(a.into_array()).unwrap());
+        .with_inputs(|| (uint_array.clone(), SESSION.create_execution_ctx()))
+        .bench_values(|(a, mut ctx)| RunEnd::encode(a.into_array(), &mut ctx).unwrap());
 }
 
 #[divan::bench(name = "runend_decompress_u32")]
 fn bench_runend_decompress_u32(bencher: Bencher) {
     let (uint_array, ..) = setup_primitive_arrays();
-    let compressed = RunEnd::encode(uint_array.into_array()).unwrap();
+    let mut ctx = SESSION.create_execution_ctx();
+    let compressed = RunEnd::encode(uint_array.into_array(), &mut ctx).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
@@ -188,14 +194,15 @@ fn bench_for_compress_i32(bencher: Bencher) {
     let (_, int_array, _) = setup_primitive_arrays();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
-        .with_inputs(|| int_array.clone())
-        .bench_values(|a| FoR::encode(a).unwrap());
+        .with_inputs(|| (int_array.clone(), SESSION.create_execution_ctx()))
+        .bench_values(|(a, mut ctx)| FoR::encode(a, &mut ctx).unwrap());
 }
 
 #[divan::bench(name = "for_decompress_i32")]
 fn bench_for_decompress_i32(bencher: Bencher) {
     let (_, int_array, _) = setup_primitive_arrays();
-    let compressed = FoR::encode(int_array).unwrap();
+    let mut ctx = SESSION.create_execution_ctx();
+    let compressed = FoR::encode(int_array, &mut ctx).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
@@ -321,14 +328,15 @@ fn bench_pcodec_compress_f64(bencher: Bencher) {
     let (_, _, float_array) = setup_primitive_arrays();
 
     with_byte_counter(bencher, NUM_VALUES * 8)
-        .with_inputs(|| &float_array)
-        .bench_refs(|a| Pco::from_primitive(a.as_view(), 3, 0).unwrap());
+        .with_inputs(|| (&float_array, SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| Pco::from_primitive(a.as_view(), 3, 0, ctx).unwrap());
 }
 
 #[divan::bench(name = "pcodec_decompress_f64")]
 fn bench_pcodec_decompress_f64(bencher: Bencher) {
     let (_, _, float_array) = setup_primitive_arrays();
-    let compressed = Pco::from_primitive(float_array.as_view(), 3, 0).unwrap();
+    let mut ctx = SESSION.create_execution_ctx();
+    let compressed = Pco::from_primitive(float_array.as_view(), 3, 0, &mut ctx).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 8)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
@@ -342,8 +350,8 @@ fn bench_zstd_compress_u32(bencher: Bencher) {
     let array = uint_array.into_array();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
-        .with_inputs(|| array.clone())
-        .bench_values(|a| ZstdData::from_array(a, 3, 8192).unwrap());
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
+        .bench_values(|(a, mut ctx)| ZstdData::from_array(a, 3, 8192, &mut ctx).unwrap());
 }
 
 #[cfg(feature = "zstd")]
@@ -352,9 +360,10 @@ fn bench_zstd_decompress_u32(bencher: Bencher) {
     let (uint_array, ..) = setup_primitive_arrays();
     let dtype = uint_array.dtype().clone();
     let validity = uint_array.validity().unwrap();
+    let mut ctx = SESSION.create_execution_ctx();
     let compressed = Zstd::try_new(
         dtype,
-        ZstdData::from_array(uint_array.into_array(), 3, 8192).unwrap(),
+        ZstdData::from_array(uint_array.into_array(), 3, 8192, &mut ctx).unwrap(),
         validity,
     )
     .unwrap()
@@ -428,8 +437,8 @@ fn bench_zstd_compress_string(bencher: Bencher) {
     let array = varbinview_arr.into_array();
 
     with_byte_counter(bencher, nbytes)
-        .with_inputs(|| array.clone())
-        .bench_values(|a| ZstdData::from_array(a, 3, 8192).unwrap());
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
+        .bench_values(|(a, mut ctx)| ZstdData::from_array(a, 3, 8192, &mut ctx).unwrap());
 }
 
 #[cfg(feature = "zstd")]
@@ -439,9 +448,10 @@ fn bench_zstd_decompress_string(bencher: Bencher) {
         VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
     let dtype = varbinview_arr.dtype().clone();
     let validity = varbinview_arr.validity().unwrap();
+    let mut ctx = SESSION.create_execution_ctx();
     let compressed = Zstd::try_new(
         dtype,
-        ZstdData::from_array(varbinview_arr.clone().into_array(), 3, 8192).unwrap(),
+        ZstdData::from_array(varbinview_arr.clone().into_array(), 3, 8192, &mut ctx).unwrap(),
         validity,
     )
     .unwrap()
