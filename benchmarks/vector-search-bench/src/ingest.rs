@@ -8,7 +8,9 @@
 //! 1. Project the `emb` column out of each struct chunk.
 //! 2. Rewrap the `emb` column as `Extension<Vector<f32, dim>>` via
 //!    [`vortex_bench::vector_dataset::list_to_vector_ext`].
-//! 3. Cast the FSL element buffer from `f64` -> `f32` if the source is `f64`. After this point all
+//! 3. Detect the FSL element ptype at runtime and cast `f64` -> `f32` when needed. Detection is
+//!    from the arrow schema rather than a catalog declaration so upstream parquets whose actual
+//!    precision disagrees with the catalog still ingest correctly. After this point all
 //!    downstream code (compression, scan, recall) is f32-only.
 //! 4. Optionally project the `scalar_labels` column through unchanged so future filtered-search
 //!    benchmarks have it without re-ingest.
@@ -39,48 +41,50 @@ use vortex_bench::vector_dataset::list_to_vector_ext;
 use vortex_tensor::vector::AnyVector;
 use vortex_tensor::vector::Vector;
 
-/// Configuration passed alongside each chunk so the transform can stay stateless.
-#[derive(Debug, Clone, Copy)]
-pub struct ChunkTransform {
-    /// Source element ptype as declared by the dataset catalog. Used purely to decide whether the
-    /// f64 -> f32 cast is needed.
-    pub src_ptype: PType,
-    // /// Whether to project the `scalar_labels` column through the output struct.
-    // pub include_scalar_labels: bool,
-}
+/// Apply the transform to a single struct chunk and return the rebuilt chunk.
+///
+/// `chunk` must be a non-chunked `Struct { id: i64, emb: List<f32> }`, where all of the list
+/// elements are
+///
+/// The returned array is always a `Struct { id: i64, emb: Vector<f32, dim> }`.
+pub fn transform_chunk(chunk: ArrayRef, ctx: &mut ExecutionCtx) -> Result<ArrayRef> {
+    let struct_view = chunk
+        .as_opt::<Struct>()
+        .with_context(|| format!("ingest: expected struct chunk, got dtype {}", chunk.dtype()))?;
 
-impl ChunkTransform {
-    /// Apply the transform to a single struct chunk and return the rebuilt chunk.
-    ///
-    /// `chunk` must be a non-chunked `Struct { id: i64, emb: List<f32> }`, where all of the list
-    /// elements are
-    ///
-    /// The returned array is always a `Struct { id: i64, emb: Vector<f32, dim> }`.
-    pub fn apply(&self, chunk: ArrayRef, ctx: &mut ExecutionCtx) -> Result<ArrayRef> {
-        let struct_view = chunk.as_opt::<Struct>().with_context(|| {
-            format!("ingest: expected struct chunk, got dtype {}", chunk.dtype())
-        })?;
+    let id = struct_view
+        .unmasked_field_by_name("id")
+        .context("ingest: chunk missing `id` column")?
+        .clone();
+    let emb = struct_view
+        .unmasked_field_by_name("emb")
+        .context("ingest: chunk missing `emb` column")?
+        .clone();
 
-        let id = struct_view
-            .unmasked_field_by_name("id")
-            .context("ingest: chunk missing `id` column")?
-            .clone();
-        let emb = struct_view
-            .unmasked_field_by_name("emb")
-            .context("ingest: chunk missing `emb` column")?
-            .clone();
+    let emb_ext: ExtensionArray = list_to_vector_ext(emb)?.execute(ctx)?;
 
-        let emb_ext: ExtensionArray = list_to_vector_ext(emb)?.execute(ctx)?;
+    // Detect the actual FSL element ptype from the extension storage dtype. The dataset catalog
+    // cannot be trusted here: at least one upstream parquet (`sift-medium-5m`) ships f64
+    // embeddings despite the catalog advertising f32.
+    let element_ptype = {
+        let storage_dtype = emb_ext.storage_array().dtype();
+        match storage_dtype {
+            DType::FixedSizeList(elem, ..) => match elem.as_ref() {
+                DType::Primitive(ptype, _) => *ptype,
+                other => bail!("ingest: expected primitive FSL element dtype, got {other}"),
+            },
+            other => bail!("ingest: expected FSL storage dtype, got {other}"),
+        }
+    };
 
-        let f32_vector_array = if self.src_ptype == PType::F64 {
-            convert_f64_to_f32_vectors(&emb_ext, ctx)?
-        } else {
-            emb_ext.into_array()
-        };
+    let f32_vector_array = match element_ptype {
+        PType::F32 => emb_ext.into_array(),
+        PType::F64 => convert_f64_to_f32_vectors(&emb_ext, ctx)?,
+        other => bail!("ingest: unsupported emb element ptype {other}, expected f32 or f64"),
+    };
 
-        let fields = [("id", id), ("emb", f32_vector_array)];
-        Ok(StructArray::from_fields(&fields)?.into_array())
-    }
+    let fields = [("id", id), ("emb", f32_vector_array)];
+    Ok(StructArray::from_fields(&fields)?.into_array())
 }
 
 /// Convert a `Vector<f64, dim>` extension array down to `Vector<f32, dim>`.
@@ -164,10 +168,7 @@ mod tests {
         let emb = list_chunk_f64(&[&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0]]);
         let chunk =
             StructArray::from_fields(&[("id", id_array(&[0, 1])), ("emb", emb)])?.into_array();
-        let transform = ChunkTransform {
-            src_ptype: PType::F64,
-        };
-        let out = transform.apply(chunk, &mut ctx)?;
+        let out = transform_chunk(chunk, &mut ctx)?;
         let out_struct = out.as_opt::<Struct>().expect("returns Struct");
         let out_emb = out_struct.unmasked_field_by_name("emb").unwrap().clone();
         let DType::Extension(ext) = out_emb.dtype() else {
@@ -207,10 +208,7 @@ mod tests {
         let chunk =
             StructArray::from_fields(&[("id", id_array(&[0, 1])), ("emb", emb)])?.into_array();
 
-        let transform = ChunkTransform {
-            src_ptype: PType::F32,
-        };
-        let out = transform.apply(chunk, &mut ctx)?;
+        let out = transform_chunk(chunk, &mut ctx)?;
         let out_struct = out.as_opt::<Struct>().expect("returns Struct");
         assert_eq!(out_struct.len(), 2);
         Ok(())
