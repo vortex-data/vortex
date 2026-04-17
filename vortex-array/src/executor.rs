@@ -122,7 +122,8 @@ impl ArrayRef {
                         return Ok(current);
                     }
                     Some((parent, slot_idx, _)) => {
-                        current = parent.with_slot(slot_idx, current)?.optimize()?;
+                        current =
+                            unsafe { parent.put_slot_unchecked(slot_idx, current)? }.optimize()?;
                         continue;
                     }
                 }
@@ -140,7 +141,8 @@ impl ArrayRef {
                 ));
                 current = rewritten.optimize()?;
                 if let Some((parent, slot_idx, _)) = stack.pop() {
-                    current = parent.with_slot(slot_idx, current)?.optimize()?;
+                    current =
+                        unsafe { parent.put_slot_unchecked(slot_idx, current)? }.optimize()?;
                 }
                 continue;
             }
@@ -151,13 +153,14 @@ impl ArrayRef {
             match step {
                 ExecutionStep::ExecuteSlot(i, done) => {
                     let child = array.slots()[i]
-                        .clone()
+                        .as_ref()
                         .vortex_expect("ExecuteSlot index in bounds");
                     ctx.log(format_args!(
                         "ExecuteSlot({i}): pushing {}, focusing on {}",
                         array, child
                     ));
-                    stack.push((array, i, done));
+                    let (parent, child) = unsafe { array.take_slot_unchecked(i)? };
+                    stack.push((parent, i, done));
                     current = child.optimize()?;
                 }
                 ExecutionStep::Done => {
@@ -327,9 +330,9 @@ impl Executable for ArrayRef {
             ExecutionStep::ExecuteSlot(i, _) => {
                 // For single-step execution, handle ExecuteSlot by executing the slot,
                 // replacing it, and returning the updated array.
-                let child = array.slots()[i].clone().vortex_expect("valid slot index");
+                let (array, child) = unsafe { array.take_slot_unchecked(i)? };
                 let executed_child = child.execute::<ArrayRef>(ctx)?;
-                array.with_slot(i, executed_child)
+                unsafe { array.put_slot_unchecked(i, executed_child) }
             }
         }
     }
