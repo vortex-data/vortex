@@ -84,7 +84,7 @@ pub struct MultiLayoutDataSource {
     concurrency: usize,
 }
 
-enum MultiLayoutChild {
+pub enum MultiLayoutChild {
     Opened(LayoutReaderRef),
     Deferred(Arc<dyn LayoutReaderFactory>),
 }
@@ -139,6 +139,10 @@ impl MultiLayoutDataSource {
                 .collect(),
             concurrency,
         }
+    }
+
+    pub fn children(&self) -> &Vec<MultiLayoutChild> {
+        &self.children
     }
 
     /// Sets the concurrency for opening deferred readers.

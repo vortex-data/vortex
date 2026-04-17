@@ -26,6 +26,7 @@ use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex::array::optimizer::ArrayOptimizer;
+use vortex::array::stats::StatsSet;
 use vortex::dtype::DType;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexExpect;
@@ -37,23 +38,31 @@ use vortex::expr::col;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::expr::stats::Precision;
+use vortex::expr::stats::Stat;
+use vortex::file::v2::FileStatsLayoutReader;
 use vortex::io::kanal_ext::KanalExt;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::ThreadSafeIterator;
+use vortex::layout::scan::multi::MultiLayoutChild;
+use vortex::layout::scan::multi::MultiLayoutDataSource;
 use vortex::metrics::tracing::get_global_labels;
+use vortex::scalar::Scalar;
+use vortex::scalar::ScalarValue;
 use vortex::scalar_fn::fns::pack::Pack;
-use vortex::scan::DataSourceRef;
+use vortex::scan::DataSource;
 use vortex::scan::ScanRequest;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::RUNTIME;
 use crate::SESSION;
+use crate::convert::ToDuckDBScalar;
 use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_table_filter;
 use crate::duckdb::BindInputRef;
 use crate::duckdb::BindResultRef;
 use crate::duckdb::Cardinality;
 use crate::duckdb::ClientContextRef;
+use crate::duckdb::ColumnStatistics;
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::ExpressionRef;
 use crate::duckdb::LogicalType;
@@ -97,15 +106,21 @@ pub(crate) trait DataSourceTableFunction: Sized + Debug {
     }
 
     /// Bind the table function and return a [`DataSourceRef`].
-    fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<DataSourceRef>;
+    fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<MultiLayoutDataSource>;
+}
+
+#[derive(Debug, Clone)]
+struct DuckdbField {
+    name: String,
+    logical_type: LogicalType,
+    dtype: DType,
 }
 
 /// Bind data produced by a [`DataSourceTableFunction`].
 pub struct DataSourceBindData {
-    data_source: DataSourceRef,
+    data_source: Arc<MultiLayoutDataSource>,
     filter_exprs: Vec<Expression>,
-    column_names: Vec<String>,
-    column_types: Vec<LogicalType>,
+    column_fields: Vec<DuckdbField>,
 }
 
 impl Clone for DataSourceBindData {
@@ -114,8 +129,7 @@ impl Clone for DataSourceBindData {
             data_source: Arc::clone(&self.data_source),
             // filter_exprs are consumed once in `init_global`.
             filter_exprs: vec![],
-            column_names: self.column_names.clone(),
-            column_types: self.column_types.clone(),
+            column_fields: self.column_fields.clone(),
         }
     }
 }
@@ -123,8 +137,7 @@ impl Clone for DataSourceBindData {
 impl Debug for DataSourceBindData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DataSourceBindData")
-            .field("column_names", &self.column_names)
-            .field("column_types", &self.column_types)
+            .field("column_fields", &self.column_fields)
             .field(
                 "filter_exprs",
                 &self
@@ -163,6 +176,83 @@ fn progress(bytes_read: &AtomicU64, bytes_total: &AtomicU64) -> f64 {
     read as f64 / total as f64 * 100.
 }
 
+impl ColumnStatistics {
+    fn from(stats: &ColumnStatisticsAggregate, dtype: DType) -> Self {
+        let min = stats.min.as_ref().map(|value| {
+            let value = value.clone();
+            Scalar::try_new(dtype.clone(), Some(value))
+                .vortex_expect("scalar dtype and value are incompatible")
+                .try_to_duckdb_scalar()
+                .vortex_expect("can't convert Scalar to duckdb Value")
+        });
+        let max = stats.max.as_ref().map(|value| {
+            Scalar::try_new(dtype.clone(), Some(value.clone()))
+                .vortex_expect("scalar dtype and value are incompatible")
+                .try_to_duckdb_scalar()
+                .vortex_expect("can't convert Scalar to duckdb Value")
+        });
+
+        let max_string_length = stats
+            .max_string_length
+            .map_or(0, |len| (1u64 << 63) | (len as u64));
+
+        // Useful estimate if we didn't get null count stats
+        let has_null = stats.has_null && dtype.is_nullable();
+
+        Self {
+            min,
+            max,
+            max_string_length,
+            has_null,
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct ColumnStatisticsAggregate {
+    pub min: Option<ScalarValue>,
+    pub max: Option<ScalarValue>,
+    pub max_string_length: Option<u32>,
+    /// May be true if null count stat isn't present
+    pub has_null: bool,
+}
+
+impl ColumnStatisticsAggregate {
+    pub fn new(stats: &StatsSet) -> Self {
+        let min = match stats.get(Stat::Min) {
+            Some(Precision::Exact(min)) => Some(min),
+            _ => None,
+        };
+        let max = match stats.get(Stat::Max) {
+            Some(Precision::Exact(max)) => Some(max),
+            _ => None,
+        };
+
+        let max_string_length =
+            if let Some(Precision::Exact(value)) = stats.get(Stat::UncompressedSizeInBytes) {
+                // DuckDB's string length is u32
+                #[allow(clippy::cast_possible_truncation)]
+                Some(value.as_primitive().as_u64().vortex_expect("not a u64") as u32)
+            } else {
+                None
+            };
+
+        let has_null = match stats.get(Stat::NullCount) {
+            Some(Precision::Exact(cnt)) => {
+                cnt.as_primitive().as_u64().vortex_expect("not a u64") > 0
+            }
+            _ => true,
+        };
+
+        Self {
+            min,
+            max,
+            max_string_length,
+            has_null,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Blanket TableFunction implementation for any DataSourceTableFunction
 // ---------------------------------------------------------------------------
@@ -190,18 +280,14 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         result: &mut BindResultRef,
     ) -> VortexResult<Self::BindData> {
         let data_source = T::bind(ctx, input)?;
-
-        let (column_names, column_types) = extract_schema_from_dtype(data_source.dtype())?;
-
-        for (column_name, column_type) in column_names.iter().zip(&column_types) {
-            result.add_result_column(column_name, column_type);
+        let column_fields = extract_schema_from_dtype(data_source.dtype())?;
+        for fields in &column_fields {
+            result.add_result_column(&fields.name, &fields.logical_type);
         }
-
         Ok(DataSourceBindData {
-            data_source,
+            data_source: Arc::new(data_source),
             filter_exprs: vec![],
-            column_names,
-            column_types,
+            column_fields,
         })
     }
 
@@ -213,11 +299,11 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         let projection_ids = init_input.projection_ids();
 
         let projection_expr =
-            extract_projection_expr(projection_ids, column_ids, &bind_data.column_names);
+            extract_projection_expr(projection_ids, column_ids, &bind_data.column_fields);
         let filter_expr = extract_table_filter_expr(
             init_input.table_filter_set(),
             column_ids,
-            &bind_data.column_names,
+            &bind_data.column_fields,
             &bind_data.filter_exprs,
             bind_data.data_source.dtype(),
         )?;
@@ -412,6 +498,33 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         Ok(false)
     }
 
+    /// Get column-wise statistics. Available only if we're reading a single
+    /// file.
+    fn statistics(
+        _client_context: &ClientContextRef,
+        bind_data: &Self::BindData,
+        column_index: usize,
+    ) -> Option<ColumnStatistics> {
+        let children = bind_data.data_source.children();
+        // Otherwise we'd have to open all files eagerly which is a performance
+        // regression. Duckdb's Parquet reader only gets metadata for multiple
+        // files with a UNION BY NAME and we don't support it (yet)
+        // https://github.com/duckdb/duckdb/blob/471de9f0e0e157ae672e56710e8c43b132a5ddc4/src/include/duckdb/common/multi_file/multi_file_function.hpp#L691
+        if children.len() != 1 {
+            return None;
+        }
+        let MultiLayoutChild::Opened(ref reader) = children[0] else {
+            return None;
+        };
+        let stats_sets = match reader.as_any().downcast_ref::<FileStatsLayoutReader>() {
+            Some(inner) => inner.file_stats().stats_sets(),
+            None => return None,
+        };
+        let stats_aggregate = ColumnStatisticsAggregate::new(&stats_sets[column_index]);
+        let dtype = bind_data.column_fields[column_index].dtype.clone();
+        Some(ColumnStatistics::from(&stats_aggregate, dtype))
+    }
+
     fn cardinality(bind_data: &Self::BindData) -> Cardinality {
         match bind_data.data_source.row_count() {
             Some(Precision::Exact(v)) => Cardinality::Maximum(v),
@@ -453,28 +566,30 @@ impl<T: DataSourceTableFunction> TableFunction for T {
 // ---------------------------------------------------------------------------
 
 /// Extracts DuckDB column names and logical types from a Vortex struct DType.
-fn extract_schema_from_dtype(dtype: &DType) -> VortexResult<(Vec<String>, Vec<LogicalType>)> {
+fn extract_schema_from_dtype(dtype: &DType) -> VortexResult<Vec<DuckdbField>> {
     let struct_dtype = dtype
         .as_struct_fields_opt()
         .ok_or_else(|| vortex_err!("Vortex file must contain a struct array at the top level"))?;
 
-    let mut column_names = Vec::new();
-    let mut column_types = Vec::new();
+    let len = struct_dtype.names().len();
+    let mut fields = Vec::with_capacity(len);
 
     for (field_name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
         let logical_type = LogicalType::try_from(&field_dtype)?;
-        column_names.push(field_name.to_string());
-        column_types.push(logical_type);
+        fields.push(DuckdbField {
+            name: field_name.to_string(),
+            logical_type,
+            dtype: field_dtype,
+        });
     }
-
-    Ok((column_names, column_types))
+    Ok(fields)
 }
 
 /// Creates a projection expression from raw projection/column ID slices and column names.
 fn extract_projection_expr(
     projection_ids: Option<&[u64]>,
     column_ids: &[u64],
-    column_names: &[String],
+    column_fields: &[DuckdbField],
 ) -> Expression {
     // Projection ids may be empty, in which case you need to use projection_ids
     // https://github.com/duckdb/duckdb/blob/6e211da91657a94803c465fd0ce585f4c6754b54/src/planner/operator/logical_get.cpp#L168
@@ -494,9 +609,10 @@ fn extract_projection_expr(
             }
 
             #[expect(clippy::cast_possible_truncation)]
-            column_names
+            &column_fields
                 .get(*idx as usize)
                 .vortex_expect("prune idx in column names")
+                .name
         })
         .map(|s| Arc::from(s.as_str()))
         .collect::<FieldNames>();
@@ -509,7 +625,7 @@ fn extract_projection_expr(
 fn extract_table_filter_expr(
     table_filter_set: Option<&TableFilterSetRef>,
     column_ids: &[u64],
-    column_names: &[String],
+    column_fields: &[DuckdbField],
     additional_filters: &[Expression],
     dtype: &DType,
 ) -> VortexResult<Option<Expression>> {
@@ -519,7 +635,7 @@ fn extract_table_filter_expr(
             .map(|(idx, ex)| {
                 let idx_u: usize = idx.as_();
                 let col_idx: usize = column_ids[idx_u].as_();
-                let name = column_names.get(col_idx).vortex_expect("exists");
+                let name = &column_fields.get(col_idx).vortex_expect("exists").name;
                 try_from_table_filter(ex, &col(name.as_str()), dtype)
             })
             .collect::<VortexResult<Option<HashSet<_>>>>()?

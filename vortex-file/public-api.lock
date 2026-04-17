@@ -6,7 +6,7 @@ pub struct vortex_file::multi::MultiFileDataSource
 
 impl vortex_file::multi::MultiFileDataSource
 
-pub async fn vortex_file::multi::MultiFileDataSource::build(self) -> vortex_error::VortexResult<impl vortex_scan::DataSource>
+pub async fn vortex_file::multi::MultiFileDataSource::build(self) -> vortex_error::VortexResult<vortex_layout::scan::multi::MultiLayoutDataSource>
 
 pub fn vortex_file::multi::MultiFileDataSource::new(session: vortex_session::VortexSession) -> Self
 
@@ -68,6 +68,8 @@ pub struct vortex_file::v2::FileStatsLayoutReader
 
 impl vortex_file::v2::FileStatsLayoutReader
 
+pub fn vortex_file::v2::FileStatsLayoutReader::file_stats(&self) -> &vortex_file::FileStatistics
+
 pub fn vortex_file::v2::FileStatsLayoutReader::new(child: vortex_layout::reader::LayoutReaderRef, file_stats: vortex_file::FileStatistics, session: vortex_session::VortexSession) -> Self
 
 impl vortex_array::expr::pruning::StatsCatalog for vortex_file::v2::FileStatsLayoutReader
@@ -75,6 +77,8 @@ impl vortex_array::expr::pruning::StatsCatalog for vortex_file::v2::FileStatsLay
 pub fn vortex_file::v2::FileStatsLayoutReader::stats_ref(&self, field_path: &vortex_array::dtype::field::FieldPath, stat: vortex_array::expr::stats::Stat) -> core::option::Option<vortex_array::expr::expression::Expression>
 
 impl vortex_layout::reader::LayoutReader for vortex_file::v2::FileStatsLayoutReader
+
+pub fn vortex_file::v2::FileStatsLayoutReader::as_any(&self) -> &dyn core::any::Any
 
 pub fn vortex_file::v2::FileStatsLayoutReader::dtype(&self) -> &vortex_array::dtype::DType
 

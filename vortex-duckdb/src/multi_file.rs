@@ -13,7 +13,7 @@ use vortex::error::vortex_err;
 use vortex::file::multi::MultiFileDataSource;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::scan::DataSourceRef;
+use vortex::layout::scan::multi::MultiLayoutDataSource;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::RUNTIME;
@@ -76,7 +76,7 @@ impl DataSourceTableFunction for VortexMultiFileScan {
         vec![LogicalType::varchar()]
     }
 
-    fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<DataSourceRef> {
+    fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<MultiLayoutDataSource> {
         bind_multi_file_scan(ctx, input)
     }
 }
@@ -89,7 +89,7 @@ impl DataSourceTableFunction for VortexMultiFileScanList {
         ]
     }
 
-    fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<DataSourceRef> {
+    fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<MultiLayoutDataSource> {
         bind_multi_file_scan(ctx, input)
     }
 }
@@ -98,7 +98,7 @@ impl DataSourceTableFunction for VortexMultiFileScanList {
 fn bind_multi_file_scan(
     ctx: &ClientContextRef,
     input: &BindInputRef,
-) -> VortexResult<DataSourceRef> {
+) -> VortexResult<MultiLayoutDataSource> {
     let glob_url_parameter = input
         .get_parameter(0)
         .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
@@ -151,8 +151,7 @@ fn bind_multi_file_scan(
             builder = builder.with_glob(glob_url.path(), Some(fs));
         }
 
-        let ds = builder.build().await?;
-        Ok(Arc::new(ds) as DataSourceRef)
+        builder.build().await
     })
 }
 
