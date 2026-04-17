@@ -4,9 +4,8 @@
 use std::marker::PhantomData;
 
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::BoolBuilder;
@@ -71,9 +70,11 @@ pub struct NamedArrays {
 }
 
 impl NamedArrays {
-    pub fn all_invalid(&self) -> VortexResult<bool> {
+    /// Returns `true` if the first array (by convention the one we treat as the logical
+    /// validity) has no valid values.
+    pub fn all_invalid(&self, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
         // by convention we assume that the first array is the one we care about for logical validity
-        self.arrays[0].all_invalid(&mut LEGACY_SESSION.create_execution_ctx())
+        self.arrays[0].all_invalid(ctx)
     }
 }
 

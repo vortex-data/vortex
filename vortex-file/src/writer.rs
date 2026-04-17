@@ -17,6 +17,7 @@ use futures::select;
 use itertools::Itertools;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
+use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
 use vortex_array::expr::stats::Stat;
 use vortex_array::iter::ArrayIterator;
@@ -165,6 +166,7 @@ impl VortexWriteOptions {
             stream,
             self.file_statistics.clone().into(),
             self.max_variable_length_statistics_size,
+            self.session.clone(),
         );
 
         // First, write the magic bytes.
@@ -216,7 +218,9 @@ impl VortexWriteOptions {
                 None
             } else {
                 Some(FileStatistics::new_with_dtype(
-                    file_stats.stats_sets().into(),
+                    file_stats
+                        .stats_sets(&mut self.session.create_execution_ctx())
+                        .into(),
                     &dtype,
                 ))
             },

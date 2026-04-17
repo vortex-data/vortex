@@ -402,13 +402,13 @@ pub struct vortex_layout::layouts::file_stats::FileStatsAccumulator
 
 impl vortex_layout::layouts::file_stats::FileStatsAccumulator
 
-pub fn vortex_layout::layouts::file_stats::FileStatsAccumulator::stats_sets(&self) -> alloc::vec::Vec<vortex_array::stats::stats_set::StatsSet>
+pub fn vortex_layout::layouts::file_stats::FileStatsAccumulator::stats_sets(&self, ctx: &mut vortex_array::executor::ExecutionCtx) -> alloc::vec::Vec<vortex_array::stats::stats_set::StatsSet>
 
 impl core::clone::Clone for vortex_layout::layouts::file_stats::FileStatsAccumulator
 
 pub fn vortex_layout::layouts::file_stats::FileStatsAccumulator::clone(&self) -> vortex_layout::layouts::file_stats::FileStatsAccumulator
 
-pub fn vortex_layout::layouts::file_stats::accumulate_stats(stream: vortex_layout::sequence::SendableSequentialStream, stats: alloc::sync::Arc<[vortex_array::expr::stats::Stat]>, max_variable_length_statistics_size: usize) -> (vortex_layout::layouts::file_stats::FileStatsAccumulator, vortex_layout::sequence::SendableSequentialStream)
+pub fn vortex_layout::layouts::file_stats::accumulate_stats(stream: vortex_layout::sequence::SendableSequentialStream, stats: alloc::sync::Arc<[vortex_array::expr::stats::Stat]>, max_variable_length_statistics_size: usize, session: vortex_session::VortexSession) -> (vortex_layout::layouts::file_stats::FileStatsAccumulator, vortex_layout::sequence::SendableSequentialStream)
 
 pub mod vortex_layout::layouts::flat
 
@@ -794,11 +794,11 @@ pub struct vortex_layout::layouts::zoned::zone_map::StatsAccumulator
 
 impl vortex_layout::layouts::zoned::zone_map::StatsAccumulator
 
-pub fn vortex_layout::layouts::zoned::zone_map::StatsAccumulator::as_stats_table(&mut self) -> vortex_error::VortexResult<core::option::Option<vortex_layout::layouts::zoned::zone_map::ZoneMap>>
+pub fn vortex_layout::layouts::zoned::zone_map::StatsAccumulator::as_stats_table(&mut self, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_layout::layouts::zoned::zone_map::ZoneMap>>
 
 pub fn vortex_layout::layouts::zoned::zone_map::StatsAccumulator::new(dtype: &vortex_array::dtype::DType, stats: &[vortex_array::expr::stats::Stat], max_variable_length_statistics_size: usize) -> Self
 
-pub fn vortex_layout::layouts::zoned::zone_map::StatsAccumulator::push_chunk(&mut self, array: &vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<()>
+pub fn vortex_layout::layouts::zoned::zone_map::StatsAccumulator::push_chunk(&mut self, array: &vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
 
 pub fn vortex_layout::layouts::zoned::zone_map::StatsAccumulator::push_chunk_without_compute(&mut self, array: &vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<()>
 
