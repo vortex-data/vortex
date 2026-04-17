@@ -6,7 +6,7 @@ For the upstream artifact generation, refresh pipeline, and table-to-table flow,
 [ETL.md](./ETL.md).
 
 The implementation lives primarily in [`store/sql.js`](./store/sql.js),
-[`store/metadata.js`](./store/metadata.js), and [`duckdb-store.js`](./duckdb-store.js).
+[`store/metadata.js`](./store/metadata.js), and [`store/benchmark-store.js`](./store/benchmark-store.js).
 For DuckDB's NDJSON reader semantics, see:
 <https://duckdb.org/docs/stable/data/json/loading_json>.
 
@@ -275,7 +275,7 @@ Summary sections are computed from SQL aggregates:
 
 ### `/api/data/:group/:chart`
 
-Built in [`duckdb-store.js`](./duckdb-store.js).
+Built in [`store/benchmark-store.js`](./store/benchmark-store.js).
 
 The query:
 
@@ -296,10 +296,3 @@ series_points (
 
 The server then serializes the commit slice, applies downsampling if needed, and returns
 `{ commits, series, requestedRange, downsampleLevel, ... }`.
-
-## Practical Notes
-
-- The stable fact table is `benchmark_points_active`.
-- `commit_idx` is a presentation index, not the original Git ordering key.
-- The website schema is intentionally lossy relative to the raw artifacts; it keeps only the
-  columns needed for grouping, charting, ordering, and summary computation.

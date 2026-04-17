@@ -1,10 +1,10 @@
 import { DuckDBInstance } from "@duckdb/node-api";
-import { prepareInputFiles } from "./store/cache.js";
-import { queryRows, withConnection } from "./store/db.js";
-import { downsample, downsampleLevel } from "./store/downsample.js";
-import { buildMetadata, collectDiagnostics } from "./store/metadata.js";
-import { buildBootstrapSql } from "./store/sql.js";
-import { firstLine } from "./store/utils.js";
+import { prepareInputFiles } from "./cache.js";
+import { queryRows, withConnection } from "./db.js";
+import { downsample, downsampleLevel } from "./downsample.js";
+import { buildMetadata, collectDiagnostics } from "./metadata.js";
+import { buildBootstrapSql } from "./sql.js";
+import { firstLine } from "./utils.js";
 
 const CHART_RANGE_QUERY = `
   with requested_commits as (

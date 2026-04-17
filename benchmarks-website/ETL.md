@@ -1,8 +1,5 @@
 # Benchmark Website ETL
 
-This file describes how benchmark data is generated upstream and transformed into the normalized
-DuckDB schema used by the website.
-
 For the exact normalized table definitions, see [SCHEMA.md](./SCHEMA.md).
 
 ## Source Artifacts
@@ -57,7 +54,7 @@ Representative record:
   "author": { "email": "alice@example.com", "name": "Alice" },
   "committer": { "email": "alice@example.com", "name": "Alice" },
   "id": "abc123...",
-  "message": "Improve parquet scan planning",
+  "message": "Improve Vortex scan planning",
   "timestamp": "2026-04-17T09:41:52+00:00",
   "tree_id": "def456...",
   "url": "https://github.com/vortex-data/vortex/commit/abc123..."
