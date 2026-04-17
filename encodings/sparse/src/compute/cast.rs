@@ -60,7 +60,7 @@ mod tests {
             buffer![100i32, 200, 300].into_array(),
             10,
             Scalar::from(0i32),
-        )?;
+         &mut LEGACY_SESSION.create_execution_ctx())?;
 
         let casted = sparse
             .into_array()
@@ -83,7 +83,7 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(42i32), Some(84), Some(126)]).into_array(),
             8,
             Scalar::null_native::<i32>(),
-        )
+         &mut LEGACY_SESSION.create_execution_ctx())
         .unwrap();
 
         let casted = sparse
@@ -101,26 +101,22 @@ mod tests {
         buffer![2u64, 5, 8].into_array(),
         buffer![100i32, 200, 300].into_array(),
         10,
-        Scalar::from(0i32)
-    ).unwrap())]
+        Scalar::from(0i32), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
     #[case(Sparse::try_new(
         buffer![0u64, 4, 9].into_array(),
         buffer![1.5f32, 2.5, 3.5].into_array(),
         10,
-        Scalar::from(0.0f32)
-    ).unwrap())]
+        Scalar::from(0.0f32), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
     #[case(Sparse::try_new(
         buffer![1u64, 3, 7].into_array(),
         PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
         10,
-        Scalar::null_native::<i32>()
-    ).unwrap())]
+        Scalar::null_native::<i32>(), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
     #[case(Sparse::try_new(
         buffer![5u64].into_array(),
         buffer![42u8].into_array(),
         10,
-        Scalar::from(0u8)
-    ).unwrap())]
+        Scalar::from(0u8), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
     fn test_cast_sparse_conformance(#[case] array: SparseArray) {
         test_cast_conformance(&array.into_array());
     }
@@ -138,7 +134,7 @@ mod tests {
             buffer![10u64, 20, 30, 40, 50].into_array(),
             5,
             Scalar::null_native::<u64>(),
-        )?;
+         &mut LEGACY_SESSION.create_execution_ctx())?;
 
         let casted = sparse
             .into_array()
@@ -165,7 +161,7 @@ mod tests {
             buffer![10u64, 20].into_array(),
             5,
             Scalar::null_native::<u64>(),
-        )?;
+         &mut LEGACY_SESSION.create_execution_ctx())?;
 
         let filled = sparse.into_array().fill_null(Scalar::from(0u64))?;
 

@@ -177,6 +177,7 @@ mod tests {
 
     #[test]
     fn test_basic() {
+        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
         let lhs = PrimitiveArray::from_iter(0u32..512).into_array();
         let patches = Patches::new(
             512,
@@ -184,10 +185,9 @@ mod tests {
             buffer![509u16, 510, 511].into_array(),
             buffer![u32::MAX; 3].into_array(),
             None,
+            &mut ctx,
         )
         .unwrap();
-
-        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
 
         let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)
             .unwrap()
@@ -210,6 +210,7 @@ mod tests {
 
     #[test]
     fn test_with_offset() {
+        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
         let lhs = PrimitiveArray::from_iter(0u32..512).into_array();
         let patches = Patches::new(
             512,
@@ -217,10 +218,9 @@ mod tests {
             buffer![5u16, 510, 511].into_array(),
             buffer![u32::MAX; 3].into_array(),
             None,
+            &mut ctx,
         )
         .unwrap();
-
-        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
 
         let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx).unwrap();
         // Slice the array so that the first patch should be skipped.
@@ -249,15 +249,16 @@ mod tests {
 
         let lhs = PrimitiveArray::from_iter((0..512).map(|i| i as f32)).into_array();
 
+        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
         let patches = Patches::new(
             512,
             0,
             buffer![509u16, 510, 511].into_array(),
             buffer![f32::NAN, subnormal, f32::NEG_INFINITY].into_array(),
             None,
+            &mut ctx,
         )?;
 
-        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
         let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)?
             .into_array()
             .try_downcast::<Patched>()
@@ -283,15 +284,16 @@ mod tests {
     fn test_pos_neg_zero() -> VortexResult<()> {
         let lhs = PrimitiveArray::from_iter([-0.0f32; 10]).into_array();
 
+        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
         let patches = Patches::new(
             10,
             0,
             buffer![5u16, 6, 7, 8, 9].into_array(),
             buffer![f32::NAN, f32::NEG_INFINITY, 0f32, -0.0f32, f32::INFINITY].into_array(),
             None,
+            &mut ctx,
         )?;
 
-        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
         let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)?
             .into_array()
             .try_downcast::<Patched>()

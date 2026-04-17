@@ -72,6 +72,9 @@ mod tests {
 
     #[test]
     fn test_simple() {
+        let session = VortexSession::empty();
+        let mut ctx = ExecutionCtx::new(session);
+
         let values = buffer![0u16; 1024].into_array();
         let patches = Patches::new(
             1024,
@@ -79,11 +82,9 @@ mod tests {
             buffer![1u32, 2, 3].into_array(),
             buffer![1u16; 3].into_array(),
             None,
+            &mut ctx,
         )
         .unwrap();
-
-        let session = VortexSession::empty();
-        let mut ctx = ExecutionCtx::new(session);
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -117,6 +118,9 @@ mod tests {
 
     #[test]
     fn test_multi_chunk() {
+        let session = VortexSession::empty();
+        let mut ctx = ExecutionCtx::new(session);
+
         let values = buffer![0u16; 4096].into_array();
         let patches = Patches::new(
             4096,
@@ -124,11 +128,9 @@ mod tests {
             buffer![1u32, 2, 3].into_array(),
             buffer![1u16; 3].into_array(),
             None,
+            &mut ctx,
         )
         .unwrap();
-
-        let session = VortexSession::empty();
-        let mut ctx = ExecutionCtx::new(session);
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -149,6 +151,9 @@ mod tests {
 
     #[test]
     fn test_multi_chunk_sliced() {
+        let session = VortexSession::empty();
+        let mut ctx = ExecutionCtx::new(session);
+
         let values = buffer![0u16; 4096].into_array();
         let patches = Patches::new(
             4096,
@@ -156,11 +161,9 @@ mod tests {
             buffer![1u32, 2, 3].into_array(),
             buffer![1u16; 3].into_array(),
             None,
+            &mut ctx,
         )
         .unwrap();
-
-        let session = VortexSession::empty();
-        let mut ctx = ExecutionCtx::new(session);
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()

@@ -216,6 +216,7 @@ pub fn gather_patches(
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
+                ctx,
             )?
         })
     } else if array_len < u16::MAX as usize {
@@ -226,6 +227,7 @@ pub fn gather_patches(
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
+                ctx,
             )?
         })
     } else if array_len < u32::MAX as usize {
@@ -236,6 +238,7 @@ pub fn gather_patches(
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
+                ctx,
             )?
         })
     } else {
@@ -246,6 +249,7 @@ pub fn gather_patches(
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
+                ctx,
             )?
         })
     };
@@ -259,6 +263,7 @@ fn gather_patches_impl<T, P>(
     num_exceptions_hint: usize,
     patch_validity: Validity,
     validity_mask: Mask,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<Patches>>
 where
     T: PrimInt + NativePType,
@@ -293,6 +298,7 @@ where
             indices.into_array(),
             PrimitiveArray::new(values, patch_validity).into_array(),
             Some(chunk_offsets.into_array()),
+            ctx,
         )?))
     }
 }

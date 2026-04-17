@@ -10,6 +10,8 @@ mod test {
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::ArrayRef;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -33,7 +35,7 @@ mod test {
             PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
             20,
             Scalar::null_native::<i32>(),
-        )
+         &mut LEGACY_SESSION.create_execution_ctx())
         .unwrap()
         .into_array()
     }
@@ -53,7 +55,7 @@ mod test {
             PrimitiveArray::new(buffer![33_i32], Validity::AllValid).into_array(),
             1,
             Scalar::null_native::<i32>(),
-        )
+         &mut LEGACY_SESSION.create_execution_ctx())
         .unwrap();
 
         assert_arrays_eq!(filtered_array, expected);
@@ -67,7 +69,7 @@ mod test {
             PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
             7,
             Scalar::null_native::<i32>(),
-        )
+         &mut LEGACY_SESSION.create_execution_ctx())
         .unwrap()
         .into_array();
 
@@ -82,7 +84,7 @@ mod test {
             PrimitiveArray::new(buffer![44_i32, 55], Validity::AllValid).into_array(),
             4,
             Scalar::null_native::<i32>(),
-        )
+         &mut LEGACY_SESSION.create_execution_ctx())
         .unwrap();
 
         assert_arrays_eq!(filtered_array, expected);
@@ -105,7 +107,7 @@ mod test {
                     .unwrap(),
                 5,
                 null_fill_value,
-            )
+             &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .into_array(),
         );
@@ -117,7 +119,7 @@ mod test {
                 buffer![100i32, 200, 300].into_array(),
                 5,
                 ten_fill_value,
-            )
+             &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .into_array(),
         )
@@ -127,6 +129,8 @@ mod test {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builtins::ArrayBuiltins;
@@ -147,47 +151,40 @@ mod tests {
         buffer![2u64, 5, 8].into_array(),
         PrimitiveArray::from_option_iter([Some(100i32), Some(200), Some(300)]).into_array(),
         10,
-        Scalar::null_native::<i32>()
-    ).unwrap())]
+        Scalar::null_native::<i32>(), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
     #[case::sparse_i32_value_fill(Sparse::try_new(
         buffer![1u64, 3, 7].into_array(),
         buffer![42i32, 84, 126].into_array(),
         10,
-        Scalar::from(0i32)
-    ).unwrap())]
+        Scalar::from(0i32), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
     // Different types
     #[case::sparse_u64(Sparse::try_new(
         buffer![0u64, 4, 9].into_array(),
         buffer![1000u64, 2000, 3000].into_array(),
         10,
-        Scalar::from(999u64)
-    ).unwrap())]
+        Scalar::from(999u64), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
     #[case::sparse_f32(Sparse::try_new(
         buffer![2u64, 6].into_array(),
         buffer![std::f32::consts::PI, std::f32::consts::E].into_array(),
         8,
-        Scalar::from(0.0f32)
-    ).unwrap())]
+        Scalar::from(0.0f32), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
     // Edge cases
     #[case::sparse_single_patch(Sparse::try_new(
         buffer![5u64].into_array(),
         buffer![42i32].into_array(),
         10,
-        Scalar::from(-1i32)
-    ).unwrap())]
+        Scalar::from(-1i32), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
     #[case::sparse_dense_patches(Sparse::try_new(
         buffer![0u64, 1, 2, 3, 4].into_array(),
         PrimitiveArray::from_option_iter([Some(10i32), Some(20), Some(30), Some(40), Some(50)]).into_array(),
         5,
-        Scalar::null_native::<i32>()
-    ).unwrap())]
+        Scalar::null_native::<i32>(), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
     // Large sparse arrays
     #[case::sparse_large(Sparse::try_new(
         buffer![100u64, 500, 900, 1500, 1999].into_array(),
         buffer![111i32, 222, 333, 444, 555].into_array(),
         2000,
-        Scalar::from(0i32)
-    ).unwrap())]
+        Scalar::from(0i32), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
     // Nullable patches
     #[case::sparse_nullable_patches({
         let null_fill_value = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
@@ -198,8 +195,7 @@ mod tests {
                 .cast(null_fill_value.dtype().clone())
                 .unwrap(),
             10,
-            null_fill_value
-        ).unwrap()
+            null_fill_value, &mut LEGACY_SESSION.create_execution_ctx()).unwrap()
     })]
 
     fn test_sparse_consistency(#[case] array: SparseArray) {
@@ -211,38 +207,32 @@ mod tests {
         buffer![2u64, 5, 8].into_array(),
         buffer![100i32, 200, 300].into_array(),
         10,
-        Scalar::from(0i32)
-    ).unwrap())]
+        Scalar::from(0i32), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
     #[case::sparse_u32_basic(Sparse::try_new(
         buffer![1u64, 3, 7].into_array(),
         buffer![1000u32, 2000, 3000].into_array(),
         10,
-        Scalar::from(100u32)
-    ).unwrap())]
+        Scalar::from(100u32), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
     #[case::sparse_i64_basic(Sparse::try_new(
         buffer![0u64, 4, 9].into_array(),
         buffer![5000i64, 6000, 7000].into_array(),
         10,
-        Scalar::from(1000i64)
-    ).unwrap())]
+        Scalar::from(1000i64), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
     #[case::sparse_f32_basic(Sparse::try_new(
         buffer![2u64, 6].into_array(),
         buffer![1.5f32, 2.5].into_array(),
         8,
-        Scalar::from(0.5f32)
-    ).unwrap())]
+        Scalar::from(0.5f32), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
     #[case::sparse_f64_basic(Sparse::try_new(
         buffer![1u64, 5, 9].into_array(),
         buffer![10.1f64, 20.2, 30.3].into_array(),
         10,
-        Scalar::from(5.0f64)
-    ).unwrap())]
+        Scalar::from(5.0f64), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
     #[case::sparse_i32_large(Sparse::try_new(
         buffer![10u64, 50, 90, 150, 199].into_array(),
         buffer![111i32, 222, 333, 444, 555].into_array(),
         200,
-        Scalar::from(0i32)
-    ).unwrap())]
+        Scalar::from(0i32), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
     fn test_sparse_binary_numeric(#[case] array: SparseArray) {
         test_binary_numeric_array(array.into_array());
     }

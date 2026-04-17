@@ -17,11 +17,11 @@ impl SliceKernel for ALPRD {
     fn slice(
         array: ArrayView<'_, Self>,
         range: Range<usize>,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let left_parts_exceptions = array
             .left_parts_patches()
-            .map(|patches| patches.slice(range.clone()))
+            .map(|patches| patches.slice(range.clone(), ctx))
             .transpose()?
             .flatten();
 

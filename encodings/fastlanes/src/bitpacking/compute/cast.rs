@@ -4,6 +4,8 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::patches::Patches;
@@ -33,6 +35,7 @@ impl CastReduce for BitPacked {
                                 patches.indices().clone(),
                                 new_values,
                                 patches.chunk_offsets().clone(),
+                                &mut LEGACY_SESSION.create_execution_ctx(),
                             )
                         })
                         .transpose()?,

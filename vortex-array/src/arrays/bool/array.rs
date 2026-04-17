@@ -456,6 +456,7 @@ mod tests {
             buffer![4u32].into_array(),
             BoolArray::from(BitBuffer::new_unset(1)).into_array(),
             None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .unwrap();
         let arr = arr
@@ -487,6 +488,7 @@ mod tests {
             PrimitiveArray::new(buffer![0u32], Validity::NonNullable).into_array(),
             BoolArray::from(BitBuffer::new_unset(1)).into_array(),
             None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .unwrap();
         let arr = arr

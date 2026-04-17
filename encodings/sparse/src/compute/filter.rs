@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -36,6 +38,8 @@ mod tests {
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::ArrayRef;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -58,7 +62,7 @@ mod tests {
             PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
             20,
             Scalar::null_native::<i32>(),
-        )
+         &mut LEGACY_SESSION.create_execution_ctx())
         .unwrap()
         .into_array()
     }
@@ -78,7 +82,7 @@ mod tests {
             PrimitiveArray::new(buffer![33_i32], Validity::AllValid).into_array(),
             1,
             Scalar::null_native::<i32>(),
-        )
+         &mut LEGACY_SESSION.create_execution_ctx())
         .unwrap();
 
         assert_arrays_eq!(filtered_array, expected);
@@ -92,7 +96,7 @@ mod tests {
             PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
             7,
             Scalar::null_native::<i32>(),
-        )
+         &mut LEGACY_SESSION.create_execution_ctx())
         .unwrap()
         .into_array();
 
@@ -107,7 +111,7 @@ mod tests {
             PrimitiveArray::new(buffer![44_i32, 55], Validity::AllValid).into_array(),
             4,
             Scalar::null_native::<i32>(),
-        )
+         &mut LEGACY_SESSION.create_execution_ctx())
         .unwrap();
 
         assert_arrays_eq!(filtered_array, expected);
@@ -125,7 +129,7 @@ mod tests {
                     .unwrap(),
                 5,
                 null_fill_value,
-            )
+             &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .into_array(),
         );
@@ -137,7 +141,7 @@ mod tests {
                 buffer![100i32, 200, 300].into_array(),
                 5,
                 ten_fill_value,
-            )
+             &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .into_array(),
         )

@@ -124,6 +124,7 @@ where
             valid_exceptional_positions.into_array(),
             valid_exceptional_values,
             Some(chunk_offsets.into_array()),
+            ctx,
         )?)
     };
     Ok((exponents, encoded_array, patches))

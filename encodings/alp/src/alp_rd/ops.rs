@@ -21,7 +21,7 @@ impl OperationsVTable<ALPRD> for ALPRD {
         // The left value can either be a direct value, or an exception.
         // The exceptions array represents exception positions with non-null values.
         let maybe_patched_value = match array.left_parts_patches() {
-            Some(patches) => patches.get_patched(index)?,
+            Some(patches) => patches.get_patched(index, ctx)?,
             None => None,
         };
         let left = match maybe_patched_value {

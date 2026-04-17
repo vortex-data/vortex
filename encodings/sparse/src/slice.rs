@@ -17,9 +17,9 @@ impl SliceKernel for Sparse {
     fn slice(
         array: ArrayView<'_, Self>,
         range: Range<usize>,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(new_patches) = array.patches().slice(range.clone())? else {
+        let Some(new_patches) = array.patches().slice(range.clone(), ctx)? else {
             return Ok(Some(
                 ConstantArray::new(array.fill_scalar().clone(), range.len()).into_array(),
             ));

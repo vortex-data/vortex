@@ -108,6 +108,7 @@ fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
         values,
         // TODO(0ax1): handle chunk offsets
         None,
+        &mut LEGACY_SESSION.create_execution_ctx(),
     )
     .unwrap()
 }
@@ -135,6 +136,7 @@ fn fixture_with_chunk_offsets(len: usize, sparsity: f64, rng: &mut StdRng) -> Pa
         Buffer::from(patch_indices).into_array(),
         values,
         Some(Buffer::from(chunk_offsets).into_array()),
+        &mut LEGACY_SESSION.create_execution_ctx(),
     )
     .unwrap()
 }

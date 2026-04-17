@@ -85,7 +85,7 @@ mod tests {
         let patched_indices = buffer![3u8, 4].into_array();
         let patched_values = buffer![u16::MAX; 2].into_array();
 
-        let patches = Patches::new(5, 0, patched_indices, patched_values, None)?;
+        let patches = Patches::new(5, 0, patched_indices, patched_values, None, &mut ctx)?;
 
         let array = Patched::from_array_and_patches(array, &patches, &mut ctx)?.into_array();
 
@@ -112,7 +112,7 @@ mod tests {
         let patched_indices = buffer![5u16, 1030].into_array();
         let patched_values = buffer![u16::MAX; 2].into_array();
 
-        let patches = Patches::new(4096, 0, patched_indices, patched_values, None)?;
+        let patches = Patches::new(4096, 0, patched_indices, patched_values, None, &mut ctx)?;
 
         let array = Patched::from_array_and_patches(array, &patches, &mut ctx)?.into_array();
 
@@ -140,7 +140,7 @@ mod tests {
         let patched_indices = buffer![1024u16, 1025].into_array();
         let patched_values = buffer![u16::MAX, u16::MAX].into_array();
 
-        let patches = Patches::new(4096, 0, patched_indices, patched_values, None)?;
+        let patches = Patches::new(4096, 0, patched_indices, patched_values, None, &mut ctx)?;
 
         let array = Patched::from_array_and_patches(array, &patches, &mut ctx)?.into_array();
 
@@ -167,7 +167,7 @@ mod tests {
         let patched_indices = buffer![1024u16, 1025].into_array();
         let patched_values = buffer![u16::MAX, u16::MAX].into_array();
 
-        let patches = Patches::new(4096, 1, patched_indices, patched_values, None)?;
+        let patches = Patches::new(4096, 1, patched_indices, patched_values, None, &mut ctx)?;
 
         let array = Patched::from_array_and_patches(array, &patches, &mut ctx)?.into_array();
 
@@ -197,7 +197,7 @@ mod tests {
         let patched_indices = buffer![2048u16, 2049].into_array();
         let patched_values = buffer![u16::MAX, u16::MAX].into_array();
 
-        let patches = Patches::new(6144, 0, patched_indices, patched_values, None)?;
+        let patches = Patches::new(6144, 0, patched_indices, patched_values, None, &mut ctx)?;
 
         let patched = Patched::from_array_and_patches(array, &patches, &mut ctx)?;
 
@@ -236,7 +236,7 @@ mod tests {
         let patched_indices = buffer![5u16, 1030].into_array();
         let patched_values = buffer![9999u16, 8888].into_array();
 
-        let patches = Patches::new(4096, 0, patched_indices, patched_values, None)?;
+        let patches = Patches::new(4096, 0, patched_indices, patched_values, None, &mut ctx)?;
         let array = Patched::from_array_and_patches(array, &patches, &mut ctx)?.into_array();
 
         // Slice to create offset > 0.
@@ -271,7 +271,7 @@ mod tests {
         let patched_indices = buffer![5000u16, 6000].into_array();
         let patched_values = buffer![u16::MAX; 2].into_array();
 
-        let patches = Patches::new(6144, 0, patched_indices, patched_values, None)?;
+        let patches = Patches::new(6144, 0, patched_indices, patched_values, None, &mut ctx)?;
 
         let patched = Patched::from_array_and_patches(array, &patches, &mut ctx)?;
 

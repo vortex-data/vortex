@@ -377,6 +377,9 @@ mod tests {
 
     #[test]
     fn test_execute() {
+        let session = VortexSession::empty();
+        let mut ctx = ExecutionCtx::new(session);
+
         let values = buffer![0u16; 1024].into_array();
         let patches = Patches::new(
             1024,
@@ -384,11 +387,9 @@ mod tests {
             buffer![1u32, 2, 3].into_array(),
             buffer![1u16; 3].into_array(),
             None,
+            &mut ctx,
         )
         .unwrap();
-
-        let session = VortexSession::empty();
-        let mut ctx = ExecutionCtx::new(session);
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -410,6 +411,9 @@ mod tests {
 
     #[test]
     fn test_execute_sliced() {
+        let session = VortexSession::empty();
+        let mut ctx = ExecutionCtx::new(session);
+
         let values = buffer![0u16; 1024].into_array();
         let patches = Patches::new(
             1024,
@@ -417,11 +421,9 @@ mod tests {
             buffer![1u32, 2, 3].into_array(),
             buffer![1u16; 3].into_array(),
             None,
+            &mut ctx,
         )
         .unwrap();
-
-        let session = VortexSession::empty();
-        let mut ctx = ExecutionCtx::new(session);
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -443,6 +445,9 @@ mod tests {
 
     #[test]
     fn test_append_to_builder_non_nullable() {
+        let session = VortexSession::empty();
+        let mut ctx = ExecutionCtx::new(session);
+
         let values = PrimitiveArray::new(buffer![0u16; 1024], Validity::NonNullable).into_array();
         let patches = Patches::new(
             1024,
@@ -450,11 +455,9 @@ mod tests {
             buffer![1u32, 2, 3].into_array(),
             buffer![10u16, 20, 30].into_array(),
             None,
+            &mut ctx,
         )
         .unwrap();
-
-        let session = VortexSession::empty();
-        let mut ctx = ExecutionCtx::new(session);
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -476,6 +479,9 @@ mod tests {
 
     #[test]
     fn test_append_to_builder_sliced() {
+        let session = VortexSession::empty();
+        let mut ctx = ExecutionCtx::new(session);
+
         let values = PrimitiveArray::new(buffer![0u16; 1024], Validity::NonNullable).into_array();
         let patches = Patches::new(
             1024,
@@ -483,11 +489,9 @@ mod tests {
             buffer![1u32, 2, 3].into_array(),
             buffer![10u16, 20, 30].into_array(),
             None,
+            &mut ctx,
         )
         .unwrap();
-
-        let session = VortexSession::empty();
-        let mut ctx = ExecutionCtx::new(session);
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -509,6 +513,9 @@ mod tests {
 
     #[test]
     fn test_append_to_builder_with_validity() {
+        let session = VortexSession::empty();
+        let mut ctx = ExecutionCtx::new(session);
+
         // Create inner array with nulls at indices 0 and 5.
         let validity = Validity::from_iter((0..10).map(|i| i != 0 && i != 5));
         let values = PrimitiveArray::new(buffer![0u16; 10], validity).into_array();
@@ -520,11 +527,9 @@ mod tests {
             buffer![1u32, 2, 3].into_array(),
             buffer![10u16, 20, 30].into_array(),
             None,
+            &mut ctx,
         )
         .unwrap();
-
-        let session = VortexSession::empty();
-        let mut ctx = ExecutionCtx::new(session);
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -565,10 +570,10 @@ mod tests {
         let indices = PrimitiveArray::from_iter(patch_indices.iter().copied()).into_array();
         let patch_vals = PrimitiveArray::from_iter(patch_values.iter().copied()).into_array();
 
-        let patches = Patches::new(len, 0, indices, patch_vals, None)?;
-
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
+
+        let patches = Patches::new(len, 0, indices, patch_vals, None, &mut ctx)?;
 
         Patched::from_array_and_patches(array, &patches, &mut ctx)
     }

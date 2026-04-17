@@ -22,6 +22,7 @@ pub fn all_null() -> ArrayRef {
 }
 
 pub fn sparse_high_null_fill() -> ArrayRef {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     PrimitiveArray::new(buffer![0; 20], Validity::AllInvalid)
         .patch(
             &Patches::new(
@@ -30,15 +31,17 @@ pub fn sparse_high_null_fill() -> ArrayRef {
                 buffer![17u64, 18, 19].into_array(),
                 PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
                 None,
+                &mut ctx,
             )
             .unwrap(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )
         .unwrap()
         .into_array()
 }
 
 pub fn sparse_high_non_null_fill() -> ArrayRef {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     PrimitiveArray::new(buffer![22; 20], Validity::NonNullable)
         .patch(
             &Patches::new(
@@ -47,15 +50,17 @@ pub fn sparse_high_non_null_fill() -> ArrayRef {
                 buffer![17u64, 18, 19].into_array(),
                 buffer![33_i32, 44, 55].into_array(),
                 None,
+                &mut ctx,
             )
             .unwrap(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )
         .unwrap()
         .into_array()
 }
 
 pub fn sparse_low() -> ArrayRef {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     PrimitiveArray::new(buffer![60; 20], Validity::NonNullable)
         .patch(
             &Patches::new(
@@ -64,15 +69,17 @@ pub fn sparse_low() -> ArrayRef {
                 buffer![0u64, 1, 2].into_array(),
                 buffer![33i32, 44, 55].into_array(),
                 None,
+                &mut ctx,
             )
             .unwrap(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )
         .unwrap()
         .into_array()
 }
 
 pub fn sparse_low_high() -> ArrayRef {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     PrimitiveArray::new(buffer![30; 20], Validity::NonNullable)
         .patch(
             &Patches::new(
@@ -81,15 +88,17 @@ pub fn sparse_low_high() -> ArrayRef {
                 buffer![0u64, 1, 17, 18, 19].into_array(),
                 buffer![11i32, 22, 33, 44, 55].into_array(),
                 None,
+                &mut ctx,
             )
             .unwrap(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )
         .unwrap()
         .into_array()
 }
 
 pub fn sparse_edge_patch_high() -> ArrayRef {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     PrimitiveArray::new(buffer![33; 20], Validity::NonNullable)
         .patch(
             &Patches::new(
@@ -98,15 +107,17 @@ pub fn sparse_edge_patch_high() -> ArrayRef {
                 buffer![0u64, 1, 2, 19].into_array(),
                 buffer![11i32, 22, 23, 55].into_array(),
                 None,
+                &mut ctx,
             )
             .unwrap(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )
         .unwrap()
         .into_array()
 }
 
 pub fn sparse_edge_patch_low() -> ArrayRef {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     PrimitiveArray::new(buffer![22; 20], Validity::NonNullable)
         .patch(
             &Patches::new(
@@ -115,9 +126,10 @@ pub fn sparse_edge_patch_low() -> ArrayRef {
                 buffer![0u64, 17, 18, 19].into_array(),
                 buffer![11i32, 33, 44, 55].into_array(),
                 None,
+                &mut ctx,
             )
             .unwrap(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )
         .unwrap()
         .into_array()

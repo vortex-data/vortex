@@ -4,6 +4,8 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::patches::Patches;
@@ -27,6 +29,7 @@ impl CastReduce for ALP {
                     .with_nullability(dtype.nullability()),
             )?;
 
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
             let new_patches = array
                 .patches()
                 .map(|p| {
@@ -39,6 +42,7 @@ impl CastReduce for ALP {
                             p.indices().clone(),
                             p.values().cast(dtype.clone())?,
                             p.chunk_offsets().clone(),
+                            &mut ctx,
                         )
                     }
                 })

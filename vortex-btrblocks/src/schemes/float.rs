@@ -272,6 +272,7 @@ impl Scheme for NullDominatedSparseScheme {
                 sparse.patches().values().clone(),
                 sparse.len(),
                 sparse.fill_scalar().clone(),
+                &mut compressor.execution_ctx(),
             )
             .map(|a| a.into_array())
         } else {

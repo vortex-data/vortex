@@ -7,6 +7,8 @@ use std::ops::Range;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
@@ -31,7 +33,7 @@ impl SliceReduce for BitPacked {
                 array.validity()?.slice(range.clone())?,
                 array
                     .patches()
-                    .map(|p| p.slice(range.clone()))
+                    .map(|p| p.slice(range.clone(), &mut LEGACY_SESSION.create_execution_ctx()))
                     .transpose()?
                     .flatten(),
                 array.bit_width(),

@@ -343,6 +343,7 @@ impl Validity {
             patch_values.into_array(),
             // TODO(0ax1): chunk offsets
             None,
+            ctx,
         )?;
 
         Ok(Self::from_array(

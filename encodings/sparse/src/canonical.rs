@@ -73,11 +73,11 @@ pub(super) fn execute_sparse(
             NullArray::new(array.len()).into_array()
         }
         DType::Bool(..) => {
-            let resolved_patches = array.resolved_patches()?;
+            let resolved_patches = array.resolved_patches(ctx)?;
             execute_sparse_bools(&resolved_patches, array.fill_scalar(), ctx)?
         }
         DType::Primitive(ptype, ..) => {
-            let resolved_patches = array.resolved_patches()?;
+            let resolved_patches = array.resolved_patches(ctx)?;
             match_each_native_ptype!(ptype, |P| {
                 execute_sparse_primitives::<P>(&resolved_patches, array.fill_scalar(), ctx)?
             })
@@ -135,7 +135,7 @@ fn execute_sparse_lists(
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let resolved_patches = array.resolved_patches()?;
+    let resolved_patches = array.resolved_patches(ctx)?;
 
     let indices = resolved_patches
         .indices()
@@ -227,7 +227,7 @@ fn execute_sparse_fixed_size_list(
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let resolved_patches = array.resolved_patches()?;
+    let resolved_patches = array.resolved_patches(ctx)?;
     let indices = resolved_patches
         .indices()
         .clone()
@@ -502,7 +502,7 @@ fn execute_varbin(
     fill_value: Option<ByteBuffer>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let patches = array.resolved_patches()?;
+    let patches = array.resolved_patches(ctx)?;
     let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
     let values = patches.values().clone().execute::<VarBinViewArray>(ctx)?;
     let validity = {
@@ -606,7 +606,7 @@ mod test {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let indices = buffer![0u64, 1, 7].into_array();
         let values = BoolArray::from_iter([Some(true), None, Some(false)]).into_array();
-        let sparse_bools = Sparse::try_new(indices, values, 10, Scalar::from(fill_value))?;
+        let sparse_bools = Sparse::try_new(indices, values, 10, Scalar::from(fill_value), &mut LEGACY_SESSION.create_execution_ctx())?;
         let actual = sparse_bools.into_array().execute::<BoolArray>(&mut ctx)?;
 
         let expected = BoolArray::from_iter([
@@ -634,7 +634,7 @@ mod test {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let indices = buffer![0u64, 1, 7].into_array();
         let values = PrimitiveArray::from_option_iter([Some(0i32), None, Some(1)]).into_array();
-        let sparse_ints = Sparse::try_new(indices, values, 10, Scalar::from(fill_value))?;
+        let sparse_ints = Sparse::try_new(indices, values, 10, Scalar::from(fill_value), &mut LEGACY_SESSION.create_execution_ctx())?;
         assert_eq!(*sparse_ints.dtype(), DType::Primitive(PType::I32, Nullable));
 
         let flat_ints = sparse_ints
@@ -688,7 +688,7 @@ mod test {
             vec![Scalar::from(Some(-10i32)), Scalar::from(Some(-1i32))],
         );
         let len = 10;
-        let sparse_struct = Sparse::try_new(indices, patch_values, len, fill_scalar)?;
+        let sparse_struct = Sparse::try_new(indices, patch_values, len, fill_scalar, &mut LEGACY_SESSION.create_execution_ctx())?;
 
         let expected_a = PrimitiveArray::from_option_iter((0..len).map(|i| {
             if i == 0 {
@@ -757,7 +757,7 @@ mod test {
 
         let fill_scalar = Scalar::null(struct_dtype);
         let len = 10;
-        let sparse_struct = Sparse::try_new(indices, patch_values, len, fill_scalar)?;
+        let sparse_struct = Sparse::try_new(indices, patch_values, len, fill_scalar, &mut LEGACY_SESSION.create_execution_ctx())?;
 
         let expected_a = PrimitiveArray::from_option_iter((0..len).map(|i| {
             if i == 0 {
@@ -811,7 +811,7 @@ mod test {
         .into_array();
         let len = 10;
         let fill_scalar = Scalar::decimal(DecimalValue::I32(123), decimal_dtype, Nullable);
-        let sparse_struct = Sparse::try_new(indices, patch_values, len, fill_scalar)?;
+        let sparse_struct = Sparse::try_new(indices, patch_values, len, fill_scalar, &mut LEGACY_SESSION.create_execution_ctx())?;
 
         let expected = DecimalArray::new(
             buffer![100i128, 200, 123, 123, 123, 123, 123, 300, 4000, 123],
@@ -852,7 +852,7 @@ mod test {
             strings,
             12,
             Scalar::from(Some("123".to_owned())),
-        )?;
+         &mut LEGACY_SESSION.create_execution_ctx())?;
 
         let actual = array
             .into_array()
@@ -897,7 +897,7 @@ mod test {
             strings,
             12,
             Scalar::null(DType::Utf8(Nullable)),
-        )?;
+         &mut LEGACY_SESSION.create_execution_ctx())?;
 
         let actual = array
             .into_array()
@@ -935,7 +935,7 @@ mod test {
             strings,
             9,
             Scalar::from("123".to_owned()),
-        )?;
+         &mut LEGACY_SESSION.create_execution_ctx())?;
 
         let actual = array
             .into_array()
@@ -969,7 +969,7 @@ mod test {
             strings,
             12,
             Scalar::null(DType::Utf8(Nullable)),
-        )?;
+         &mut LEGACY_SESSION.create_execution_ctx())?;
 
         let actual = array
             .into_array()
@@ -1014,7 +1014,7 @@ mod test {
             binaries,
             12,
             Scalar::from(Some(ByteBuffer::from(b"123".to_vec()))),
-        )?;
+         &mut LEGACY_SESSION.create_execution_ctx())?;
 
         let actual = array
             .into_array()
@@ -1060,7 +1060,7 @@ mod test {
 
         let indices = buffer![0u8, 3u8, 4u8, 5u8].into_array();
         let fill_value = Scalar::null(lists.dtype().clone());
-        let sparse = Sparse::try_new(indices, lists, 6, fill_value)?.into_array();
+        let sparse = Sparse::try_new(indices, lists, 6, fill_value, &mut LEGACY_SESSION.create_execution_ctx())?.into_array();
 
         let result_listview = sparse.execute::<ListViewArray>(&mut ctx)?;
 
@@ -1115,7 +1115,7 @@ mod test {
 
         let indices = buffer![0u8, 3u8, 4u8, 5u8].into_array();
         let fill_value = Scalar::null(lists.dtype().clone());
-        let sparse = Sparse::try_new(indices, lists, 6, fill_value)?.into_array();
+        let sparse = Sparse::try_new(indices, lists, 6, fill_value, &mut LEGACY_SESSION.create_execution_ctx())?.into_array();
 
         let result_listview = sparse
             .execute::<ListViewArray>(&mut ctx)
@@ -1162,7 +1162,7 @@ mod test {
 
         let indices = buffer![0u8, 3u8, 4u8, 5u8].into_array();
         let fill_value = Scalar::from(Some(vec![5i32, 6, 7, 8]));
-        let sparse = Sparse::try_new(indices, lists, 6, fill_value)?.into_array();
+        let sparse = Sparse::try_new(indices, lists, 6, fill_value, &mut LEGACY_SESSION.create_execution_ctx())?.into_array();
 
         let result_listview = sparse.execute::<ListViewArray>(&mut ctx)?;
 
@@ -1237,7 +1237,7 @@ mod test {
             strings,
             12,
             Scalar::null(DType::Binary(Nullable)),
-        )?;
+         &mut LEGACY_SESSION.create_execution_ctx())?;
 
         let actual = array
             .into_array()
@@ -1277,7 +1277,7 @@ mod test {
             3,
             Nullable,
         ));
-        let sparse = Sparse::try_new(indices, fsl, 5, fill_value)
+        let sparse = Sparse::try_new(indices, fsl, 5, fill_value, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .into_array();
 
@@ -1317,7 +1317,7 @@ mod test {
             ],
             NonNullable,
         );
-        let sparse = Sparse::try_new(indices, fsl, 6, fill_value)
+        let sparse = Sparse::try_new(indices, fsl, 6, fill_value, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .into_array();
 
@@ -1357,7 +1357,7 @@ mod test {
             ],
             Nullable,
         );
-        let sparse = Sparse::try_new(indices, fsl, 6, fill_value)
+        let sparse = Sparse::try_new(indices, fsl, 6, fill_value, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .into_array();
 
@@ -1407,7 +1407,7 @@ mod test {
             NonNullable,
         );
 
-        let sparse = Sparse::try_new(indices, fsl, 100, fill_value)
+        let sparse = Sparse::try_new(indices, fsl, 100, fill_value, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .into_array();
 
@@ -1466,7 +1466,7 @@ mod test {
             ],
             NonNullable,
         );
-        let sparse = Sparse::try_new(indices, fsl, 1, fill_value)
+        let sparse = Sparse::try_new(indices, fsl, 1, fill_value, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .into_array();
 
@@ -1493,7 +1493,7 @@ mod test {
 
         let indices = buffer![0u8, 1u8, 2u8, 3u8].into_array();
         let fill_value = Scalar::from(Some(vec![42i32; 252])); // 252 + 4 elements = 256 > u8::MAX
-        let sparse = Sparse::try_new(indices, lists, 5, fill_value)?.into_array();
+        let sparse = Sparse::try_new(indices, lists, 5, fill_value, &mut LEGACY_SESSION.create_execution_ctx())?.into_array();
 
         let actual = sparse.execute::<Canonical>(&mut ctx)?.into_array();
         let mut expected_elements = buffer_mut![1, 2, 1, 2];
@@ -1559,7 +1559,7 @@ mod test {
             list_view.into_array(),
             10,
             Scalar::null(list_dtype),
-        )?;
+         &mut LEGACY_SESSION.create_execution_ctx())?;
 
         // Convert to canonical form - this triggers the function we're testing
         let result_listview = sparse.into_array().execute::<ListViewArray>(&mut ctx)?;
@@ -1641,7 +1641,7 @@ mod test {
         let indices = buffer![0u8, 1].into_array();
         // Extract only the values we need from the sliced array
         let values = sliced.slice(0..2)?;
-        let sparse = Sparse::try_new(indices, values, 5, Scalar::null(sliced.dtype().clone()))?;
+        let sparse = Sparse::try_new(indices, values, 5, Scalar::null(sliced.dtype().clone()), &mut LEGACY_SESSION.create_execution_ctx())?;
 
         let result_listview = sparse.into_array().execute::<ListViewArray>(&mut ctx)?;
 

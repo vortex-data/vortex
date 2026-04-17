@@ -76,12 +76,12 @@ mod tests {
 
     #[test]
     fn test_reduce() -> VortexResult<()> {
+        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
+
         let values = buffer![0u16; 512].into_array();
         let patch_indices = buffer![1u32, 8, 30].into_array();
         let patch_values = buffer![u16::MAX; 3].into_array();
-        let patches = Patches::new(512, 0, patch_indices, patch_values, None)?;
-
-        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
+        let patches = Patches::new(512, 0, patch_indices, patch_values, None, &mut ctx)?;
 
         let patched_array = Patched::from_array_and_patches(values, &patches, &mut ctx)?;
 
@@ -117,6 +117,8 @@ mod tests {
         #[case] patch_values: Buffer<T>,
         #[case] range: Range<usize>,
     ) {
+        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
+
         // Create patched array.
         let patches = Patches::new(
             inner.len(),
@@ -124,10 +126,9 @@ mod tests {
             patch_indices.into_array(),
             patch_values.into_array(),
             None,
+            &mut ctx,
         )
         .unwrap();
-
-        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
 
         let patched_array = Patched::from_array_and_patches(inner.into_array(), &patches, &mut ctx)
             .unwrap()
@@ -158,8 +159,9 @@ mod tests {
         let patched_indices = buffer![1u32, 2, 1024, 2048, 3072, 3088].into_array();
         let patched_values = buffer![0u64, 1, 2, 3, 4, 5].into_array();
 
-        let patches = Patches::new(10_000, 0, patched_indices, patched_values, None).unwrap();
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
+        let patches =
+            Patches::new(10_000, 0, patched_indices, patched_values, None, &mut ctx).unwrap();
 
         let patched_array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()

@@ -14,6 +14,7 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
+use vortex_array::VortexSessionExecute;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
@@ -147,6 +148,7 @@ impl VTable for Sparse {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
+        let mut ctx = session.create_execution_ctx();
         let metadata = SparseMetadata::decode(metadata)?;
 
         // Once we have the patches metadata, we need to get the fill value from the buffers.
@@ -179,6 +181,7 @@ impl VTable for Sparse {
             patch_indices,
             patch_values,
             None,
+            &mut ctx,
         )?;
         let slots = SparseData::make_slots(&patches);
         let data = SparseData::try_new_from_patches(patches, fill_value)?;
@@ -237,9 +240,10 @@ impl Sparse {
         values: ArrayRef,
         len: usize,
         fill_value: Scalar,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<SparseArray> {
         let dtype = fill_value.dtype().clone();
-        let patches = Patches::new(len, 0, indices, values, None)?;
+        let patches = Patches::new(len, 0, indices, values, None, ctx)?;
         let slots = SparseData::make_slots(&patches);
         let data = SparseData::try_new_from_patches(patches, fill_value)?;
         Ok(unsafe {
@@ -372,7 +376,7 @@ impl SparseData {
     }
 
     #[inline]
-    pub fn resolved_patches(&self) -> VortexResult<Patches> {
+    pub fn resolved_patches(&self, ctx: &mut ExecutionCtx) -> VortexResult<Patches> {
         let patches = self.patches();
         let indices_offset = Scalar::from(patches.offset()).cast(patches.indices().dtype())?;
         let indices = patches.indices().binary(
@@ -387,6 +391,7 @@ impl SparseData {
             patches.values().clone(),
             // TODO(0ax1): handle chunk offsets
             None,
+            ctx,
         )
     }
 
@@ -449,6 +454,7 @@ impl SparseData {
                 non_null_values,
                 array.len(),
                 Scalar::null(array.dtype().clone()),
+                ctx,
             )
             .map(IntoArray::into_array);
         }
@@ -489,7 +495,7 @@ impl SparseData {
             Mask::Values(values) => values.indices().iter().map(|v| *v as u64).collect(),
         };
 
-        Sparse::try_new(indices.into_array(), non_top_values, array.len(), fill)
+        Sparse::try_new(indices.into_array(), non_top_values, array.len(), fill, ctx)
             .map(IntoArray::into_array)
     }
 }
@@ -551,7 +557,7 @@ mod test {
         let mut values = buffer![100i32, 200, 300].into_array();
         values = values.cast(fill_value.dtype().clone()).unwrap();
 
-        Sparse::try_new(buffer![2u64, 5, 8].into_array(), values, 10, fill_value)
+        Sparse::try_new(buffer![2u64, 5, 8].into_array(), values, 10, fill_value, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .into_array()
     }
@@ -596,7 +602,7 @@ mod test {
             ConstantArray::new(Scalar::primitive(1234u32, Nullability::Nullable), 1).into_array(),
             100,
             Scalar::null(DType::Primitive(PType::U32, Nullability::Nullable)),
-        )
+         &mut LEGACY_SESSION.create_execution_ctx())
         .unwrap();
 
         assert_eq!(
@@ -656,7 +662,7 @@ mod test {
             .into_array(),
             10,
             Scalar::primitive(1.0f32, Nullability::Nullable),
-        )
+         &mut LEGACY_SESSION.create_execution_ctx())
         .unwrap()
         .slice(2..7)
         .unwrap();
@@ -733,7 +739,7 @@ mod test {
         let values = buffer![15_u32, 135, 13531, 42].into_array();
         let indices = buffer![10_u64, 11, 50, 100].into_array();
 
-        Sparse::try_new(indices, values, 100, 0_u32.into()).unwrap();
+        Sparse::try_new(indices, values, 100, 0_u32.into(), &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
     }
 
     #[test]
@@ -741,7 +747,7 @@ mod test {
         let values = buffer![15_u32, 135, 13531, 42].into_array();
         let indices = buffer![10_u64, 11, 50, 100].into_array();
 
-        Sparse::try_new(indices, values, 101, 0_u32.into()).unwrap();
+        Sparse::try_new(indices, values, 101, 0_u32.into(), &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
     }
 
     #[test]
@@ -770,7 +776,7 @@ mod test {
         let indices = buffer![0u8, 2, 4, 6, 8].into_array();
         let values = PrimitiveArray::from_option_iter([Some(0i16), Some(1), None, None, Some(4)])
             .into_array();
-        let array = Sparse::try_new(indices, values, 10, Scalar::null_native::<i16>()).unwrap();
+        let array = Sparse::try_new(indices, values, 10, Scalar::null_native::<i16>(), &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
         let actual = array
             .validity()
             .unwrap()

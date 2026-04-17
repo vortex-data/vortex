@@ -51,5 +51,6 @@ pub fn compress_patches(patches: Patches, ctx: &mut ExecutionCtx) -> VortexResul
         indices,
         values,
         chunk_offsets,
+        ctx,
     )
 }

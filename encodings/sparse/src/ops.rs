@@ -13,11 +13,11 @@ impl OperationsVTable<Sparse> for Sparse {
     fn scalar_at(
         array: ArrayView<'_, Sparse>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         Ok(array
             .patches()
-            .get_patched(index)?
+            .get_patched(index, ctx)?
             .unwrap_or_else(|| array.fill_scalar().clone()))
     }
 }
@@ -40,7 +40,7 @@ mod tests {
         let values = buffer![0u64].into_array();
         let indices = buffer![0u8].into_array();
 
-        let sparse = Sparse::try_new(indices, values, 1000, 999u64.into())?;
+        let sparse = Sparse::try_new(indices, values, 1000, 999u64.into(), &mut LEGACY_SESSION.create_execution_ctx())?;
         let sliced = sparse.slice(0..1000)?;
         let mut expected = vec![999u64; 1000];
         expected[0] = 0;

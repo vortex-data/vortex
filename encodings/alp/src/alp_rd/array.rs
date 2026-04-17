@@ -198,6 +198,7 @@ impl VTable for ALPRD {
         };
         let right_parts = children.get(1, &right_parts_dtype, len)?;
 
+        let mut ctx = session.create_execution_ctx();
         let left_parts_patches = metadata
             .patches
             .map(|p| {
@@ -211,10 +212,10 @@ impl VTable for ALPRD {
                     values,
                     // TODO(0ax1): handle chunk offsets
                     None,
+                    &mut ctx,
                 )
             })
             .transpose()?;
-        let mut ctx = session.create_execution_ctx();
         let left_parts_patches =
             ALPRDData::canonicalize_patches(&left_parts, left_parts_patches, &mut ctx)?;
         let slots = ALPRDData::make_slots(&left_parts, &right_parts, &left_parts_patches);

@@ -150,16 +150,16 @@ mod tests {
         slice: Range<usize>,
     ) -> VortexResult<ArrayRef> {
         let values = PrimitiveArray::from_iter(base.iter().copied()).into_array();
+        let session = VortexSession::empty();
+        let mut ctx = ExecutionCtx::new(session);
         let patches = Patches::new(
             base.len(),
             0,
             PrimitiveArray::from_iter(patch_indices.iter().copied()).into_array(),
             PrimitiveArray::from_iter(patch_values.iter().copied()).into_array(),
             None,
+            &mut ctx,
         )?;
-
-        let session = VortexSession::empty();
-        let mut ctx = ExecutionCtx::new(session);
 
         Patched::from_array_and_patches(values, &patches, &mut ctx)?
             .into_array()

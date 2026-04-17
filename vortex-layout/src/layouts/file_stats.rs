@@ -8,7 +8,7 @@ use futures::StreamExt;
 use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
-use vortex_array::LEGACY_SESSION;
+use vortex_array::ExecutionCtx;
 #[expect(deprecated)]
 use vortex_array::ToCanonical as _;
 use vortex_array::VortexSessionExecute;
@@ -20,6 +20,7 @@ use vortex_array::stats::StatsSet;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
+use vortex_session::VortexSession;
 
 use crate::layouts::zoned::zone_map::StatsAccumulator;
 use crate::sequence::SendableSequentialStream;
@@ -31,9 +32,14 @@ pub fn accumulate_stats(
     stream: SendableSequentialStream,
     stats: Arc<[Stat]>,
     max_variable_length_statistics_size: usize,
+    session: VortexSession,
 ) -> (FileStatsAccumulator, SendableSequentialStream) {
-    let accumulator =
-        FileStatsAccumulator::new(stream.dtype(), stats, max_variable_length_statistics_size);
+    let accumulator = FileStatsAccumulator::new(
+        stream.dtype(),
+        stats,
+        max_variable_length_statistics_size,
+        session,
+    );
     let stream = SequentialStreamAdapter::new(
         stream.dtype().clone(),
         stream.scan(accumulator.clone(), |acc, item| {
@@ -51,10 +57,16 @@ pub fn accumulate_stats(
 pub struct FileStatsAccumulator {
     stats: Arc<[Stat]>,
     accumulators: Arc<Mutex<Vec<StatsAccumulator>>>,
+    session: VortexSession,
 }
 
 impl FileStatsAccumulator {
-    fn new(dtype: &DType, stats: Arc<[Stat]>, max_variable_length_statistics_size: usize) -> Self {
+    fn new(
+        dtype: &DType,
+        stats: Arc<[Stat]>,
+        max_variable_length_statistics_size: usize,
+        session: VortexSession,
+    ) -> Self {
         let accumulators = Arc::new(Mutex::new(match dtype.as_struct_fields_opt() {
             Some(struct_dtype) => {
                 if dtype.nullability() == Nullability::Nullable {
@@ -87,6 +99,7 @@ impl FileStatsAccumulator {
         Self {
             stats,
             accumulators,
+            session,
         }
     }
 
@@ -95,6 +108,7 @@ impl FileStatsAccumulator {
         chunk: VortexResult<(SequenceId, ArrayRef)>,
     ) -> VortexResult<(SequenceId, ArrayRef)> {
         let (sequence_id, chunk) = chunk?;
+        let mut ctx = self.session.create_execution_ctx();
         if chunk.dtype().is_struct() {
             #[expect(deprecated)]
             let chunk = chunk.to_struct();
@@ -104,25 +118,25 @@ impl FileStatsAccumulator {
                 .iter_mut()
                 .zip_eq(chunk.iter_unmasked_fields())
             {
-                acc.push_chunk(field)?;
+                acc.push_chunk(field, &mut ctx)?;
             }
         } else {
-            self.accumulators.lock()[0].push_chunk(&chunk)?;
+            self.accumulators.lock()[0].push_chunk(&chunk, &mut ctx)?;
         }
         Ok((sequence_id, chunk))
     }
 
-    pub fn stats_sets(&self) -> Vec<StatsSet> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    /// Finalize and return the per-field [`StatsSet`] aggregated across all processed chunks.
+    pub fn stats_sets(&self, ctx: &mut ExecutionCtx) -> Vec<StatsSet> {
         self.accumulators
             .lock()
             .iter_mut()
             .map(|acc| {
-                acc.as_stats_table()
+                acc.as_stats_table(ctx)
                     .vortex_expect("as_stats_table should not fail")
                     .map(|table| {
                         table
-                            .to_stats_set(&self.stats, &mut ctx)
+                            .to_stats_set(&self.stats, ctx)
                             .vortex_expect("shouldn't fail to convert table we just created")
                     })
                     .unwrap_or_default()

@@ -6,6 +6,8 @@
 pub use array::*;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_fastlanes::bitpack_compress::bitpack_encode_unchecked;
@@ -274,6 +276,7 @@ impl RDEncoder {
                 exceptions.into_array(),
                 // TODO(0ax1): handle chunk offsets
                 None,
+                &mut LEGACY_SESSION.create_execution_ctx(),
             )
             .vortex_expect("Patches construction in encode")
         });

@@ -10,6 +10,7 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
+use vortex_array::VortexSessionExecute;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -189,8 +190,9 @@ impl VTable for BitPacked {
         metadata: &[u8],
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
+        let mut ctx = session.create_execution_ctx();
         let metadata = BitPackedMetadata::decode(metadata)?;
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
@@ -231,7 +233,7 @@ impl VTable for BitPacked {
                     .map(|dtype| children.get(2, &dtype, p.chunk_offsets_len() as usize))
                     .transpose()?;
 
-                Patches::new(len, p.offset()?, indices, values, chunk_offsets)
+                Patches::new(len, p.offset()?, indices, values, chunk_offsets, &mut ctx)
             })
             .transpose()?;
 

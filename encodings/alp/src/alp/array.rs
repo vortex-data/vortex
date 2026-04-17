@@ -32,6 +32,7 @@ use vortex_array::require_patches;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
+use vortex_array::VortexSessionExecute;
 use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -136,7 +137,7 @@ impl VTable for ALP {
         metadata: &[u8],
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         let metadata = ALPMetadata::decode(metadata)?;
         let encoded_ptype = match &dtype {
@@ -146,6 +147,7 @@ impl VTable for ALP {
         };
         let encoded = children.get(0, &encoded_ptype, len)?;
 
+        let mut ctx = session.create_execution_ctx();
         let patches = metadata
             .patches
             .map(|p| {
@@ -156,7 +158,7 @@ impl VTable for ALP {
                     .map(|dtype| children.get(3, &dtype, usize::try_from(p.chunk_offsets_len())?))
                     .transpose()?;
 
-                Patches::new(len, p.offset()?, indices, values, chunk_offsets)
+                Patches::new(len, p.offset()?, indices, values, chunk_offsets, &mut ctx)
             })
             .transpose()?;
 
@@ -870,6 +872,7 @@ mod tests {
             original_patches.indices().clone(),
             original_patches.values().clone(),
             None, // NO chunk_offsets - this triggers the bug!
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .unwrap();
 

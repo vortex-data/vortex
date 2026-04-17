@@ -14,11 +14,11 @@ impl OperationsVTable<BitPacked> for BitPacked {
     fn scalar_at(
         array: ArrayView<'_, BitPacked>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         Ok(
             if let Some(patches) = array.patches()
-                && let Some(patch) = patches.get_patched(index)?
+                && let Some(patch) = patches.get_patched(index, ctx)?
             {
                 patch
             } else {
@@ -199,6 +199,7 @@ mod test {
                     buffer![1u32].into_array(),
                     PrimitiveArray::new(buffer![999u32], Validity::AllValid).into_array(),
                     None,
+                    &mut LEGACY_SESSION.create_execution_ctx(),
                 )
                 .unwrap(),
             ),
