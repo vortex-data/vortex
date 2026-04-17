@@ -10,10 +10,6 @@ pub fn vortex_bytebool::ByteBool::from_vec<V: core::convert::Into<vortex_array::
 
 pub fn vortex_bytebool::ByteBool::new(buffer: vortex_array::buffer::BufferHandle, validity: vortex_array::validity::Validity) -> vortex_bytebool::ByteBoolArray
 
-pub unsafe fn vortex_bytebool::ByteBool::new_unchecked(buffer: vortex_array::buffer::BufferHandle, validity: vortex_array::validity::Validity) -> vortex_bytebool::ByteBoolArray
-
-pub fn vortex_bytebool::ByteBool::try_new(buffer: vortex_array::buffer::BufferHandle, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<vortex_bytebool::ByteBoolArray>
-
 impl core::clone::Clone for vortex_bytebool::ByteBool
 
 pub fn vortex_bytebool::ByteBool::clone(&self) -> vortex_bytebool::ByteBool
@@ -80,8 +76,6 @@ pub struct vortex_bytebool::ByteBoolData
 
 impl vortex_bytebool::ByteBoolData
 
-pub fn vortex_bytebool::ByteBoolData::as_slice(&self) -> &[bool]
-
 pub fn vortex_bytebool::ByteBoolData::buffer(&self) -> &vortex_array::buffer::BufferHandle
 
 pub fn vortex_bytebool::ByteBoolData::from_vec<V: core::convert::Into<vortex_array::validity::Validity>>(data: alloc::vec::Vec<bool>, validity: V) -> Self
@@ -92,13 +86,9 @@ pub fn vortex_bytebool::ByteBoolData::len(&self) -> usize
 
 pub fn vortex_bytebool::ByteBoolData::new(buffer: vortex_array::buffer::BufferHandle, validity: vortex_array::validity::Validity) -> Self
 
-pub unsafe fn vortex_bytebool::ByteBoolData::new_unchecked(buffer: vortex_array::buffer::BufferHandle, validity: vortex_array::validity::Validity) -> Self
-
-pub fn vortex_bytebool::ByteBoolData::try_new(buffer: vortex_array::buffer::BufferHandle, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
+pub fn vortex_bytebool::ByteBoolData::truthy_bytes(&self) -> &[u8]
 
 pub fn vortex_bytebool::ByteBoolData::validate(buffer: &vortex_array::buffer::BufferHandle, validity: &vortex_array::validity::Validity, dtype: &vortex_array::dtype::DType, len: usize) -> vortex_error::VortexResult<()>
-
-pub fn vortex_bytebool::ByteBoolData::validate_bytes(buffer: &vortex_array::buffer::BufferHandle) -> vortex_error::VortexResult<()>
 
 impl core::clone::Clone for vortex_bytebool::ByteBoolData
 

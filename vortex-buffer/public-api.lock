@@ -504,6 +504,10 @@ impl core::convert::From<&[bool]> for vortex_buffer::BitBufferMut
 
 pub fn vortex_buffer::BitBufferMut::from(value: &[bool]) -> Self
 
+impl core::convert::From<&[u8]> for vortex_buffer::BitBufferMut
+
+pub fn vortex_buffer::BitBufferMut::from(value: &[u8]) -> Self
+
 impl core::convert::From<alloc::vec::Vec<bool>> for vortex_buffer::BitBufferMut
 
 pub fn vortex_buffer::BitBufferMut::from(value: alloc::vec::Vec<bool>) -> Self

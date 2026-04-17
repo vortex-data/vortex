@@ -76,12 +76,9 @@ impl TakeExecute for ByteBool {
                 .collect::<ByteBuffer>()
         });
 
-        // SAFETY:
-        unsafe {
-            Ok(Some(
-                ByteBool::new_unchecked(BufferHandle::new_host(taken), validity).into_array(),
-            ))
-        }
+        Ok(Some(
+            ByteBool::new(BufferHandle::new_host(taken), validity).into_array(),
+        ))
     }
 }
 
