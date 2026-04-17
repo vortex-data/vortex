@@ -70,7 +70,53 @@ use crate::convert::TryToDataFusion;
 
 const DEFAULT_FOOTER_INITIAL_READ_SIZE_BYTES: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE;
 
-/// Vortex implementation of a DataFusion [`FileFormat`].
+/// DataFusion [`FileFormat`] implementation for `.vortex` files.
+///
+/// Most applications do not construct `VortexFormat` directly. Instead, they
+/// register [`VortexFormatFactory`] with a [`SessionContext`] and let
+/// DataFusion instantiate `VortexFormat` as tables are planned.
+///
+/// Construct `VortexFormat` directly when you are wiring a [`ListingTable`] by
+/// hand and need to pass a file format into [`ListingOptions`].
+///
+/// # Example
+///
+/// ```no_run
+/// use std::sync::Arc;
+///
+/// use datafusion::datasource::listing::ListingOptions;
+/// use datafusion::datasource::listing::ListingTable;
+/// use datafusion::datasource::listing::ListingTableConfig;
+/// use datafusion::datasource::listing::ListingTableUrl;
+/// use datafusion::prelude::SessionContext;
+/// use tempfile::tempdir;
+/// use vortex::VortexSessionDefault;
+/// use vortex::session::VortexSession;
+/// use vortex_datafusion::VortexFormat;
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let ctx = SessionContext::new();
+/// let dir = tempdir()?;
+///
+/// let format = Arc::new(VortexFormat::new(VortexSession::default()));
+/// let table_url = ListingTableUrl::parse(dir.path().to_str().unwrap())?;
+/// let config = ListingTableConfig::new(table_url)
+///     .with_listing_options(
+///         ListingOptions::new(format).with_session_config_options(ctx.state().config()),
+///     )
+///     .infer_schema(&ctx.state())
+///     .await?;
+///
+/// let table = ListingTable::try_new(config)?;
+/// # let _ = table;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// [`SessionContext`]: https://docs.rs/datafusion/latest/datafusion/prelude/struct.SessionContext.html
+/// [`ListingTable`]: https://docs.rs/datafusion/latest/datafusion/datasource/listing/struct.ListingTable.html
+/// [`ListingOptions`]: https://docs.rs/datafusion/latest/datafusion/datasource/listing/struct.ListingOptions.html
 pub struct VortexFormat {
     session: VortexSession,
     opts: VortexTableOptions,
@@ -85,9 +131,24 @@ impl Debug for VortexFormat {
 }
 
 config_namespace! {
-    /// Options to configure the [`VortexFormat`].
+    /// Options to configure [`VortexFormat`] and [`VortexSource`].
     ///
-    /// Can be set through a DataFusion [`SessionConfig`].
+    /// These options are usually set on a [`VortexFormatFactory`] and inherited
+    /// by the `VortexFormat` / `VortexSource` instances created for individual
+    /// tables.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use vortex_datafusion::{VortexFormatFactory, VortexTableOptions};
+    ///
+    /// let factory = VortexFormatFactory::new().with_options(VortexTableOptions {
+    ///     projection_pushdown: true,
+    ///     scan_concurrency: Some(8),
+    ///     ..Default::default()
+    /// });
+    /// # let _ = factory;
+    /// ```
     ///
     /// [`SessionConfig`]: https://docs.rs/datafusion/latest/datafusion/prelude/struct.SessionConfig.html
     pub struct VortexTableOptions {
@@ -113,7 +174,44 @@ config_namespace! {
 
 impl Eq for VortexTableOptions {}
 
-/// Minimal factory to create [`VortexFormat`] instances.
+/// Registration entry point for the file-backed Vortex integration.
+///
+/// `VortexFormatFactory` is the type most applications use. Register it with a
+/// DataFusion session, and DataFusion will create [`VortexFormat`] values for
+/// `CREATE EXTERNAL TABLE`, [`ListingTable`], and URL-table scans.
+///
+/// The factory stores a [`VortexSession`] and default [`VortexTableOptions`].
+/// Those defaults are copied into the formats and sources created for each
+/// table.
+///
+/// # Example
+///
+/// ```no_run
+/// use std::sync::Arc;
+///
+/// use datafusion::datasource::provider::DefaultTableFactory;
+/// use datafusion::execution::SessionStateBuilder;
+/// use datafusion_common::GetExt;
+/// use vortex_datafusion::{VortexFormatFactory, VortexTableOptions};
+///
+/// let factory = Arc::new(VortexFormatFactory::new().with_options(VortexTableOptions {
+///     projection_pushdown: true,
+///     ..Default::default()
+/// }));
+///
+/// let mut state_builder = SessionStateBuilder::new()
+///     .with_default_features()
+///     .with_table_factory(
+///         factory.get_ext().to_uppercase(),
+///         Arc::new(DefaultTableFactory::new()),
+///     );
+///
+/// if let Some(file_formats) = state_builder.file_formats() {
+///     file_formats.push(factory.clone() as _);
+/// }
+/// ```
+///
+/// [`ListingTable`]: https://docs.rs/datafusion/latest/datafusion/datasource/listing/struct.ListingTable.html
 #[derive(Debug)]
 pub struct VortexFormatFactory {
     session: VortexSession,
@@ -127,7 +225,7 @@ impl GetExt for VortexFormatFactory {
 }
 
 impl VortexFormatFactory {
-    /// Creates a new instance with a default [`VortexSession`] and default options.
+    /// Creates a factory with a default [`VortexSession`] and default options.
     #[expect(
         clippy::new_without_default,
         reason = "FormatFactory defines `default` method, so having `Default` implementation is confusing"
@@ -139,9 +237,11 @@ impl VortexFormatFactory {
         }
     }
 
-    /// Creates a new instance with customized session and default options for all [`VortexFormat`] instances created from this factory.
+    /// Creates a factory with an explicit session and default options.
     ///
-    /// The options can be overridden by table-level configuration pass in [`FileFormatFactory::create`].
+    /// The supplied options become the baseline for every [`VortexFormat`]
+    /// created by this factory. DataFusion may still override them with
+    /// table-level options passed into [`FileFormatFactory::create`].
     pub fn new_with_options(session: VortexSession, options: VortexTableOptions) -> Self {
         Self {
             session,
@@ -149,13 +249,21 @@ impl VortexFormatFactory {
         }
     }
 
-    /// Override the default options for this factory.
+    /// Overrides the default options for this factory.
     ///
-    /// For example:
+    /// This is the usual way to turn on features such as projection pushdown for
+    /// every table created through the factory.
+    ///
+    /// # Example
+    ///
     /// ```rust
     /// use vortex_datafusion::{VortexFormatFactory, VortexTableOptions};
     ///
-    /// let factory = VortexFormatFactory::new().with_options(VortexTableOptions::default());
+    /// let factory = VortexFormatFactory::new().with_options(VortexTableOptions {
+    ///     projection_pushdown: true,
+    ///     ..Default::default()
+    /// });
+    /// # let _ = factory;
     /// ```
     pub fn with_options(mut self, options: VortexTableOptions) -> Self {
         self.options = Some(options);
@@ -195,17 +303,23 @@ impl FileFormatFactory for VortexFormatFactory {
 }
 
 impl VortexFormat {
-    /// Create a new instance with default options.
+    /// Creates a format with default [`VortexTableOptions`].
+    ///
+    /// Prefer [`VortexFormatFactory`] when registering with a session. Construct
+    /// `VortexFormat` directly when building [`ListingOptions`] manually.
+    ///
+    /// [`ListingOptions`]: https://docs.rs/datafusion/latest/datafusion/datasource/listing/struct.ListingOptions.html
     pub fn new(session: VortexSession) -> Self {
         Self::new_with_options(session, VortexTableOptions::default())
     }
 
-    /// Creates a new instance with configured by a [`VortexTableOptions`].
+    /// Creates a format with explicit [`VortexTableOptions`].
     pub fn new_with_options(session: VortexSession, opts: VortexTableOptions) -> Self {
         Self { session, opts }
     }
 
-    /// Return the format specific configuration
+    /// Returns the format-specific configuration that will be copied into the
+    /// [`VortexSource`] created for a scan.
     pub fn options(&self) -> &VortexTableOptions {
         &self.opts
     }

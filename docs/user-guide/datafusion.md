@@ -14,7 +14,7 @@ vortex-datafusion = "<version>"
 
 Register the Vortex format with a `SessionContext`:
 
-:::{literalinclude} ../../vortex-datafusion/src/persistent/mod.rs
+:::{literalinclude} ../../vortex-datafusion/src/persistent/tests.rs
 :language: rust
 :dedent:
 :start-after: [setup]
@@ -27,7 +27,7 @@ Register the Vortex format with a `SessionContext`:
 
 Create an external table and query it:
 
-:::{literalinclude} ../../vortex-datafusion/src/persistent/mod.rs
+:::{literalinclude} ../../vortex-datafusion/src/persistent/tests.rs
 :language: rust
 :dedent:
 :start-after: [create]
@@ -49,7 +49,7 @@ You can also register a `ListingTable` directly:
 
 Write query results to Vortex using `INSERT INTO`:
 
-:::{literalinclude} ../../vortex-datafusion/src/persistent/mod.rs
+:::{literalinclude} ../../vortex-datafusion/src/persistent/tests.rs
 :language: rust
 :dedent:
 :start-after: [write]
@@ -63,7 +63,7 @@ partition value.
 
 Filters and projections are pushed down into the Vortex scan:
 
-:::{literalinclude} ../../vortex-datafusion/src/persistent/mod.rs
+:::{literalinclude} ../../vortex-datafusion/src/persistent/tests.rs
 :language: rust
 :dedent:
 :start-after: [query]
