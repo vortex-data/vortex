@@ -169,6 +169,7 @@ fn execute_sparse_lists(
     }))
 }
 
+#[expect(clippy::too_many_arguments)]
 fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
     patch_indices: &[I],
     patch_values: ListViewArray,
@@ -302,11 +303,7 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
                 .vortex_expect("fixed_size_list_elements_at");
             for i in 0..list_size as usize {
                 builder
-                    .append_scalar(
-                        &patch_list
-                            .execute_scalar(i, ctx)
-                            .vortex_expect("scalar_at"),
-                    )
+                    .append_scalar(&patch_list.execute_scalar(i, ctx).vortex_expect("scalar_at"))
                     .vortex_expect("element dtype must match");
             }
         } else {
@@ -1607,7 +1604,10 @@ mod test {
         .unwrap();
 
         // Convert to canonical form - this triggers the function we're testing
-        let canonical = sparse.into_array().execute::<Canonical>(&mut ctx)?.into_array();
+        let canonical = sparse
+            .into_array()
+            .execute::<Canonical>(&mut ctx)?
+            .into_array();
         let result_listview = canonical.execute::<ListViewArray>(&mut ctx)?;
         let elements_primitive = result_listview
             .elements()
@@ -1690,7 +1690,10 @@ mod test {
         let sparse =
             Sparse::try_new(indices, values, 5, Scalar::null(sliced.dtype().clone())).unwrap();
 
-        let canonical = sparse.into_array().execute::<Canonical>(&mut ctx)?.into_array();
+        let canonical = sparse
+            .into_array()
+            .execute::<Canonical>(&mut ctx)?
+            .into_array();
         let result_listview = canonical.execute::<ListViewArray>(&mut ctx)?;
         let elements_primitive = result_listview
             .elements()

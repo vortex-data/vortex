@@ -570,9 +570,12 @@ mod tests {
         let dict_codes = buffer![0u32, 1, 2].into_array();
         let dict = DictArray::try_new(dict_codes, dict_values).unwrap();
 
-        let arr =
-            RunEnd::try_new(buffer![2u32, 5, 10].into_array(), dict.into_array(), &mut ctx)
-                .unwrap();
+        let arr = RunEnd::try_new(
+            buffer![2u32, 5, 10].into_array(),
+            dict.into_array(),
+            &mut ctx,
+        )
+        .unwrap();
         assert_eq!(arr.len(), 10);
 
         let expected =

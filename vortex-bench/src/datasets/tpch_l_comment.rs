@@ -110,9 +110,7 @@ impl Dataset for TPCHLCommentCanonical {
 
     async fn to_vortex_array(&self, ctx: &mut ExecutionCtx) -> Result<ArrayRef> {
         let comments_chunked = TPCHLCommentChunked.to_vortex_array(ctx).await?;
-        let comments_canonical = comments_chunked
-            .execute::<StructArray>(ctx)?
-            .into_array();
+        let comments_canonical = comments_chunked.execute::<StructArray>(ctx)?.into_array();
         Ok(ChunkedArray::from_iter([comments_canonical]).into_array())
     }
 

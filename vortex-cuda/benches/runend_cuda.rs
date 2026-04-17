@@ -73,8 +73,8 @@ where
         group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
 
         for run_len in [10, 1000, 100000] {
-            let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty()).unwrap();
-            let runend_array = make_runend_array_typed::<T>(len, run_len, &mut ctx);
+            let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty()).unwrap();
+            let runend_array = make_runend_array_typed::<T>(len, run_len, cuda_ctx.execution_ctx());
 
             group.bench_with_input(
                 BenchmarkId::new("runend", format!("{len_str}_{type_name}_runlen_{run_len}")),

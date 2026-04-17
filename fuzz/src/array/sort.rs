@@ -21,10 +21,7 @@ use vortex_error::VortexResult;
 
 use crate::array::take_canonical_array_non_nullable_indices;
 
-pub fn sort_canonical_array(
-    array: &ArrayRef,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
+pub fn sort_canonical_array(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
     match array.dtype() {
         DType::Bool(_) => {
             let bool_array = array.clone().execute::<BoolArray>(ctx)?;

@@ -163,7 +163,10 @@ mod tests {
         let primitive_array = PrimitiveArray::from_iter([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
         let encoded = sequence_encode(primitive_array.as_view(), &mut ctx).unwrap();
         assert!(encoded.is_some());
-        let decoded = encoded.unwrap().execute::<PrimitiveArray>(&mut ctx).unwrap();
+        let decoded = encoded
+            .unwrap()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_arrays_eq!(decoded, primitive_array);
     }
 
@@ -173,7 +176,10 @@ mod tests {
         let primitive_array = PrimitiveArray::from_iter([0]);
         let encoded = sequence_encode(primitive_array.as_view(), &mut ctx).unwrap();
         assert!(encoded.is_some());
-        let decoded = encoded.unwrap().execute::<PrimitiveArray>(&mut ctx).unwrap();
+        let decoded = encoded
+            .unwrap()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_arrays_eq!(decoded, primitive_array);
     }
 
@@ -201,7 +207,10 @@ mod tests {
         let primitive_array = PrimitiveArray::from_iter(0u8..=255);
         let encoded = sequence_encode(primitive_array.as_view(), &mut ctx).unwrap();
         assert!(encoded.is_some());
-        let decoded = encoded.unwrap().execute::<PrimitiveArray>(&mut ctx).unwrap();
+        let decoded = encoded
+            .unwrap()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_arrays_eq!(decoded, primitive_array);
     }
 }

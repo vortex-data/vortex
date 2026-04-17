@@ -1311,7 +1311,9 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
     .into_array();
 
     let mut ctx = SESSION.create_execution_ctx();
-    let result = round_trip(&array, Ok).await?.execute::<StructArray>(&mut ctx)?;
+    let result = round_trip(&array, Ok)
+        .await?
+        .execute::<StructArray>(&mut ctx)?;
 
     assert_eq!(result.len(), 3);
     assert_eq!(result.struct_fields().nfields(), 1);

@@ -186,7 +186,11 @@ impl RDEncoder {
         match_each_alp_float_ptype!(array.ptype(), |P| { self.encode_generic::<P>(array, ctx) })
     }
 
-    fn encode_generic<T>(&self, array: ArrayView<'_, Primitive>, ctx: &mut ExecutionCtx) -> ALPRDArray
+    fn encode_generic<T>(
+        &self,
+        array: ArrayView<'_, Primitive>,
+        ctx: &mut ExecutionCtx,
+    ) -> ALPRDArray
     where
         T: ALPRDFloat + NativePType,
         T::UINT: NativePType,

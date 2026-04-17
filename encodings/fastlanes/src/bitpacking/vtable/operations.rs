@@ -143,8 +143,7 @@ mod test {
     fn slice_empty_patches() {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // We create an array that has 1 element that does not fit in the 6-bit range.
-        let array =
-            BitPackedData::encode(&buffer![0u32..=64].into_array(), 6, &mut ctx).unwrap();
+        let array = BitPackedData::encode(&buffer![0u32..=64].into_array(), 6, &mut ctx).unwrap();
 
         assert!(array.patches().is_some());
 

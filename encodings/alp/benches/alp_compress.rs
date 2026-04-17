@@ -152,7 +152,10 @@ fn decompress_rd<T: ALPRDFloat + NativePType>(bencher: Bencher, args: (usize, f6
     let (n, fraction_patch) = args;
     let primitive = make_rd_array::<T>(n, fraction_patch);
     let encoder = RDEncoder::new(primitive.as_slice::<T>());
-    let encoded = encoder.encode(primitive.as_view(), &mut LEGACY_SESSION.create_execution_ctx());
+    let encoded = encoder.encode(
+        primitive.as_view(),
+        &mut LEGACY_SESSION.create_execution_ctx(),
+    );
 
     bencher
         .with_inputs(|| (&encoded, LEGACY_SESSION.create_execution_ctx()))

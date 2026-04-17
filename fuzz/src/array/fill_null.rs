@@ -41,9 +41,7 @@ pub fn fill_null_canonical_array(
         Canonical::Primitive(array) => {
             fill_primitive_array(array, fill_value, result_nullability, ctx)
         }
-        Canonical::Decimal(array) => {
-            fill_decimal_array(array, fill_value, result_nullability, ctx)
-        }
+        Canonical::Decimal(array) => fill_decimal_array(array, fill_value, result_nullability, ctx),
         Canonical::VarBinView(array) => {
             fill_varbinview_array(array, fill_value, result_nullability, ctx)
         }

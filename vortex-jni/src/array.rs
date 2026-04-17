@@ -236,10 +236,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getField(
 
     try_or_throw(&mut env, |_| {
         let mut ctx = SESSION.create_execution_ctx();
-        let struct_array = array_ref
-            .inner
-            .clone()
-            .execute::<StructArray>(&mut ctx)?;
+        let struct_array = array_ref.inner.clone().execute::<StructArray>(&mut ctx)?;
         let idx = index as usize;
         if idx >= struct_array.struct_fields().nfields() {
             return Err(vortex_err!("Field index out of bounds").into());
@@ -311,7 +308,8 @@ macro_rules! get_primitive {
                         .inner
                         .clone()
                         .execute::<ExtensionArray>(&mut ctx)?;
-                    ext.storage_array().execute_scalar(index as usize, &mut ctx)?
+                    ext.storage_array()
+                        .execute_scalar(index as usize, &mut ctx)?
                 } else {
                     array_ref.inner.execute_scalar(index as usize, &mut ctx)?
                 };
@@ -351,7 +349,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBigDecimal(
                 .inner
                 .clone()
                 .execute::<ExtensionArray>(&mut ctx)?;
-            ext.storage_array().execute_scalar(index as usize, &mut ctx)?
+            ext.storage_array()
+                .execute_scalar(index as usize, &mut ctx)?
         } else {
             array_ref.inner.execute_scalar(index as usize, &mut ctx)?
         };

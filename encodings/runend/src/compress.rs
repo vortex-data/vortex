@@ -56,7 +56,6 @@ pub fn runend_encode(
         }
         Validity::Array(a) => {
             let bool_array = a
-                .clone()
                 .execute::<BoolArray>(ctx)
                 .vortex_expect("validity array must be convertible to bool");
             Some(bool_array.to_bit_buffer())

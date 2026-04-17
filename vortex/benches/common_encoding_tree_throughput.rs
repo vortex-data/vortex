@@ -377,7 +377,6 @@ mod setup {
         // Compress subseconds with FoR <- BitPacked
         let subseconds_prim = parts
             .subseconds
-            .clone()
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
         let subseconds_for = FoR::encode(subseconds_prim).unwrap();

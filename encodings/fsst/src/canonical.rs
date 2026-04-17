@@ -96,10 +96,10 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::VarBinArray;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::dtype::DType;

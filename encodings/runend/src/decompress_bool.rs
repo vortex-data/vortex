@@ -380,8 +380,8 @@ mod tests {
             BitBuffer::from(vec![true, false, true, false, true]),
             Validity::from(BitBuffer::from(vec![true, false, true, false, true])),
         );
-        let decoded =
-            runend_decode_bools(ends, values, 0, 10000, &mut ctx)?.execute::<BoolArray>(&mut ctx)?;
+        let decoded = runend_decode_bools(ends, values, 0, 10000, &mut ctx)?
+            .execute::<BoolArray>(&mut ctx)?;
 
         // Check length and a few values
         assert_eq!(decoded.len(), 10000);

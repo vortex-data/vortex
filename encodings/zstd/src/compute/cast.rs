@@ -201,9 +201,8 @@ mod tests {
         Validity::NonNullable,
     ))]
     fn test_cast_zstd_conformance(#[case] values: PrimitiveArray) {
-        let zstd =
-            Zstd::from_primitive(&values, 0, 0, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap();
+        let zstd = Zstd::from_primitive(&values, 0, 0, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         test_cast_conformance(&zstd.into_array());
     }
 }

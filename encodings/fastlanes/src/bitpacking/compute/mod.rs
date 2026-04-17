@@ -53,7 +53,13 @@ mod tests {
     use crate::bitpacking::compute::chunked_indices;
 
     fn bp(array: &PrimitiveArray, bit_width: u8) -> BitPackedArray {
-        bitpack_encode(array, bit_width, None, &mut LEGACY_SESSION.create_execution_ctx()).unwrap()
+        bitpack_encode(
+            array,
+            bit_width,
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap()
     }
 
     #[test]

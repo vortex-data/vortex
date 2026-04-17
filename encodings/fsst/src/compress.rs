@@ -105,8 +105,15 @@ where
 
     let uncompressed_lengths = uncompressed_lengths.into_array();
 
-    FSST::try_new(dtype, symbols, symbol_lengths, codes, uncompressed_lengths, ctx)
-        .vortex_expect("FSST parts must be valid")
+    FSST::try_new(
+        dtype,
+        symbols,
+        symbol_lengths,
+        codes,
+        uncompressed_lengths,
+        ctx,
+    )
+    .vortex_expect("FSST parts must be valid")
 }
 
 #[cfg(test)]

@@ -258,8 +258,14 @@ fn collect_valid(
     parray: ArrayView<'_, Primitive>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
-    let mask = parray.array().validity()?.to_mask(parray.array().len(), ctx)?;
-    let result = parray.array().filter(mask)?.execute::<PrimitiveArray>(ctx)?;
+    let mask = parray
+        .array()
+        .validity()?
+        .to_mask(parray.array().len(), ctx)?;
+    let result = parray
+        .array()
+        .filter(mask)?
+        .execute::<PrimitiveArray>(ctx)?;
     Ok(result)
 }
 

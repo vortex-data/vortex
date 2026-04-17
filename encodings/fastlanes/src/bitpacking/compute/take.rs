@@ -292,7 +292,12 @@ mod test {
     }
 
     fn bp(array: vortex_array::ArrayRef, bit_width: u8) -> BitPackedArray {
-        BitPackedData::encode(&array, bit_width, &mut LEGACY_SESSION.create_execution_ctx()).unwrap()
+        BitPackedData::encode(
+            &array,
+            bit_width,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap()
     }
 
     #[rstest]

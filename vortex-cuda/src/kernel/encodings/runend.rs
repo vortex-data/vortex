@@ -211,7 +211,7 @@ mod tests {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let runend_array = build(&mut cuda_ctx);
+        let runend_array = build(cuda_ctx.execution_ctx());
         let cpu_result = crate::canonicalize_cpu(runend_array.clone())?;
 
         let gpu_result = RunEndExecutor
@@ -239,7 +239,7 @@ mod tests {
         let ends: Vec<u64> = (1..=num_runs).map(|i| (i * run_length) as u64).collect();
         let values: Vec<i32> = (0..num_runs).map(|i| i32::try_from(i).unwrap()).collect();
 
-        let runend_array = make_runend_array(ends, values, &mut cuda_ctx);
+        let runend_array = make_runend_array(ends, values, cuda_ctx.execution_ctx());
         assert_eq!(runend_array.len(), total_len);
 
         let cpu_result = crate::canonicalize_cpu(runend_array.clone())?;
@@ -262,7 +262,7 @@ mod tests {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let runend_array = make_runend_array(vec![100u32], vec![42i32], &mut cuda_ctx);
+        let runend_array = make_runend_array(vec![100u32], vec![42i32], cuda_ctx.execution_ctx());
 
         let cpu_result = crate::canonicalize_cpu(runend_array.clone())?;
 
@@ -289,7 +289,7 @@ mod tests {
         let ends: Vec<u32> = (1..=num_elements).collect();
         let values: Vec<i32> = (0..num_elements as i32).collect();
 
-        let runend_array = make_runend_array(ends, values, &mut cuda_ctx);
+        let runend_array = make_runend_array(ends, values, cuda_ctx.execution_ctx());
 
         let cpu_result = crate::canonicalize_cpu(runend_array.clone())?;
 
@@ -319,7 +319,7 @@ mod tests {
             Validity::Array(BoolArray::from_iter([true, false, true].into_iter()).into_array());
         let values_array =
             PrimitiveArray::new(Buffer::from(vec![10i32, 0, 30]), validity).into_array();
-        let runend_array = RunEnd::new(ends_array, values_array, &mut cuda_ctx);
+        let runend_array = RunEnd::new(ends_array, values_array, cuda_ctx.execution_ctx());
 
         let cpu_result = crate::canonicalize_cpu(runend_array.clone())?.into_array();
 

@@ -124,10 +124,22 @@ impl FlatLayoutFixture for FsstFixture {
                 "all_null_clustered",
             ]),
             vec![
-                fsst_compress(&url_col, url_col.len(), url_col.dtype(), &url_comp, &mut ctx)
-                    .into_array(),
-                fsst_compress(&log_col, log_col.len(), log_col.dtype(), &log_comp, &mut ctx)
-                    .into_array(),
+                fsst_compress(
+                    &url_col,
+                    url_col.len(),
+                    url_col.dtype(),
+                    &url_comp,
+                    &mut ctx,
+                )
+                .into_array(),
+                fsst_compress(
+                    &log_col,
+                    log_col.len(),
+                    log_col.dtype(),
+                    &log_comp,
+                    &mut ctx,
+                )
+                .into_array(),
                 fsst_compress(
                     &nullable_col,
                     nullable_col.len(),

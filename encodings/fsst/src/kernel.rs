@@ -133,9 +133,14 @@ mod tests {
 
         let compressor = fsst_train_compressor(&input);
         let mut ctx = SESSION.create_execution_ctx();
-        let fsst_array: ArrayRef =
-            fsst_compress(input.clone(), input.len(), input.dtype(), &compressor, &mut ctx)
-                .into_array();
+        let fsst_array: ArrayRef = fsst_compress(
+            input.clone(),
+            input.len(),
+            input.dtype(),
+            &compressor,
+            &mut ctx,
+        )
+        .into_array();
 
         // Filter: only select the last element (index 22)
         let mut mask = vec![false; 22];
@@ -163,9 +168,14 @@ mod tests {
 
         let compressor = fsst_train_compressor(&input);
         let mut ctx = SESSION.create_execution_ctx();
-        let fsst_array: ArrayRef =
-            fsst_compress(input.clone(), input.len(), input.dtype(), &compressor, &mut ctx)
-                .into_array();
+        let fsst_array: ArrayRef = fsst_compress(
+            input.clone(),
+            input.len(),
+            input.dtype(),
+            &compressor,
+            &mut ctx,
+        )
+        .into_array();
 
         let mask = Mask::from_iter([true, false, true]);
 

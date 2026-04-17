@@ -336,9 +336,13 @@ fn bench_pcodec_compress_f64(bencher: Bencher) {
 #[divan::bench(name = "pcodec_decompress_f64")]
 fn bench_pcodec_decompress_f64(bencher: Bencher) {
     let (_, _, float_array) = setup_primitive_arrays();
-    let compressed =
-        Pco::from_primitive(float_array.as_view(), 3, 0, &mut SESSION.create_execution_ctx())
-            .unwrap();
+    let compressed = Pco::from_primitive(
+        float_array.as_view(),
+        3,
+        0,
+        &mut SESSION.create_execution_ctx(),
+    )
+    .unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 8)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))

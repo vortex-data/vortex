@@ -645,11 +645,7 @@ impl Scheme for RunEndScheme {
         // If the run length is below the threshold, drop it.
         // TODO(ctx): trait fixes - Scheme::expected_compression_ratio has a fixed signature.
         let mut local_ctx = LEGACY_SESSION.create_execution_ctx();
-        if data
-            .integer_stats(&mut local_ctx)
-            .average_run_length()
-            < RUN_END_THRESHOLD
-        {
+        if data.integer_stats(&mut local_ctx).average_run_length() < RUN_END_THRESHOLD {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
@@ -666,9 +662,7 @@ impl Scheme for RunEndScheme {
         let (ends, values) =
             runend_encode(data.array_as_primitive(), &mut compressor.execution_ctx());
 
-        let values_primitive = values
-            .clone()
-            .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?;
+        let values_primitive = values.execute::<PrimitiveArray>(&mut compressor.execution_ctx())?;
         let compressed_values =
             compressor.compress_child(&values_primitive.into_array(), &ctx, self.id(), 0)?;
 
@@ -751,10 +745,8 @@ impl Scheme for SequenceScheme {
 
         CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
             |compressor, data, _ctx| {
-                let Some(encoded) = sequence_encode(
-                    data.array_as_primitive(),
-                    &mut compressor.execution_ctx(),
-                )?
+                let Some(encoded) =
+                    sequence_encode(data.array_as_primitive(), &mut compressor.execution_ctx())?
                 else {
                     // If we are unable to sequence encode this array, make sure we skip.
                     return Ok(EstimateVerdict::Skip);

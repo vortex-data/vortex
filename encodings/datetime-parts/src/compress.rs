@@ -23,10 +23,7 @@ pub struct TemporalParts {
 ///
 /// Splitting the components by granularity creates more small values, which enables better
 /// cascading compression.
-pub fn split_temporal(
-    array: TemporalArray,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<TemporalParts> {
+pub fn split_temporal(array: TemporalArray, ctx: &mut ExecutionCtx) -> VortexResult<TemporalParts> {
     let temporal_values = array
         .temporal_values()
         .clone()

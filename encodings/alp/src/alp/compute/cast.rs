@@ -153,8 +153,8 @@ mod tests {
     fn test_cast_alp_conformance(#[case] array: vortex_array::ArrayRef) -> VortexResult<()> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array_primitive = array.execute::<PrimitiveArray>(&mut ctx)?;
-        let alp = alp_encode(array_primitive.as_view(), None, &mut ctx)
-            .vortex_expect("cannot fail");
+        let alp =
+            alp_encode(array_primitive.as_view(), None, &mut ctx).vortex_expect("cannot fail");
         test_cast_conformance(&alp.into_array());
 
         Ok(())

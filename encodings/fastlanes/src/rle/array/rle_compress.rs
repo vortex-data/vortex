@@ -326,8 +326,9 @@ mod tests {
     #[case::f16((-2000..2000).map(|i| f16::from_f32(i as f32)).collect::<Buffer<f16>>())]
     #[case::f32((-2000..2000).map(|i| i as f32).collect::<Buffer<f32>>())]
     #[case::f64((-2000..2000).map(|i| i as f64).collect::<Buffer<f64>>())]
-    fn test_roundtrip_primitive_types<T: NativePType>(#[case] values: Buffer<T>) -> VortexResult<()>
-    {
+    fn test_roundtrip_primitive_types<T: NativePType>(
+        #[case] values: Buffer<T>,
+    ) -> VortexResult<()> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let primitive = values
             .clone()
@@ -549,15 +550,13 @@ mod tests {
     #[case(vec![f16::ZERO, f16::NEG_ZERO])]
     #[case(vec![0f32, -0f32])]
     #[case(vec![0f64, -0f64])]
-    fn test_float_zeros<T: NativePType + fastlanes::RLE>(#[case] values: Vec<T>) -> VortexResult<()>
-    {
+    fn test_float_zeros<T: NativePType + fastlanes::RLE>(
+        #[case] values: Vec<T>,
+    ) -> VortexResult<()> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let primitive = PrimitiveArray::from_iter(values);
         let rle = RLEData::encode(primitive.as_view(), &mut ctx).unwrap();
-        let decoded = rle
-            .as_array()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?;
+        let decoded = rle.as_array().clone().execute::<PrimitiveArray>(&mut ctx)?;
         assert_arrays_eq!(primitive, decoded);
         Ok(())
     }

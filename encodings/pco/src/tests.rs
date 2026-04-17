@@ -167,7 +167,10 @@ fn test_validity_vtable() {
     let compressed = Pco::from_primitive(array.as_view(), 3, 0, &mut ctx).unwrap();
     let arr = compressed.as_array();
     assert_eq!(
-        arr.validity().unwrap().to_mask(arr.len(), &mut ctx).unwrap(),
+        arr.validity()
+            .unwrap()
+            .to_mask(arr.len(), &mut ctx)
+            .unwrap(),
         Mask::from_iter(mask_bools)
     );
     let sliced = compressed.slice(1..4).unwrap();

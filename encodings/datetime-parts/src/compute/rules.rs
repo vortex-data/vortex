@@ -352,7 +352,9 @@ mod tests {
             TimeUnit::Seconds,
             None,
         );
-        let dtp = DateTimeParts::try_from_temporal(temporal, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+        let dtp =
+            DateTimeParts::try_from_temporal(temporal, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap();
         let len = dtp.len();
 
         // Compare against midnight constant

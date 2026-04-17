@@ -189,8 +189,7 @@ mod tests {
     fn compression_roundtrip(n: usize) {
         let mut ctx = SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_iter((0..n).map(|i| (i % 2047) as u16));
-        let compressed =
-            BitPackedData::encode(&values.clone().into_array(), 11, &mut ctx).unwrap();
+        let compressed = BitPackedData::encode(&values.clone().into_array(), 11, &mut ctx).unwrap();
         assert_arrays_eq!(compressed, values);
 
         values

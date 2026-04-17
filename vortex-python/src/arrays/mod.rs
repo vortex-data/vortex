@@ -532,7 +532,9 @@ impl PyArray {
         // the wrappers are refactored.
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let mask_bool = (&*mask as &ArrayRef).clone().execute::<BoolArray>(&mut ctx)?;
+        let mask_bool = (&*mask as &ArrayRef)
+            .clone()
+            .execute::<BoolArray>(&mut ctx)?;
         let mask = mask_bool.to_mask_fill_null_false(&mut ctx);
         let canonical = slf.filter(mask)?.execute::<Canonical>(&mut ctx)?;
         let inner = canonical.into_array();
