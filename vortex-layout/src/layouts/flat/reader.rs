@@ -145,20 +145,19 @@ impl LayoutReader for FlatReader {
                 array = array.slice(row_range.clone())?;
             }
 
+            let mut ctx = session.create_execution_ctx();
             let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
                 // We have the choice to apply the filter or the expression first, we apply the
                 // expression first so that it can try pushing down itself and then the filter
                 // after this.
                 let array = array.apply(&expr)?;
                 let array = array.filter(mask.clone())?;
-                let mut ctx = session.create_execution_ctx();
                 let array_mask = array.execute::<Mask>(&mut ctx)?;
 
                 mask.intersect_by_rank(&array_mask)
             } else {
                 // Run over the full array, with a simpler bitand at the end.
                 let array = array.apply(&expr)?;
-                let mut ctx = session.create_execution_ctx();
                 let array_mask = array.execute::<Mask>(&mut ctx)?;
 
                 mask.bitand(&array_mask)
