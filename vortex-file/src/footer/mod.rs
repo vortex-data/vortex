@@ -146,10 +146,6 @@ impl Footer {
         self.statistics.as_ref()
     }
 
-    pub fn take_statistics(&mut self) -> Option<FileStatistics> {
-        self.statistics.take()
-    }
-
     /// Returns the [`DType`] of the file.
     pub fn dtype(&self) -> &DType {
         self.root_layout.dtype()

@@ -150,11 +150,6 @@ typedef struct {
     // void *in_out_function;
     // void *in_out_function_final;
 
-    //void (*get_partition_stats)(
-    //    duckdb_client_context context,
-    //    const void *bind_data,
-    //    duckdb_vector partition_stats_out);
-
     // false if statistics are not available
     bool (*statistics)(duckdb_client_context context,
                        const void *bind_data,

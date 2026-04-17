@@ -146,10 +146,10 @@ impl MultiFileDataSource {
 
         let factories: Vec<Arc<dyn LayoutReaderFactory>> = all_files[1..]
             .iter()
-            .map(|(f, fs)| {
+            .map(|(file, fs)| {
                 Arc::new(VortexFileReaderFactory {
                     fs: Arc::clone(fs),
-                    file: f.clone(),
+                    file: file.clone(),
                     session: self.session.clone(),
                     open_options_fn: Arc::clone(&self.open_options_fn),
                 }) as Arc<dyn LayoutReaderFactory>
@@ -157,7 +157,9 @@ impl MultiFileDataSource {
             .collect();
 
         let inner = MultiLayoutDataSource::new_with_first(first_reader, factories, &self.session);
-        debug!(file_count = all_files.len(), dtype = %inner.dtype(), "built MultiFileDataSource");
+
+        debug!(file_count, dtype = %inner.dtype(), "built MultiFileDataSource");
+
         Ok(inner)
     }
 }

@@ -152,8 +152,9 @@ c_statistics(ClientContext &context, const FunctionData *bind_data, column_t col
 
     duckdb_client_context c_ctx = reinterpret_cast<duckdb_client_context>(&context);
     duckdb_column_statistics statistics = {};
-    if (!bind.info->vtab.statistics(c_ctx, ffi_bind, column_index, &statistics))
+    if (!bind.info->vtab.statistics(c_ctx, ffi_bind, column_index, &statistics)) {
         return {};
+    }
 
     const LogicalType type = bind.types[column_index];
 
@@ -176,6 +177,13 @@ c_statistics(ClientContext &context, const FunctionData *bind_data, column_t col
     case LogicalTypeId::VARCHAR:
     case LogicalTypeId::BLOB: {
         return string_stats(statistics, type);
+    }
+    case LogicalTypeId::STRUCT: {
+        // Duckdb's has_null has a different meaning for structs.
+        // our DType non-nullability is recursive i.e. a non-null struct can't
+        // contain null children.
+        // Duckdb applies non-nullability only for the outer layer.
+        return {};
     }
     default:
         return base_stats(statistics, type);
@@ -396,17 +404,6 @@ extern "C" void duckdb_vx_tfunc_virtual_columns_push(duckdb_vx_tfunc_virtual_col
     result->emplace(column_idx, std::move(table_col));
 }
 
-vector<PartitionStatistics> c_get_partition_stats(ClientContext& context, GetPartitionStatsInput& input) {
-    const auto &bind = input.bind_data->Cast<CTableBindData>();
-    void *const ffi_bind = bind.ffi_data->DataPtr();
-    duckdb_client_context c_ctx = reinterpret_cast<duckdb_client_context>(&context);
-
-    vector<PartitionStatistics> out;
-    duckdb_column_statistics statistics = {};
-    //bind.info->vtab.get_partition_stats(c_ctx, ffi_bind, reinterpret_cast<duckdb_vector>(&statistics));
-    return out;
-}
-
 OperatorPartitionData c_get_partition_data(ClientContext & /*context*/,
                                            TableFunctionGetPartitionInput &input) {
     if (input.partition_info.RequiresPartitionColumns()) {
@@ -466,7 +463,6 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_database ffi_db, const d
     tf.late_materialization = vtab->late_materialization;
     tf.cardinality = c_cardinality;
     tf.get_partition_data = c_get_partition_data;
-    //tf.get_partition_stats = c_get_partition_stats;
     tf.get_virtual_columns = c_get_virtual_columns;
     tf.to_string = c_to_string;
     tf.table_scan_progress = c_table_scan_progress;

@@ -118,8 +118,8 @@ impl TableFunction for TestTableFunction {
         _client_context: &ClientContextRef,
         _bind_data: &Self::BindData,
         _column_index: usize,
-    ) -> ColumnStatistics {
-        ColumnStatistics::default()
+    ) -> Option<ColumnStatistics> {
+        None
     }
 }
 

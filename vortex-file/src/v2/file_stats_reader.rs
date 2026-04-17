@@ -46,7 +46,7 @@ use crate::FileStatistics;
 /// (the result is the same regardless of which row range is requested).
 pub struct FileStatsLayoutReader {
     child: LayoutReaderRef,
-    pub file_stats: FileStatistics,
+    file_stats: FileStatistics,
     struct_fields: StructFields,
     session: VortexSession,
     prune_cache: DashMap<Expression, bool>,
@@ -105,6 +105,10 @@ impl FileStatsLayoutReader {
             .execute_scalar(0, &mut ctx)?;
 
         Ok(result.as_bool().value() == Some(true))
+    }
+
+    pub fn file_stats(&self) -> &FileStatistics {
+        &self.file_stats
     }
 }
 
