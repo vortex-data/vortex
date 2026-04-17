@@ -199,8 +199,11 @@ mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::MaskFuture;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Dict;
     use vortex_array::arrays::DictArray;
@@ -289,10 +292,11 @@ mod tests {
             builder.append_value("Long value to test that the statistics are actually truncated, it needs a bit of extra padding though");
             builder.append_value("Another string that's meant to be smaller than the previous value, though still need extra padding");
             let array = builder.finish();
+            let mut stats_ctx = session.create_execution_ctx();
             array.statistics().set_iter(
                 array
                     .statistics()
-                    .compute_all(&Stat::all().collect::<Vec<_>>())
+                    .compute_all(&Stat::all().collect::<Vec<_>>(), &mut stats_ctx)
                     .vortex_expect("stats computation should succeed for test array")
                     .into_iter(),
             );
@@ -393,27 +397,30 @@ mod tests {
                 .unwrap();
 
             assert_eq!(
-                result.validity_mask().unwrap().bit_buffer(),
+                result
+                    .validity()
+                    .unwrap()
+                    .to_mask(result.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap()
+                    .bit_buffer(),
                 AllOr::Some(&validity_boolean_buffer)
             );
-            assert_eq!(
-                result
-                    .to_struct()
-                    .unmasked_field_by_name("a")
-                    .unwrap()
-                    .to_primitive()
-                    .as_slice::<u64>(),
-                &[1, 2]
-            );
-            assert_eq!(
-                result
-                    .to_struct()
-                    .unmasked_field_by_name("b")
-                    .unwrap()
-                    .to_primitive()
-                    .as_slice::<u64>(),
-                &[3, 4]
-            );
+            #[expect(deprecated)]
+            let result_struct = result.to_struct();
+            #[expect(deprecated)]
+            let field_a = result_struct
+                .unmasked_field_by_name("a")
+                .unwrap()
+                .to_primitive();
+            assert_eq!(field_a.as_slice::<u64>(), &[1, 2]);
+            #[expect(deprecated)]
+            let result_struct_b = result.to_struct();
+            #[expect(deprecated)]
+            let field_b = result_struct_b
+                .unmasked_field_by_name("b")
+                .unwrap()
+                .to_primitive();
+            assert_eq!(field_b.as_slice::<u64>(), &[3, 4]);
         })
     }
 

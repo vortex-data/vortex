@@ -14,6 +14,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -54,7 +55,8 @@ impl VTable for Extension {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.ext");
+        *ID
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -165,7 +167,3 @@ impl VTable for Extension {
 
 #[derive(Clone, Debug)]
 pub struct Extension;
-
-impl Extension {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.ext");
-}

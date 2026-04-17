@@ -145,7 +145,10 @@ mod test {
     use vortex_buffer::ByteBuffer;
 
     use crate::IntoArray;
-    use crate::ToCanonical;
+    use crate::LEGACY_SESSION;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
+    use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
@@ -162,6 +165,7 @@ mod test {
             [Some(b"abc".to_vec()), None, Some(b"def".to_vec())],
             DType::Binary(Nullability::Nullable),
         );
+        #[expect(deprecated)]
         let result = array
             .into_array()
             .binary(
@@ -176,7 +180,16 @@ mod test {
             .to_bool();
 
         assert_eq!(
-            &result.validity_mask().unwrap().to_bit_buffer(),
+            &result
+                .as_ref()
+                .validity()
+                .unwrap()
+                .to_mask(
+                    result.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx()
+                )
+                .unwrap()
+                .to_bit_buffer(),
             &BitBuffer::from_iter([true, false, true])
         );
         assert_eq!(
@@ -195,6 +208,7 @@ mod test {
             [None, None, Some(b"def".to_vec())],
             DType::Binary(Nullability::Nullable),
         );
+        #[expect(deprecated)]
         let result = array
             .into_array()
             .binary(vbv.into_array(), Operator::Eq)
@@ -202,7 +216,16 @@ mod test {
             .to_bool();
 
         assert_eq!(
-            result.validity_mask().unwrap().to_bit_buffer(),
+            result
+                .as_ref()
+                .validity()
+                .unwrap()
+                .to_mask(
+                    result.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx()
+                )
+                .unwrap()
+                .to_bit_buffer(),
             BitBuffer::from_iter([false, false, true])
         );
         assert_eq!(

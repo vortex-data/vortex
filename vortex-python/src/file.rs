@@ -9,6 +9,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyList;
 use pyo3_object_store::PyObjectStore;
 use vortex::array::ArrayRef;
+#[expect(deprecated)]
 use vortex::array::ToCanonical;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::dtype::DType;
@@ -213,10 +214,9 @@ impl PyVortexFile {
         }
 
         if let Some(indices) = indices {
-            let indices = indices
-                .cast(DType::Primitive(PType::U64, NonNullable))?
-                .to_primitive()
-                .into_buffer::<u64>();
+            let casted = indices.cast(DType::Primitive(PType::U64, NonNullable))?;
+            #[expect(deprecated)]
+            let indices = casted.to_primitive().into_buffer::<u64>();
             builder = builder.with_row_indices(indices);
         }
 

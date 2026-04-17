@@ -30,6 +30,7 @@ cudarc = { workspace = true, features = ["f16"] }
 futures = { workspace = true, features = ["executor"] }
 itertools = { workspace = true }
 kanal = { workspace = true }
+num-traits = { workspace = true }
 object_store = { workspace = true, features = ["fs"] }
 parking_lot = { workspace = true }
 prost = { workspace = true }
@@ -88,8 +89,4 @@ harness = false
 
 [[bench]]
 name = "throughput_cuda"
-harness = false
-
-[[bench]]
-name = "transpose_patches"
 harness = false

@@ -86,11 +86,12 @@ mod tests {
             Validity::from_iter([true, false, true, true, false]),
         );
         let encoded = rle(&primitive);
-        encoded
+        #[expect(deprecated)]
+        let result = encoded
             .into_array()
             .cast(DType::Primitive(PType::U8, Nullability::NonNullable))
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
-            .unwrap();
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+        result.unwrap();
     }
 
     #[rstest]

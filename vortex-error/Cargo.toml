@@ -29,7 +29,7 @@ tokio = { workspace = true, features = ["rt"], optional = true }
 
 [dev-dependencies]
 serial_test = { version = "3.3.1" }
-temp-env = "0.3"
+temp-env = { workspace = true }
 
 [lints]
 workspace = true

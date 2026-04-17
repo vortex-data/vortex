@@ -92,7 +92,7 @@ impl Array<ScalarFnVTable> {
         let arg_dtypes: Vec<_> = children.iter().map(|c| c.dtype().clone()).collect();
         let dtype = scalar_fn.return_dtype(&arg_dtypes)?;
         let data = ScalarFnData::build(scalar_fn.clone(), children.clone(), len)?;
-        let vtable = ScalarFnVTable { scalar_fn };
+        let vtable = ScalarFnVTable { id: scalar_fn.id() };
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(vtable, dtype, len, data)

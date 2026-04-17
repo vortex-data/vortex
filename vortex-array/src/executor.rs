@@ -38,18 +38,21 @@ use crate::memory::HostAllocatorRef;
 use crate::memory::MemorySessionExt;
 use crate::optimizer::ArrayOptimizer;
 
-/// Maximum number of iterations to attempt when executing an array before giving up and returning
-/// an error.
-pub(crate) static MAX_ITERATIONS: LazyLock<usize> =
-    LazyLock::new(|| match std::env::var("VORTEX_MAX_ITERATIONS") {
-        Ok(val) => val
-            .parse::<usize>()
-            .unwrap_or_else(|e| vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid usize: {e}")),
-        Err(VarError::NotPresent) => 128,
-        Err(VarError::NotUnicode(_)) => {
-            vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid unicode string")
-        }
-    });
+/// Returns the maximum number of iterations to attempt when executing an array before giving up and returning
+/// an error, can be by the `VORTEX_MAX_ITERATIONS` env variables, otherwise defaults to 128.
+pub(crate) fn max_iterations() -> usize {
+    static MAX_ITERATIONS: LazyLock<usize> =
+        LazyLock::new(|| match std::env::var("VORTEX_MAX_ITERATIONS") {
+            Ok(val) => val.parse::<usize>().unwrap_or_else(|e| {
+                vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid usize: {e}")
+            }),
+            Err(VarError::NotPresent) => 128,
+            Err(VarError::NotUnicode(_)) => {
+                vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid unicode string")
+            }
+        });
+    *MAX_ITERATIONS
+}
 
 /// Marker trait for types that an [`ArrayRef`] can be executed into.
 ///
@@ -83,10 +86,18 @@ impl ArrayRef {
     /// Iteratively execute this array until the [`Matcher`] matches, using an explicit work
     /// stack.
     ///
-    /// The scheduler repeatedly:
-    /// 1. Checks if the current array matches `M` — if so, pops the stack or returns.
-    /// 2. Runs `execute_parent` on each child for child-driven optimizations.
-    /// 3. Calls `execute` which returns an [`ExecutionStep`].
+    /// Each iteration proceeds through three steps in order:
+    ///
+    /// 1. **Done / canonical check** — if `current` satisfies the active done predicate or is
+    ///    canonical, splice it back into the stacked parent (if any) and continue, or return.
+    /// 2. **`execute_parent` on children** — try each child's `execute_parent` against `current`
+    ///    as the parent (e.g. `Filter(RunEnd)` → `FilterExecuteAdaptor` fires from RunEnd).
+    ///    If there is a stacked parent frame, the rewritten child is spliced back into it so
+    ///    that optimize and further `execute_parent` can fire on the reconstructed parent
+    ///    (e.g. `Slice(RunEnd)` → `RunEnd` spliced into stacked `Filter` → `Filter(RunEnd)`
+    ///    whose `FilterExecuteAdaptor` fires on the next iteration).
+    /// 3. **`execute`** — call the encoding's own execute step, which either returns `Done` or
+    ///    `ExecuteSlot(i)` to push a child onto the stack for focused execution.
     ///
     /// Note: the returned array may not match `M`. If execution converges to a canonical form
     /// that does not match `M`, the canonical array is returned since no further execution
@@ -95,67 +106,46 @@ impl ArrayRef {
     /// For safety, we will error when the number of execution iterations reaches a configurable
     /// maximum (default 128, override with `VORTEX_MAX_ITERATIONS`).
     pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        static MAX_ITERATIONS: LazyLock<usize> =
-            LazyLock::new(|| match std::env::var("VORTEX_MAX_ITERATIONS") {
-                Ok(val) => val.parse::<usize>().unwrap_or_else(|e| {
-                    vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid usize: {e}")
-                }),
-                Err(VarError::NotPresent) => 128,
-                Err(VarError::NotUnicode(_)) => {
-                    vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid unicode string")
-                }
-            });
-
         let mut current = self.optimize()?;
         // Stack frames: (parent, slot_idx, done_predicate_for_slot)
         let mut stack: Vec<(ArrayRef, usize, DonePredicate)> = Vec::new();
 
-        for _ in 0..*MAX_ITERATIONS {
-            // Check for termination: use the stack frame's done predicate, or the root matcher.
+        for _ in 0..max_iterations() {
+            // Step 1: done / canonical — splice back into stacked parent or return.
             let is_done = stack
                 .last()
                 .map_or(M::matches as DonePredicate, |frame| frame.2);
-            if is_done(&current) {
+            if is_done(&current) || AnyCanonical::matches(&current) {
                 match stack.pop() {
                     None => {
                         ctx.log(format_args!("-> {}", current));
                         return Ok(current);
                     }
                     Some((parent, slot_idx, _)) => {
-                        current = parent.with_slot(slot_idx, current)?;
-                        current = current.optimize()?;
+                        current = parent.with_slot(slot_idx, current)?.optimize()?;
                         continue;
                     }
                 }
             }
 
-            // If we've reached canonical form, we can't execute any further regardless
-            // of whether the matcher matched.
-            if AnyCanonical::matches(&current) {
-                match stack.pop() {
-                    None => {
-                        ctx.log(format_args!("-> canonical (unmatched) {}", current));
-                        return Ok(current);
-                    }
-                    Some((parent, slot_idx, _)) => {
-                        current = parent.with_slot(slot_idx, current)?;
-                        current = current.optimize()?;
-                        continue;
-                    }
-                }
-            }
-
-            // Try execute_parent (child-driven optimized execution)
+            // Step 2: execute_parent on children (current is the parent).
+            // If there is a stacked parent frame, splice the rewritten child back into it
+            // so that optimize and execute_parent can fire naturally on the reconstructed parent
+            // (e.g. Slice(RunEnd) -RunEndSliceKernel-> RunEnd, spliced back into Filter gives
+            // Filter(RunEnd), whose FilterExecuteAdaptor fires on the next iteration).
             if let Some(rewritten) = try_execute_parent(&current, ctx)? {
                 ctx.log(format_args!(
                     "execute_parent rewrote {} -> {}",
                     current, rewritten
                 ));
                 current = rewritten.optimize()?;
+                if let Some((parent, slot_idx, _)) = stack.pop() {
+                    current = parent.with_slot(slot_idx, current)?.optimize()?;
+                }
                 continue;
             }
 
-            // Execute the array itself.
+            // Step 4: execute the encoding's own step.
             let result = execute_step(current, ctx)?;
             let (array, step) = result.into_parts();
             match step {
@@ -179,15 +169,12 @@ impl ArrayRef {
 
         vortex_bail!(
             "Exceeded maximum execution iterations ({}) while executing array",
-            *MAX_ITERATIONS,
+            max_iterations(),
         )
     }
 }
 
 /// Execution context for batch CPU compute.
-///
-/// Accumulates a trace of execution steps. Individual steps are logged at TRACE level for
-/// real-time following, and the full trace is dumped at DEBUG level when the context is dropped.
 #[derive(Debug, Clone)]
 pub struct ExecutionCtx {
     id: usize,
@@ -201,8 +188,8 @@ impl ExecutionCtx {
         static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
         let id = EXEC_CTX_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Self {
-            id,
             session,
+            id,
             ops: Vec::new(),
         }
     }

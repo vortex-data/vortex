@@ -7,6 +7,7 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 
 use num_traits::Float;
+use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -18,15 +19,21 @@ use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeList;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFnArray;
+use vortex_array::arrays::ScalarFnVTable as ScalarFnArrayEncoding;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::scalar_fn::ExactScalarFn;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
+use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts;
+use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDType;
+use vortex_array::dtype::proto::dtype as pb;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
 use vortex_array::extension::EmptyMetadata;
@@ -39,12 +46,14 @@ use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFn;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::serde::ArrayChildren;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_denorm::L2Denorm;
@@ -245,6 +254,97 @@ impl ScalarFnVTable for InnerProduct {
     }
 }
 
+/// Metadata for a serialized binary tensor-op array (shared by [`InnerProduct`] and
+/// [`CosineSimilarity`]). Both operands share the same extension dtype up to nullability
+/// (enforced by their `return_dtype` checks), but their individual nullabilities are lost in the
+/// parent's unioned output, so both are persisted.
+///
+/// [`CosineSimilarity`]: crate::scalar_fns::cosine_similarity::CosineSimilarity
+#[derive(Clone, prost::Message)]
+pub(crate) struct BinaryTensorOpMetadata {
+    #[prost(message, optional, tag = "1")]
+    pub(crate) lhs_dtype: Option<pb::DType>,
+    #[prost(message, optional, tag = "2")]
+    pub(crate) rhs_dtype: Option<pb::DType>,
+}
+
+impl BinaryTensorOpMetadata {
+    /// Encodes the two children of `view` into a [`BinaryTensorOpMetadata`] byte blob.
+    pub(crate) fn encode_from_view<V: ScalarFnVTable>(
+        view: &ScalarFnArrayView<V>,
+    ) -> VortexResult<Vec<u8>> {
+        let scalar_fn_array = view.as_::<ScalarFnArrayEncoding>();
+        let lhs_dtype = Some(scalar_fn_array.child_at(0).dtype().try_into()?);
+        let rhs_dtype = Some(scalar_fn_array.child_at(1).dtype().try_into()?);
+        Ok(Self {
+            lhs_dtype,
+            rhs_dtype,
+        }
+        .encode_to_vec())
+    }
+
+    /// Decodes `metadata` and fetches both children from `children` using the decoded dtypes,
+    /// validating that `lhs` and `rhs` agree modulo nullability.
+    pub(crate) fn decode_children(
+        metadata: &[u8],
+        len: usize,
+        children: &dyn ArrayChildren,
+        session: &VortexSession,
+        scalar_fn_name: &str,
+    ) -> VortexResult<Vec<ArrayRef>> {
+        let metadata = Self::decode(metadata)
+            .map_err(|e| vortex_err!("Failed to decode BinaryTensorOpMetadata: {e}"))?;
+        let lhs_pb = metadata
+            .lhs_dtype
+            .as_ref()
+            .ok_or_else(|| vortex_err!("{scalar_fn_name} metadata missing lhs_dtype"))?;
+        let rhs_pb = metadata
+            .rhs_dtype
+            .as_ref()
+            .ok_or_else(|| vortex_err!("{scalar_fn_name} metadata missing rhs_dtype"))?;
+        let lhs_dtype = DType::from_proto(lhs_pb, session)?;
+        let rhs_dtype = DType::from_proto(rhs_pb, session)?;
+        vortex_ensure!(
+            lhs_dtype.eq_ignore_nullability(&rhs_dtype),
+            "{scalar_fn_name} operand dtype mismatch: {lhs_dtype} vs {rhs_dtype}"
+        );
+        let lhs = children.get(0, &lhs_dtype, len)?;
+        let rhs = children.get(1, &rhs_dtype, len)?;
+        Ok(vec![lhs, rhs])
+    }
+}
+
+impl ScalarFnArrayVTable for InnerProduct {
+    fn serialize(
+        &self,
+        view: &ScalarFnArrayView<Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(BinaryTensorOpMetadata::encode_from_view(view)?))
+    }
+
+    fn deserialize(
+        &self,
+        _dtype: &DType,
+        len: usize,
+        metadata: &[u8],
+        children: &dyn ArrayChildren,
+        session: &VortexSession,
+    ) -> VortexResult<ScalarFnArrayParts<Self>> {
+        let reconstructed = BinaryTensorOpMetadata::decode_children(
+            metadata,
+            len,
+            children,
+            session,
+            "InnerProduct",
+        )?;
+        Ok(ScalarFnArrayParts {
+            options: EmptyOptions,
+            children: reconstructed,
+        })
+    }
+}
+
 impl InnerProduct {
     /// Both sides are `L2Denorm`: `inner_product = s_l * s_r * dot(n_l, n_r)`.
     fn execute_both_denorm(
@@ -348,18 +448,10 @@ impl InnerProduct {
             return Ok(None);
         }
 
-        // The other side must be a constant-backed tensor-like extension whose scalar is
-        // non-null.
-        let Some(const_ext) = const_ref.as_opt::<Extension>() else {
+        // The other side must be a constant tensor.
+        let Some(const_storage) = constant_tensor_storage(const_ref) else {
             return Ok(None);
         };
-        let const_storage = const_ext.storage_array();
-        let Some(const_backing) = const_storage.as_opt::<Constant>() else {
-            return Ok(None);
-        };
-        if const_backing.scalar().is_null() {
-            return Ok(None);
-        }
 
         let dim = sorf_view.options.dimension as usize;
         let num_rounds = sorf_view.options.num_rounds as usize;
@@ -367,7 +459,7 @@ impl InnerProduct {
         let padded_dim = dim.next_power_of_two();
 
         // Extract the single stored row of the constant via the stride-0 short-circuit.
-        let flat = extract_flat_elements(const_storage, dim, ctx)?;
+        let flat = extract_flat_elements(&const_storage, dim, ctx)?;
         if flat.ptype() != PType::F32 {
             // TODO(connor): as above, f16/f64 are not supported by this rewrite yet. The
             // standard path handles them correctly.
@@ -382,9 +474,9 @@ impl InnerProduct {
         let mut rotated_query = vec![0.0f32; padded_dim];
         rotation.rotate(&padded_query, &mut rotated_query);
 
-        // Build the rewritten constant as a `Vector<padded_dim, f32>` extension wrapping a
-        // `ConstantArray` of length `len`. We reuse the original storage FSL nullability so
-        // the new extension dtype stays consistent with whatever the original tree expected.
+        // Build the rewritten constant as a `Vector<padded_dim, f32>` extension scalar. We reuse
+        // the original storage FSL nullability so the new extension dtype stays consistent with
+        // whatever the original tree expected.
         let storage_fsl_nullability = const_storage.dtype().nullability();
         let element_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
         let children: Vec<Scalar> = rotated_query
@@ -393,7 +485,6 @@ impl InnerProduct {
             .collect();
         let fsl_scalar =
             Scalar::fixed_size_list(element_dtype.clone(), children, storage_fsl_nullability);
-        let new_storage = ConstantArray::new(fsl_scalar, len).into_array();
 
         // Build a fresh `Vector<padded_dim, f32>` extension dtype. We cannot reuse the
         // original extension dtype because that one has `dim`, not `padded_dim`.
@@ -404,7 +495,8 @@ impl InnerProduct {
             storage_fsl_nullability,
         );
         let new_ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, new_fsl_dtype)?.erased();
-        let new_constant = ExtensionArray::new(new_ext_dtype, new_storage).into_array();
+        let new_constant =
+            ConstantArray::new(Scalar::extension_ref(new_ext_dtype, fsl_scalar), len).into_array();
 
         // Extract the SorfTransform child (the already-padded Vector<padded_dim, f32>).
         let sorf_child = sorf_view
@@ -472,16 +564,9 @@ impl InnerProduct {
         };
 
         // Navigate the constant side and require its scalar be non-null.
-        let Some(const_ext) = const_candidate.as_opt::<Extension>() else {
+        let Some(const_storage) = constant_tensor_storage(const_candidate) else {
             return Ok(None);
         };
-        let const_storage = const_ext.storage_array();
-        let Some(const_backing) = const_storage.as_opt::<Constant>() else {
-            return Ok(None);
-        };
-        if const_backing.scalar().is_null() {
-            return Ok(None);
-        }
 
         // Canonicalize codes and values. Codes may be e.g. BitPacked; executing is cheaper
         // than falling through to the standard path (which would also canonicalize).
@@ -502,7 +587,7 @@ impl InnerProduct {
 
         let padded_dim = usize::try_from(fsl.list_size()).vortex_expect("fsl list_size fits usize");
 
-        let flat = extract_flat_elements(const_storage, padded_dim, ctx)?;
+        let flat = extract_flat_elements(&const_storage, padded_dim, ctx)?;
         if flat.ptype() != PType::F32 {
             // TODO(connor): case 2 is f32-only. For f16/f64 we fall through to the standard
             // path, which computes the inner product with the correct element type.
@@ -527,23 +612,24 @@ impl InnerProduct {
         let values: &[f32] = values_prim.as_slice::<f32>();
         debug_assert_eq!(codes.len(), len * padded_dim);
 
-        // Direct codebook lookup in the hot loop. See the function doc comment for why this
-        // beats an explicit product table here.
-        let mut out = BufferMut::<f32>::with_capacity(len);
-        for row in 0..len {
-            let row_codes = &codes[row * padded_dim..(row + 1) * padded_dim];
-            let mut acc = 0.0f32;
-            for j in 0..padded_dim {
-                acc += q[j] * values[row_codes[j] as usize];
-            }
-            // SAFETY: we reserved `len` slots above and push exactly once per row.
-            unsafe { out.push_unchecked(acc) };
-        }
+        // The hot loop is extracted into [`execute_dict_constant_inner_product`] with
+        // unchecked indexing so the compiler can vectorize the inner gather-accumulate.
+        let out = execute_dict_constant_inner_product(q, values, codes, len, padded_dim);
 
         // SAFETY: the buffer length equals `len`, which matches the validity length.
         let result = unsafe { PrimitiveArray::new_unchecked(out.freeze(), validity) }.into_array();
         Ok(Some(result))
     }
+}
+
+/// Return the storage constant for a canonical tensor-like constant query.
+fn constant_tensor_storage(array: &ArrayRef) -> Option<ArrayRef> {
+    let constant = array.as_opt::<Constant>()?;
+    if constant.scalar().is_null() {
+        return None;
+    }
+    let ext_scalar = constant.scalar().as_extension_opt()?;
+    Some(ConstantArray::new(ext_scalar.to_storage_scalar(), array.len()).into_array())
 }
 
 /// Computes the inner product (dot product) of two equal-length float slices.
@@ -556,30 +642,70 @@ fn inner_product_row<T: Float + NativePType>(a: &[T], b: &[T]) -> T {
         .fold(T::zero(), |acc, v| acc + v)
 }
 
+/// Compute inner products between a constant query vector and dictionary-encoded rows.
+///
+/// For each row, computes `sum(q[j] * values[codes[row * dim + j]])` using the codebook
+/// `values` directly instead of decoding the dictionary into dense vectors.
+///
+/// The inner loop uses four independent accumulators so the CPU can pipeline FP additions
+/// instead of waiting for each `fadd` to retire before starting the next.
+fn execute_dict_constant_inner_product(
+    q: &[f32],
+    values: &[f32],
+    codes: &[u8],
+    num_rows: usize,
+    dim: usize,
+) -> BufferMut<f32> {
+    let mut out = BufferMut::<f32>::with_capacity(num_rows);
+
+    const PARTIAL_SUMS: usize = 8;
+
+    for row_codes in codes.chunks_exact(dim) {
+        let mut acc = [0.0f32; PARTIAL_SUMS];
+
+        let code_chunks = row_codes.chunks_exact(PARTIAL_SUMS);
+        let q_chunks = q.chunks_exact(PARTIAL_SUMS);
+        let code_rem = code_chunks.remainder();
+        let q_rem = q_chunks.remainder();
+
+        for (cc, qd) in code_chunks.zip(q_chunks) {
+            for i in 0..PARTIAL_SUMS {
+                acc[i] = qd[i].mul_add(values[cc[i] as usize], acc[i]);
+            }
+        }
+
+        for (&code, &q_val) in code_rem.iter().zip(q_rem.iter()) {
+            acc[0] = q_val.mul_add(values[code as usize], acc[0]);
+        }
+
+        // SAFETY: we reserved `num_rows` slots and push exactly once per row.
+        unsafe { out.push_unchecked(acc.iter().sum::<f32>()) };
+    }
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
-    use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_array::ArrayPlugin;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::MaskedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::ScalarFnArray;
-    use vortex_array::session::ArraySession;
+    use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
     use crate::scalar_fns::inner_product::InnerProduct;
     use crate::scalar_fns::l2_denorm::L2Denorm;
+    use crate::tests::SESSION;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
-
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     /// Evaluates inner product between two tensor arrays and returns the result as `Vec<f64>`.
     fn eval_inner_product(lhs: ArrayRef, rhs: ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
@@ -667,9 +793,9 @@ mod tests {
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
 
         // Row 0: 1*7 + 2*8 = 23, row 1: null, row 2: 5*11 + 6*12 = 127.
-        assert!(prim.is_valid(0)?);
-        assert!(!prim.is_valid(1)?);
-        assert!(prim.is_valid(2)?);
+        assert!(prim.is_valid(0, &mut ctx)?);
+        assert!(!prim.is_valid(1, &mut ctx)?);
+        assert!(prim.is_valid(2, &mut ctx)?);
         assert_close(&[prim.as_slice::<f64>()[0]], &[23.0]);
         assert_close(&[prim.as_slice::<f64>()[2]], &[127.0]);
         Ok(())
@@ -770,9 +896,48 @@ mod tests {
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
 
         // Row 0: 5.0 * 5.0 * dot([0.6, 0.8], [0.6, 0.8]) = 25.0, row 1: null.
-        assert!(prim.is_valid(0)?);
-        assert!(!prim.is_valid(1)?);
+        assert!(prim.is_valid(0, &mut ctx)?);
+        assert!(!prim.is_valid(1, &mut ctx)?);
         assert_close(&[prim.as_slice::<f64>()[0]], &[25.0]);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::vector(
+        vector_array(3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap(),
+        vector_array(3, &[7.0, 8.0, 9.0, 10.0, 11.0, 12.0]).unwrap(),
+        2,
+    )]
+    #[case::fixed_shape_tensor(
+        tensor_array(&[2], &[1.0, 2.0, 3.0, 4.0]).unwrap(),
+        tensor_array(&[2], &[5.0, 6.0, 7.0, 8.0]).unwrap(),
+        2,
+    )]
+    fn serde_round_trip(
+        #[case] lhs: ArrayRef,
+        #[case] rhs: ArrayRef,
+        #[case] len: usize,
+    ) -> VortexResult<()> {
+        let original = InnerProduct::try_new_array(lhs.clone(), rhs.clone(), len)?.into_array();
+
+        let plugin = ScalarFnArrayPlugin::new(InnerProduct);
+        let metadata = plugin
+            .serialize(&original, &SESSION)?
+            .expect("InnerProduct serialize must produce metadata");
+
+        let children = vec![lhs, rhs];
+        let recovered = plugin.deserialize(
+            original.dtype(),
+            original.len(),
+            &metadata,
+            &[],
+            &children,
+            &SESSION,
+        )?;
+
+        assert_eq!(recovered.dtype(), original.dtype());
+        assert_eq!(recovered.len(), original.len());
+        assert_eq!(recovered.encoding_id(), original.encoding_id());
         Ok(())
     }
 
@@ -789,6 +954,7 @@ mod tests {
         use vortex_array::ArrayRef;
         use vortex_array::IntoArray;
         use vortex_array::VortexSessionExecute;
+        use vortex_array::arrays::Constant;
         use vortex_array::arrays::ConstantArray;
         use vortex_array::arrays::ExtensionArray;
         use vortex_array::arrays::FixedSizeListArray;
@@ -808,9 +974,11 @@ mod tests {
         use vortex_session::VortexSession;
 
         use crate::scalar_fns::inner_product::InnerProduct;
+        use crate::scalar_fns::inner_product::constant_tensor_storage;
         use crate::scalar_fns::sorf_transform::SorfMatrix;
         use crate::scalar_fns::sorf_transform::SorfOptions;
         use crate::scalar_fns::sorf_transform::SorfTransform;
+        use crate::utils::extract_flat_elements;
         use crate::vector::Vector;
 
         static SESSION: LazyLock<VortexSession> =
@@ -839,6 +1007,19 @@ mod tests {
             let ext_dtype =
                 ExtDType::<Vector>::try_new(EmptyMetadata, storage.dtype().clone())?.erased();
             Ok(ExtensionArray::new(ext_dtype, storage).into_array())
+        }
+
+        /// Expression-literal shape: a ConstantArray whose scalar itself is a Vector extension.
+        fn literal_vector_f32(elements: &[f32], len: usize) -> ArrayRef {
+            let element_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
+            let children: Vec<Scalar> = elements
+                .iter()
+                .map(|&v| Scalar::primitive(v, Nullability::NonNullable))
+                .collect();
+            let storage_scalar =
+                Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
+            let vector_scalar = Scalar::extension::<Vector>(EmptyMetadata, storage_scalar);
+            ConstantArray::new(vector_scalar, len).into_array()
         }
 
         /// Build an `ExtensionArray<Vector<list_size, f32>>` whose storage is
@@ -944,6 +1125,27 @@ mod tests {
         }
 
         // ---- Case 1: SorfTransform + Constant pull-through ----
+
+        #[test]
+        fn constant_tensor_storage_accepts_extension_scalar_literal() -> VortexResult<()> {
+            let literal = literal_vector_f32(&[1.0, 2.0, 3.0], 5);
+            let storage =
+                constant_tensor_storage(&literal).expect("literal vector should be recognized");
+
+            assert_eq!(storage.len(), 5);
+            let const_storage = storage
+                .as_opt::<Constant>()
+                .expect("storage should remain constant-backed");
+            assert!(matches!(
+                const_storage.scalar().dtype(),
+                DType::FixedSizeList(_, 3, Nullability::NonNullable)
+            ));
+
+            let mut ctx = SESSION.create_execution_ctx();
+            let flat = extract_flat_elements(&storage, 3, &mut ctx)?;
+            assert_eq!(flat.row::<f32>(0), &[1.0, 2.0, 3.0]);
+            Ok(())
+        }
 
         /// Case 1: SorfTransform on LHS, constant query on RHS, with `dim < padded_dim`
         /// so the zero-padding branch is exercised.

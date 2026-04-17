@@ -109,6 +109,8 @@ where
 #[cfg(test)]
 mod tests {
     use fsst::CompressorBuilder;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
@@ -133,7 +135,9 @@ mod tests {
             &compressor,
         );
 
-        let decoded = compressed.scalar_at(0).unwrap();
+        let decoded = compressed
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
 
         let expected = Scalar::utf8(big_string, Nullability::NonNullable);
 

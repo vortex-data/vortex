@@ -8,7 +8,8 @@ use vortex_error::VortexResult;
 
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
-use crate::ToCanonical;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::arrays::ConstantArray;
@@ -116,6 +117,7 @@ impl ListViewArray {
     fn naive_rebuild<O: IntegerPType, NewOffset: IntegerPType, S: IntegerPType>(
         &self,
     ) -> VortexResult<ListViewArray> {
+        #[expect(deprecated)]
         let sizes_canonical = self.sizes().to_primitive();
         let total: u64 = sizes_canonical
             .as_slice::<S>()
@@ -149,8 +151,10 @@ impl ListViewArray {
     fn rebuild_with_take<O: IntegerPType, NewOffset: IntegerPType, S: IntegerPType>(
         &self,
     ) -> VortexResult<ListViewArray> {
+        #[expect(deprecated)]
         let offsets_canonical = self.offsets().to_primitive();
         let offsets_slice = offsets_canonical.as_slice::<O>();
+        #[expect(deprecated)]
         let sizes_canonical = self.sizes().to_primitive();
         let sizes_slice = sizes_canonical.as_slice::<S>();
 
@@ -202,8 +206,10 @@ impl ListViewArray {
             .as_list_element_opt()
             .vortex_expect("somehow had a canonical list that was not a list");
 
+        #[expect(deprecated)]
         let offsets_canonical = self.offsets().to_primitive();
         let offsets_slice = offsets_canonical.as_slice::<O>();
+        #[expect(deprecated)]
         let sizes_canonical = self.sizes().to_primitive();
         let sizes_slice = sizes_canonical.as_slice::<S>();
 
@@ -217,6 +223,7 @@ impl ListViewArray {
         let mut new_sizes = BufferMut::<S>::with_capacity(len);
 
         // Canonicalize the elements up front as we will be slicing the elements quite a lot.
+        #[expect(deprecated)]
         let elements_canonical = self
             .elements()
             .to_canonical()
@@ -285,9 +292,13 @@ impl ListViewArray {
             // completely fine for us to use this as a lower-bounded start of the `elements`.
             self.offset_at(0)
         } else {
-            self.offsets().statistics().compute_min().vortex_expect(
-                "[ListViewArray::rebuild]: `offsets` must report min statistic that is a `usize`",
-            )
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
+            self.offsets()
+                .statistics()
+                .compute_min(&mut ctx)
+                .vortex_expect(
+                    "[ListViewArray::rebuild]: `offsets` must report min statistic that is a `usize`",
+                )
         };
 
         let end = if self.is_zero_copy_to_list() {
@@ -374,7 +385,10 @@ mod tests {
 
     use super::ListViewRebuildMode;
     use crate::IntoArray;
-    use crate::ToCanonical;
+    use crate::LEGACY_SESSION;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
+    use crate::VortexSessionExecute;
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::listview::ListViewArrayExt;
@@ -496,8 +510,14 @@ mod tests {
         );
 
         // Note that element at index 2 (97) is preserved as a gap.
+        #[expect(deprecated)]
         let all_elements = trimmed.elements().to_primitive();
-        assert_eq!(all_elements.scalar_at(2).unwrap(), 97i32.into());
+        assert_eq!(
+            all_elements
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            97i32.into()
+        );
         Ok(())
     }
 
@@ -537,10 +557,26 @@ mod tests {
         let exact = rebuilt.rebuild(ListViewRebuildMode::MakeExact)?;
 
         // Verify the result is still valid
-        assert!(exact.is_valid(0).unwrap());
-        assert!(exact.is_valid(1).unwrap());
-        assert!(!exact.is_valid(2).unwrap());
-        assert!(!exact.is_valid(3).unwrap());
+        assert!(
+            exact
+                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
+        assert!(
+            exact
+                .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
+        assert!(
+            !exact
+                .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
+        assert!(
+            !exact
+                .is_valid(3, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
 
         // Verify data is preserved
         assert_arrays_eq!(

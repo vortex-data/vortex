@@ -153,7 +153,8 @@ mod tests {
     use crate::arrays::struct_::compute::rules::ConstantArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
-    use crate::canonical::ToCanonical;
+    #[expect(deprecated)]
+    use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
     use crate::dtype::FieldNames;
     use crate::dtype::Nullability;
@@ -187,6 +188,7 @@ mod tests {
 
         // Use `ArrayBuiltins::cast` which goes through the optimizer and applies
         // `StructCastPushDownRule`.
+        #[expect(deprecated)]
         let result = source.into_array().cast(target).unwrap().to_struct();
         assert_arrays_eq!(
             result.unmasked_field_by_name("a").unwrap(),
@@ -255,6 +257,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
+        #[expect(deprecated)]
         let result = source.into_array().cast(target).unwrap().to_struct();
         assert_eq!(result.unmasked_fields().len(), 2);
         assert_arrays_eq!(
@@ -286,6 +289,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
+        #[expect(deprecated)]
         let result = source.into_array().cast(target).unwrap().to_struct();
         assert_eq!(
             result.unmasked_field_by_name("val").unwrap().dtype(),

@@ -135,6 +135,7 @@ pub fn precision_to_duckdb_storage_size(decimal_dtype: &DecimalDType) -> VortexR
 
 #[cfg(test)]
 mod tests {
+    use vortex::array::LEGACY_SESSION;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::DecimalArray;
     use vortex::dtype::DecimalDType;
@@ -148,7 +149,10 @@ mod tests {
     pub(crate) fn new_zero_copy_exporter(
         array: &DecimalArray,
     ) -> VortexResult<Box<dyn ColumnExporter>> {
-        let validity = array.validity_mask()?;
+        let validity = array.as_ref().validity()?.to_mask(
+            array.as_ref().len(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         let dest_values_type = precision_to_duckdb_storage_size(&array.decimal_dtype())?;
 
         assert_eq!(array.values_type(), dest_values_type);

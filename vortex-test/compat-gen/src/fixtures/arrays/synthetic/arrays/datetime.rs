@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayVTable;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Extension;
 use vortex_array::arrays::PrimitiveArray;
@@ -30,7 +31,7 @@ impl FlatLayoutFixture for DateTimeFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Extension::ID]
+        vec![Extension.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

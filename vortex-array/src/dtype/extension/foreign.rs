@@ -51,7 +51,7 @@ impl ExtVTable for ForeignExtDType {
     type NativeValue<'a> = &'a ScalarValue;
 
     fn id(&self) -> ExtId {
-        self.id.clone()
+        self.id
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {

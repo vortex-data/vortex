@@ -14,10 +14,11 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Patched;
-use vortex_array::arrays::patched::USE_EXPERIMENTAL_PATCHES;
+use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::PType;
 use vortex_compressor::estimate::CompressionEstimate;
@@ -107,7 +108,11 @@ impl Scheme for ALPScheme {
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let alp_encoded = alp_encode(data.array_as_primitive(), None)?;
+        let alp_encoded = alp_encode(
+            data.array_as_primitive(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
 
         // Compress the ALP ints.
         let compressed_alp_ints =
@@ -116,7 +121,7 @@ impl Scheme for ALPScheme {
         let alp_stats = alp_encoded.as_array().statistics().to_owned();
         let exponents = alp_encoded.exponents();
 
-        if *USE_EXPERIMENTAL_PATCHES {
+        if use_experimental_patches() {
             let patches = alp_encoded.patches();
 
             // Create ALP array without interior patches.
@@ -249,6 +254,7 @@ impl Scheme for NullDominatedSparseScheme {
         let sparse_encoded = Sparse::encode(data.array(), None)?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
+            #[expect(deprecated)]
             let indices = sparse.patches().indices().to_primitive().narrow()?;
             let compressed_indices =
                 compressor.compress_child(&indices.into_array(), &ctx, self.id(), 0)?;

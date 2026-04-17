@@ -8,17 +8,25 @@ use vortex_mask::Mask;
 
 use super::MinMaxPartial;
 use super::MinMaxResult;
+use crate::ExecutionCtx;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::dtype::Nullability::NonNullable;
 use crate::scalar::Scalar;
 
-pub(super) fn accumulate_bool(partial: &mut MinMaxPartial, array: &BoolArray) -> VortexResult<()> {
+pub(super) fn accumulate_bool(
+    partial: &mut MinMaxPartial,
+    array: &BoolArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
     if array.is_empty() {
         return Ok(());
     }
 
-    let mask = array.validity_mask()?;
+    let mask = array
+        .as_ref()
+        .validity()?
+        .to_mask(array.as_ref().len(), ctx)?;
     let true_non_null = match &mask {
         Mask::AllTrue(_) => array.to_bit_buffer(),
         Mask::AllFalse(_) => return Ok(()),

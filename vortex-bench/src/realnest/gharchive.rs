@@ -14,10 +14,10 @@ use url::Url;
 
 use crate::Benchmark;
 use crate::BenchmarkDataset;
-use crate::IdempotentPath;
 use crate::TableSpec;
 use crate::idempotent;
 use crate::idempotent_async;
+use crate::utils::file::resolve_data_url;
 
 /// Template URL for raw JSON dataset
 fn raw_json_url(hour: usize) -> String {
@@ -48,30 +48,7 @@ impl GithubArchiveBenchmark {
     }
 
     fn create_data_url(remote_data_dir: &Option<String>) -> anyhow::Result<Url> {
-        match remote_data_dir {
-            None => {
-                let data_dir = "gharchive".to_data_path();
-                Url::from_directory_path(&data_dir).map_err(|_| {
-                    anyhow::anyhow!("Failed to create URL from directory path: {:?}", &data_dir)
-                })
-            }
-            Some(remote_data_dir) => {
-                if !remote_data_dir.ends_with("/") {
-                    tracing::warn!(
-                        "Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev-eu/develop/12345/gharchive/"
-                    );
-                }
-                tracing::info!(
-                    concat!(
-                        "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
-                        "If it does not, you should kill this command, locally generate the files (by running without\n",
-                        "--use-remote-data-dir) and upload data/gharchive/ to some remote location.",
-                    ),
-                    remote_data_dir,
-                );
-                Ok(Url::parse(remote_data_dir)?)
-            }
-        }
+        resolve_data_url(remote_data_dir.as_deref(), "gharchive")
     }
 }
 

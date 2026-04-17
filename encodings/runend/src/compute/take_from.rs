@@ -91,7 +91,9 @@ mod tests {
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([2i32, 2, 2, 3, 3, 2, 2]);
-        assert_arrays_eq!(result.to_canonical()?.into_array(), expected);
+        #[expect(deprecated)]
+        let canonical = result.to_canonical()?.into_array();
+        assert_arrays_eq!(canonical, expected);
         Ok(())
     }
 
@@ -114,7 +116,9 @@ mod tests {
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([2i32, 3, 3]);
-        assert_arrays_eq!(result.to_canonical()?.into_array(), expected);
+        #[expect(deprecated)]
+        let canonical = result.to_canonical()?.into_array();
+        assert_arrays_eq!(canonical, expected);
         Ok(())
     }
 
@@ -137,7 +141,9 @@ mod tests {
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([3i32, 3, 2, 2]);
-        assert_arrays_eq!(result.to_canonical()?.into_array(), expected);
+        #[expect(deprecated)]
+        let canonical = result.to_canonical()?.into_array();
+        assert_arrays_eq!(canonical, expected);
         Ok(())
     }
 
@@ -160,7 +166,9 @@ mod tests {
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([3i32]);
-        assert_arrays_eq!(result.to_canonical()?.into_array(), expected);
+        #[expect(deprecated)]
+        let canonical = result.to_canonical()?.into_array();
+        assert_arrays_eq!(canonical, expected);
         Ok(())
     }
 

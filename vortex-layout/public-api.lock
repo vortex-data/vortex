@@ -2132,11 +2132,11 @@ pub type vortex_layout::ArrayFuture = futures_core::future::BoxFuture<'static, v
 
 pub type vortex_layout::LayoutContext = vortex_session::registry::Context<vortex_layout::LayoutEncodingRef>
 
-pub type vortex_layout::LayoutEncodingId = arcref::ArcRef<str>
+pub type vortex_layout::LayoutEncodingId = vortex_session::registry::Id
 
 pub type vortex_layout::LayoutEncodingRef = arcref::ArcRef<dyn vortex_layout::LayoutEncoding>
 
-pub type vortex_layout::LayoutId = arcref::ArcRef<str>
+pub type vortex_layout::LayoutId = vortex_session::registry::Id
 
 pub type vortex_layout::LayoutReaderRef = alloc::sync::Arc<dyn vortex_layout::LayoutReader>
 

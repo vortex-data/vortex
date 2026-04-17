@@ -35,8 +35,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_mask::Mask;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::kernel::PARENT_KERNELS;
 
@@ -62,7 +62,8 @@ impl VTable for ByteBool {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.bytebool");
+        *ID
     }
 
     fn validate(
@@ -188,10 +189,6 @@ pub trait ByteBoolArrayExt: TypedArrayRef<ByteBool> {
             self.as_ref().dtype().nullability(),
         )
     }
-
-    fn validity_mask(&self) -> Mask {
-        self.validity().to_mask(self.as_ref().len())
-    }
 }
 
 impl<T: TypedArrayRef<ByteBool>> ByteBoolArrayExt for T {}
@@ -200,8 +197,6 @@ impl<T: TypedArrayRef<ByteBool>> ByteBoolArrayExt for T {}
 pub struct ByteBool;
 
 impl ByteBool {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.bytebool");
-
     pub fn new(buffer: BufferHandle, validity: Validity) -> ByteBoolArray {
         let dtype = DType::Bool(validity.nullability());
         let slots = ByteBoolData::make_slots(&validity, buffer.len());
@@ -353,6 +348,7 @@ mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
@@ -372,15 +368,16 @@ mod tests {
         let arr = ByteBool::from_vec(v, Validity::AllValid);
         assert_eq!(v_len, arr.len());
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         for idx in 0..arr.len() {
-            assert!(arr.is_valid(idx).unwrap());
+            assert!(arr.is_valid(idx, &mut ctx).unwrap());
         }
 
         let v = vec![Some(true), None, Some(false)];
         let arr = ByteBool::from_option_vec(v);
-        assert!(arr.is_valid(0).unwrap());
-        assert!(!arr.is_valid(1).unwrap());
-        assert!(arr.is_valid(2).unwrap());
+        assert!(arr.is_valid(0, &mut ctx).unwrap());
+        assert!(!arr.is_valid(1, &mut ctx).unwrap());
+        assert!(arr.is_valid(2, &mut ctx).unwrap());
         assert_eq!(arr.len(), 3);
 
         let v: Vec<Option<bool>> = vec![None, None];
@@ -390,7 +387,7 @@ mod tests {
         assert_eq!(v_len, arr.len());
 
         for idx in 0..arr.len() {
-            assert!(!arr.is_valid(idx).unwrap());
+            assert!(!arr.is_valid(idx, &mut ctx).unwrap());
         }
         assert_eq!(arr.len(), 2);
     }
@@ -407,7 +404,7 @@ mod tests {
         let serialized = array
             .clone()
             .into_array()
-            .serialize(&ctx, &LEGACY_SESSION, &SerializeOptions::default())
+            .serialize(&ctx, &session, &SerializeOptions::default())
             .unwrap();
 
         let mut concat = ByteBufferMut::empty();

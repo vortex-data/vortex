@@ -106,16 +106,6 @@ pub(super) fn precondition(
         return Ok(Some(Canonical::empty(&return_dtype).into_array()));
     }
 
-    // A quick check to see if either bound is a null constant array.
-    if (lower.is_invalid(0)? || upper.is_invalid(0)?)
-        && let (Some(c_lower), Some(c_upper)) = (lower.as_constant(), upper.as_constant())
-        && (c_lower.is_null() || c_upper.is_null())
-    {
-        return Ok(Some(
-            ConstantArray::new(Scalar::null(return_dtype), arr.len()).into_array(),
-        ));
-    }
-
     if lower.as_constant().is_some_and(|v| v.is_null())
         || upper.as_constant().is_some_and(|v| v.is_null())
     {
@@ -185,7 +175,7 @@ impl ScalarFnVTable for Between {
     type Options = BetweenOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.between")
+        ScalarFnId::new("vortex.between")
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -340,7 +330,8 @@ mod tests {
     use super::*;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::DecimalArray;
@@ -397,6 +388,7 @@ mod tests {
         let array = buffer![1, 0, 1, 0, 1].into_array();
         let upper = buffer![2, 1, 1, 0, 0].into_array();
 
+        #[expect(deprecated)]
         let matches = between_canonical(
             &array,
             &lower,
@@ -426,6 +418,7 @@ mod tests {
         )
         .into_array();
 
+        #[expect(deprecated)]
         let matches = between_canonical(
             &array,
             &lower,
@@ -444,6 +437,7 @@ mod tests {
 
         // upper is a fixed constant
         let upper = ConstantArray::new(Scalar::from(2), 5).into_array();
+        #[expect(deprecated)]
         let matches = between_canonical(
             &array,
             &lower,
@@ -462,6 +456,7 @@ mod tests {
         // lower is also a constant
         let lower = ConstantArray::new(Scalar::from(0), 5).into_array();
 
+        #[expect(deprecated)]
         let matches = between_canonical(
             &array,
             &lower,

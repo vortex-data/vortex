@@ -58,7 +58,7 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPackedUnpack>(
     // SAFETY: We later initialize the the uninitialized range of values with `copy_from_slice`.
     unsafe {
         // Append a dense null Mask.
-        uninit_range.append_mask(array.validity_mask());
+        uninit_range.append_mask(array.validity()?.to_mask(array.as_ref().len(), ctx)?);
     }
 
     // SAFETY: `decode_into` will initialize all values in this range.
@@ -97,7 +97,7 @@ pub fn apply_patches_to_uninit_range_fn<T: NativePType, F: Fn(T) -> T>(
 
     let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
     let values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
-    assert!(values.all_valid()?, "Patch values must be all valid");
+    assert!(values.all_valid(ctx)?, "Patch values must be all valid");
     let values = values.as_slice::<T>();
 
     match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
@@ -160,6 +160,7 @@ mod tests {
 
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
@@ -219,6 +220,7 @@ mod tests {
 
     #[test]
     fn test_all_zeros() -> VortexResult<()> {
+        #[expect(deprecated)]
         let zeros = buffer![0u16, 0, 0, 0].into_array().to_primitive();
         let bitpacked = encode(&zeros, 0);
         let actual = unpack(&bitpacked)?;
@@ -228,6 +230,7 @@ mod tests {
 
     #[test]
     fn test_simple_patches() -> VortexResult<()> {
+        #[expect(deprecated)]
         let zeros = buffer![0u16, 1, 0, 1].into_array().to_primitive();
         let bitpacked = encode(&zeros, 0);
         let actual = unpack(&bitpacked)?;
@@ -237,6 +240,7 @@ mod tests {
 
     #[test]
     fn test_one_full_chunk() -> VortexResult<()> {
+        #[expect(deprecated)]
         let zeros = BufferMut::from_iter(0u16..1024).into_array().to_primitive();
         let bitpacked = encode(&zeros, 10);
         let actual = unpack(&bitpacked)?;
@@ -246,6 +250,7 @@ mod tests {
 
     #[test]
     fn test_three_full_chunks_with_patches() -> VortexResult<()> {
+        #[expect(deprecated)]
         let zeros = BufferMut::from_iter((5u16..1029).chain(5u16..1029).chain(5u16..1029))
             .into_array()
             .to_primitive();
@@ -261,6 +266,7 @@ mod tests {
 
     #[test]
     fn test_one_full_chunk_and_one_short_chunk_no_patch() -> VortexResult<()> {
+        #[expect(deprecated)]
         let zeros = BufferMut::from_iter(0u16..1025).into_array().to_primitive();
         let bitpacked = encode(&zeros, 11);
         assert!(bitpacked.patches().is_none());
@@ -271,6 +277,7 @@ mod tests {
 
     #[test]
     fn test_one_full_chunk_and_one_short_chunk_with_patches() -> VortexResult<()> {
+        #[expect(deprecated)]
         let zeros = BufferMut::from_iter(512u16..1537)
             .into_array()
             .to_primitive();
@@ -284,6 +291,7 @@ mod tests {
 
     #[test]
     fn test_offset_and_short_chunk_and_patches() -> VortexResult<()> {
+        #[expect(deprecated)]
         let zeros = BufferMut::from_iter(512u16..1537)
             .into_array()
             .to_primitive();
@@ -304,6 +312,7 @@ mod tests {
 
     #[test]
     fn test_offset_and_short_chunk_with_chunks_between_and_patches() -> VortexResult<()> {
+        #[expect(deprecated)]
         let zeros = BufferMut::from_iter(512u16..2741)
             .into_array()
             .to_primitive();
@@ -369,11 +378,12 @@ mod tests {
 
         // Verify the validity mask was correctly applied.
         assert_eq!(result.len(), 5);
-        assert!(!result.scalar_at(0).unwrap().is_null());
-        assert!(result.scalar_at(1).unwrap().is_null());
-        assert!(!result.scalar_at(2).unwrap().is_null());
-        assert!(!result.scalar_at(3).unwrap().is_null());
-        assert!(result.scalar_at(4).unwrap().is_null());
+        let mut ctx = SESSION.create_execution_ctx();
+        assert!(!result.execute_scalar(0, &mut ctx).unwrap().is_null());
+        assert!(result.execute_scalar(1, &mut ctx).unwrap().is_null());
+        assert!(!result.execute_scalar(2, &mut ctx).unwrap().is_null());
+        assert!(!result.execute_scalar(3, &mut ctx).unwrap().is_null());
+        assert!(result.execute_scalar(4, &mut ctx).unwrap().is_null());
         Ok(())
     }
 
@@ -456,9 +466,10 @@ mod tests {
         // Verify length.
         assert_eq!(result.len(), 7);
         // Validity should be preserved when unpacking.
-        assert!(!result.scalar_at(0).unwrap().is_null());
-        assert!(result.scalar_at(1).unwrap().is_null());
-        assert!(!result.scalar_at(2).unwrap().is_null());
+        let mut ctx = SESSION.create_execution_ctx();
+        assert!(!result.execute_scalar(0, &mut ctx).unwrap().is_null());
+        assert!(result.execute_scalar(1, &mut ctx).unwrap().is_null());
+        assert!(!result.execute_scalar(2, &mut ctx).unwrap().is_null());
 
         // Test combining patches with nullability.
         let patch_values = Buffer::from_iter([10u16, 0, 2000, 0, 30, 3000, 0]);

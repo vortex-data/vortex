@@ -6,9 +6,11 @@
 //!
 //! This enables zero-cost backward compatibility with previously written datasets.
 
+use vortex_array::Array;
 use vortex_array::ArrayId;
 use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayVTable;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Patched;
@@ -32,7 +34,8 @@ impl ArrayPlugin for ALPPatchedPlugin {
     fn id(&self) -> ArrayId {
         // We reuse the existing `ALP` ID so that we can take over its
         // deserialization pathway.
-        ALP::ID
+        // TODO(joe): dedup method name
+        ArrayVTable::id(&ALP)
     }
 
     fn serialize(
@@ -53,10 +56,10 @@ impl ArrayPlugin for ALPPatchedPlugin {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        let alp_array = ALP
-            .deserialize(dtype, len, metadata, buffers, children, session)?
-            .try_downcast::<ALP>()
-            .map_err(|_| vortex_err!("ALP plugin should only deserialize vortex.alp"))?;
+        let alp_array = Array::<ALP>::try_from_parts(ArrayVTable::deserialize(
+            &ALP, dtype, len, metadata, buffers, children, session,
+        )?)
+        .map_err(|_| vortex_err!("ALP plugin should only deserialize vortex.alp"))?;
 
         // Check if there are interior patches to externalize.
         let Some(patches) = alp_array.patches() else {
@@ -76,6 +79,11 @@ impl ArrayPlugin for ALPPatchedPlugin {
 
         Ok(patched.into_array())
     }
+
+    fn is_supported_encoding(&self, id: &ArrayId) -> bool {
+        // TODO(joe): dedup method name
+        id == ArrayVTable::id(&Patched) || id == ArrayVTable::id(&ALP)
+    }
 }
 
 #[cfg(test)]
@@ -85,6 +93,7 @@ mod tests {
 
     use vortex_array::ArrayPlugin;
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PatchedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::patched::PatchedArraySlotsExt;
@@ -116,7 +125,7 @@ mod tests {
             .collect();
 
         let parray = PrimitiveArray::from_iter(values);
-        let alp_encoded = alp_encode(parray.as_view(), None)?;
+        let alp_encoded = alp_encode(parray.as_view(), None, &mut SESSION.create_execution_ctx())?;
 
         assert!(
             alp_encoded.patches().is_some(),
@@ -125,7 +134,7 @@ mod tests {
 
         let array = alp_encoded.as_array();
 
-        let metadata = array.metadata(&SESSION)?.unwrap_or_default();
+        let metadata = SESSION.array_serialize(array)?.unwrap();
         let children = array.children();
         let buffers = array
             .buffers()
@@ -165,7 +174,7 @@ mod tests {
         // Values that encode cleanly without patches.
         let values: Vec<f64> = (0..100).map(|i| i as f64).collect();
         let parray = PrimitiveArray::from_iter(values);
-        let alp_encoded = alp_encode(parray.as_view(), None)?;
+        let alp_encoded = alp_encode(parray.as_view(), None, &mut SESSION.create_execution_ctx())?;
 
         assert!(
             alp_encoded.patches().is_none(),
@@ -174,7 +183,7 @@ mod tests {
 
         let array = alp_encoded.as_array();
 
-        let metadata = array.metadata(&SESSION)?.unwrap_or_default();
+        let metadata = SESSION.array_serialize(array)?.unwrap();
         let children = array.children();
         let buffers = array
             .buffers()
@@ -205,7 +214,7 @@ mod tests {
     fn primitive_array_returns_error() {
         let array = PrimitiveArray::from_iter([1.0f64, 2.0, 3.0]).into_array();
 
-        let metadata = array.metadata(&SESSION).unwrap().unwrap_or_default();
+        let metadata = SESSION.array_serialize(&array).unwrap().unwrap();
         let children = array.children();
         let buffers = array
             .buffers()

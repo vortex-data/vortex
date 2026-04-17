@@ -95,6 +95,7 @@ mod tests {
     use rand::prelude::StdRng;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::accessor::ArrayAccessor;
@@ -185,6 +186,7 @@ mod tests {
         };
 
         {
+            #[expect(deprecated)]
             let arr2 = chunked_arr.as_array().to_varbinview();
             let res2 =
                 arr2.with_iterator(|iter| iter.map(|b| b.map(|v| v.to_vec())).collect::<Vec<_>>());

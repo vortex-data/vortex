@@ -73,7 +73,10 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
@@ -94,7 +97,7 @@ mod tests {
             PrimitiveArray::new(buffer![-189, -160, 1], Validity::AllValid).as_view(),
         )?;
         assert_eq!(
-            zigzag.scalar_at(1)?,
+            zigzag.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
             Scalar::primitive(-160, Nullability::Nullable)
         );
         Ok(())
@@ -186,7 +189,9 @@ mod tests {
     fn test_take_zigzag_conformance(#[case] array: ArrayRef) -> VortexResult<()> {
         use vortex_array::compute::conformance::take::test_take_conformance;
 
-        let zigzag = zigzag_encode(array.to_primitive().as_view())?;
+        #[expect(deprecated)]
+        let array_primitive = array.to_primitive();
+        let zigzag = zigzag_encode(array_primitive.as_view())?;
         test_take_conformance(&zigzag.into_array());
         Ok(())
     }

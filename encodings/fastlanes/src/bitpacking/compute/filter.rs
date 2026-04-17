@@ -178,6 +178,7 @@ fn filter_with_indices<T: NativePType + BitPacking>(
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray as _;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -225,8 +226,10 @@ mod test {
         let filtered = bitpacked
             .filter(Mask::from_indices(4096, (0..1024).collect()))
             .unwrap();
+        #[expect(deprecated)]
+        let filtered_prim = filtered.to_primitive();
         assert_arrays_eq!(
-            filtered.to_primitive(),
+            filtered_prim,
             PrimitiveArray::from_iter((0..1024).map(|i| (i % 63) as u8))
         );
     }
@@ -236,6 +239,7 @@ mod test {
         let values: Buffer<i64> = (0..500).collect();
         let unpacked = PrimitiveArray::new(values.clone(), Validity::NonNullable);
         let bitpacked = BitPackedData::encode(&unpacked.into_array(), 9).unwrap();
+        #[expect(deprecated)]
         let filtered = bitpacked
             .filter(Mask::from_indices(values.len(), (0..250).collect()))
             .unwrap()
@@ -283,6 +287,7 @@ mod test {
         );
 
         // Filter to include some patched and some non-patched values.
+        #[expect(deprecated)]
         let filtered = bitpacked
             .filter(Mask::from_indices(values.len(), vec![0, 2, 5, 9]))
             .unwrap()
@@ -316,6 +321,7 @@ mod test {
 
         // Use low selectivity (only select 2% of values) to avoid full decompression.
         let indices: Vec<usize> = (0..20).collect();
+        #[expect(deprecated)]
         let filtered = bitpacked
             .filter(Mask::from_indices(values.len(), indices))
             .unwrap()

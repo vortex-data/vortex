@@ -455,7 +455,7 @@ mod tests {
             type NativeValue<'a> = &'a str;
 
             fn id(&self) -> ExtId {
-                ExtId::new_ref("some_ext")
+                ExtId::new("some_ext")
             }
 
             fn serialize_metadata(&self, _options: &Self::Metadata) -> VortexResult<Vec<u8>> {

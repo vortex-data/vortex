@@ -11,6 +11,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyString;
 use vortex::array::ArrayRef;
+#[expect(deprecated)]
 use vortex::array::ToCanonical;
 use vortex::array::iter::ArrayIteratorExt;
 use vortex::dtype::FieldName;
@@ -61,7 +62,9 @@ pub fn read_array_from_reader(
     }
 
     if let Some(indices) = indices {
-        let indices = indices.to_primitive().into_buffer();
+        #[expect(deprecated)]
+        let primitive = indices.to_primitive();
+        let indices = primitive.into_buffer();
         scan = scan.with_row_indices(indices);
     }
 

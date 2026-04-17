@@ -166,6 +166,7 @@ mod test {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
@@ -234,17 +235,18 @@ mod test {
         let taken = packed.take(random_indices.clone().into_array()).unwrap();
 
         // sanity check
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         random_indices
             .as_slice::<u32>()
             .iter()
             .enumerate()
             .for_each(|(ti, i)| {
                 assert_eq!(
-                    u32::try_from(&packed.scalar_at(*i as usize).unwrap()).unwrap(),
+                    u32::try_from(&packed.execute_scalar(*i as usize, &mut ctx).unwrap()).unwrap(),
                     values[*i as usize]
                 );
                 assert_eq!(
-                    u32::try_from(&taken.scalar_at(ti).unwrap()).unwrap(),
+                    u32::try_from(&taken.execute_scalar(ti, &mut ctx).unwrap()).unwrap(),
                     values[*i as usize]
                 );
             });
@@ -280,7 +282,14 @@ mod test {
             taken_primitive,
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), None, Some(4)])
         );
-        assert_eq!(taken_primitive.to_primitive().invalid_count().unwrap(), 1);
+        #[expect(deprecated)]
+        let taken_primitive_prim = taken_primitive.to_primitive();
+        assert_eq!(
+            taken_primitive_prim
+                .invalid_count(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            1
+        );
     }
 
     #[rstest]

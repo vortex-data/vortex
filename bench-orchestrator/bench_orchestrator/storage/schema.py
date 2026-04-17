@@ -93,6 +93,7 @@ class RunMetadata:
     benchmark: str
     engines: list[str]
     formats: list[str]
+    targets: list[dict[str, str]]
     iterations: int
     git_commit: str
     git_branch: str
@@ -116,6 +117,7 @@ class RunMetadata:
             "dataset_config": self.dataset_config,
             "engines": self.engines,
             "formats": self.formats,
+            "targets": self.targets,
             "queries": self.queries,
             "iterations": self.iterations,
             "git_commit": self.git_commit,
@@ -139,6 +141,7 @@ class RunMetadata:
             dataset_config=data.get("dataset_config", {}),
             engines=data["engines"],
             formats=data["formats"],
+            targets=data.get("targets", []),
             queries=data.get("queries", []),
             iterations=data["iterations"],
             git_commit=data["git_commit"],

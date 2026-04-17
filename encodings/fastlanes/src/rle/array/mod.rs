@@ -5,7 +5,9 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use vortex_array::ArrayRef;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::TypedArrayRef;
+use vortex_array::VortexSessionExecute;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -111,14 +113,14 @@ pub trait RLEArrayExt: TypedArrayRef<crate::RLE> {
     )]
     fn values_idx_offset(&self, chunk_idx: usize) -> usize {
         self.values_idx_offsets()
-            .scalar_at(chunk_idx)
+            .execute_scalar(chunk_idx, &mut LEGACY_SESSION.create_execution_ctx())
             .expect("index must be in bounds")
             .as_primitive()
             .as_::<usize>()
             .expect("index must be of type usize")
             - self
                 .values_idx_offsets()
-                .scalar_at(0)
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .expect("index must be in bounds")
                 .as_primitive()
                 .as_::<usize>()
@@ -137,8 +139,10 @@ impl<T: TypedArrayRef<crate::RLE>> RLEArrayExt for T {}
 #[cfg(test)]
 mod tests {
     use vortex_array::ArrayContext;
+    use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
@@ -204,9 +208,10 @@ mod tests {
 
         assert_eq!(rle_array.len(), 3);
         assert_eq!(rle_array.values().len(), 2);
-        assert!(rle_array.is_valid(0).unwrap());
-        assert!(!rle_array.is_valid(1).unwrap());
-        assert!(rle_array.is_valid(2).unwrap());
+        let mut ctx = SESSION.create_execution_ctx();
+        assert!(rle_array.is_valid(0, &mut ctx).unwrap());
+        assert!(!rle_array.is_valid(1, &mut ctx).unwrap());
+        assert!(rle_array.is_valid(2, &mut ctx).unwrap());
     }
 
     #[test]
@@ -232,12 +237,14 @@ mod tests {
         let rle_array = RLE::try_new(values, indices_with_validity, values_idx_offsets, 0, 5)
             .vortex_expect("RLEData is always valid");
 
+        #[expect(deprecated)]
         let valid_slice = rle_array.slice(0..3).unwrap().to_primitive();
         // TODO(joe): replace with compute null count
-        assert!(valid_slice.all_valid().unwrap());
+        let mut ctx = SESSION.create_execution_ctx();
+        assert!(valid_slice.all_valid(&mut ctx).unwrap());
 
         let mixed_slice = rle_array.slice(1..5).unwrap();
-        assert!(!mixed_slice.all_valid().unwrap());
+        assert!(!mixed_slice.all_valid(&mut ctx).unwrap());
     }
 
     #[test]
@@ -267,13 +274,14 @@ mod tests {
         let invalid_slice = rle_array
             .slice(2..5)
             .unwrap()
-            .to_canonical()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .into_primitive();
-        assert!(invalid_slice.all_invalid().unwrap());
+        let mut ctx = SESSION.create_execution_ctx();
+        assert!(invalid_slice.all_invalid(&mut ctx).unwrap());
 
         let mixed_slice = rle_array.slice(1..4).unwrap();
-        assert!(!mixed_slice.all_invalid().unwrap());
+        assert!(!mixed_slice.all_invalid(&mut ctx).unwrap());
     }
 
     #[test]
@@ -300,7 +308,14 @@ mod tests {
             .vortex_expect("RLEData is always valid");
 
         let sliced_array = rle_array.slice(1..4).unwrap();
-        let validity_mask = sliced_array.validity_mask().unwrap();
+        let validity_mask = sliced_array
+            .validity()
+            .unwrap()
+            .to_mask(
+                sliced_array.len(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+            .unwrap();
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let expected_mask = Validity::from_iter([false, true, false])
@@ -351,6 +366,7 @@ mod tests {
         let rle_array = RLEData::encode(primitive.as_view()).unwrap();
         assert_eq!(rle_array.len(), 2048);
 
+        #[expect(deprecated)]
         let original_data = rle_array.as_array().to_primitive();
 
         let ctx = ArrayContext::empty();
@@ -375,6 +391,7 @@ mod tests {
             )
             .unwrap();
 
+        #[expect(deprecated)]
         let decoded_data = decoded.to_primitive();
 
         assert_arrays_eq!(original_data, decoded_data);
@@ -418,7 +435,9 @@ mod tests {
             )
             .unwrap();
 
+        #[expect(deprecated)]
         let original_data = sliced.as_array().to_primitive();
+        #[expect(deprecated)]
         let decoded_data = decoded.to_primitive();
 
         assert_arrays_eq!(original_data, decoded_data);
@@ -446,6 +465,7 @@ mod tests {
 
         // Simulate cascading compression: narrow u16->u8 then re-encode with RLE,
         // matching the path taken by the BtrBlocks compressor.
+        #[expect(deprecated)]
         let indices_prim = rle.indices().to_primitive().narrow()?;
         let re_encoded = RLEData::encode(indices_prim.as_view())?;
 
@@ -462,6 +482,7 @@ mod tests {
         };
 
         // Decompress — panicked before the fill_forward_nulls chunk-boundary fix.
+        #[expect(deprecated)]
         let decoded = reconstructed.as_array().to_primitive();
         assert_arrays_eq!(decoded, original);
         Ok(())

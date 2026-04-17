@@ -87,10 +87,11 @@ mod tests {
         let target_dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
         // can't cast list to u64
 
-        let result = list
-            .into_array()
-            .cast(target_dtype)
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+        let result = list.into_array().cast(target_dtype).and_then(|a| {
+            #[expect(deprecated)]
+            let canonical = a.to_canonical().map(|c| c.into_array());
+            canonical
+        });
         assert!(result.is_err());
     }
 
@@ -111,10 +112,11 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let result = list
-            .into_array()
-            .cast(target_dtype)
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+        let result = list.into_array().cast(target_dtype).and_then(|a| {
+            #[expect(deprecated)]
+            let canonical = a.to_canonical().map(|c| c.into_array());
+            canonical
+        });
         assert!(result.is_err());
 
         // Nulls in list element array — the inner cast error is deferred until

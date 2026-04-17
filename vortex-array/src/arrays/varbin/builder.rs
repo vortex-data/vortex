@@ -7,6 +7,10 @@ use vortex_buffer::BufferMut;
 use vortex_error::vortex_panic;
 
 use crate::IntoArray;
+#[cfg(debug_assertions)]
+use crate::LEGACY_SESSION;
+#[cfg(debug_assertions)]
+use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinArray;
 use crate::dtype::DType;
@@ -99,10 +103,14 @@ impl<O: IntegerPType> VarBinBuilder<O> {
         // The builder guarantees offsets are monotonically increasing, so we can set
         // this stat eagerly. This avoids an O(n) recomputation when the array is
         // deserialized and VarBinArray::validate checks sortedness.
-        debug_assert!(
-            offsets.statistics().compute_is_sorted().unwrap_or(false),
-            "VarBinBuilder offsets must be sorted"
-        );
+        #[cfg(debug_assertions)]
+        {
+            let offsets_are_sorted = offsets
+                .statistics()
+                .compute_is_sorted(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap_or(false);
+            debug_assert!(offsets_are_sorted, "VarBinBuilder offsets must be sorted");
+        }
         offsets
             .statistics()
             .set(Stat::IsSorted, Precision::Exact(true.into()));
@@ -122,6 +130,8 @@ impl<O: IntegerPType> VarBinBuilder<O> {
 mod tests {
     use vortex_error::VortexResult;
 
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::varbin::VarBinArrayExt;
     use crate::arrays::varbin::builder::VarBinBuilder;
     use crate::dtype::DType;
@@ -142,10 +152,17 @@ mod tests {
         assert_eq!(array.len(), 3);
         assert_eq!(array.dtype().nullability(), Nullable);
         assert_eq!(
-            array.scalar_at(0).unwrap(),
+            array
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::utf8("hello".to_string(), Nullable)
         );
-        assert!(array.scalar_at(1).unwrap().is_null());
+        assert!(
+            array
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .is_null()
+        );
     }
 
     #[test]

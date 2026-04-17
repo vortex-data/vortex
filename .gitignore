@@ -223,7 +223,8 @@ compile_commands.json
 /justfile
 
 # AI Agents
-.claude
+.agents/settings.local.json
+.claude/settings.local.json
 .opencode
 
 # cargo sweep output

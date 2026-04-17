@@ -11,6 +11,8 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
@@ -79,7 +81,9 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
         if array.is_empty() {
             Ok(Some(Canonical::empty(array.dtype()).into_array()))
         } else {
-            let result = array.array().scalar_at(0)?;
+            let result = array
+                .array()
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?;
             Ok(Some(ConstantArray::new(result, array.len()).into_array()))
         }
     }

@@ -13,6 +13,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use super::SumState;
+use crate::ExecutionCtx;
 use crate::arrays::DecimalArray;
 use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
@@ -22,8 +23,12 @@ use crate::scalar::DecimalValue;
 
 /// Accumulate a decimal array into the sum state.
 /// Returns Ok(true) if saturated (overflow), Ok(false) if not.
-pub(super) fn accumulate_decimal(inner: &mut SumState, d: &DecimalArray) -> VortexResult<bool> {
-    let mask = d.validity_mask()?;
+pub(super) fn accumulate_decimal(
+    inner: &mut SumState,
+    d: &DecimalArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<bool> {
+    let mask = d.as_ref().validity()?.to_mask(d.as_ref().len(), ctx)?;
     let validity = match &mask {
         Mask::AllTrue(_) => None,
         Mask::Values(mask_values) => Some(mask_values.bit_buffer()),

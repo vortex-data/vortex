@@ -40,7 +40,7 @@ impl VTable for Dict {
     type Metadata = ProstMetadata<DictLayoutMetadata>;
 
     fn id(_encoding: &Self::Encoding) -> LayoutId {
-        LayoutId::new_ref("vortex.dict")
+        LayoutId::new("vortex.dict")
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {

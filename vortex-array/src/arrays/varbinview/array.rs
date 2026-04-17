@@ -15,7 +15,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::array::Array;
@@ -543,10 +542,6 @@ pub trait VarBinViewArrayExt: TypedArrayRef<VarBinView> {
 
     fn varbinview_validity(&self) -> Validity {
         child_to_validity(&self.as_ref().slots()[VALIDITY_SLOT], self.dtype_parts().1)
-    }
-
-    fn varbinview_validity_mask(&self) -> Mask {
-        self.varbinview_validity().to_mask(self.as_ref().len())
     }
 }
 impl<T: TypedArrayRef<VarBinView>> VarBinViewArrayExt for T {}

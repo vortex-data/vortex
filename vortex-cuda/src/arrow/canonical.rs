@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use futures::future::BoxFuture;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+#[expect(deprecated)]
 use vortex::array::ToCanonical;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::bool::BoolDataParts;
@@ -116,6 +117,7 @@ fn export_canonical(
                     vortex_bail!("only support temporal extension types currently");
                 }
 
+                #[expect(deprecated)]
                 let values = extension.storage_array().to_primitive();
                 let len = extension.len();
 

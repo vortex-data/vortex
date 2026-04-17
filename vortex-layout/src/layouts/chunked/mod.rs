@@ -34,7 +34,7 @@ impl VTable for Chunked {
     type Metadata = EmptyMetadata;
 
     fn id(_encoding: &Self::Encoding) -> LayoutId {
-        LayoutId::new_ref("vortex.chunked")
+        LayoutId::new("vortex.chunked")
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {

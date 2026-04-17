@@ -16,7 +16,7 @@ impl OperationsVTable<ALPRD> for ALPRD {
     fn scalar_at(
         array: ArrayView<'_, ALPRD>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         // The left value can either be a direct value, or an exception.
         // The exceptions array represents exception positions with non-null values.
@@ -32,7 +32,7 @@ impl OperationsVTable<ALPRD> for ALPRD {
             _ => {
                 let left_code: u16 = array
                     .left_parts()
-                    .scalar_at(index)?
+                    .execute_scalar(index, ctx)?
                     .as_primitive()
                     .as_::<u16>()
                     .vortex_expect("left_code must be non-null");
@@ -44,7 +44,7 @@ impl OperationsVTable<ALPRD> for ALPRD {
         Ok(if array.dtype().as_ptype() == PType::F32 {
             let right: u32 = array
                 .right_parts()
-                .scalar_at(index)?
+                .execute_scalar(index, ctx)?
                 .as_primitive()
                 .as_::<u32>()
                 .vortex_expect("non-null");
@@ -53,7 +53,7 @@ impl OperationsVTable<ALPRD> for ALPRD {
         } else {
             let right: u64 = array
                 .right_parts()
-                .scalar_at(index)?
+                .execute_scalar(index, ctx)?
                 .as_primitive()
                 .as_::<u64>()
                 .vortex_expect("non-null");

@@ -12,6 +12,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::AnyCanonical;
 use crate::ArrayEq;
@@ -19,7 +20,9 @@ use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::Precision;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
@@ -48,10 +51,6 @@ pub type MaskedArray = Array<Masked>;
 #[derive(Clone, Debug)]
 pub struct Masked;
 
-impl Masked {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.masked");
-}
-
 impl ArrayHash for MaskedData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
 }
@@ -69,7 +68,8 @@ impl VTable for Masked {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.masked");
+        *ID
     }
 
     fn validate(
@@ -149,7 +149,11 @@ impl VTable for Masked {
         };
 
         let validity_slot = validity_to_child(&validity, len);
-        let data = MaskedData::try_new(len, child.all_valid()?, validity)?;
+        let data = MaskedData::try_new(
+            len,
+            child.all_valid(&mut LEGACY_SESSION.create_execution_ctx())?,
+            validity,
+        )?;
         Ok(
             crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data)
                 .with_slots(vec![Some(child), validity_slot]),
@@ -157,7 +161,7 @@ impl VTable for Masked {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let validity_mask = array.masked_validity_mask();
+        let validity_mask = array.masked_validity().to_mask(array.len(), ctx)?;
 
         // Fast path: all masked means result is all nulls.
         if validity_mask.all_false() {

@@ -8,6 +8,8 @@ use goldenfile::differs::binary_diff;
 use itertools::Itertools;
 use vortex_error::VortexResult;
 
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 
@@ -26,7 +28,10 @@ pub fn check_metadata(name: &str, metadata: &[u8]) {
 /// Outputs the indices of the true values in a BoolArray
 pub fn to_int_indices(indices_bits: BoolArray) -> VortexResult<Vec<u64>> {
     let buffer = indices_bits.to_bit_buffer();
-    let mask = indices_bits.validity_mask()?;
+    let mask = indices_bits.as_ref().validity()?.to_mask(
+        indices_bits.as_ref().len(),
+        &mut LEGACY_SESSION.create_execution_ctx(),
+    )?;
     Ok(buffer
         .iter()
         .enumerate()

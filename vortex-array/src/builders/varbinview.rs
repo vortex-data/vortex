@@ -20,13 +20,16 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::build_views::BinaryView;
 use crate::arrays::varbinview::compact::BufferUtilization;
 use crate::builders::ArrayBuilder;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
-use crate::canonical::ToCanonical;
+#[expect(deprecated)]
+use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 
@@ -292,10 +295,21 @@ impl ArrayBuilder for VarBinViewBuilder {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
+        #[expect(deprecated)]
         let array = array.to_varbinview();
         self.flush_in_progress();
 
-        self.push_only_validity_mask(array.validity_mask().vortex_expect("validity_mask"));
+        self.push_only_validity_mask(
+            array
+                .as_ref()
+                .validity()
+                .vortex_expect("validity_mask")
+                .to_mask(
+                    array.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )
+                .vortex_expect("Failed to compute validity mask"),
+        );
 
         let view_adjustment =
             self.completed
@@ -312,7 +326,16 @@ impl ArrayBuilder for VarBinViewBuilder {
                     .map(|view| adjustment.adjust_view(view)),
             ),
             ViewAdjustment::Rewriting(adjustment) => {
-                match array.validity_mask().vortex_expect("validity_mask") {
+                match array
+                    .as_ref()
+                    .validity()
+                    .vortex_expect("validity_mask")
+                    .to_mask(
+                        array.as_ref().len(),
+                        &mut LEGACY_SESSION.create_execution_ctx(),
+                    )
+                    .vortex_expect("Failed to compute validity mask")
+                {
                     Mask::AllTrue(_) => {
                         for (idx, &view) in array.views().iter().enumerate() {
                             let new_view = self.push_view(view, &adjustment, &array, idx);
@@ -1037,7 +1060,7 @@ mod tests {
 
         // Verify the value was stored correctly
         let retrieved = array
-            .scalar_at(0)
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .as_binary()
             .value()

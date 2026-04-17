@@ -3,7 +3,10 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
@@ -28,7 +31,10 @@ pub fn slice_canonical_array(
     stop: usize,
 ) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
-        let bool_buff = array.validity_mask()?.to_bit_buffer();
+        let bool_buff = array
+            .validity()?
+            .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())?
+            .to_bit_buffer();
         Validity::from(bool_buff.slice(start..stop))
     } else {
         Validity::NonNullable
@@ -36,11 +42,13 @@ pub fn slice_canonical_array(
 
     match array.dtype() {
         DType::Bool(_) => {
+            #[expect(deprecated)]
             let bool_array = array.to_bool();
             let sliced_bools = bool_array.to_bit_buffer().slice(start..stop);
             Ok(BoolArray::new(sliced_bools, validity).into_array())
         }
         DType::Primitive(p, _) => {
+            #[expect(deprecated)]
             let primitive_array = array.to_primitive();
             match_each_native_ptype!(p, |P| {
                 Ok(PrimitiveArray::new(
@@ -51,6 +59,7 @@ pub fn slice_canonical_array(
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
+            #[expect(deprecated)]
             let utf8 = array.to_varbinview();
             let values =
                 utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>());
@@ -61,6 +70,7 @@ pub fn slice_canonical_array(
             .into_array())
         }
         DType::Struct(..) => {
+            #[expect(deprecated)]
             let struct_array = array.to_struct();
             let sliced_children = struct_array
                 .iter_unmasked_fields()
@@ -75,6 +85,7 @@ pub fn slice_canonical_array(
             .map(|a| a.into_array())
         }
         DType::List(..) => {
+            #[expect(deprecated)]
             let list_array = array.to_listview();
 
             let offsets = slice_canonical_array(list_array.offsets(), start, stop)?;
@@ -93,6 +104,7 @@ pub fn slice_canonical_array(
             .into_array())
         }
         DType::FixedSizeList(..) => {
+            #[expect(deprecated)]
             let fsl_array = array.to_fixed_size_list();
             let list_size = fsl_array.list_size() as usize;
             let elements =
@@ -103,6 +115,7 @@ pub fn slice_canonical_array(
                 .map(|a| a.into_array())
         }
         DType::Decimal(decimal_dtype, _) => {
+            #[expect(deprecated)]
             let decimal_array = array.to_decimal();
             Ok(
                 match_each_decimal_value_type!(decimal_array.values_type(), |D| {

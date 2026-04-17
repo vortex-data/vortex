@@ -192,14 +192,14 @@ impl Array<Chunked> {
                 || new_chunk_n_elements + n_elements > target_rowsize)
                 && !chunks_to_combine.is_empty()
             {
-                new_chunks.push(
-                    unsafe {
-                        Array::<Chunked>::new_unchecked(chunks_to_combine, self.dtype().clone())
-                    }
-                    .into_array()
-                    .to_canonical()?
-                    .into_array(),
-                );
+                #[expect(deprecated)]
+                let canonical = unsafe {
+                    Array::<Chunked>::new_unchecked(chunks_to_combine, self.dtype().clone())
+                }
+                .into_array()
+                .to_canonical()?
+                .into_array();
+                new_chunks.push(canonical);
 
                 new_chunk_n_bytes = 0;
                 new_chunk_n_elements = 0;
@@ -216,12 +216,13 @@ impl Array<Chunked> {
         }
 
         if !chunks_to_combine.is_empty() {
-            new_chunks.push(
+            #[expect(deprecated)]
+            let canonical =
                 unsafe { Array::<Chunked>::new_unchecked(chunks_to_combine, self.dtype().clone()) }
                     .into_array()
                     .to_canonical()?
-                    .into_array(),
-            );
+                    .into_array();
+            new_chunks.push(canonical);
         }
 
         unsafe { Ok(Self::new_unchecked(new_chunks, self.dtype().clone())) }
@@ -269,6 +270,8 @@ mod test {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::chunked::ChunkedArrayExt;
@@ -358,8 +361,17 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be all_valid since all non-empty chunks are all_valid
-        assert!(chunked.all_valid().unwrap());
-        assert!(!chunked.into_array().all_invalid().unwrap());
+        assert!(
+            chunked
+                .all_valid(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
+        assert!(
+            !chunked
+                .into_array()
+                .all_invalid(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
 
         Ok(())
     }
@@ -378,8 +390,17 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be all_invalid since all non-empty chunks are all_invalid
-        assert!(!chunked.all_valid().unwrap());
-        assert!(chunked.into_array().all_invalid().unwrap());
+        assert!(
+            !chunked
+                .all_valid(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
+        assert!(
+            chunked
+                .into_array()
+                .all_invalid(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
 
         Ok(())
     }
@@ -398,8 +419,17 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be neither all_valid nor all_invalid
-        assert!(!chunked.all_valid().unwrap());
-        assert!(!chunked.into_array().all_invalid().unwrap());
+        assert!(
+            !chunked
+                .all_valid(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
+        assert!(
+            !chunked
+                .into_array()
+                .all_invalid(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
 
         Ok(())
     }

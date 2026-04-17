@@ -16,6 +16,7 @@ use futures::future::BoxFuture;
 use vortex::array::ArrayContext;
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
+use vortex::array::ArrayVTable;
 use vortex::array::DeserializeMetadata;
 use vortex::array::MaskFuture;
 use vortex::array::ProstMetadata;
@@ -127,7 +128,7 @@ impl VTable for CudaFlat {
     type Metadata = ProstMetadata<CudaFlatLayoutMetadata>;
 
     fn id(_encoding: &Self::Encoding) -> LayoutId {
-        LayoutId::new_ref("vortex.cuda_flat")
+        LayoutId::new("vortex.cuda_flat")
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {
@@ -551,7 +552,7 @@ fn extract_constant_buffers(chunk: &ArrayRef) -> Vec<InlinedBuffer> {
     let mut buffer_idx = 0u32;
     for array in chunk.depth_first_traversal() {
         let n = array.nbuffers();
-        if array.encoding_id() == Constant::ID {
+        if array.encoding_id() == Constant.id() {
             for buf in array.buffers() {
                 result.push(InlinedBuffer {
                     buffer_index: buffer_idx,

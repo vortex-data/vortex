@@ -8,6 +8,8 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_buffer::Buffer;
 use vortex_runend::RunEnd;
@@ -49,9 +51,11 @@ const BENCH_ARGS: &[(usize, usize, f64)] = &[
 fn null_count_run_end(bencher: Bencher, (n, run_step, valid_density): (usize, usize, f64)) {
     let array = fixture(n, run_step, valid_density).into_array();
 
-    bencher
-        .with_inputs(|| &array)
-        .bench_refs(|array| array.invalid_count().unwrap());
+    bencher.with_inputs(|| &array).bench_refs(|array| {
+        array
+            .invalid_count(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+    });
 }
 
 fn fixture(n: usize, run_step: usize, valid_density: f64) -> RunEndArray {

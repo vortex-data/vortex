@@ -3,6 +3,7 @@
 
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayVTable;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Decimal;
 use vortex_array::arrays::DecimalArray;
@@ -27,7 +28,7 @@ impl FlatLayoutFixture for DecimalFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Decimal::ID]
+        vec![Decimal.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

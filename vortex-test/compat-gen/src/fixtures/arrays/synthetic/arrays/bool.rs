@@ -3,6 +3,7 @@
 
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayVTable;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Bool;
 use vortex_array::arrays::BoolArray;
@@ -25,7 +26,7 @@ impl FlatLayoutFixture for BooleansFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Bool::ID]
+        vec![Bool.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

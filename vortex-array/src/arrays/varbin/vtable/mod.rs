@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -68,9 +69,9 @@ impl VTable for VarBin {
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.varbin");
+        *ID
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -198,7 +199,3 @@ impl VTable for VarBin {
 
 #[derive(Clone, Debug)]
 pub struct VarBin;
-
-impl VarBin {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.varbin");
-}

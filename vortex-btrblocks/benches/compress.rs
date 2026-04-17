@@ -13,6 +13,7 @@ mod benchmarks {
     use rand::prelude::StdRng;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_btrblocks::BtrBlocksCompressor;
     use vortex_buffer::buffer_mut;
@@ -39,6 +40,7 @@ mod benchmarks {
 
     #[divan::bench]
     fn btrblocks(bencher: Bencher) {
+        #[expect(deprecated)]
         let array = make_clickbench_window_name().to_primitive();
         let compressor = BtrBlocksCompressor::default();
         bencher

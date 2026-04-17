@@ -60,7 +60,10 @@ impl CastReduce for ALP {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
@@ -78,7 +81,13 @@ mod tests {
     #[test]
     fn issue_5766_test_cast_alp_with_patches_to_nullable() -> VortexResult<()> {
         let values = buffer![1.234f32, f32::NAN, 2.345, f32::INFINITY, 3.456].into_array();
-        let alp = alp_encode(values.to_primitive().as_view(), None)?;
+        #[expect(deprecated)]
+        let values_primitive = values.to_primitive();
+        let alp = alp_encode(
+            values_primitive.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
 
         assert!(
             alp.patches().is_some(),
@@ -90,7 +99,9 @@ mod tests {
 
         let expected = values.cast(nullable_dtype)?;
 
-        assert_arrays_eq!(casted.to_canonical()?.into_primitive(), expected);
+        #[expect(deprecated)]
+        let casted_prim = casted.to_canonical()?.into_primitive();
+        assert_arrays_eq!(casted_prim, expected);
 
         Ok(())
     }
@@ -98,7 +109,13 @@ mod tests {
     #[test]
     fn test_cast_alp_f32_to_f64() -> VortexResult<()> {
         let values = buffer![1.5f32, 2.5, 3.5, 4.5].into_array();
-        let alp = alp_encode(values.to_primitive().as_view(), None)?;
+        #[expect(deprecated)]
+        let values_primitive = values.to_primitive();
+        let alp = alp_encode(
+            values_primitive.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
 
         let casted = alp
             .into_array()
@@ -108,6 +125,7 @@ mod tests {
             &DType::Primitive(PType::F64, Nullability::NonNullable)
         );
 
+        #[expect(deprecated)]
         let decoded = casted.to_canonical()?.into_primitive();
         let values = decoded.as_slice::<f64>();
         assert_eq!(values.len(), 4);
@@ -120,7 +138,13 @@ mod tests {
     #[test]
     fn test_cast_alp_to_int() -> VortexResult<()> {
         let values = buffer![1.0f32, 2.0, 3.0, 4.0].into_array();
-        let alp = alp_encode(values.to_primitive().as_view(), None)?;
+        #[expect(deprecated)]
+        let values_primitive = values.to_primitive();
+        let alp = alp_encode(
+            values_primitive.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
 
         let casted = alp
             .into_array()
@@ -130,6 +154,7 @@ mod tests {
             &DType::Primitive(PType::I32, Nullability::NonNullable)
         );
 
+        #[expect(deprecated)]
         let decoded = casted.to_canonical()?.into_primitive();
         assert_arrays_eq!(decoded, PrimitiveArray::from_iter([1i32, 2, 3, 4]));
 
@@ -143,7 +168,14 @@ mod tests {
     #[case(buffer![42.42f64].into_array())]
     #[case(buffer![0.0f32, -1.5, 2.5, -3.5, 4.5].into_array())]
     fn test_cast_alp_conformance(#[case] array: vortex_array::ArrayRef) -> VortexResult<()> {
-        let alp = alp_encode(array.to_primitive().as_view(), None).vortex_expect("cannot fail");
+        #[expect(deprecated)]
+        let array_primitive = array.to_primitive();
+        let alp = alp_encode(
+            array_primitive.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .vortex_expect("cannot fail");
         test_cast_conformance(&alp.into_array());
 
         Ok(())

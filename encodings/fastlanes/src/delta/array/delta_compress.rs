@@ -96,6 +96,7 @@ mod tests {
 
     use rstest::rstest;
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
@@ -144,6 +145,8 @@ mod tests {
             array.len(),
         )
         .vortex_expect("Delta array construction should succeed");
-        assert_arrays_eq!(packed_delta.as_array().to_primitive(), array);
+        #[expect(deprecated)]
+        let packed_delta_prim = packed_delta.as_array().to_primitive();
+        assert_arrays_eq!(packed_delta_prim, array);
     }
 }

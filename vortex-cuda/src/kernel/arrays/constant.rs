@@ -227,7 +227,7 @@ mod tests {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let cpu_result = constant_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(constant_array.clone())?;
 
         let gpu_result = ConstantNumericExecutor
             .execute(constant_array.into_array(), &mut cuda_ctx)
@@ -248,7 +248,7 @@ mod tests {
             .vortex_expect("failed to create execution context");
 
         let constant_array = ConstantArray::new(42i32, 0);
-        let cpu_result = constant_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(constant_array.clone())?;
 
         let gpu_result = ConstantNumericExecutor
             .execute(constant_array.into_array(), &mut cuda_ctx)
@@ -270,7 +270,7 @@ mod tests {
 
         // Test with array smaller than one block (< 2048 elements)
         let constant_array = ConstantArray::new(99i32, 100);
-        let cpu_result = constant_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(constant_array.clone())?;
 
         let gpu_result = ConstantNumericExecutor
             .execute(constant_array.into_array(), &mut cuda_ctx)

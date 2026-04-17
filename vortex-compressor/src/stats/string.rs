@@ -3,6 +3,8 @@
 
 //! String compression statistics.
 
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -50,7 +52,7 @@ impl StringStats {
     ) -> VortexResult<Self> {
         let null_count = input
             .statistics()
-            .compute_null_count()
+            .compute_null_count(&mut LEGACY_SESSION.create_execution_ctx())
             .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
         let value_count = input.len() - null_count;
         let estimated_distinct_count = opts

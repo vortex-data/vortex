@@ -249,7 +249,10 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::ToCanonical;
+    use crate::LEGACY_SESSION;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
@@ -284,6 +287,7 @@ mod tests {
             Validity::from_iter([false, true, true, true, true]),
         );
 
+        #[expect(deprecated)]
         let matches = arr
             .clone()
             .into_array()
@@ -292,6 +296,7 @@ mod tests {
             .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [1u64, 2, 3, 4]);
 
+        #[expect(deprecated)]
         let matches = arr
             .clone()
             .into_array()
@@ -306,6 +311,7 @@ mod tests {
             Validity::from_iter([false, true, true, true, true]),
         );
 
+        #[expect(deprecated)]
         let matches = arr
             .clone()
             .into_array()
@@ -314,6 +320,7 @@ mod tests {
             .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [2u64, 3, 4]);
 
+        #[expect(deprecated)]
         let matches = arr
             .clone()
             .into_array()
@@ -322,6 +329,7 @@ mod tests {
             .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [4u64]);
 
+        #[expect(deprecated)]
         let matches = other
             .clone()
             .into_array()
@@ -330,6 +338,7 @@ mod tests {
             .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [2u64, 3, 4]);
 
+        #[expect(deprecated)]
         let matches = other
             .into_array()
             .binary(arr.into_array(), Operator::Gt)
@@ -348,7 +357,9 @@ mod tests {
             .binary(right.into_array(), Operator::Gt)
             .unwrap();
         assert_eq!(result.len(), 10);
-        let scalar = result.scalar_at(0).unwrap();
+        let scalar = result
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(scalar.as_bool().value(), Some(false));
     }
 
@@ -540,8 +551,23 @@ mod tests {
             .into_array()
             .binary(list.into_array(), Operator::Eq)
             .unwrap();
-        assert!(result.scalar_at(0).unwrap().is_valid());
-        assert!(result.scalar_at(1).unwrap().is_valid());
-        assert!(result.scalar_at(2).unwrap().is_valid());
+        assert!(
+            result
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .is_valid()
+        );
+        assert!(
+            result
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .is_valid()
+        );
+        assert!(
+            result
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .is_valid()
+        );
     }
 }

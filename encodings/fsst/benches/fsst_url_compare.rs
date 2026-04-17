@@ -6,6 +6,7 @@
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
@@ -105,8 +106,10 @@ fn eq_canonicalize_high_match(bencher: Bencher) {
     bencher
         .with_inputs(|| (&fsst_array, &constant, SESSION.create_execution_ctx()))
         .bench_refs(|(fsst_array, constant, ctx)| {
-            fsst_array
-                .to_canonical()
+            (*fsst_array)
+                .clone()
+                .into_array()
+                .execute::<Canonical>(ctx)
                 .unwrap()
                 .into_array()
                 .binary(constant.clone().into_array(), Operator::Eq)
@@ -127,8 +130,10 @@ fn eq_canonicalize_low_match(bencher: Bencher) {
     bencher
         .with_inputs(|| (&fsst_array, &constant, SESSION.create_execution_ctx()))
         .bench_refs(|(fsst_array, constant, ctx)| {
-            fsst_array
-                .to_canonical()
+            (*fsst_array)
+                .clone()
+                .into_array()
+                .execute::<Canonical>(ctx)
                 .unwrap()
                 .into_array()
                 .binary(constant.clone().into_array(), Operator::Eq)

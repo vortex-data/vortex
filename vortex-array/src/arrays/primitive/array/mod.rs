@@ -16,7 +16,8 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::LEGACY_SESSION;
-use crate::ToCanonical;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -68,6 +69,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 /// ```
 /// # fn main() -> vortex_error::VortexResult<()> {
 /// use vortex_array::arrays::PrimitiveArray;
+/// use vortex_array::{LEGACY_SESSION, VortexSessionExecute};
 ///
 /// // Create from iterator using FromIterator impl
 /// let array: PrimitiveArray = [1i32, 2, 3, 4, 5].into_iter().collect();
@@ -76,7 +78,8 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 /// let sliced = array.slice(1..3)?;
 ///
 /// // Access individual values
-/// let value = sliced.scalar_at(0).unwrap();
+/// let mut ctx = LEGACY_SESSION.create_execution_ctx();
+/// let value = sliced.execute_scalar(0, &mut ctx).unwrap();
 /// assert_eq!(value, 2i32.into());
 ///
 /// # Ok(())
@@ -121,10 +124,6 @@ pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
 
     fn validity(&self) -> Validity {
         child_to_validity(&self.as_ref().slots()[VALIDITY_SLOT], self.nullability())
-    }
-
-    fn validity_mask(&self) -> vortex_mask::Mask {
-        self.validity().to_mask(self.as_ref().len())
     }
 
     fn buffer_handle(&self) -> &BufferHandle {
@@ -181,46 +180,58 @@ pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
         if min < 0 || max < 0 {
             // Signed
             if min >= i8::MIN as i64 && max <= i8::MAX as i64 {
-                return Ok(self
+                #[expect(deprecated)]
+                let result = self
                     .as_ref()
                     .cast(DType::Primitive(PType::I8, nullability))?
-                    .to_primitive());
+                    .to_primitive();
+                return Ok(result);
             }
 
             if min >= i16::MIN as i64 && max <= i16::MAX as i64 {
-                return Ok(self
+                #[expect(deprecated)]
+                let result = self
                     .as_ref()
                     .cast(DType::Primitive(PType::I16, nullability))?
-                    .to_primitive());
+                    .to_primitive();
+                return Ok(result);
             }
 
             if min >= i32::MIN as i64 && max <= i32::MAX as i64 {
-                return Ok(self
+                #[expect(deprecated)]
+                let result = self
                     .as_ref()
                     .cast(DType::Primitive(PType::I32, nullability))?
-                    .to_primitive());
+                    .to_primitive();
+                return Ok(result);
             }
         } else {
             // Unsigned
             if max <= u8::MAX as i64 {
-                return Ok(self
+                #[expect(deprecated)]
+                let result = self
                     .as_ref()
                     .cast(DType::Primitive(PType::U8, nullability))?
-                    .to_primitive());
+                    .to_primitive();
+                return Ok(result);
             }
 
             if max <= u16::MAX as i64 {
-                return Ok(self
+                #[expect(deprecated)]
+                let result = self
                     .as_ref()
                     .cast(DType::Primitive(PType::U16, nullability))?
-                    .to_primitive());
+                    .to_primitive();
+                return Ok(result);
             }
 
             if max <= u32::MAX as i64 {
-                return Ok(self
+                #[expect(deprecated)]
+                let result = self
                     .as_ref()
                     .cast(DType::Primitive(PType::U32, nullability))?
-                    .to_primitive());
+                    .to_primitive();
+                return Ok(result);
             }
         }
 
@@ -485,6 +496,7 @@ impl Array<Primitive> {
                 BufferMut::<R>::from_iter(buf_iter.zip(iter::repeat(false)).map(f))
             }
             Validity::Array(val) => {
+                #[expect(deprecated)]
                 let val = val.to_bool().into_bit_buffer();
                 BufferMut::<R>::from_iter(buf_iter.zip(val.iter()).map(f))
             }
@@ -538,6 +550,7 @@ impl PrimitiveData {
             Validity::AllValid | Validity::NonNullable => valid_elems_buffer.aligned(alignment),
             Validity::AllInvalid => ByteBuffer::zeroed_aligned(n_rows * byte_width, alignment),
             Validity::Array(is_valid) => {
+                #[expect(deprecated)]
                 let bool_array = is_valid.to_bool();
                 let bool_buffer = bool_array.to_bit_buffer();
                 let mut bytes = ByteBufferMut::zeroed_aligned(n_rows * byte_width, alignment);

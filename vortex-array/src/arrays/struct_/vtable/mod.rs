@@ -29,6 +29,8 @@ mod kernel;
 mod operations;
 mod validity;
 
+use vortex_session::registry::CachedId;
+
 use crate::array::ArrayId;
 
 /// A [`Struct`]-encoded Vortex array.
@@ -39,9 +41,9 @@ impl VTable for Struct {
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.struct");
+        *ID
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -205,7 +207,3 @@ impl VTable for Struct {
 
 #[derive(Clone, Debug)]
 pub struct Struct;
-
-impl Struct {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.struct");
-}

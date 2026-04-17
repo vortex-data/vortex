@@ -88,6 +88,7 @@ impl CastReduce for Zstd {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -115,6 +116,7 @@ mod tests {
             &DType::Primitive(PType::I64, Nullability::NonNullable)
         );
 
+        #[expect(deprecated)]
         let decoded = casted.to_primitive();
         assert_arrays_eq!(decoded, PrimitiveArray::from_iter([1i64, 2, 3, 4, 5]));
     }
@@ -150,6 +152,7 @@ mod tests {
             &DType::Primitive(PType::U32, Nullability::NonNullable)
         );
         // Verify the values are correct
+        #[expect(deprecated)]
         let decoded = casted.to_primitive();
         assert_arrays_eq!(decoded, PrimitiveArray::from_iter([20u32, 30, 40, 50]));
     }
@@ -173,6 +176,7 @@ mod tests {
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::NonNullable)
         );
+        #[expect(deprecated)]
         let decoded = casted.to_primitive();
         let expected = PrimitiveArray::from_iter([20u32, 30, 40, 50]);
         assert_arrays_eq!(decoded, expected);

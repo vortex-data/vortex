@@ -54,7 +54,7 @@ impl AggregateFnVTable for ForeignAggregateFnVTable {
     type Partial = ();
 
     fn id(&self) -> AggregateFnId {
-        self.id.clone()
+        self.id
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -109,6 +109,10 @@ impl AggregateFnVTable for ForeignAggregateFnVTable {
     }
 
     fn finalize(&self, _states: ArrayRef) -> VortexResult<ArrayRef> {
+        vortex_bail!("Cannot execute unknown aggregate function '{}'", self.id)
+    }
+
+    fn finalize_scalar(&self, _partial: &Self::Partial) -> VortexResult<Scalar> {
         vortex_bail!("Cannot execute unknown aggregate function '{}'", self.id)
     }
 }

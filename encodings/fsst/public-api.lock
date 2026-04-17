@@ -4,8 +4,6 @@ pub struct vortex_fsst::FSST
 
 impl vortex_fsst::FSST
 
-pub const vortex_fsst::FSST::ID: vortex_array::array::ArrayId
-
 pub fn vortex_fsst::FSST::try_new(dtype: vortex_array::dtype::DType, symbols: vortex_buffer::buffer::Buffer<fsst::Symbol>, symbol_lengths: vortex_buffer::buffer::Buffer<u8>, codes: vortex_array::arrays::varbin::vtable::VarBinArray, uncompressed_lengths: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_fsst::FSSTArray>
 
 impl core::clone::Clone for vortex_fsst::FSST
@@ -50,7 +48,7 @@ pub fn vortex_fsst::FSST::validate(&self, data: &Self::ArrayData, dtype: &vortex
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_fsst::FSST> for vortex_fsst::FSST
 
-pub fn vortex_fsst::FSST::scalar_at(array: vortex_array::array::view::ArrayView<'_, vortex_fsst::FSST>, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_fsst::FSST::scalar_at(array: vortex_array::array::view::ArrayView<'_, vortex_fsst::FSST>, index: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::array::vtable::validity::ValidityVTable<vortex_fsst::FSST> for vortex_fsst::FSST
 

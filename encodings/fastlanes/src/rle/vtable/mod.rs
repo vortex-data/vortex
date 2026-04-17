@@ -28,6 +28,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::RLEData;
 use crate::rle::array::INDICES_SLOT;
@@ -80,7 +81,8 @@ impl VTable for RLE {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("fastlanes.rle");
+        *ID
     }
 
     fn validate(
@@ -209,8 +211,6 @@ impl VTable for RLE {
 pub struct RLE;
 
 impl RLE {
-    pub const ID: ArrayId = ArrayId::new_ref("fastlanes.rle");
-
     pub fn try_new(
         values: ArrayRef,
         indices: ArrayRef,

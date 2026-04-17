@@ -177,9 +177,17 @@ name = "take_fsl"
 harness = false
 
 [[bench]]
+name = "take_filter"
+harness = false
+
+[[bench]]
 name = "filter_bool"
 harness = false
 
 [[bench]]
 name = "listview_rebuild"
+harness = false
+
+[[bench]]
+name = "listview_builder_extend"
 harness = false

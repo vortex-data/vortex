@@ -37,20 +37,30 @@ impl CudaExecute for SliceExecutor {
         let child = slice_array.child().clone().execute_cuda(ctx).await?;
 
         match child {
-            Canonical::Null(null_array) => null_array.into_array().slice(range)?.to_canonical(),
-            Canonical::Bool(bool_array) => bool_array.into_array().slice(range)?.to_canonical(),
-            Canonical::Primitive(prim_array) => {
-                prim_array.into_array().slice(range)?.to_canonical()
-            }
-            Canonical::Decimal(decimal_array) => {
-                decimal_array.into_array().slice(range)?.to_canonical()
-            }
-            Canonical::VarBinView(varbinview) => {
-                varbinview.into_array().slice(range)?.to_canonical()
-            }
-            Canonical::Extension(extension_array) => {
-                extension_array.into_array().slice(range)?.to_canonical()
-            }
+            Canonical::Null(null_array) => null_array
+                .into_array()
+                .slice(range)?
+                .execute::<Canonical>(ctx.execution_ctx()),
+            Canonical::Bool(bool_array) => bool_array
+                .into_array()
+                .slice(range)?
+                .execute::<Canonical>(ctx.execution_ctx()),
+            Canonical::Primitive(prim_array) => prim_array
+                .into_array()
+                .slice(range)?
+                .execute::<Canonical>(ctx.execution_ctx()),
+            Canonical::Decimal(decimal_array) => decimal_array
+                .into_array()
+                .slice(range)?
+                .execute::<Canonical>(ctx.execution_ctx()),
+            Canonical::VarBinView(varbinview) => varbinview
+                .into_array()
+                .slice(range)?
+                .execute::<Canonical>(ctx.execution_ctx()),
+            Canonical::Extension(extension_array) => extension_array
+                .into_array()
+                .slice(range)?
+                .execute::<Canonical>(ctx.execution_ctx()),
             c => todo!("Slice kernel not implemented for {}", c.dtype()),
         }
     }

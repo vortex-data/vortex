@@ -15,7 +15,8 @@ use super::DictConstraints;
 use super::DictEncoder;
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::ToCanonical;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::NativeValue;
@@ -125,7 +126,9 @@ where
     fn encode(&mut self, array: &ArrayRef) -> ArrayRef {
         let mut codes = BufferMut::<Code>::with_capacity(array.len());
 
-        array.to_primitive().with_iterator(|it| {
+        #[expect(deprecated)]
+        let prim = array.to_primitive();
+        prim.with_iterator(|it| {
             for value in it {
                 let Some(code) = self.encode_value(value.copied()) else {
                     break;

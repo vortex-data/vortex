@@ -9,7 +9,8 @@ use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::ToCanonical;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
 use crate::arrays::DictArray;
 use crate::arrays::Primitive;
 use crate::arrays::VarBin;
@@ -66,7 +67,9 @@ pub fn dict_encode_with_constraints(
     constraints: &DictConstraints,
 ) -> VortexResult<DictArray> {
     let mut encoder = dict_encoder(array, constraints);
-    let codes = encoder.encode(array).to_primitive().narrow()?;
+    let encoded = encoder.encode(array);
+    #[expect(deprecated)]
+    let codes = encoded.to_primitive().narrow()?;
     // SAFETY: The encoding process will produce a value set of codes and values
     // All values in the dictionary are guaranteed to be referenced by at least one code
     // since we build the dictionary from the codes we observe during encoding

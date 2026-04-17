@@ -18,7 +18,7 @@ permissions:
 jobs:
   remove-bench-label:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 10
     if: github.event.label.name == 'action/benchmark'
     steps:
       - uses: actions-ecosystem/action-remove-labels@v1
@@ -34,7 +34,7 @@ jobs:
 
   remove-sql-label:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 10
     if: github.event.label.name == 'action/benchmark-sql'
     steps:
       - uses: actions-ecosystem/action-remove-labels@v1
