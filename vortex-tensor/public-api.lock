@@ -2,6 +2,24 @@ pub mod vortex_tensor
 
 pub mod vortex_tensor::encodings
 
+pub mod vortex_tensor::encodings::l2_denorm
+
+pub struct vortex_tensor::encodings::l2_denorm::L2DenormScheme
+
+impl core::fmt::Debug for vortex_tensor::encodings::l2_denorm::L2DenormScheme
+
+pub fn vortex_tensor::encodings::l2_denorm::L2DenormScheme::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_compressor::scheme::Scheme for vortex_tensor::encodings::l2_denorm::L2DenormScheme
+
+pub fn vortex_tensor::encodings::l2_denorm::L2DenormScheme::compress(&self, compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_tensor::encodings::l2_denorm::L2DenormScheme::expected_compression_ratio(&self, _data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_compressor::estimate::CompressionEstimate
+
+pub fn vortex_tensor::encodings::l2_denorm::L2DenormScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
+
+pub fn vortex_tensor::encodings::l2_denorm::L2DenormScheme::scheme_name(&self) -> &'static str
+
 pub mod vortex_tensor::encodings::turboquant
 
 pub struct vortex_tensor::encodings::turboquant::TurboQuantConfig
