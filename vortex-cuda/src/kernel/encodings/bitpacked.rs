@@ -609,7 +609,11 @@ mod tests {
         let primitive_array = PrimitiveArray::new(buffer![100u8, 101, 102, 3, 4, 5], NonNullable);
 
         // Encode with bit width 4. First 3 elements patched, remainder will pack.
-        let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), 4)?;
+        let bitpacked_array = BitPacked::encode(
+            &primitive_array.into_array(),
+            4,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         assert!(
             bitpacked_array.patches().is_some(),
             "Expected patches to be present"
@@ -655,7 +659,11 @@ mod tests {
         let primitive_array =
             PrimitiveArray::new(Buffer::from_iter(values.iter().copied()), NonNullable);
 
-        let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), 9)?;
+        let bitpacked_array = BitPacked::encode(
+            &primitive_array.into_array(),
+            9,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         assert!(
             bitpacked_array.patches().is_some(),
             "Expected patches to be present"
@@ -708,7 +716,11 @@ mod tests {
         let primitive_array =
             PrimitiveArray::new(Buffer::from_iter(values.iter().copied()), NonNullable);
 
-        let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), 9)?;
+        let bitpacked_array = BitPacked::encode(
+            &primitive_array.into_array(),
+            9,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         assert!(
             bitpacked_array.patches().is_some(),
             "Expected patches to be present"

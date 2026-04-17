@@ -415,12 +415,12 @@ impl RunEndData {
     /// # use vortex_error::VortexResult;
     /// # use vortex_runend::RunEnd;
     /// # fn main() -> VortexResult<()> {
+    /// let mut ctx = LEGACY_SESSION.create_execution_ctx();
     /// let ends = buffer![2u8, 3u8].into_array();
     /// let values = BoolArray::from_iter([false, true]).into_array();
-    /// let run_end = RunEnd::new(ends, values);
+    /// let run_end = RunEnd::new(ends, values, &mut ctx);
     ///
     /// // Array encodes
-    /// let mut ctx = LEGACY_SESSION.create_execution_ctx();
     /// assert_eq!(run_end.execute_scalar(0, &mut ctx)?, false.into());
     /// assert_eq!(run_end.execute_scalar(1, &mut ctx)?, false.into());
     /// assert_eq!(run_end.execute_scalar(2, &mut ctx)?, true.into());
