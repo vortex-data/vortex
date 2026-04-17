@@ -36,10 +36,10 @@ pub fn accumulate_stats(
     let accumulator =
         FileStatsAccumulator::new(stream.dtype(), stats, max_variable_length_statistics_size);
     let closure_accumulator = accumulator.clone();
+    let mut ctx = session.create_execution_ctx();
     let stream = SequentialStreamAdapter::new(
         stream.dtype().clone(),
         stream.scan(closure_accumulator, move |acc, item| {
-            let mut ctx = session.create_execution_ctx();
             future::ready(Some(acc.process(item, &mut ctx)))
         }),
     )
