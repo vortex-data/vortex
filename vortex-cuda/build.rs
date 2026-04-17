@@ -3,11 +3,10 @@
 
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::expect_used)]
-#![expect(clippy::panic)]
 #![expect(clippy::use_debug)]
 
 use std::env;
-use std::fs;
+use std::fs::File;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
@@ -31,10 +30,11 @@ fn main() {
     // Output directory for compiled .ptx files - separate by profile.
     let kernels_gen = Path::new(&manifest_dir).join("kernels/gen").join(&profile);
 
-    fs::create_dir_all(&kernels_gen).expect("Failed to create kernels/gen directory");
+    std::fs::create_dir_all(&kernels_gen).expect("Failed to create kernels/gen directory");
 
-    // Emit the kernels output directory path as a compile-time env var so any binary
-    // linking against vortex-cuda can find the PTX files.
+    // Always emit the kernels output directory path as a compile-time env var so any binary
+    // linking against vortex-cuda can find the PTX files. This must be set regardless
+    // of CUDA availability since the code using env!() is always compiled.
     // At runtime, VORTEX_CUDA_KERNELS_DIR can be set to override this path.
     println!(
         "cargo:rustc-env=VORTEX_CUDA_KERNELS_DIR={}",
@@ -43,7 +43,7 @@ fn main() {
 
     println!("cargo:rerun-if-env-changed=PROFILE");
 
-    // Regenerate bit_unpack kernels only when the generator changes.
+    // Regenerate bit_unpack kernels only when the generator changes
     println!(
         "cargo:rerun-if-changed={}",
         Path::new(&manifest_dir)
@@ -63,73 +63,55 @@ fn main() {
         return;
     }
 
-    // Compile .cu files to PTX. We deliberately do NOT register .cu/.cuh files
-    // with rerun-if-changed so that editing a .cu file does not trigger Rust
-    // recompilation.
-    let mut cu_files = Vec::new();
-    let mut newest_header = std::time::SystemTime::UNIX_EPOCH;
-
-    if let Ok(entries) = fs::read_dir(&kernels_src) {
+    // Watch and compile .cu and .cuh files from kernels/src to PTX in kernels/gen
+    if let Ok(entries) = std::fs::read_dir(&kernels_src) {
         for path in entries.flatten().map(|entry| entry.path()) {
+            let is_generated = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("bit_unpack_"));
+
             match path.extension().and_then(|e| e.to_str()) {
                 Some("cuh") | Some("h") => {
-                    if let Ok(mtime) = fs::metadata(&path).and_then(|m| m.modified()) {
-                        newest_header = newest_header.max(mtime);
+                    // Only watch hand-written .cuh/.h files, not generated ones
+                    // (generated files are rebuilt when cuda_kernel_generator changes)
+                    if !is_generated {
+                        println!("cargo:rerun-if-changed={}", path.display());
                     }
                 }
                 Some("cu") => {
-                    cu_files.push(path);
+                    // Only watch hand-written .cu files, not generated ones
+                    // (generated files are rebuilt when cuda_kernel_generator changes)
+                    if !is_generated {
+                        println!("cargo:rerun-if-changed={}", path.display());
+                    }
+                    // Compile all .cu files to PTX in gen directory
+                    nvcc_compile_ptx(&kernels_src, &kernels_gen, &path, &profile)
+                        .map_err(|e| {
+                            format!("Failed to compile CUDA kernel {}: {}", path.display(), e)
+                        })
+                        .unwrap();
                 }
                 _ => {}
             }
         }
     }
-
-    // Only compile .cu files whose PTX is stale (older than the source or any header).
-    for cu_path in &cu_files {
-        let ptx_path = kernels_gen
-            .join(cu_path.file_name().unwrap())
-            .with_extension("ptx");
-
-        let cu_mtime = fs::metadata(cu_path)
-            .and_then(|m| m.modified())
-            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-        let newest_input = cu_mtime.max(newest_header);
-
-        let ptx_mtime = fs::metadata(&ptx_path).and_then(|m| m.modified()).ok();
-        if ptx_mtime.is_some_and(|t| t >= newest_input) {
-            continue;
-        }
-
-        nvcc_compile_ptx(&kernels_src, &kernels_gen, cu_path, &profile)
-            .map_err(|e| format!("Failed to compile CUDA kernel {}: {}", cu_path.display(), e))
-            .unwrap();
-    }
 }
 
-fn generate_unpack<T: FastLanes>(output_dir: &Path, thread_count: usize) -> io::Result<()> {
+fn generate_unpack<T: FastLanes>(output_dir: &Path, thread_count: usize) -> io::Result<PathBuf> {
     // Generate the lanes header (.cuh) — device functions only, no __global__ kernels.
     // This is what dynamic_dispatch.cu includes (via bit_unpack.cuh).
     let cuh_path = output_dir.join(format!("bit_unpack_{}_lanes.cuh", T::T));
-    let mut cuh_buf = Vec::new();
-    generate_cuda_unpack_lanes::<T>(&mut cuh_buf)?;
-    write_if_changed(&cuh_path, &cuh_buf);
+    let mut cuh_file = File::create(&cuh_path)?;
+    generate_cuda_unpack_lanes::<T>(&mut cuh_file)?;
 
     // Generate the standalone kernels (.cu) — includes the lanes header,
     // adds _device template + __global__ wrappers. Compiled to its own PTX.
     let cu_path = output_dir.join(format!("bit_unpack_{}.cu", T::T));
-    let mut cu_buf = Vec::new();
-    generate_cuda_unpack_kernels::<T>(&mut cu_buf, thread_count)?;
-    write_if_changed(&cu_path, &cu_buf);
+    let mut cu_file = File::create(&cu_path)?;
+    generate_cuda_unpack_kernels::<T>(&mut cu_file, thread_count)?;
 
-    Ok(())
-}
-
-fn write_if_changed(path: &Path, content: &[u8]) {
-    if fs::read(path).is_ok_and(|existing| existing == content) {
-        return;
-    }
-    fs::write(path, content).unwrap_or_else(|e| panic!("Failed to write {}: {e}", path.display()));
+    Ok(cu_path)
 }
 
 fn nvcc_compile_ptx(
@@ -241,13 +223,14 @@ fn generate_patches_bindings(kernels_src: &Path, out_dir: &Path) {
         .derive_copy(true)
         .derive_debug(true)
         .generate()
-        .expect("Failed to generate patches bindings");
+        .expect("Failed to generate dynamic_dispatch bindings");
 
     bindings
         .write_to_file(out_dir.join("patches.rs"))
         .expect("Failed to write patches.rs");
 }
 
+/// Check if CUDA is available based on nvcc.
 fn is_cuda_available() -> bool {
     Command::new("nvcc")
         .arg("--version")
