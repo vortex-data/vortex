@@ -85,7 +85,7 @@ mod tests {
     use std::ptr;
     use std::sync::Arc;
 
-    use rand::Rng;
+    use rand::RngExt;
     use tempfile::NamedTempFile;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -126,11 +126,11 @@ mod tests {
 
     fn random_str(length: usize) -> String {
         const CHARSET: &[u8] = b"0123456789";
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         (0..length)
             .map(|_| {
-                let idx = rng.gen_range(0..CHARSET.len());
+                let idx = rng.random_range(0..CHARSET.len());
                 CHARSET[idx] as char
             })
             .collect()
