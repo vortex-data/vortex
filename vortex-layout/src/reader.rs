@@ -28,7 +28,7 @@ pub type LayoutReaderRef = Arc<dyn LayoutReader>;
 
 /// A [`LayoutReader`] is used to read a [`crate::Layout`] in a way that can cache state across multiple
 /// evaluation operations.
-pub trait LayoutReader: 'static + Send + Sync + Any {
+pub trait LayoutReader: 'static + Send + Sync {
     /// Returns the name of the layout reader for debugging.
     fn name(&self) -> &Arc<str>;
 

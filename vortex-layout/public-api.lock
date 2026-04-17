@@ -1844,7 +1844,7 @@ pub fn vortex_layout::LayoutEncodingAdapter<V>::build(&self, dtype: &vortex_arra
 
 pub fn vortex_layout::LayoutEncodingAdapter<V>::id(&self) -> vortex_layout::LayoutEncodingId
 
-pub trait vortex_layout::LayoutReader: 'static + core::marker::Send + core::marker::Sync + core::any::Any
+pub trait vortex_layout::LayoutReader: 'static + core::marker::Send + core::marker::Sync
 
 pub fn vortex_layout::LayoutReader::as_any(&self) -> &dyn core::any::Any
 

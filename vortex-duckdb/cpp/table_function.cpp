@@ -179,10 +179,10 @@ c_statistics(ClientContext &context, const FunctionData *bind_data, column_t col
         return string_stats(statistics, type);
     }
     case LogicalTypeId::STRUCT: {
-        // Duckdb's has_null has a different meaning for structs.
-        // our DType non-nullability is recursive i.e. a non-null struct can't
-        // contain null children.
-        // Duckdb applies non-nullability only for the outer layer.
+        // TODO(myrrc)
+        // Duckdb's has_null has a different semantics for structs.
+        // If we propagate our has_null, this breaks Duckdb optimizer.
+        // You can reproduce it in struct.slt test in vortex-sqllogictests:
         return {};
     }
     default:

@@ -110,7 +110,7 @@ pub(crate) trait DataSourceTableFunction: Sized + Debug {
 }
 
 #[derive(Debug, Clone)]
-struct ColumnTriple {
+struct DuckdbField {
     name: String,
     logical_type: LogicalType,
     dtype: DType,
@@ -120,7 +120,7 @@ struct ColumnTriple {
 pub struct DataSourceBindData {
     data_source: Arc<MultiLayoutDataSource>,
     filter_exprs: Vec<Expression>,
-    column_triples: Vec<ColumnTriple>,
+    column_fields: Vec<DuckdbField>,
 }
 
 impl Clone for DataSourceBindData {
@@ -129,7 +129,7 @@ impl Clone for DataSourceBindData {
             data_source: Arc::clone(&self.data_source),
             // filter_exprs are consumed once in `init_global`.
             filter_exprs: vec![],
-            column_triples: self.column_triples.clone(),
+            column_fields: self.column_fields.clone(),
         }
     }
 }
@@ -137,7 +137,7 @@ impl Clone for DataSourceBindData {
 impl Debug for DataSourceBindData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DataSourceBindData")
-            .field("column_triples", &self.column_triples)
+            .field("column_fields", &self.column_fields)
             .field(
                 "filter_exprs",
                 &self
@@ -195,7 +195,9 @@ impl ColumnStatistics {
         let max_string_length = stats
             .max_string_length
             .map_or(0, |len| (1u64 << 63) | (len as u64));
-        let has_null = dtype.is_nullable();
+
+        // Useful estimate if we didn't get null count stats
+        let has_null = stats.has_null && dtype.is_nullable();
 
         Self {
             min,
@@ -211,6 +213,8 @@ pub struct ColumnStatisticsAggregate {
     pub min: Option<ScalarValue>,
     pub max: Option<ScalarValue>,
     pub max_string_length: Option<u32>,
+    /// May be true if null count stat isn't present
+    pub has_null: bool,
 }
 
 impl ColumnStatisticsAggregate {
@@ -233,10 +237,18 @@ impl ColumnStatisticsAggregate {
                 None
             };
 
+        let has_null = match stats.get(Stat::NullCount) {
+            Some(Precision::Exact(cnt)) => {
+                cnt.as_primitive().as_u64().vortex_expect("not a u64") > 0
+            }
+            _ => true,
+        };
+
         Self {
             min,
             max,
             max_string_length,
+            has_null,
         }
     }
 }
@@ -268,14 +280,14 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         result: &mut BindResultRef,
     ) -> VortexResult<Self::BindData> {
         let data_source = T::bind(ctx, input)?;
-        let column_triples = extract_schema_from_dtype(data_source.dtype())?;
-        for triple in &column_triples {
-            result.add_result_column(&triple.name, &triple.logical_type);
+        let column_fields = extract_schema_from_dtype(data_source.dtype())?;
+        for fields in &column_fields {
+            result.add_result_column(&fields.name, &fields.logical_type);
         }
         Ok(DataSourceBindData {
             data_source: Arc::new(data_source),
             filter_exprs: vec![],
-            column_triples,
+            column_fields,
         })
     }
 
@@ -287,11 +299,11 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         let projection_ids = init_input.projection_ids();
 
         let projection_expr =
-            extract_projection_expr(projection_ids, column_ids, &bind_data.column_triples);
+            extract_projection_expr(projection_ids, column_ids, &bind_data.column_fields);
         let filter_expr = extract_table_filter_expr(
             init_input.table_filter_set(),
             column_ids,
-            &bind_data.column_triples,
+            &bind_data.column_fields,
             &bind_data.filter_exprs,
             bind_data.data_source.dtype(),
         )?;
@@ -509,7 +521,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
             None => return None,
         };
         let stats_aggregate = ColumnStatisticsAggregate::new(&stats_sets[column_index]);
-        let dtype = bind_data.column_triples[column_index].dtype.clone();
+        let dtype = bind_data.column_fields[column_index].dtype.clone();
         Some(ColumnStatistics::from(&stats_aggregate, dtype))
     }
 
@@ -554,30 +566,30 @@ impl<T: DataSourceTableFunction> TableFunction for T {
 // ---------------------------------------------------------------------------
 
 /// Extracts DuckDB column names and logical types from a Vortex struct DType.
-fn extract_schema_from_dtype(dtype: &DType) -> VortexResult<Vec<ColumnTriple>> {
+fn extract_schema_from_dtype(dtype: &DType) -> VortexResult<Vec<DuckdbField>> {
     let struct_dtype = dtype
         .as_struct_fields_opt()
         .ok_or_else(|| vortex_err!("Vortex file must contain a struct array at the top level"))?;
 
     let len = struct_dtype.names().len();
-    let mut triples = Vec::with_capacity(len);
+    let mut fields = Vec::with_capacity(len);
 
     for (field_name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
         let logical_type = LogicalType::try_from(&field_dtype)?;
-        triples.push(ColumnTriple {
+        fields.push(DuckdbField {
             name: field_name.to_string(),
             logical_type,
             dtype: field_dtype,
         });
     }
-    Ok(triples)
+    Ok(fields)
 }
 
 /// Creates a projection expression from raw projection/column ID slices and column names.
 fn extract_projection_expr(
     projection_ids: Option<&[u64]>,
     column_ids: &[u64],
-    column_triples: &[ColumnTriple],
+    column_fields: &[DuckdbField],
 ) -> Expression {
     // Projection ids may be empty, in which case you need to use projection_ids
     // https://github.com/duckdb/duckdb/blob/6e211da91657a94803c465fd0ce585f4c6754b54/src/planner/operator/logical_get.cpp#L168
@@ -597,7 +609,7 @@ fn extract_projection_expr(
             }
 
             #[expect(clippy::cast_possible_truncation)]
-            &column_triples
+            &column_fields
                 .get(*idx as usize)
                 .vortex_expect("prune idx in column names")
                 .name
@@ -613,7 +625,7 @@ fn extract_projection_expr(
 fn extract_table_filter_expr(
     table_filter_set: Option<&TableFilterSetRef>,
     column_ids: &[u64],
-    column_triples: &[ColumnTriple],
+    column_fields: &[DuckdbField],
     additional_filters: &[Expression],
     dtype: &DType,
 ) -> VortexResult<Option<Expression>> {
@@ -623,7 +635,7 @@ fn extract_table_filter_expr(
             .map(|(idx, ex)| {
                 let idx_u: usize = idx.as_();
                 let col_idx: usize = column_ids[idx_u].as_();
-                let name = &column_triples.get(col_idx).vortex_expect("exists").name;
+                let name = &column_fields.get(col_idx).vortex_expect("exists").name;
                 try_from_table_filter(ex, &col(name.as_str()), dtype)
             })
             .collect::<VortexResult<Option<HashSet<_>>>>()?
