@@ -212,7 +212,7 @@ mod tests {
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
     use crate::expr::analysis::make_free_field_annotator;
-    use crate::expr::and;
+    use crate::expr::checked_add;
     use crate::expr::col;
     use crate::expr::get_item;
     use crate::expr::lit;
@@ -299,7 +299,7 @@ mod tests {
     fn test_expr_top_level_ref_get_item_add(dtype: DType) {
         let fields = dtype.as_struct_fields_opt().unwrap();
 
-        let expr = and(get_item("y", get_item("a", root())), lit(1));
+        let expr = checked_add(get_item("y", get_item("a", root())), lit(1));
         let partitioned = partition(expr, &dtype, make_free_field_annotator(fields)).unwrap();
 
         // Whole expr is a single split
@@ -310,7 +310,7 @@ mod tests {
     fn test_expr_top_level_ref_get_item_add_cannot_split(dtype: DType) {
         let fields = dtype.as_struct_fields_opt().unwrap();
 
-        let expr = and(get_item("y", get_item("a", root())), get_item("b", root()));
+        let expr = checked_add(get_item("y", get_item("a", root())), get_item("b", root()));
         let partitioned = partition(expr, &dtype, make_free_field_annotator(fields)).unwrap();
 
         // One for id.a and id.b

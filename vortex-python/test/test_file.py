@@ -3,6 +3,7 @@
 
 import math
 import os
+from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -69,7 +70,7 @@ def test_to_arrow_columns(vxf: VortexFile):
     assert rbr.schema == pa.schema([("string", pa.string_view()), ("bool", pa.bool_())])
 
 
-def test_to_table_with_vortex_filter_plans(tmp_path):
+def test_to_table_with_vortex_filter_plans(tmp_path: Path):
     path = tmp_path / "filter.vortex"
     vx.io.write(
         pa.table({"x": pa.array([1, 2, 3], type=pa.int32()), "name": ["a", "b", "c"]}),
@@ -81,17 +82,17 @@ def test_to_table_with_vortex_filter_plans(tmp_path):
     assert actual.to_pylist() == [{"x": 2, "name": "b"}, {"x": 3, "name": "c"}]
 
 
-def test_to_table_with_pyarrow_filter_fallback(tmp_path):
+def test_to_table_with_pyarrow_filter_fallback(tmp_path: Path):
     path = tmp_path / "filter.vortex"
     vx.io.write(
         pa.table({"x": pa.array([1, 2, 3], type=pa.int32()), "name": ["a", "b", "c"]}),
         str(path),
     )
     vxf = vx.open(str(path))
-    filter_expr = pc.field("x").isin([1, 3])
+    filter_expr = pc.field("x").isin([1, 3])  # pyright: ignore[reportUnknownMemberType]
 
     with pytest.raises(Exception):
-        vxf.to_table(filter=filter_expr)
+        _ = vxf.to_table(filter=filter_expr)
 
     actual = vxf.to_table(columns=["name"], filter=filter_expr, filter_policy="fallback")
 

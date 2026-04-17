@@ -88,10 +88,10 @@ fn comparison_literal_coercions(node: &Expression, child_dtypes: &[DType]) -> Op
     let literal_dtype = &child_dtypes[literal_idx];
     let context_dtype = &child_dtypes[context_idx];
 
-    if !(matches!(literal_dtype, DType::Null)
-        || context_dtype.can_coerce_from(literal_dtype)
-        || literal_dtype.is_numeric() && context_dtype.is_numeric())
-    {
+    if !can_coerce_comparison_literal(context_dtype, literal_dtype) {
+        if context_dtype.is_extension() || literal_dtype.is_extension() {
+            return Some(child_dtypes.to_vec());
+        }
         return None;
     }
 
@@ -99,6 +99,19 @@ fn comparison_literal_coercions(node: &Expression, child_dtypes: &[DType]) -> Op
     coerced_dtypes[literal_idx] =
         context_dtype.with_nullability(context_dtype.nullability() | literal_dtype.nullability());
     Some(coerced_dtypes)
+}
+
+fn can_coerce_comparison_literal(context_dtype: &DType, literal_dtype: &DType) -> bool {
+    if matches!(literal_dtype, DType::Null) {
+        return true;
+    }
+
+    if context_dtype.is_extension() || literal_dtype.is_extension() {
+        return context_dtype.eq_ignore_nullability(literal_dtype);
+    }
+
+    context_dtype.can_coerce_from(literal_dtype)
+        || literal_dtype.is_numeric() && context_dtype.is_numeric()
 }
 
 #[cfg(test)]
@@ -112,6 +125,9 @@ mod tests {
     use crate::expr::col;
     use crate::expr::lit;
     use crate::expr::transform::coerce::coerce_expression;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
+    use crate::extension::datetime::TimestampOptions;
     use crate::scalar::Scalar;
     use crate::scalar_fn::ScalarFnVTableExt;
     use crate::scalar_fn::fns::binary::Binary;
@@ -246,6 +262,28 @@ mod tests {
             coerced.child(1).return_dtype(&scope)?,
             DType::Primitive(PType::I32, NonNullable)
         );
+        Ok(())
+    }
+
+    #[test]
+    fn comparison_literal_does_not_coerce_extension_units() -> VortexResult<()> {
+        let scope = DType::Extension(Timestamp::new(TimeUnit::Milliseconds, NonNullable).erased());
+        let expr = Binary.new_expr(
+            Operator::Gt,
+            [
+                crate::expr::root(),
+                lit(Scalar::extension::<Timestamp>(
+                    TimestampOptions {
+                        unit: TimeUnit::Seconds,
+                        tz: None,
+                    },
+                    Scalar::from(1704153600i64),
+                )),
+            ],
+        );
+        let coerced = coerce_expression(expr, &scope)?;
+
+        assert!(!coerced.child(1).is::<Cast>());
         Ok(())
     }
 }

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, final
+from typing import TYPE_CHECKING, cast, final
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -321,7 +321,7 @@ class VortexFile:
 
         table = self._file.to_arrow(None, expr=None, limit=None, indices=indices, batch_size=batch_size).read_all()
         table = self._arrow_filter_compatible_table(table)
-        table = ds.dataset(table).to_table(filter=filter)
+        table = ds.dataset(table).to_table(filter=filter)  # pyright: ignore[reportUnknownMemberType]
         if limit is not None:
             table = table.slice(0, limit)
         if columns is not None:
@@ -332,9 +332,10 @@ class VortexFile:
 
     @staticmethod
     def _arrow_filter_compatible_table(table: pa.Table) -> pa.Table:
-        fields = []
+        fields: list[pa.Field[pa.DataType]] = []
         changed = False
-        for field in table.schema:
+        for schema_field in table.schema:  # pyright: ignore[reportUnknownVariableType]
+            field = cast("pa.Field[pa.DataType]", schema_field)
             if field.type == pa.string_view():
                 fields.append(field.with_type(pa.string()))
                 changed = True

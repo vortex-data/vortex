@@ -166,14 +166,14 @@ def test_plan_with_arrow_schema_rejects_non_boolean_filter():
     schema = pa.schema([("x", pa.int32())])
 
     with pytest.raises(RuntimeError, match="filter expression must return bool"):
-        ve.plan(ve.column("x") + 1, schema=schema, kind="filter")
+        _ = ve.plan(ve.column("x") + 1, schema=schema, kind="filter")
 
 
 def test_plan_requires_exactly_one_scope():
     expr = ve.column("x") > 10
 
     with pytest.raises(ValueError, match="exactly one"):
-        ve.plan(expr)
+        _ = ve.plan(expr)
 
     with pytest.raises(ValueError, match="exactly one"):
-        ve.plan(expr, schema=pa.schema([("x", pa.int32())]), file=object())
+        _ = ve.plan(expr, schema=pa.schema([("x", pa.int32())]), file=object())  # pyright: ignore[reportArgumentType]

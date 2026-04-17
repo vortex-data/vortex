@@ -3,10 +3,18 @@
 
 from __future__ import annotations
 
+from typing import Protocol
+
 import pyarrow as pa
 
 from ._lib import expr as _expr  # pyright: ignore[reportMissingModuleSource]
 from ._lib.dtype import DType  # pyright: ignore[reportMissingModuleSource]
+
+
+class _HasDType(Protocol):
+    @property
+    def dtype(self) -> DType: ...
+
 
 Expr = _expr.Expr
 and_ = _expr.and_
@@ -20,12 +28,24 @@ not_ = _expr.not_
 root = _expr.root
 
 
-def plan(expr: Expr, *, schema: pa.Schema | None = None, file=None, kind: str = "expr") -> Expr:  # pyright: ignore[reportUnknownParameterType]
+def plan(
+    expr: Expr,
+    *,
+    schema: pa.Schema | None = None,
+    file: _HasDType | None = None,
+    kind: str = "expr",
+) -> Expr:
     """Plan an expression against an Arrow schema or Vortex file."""
-    if (schema is None) == (file is None):
+    if schema is not None and file is not None:
+        raise ValueError("exactly one of schema or file must be provided")
+    if schema is None and file is None:
         raise ValueError("exactly one of schema or file must be provided")
 
-    scope = DType.from_arrow_schema(schema) if schema is not None else file.dtype
+    if schema is not None:
+        scope = DType.from_arrow_schema(schema)
+    else:
+        assert file is not None
+        scope = file.dtype
     return _expr.plan(expr, scope, kind=kind)
 
 
