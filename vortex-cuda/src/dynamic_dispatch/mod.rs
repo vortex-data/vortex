@@ -313,6 +313,7 @@ impl SourceOp {
                 bitunpack: SourceParams_BitunpackParams {
                     bit_width,
                     element_offset: u32::from(element_offset),
+                    patches_ptr: 0,
                 },
             },
         }
@@ -393,7 +394,11 @@ impl ScalarOp {
             op_code: ScalarOp_ScalarOpCode_ALP,
             output_ptype: PTypeTag_PTYPE_F32,
             params: ScalarParams {
-                alp: ScalarParams_AlpParams { f, e },
+                alp: ScalarParams_AlpParams {
+                    f,
+                    e,
+                    patches_ptr: 0,
+                },
             },
         }
     }

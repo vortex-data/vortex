@@ -19,7 +19,7 @@ __device__ void _bit_unpack_64_lane<0>(const uint64_t *__restrict in, uint64_t *
 
 template <>
 __device__ void _bit_unpack_64_lane<1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -155,7 +155,7 @@ __device__ void _bit_unpack_64_lane<1>(const uint64_t *__restrict in, uint64_t *
 
 template <>
 __device__ void _bit_unpack_64_lane<2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -293,7 +293,7 @@ __device__ void _bit_unpack_64_lane<2>(const uint64_t *__restrict in, uint64_t *
 
 template <>
 __device__ void _bit_unpack_64_lane<3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -433,7 +433,7 @@ __device__ void _bit_unpack_64_lane<3>(const uint64_t *__restrict in, uint64_t *
 
 template <>
 __device__ void _bit_unpack_64_lane<4>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -575,7 +575,7 @@ __device__ void _bit_unpack_64_lane<4>(const uint64_t *__restrict in, uint64_t *
 
 template <>
 __device__ void _bit_unpack_64_lane<5>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -719,7 +719,7 @@ __device__ void _bit_unpack_64_lane<5>(const uint64_t *__restrict in, uint64_t *
 
 template <>
 __device__ void _bit_unpack_64_lane<6>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -865,7 +865,7 @@ __device__ void _bit_unpack_64_lane<6>(const uint64_t *__restrict in, uint64_t *
 
 template <>
 __device__ void _bit_unpack_64_lane<7>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -1013,7 +1013,7 @@ __device__ void _bit_unpack_64_lane<7>(const uint64_t *__restrict in, uint64_t *
 
 template <>
 __device__ void _bit_unpack_64_lane<8>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -1163,7 +1163,7 @@ __device__ void _bit_unpack_64_lane<8>(const uint64_t *__restrict in, uint64_t *
 
 template <>
 __device__ void _bit_unpack_64_lane<9>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -1315,7 +1315,7 @@ __device__ void _bit_unpack_64_lane<9>(const uint64_t *__restrict in, uint64_t *
 
 template <>
 __device__ void _bit_unpack_64_lane<10>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -1469,7 +1469,7 @@ __device__ void _bit_unpack_64_lane<10>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<11>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -1625,7 +1625,7 @@ __device__ void _bit_unpack_64_lane<11>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<12>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -1783,7 +1783,7 @@ __device__ void _bit_unpack_64_lane<12>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<13>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -1943,7 +1943,7 @@ __device__ void _bit_unpack_64_lane<13>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<14>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -2105,7 +2105,7 @@ __device__ void _bit_unpack_64_lane<14>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<15>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -2269,7 +2269,7 @@ __device__ void _bit_unpack_64_lane<15>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<16>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -2435,7 +2435,7 @@ __device__ void _bit_unpack_64_lane<16>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<17>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -2603,7 +2603,7 @@ __device__ void _bit_unpack_64_lane<17>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<18>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -2773,7 +2773,7 @@ __device__ void _bit_unpack_64_lane<18>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<19>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -2945,7 +2945,7 @@ __device__ void _bit_unpack_64_lane<19>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<20>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -3119,7 +3119,7 @@ __device__ void _bit_unpack_64_lane<20>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<21>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -3295,7 +3295,7 @@ __device__ void _bit_unpack_64_lane<21>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<22>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -3473,7 +3473,7 @@ __device__ void _bit_unpack_64_lane<22>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<23>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -3653,7 +3653,7 @@ __device__ void _bit_unpack_64_lane<23>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<24>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -3835,7 +3835,7 @@ __device__ void _bit_unpack_64_lane<24>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<25>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -4019,7 +4019,7 @@ __device__ void _bit_unpack_64_lane<25>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<26>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -4205,7 +4205,7 @@ __device__ void _bit_unpack_64_lane<26>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<27>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -4393,7 +4393,7 @@ __device__ void _bit_unpack_64_lane<27>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<28>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -4583,7 +4583,7 @@ __device__ void _bit_unpack_64_lane<28>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<29>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -4775,7 +4775,7 @@ __device__ void _bit_unpack_64_lane<29>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<30>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -4969,7 +4969,7 @@ __device__ void _bit_unpack_64_lane<30>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<31>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -5165,7 +5165,7 @@ __device__ void _bit_unpack_64_lane<31>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<32>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -5363,7 +5363,7 @@ __device__ void _bit_unpack_64_lane<32>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<33>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -5563,7 +5563,7 @@ __device__ void _bit_unpack_64_lane<33>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<34>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -5765,7 +5765,7 @@ __device__ void _bit_unpack_64_lane<34>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<35>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -5969,7 +5969,7 @@ __device__ void _bit_unpack_64_lane<35>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<36>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -6175,7 +6175,7 @@ __device__ void _bit_unpack_64_lane<36>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<37>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -6383,7 +6383,7 @@ __device__ void _bit_unpack_64_lane<37>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<38>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -6593,7 +6593,7 @@ __device__ void _bit_unpack_64_lane<38>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<39>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -6805,7 +6805,7 @@ __device__ void _bit_unpack_64_lane<39>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<40>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -7019,7 +7019,7 @@ __device__ void _bit_unpack_64_lane<40>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<41>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -7235,7 +7235,7 @@ __device__ void _bit_unpack_64_lane<41>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<42>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -7453,7 +7453,7 @@ __device__ void _bit_unpack_64_lane<42>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<43>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -7673,7 +7673,7 @@ __device__ void _bit_unpack_64_lane<43>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<44>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -7895,7 +7895,7 @@ __device__ void _bit_unpack_64_lane<44>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<45>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -8119,7 +8119,7 @@ __device__ void _bit_unpack_64_lane<45>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<46>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -8345,7 +8345,7 @@ __device__ void _bit_unpack_64_lane<46>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<47>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -8573,7 +8573,7 @@ __device__ void _bit_unpack_64_lane<47>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<48>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -8803,7 +8803,7 @@ __device__ void _bit_unpack_64_lane<48>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<49>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -9035,7 +9035,7 @@ __device__ void _bit_unpack_64_lane<49>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<50>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -9269,7 +9269,7 @@ __device__ void _bit_unpack_64_lane<50>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<51>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -9505,7 +9505,7 @@ __device__ void _bit_unpack_64_lane<51>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<52>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -9743,7 +9743,7 @@ __device__ void _bit_unpack_64_lane<52>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<53>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -9983,7 +9983,7 @@ __device__ void _bit_unpack_64_lane<53>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<54>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -10225,7 +10225,7 @@ __device__ void _bit_unpack_64_lane<54>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<55>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -10469,7 +10469,7 @@ __device__ void _bit_unpack_64_lane<55>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<56>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -10715,7 +10715,7 @@ __device__ void _bit_unpack_64_lane<56>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<57>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -10963,7 +10963,7 @@ __device__ void _bit_unpack_64_lane<57>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<58>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -11213,7 +11213,7 @@ __device__ void _bit_unpack_64_lane<58>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<59>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -11465,7 +11465,7 @@ __device__ void _bit_unpack_64_lane<59>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<60>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -11719,7 +11719,7 @@ __device__ void _bit_unpack_64_lane<60>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<61>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -11975,7 +11975,7 @@ __device__ void _bit_unpack_64_lane<61>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<62>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -12233,7 +12233,7 @@ __device__ void _bit_unpack_64_lane<62>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<63>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
     src = in[lane];
@@ -12493,7 +12493,7 @@ __device__ void _bit_unpack_64_lane<63>(const uint64_t *__restrict in, uint64_t 
 
 template <>
 __device__ void _bit_unpack_64_lane<64>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     #pragma unroll
     for (int row = 0; row < 64; row++) {
         out[INDEX(row, lane)] = in[LANE_COUNT * row + lane] + reference;

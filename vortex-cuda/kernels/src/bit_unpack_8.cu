@@ -8,8 +8,8 @@ __device__ void _bit_unpack_8_device(const uint8_t *__restrict in, uint8_t *__re
 
     // Step 1: Unpack into shared memory
     #pragma unroll
-    for (int i = 0; i < 4; i++) {
-        _bit_unpack_8_lane<BW>(in, shared_out, reference, thread_idx * 4 + i);
+    for (int i = 0; i < FL_LANES<uint8_t> / 32; i++) {
+        _bit_unpack_8_lane<BW>(in, shared_out, reference, thread_idx * (FL_LANES<uint8_t> / 32) + i);
     }
     __syncwarp();
 
@@ -24,7 +24,7 @@ __device__ void _bit_unpack_8_device(const uint8_t *__restrict in, uint8_t *__re
 
     // Step 3: Copy to global memory
     #pragma unroll
-    for (int i = 0; i < 32; i++) {
+    for (int i = 0; i < FL_CHUNK / 32; i++) {
         auto idx = i * 32 + thread_idx;
         out[idx] = shared_out[idx];
     }
@@ -32,64 +32,64 @@ __device__ void _bit_unpack_8_device(const uint8_t *__restrict in, uint8_t *__re
 
 extern "C" __global__ void bit_unpack_8_0bw_32t(const uint8_t *__restrict full_in, uint8_t *__restrict full_out, uint8_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 0 / sizeof(uint8_t)));
-    auto out = full_out + (blockIdx.x * 1024);
+    auto in = full_in + (blockIdx.x * (FL_LANES<uint8_t> * 0));
+    auto out = full_out + (blockIdx.x * FL_CHUNK);
     _bit_unpack_8_device<0>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_8_1bw_32t(const uint8_t *__restrict full_in, uint8_t *__restrict full_out, uint8_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 1 / sizeof(uint8_t)));
-    auto out = full_out + (blockIdx.x * 1024);
+    auto in = full_in + (blockIdx.x * (FL_LANES<uint8_t> * 1));
+    auto out = full_out + (blockIdx.x * FL_CHUNK);
     _bit_unpack_8_device<1>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_8_2bw_32t(const uint8_t *__restrict full_in, uint8_t *__restrict full_out, uint8_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 2 / sizeof(uint8_t)));
-    auto out = full_out + (blockIdx.x * 1024);
+    auto in = full_in + (blockIdx.x * (FL_LANES<uint8_t> * 2));
+    auto out = full_out + (blockIdx.x * FL_CHUNK);
     _bit_unpack_8_device<2>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_8_3bw_32t(const uint8_t *__restrict full_in, uint8_t *__restrict full_out, uint8_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 3 / sizeof(uint8_t)));
-    auto out = full_out + (blockIdx.x * 1024);
+    auto in = full_in + (blockIdx.x * (FL_LANES<uint8_t> * 3));
+    auto out = full_out + (blockIdx.x * FL_CHUNK);
     _bit_unpack_8_device<3>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_8_4bw_32t(const uint8_t *__restrict full_in, uint8_t *__restrict full_out, uint8_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 4 / sizeof(uint8_t)));
-    auto out = full_out + (blockIdx.x * 1024);
+    auto in = full_in + (blockIdx.x * (FL_LANES<uint8_t> * 4));
+    auto out = full_out + (blockIdx.x * FL_CHUNK);
     _bit_unpack_8_device<4>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_8_5bw_32t(const uint8_t *__restrict full_in, uint8_t *__restrict full_out, uint8_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 5 / sizeof(uint8_t)));
-    auto out = full_out + (blockIdx.x * 1024);
+    auto in = full_in + (blockIdx.x * (FL_LANES<uint8_t> * 5));
+    auto out = full_out + (blockIdx.x * FL_CHUNK);
     _bit_unpack_8_device<5>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_8_6bw_32t(const uint8_t *__restrict full_in, uint8_t *__restrict full_out, uint8_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 6 / sizeof(uint8_t)));
-    auto out = full_out + (blockIdx.x * 1024);
+    auto in = full_in + (blockIdx.x * (FL_LANES<uint8_t> * 6));
+    auto out = full_out + (blockIdx.x * FL_CHUNK);
     _bit_unpack_8_device<6>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_8_7bw_32t(const uint8_t *__restrict full_in, uint8_t *__restrict full_out, uint8_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 7 / sizeof(uint8_t)));
-    auto out = full_out + (blockIdx.x * 1024);
+    auto in = full_in + (blockIdx.x * (FL_LANES<uint8_t> * 7));
+    auto out = full_out + (blockIdx.x * FL_CHUNK);
     _bit_unpack_8_device<7>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_8_8bw_32t(const uint8_t *__restrict full_in, uint8_t *__restrict full_out, uint8_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 8 / sizeof(uint8_t)));
-    auto out = full_out + (blockIdx.x * 1024);
+    auto in = full_in + (blockIdx.x * (FL_LANES<uint8_t> * 8));
+    auto out = full_out + (blockIdx.x * FL_CHUNK);
     _bit_unpack_8_device<8>(in, out, reference, thread_idx, patches);
 }
 

@@ -30,6 +30,7 @@
 #pragma once
 
 #include <stdint.h>
+#include "patches.h"
 
 /// Compact tag identifying a Vortex PType for GPU dispatch.
 ///
@@ -108,6 +109,7 @@ union SourceParams {
     struct BitunpackParams {
         uint8_t bit_width;
         uint32_t element_offset; // Sub-byte offset
+        uint64_t patches_ptr;    // device pointer to packed patches buffer (0 = none)
     } bitunpack;
 
     /// Copy from global to shared memory.
@@ -157,6 +159,7 @@ union ScalarParams {
     struct AlpParams {
         float f;
         float e;
+        uint64_t patches_ptr; // device pointer to packed patches buffer (0 = none)
     } alp;
 
     /// Dictionary gather: use current value as index into decoded values in smem.

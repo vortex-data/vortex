@@ -162,11 +162,8 @@ __device__ inline void bitunpack(const T *__restrict packed,
                                  uint64_t chunk_start,
                                  uint32_t chunk_len,
                                  const struct SourceOp &src) {
-    constexpr uint32_t T_BITS = sizeof(T) * 8;
-    constexpr uint32_t FL_CHUNK = 1024;
-    constexpr uint32_t LANES = FL_CHUNK / T_BITS;
     const uint32_t bw = src.params.bitunpack.bit_width;
-    const uint32_t words_per_block = LANES * bw;
+    const uint32_t words_per_block = FL_LANES<T> * bw;
     const uint32_t elem_off = src.params.bitunpack.element_offset;
     const uint32_t dst_off = (chunk_start + elem_off) % FL_CHUNK;
     const uint64_t first_block = (chunk_start + elem_off) / FL_CHUNK;
@@ -177,8 +174,73 @@ __device__ inline void bitunpack(const T *__restrict packed,
     for (uint32_t c = 0; c < n_chunks; ++c) {
         const T *src_chunk = packed + (first_block + c) * words_per_block;
         T *chunk_dst = dst + c * FL_CHUNK;
-        for (uint32_t lane = threadIdx.x; lane < LANES; lane += blockDim.x) {
+        for (uint32_t lane = threadIdx.x; lane < FL_LANES<T>; lane += blockDim.x) {
             bit_unpack_lane<T>(src_chunk, chunk_dst, 0, lane, bw);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Patches
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Parsed view into a packed patches buffer (the fused-dispatch counterpart
+/// of GPUPatches, which is used by the standalone per-bitwidth kernels).
+/// Each op with patches gets its own contiguous device allocation holding
+/// chunk_offsets, indices, and values, referenced by a single uint64_t
+/// pointer (patches_ptr in BitunpackParams); see PackedPatchesHeader in
+/// patches.h for the layout.
+template <typename T>
+struct PackedPatchesView {
+    const uint32_t *chunk_offsets; // n_chunks+1 entries (sentinel)
+    uint32_t n_chunks;
+    const uint16_t *indices;       // within-chunk positions (0–1023)
+    const T *values;
+};
+
+/// Parse a packed patches buffer into its component arrays.
+template <typename T>
+__device__ inline PackedPatchesView<T> parse_patches(uint64_t patches_ptr) {
+    const uint8_t *base = reinterpret_cast<const uint8_t *>(patches_ptr);
+    const auto *header = reinterpret_cast<const PackedPatchesHeader *>(base);
+    return {
+        reinterpret_cast<const uint32_t *>(base + sizeof(PackedPatchesHeader)),
+        header->n_chunks,
+        reinterpret_cast<const uint16_t *>(base + header->indices_byte_offset),
+        reinterpret_cast<const T *>(base + header->values_byte_offset),
+    };
+}
+
+/// Overwrite exception positions in `out` for a single chunk.
+/// All threads in the block cooperate. Caller must issue __syncthreads()
+/// afterward if other threads read from `out`.
+template <typename T>
+__device__ __noinline__ void apply_patches(uint64_t patches_ptr, T *__restrict out, uint32_t chunk) {
+    const auto patches = parse_patches<T>(patches_ptr);
+    assert(chunk + 1 <= patches.n_chunks);
+    uint32_t start = patches.chunk_offsets[chunk];
+    uint32_t end = patches.chunk_offsets[chunk + 1];
+    for (uint32_t i = start + threadIdx.x; i < end; i += blockDim.x) {
+        out[patches.indices[i]] = patches.values[i];
+    }
+}
+
+/// Overwrite exception positions in `out` for a range of chunks.
+/// All threads in the block cooperate. Caller must issue __syncthreads()
+/// afterward if other threads read from `out`.
+template <typename T>
+__device__ __noinline__ void
+apply_patches_range(uint64_t patches_ptr, T *__restrict out, uint32_t stage_len, uint32_t element_offset) {
+    const auto patches = parse_patches<T>(patches_ptr);
+    const uint32_t first_chunk = element_offset / FL_CHUNK;
+    const uint32_t n_chunks = (stage_len + (element_offset % FL_CHUNK) + FL_CHUNK - 1) / FL_CHUNK;
+    assert(first_chunk + n_chunks <= patches.n_chunks);
+    for (uint32_t c = 0; c < n_chunks; ++c) {
+        T *chunk_base = out + c * FL_CHUNK;
+        uint32_t start = patches.chunk_offsets[first_chunk + c];
+        uint32_t end = patches.chunk_offsets[first_chunk + c + 1];
+        for (uint32_t i = start + threadIdx.x; i < end; i += blockDim.x) {
+            chunk_base[patches.indices[i]] = patches.values[i];
         }
     }
 }
