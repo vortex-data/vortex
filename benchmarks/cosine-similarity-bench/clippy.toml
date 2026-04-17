@@ -1,0 +1,8 @@
+# Standalone benchmark crate: override repo-level clippy.toml so we don't take
+# a dependency on parking_lot just to avoid std::sync::Mutex warnings.
+disallowed-types = []
+disallowed-methods = []
+allow-dbg-in-tests = true
+allow-expect-in-tests = true
+allow-unwrap-in-tests = true
+allow-panic-in-tests = true

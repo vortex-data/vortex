@@ -1,0 +1,41 @@
+[workspace]
+
+[package]
+name = "cosine-similarity-bench"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "End-to-end scan-based cosine similarity benchmark over flat f32 vectors."
+
+[[bin]]
+name = "cosine-similarity-bench"
+path = "src/main.rs"
+
+[[bench]]
+name = "kernel"
+harness = false
+
+[dependencies]
+aligned-vec = "0.6"
+anyhow = "1.0"
+aws-config = { version = "1.5", features = ["behavior-version-latest"] }
+aws-sdk-s3 = "1.60"
+clap = { version = "4.5", features = ["derive"] }
+futures = "0.3"
+rand = "0.8"
+rand_distr = "0.4"
+rayon = "1.10"
+sysinfo = "0.32"
+tokio = { version = "1.40", features = ["full"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+criterion = "0.5"
+tempfile = "3.10"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+debug = "line-tables-only"
