@@ -37,8 +37,9 @@ fn make_dict_fsst_chunks<T: NativePType>(
     unique_values: usize,
     chunk_count: usize,
 ) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     (0..chunk_count)
-        .map(|_| gen_dict_fsst_test_data::<T>(len, unique_values, 20, 30).into_array())
+        .map(|_| gen_dict_fsst_test_data::<T>(len, unique_values, 20, 30, &mut ctx).into_array())
         .collect::<ChunkedArray>()
         .into_array()
 }

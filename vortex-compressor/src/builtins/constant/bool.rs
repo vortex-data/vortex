@@ -5,6 +5,8 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
@@ -37,7 +39,9 @@ impl Scheme for BoolConstantScheme {
         }
 
         let array_len = data.array().len();
-        let stats = data.bool_stats();
+        // TODO(ctx): trait fixes - Scheme::expected_compression_ratio has a fixed signature.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let stats = data.bool_stats(&mut ctx);
 
         // We want to use `Constant` if there are only nulls in the array.
         if stats.value_count() == 0 {

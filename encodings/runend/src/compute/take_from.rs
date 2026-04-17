@@ -25,7 +25,7 @@ impl ExecuteParentKernel<RunEnd> for RunEndTakeFrom {
         array: ArrayView<'_, RunEnd>,
         dict: ArrayView<'_, Dict>,
         child_idx: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         if child_idx != 0 {
             return Ok(None);
@@ -44,6 +44,7 @@ impl ExecuteParentKernel<RunEnd> for RunEndTakeFrom {
                 dict.values().take(array.values().clone())?,
                 array.offset(),
                 array.len(),
+                ctx,
             )
         };
         //
@@ -108,6 +109,7 @@ mod tests {
                 codes.values().clone(),
                 2, // offset
                 3, // len
+                &mut ctx,
             )
         };
 
@@ -132,6 +134,7 @@ mod tests {
                 codes.values().clone(),
                 3, // offset at exact run boundary
                 4, // len
+                &mut ctx,
             )
         };
 
@@ -156,6 +159,7 @@ mod tests {
                 codes.values().slice(1..3)?,
                 4, // offset
                 1, // len
+                &mut ctx,
             )
         };
 

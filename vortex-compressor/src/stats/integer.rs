@@ -7,8 +7,7 @@ use std::hash::Hash;
 
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
-use vortex_array::LEGACY_SESSION;
-use vortex_array::VortexSessionExecute;
+use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::IntegerPType;
@@ -257,9 +256,10 @@ impl IntegerStats {
     fn generate_opts_fallible(
         input: &PrimitiveArray,
         opts: GenerateStatsOptions,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
         match_each_integer_ptype!(input.ptype(), |T| {
-            typed_int_stats::<T>(input, opts.count_distinct_values)
+            typed_int_stats::<T>(input, opts.count_distinct_values, ctx)
         })
     }
 
@@ -276,13 +276,17 @@ impl IntegerStats {
 
 impl IntegerStats {
     /// Generates stats with default options.
-    pub fn generate(input: &PrimitiveArray) -> Self {
-        Self::generate_opts(input, GenerateStatsOptions::default())
+    pub fn generate(input: &PrimitiveArray, ctx: &mut ExecutionCtx) -> Self {
+        Self::generate_opts(input, GenerateStatsOptions::default(), ctx)
     }
 
     /// Generates stats with provided options.
-    pub fn generate_opts(input: &PrimitiveArray, opts: GenerateStatsOptions) -> Self {
-        Self::generate_opts_fallible(input, opts)
+    pub fn generate_opts(
+        input: &PrimitiveArray,
+        opts: GenerateStatsOptions,
+        ctx: &mut ExecutionCtx,
+    ) -> Self {
+        Self::generate_opts_fallible(input, opts, ctx)
             .vortex_expect("IntegerStats::generate_opts should not fail")
     }
 
@@ -311,6 +315,7 @@ impl IntegerStats {
 fn typed_int_stats<T>(
     array: &PrimitiveArray,
     count_distinct_values: bool,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<IntegerStats>
 where
     T: IntegerPType + PrimInt + for<'a> TryFrom<&'a Scalar, Error = VortexError>,
@@ -332,8 +337,7 @@ where
         });
     }
 
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    if array.all_invalid(&mut ctx)? {
+    if array.all_invalid(ctx)? {
         return Ok(IntegerStats {
             null_count: u32::try_from(array.len())?,
             value_count: 0,
@@ -352,10 +356,10 @@ where
         });
     }
 
-    let validity = array.as_ref().validity()?.to_mask(
-        array.as_ref().len(),
-        &mut LEGACY_SESSION.create_execution_ctx(),
-    )?;
+    let validity = array
+        .as_ref()
+        .validity()?
+        .to_mask(array.as_ref().len(), ctx)?;
     let null_count = validity.false_count();
     let value_count = validity.true_count();
 
@@ -437,12 +441,12 @@ where
     let array_ref = array.as_ref();
     let min = array_ref
         .statistics()
-        .compute_as::<T>(Stat::Min, &mut ctx)
+        .compute_as::<T>(Stat::Min, ctx)
         .vortex_expect("min should be computed");
 
     let max = array_ref
         .statistics()
-        .compute_as::<T>(Stat::Max, &mut ctx)
+        .compute_as::<T>(Stat::Max, ctx)
         .vortex_expect("max should be computed");
 
     let distinct = count_distinct_values.then(|| {
@@ -557,6 +561,8 @@ fn inner_loop_naive<T: IntegerPType>(
 mod tests {
     use std::iter;
 
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
@@ -569,46 +575,51 @@ mod tests {
 
     #[test]
     fn test_naive_count_distinct_values() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = PrimitiveArray::new(buffer![217u8, 0], Validity::NonNullable);
-        let stats = typed_int_stats::<u8>(&array, true)?;
+        let stats = typed_int_stats::<u8>(&array, true, &mut ctx)?;
         assert_eq!(stats.distinct_count().unwrap(), 2);
         Ok(())
     }
 
     #[test]
     fn test_naive_count_distinct_values_nullable() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = PrimitiveArray::new(
             buffer![217u8, 0],
             Validity::from(BitBuffer::from(vec![true, false])),
         );
-        let stats = typed_int_stats::<u8>(&array, true)?;
+        let stats = typed_int_stats::<u8>(&array, true, &mut ctx)?;
         assert_eq!(stats.distinct_count().unwrap(), 1);
         Ok(())
     }
 
     #[test]
     fn test_count_distinct_values() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = PrimitiveArray::new((0..128u8).collect::<Buffer<u8>>(), Validity::NonNullable);
-        let stats = typed_int_stats::<u8>(&array, true)?;
+        let stats = typed_int_stats::<u8>(&array, true, &mut ctx)?;
         assert_eq!(stats.distinct_count().unwrap(), 128);
         Ok(())
     }
 
     #[test]
     fn test_count_distinct_values_nullable() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = PrimitiveArray::new(
             (0..128u8).collect::<Buffer<u8>>(),
             Validity::from(BitBuffer::from_iter(
                 iter::repeat_n(vec![true, false], 64).flatten(),
             )),
         );
-        let stats = typed_int_stats::<u8>(&array, true)?;
+        let stats = typed_int_stats::<u8>(&array, true, &mut ctx)?;
         assert_eq!(stats.distinct_count().unwrap(), 64);
         Ok(())
     }
 
     #[test]
     fn test_integer_stats_leading_nulls() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let ints = PrimitiveArray::new(buffer![0, 1, 2], Validity::from_iter([false, true, true]));
 
         let stats = IntegerStats::generate_opts(
@@ -616,6 +627,7 @@ mod tests {
             crate::stats::GenerateStatsOptions {
                 count_distinct_values: true,
             },
+            &mut ctx,
         );
 
         assert_eq!(stats.value_count, 2);

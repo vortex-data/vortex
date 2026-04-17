@@ -148,13 +148,15 @@ mod tests {
     }
 
     fn make_data_chunked() -> (ChunkedArray, Vec<Option<Vec<u8>>>) {
+        let mut ctx = SESSION.create_execution_ctx();
         #[expect(clippy::type_complexity)]
         let (arr_vec, data_vec): (Vec<ArrayRef>, Vec<Vec<Option<Vec<u8>>>>) = (0..10)
             .map(|_| {
                 let (array, data) = make_data();
                 let compressor = fsst_train_compressor(&array);
                 (
-                    fsst_compress(&array, array.len(), array.dtype(), &compressor).into_array(),
+                    fsst_compress(&array, array.len(), array.dtype(), &compressor, &mut ctx)
+                        .into_array(),
                     data,
                 )
             })
@@ -207,14 +209,16 @@ mod tests {
             [Some(b"long enough too".to_vec().into_boxed_slice())],
             dtype,
         );
+        let mut ctx = SESSION.create_execution_ctx();
         let fsst_array = fsst_compress(
             &varbin,
             varbin.len(),
             varbin.dtype(),
             &fsst_train_compressor(&varbin),
+            &mut ctx,
         )
         .into_array();
-        fsst_array.append_to_builder(&mut builder, &mut SESSION.create_execution_ctx())?;
+        fsst_array.append_to_builder(&mut builder, &mut ctx)?;
 
         let _result = builder.finish_into_varbinview();
         Ok(())

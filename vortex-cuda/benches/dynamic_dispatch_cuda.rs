@@ -274,9 +274,11 @@ fn bench_runend(c: &mut Criterion) {
         let ends: Vec<u32> = (1..=num_runs).map(|i| (i * run_len) as u32).collect();
         let values: Vec<u32> = (0..num_runs).map(|i| (i * 7 + 42) as u32).collect();
 
+        let mut ctx =
+            CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
         let ends_arr = PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array();
         let values_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-        let re = RunEnd::new(ends_arr, values_arr);
+        let re = RunEnd::new(ends_arr, values_arr, &mut ctx);
         let array = re.into_array();
 
         group.bench_with_input(

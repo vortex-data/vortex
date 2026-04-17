@@ -4,6 +4,8 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ScalarFnArray;
@@ -80,6 +82,8 @@ impl ArrayParentReduceRule<RunEnd> for RunEndScalarFnRule {
             ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children, values_len)?
                 .into_array();
 
+        // TODO(ctx): trait fixes - ArrayParentReduceRule::reduce_parent has a fixed signature.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         Ok(Some(
             unsafe {
                 RunEnd::new_unchecked(
@@ -87,6 +91,7 @@ impl ArrayParentReduceRule<RunEnd> for RunEndScalarFnRule {
                     new_values,
                     run_end.offset(),
                     run_end.len(),
+                    &mut ctx,
                 )
             }
             .into_array(),

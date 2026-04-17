@@ -6,6 +6,8 @@
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
@@ -137,7 +139,9 @@ impl Scheme for FoRScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        let stats = data.integer_stats();
+        // TODO(ctx): trait fixes - Scheme::expected_compression_ratio has a fixed signature.
+        let mut local_ctx = LEGACY_SESSION.create_execution_ctx();
+        let stats = data.integer_stats(&mut local_ctx);
 
         // Only apply when the min is not already zero.
         if stats.erased().min_is_zero() {
@@ -276,7 +280,9 @@ impl Scheme for ZigZagScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        let stats = data.integer_stats();
+        // TODO(ctx): trait fixes - Scheme::expected_compression_ratio has a fixed signature.
+        let mut local_ctx = LEGACY_SESSION.create_execution_ctx();
+        let stats = data.integer_stats(&mut local_ctx);
 
         // ZigZag is only useful when there are negative values.
         if !stats.erased().min_is_negative() {
@@ -321,7 +327,9 @@ impl Scheme for BitPackingScheme {
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> CompressionEstimate {
-        let stats = data.integer_stats();
+        // TODO(ctx): trait fixes - Scheme::expected_compression_ratio has a fixed signature.
+        let mut local_ctx = LEGACY_SESSION.create_execution_ctx();
+        let stats = data.integer_stats(&mut local_ctx);
 
         // BitPacking only works for non-negative values.
         if stats.erased().min_is_negative() {
@@ -456,7 +464,9 @@ impl Scheme for SparseScheme {
         _ctx: CompressorContext,
     ) -> CompressionEstimate {
         let len = data.array_len() as f64;
-        let stats = data.integer_stats();
+        // TODO(ctx): trait fixes - Scheme::expected_compression_ratio has a fixed signature.
+        let mut local_ctx = LEGACY_SESSION.create_execution_ctx();
+        let stats = data.integer_stats(&mut local_ctx);
         let value_count = stats.value_count();
 
         // All-null arrays should be compressed as constant instead anyways.
@@ -502,7 +512,7 @@ impl Scheme for SparseScheme {
     ) -> VortexResult<ArrayRef> {
         let len = data.array_len();
         // TODO(connor): Fight the borrow checker (needs interior mutability)!
-        let stats = data.integer_stats().clone();
+        let stats = data.integer_stats(&mut compressor.execution_ctx()).clone();
         let array = data.array();
 
         let (most_frequent_value, most_frequent_count) = stats
@@ -633,7 +643,13 @@ impl Scheme for RunEndScheme {
         _ctx: CompressorContext,
     ) -> CompressionEstimate {
         // If the run length is below the threshold, drop it.
-        if data.integer_stats().average_run_length() < RUN_END_THRESHOLD {
+        // TODO(ctx): trait fixes - Scheme::expected_compression_ratio has a fixed signature.
+        let mut local_ctx = LEGACY_SESSION.create_execution_ctx();
+        if data
+            .integer_stats(&mut local_ctx)
+            .average_run_length()
+            < RUN_END_THRESHOLD
+        {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
@@ -660,8 +676,14 @@ impl Scheme for RunEndScheme {
 
         // SAFETY: compression doesn't affect invariants.
         Ok(unsafe {
-            RunEnd::new_unchecked(compressed_ends, compressed_values, 0, data.array_len())
-                .into_array()
+            RunEnd::new_unchecked(
+                compressed_ends,
+                compressed_values,
+                0,
+                data.array_len(),
+                &mut compressor.execution_ctx(),
+            )
+            .into_array()
         })
     }
 }
@@ -706,7 +728,9 @@ impl Scheme for SequenceScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        let stats = data.integer_stats();
+        // TODO(ctx): trait fixes - Scheme::expected_compression_ratio has a fixed signature.
+        let mut local_ctx = LEGACY_SESSION.create_execution_ctx();
+        let stats = data.integer_stats(&mut local_ctx);
 
         // `SequenceArray` does not support nulls.
         if stats.null_count() > 0 {
@@ -750,7 +774,7 @@ impl Scheme for SequenceScheme {
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let stats = data.integer_stats();
+        let stats = data.integer_stats(&mut compressor.execution_ctx());
 
         if stats.null_count() > 0 {
             vortex_bail!("sequence encoding does not support nulls");
@@ -919,7 +943,9 @@ impl Scheme for IntRLEScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        if data.integer_stats().average_run_length() < RUN_LENGTH_THRESHOLD {
+        // TODO(ctx): trait fixes - Scheme::expected_compression_ratio has a fixed signature.
+        let mut local_ctx = LEGACY_SESSION.create_execution_ctx();
+        if data.integer_stats(&mut local_ctx).average_run_length() < RUN_LENGTH_THRESHOLD {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 

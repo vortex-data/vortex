@@ -31,7 +31,8 @@ pub(crate) fn build_fsst_array() -> ArrayRef {
     let compressor = fsst_train_compressor(&input_array);
     let len = input_array.len();
     let dtype = input_array.dtype().clone();
-    fsst_compress(input_array, len, &dtype, &compressor).into_array()
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    fsst_compress(input_array, len, &dtype, &compressor, &mut ctx).into_array()
 }
 
 #[test]

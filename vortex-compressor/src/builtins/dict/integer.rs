@@ -10,6 +10,8 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
@@ -60,7 +62,9 @@ impl Scheme for IntDictScheme {
         _ctx: CompressorContext,
     ) -> CompressionEstimate {
         let bit_width = data.array_as_primitive().ptype().bit_width();
-        let stats = data.integer_stats();
+        // TODO(ctx): trait fixes - Scheme::expected_compression_ratio has a fixed signature.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let stats = data.integer_stats(&mut ctx);
 
         if stats.value_count() == 0 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
@@ -105,7 +109,7 @@ impl Scheme for IntDictScheme {
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
         // TODO(connor): Fight the borrow checker (needs interior mutability)!
-        let stats = data.integer_stats().clone();
+        let stats = data.integer_stats(&mut compressor.execution_ctx()).clone();
         let dict = dictionary_encode(data.array_as_primitive(), &stats)?;
 
         // Values = child 0.
@@ -275,6 +279,7 @@ mod tests {
             crate::stats::GenerateStatsOptions {
                 count_distinct_values: true,
             },
+            &mut ctx,
         );
         let dict_array = dictionary_encode(array.as_view(), &stats)?;
         assert_eq!(dict_array.values().len(), 2);

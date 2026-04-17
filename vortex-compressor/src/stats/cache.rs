@@ -138,7 +138,7 @@ impl ArrayAndStats {
     }
 
     /// Returns bool stats, generating them lazily on first access.
-    pub fn bool_stats(&mut self) -> &BoolStats {
+    pub fn bool_stats(&mut self, ctx: &mut ExecutionCtx) -> &BoolStats {
         let array = self.array.clone();
 
         self.cache.get_or_insert_with::<BoolStats>(|| {
@@ -146,14 +146,14 @@ impl ArrayAndStats {
                 .as_opt::<Bool>()
                 .vortex_expect("the array is guaranteed to already be canonical by construction")
                 .into_owned();
-            BoolStats::generate(&bool_array).vortex_expect("BoolStats shouldn't fail")
+            BoolStats::generate(&bool_array, ctx).vortex_expect("BoolStats shouldn't fail")
         })
     }
 
     // TODO(connor): These should all have interior mutability instead!!!
 
     /// Returns integer stats, generating them lazily on first access.
-    pub fn integer_stats(&mut self) -> &IntegerStats {
+    pub fn integer_stats(&mut self, ctx: &mut ExecutionCtx) -> &IntegerStats {
         let array = self.array.clone();
         let opts = self.opts;
 
@@ -162,7 +162,7 @@ impl ArrayAndStats {
                 .as_opt::<Primitive>()
                 .vortex_expect("the array is guaranteed to already be canonical by construction")
                 .into_owned();
-            IntegerStats::generate_opts(&primitive, opts)
+            IntegerStats::generate_opts(&primitive, opts, ctx)
         })
     }
 

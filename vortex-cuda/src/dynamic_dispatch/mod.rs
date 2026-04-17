@@ -821,11 +821,11 @@ mod tests {
             expected.push(values[run]);
         }
 
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let ends_arr = PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array();
         let values_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-        let re = RunEnd::new(ends_arr, values_arr);
+        let re = RunEnd::new(ends_arr, values_arr, &mut cuda_ctx);
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let plan = dispatch_plan(&re.into_array(), &cuda_ctx)?;
 
         let actual =
@@ -944,12 +944,12 @@ mod tests {
             expected.push(values[run] + reference);
         }
 
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let ends_arr = PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array();
         let values_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-        let re = RunEnd::new(ends_arr, values_arr);
+        let re = RunEnd::new(ends_arr, values_arr, &mut cuda_ctx);
         let for_arr = FoR::try_new(re.into_array(), Scalar::from(reference))?;
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let plan = dispatch_plan(&for_arr.into_array(), &cuda_ctx)?;
 
         let actual =
@@ -1111,9 +1111,10 @@ mod tests {
         let values: Vec<u32> = vec![10, 20, 30];
         let len = 3000;
 
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let ends_arr = PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array();
         let values_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-        let re = RunEnd::new(ends_arr, values_arr);
+        let re = RunEnd::new(ends_arr, values_arr, &mut cuda_ctx);
         let array = re.into_array();
 
         // Ends (u64) are wider than values (u32), so the kernel would truncate
@@ -1125,7 +1126,6 @@ mod tests {
         );
 
         // Execute through the non-fused dispatch path.
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let canonical = try_gpu_dispatch(&array, &mut cuda_ctx).await?;
         let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
 
@@ -1677,9 +1677,10 @@ mod tests {
         let values: Vec<u16> = vec![100, 200, 300, 400];
         let len = 2000;
 
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let ends_arr = PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array();
         let values_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-        let re = RunEnd::new(ends_arr, values_arr);
+        let re = RunEnd::new(ends_arr, values_arr, &mut cuda_ctx);
         let array = re.into_array();
 
         // Ends (u32) are wider than values (u16), so the kernel would truncate
@@ -1690,7 +1691,6 @@ mod tests {
             "expected Unfused for RunEnd with wider ends"
         );
 
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let canonical = try_gpu_dispatch(&array, &mut cuda_ctx).await?;
         let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
 

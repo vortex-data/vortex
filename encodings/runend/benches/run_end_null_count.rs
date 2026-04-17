@@ -72,5 +72,5 @@ fn fixture(n: usize, run_step: usize, valid_density: f64) -> RunEndArray {
     )
     .into_array();
 
-    RunEnd::new(ends, values)
+    RunEnd::new(ends, values, &mut LEGACY_SESSION.create_execution_ctx())
 }

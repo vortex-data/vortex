@@ -5,6 +5,8 @@ use arrow_array::RunArray;
 use arrow_array::types::RunEndIndexType;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrow::FromArrowArray;
@@ -53,7 +55,9 @@ where
         };
 
         // SAFETY: arrow-rs enforces the RunEndArray invariants, we inherit their guarantees.
-        RunEndData::validate_parts(&ends_slice, &values_slice, offset, len)?;
+        // TODO(ctx): trait fixes - FromArrowArray::from_arrow has a fixed signature.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        RunEndData::validate_parts(&ends_slice, &values_slice, offset, len, &mut ctx)?;
         Ok(unsafe { RunEndData::new_unchecked(offset) })
     }
 }

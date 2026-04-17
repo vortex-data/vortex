@@ -65,6 +65,7 @@ impl FilterKernel for RunEnd {
                         values,
                         0,
                         mask_values.true_count(),
+                        ctx,
                     )
                     .into_array(),
                 ))
@@ -139,11 +140,13 @@ mod tests {
         let arr = ree_array().slice(2..7).unwrap();
         let filtered = arr.filter(Mask::from_iter([true, false, false, true, true]))?;
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert_arrays_eq!(
             filtered,
             RunEnd::new(
                 PrimitiveArray::from_iter([1u8, 2, 3]).into_array(),
-                PrimitiveArray::from_iter([1i32, 4, 2]).into_array()
+                PrimitiveArray::from_iter([1i32, 4, 2]).into_array(),
+                &mut ctx,
             )
         );
         Ok(())

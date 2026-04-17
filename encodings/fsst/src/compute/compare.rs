@@ -155,7 +155,7 @@ mod tests {
         let compressor = fsst_train_compressor(&lhs);
         let len = lhs.len();
         let dtype = lhs.dtype().clone();
-        let lhs = fsst_compress(lhs, len, &dtype, &compressor);
+        let lhs = fsst_compress(lhs, len, &dtype, &compressor, &mut ctx);
 
         let rhs = ConstantArray::new("world", lhs.len());
 
