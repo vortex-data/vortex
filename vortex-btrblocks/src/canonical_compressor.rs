@@ -38,6 +38,10 @@ pub struct BtrBlocksCompressor(
 
 impl BtrBlocksCompressor {
     /// Compresses an array using BtrBlocks-inspired compression.
+    ///
+    /// This is a thin delegate to [`CascadingCompressor::compress`], which owns the tracing
+    /// instrumentation. See the `Observability` section of the [`vortex_compressor`] crate
+    /// docs for the full tracing reference.
     pub fn compress(&self, array: &ArrayRef) -> VortexResult<ArrayRef> {
         self.0.compress(array)
     }

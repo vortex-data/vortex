@@ -52,6 +52,19 @@
 //!     .build();
 //! ```
 //!
+//! # Observability
+//!
+//! [`BtrBlocksCompressor`] is a thin delegate to [`CascadingCompressor`], which owns all
+//! tracing instrumentation. See the
+//! [`vortex_compressor` crate docs](vortex_compressor#observability) for the full reference
+//! on targets, spans, and events.
+//!
+//! Quick start: one line per leaf with scheme, estimated ratio, actual ratio, accepted?:
+//!
+//! ```text
+//! RUST_LOG=vortex_compressor::encode=debug cargo test -p vortex-btrblocks
+//! ```
+//!
 //! [BtrBlocks]: https://www.cs.cit.tum.de/fileadmin/w00cfj/dis/papers/btrblocks.pdf
 
 mod builder;

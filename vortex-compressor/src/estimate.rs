@@ -16,7 +16,12 @@ use crate::sample::SAMPLE_SIZE;
 use crate::sample::sample;
 use crate::sample::sample_count_approx_one_percent;
 use crate::scheme::Scheme;
+use crate::scheme::SchemeExt;
 use crate::stats::ArrayAndStats;
+
+/// Tracing target for sampling-based ratio estimation. Emits `sample.result` on success and
+/// `sample.compress_failed` on error.
+const TARGET_ESTIMATE: &str = "vortex_compressor::estimate";
 
 /// Closure type for [`DeferredEstimate::Callback`].
 ///
@@ -107,15 +112,7 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     let sample_array = if ctx.is_sample() {
         array.clone()
     } else {
-        let source_len = array.len();
-        let sample_count = sample_count_approx_one_percent(source_len);
-
-        tracing::trace!(
-            "Sampling {} values out of {}",
-            SAMPLE_SIZE as u64 * sample_count as u64,
-            source_len
-        );
-
+        let sample_count = sample_count_approx_one_percent(array.len());
         // `ArrayAndStats` expects a canonical array (so that it can easily compute lazy stats).
         let canonical: Canonical =
             sample(array, SAMPLE_SIZE, sample_count).execute(&mut compressor.execution_ctx())?;
@@ -125,22 +122,39 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     let mut sample_data = ArrayAndStats::new(sample_array, scheme.stats_options());
     let sample_ctx = ctx.with_sampling();
 
-    let after = scheme
-        .compress(compressor, &mut sample_data, sample_ctx)?
-        .nbytes();
+    let compressed = match scheme.compress(compressor, &mut sample_data, sample_ctx) {
+        Ok(compressed) => compressed,
+        Err(err) => {
+            tracing::error!(
+                target: TARGET_ESTIMATE,
+                scheme = %scheme.id(),
+                error = %err,
+                "sample.compress_failed",
+            );
+            return Err(err);
+        }
+    };
+
+    let after = compressed.nbytes();
     let before = sample_data.array().nbytes();
 
-    // TODO(connor): Issue https://github.com/vortex-data/vortex/issues/7268.
-    // if after == 0 {
-    //     tracing::warn!(
-    //         scheme = %scheme.id(),
-    //         "sample compressed to 0 bytes, which should only happen for constant arrays",
-    //     );
-    // }
+    // TODO(connor): Issue https://github.com/vortex-data/vortex/issues/7268. Sample compressing
+    // to 0 bytes should only happen for constant arrays; anything else is a scheme bug.
 
-    let ratio = before as f64 / after as f64;
+    // Guard against division by zero: zero-byte samples are legal (constant arrays). Clamp
+    // to 1 so the ratio remains finite rather than emitting `inf`/`nan`.
+    let ratio = before as f64 / after.max(1) as f64;
 
-    tracing::debug!("estimate_compression_ratio_with_sampling(compressor={scheme:#?}) = {ratio}",);
+    // Single DEBUG event per sampled scheme. Downstream tooling can join this with the eventual
+    // `scheme.compress_result` on the same scheme to compute sample-vs-full divergence.
+    tracing::debug!(
+        target: TARGET_ESTIMATE,
+        scheme = %scheme.id(),
+        sampled_before = before,
+        sampled_after = after,
+        sampled_ratio = ratio,
+        "sample.result",
+    );
 
     Ok(ratio)
 }
