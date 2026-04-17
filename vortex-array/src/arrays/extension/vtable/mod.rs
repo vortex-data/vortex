@@ -1,9 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-mod canonical;
-mod kernel;
-mod operations;
-mod validity;
 
 use std::hash::Hasher;
 
@@ -35,6 +31,10 @@ use crate::arrays::extension::compute::rules::RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
+
+mod kernel;
+mod operations;
+mod validity;
 
 #[derive(Clone, Debug)]
 pub struct Extension;
