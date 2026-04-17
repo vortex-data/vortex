@@ -78,6 +78,8 @@ impl Dataset for TPCHLCommentChunked {
             let file_chunks: Vec<_> = file
                 .scan()?
                 .with_projection(pack(vec![("l_comment", col("l_comment"))], NonNullable))
+                // TODO(threading): ScanBuilder::map requires `Fn + Send + Sync + 'static`, so we
+                // cannot capture a caller's `&mut ExecutionCtx` here and must create one per chunk.
                 .map(|a| {
                     let mut ctx = SESSION.create_execution_ctx();
                     let canonical = a.clone().execute::<Canonical>(&mut ctx)?;

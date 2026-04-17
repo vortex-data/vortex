@@ -17,7 +17,6 @@ use tokio::io::AsyncWriteExt;
 use tracing::Instrument;
 use tracing::info;
 use tracing::trace;
-use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
@@ -31,7 +30,6 @@ use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
-use vortex::session::VortexSession;
 
 use crate::CompactionStrategy;
 use crate::Format;
@@ -95,10 +93,10 @@ pub fn parquet_to_vortex_stream(
             let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
 
             // Canonicalize the chunk.
-            chunk.append_to_builder(
-                builder.as_mut(),
-                &mut VortexSession::default().create_execution_ctx(),
-            )?;
+            // TODO(threading): the stream `.map` closure is `FnMut` but the returned stream
+            // is later `.boxed()` with a `'static` bound, so we cannot borrow a caller's
+            // `ExecutionCtx` here without leaking the lifetime into the stream type.
+            chunk.append_to_builder(builder.as_mut(), &mut SESSION.create_execution_ctx())?;
 
             Ok(builder.finish())
         })

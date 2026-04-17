@@ -12,7 +12,6 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
-use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrays::ListArray;
@@ -25,6 +24,7 @@ use vortex::array::validity::Validity;
 use vortex::dtype::FieldNames;
 
 use crate::IdempotentPath;
+use crate::SESSION;
 use crate::datasets::Dataset;
 use crate::idempotent_async;
 
@@ -123,11 +123,11 @@ impl Dataset for StructListOfInts {
             let file = File::create(&temp_path)?;
             let mut writer: Option<ArrowWriter<File>> = None;
 
+            let mut ctx = SESSION.create_execution_ctx();
             for chunk in chunked.iter_chunks() {
                 let converted = recursive_list_from_list_view(chunk.clone())?;
                 let schema = converted.dtype().to_arrow_schema()?;
-                let batch = converted
-                    .execute_record_batch(&schema, &mut LEGACY_SESSION.create_execution_ctx())?;
+                let batch = converted.execute_record_batch(&schema, &mut ctx)?;
 
                 if writer.is_none() {
                     writer = Some(ArrowWriter::try_new(
