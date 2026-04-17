@@ -9,6 +9,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::Primitive;
@@ -58,9 +59,10 @@ impl Scheme for IntDictScheme {
         &self,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         let bit_width = data.array_as_primitive().ptype().bit_width();
-        let stats = data.integer_stats();
+        let stats = data.integer_stats(exec_ctx);
 
         if stats.value_count() == 0 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
@@ -105,7 +107,7 @@ impl Scheme for IntDictScheme {
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
         // TODO(connor): Fight the borrow checker (needs interior mutability)!
-        let stats = data.integer_stats().clone();
+        let stats = data.integer_stats(&mut compressor.execution_ctx()).clone();
         let dict = dictionary_encode(data.array_as_primitive(), &stats)?;
 
         // Values = child 0.

@@ -5,6 +5,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
 
 use super::is_integer_primitive;
@@ -30,6 +31,7 @@ impl Scheme for IntConstantScheme {
         &self,
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         // Constant detection on a sample is a false positive, since the sample being constant does
         // not mean the full array is constant.
@@ -38,7 +40,7 @@ impl Scheme for IntConstantScheme {
         }
 
         let array_len = data.array().len();
-        let stats = data.integer_stats();
+        let stats = data.integer_stats(exec_ctx);
 
         // Note that we only compute distinct counts if other schemes have requested it.
         if let Some(distinct_count) = stats.distinct_count() {

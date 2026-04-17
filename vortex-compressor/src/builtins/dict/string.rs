@@ -8,6 +8,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -69,8 +70,9 @@ impl Scheme for StringDictScheme {
         &self,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        let stats = data.string_stats();
+        let stats = data.string_stats(exec_ctx);
 
         if stats.value_count() == 0 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);

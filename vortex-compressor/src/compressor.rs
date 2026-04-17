@@ -358,7 +358,8 @@ impl CascadingCompressor {
         // TODO(connor): Might want to use an `im` data structure inside of `ctx` if the clones here
         // are expensive.
         for &scheme in schemes {
-            let estimate = scheme.expected_compression_ratio(data, ctx.clone());
+            let estimate =
+                scheme.expected_compression_ratio(data, ctx.clone(), &mut self.execution_ctx());
 
             // TODO(connor): Rather than computing the deferred estimates eagerly, it would be
             // better to look at all quick estimates and see if it makes sense to sample at all.
@@ -580,6 +581,7 @@ mod tests {
             &self,
             _data: &mut ArrayAndStats,
             _ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
             CompressionEstimate::Verdict(EstimateVerdict::Ratio(2.0))
         }
@@ -610,6 +612,7 @@ mod tests {
             &self,
             _data: &mut ArrayAndStats,
             _ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
             CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
         }
@@ -640,6 +643,7 @@ mod tests {
             &self,
             _data: &mut ArrayAndStats,
             _ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
             CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
                 |_compressor, _data, _ctx| Ok(EstimateVerdict::AlwaysUse),
@@ -672,6 +676,7 @@ mod tests {
             &self,
             _data: &mut ArrayAndStats,
             _ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
             CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
                 |_compressor, _data, _ctx| Ok(EstimateVerdict::Skip),
@@ -704,6 +709,7 @@ mod tests {
             &self,
             _data: &mut ArrayAndStats,
             _ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
             CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
                 |_compressor, _data, _ctx| Ok(EstimateVerdict::Ratio(3.0)),

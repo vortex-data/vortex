@@ -5,6 +5,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::aggregate_fn::fns::is_constant::is_constant;
 use vortex_error::VortexResult;
 
@@ -32,6 +33,7 @@ impl Scheme for FloatConstantScheme {
         &self,
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         // Constant detection on a sample is a false positive, since the sample being constant does
         // not mean the full array is constant.
@@ -40,7 +42,7 @@ impl Scheme for FloatConstantScheme {
         }
 
         let array_len = data.array().len();
-        let stats = data.float_stats();
+        let stats = data.float_stats(exec_ctx);
 
         // Note that we only compute distinct counts if other schemes have requested it.
         if let Some(distinct_count) = stats.distinct_count() {

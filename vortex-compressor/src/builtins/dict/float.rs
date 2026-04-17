@@ -9,6 +9,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::Primitive;
@@ -84,8 +85,9 @@ impl Scheme for FloatDictScheme {
         &self,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        let stats = data.float_stats();
+        let stats = data.float_stats(exec_ctx);
 
         if stats.value_count() == 0 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
@@ -111,7 +113,7 @@ impl Scheme for FloatDictScheme {
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
         // TODO(connor): Fight the borrow checker (needs interior mutability)!
-        let stats = data.float_stats().clone();
+        let stats = data.float_stats(&mut compressor.execution_ctx()).clone();
         let dict = dictionary_encode(data.array_as_primitive(), &stats)?;
 
         let has_all_values_referenced = dict.has_all_values_referenced();

@@ -5,6 +5,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
@@ -74,6 +75,7 @@ impl Scheme for FSSTScheme {
         &self,
         _data: &mut ArrayAndStats,
         _ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
@@ -159,9 +161,10 @@ impl Scheme for NullDominatedSparseScheme {
         &self,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         let len = data.array_len() as f64;
-        let stats = data.string_stats();
+        let stats = data.string_stats(exec_ctx);
         let value_count = stats.value_count();
 
         // All-null arrays should be compressed as constant instead anyways.
@@ -225,6 +228,7 @@ impl Scheme for ZstdScheme {
         &self,
         _data: &mut ArrayAndStats,
         _ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
@@ -254,6 +258,7 @@ impl Scheme for ZstdBuffersScheme {
         &self,
         _data: &mut ArrayAndStats,
         _ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }

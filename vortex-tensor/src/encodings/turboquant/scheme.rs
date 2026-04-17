@@ -23,6 +23,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Extension;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
@@ -79,6 +80,7 @@ impl Scheme for TurboQuantScheme {
         &self,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         let len = data.array().len();
         let dtype = data.array().dtype();

@@ -5,6 +5,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Patched;
@@ -130,6 +131,7 @@ impl Scheme for FoRScheme {
         &self,
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         // FoR only subtracts the min. Without further compression (e.g. BitPacking), the output is
         // the same size.
@@ -137,7 +139,7 @@ impl Scheme for FoRScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        let stats = data.integer_stats();
+        let stats = data.integer_stats(exec_ctx);
 
         // Only apply when the min is not already zero.
         if stats.erased().min_is_zero() {
@@ -269,6 +271,7 @@ impl Scheme for ZigZagScheme {
         &self,
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         // ZigZag only transforms negative values to positive. Without further compression,
         // the output is the same size.
@@ -276,7 +279,7 @@ impl Scheme for ZigZagScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        let stats = data.integer_stats();
+        let stats = data.integer_stats(exec_ctx);
 
         // ZigZag is only useful when there are negative values.
         if !stats.erased().min_is_negative() {
@@ -320,8 +323,9 @@ impl Scheme for BitPackingScheme {
         &self,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        let stats = data.integer_stats();
+        let stats = data.integer_stats(exec_ctx);
 
         // BitPacking only works for non-negative values.
         if stats.erased().min_is_negative() {
@@ -449,9 +453,10 @@ impl Scheme for SparseScheme {
         &self,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         let len = data.array_len() as f64;
-        let stats = data.integer_stats();
+        let stats = data.integer_stats(exec_ctx);
         let value_count = stats.value_count();
 
         // All-null arrays should be compressed as constant instead anyways.
@@ -497,7 +502,7 @@ impl Scheme for SparseScheme {
     ) -> VortexResult<ArrayRef> {
         let len = data.array_len();
         // TODO(connor): Fight the borrow checker (needs interior mutability)!
-        let stats = data.integer_stats().clone();
+        let stats = data.integer_stats(&mut compressor.execution_ctx()).clone();
         let array = data.array();
 
         let (most_frequent_value, most_frequent_count) = stats
@@ -625,9 +630,10 @@ impl Scheme for RunEndScheme {
         &self,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         // If the run length is below the threshold, drop it.
-        if data.integer_stats().average_run_length() < RUN_END_THRESHOLD {
+        if data.integer_stats(exec_ctx).average_run_length() < RUN_END_THRESHOLD {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
@@ -690,6 +696,7 @@ impl Scheme for SequenceScheme {
         &self,
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         // It is pointless checking if a sample is a sequence since it will not correspond to the
         // entire array.
@@ -697,7 +704,7 @@ impl Scheme for SequenceScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        let stats = data.integer_stats();
+        let stats = data.integer_stats(exec_ctx);
 
         // `SequenceArray` does not support nulls.
         if stats.null_count() > 0 {
@@ -733,11 +740,11 @@ impl Scheme for SequenceScheme {
 
     fn compress(
         &self,
-        _compressor: &CascadingCompressor,
+        compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let stats = data.integer_stats();
+        let stats = data.integer_stats(&mut compressor.execution_ctx());
 
         if stats.null_count() > 0 {
             vortex_bail!("sequence encoding does not support nulls");
@@ -761,6 +768,7 @@ impl Scheme for PcoScheme {
         &self,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         use vortex_array::dtype::PType;
 
@@ -899,13 +907,14 @@ impl Scheme for IntRLEScheme {
         &self,
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         // RLE is only useful when we cascade it with another encoding.
         if ctx.finished_cascading() {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        if data.integer_stats().average_run_length() < RUN_LENGTH_THRESHOLD {
+        if data.integer_stats(exec_ctx).average_run_length() < RUN_LENGTH_THRESHOLD {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 

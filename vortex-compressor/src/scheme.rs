@@ -10,6 +10,7 @@ use std::hash::Hasher;
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
@@ -212,6 +213,7 @@ pub trait Scheme: Debug + Send + Sync {
         &self,
         _data: &mut ArrayAndStats,
         _ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate;
 
     /// Compress the array using this scheme.

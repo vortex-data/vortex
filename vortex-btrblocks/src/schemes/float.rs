@@ -12,6 +12,7 @@ use vortex_alp::RDEncoder;
 use vortex_alp::alp_encode;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
@@ -84,6 +85,7 @@ impl Scheme for ALPScheme {
         &self,
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         // ALP encodes floats as integers. Without integer compression afterward, the encoded ints
         // are the same size.
@@ -158,6 +160,7 @@ impl Scheme for ALPRDScheme {
         &self,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         // We don't support ALPRD for f16.
         if data.array_as_primitive().ptype() == PType::F16 {
@@ -228,9 +231,10 @@ impl Scheme for NullDominatedSparseScheme {
         &self,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         let len = data.array_len() as f64;
-        let stats = data.float_stats();
+        let stats = data.float_stats(exec_ctx);
         let value_count = stats.value_count();
 
         // All-null arrays should be compressed as constant instead anyways.
@@ -293,6 +297,7 @@ impl Scheme for PcoScheme {
         &self,
         _data: &mut ArrayAndStats,
         _ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
@@ -338,13 +343,14 @@ impl Scheme for FloatRLEScheme {
         &self,
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         // RLE is only useful when we cascade it with another encoding.
         if ctx.finished_cascading() {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        if data.float_stats().average_run_length() < super::integer::RUN_LENGTH_THRESHOLD {
+        if data.float_stats(exec_ctx).average_run_length() < super::integer::RUN_LENGTH_THRESHOLD {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 

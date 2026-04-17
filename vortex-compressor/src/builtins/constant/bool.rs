@@ -5,6 +5,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
@@ -29,6 +30,7 @@ impl Scheme for BoolConstantScheme {
         &self,
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         // Constant detection on a sample is a false positive, since the sample being constant does
         // not mean the full array is constant.
@@ -37,7 +39,7 @@ impl Scheme for BoolConstantScheme {
         }
 
         let array_len = data.array().len();
-        let stats = data.bool_stats();
+        let stats = data.bool_stats(exec_ctx);
 
         // We want to use `Constant` if there are only nulls in the array.
         if stats.value_count() == 0 {
