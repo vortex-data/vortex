@@ -68,6 +68,13 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns the slots of the array.
     fn slots(&self) -> &[Option<ArrayRef>];
 
+    /// Returns mutable slots of the array.
+    ///
+    /// # Safety: any slot (Some(child)) that replaces an existing slot must have a compatible
+    /// DType and length. Currently compatible means equal, but there is no reason why that must
+    /// be the case.
+    unsafe fn slots_mut(&mut self) -> &mut [Option<ArrayRef>];
+
     /// Returns the encoding ID of the array.
     fn encoding_id(&self) -> ArrayId;
 
@@ -210,6 +217,10 @@ impl<V: VTable> DynArray for ArrayInner<V> {
 
     fn slots(&self) -> &[Option<ArrayRef>] {
         &self.slots
+    }
+
+    unsafe fn slots_mut(&mut self) -> &mut [Option<ArrayRef>] {
+        &mut self.slots
     }
 
     fn encoding_id(&self) -> ArrayId {

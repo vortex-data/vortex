@@ -33,6 +33,7 @@ use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
+use crate::dtype::DType;
 use crate::matcher::Matcher;
 use crate::memory::HostAllocatorRef;
 use crate::memory::MemorySessionExt;
@@ -107,22 +108,21 @@ impl ArrayRef {
     /// maximum (default 128, override with `VORTEX_MAX_ITERATIONS`).
     pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let mut current = self.optimize()?;
-        // Stack frames: (parent, slot_idx, done_predicate_for_slot)
-        let mut stack: Vec<(ArrayRef, usize, DonePredicate)> = Vec::new();
+        let mut stack: Vec<StackFrame> = Vec::new();
 
         for _ in 0..max_iterations() {
             // Step 1: done / canonical — splice back into stacked parent or return.
             let is_done = stack
                 .last()
-                .map_or(M::matches as DonePredicate, |frame| frame.2);
+                .map_or(M::matches as DonePredicate, |frame| frame.done);
             if is_done(&current) || AnyCanonical::matches(&current) {
                 match stack.pop() {
                     None => {
                         ctx.log(format_args!("-> {}", current));
                         return Ok(current);
                     }
-                    Some((parent, slot_idx, _)) => {
-                        current = parent.with_slot(slot_idx, current)?.optimize()?;
+                    Some(frame) => {
+                        current = frame.put_back(current)?.optimize()?;
                         continue;
                     }
                 }
@@ -139,8 +139,8 @@ impl ArrayRef {
                     current, rewritten
                 ));
                 current = rewritten.optimize()?;
-                if let Some((parent, slot_idx, _)) = stack.pop() {
-                    current = parent.with_slot(slot_idx, current)?.optimize()?;
+                if let Some(frame) = stack.pop() {
+                    current = frame.put_back(current)?.optimize()?;
                 }
                 continue;
             }
@@ -150,14 +150,15 @@ impl ArrayRef {
             let (array, step) = result.into_parts();
             match step {
                 ExecutionStep::ExecuteSlot(i, done) => {
-                    let child = array.slots()[i]
-                        .clone()
-                        .vortex_expect("ExecuteSlot index in bounds");
+                    // SAFETY: we record the child's dtype and len, and assert they are preserved
+                    // when the slot is put back via `put_slot_unchecked`.
+                    let (parent, child) = unsafe { array.take_slot_unchecked(i) }?;
                     ctx.log(format_args!(
                         "ExecuteSlot({i}): pushing {}, focusing on {}",
-                        array, child
+                        parent, child
                     ));
-                    stack.push((array, i, done));
+                    let frame = StackFrame::new(parent, i, done, &child);
+                    stack.push(frame);
                     current = child.optimize()?;
                 }
                 ExecutionStep::Done => {
@@ -171,6 +172,49 @@ impl ArrayRef {
             "Exceeded maximum execution iterations ({}) while executing array",
             max_iterations(),
         )
+    }
+}
+
+/// A stack frame for the iterative executor, tracking the parent array whose slot is being
+/// executed and the original child's dtype/len for validation on put-back.
+struct StackFrame {
+    parent: ArrayRef,
+    slot_idx: usize,
+    done: DonePredicate,
+    original_dtype: DType,
+    original_len: usize,
+}
+
+impl StackFrame {
+    fn new(parent: ArrayRef, slot_idx: usize, done: DonePredicate, child: &ArrayRef) -> Self {
+        Self {
+            parent,
+            slot_idx,
+            done,
+            original_dtype: child.dtype().clone(),
+            original_len: child.len(),
+        }
+    }
+
+    fn put_back(self, replacement: ArrayRef) -> VortexResult<ArrayRef> {
+        debug_assert_eq!(
+            replacement.dtype(),
+            &self.original_dtype,
+            "slot {} dtype changed from {} to {} during execution",
+            self.slot_idx,
+            self.original_dtype,
+            replacement.dtype()
+        );
+        debug_assert_eq!(
+            replacement.len(),
+            self.original_len,
+            "slot {} len changed from {} to {} during execution",
+            self.slot_idx,
+            self.original_len,
+            replacement.len()
+        );
+        // SAFETY: we assert above that dtype and len are preserved.
+        unsafe { self.parent.put_slot_unchecked(self.slot_idx, replacement) }
     }
 }
 
