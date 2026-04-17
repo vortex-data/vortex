@@ -6,6 +6,8 @@
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
@@ -168,7 +170,9 @@ impl Scheme for NullDominatedSparseScheme {
         _ctx: CompressorContext,
     ) -> CompressionEstimate {
         let len = data.array_len() as f64;
-        let stats = data.string_stats();
+        // TODO(ctx): trait fixes - Scheme::expected_compression_ratio has a fixed signature.
+        let mut local_ctx = LEGACY_SESSION.create_execution_ctx();
+        let stats = data.string_stats(&mut local_ctx);
         let value_count = stats.value_count();
 
         // All-null arrays should be compressed as constant instead anyways.
@@ -278,7 +282,7 @@ impl Scheme for ZstdBuffersScheme {
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
         Ok(
-            vortex_zstd::ZstdBuffers::compress(data.array(), 3, &vortex_array::LEGACY_SESSION)?
+            vortex_zstd::ZstdBuffers::compress(data.array(), 3, &LEGACY_SESSION)?
                 .into_array(),
         )
     }

@@ -181,7 +181,7 @@ impl ArrayAndStats {
     }
 
     /// Returns string stats, generating them lazily on first access.
-    pub fn string_stats(&mut self) -> &StringStats {
+    pub fn string_stats(&mut self, ctx: &mut ExecutionCtx) -> &StringStats {
         let array = self.array.clone();
         let opts = self.opts;
 
@@ -190,7 +190,7 @@ impl ArrayAndStats {
                 .as_opt::<VarBinView>()
                 .vortex_expect("the array is guaranteed to already be canonical by construction")
                 .into_owned();
-            StringStats::generate_opts(&varbinview, opts)
+            StringStats::generate_opts(&varbinview, opts, ctx)
         })
     }
 
