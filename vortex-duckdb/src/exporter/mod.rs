@@ -41,7 +41,6 @@ use crate::duckdb::VectorRef;
 use crate::duckdb::duckdb_vector_size;
 
 pub struct ArrayExporter {
-    ctx: ExecutionCtx,
     /// Columns DuckDB requested to read from file. If empty, it's a zero-column
     /// projection and should be handled accordingly, see ArrayExporter::export.
     fields: Vec<Box<dyn ColumnExporter>>,
@@ -53,18 +52,17 @@ impl ArrayExporter {
     pub fn try_new(
         array: &StructArray,
         cache: &ConversionCache,
-        mut ctx: ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
-        let validity = array.validity()?.execute_mask(array.len(), &mut ctx)?;
+        let validity = array.validity()?.execute_mask(array.len(), ctx)?;
         assert!(validity.all_true());
 
         let fields = array
             .iter_unmasked_fields()
-            .map(|field| new_array_exporter(field.clone(), cache, &mut ctx))
+            .map(|field| new_array_exporter(field.clone(), cache, ctx))
             .collect::<VortexResult<Vec<_>>>()?;
 
         Ok(Self {
-            ctx,
             fields,
             array_len: array.len(),
             remaining: array.len(),
@@ -74,7 +72,11 @@ impl ArrayExporter {
     /// Export the data into the next chunk.
     ///
     /// Returns `true` if a chunk was exported, `false` if all rows have been exported.
-    pub fn export(&mut self, chunk: &mut DataChunkRef) -> VortexResult<bool> {
+    pub fn export(
+        &mut self,
+        chunk: &mut DataChunkRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
         chunk.reset();
         if self.remaining == 0 {
             return Ok(false);
@@ -100,7 +102,7 @@ impl ArrayExporter {
         }
 
         for (i, field) in self.fields.iter_mut().enumerate() {
-            field.export(position, chunk_len, chunk.get_vector_mut(i), &mut self.ctx)?;
+            field.export(position, chunk_len, chunk.get_vector_mut(i), ctx)?;
         }
 
         Ok(true)

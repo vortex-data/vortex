@@ -20,6 +20,7 @@ use num_traits::AsPrimitive;
 use tracing::debug;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::ExecutionCtx;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ScalarFnVTable;
 use vortex::array::arrays::Struct;
@@ -153,6 +154,9 @@ pub struct DataSourceLocal {
     exporter: Option<ArrayExporter>,
     /// The unique batch id of the last chunk exported via scan().
     batch_id: Option<u64>,
+    /// Execution context reused across scan calls on this thread so we don't
+    /// create a fresh one per chunk.
+    ctx: ExecutionCtx,
 }
 
 /// Returns scan progress as a percentage (0.0–100.0).
@@ -315,6 +319,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
             iterator: global.iterator.clone(),
             exporter: None,
             batch_id: None,
+            ctx: SESSION.create_execution_ctx(),
         })
     }
 
@@ -327,7 +332,6 @@ impl<T: DataSourceTableFunction> TableFunction for T {
     ) -> VortexResult<()> {
         loop {
             if local_state.exporter.is_none() {
-                let mut ctx = SESSION.create_execution_ctx();
                 let Some(result) = local_state.iterator.next() else {
                     return Ok(());
                 };
@@ -347,13 +351,15 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                         pack_options.nullability.into(),
                     )
                 } else {
-                    array_result.execute::<Canonical>(&mut ctx)?.into_struct()
+                    array_result
+                        .execute::<Canonical>(&mut local_state.ctx)?
+                        .into_struct()
                 };
 
                 local_state.exporter = Some(ArrayExporter::try_new(
                     &array_result,
                     &conversion_cache,
-                    ctx,
+                    &mut local_state.ctx,
                 )?);
                 // Relaxed since there is no intra-instruction ordering required.
                 local_state.batch_id = Some(global_state.batch_id.fetch_add(1, Ordering::Relaxed));
@@ -364,7 +370,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                 .as_mut()
                 .vortex_expect("error: exporter missing");
 
-            let has_more_data = exporter.export(chunk)?;
+            let has_more_data = exporter.export(chunk, &mut local_state.ctx)?;
             global_state
                 .bytes_read
                 .fetch_add(chunk.len(), Ordering::Relaxed);
