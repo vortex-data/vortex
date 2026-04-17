@@ -20,10 +20,10 @@ use crate::stats::GenerateStatsOptions;
 
 /// Unique identifier for a compression scheme.
 ///
-/// The only way to obtain a [`SchemeId`] is through [`SchemeExt::id()`], which is
-/// auto-implemented for all [`Scheme`] types. There is no public constructor.
+/// The only way to obtain a [`SchemeId`] is through [`SchemeExt::id()`], which is auto-implemented
+/// for all [`Scheme`] types. There is no public constructor.
 ///
-/// The only exception to this is for `ROOT_SCHEME_ID` in `compressor.rs`.
+/// The only exception to this is for the compressor's synthetic `ROOT_SCHEME_ID`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SchemeId {
     /// Only constructable within `vortex-compressor`.
