@@ -1,0 +1,71 @@
+pub mod vortex_tracing
+
+pub struct vortex_tracing::TracingLayoutReader<R: ?core::marker::Sized>
+
+impl vortex_tracing::TracingLayoutReader<dyn vortex_layout::reader::LayoutReader>
+
+pub fn vortex_tracing::TracingLayoutReader<dyn vortex_layout::reader::LayoutReader>::wrap(inner: alloc::sync::Arc<dyn vortex_layout::reader::LayoutReader>) -> alloc::sync::Arc<dyn vortex_layout::reader::LayoutReader>
+
+impl<R: vortex_layout::reader::LayoutReader + ?core::marker::Sized> vortex_tracing::TracingLayoutReader<R>
+
+pub fn vortex_tracing::TracingLayoutReader<R>::new(inner: alloc::sync::Arc<R>) -> Self
+
+impl<R: vortex_layout::reader::LayoutReader + ?core::marker::Sized> vortex_layout::reader::LayoutReader for vortex_tracing::TracingLayoutReader<R>
+
+pub fn vortex_tracing::TracingLayoutReader<R>::dtype(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_tracing::TracingLayoutReader<R>::filter_evaluation(&self, row_range: &core::ops::range::Range<u64>, expr: &vortex_array::expr::expression::Expression, mask: vortex_array::mask_future::MaskFuture) -> vortex_error::VortexResult<vortex_array::mask_future::MaskFuture>
+
+pub fn vortex_tracing::TracingLayoutReader<R>::name(&self) -> &alloc::sync::Arc<str>
+
+pub fn vortex_tracing::TracingLayoutReader<R>::projection_evaluation(&self, row_range: &core::ops::range::Range<u64>, expr: &vortex_array::expr::expression::Expression, mask: vortex_array::mask_future::MaskFuture) -> vortex_error::VortexResult<vortex_layout::reader::ArrayFuture>
+
+pub fn vortex_tracing::TracingLayoutReader<R>::pruning_evaluation(&self, row_range: &core::ops::range::Range<u64>, expr: &vortex_array::expr::expression::Expression, mask: vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::mask_future::MaskFuture>
+
+pub fn vortex_tracing::TracingLayoutReader<R>::register_splits(&self, field_mask: &[vortex_array::dtype::field_mask::FieldMask], row_range: &core::ops::range::Range<u64>, splits: &mut alloc::collections::btree::set::BTreeSet<u64>) -> vortex_error::VortexResult<()>
+
+pub fn vortex_tracing::TracingLayoutReader<R>::row_count(&self) -> u64
+
+pub struct vortex_tracing::TracingReadAt<R>
+
+impl<R> vortex_tracing::TracingReadAt<R>
+
+pub fn vortex_tracing::TracingReadAt<R>::inner(&self) -> &R
+
+pub fn vortex_tracing::TracingReadAt<R>::into_inner(self) -> R
+
+pub fn vortex_tracing::TracingReadAt<R>::new(inner: R) -> Self
+
+impl<R: vortex_io::read_at::VortexReadAt> vortex_io::read_at::VortexReadAt for vortex_tracing::TracingReadAt<R>
+
+pub fn vortex_tracing::TracingReadAt<R>::coalesce_config(&self) -> core::option::Option<vortex_io::read_at::CoalesceConfig>
+
+pub fn vortex_tracing::TracingReadAt<R>::concurrency(&self) -> usize
+
+pub fn vortex_tracing::TracingReadAt<R>::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+
+pub fn vortex_tracing::TracingReadAt<R>::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+
+pub fn vortex_tracing::TracingReadAt<R>::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
+
+pub struct vortex_tracing::TracingSegmentSource<S>
+
+impl<S> vortex_tracing::TracingSegmentSource<S> where S: vortex_layout::segments::source::SegmentSource
+
+pub fn vortex_tracing::TracingSegmentSource<S>::into_arc(self) -> alloc::sync::Arc<dyn vortex_layout::segments::source::SegmentSource>
+
+impl<S> vortex_tracing::TracingSegmentSource<S>
+
+pub fn vortex_tracing::TracingSegmentSource<S>::inner(&self) -> &S
+
+pub fn vortex_tracing::TracingSegmentSource<S>::new(inner: S) -> Self
+
+impl<S: vortex_layout::segments::source::SegmentSource> vortex_layout::segments::source::SegmentSource for vortex_tracing::TracingSegmentSource<S>
+
+pub fn vortex_tracing::TracingSegmentSource<S>::request(&self, id: vortex_layout::segments::SegmentId) -> vortex_layout::segments::source::SegmentFuture
+
+pub const vortex_tracing::TARGET_IO: &str
+
+pub const vortex_tracing::TARGET_LAYOUT: &str
+
+pub const vortex_tracing::TARGET_SEGMENT: &str

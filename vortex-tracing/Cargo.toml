@@ -1,0 +1,40 @@
+[package]
+name = "vortex-tracing"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Tracing wrappers for Vortex I/O, segment, and layout traits"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+futures = { workspace = true }
+tracing = { workspace = true }
+tracing-perfetto = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true, features = ["env-filter"] }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-io = { workspace = true }
+vortex-layout = { workspace = true }
+vortex-mask = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }
+
+[features]
+default = []
+# Enable the helper for constructing a tracing subscriber that writes Perfetto JSON.
+perfetto = ["dep:tracing-perfetto", "dep:tracing-subscriber"]
+
+[lints]
+workspace = true

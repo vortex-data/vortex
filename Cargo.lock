@@ -11018,6 +11018,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-tracing"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "tokio",
+ "tracing",
+ "tracing-perfetto",
+ "tracing-subscriber",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-io",
+ "vortex-layout",
+ "vortex-mask",
+]
+
+[[package]]
 name = "vortex-tui"
 version = "0.1.0"
 dependencies = [

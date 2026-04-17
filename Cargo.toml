@@ -18,6 +18,7 @@ members = [
     "vortex-layout",
     "vortex-scan",
     "vortex-file",
+    "vortex-tracing",
     "vortex-ipc",
     "vortex",
     "vortex-bench",
@@ -291,6 +292,7 @@ vortex-sequence = { version = "0.1.0", path = "encodings/sequence", default-feat
 vortex-session = { version = "0.1.0", path = "./vortex-session", default-features = false }
 vortex-sparse = { version = "0.1.0", path = "./encodings/sparse", default-features = false }
 vortex-tensor = { version = "0.1.0", path = "./vortex-tensor", default-features = false }
+vortex-tracing = { version = "0.1.0", path = "./vortex-tracing", default-features = false }
 vortex-utils = { version = "0.1.0", path = "./vortex-utils", default-features = false }
 vortex-zigzag = { version = "0.1.0", path = "./encodings/zigzag", default-features = false }
 vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features = false }
