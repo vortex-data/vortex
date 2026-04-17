@@ -439,7 +439,6 @@ impl ArrayRef {
     /// # Safety
     /// The caller must put back a slot with the same logical dtype and length before exposing the
     /// parent array, and must only use this for physical rewrites.
-    #[allow(dead_code)]
     pub(crate) unsafe fn take_slot_unchecked(
         mut self,
         slot_idx: usize,
@@ -464,7 +463,6 @@ impl ArrayRef {
     /// # Safety
     /// The replacement must have the same logical dtype and length as the taken slot, and this
     /// must only be used for physical rewrites.
-    #[allow(dead_code)]
     pub(crate) unsafe fn put_slot_unchecked(
         mut self,
         slot_idx: usize,
