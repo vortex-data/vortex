@@ -176,7 +176,7 @@ mod tests {
     use crate::bitpack_compress::bitpack_encode;
 
     fn encode(array: &PrimitiveArray, bit_width: u8) -> BitPackedArray {
-        bitpack_encode(array, bit_width, None).unwrap()
+        bitpack_encode(array, bit_width, None, &mut SESSION.create_execution_ctx()).unwrap()
     }
 
     static SESSION: LazyLock<VortexSession> =
@@ -187,8 +187,10 @@ mod tests {
     }
 
     fn compression_roundtrip(n: usize) {
+        let mut ctx = SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_iter((0..n).map(|i| (i % 2047) as u16));
-        let compressed = BitPackedData::encode(&values.clone().into_array(), 11).unwrap();
+        let compressed =
+            BitPackedData::encode(&values.clone().into_array(), 11, &mut ctx).unwrap();
         assert_arrays_eq!(compressed, values);
 
         values

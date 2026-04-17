@@ -193,9 +193,10 @@ mod test {
 
     #[test]
     fn take_indices() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6, &mut ctx).unwrap();
 
         let mask = Mask::from_indices(bitpacked.len(), vec![0, 125, 2047, 2049, 2151, 2790]);
 
@@ -208,9 +209,10 @@ mod test {
 
     #[test]
     fn take_sliced_indices() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6, &mut ctx).unwrap();
         let sliced = bitpacked.slice(128..2050).unwrap();
 
         let mask = Mask::from_indices(sliced.len(), vec![1919, 1921]);
@@ -223,7 +225,7 @@ mod test {
     fn filter_bitpacked() {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6, &mut ctx).unwrap();
         let filtered = bitpacked
             .filter(Mask::from_indices(4096, (0..1024).collect()))
             .unwrap();
@@ -239,7 +241,7 @@ mod test {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values: Buffer<i64> = (0..500).collect();
         let unpacked = PrimitiveArray::new(values.clone(), Validity::NonNullable);
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 9).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 9, &mut ctx).unwrap();
         let filtered = bitpacked
             .filter(Mask::from_indices(values.len(), (0..250).collect()))
             .unwrap()
@@ -254,19 +256,20 @@ mod test {
 
     #[test]
     fn test_filter_bitpacked_conformance() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Test with u8 values
         let unpacked = buffer![1u8, 2, 3, 4, 5].into_array();
-        let bitpacked = BitPackedData::encode(&unpacked, 3).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked, 3, &mut ctx).unwrap();
         test_filter_conformance(&bitpacked.into_array());
 
         // Test with u32 values
         let unpacked = buffer![100u32, 200, 300, 400, 500].into_array();
-        let bitpacked = BitPackedData::encode(&unpacked, 9).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked, 9, &mut ctx).unwrap();
         test_filter_conformance(&bitpacked.into_array());
 
         // Test with nullable values
         let unpacked = PrimitiveArray::from_option_iter([Some(1u16), None, Some(3), Some(4), None]);
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 3).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 3, &mut ctx).unwrap();
         test_filter_conformance(&bitpacked.into_array());
     }
 
@@ -282,7 +285,7 @@ mod test {
         // Values 0-127 fit in 7 bits, but 1000 and 2000 do not.
         let values: Vec<i32> = vec![0, 10, 1000, 20, 30, 2000, 40, 50, 60, 70];
         let unpacked = PrimitiveArray::from_iter(values.clone());
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 7).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 7, &mut ctx).unwrap();
         assert!(
             bitpacked.patches().is_some(),
             "Expected patches for values exceeding bit width"
@@ -316,7 +319,7 @@ mod test {
             })
             .collect();
         let unpacked = PrimitiveArray::from_iter(values.clone());
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 7).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 7, &mut ctx).unwrap();
         assert!(
             bitpacked.patches().is_some(),
             "Expected patches for values exceeding bit width"

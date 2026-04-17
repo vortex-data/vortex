@@ -339,7 +339,7 @@ impl Scheme for BitPackingScheme {
     ) -> VortexResult<ArrayRef> {
         let primitive_array = data.array_as_primitive();
 
-        let histogram = bit_width_histogram(primitive_array)?;
+        let histogram = bit_width_histogram(primitive_array, &mut compressor.execution_ctx())?;
         let bw = find_best_bit_width(primitive_array.ptype(), &histogram)?;
 
         // If best bw is determined to be the current bit-width, return the original array.
@@ -349,7 +349,12 @@ impl Scheme for BitPackingScheme {
 
         // Otherwise we can bitpack the array.
         let primitive_array = primitive_array.into_owned();
-        let packed = bitpack_encode(&primitive_array, bw, Some(&histogram))?;
+        let packed = bitpack_encode(
+            &primitive_array,
+            bw,
+            Some(&histogram),
+            &mut compressor.execution_ctx(),
+        )?;
 
         let packed_stats = packed.statistics().to_owned();
         let ptype = packed.dtype().as_ptype();
@@ -527,6 +532,7 @@ impl Scheme for SparseScheme {
                 most_frequent_value.ptype(),
                 array.dtype().nullability(),
             )),
+            &mut compressor.execution_ctx(),
         )?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
@@ -641,7 +647,8 @@ impl Scheme for RunEndScheme {
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
         // Run-end encode the ends.
-        let (ends, values) = runend_encode(data.array_as_primitive());
+        let (ends, values) =
+            runend_encode(data.array_as_primitive(), &mut compressor.execution_ctx());
 
         let values_primitive = values
             .clone()
@@ -719,8 +726,12 @@ impl Scheme for SequenceScheme {
         // why do we divide the ratio by 2???
 
         CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-            |_compressor, data, _ctx| {
-                let Some(encoded) = sequence_encode(data.array_as_primitive())? else {
+            |compressor, data, _ctx| {
+                let Some(encoded) = sequence_encode(
+                    data.array_as_primitive(),
+                    &mut compressor.execution_ctx(),
+                )?
+                else {
                     // If we are unable to sequence encode this array, make sure we skip.
                     return Ok(EstimateVerdict::Skip);
                 };
@@ -735,7 +746,7 @@ impl Scheme for SequenceScheme {
 
     fn compress(
         &self,
-        _compressor: &CascadingCompressor,
+        compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
@@ -744,7 +755,7 @@ impl Scheme for SequenceScheme {
         if stats.null_count() > 0 {
             vortex_bail!("sequence encoding does not support nulls");
         }
-        sequence_encode(data.array_as_primitive())?
+        sequence_encode(data.array_as_primitive(), &mut compressor.execution_ctx())?
             .ok_or_else(|| vortex_err!("cannot sequence encode array"))
     }
 }
@@ -776,7 +787,7 @@ impl Scheme for PcoScheme {
 
     fn compress(
         &self,
-        _compressor: &CascadingCompressor,
+        compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
@@ -784,6 +795,7 @@ impl Scheme for PcoScheme {
             data.array_as_primitive(),
             pco::DEFAULT_COMPRESSION_LEVEL,
             8192,
+            &mut compressor.execution_ctx(),
         )?
         .into_array())
     }

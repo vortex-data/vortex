@@ -91,6 +91,9 @@ impl EncodingSubclass for PyZigZagArray {
 impl PyZigZagArray {
     #[staticmethod]
     pub fn encode(array: PyArrayRef) -> PyVortexResult<PyArrayRef> {
+        // PyZigZagArray (and PyArrayRef) do not currently carry a VortexSession;
+        // threading one through would change the FromPyObject contract. Use
+        // LEGACY_SESSION until the wrappers are refactored.
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let primitive = array.inner().clone().execute::<PrimitiveArray>(&mut ctx)?;
         Ok(PyVortex(zigzag_encode(primitive.as_view())?.into_array()))

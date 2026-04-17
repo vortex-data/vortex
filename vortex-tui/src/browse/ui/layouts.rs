@@ -27,7 +27,6 @@ use ratatui::widgets::Table;
 use ratatui::widgets::Widget;
 use ratatui::widgets::Wrap;
 use vortex::array::ArrayRef;
-use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
@@ -142,7 +141,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
 
     if is_stats_table {
         // Render the stats table horizontally
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = app.session.create_execution_ctx();
         let struct_array = array
             .clone()
             .execute::<StructArray>(&mut ctx)

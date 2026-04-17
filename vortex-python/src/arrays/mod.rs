@@ -527,6 +527,9 @@ impl PyArray {
     /// ]
     /// ```
     fn filter(slf: Bound<Self>, mask: PyArrayRef) -> PyVortexResult<PyArrayRef> {
+        // PyArray/PyArrayRef do not currently carry a VortexSession; threading one
+        // through would change the FromPyObject contract. Use LEGACY_SESSION until
+        // the wrappers are refactored.
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
         let mask_bool = (&*mask as &ArrayRef).clone().execute::<BoolArray>(&mut ctx)?;
@@ -607,6 +610,10 @@ impl PyArray {
     /// ```
     // TODO(ngates): return a vortex.Scalar
     fn scalar_at(slf: Bound<Self>, index: usize) -> PyVortexResult<Bound<PyScalar>> {
+        // PyArray/PyArrayRef do not currently carry a VortexSession; threading one
+        // through would change the FromPyObject contract. Use LEGACY_SESSION until
+        // the wrappers are refactored.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let py = slf.py();
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
         if index >= slf.len() {
@@ -616,10 +623,7 @@ impl PyArray {
             ))
             .into());
         }
-        Ok(PyScalar::init(
-            py,
-            slf.execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())?,
-        )?)
+        Ok(PyScalar::init(py, slf.execute_scalar(index, &mut ctx)?)?)
     }
 
     /// Filter, permute, and/or repeat elements by their index.

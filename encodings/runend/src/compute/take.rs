@@ -105,7 +105,11 @@ mod tests {
     use crate::RunEndArray;
 
     fn ree_array() -> RunEndArray {
-        RunEnd::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array()).unwrap()
+        RunEnd::encode(
+            buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -155,6 +159,7 @@ mod tests {
     #[case(ree_array())]
     #[case(RunEnd::encode(
         buffer![1u8, 1, 2, 2, 2, 3, 3, 3, 3, 4].into_array(),
+        &mut LEGACY_SESSION.create_execution_ctx(),
     ).unwrap())]
     #[case(RunEnd::encode(
         PrimitiveArray::from_option_iter([
@@ -167,11 +172,14 @@ mod tests {
             Some(20),
         ])
         .into_array(),
+        &mut LEGACY_SESSION.create_execution_ctx(),
     ).unwrap())]
-    #[case(RunEnd::encode(buffer![42i32, 42, 42, 42, 42].into_array())
+    #[case(RunEnd::encode(buffer![42i32, 42, 42, 42, 42].into_array(),
+        &mut LEGACY_SESSION.create_execution_ctx())
         .unwrap())]
     #[case(RunEnd::encode(
         buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array(),
+        &mut LEGACY_SESSION.create_execution_ctx(),
     ).unwrap())]
     #[case({
         let mut values = Vec::new();
@@ -180,7 +188,11 @@ mod tests {
                 values.push(i);
             }
         }
-        RunEnd::encode(PrimitiveArray::from_iter(values).into_array()).unwrap()
+        RunEnd::encode(
+            PrimitiveArray::from_iter(values).into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap()
     })]
     fn test_take_runend_conformance(#[case] array: RunEndArray) {
         test_take_conformance(&array.into_array());
@@ -191,6 +203,7 @@ mod tests {
     #[case({
         let array = RunEnd::encode(
             buffer![1i32, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3].into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .unwrap();
         array.slice(2..8).unwrap()

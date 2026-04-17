@@ -185,7 +185,7 @@ impl Scheme for NullDominatedSparseScheme {
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
         // We pass None as we only run this pathway for NULL-dominated string arrays.
-        let sparse_encoded = Sparse::encode(data.array(), None)?;
+        let sparse_encoded = Sparse::encode(data.array(), None, &mut compressor.execution_ctx())?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
             // Compress the indices only (not the values for strings).
@@ -231,12 +231,18 @@ impl Scheme for ZstdScheme {
 
     fn compress(
         &self,
-        _compressor: &CascadingCompressor,
+        compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
         let compacted = data.array_as_utf8().into_owned().compact_buffers()?;
-        Ok(vortex_zstd::Zstd::from_var_bin_view_without_dict(&compacted, 3, 8192)?.into_array())
+        Ok(vortex_zstd::Zstd::from_var_bin_view_without_dict(
+            &compacted,
+            3,
+            8192,
+            &mut compressor.execution_ctx(),
+        )?
+        .into_array())
     }
 }
 

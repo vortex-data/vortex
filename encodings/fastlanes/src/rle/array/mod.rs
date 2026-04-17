@@ -5,9 +5,8 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use vortex_array::ArrayRef;
-use vortex_array::LEGACY_SESSION;
+use vortex_array::ExecutionCtx;
 use vortex_array::TypedArrayRef;
-use vortex_array::VortexSessionExecute;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -111,16 +110,16 @@ pub trait RLEArrayExt: TypedArrayRef<crate::RLE> {
         clippy::expect_used,
         reason = "expect is safe here as scalar_at returns a valid primitive"
     )]
-    fn values_idx_offset(&self, chunk_idx: usize) -> usize {
+    fn values_idx_offset(&self, chunk_idx: usize, ctx: &mut ExecutionCtx) -> usize {
         self.values_idx_offsets()
-            .execute_scalar(chunk_idx, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(chunk_idx, ctx)
             .expect("index must be in bounds")
             .as_primitive()
             .as_::<usize>()
             .expect("index must be of type usize")
             - self
                 .values_idx_offsets()
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, ctx)
                 .expect("index must be in bounds")
                 .as_primitive()
                 .as_::<usize>()
@@ -348,6 +347,7 @@ mod tests {
 
     #[test]
     fn test_multi_chunk_two_chunks() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_iter([10u32, 20, 30, 40]).into_array();
         let indices = PrimitiveArray::from_iter([0u16, 1].repeat(1024)).into_array();
         let values_idx_offsets = PrimitiveArray::from_iter([0u64, 2]).into_array();
@@ -357,8 +357,8 @@ mod tests {
         assert_eq!(rle_array.len(), 2048);
         assert_eq!(rle_array.values().len(), 4);
 
-        assert_eq!(rle_array.values_idx_offset(0), 0);
-        assert_eq!(rle_array.values_idx_offset(1), 2);
+        assert_eq!(rle_array.values_idx_offset(0, &mut ctx), 0);
+        assert_eq!(rle_array.values_idx_offset(1, &mut ctx), 2);
     }
 
     #[test]

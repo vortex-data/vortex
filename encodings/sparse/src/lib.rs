@@ -20,9 +20,7 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -270,8 +268,12 @@ impl Sparse {
     }
 
     /// Encode the given array as a [`SparseArray`].
-    pub fn encode(array: &ArrayRef, fill_value: Option<Scalar>) -> VortexResult<ArrayRef> {
-        SparseData::encode(array, fill_value)
+    pub fn encode(
+        array: &ArrayRef,
+        fill_value: Option<Scalar>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        SparseData::encode(array, fill_value, ctx)
     }
 }
 
@@ -396,7 +398,11 @@ impl SparseData {
     /// Encode given array as a SparseArray.
     ///
     /// Optionally provided fill value will be respected if the array is less than 90% null.
-    pub fn encode(array: &ArrayRef, fill_value: Option<Scalar>) -> VortexResult<ArrayRef> {
+    pub fn encode(
+        array: &ArrayRef,
+        fill_value: Option<Scalar>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
         if let Some(fill_value) = fill_value.as_ref()
             && !array.dtype().eq_ignore_nullability(fill_value.dtype())
         {
@@ -406,8 +412,7 @@ impl SparseData {
                 fill_value.dtype()
             )
         }
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let mask = array.validity()?.to_mask(array.len(), &mut ctx)?;
+        let mask = array.validity()?.to_mask(array.len(), ctx)?;
 
         if mask.all_false() {
             // Array is constant NULL
@@ -418,7 +423,7 @@ impl SparseData {
             // Array is dominated by NULL but has non-NULL values
             let non_null_values = array
                 .filter(mask.clone())?
-                .execute::<Canonical>(&mut ctx)?
+                .execute::<Canonical>(ctx)?
                 .into_array();
             let non_null_indices = match mask.indices() {
                 AllOr::All => {
@@ -452,7 +457,7 @@ impl SparseData {
             fill.cast(array.dtype())?
         } else {
             // TODO(robert): Support other dtypes, only thing missing is getting most common value out of the array
-            let primitive = array.clone().execute::<PrimitiveArray>(&mut ctx)?;
+            let primitive = array.clone().execute::<PrimitiveArray>(ctx)?;
             let (top_pvalue, _) = primitive
                 .top_value()?
                 .vortex_expect("Non empty or all null array");
@@ -464,12 +469,12 @@ impl SparseData {
         let non_top_bool = array
             .binary(fill_array.clone(), Operator::NotEq)?
             .fill_null(Scalar::bool(true, Nullability::NonNullable))?
-            .execute::<BoolArray>(&mut ctx)?;
+            .execute::<BoolArray>(ctx)?;
         let non_top_mask = Mask::from_buffer(non_top_bool.to_bit_buffer());
 
         let non_top_values = array
             .filter(non_top_mask.clone())?
-            .execute::<Canonical>(&mut ctx)?
+            .execute::<Canonical>(ctx)?
             .into_array();
 
         let indices: Buffer<u64> = match non_top_mask {
@@ -749,7 +754,7 @@ mod test {
                 true, true, false, true, false, true, false, true, true, false, true, false,
             ]),
         );
-        let sparse = Sparse::encode(&original.clone().into_array(), None)
+        let sparse = Sparse::encode(&original.clone().into_array(), None, &mut ctx)
             .vortex_expect("Sparse::encode should succeed for test data");
         assert_eq!(
             sparse

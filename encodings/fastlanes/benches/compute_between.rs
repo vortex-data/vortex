@@ -39,7 +39,9 @@ fn generate_bit_pack_primitive_array<T: NativePType + NumCast>(
         .map(|_| T::from_usize(rng.random_range(0..10_000)).vortex_expect(""))
         .collect::<PrimitiveArray>();
 
-    bitpack_to_best_bit_width(&a).vortex_expect("").into_array()
+    bitpack_to_best_bit_width(&a, &mut LEGACY_SESSION.create_execution_ctx())
+        .vortex_expect("")
+        .into_array()
 }
 
 fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast>(
@@ -59,7 +61,7 @@ fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast>(
         .execute::<PrimitiveArray>(&mut ctx)
         .vortex_expect("");
 
-    let bp = bitpack_to_best_bit_width(&encoded)
+    let bp = bitpack_to_best_bit_width(&encoded, &mut ctx)
         .vortex_expect("")
         .into_array();
     ALP::new(bp, alp.exponents(), None).into_array()

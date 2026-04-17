@@ -9,7 +9,6 @@ use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
@@ -108,26 +107,25 @@ impl FileStatsAccumulator {
         chunk: VortexResult<(SequenceId, ArrayRef)>,
     ) -> VortexResult<(SequenceId, ArrayRef)> {
         let (sequence_id, chunk) = chunk?;
+        let mut ctx = self.ctx.lock();
         if chunk.dtype().is_struct() {
-            let struct_chunk = chunk
-                .clone()
-                .execute::<StructArray>(&mut self.ctx.lock())?;
+            let struct_chunk = chunk.clone().execute::<StructArray>(&mut ctx)?;
             for (acc, field) in self
                 .accumulators
                 .lock()
                 .iter_mut()
                 .zip_eq(struct_chunk.iter_unmasked_fields())
             {
-                acc.push_chunk(field)?;
+                acc.push_chunk(field, &mut ctx)?;
             }
         } else {
-            self.accumulators.lock()[0].push_chunk(&chunk)?;
+            self.accumulators.lock()[0].push_chunk(&chunk, &mut ctx)?;
         }
         Ok((sequence_id, chunk))
     }
 
     pub fn stats_sets(&self) -> Vec<StatsSet> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = self.ctx.lock();
         self.accumulators
             .lock()
             .iter_mut()

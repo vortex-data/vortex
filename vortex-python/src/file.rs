@@ -10,7 +10,6 @@ use pyo3::types::PyList;
 use pyo3_object_store::PyObjectStore;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
-use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::builtins::ArrayBuiltins;
@@ -27,6 +26,7 @@ use vortex::file::VortexFile;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::split_by::SplitBy;
 use vortex::layout::segments::MokaSegmentCache;
+use vortex::session::VortexSession;
 
 use crate::RUNTIME;
 use crate::SESSION;
@@ -83,12 +83,16 @@ pub fn open(
         })
     })?;
 
-    Ok(PyVortexFile { vxf })
+    Ok(PyVortexFile {
+        vxf,
+        session: SESSION.clone(),
+    })
 }
 
 #[pyclass(name = "VortexFile", module = "vortex", frozen)]
 pub struct PyVortexFile {
     vxf: VortexFile,
+    session: VortexSession,
 }
 
 #[pymethods]
@@ -111,7 +115,7 @@ impl PyVortexFile {
         indices: Option<PyArrayRef>,
         batch_size: Option<usize>,
     ) -> PyVortexResult<PyArrayIterator> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = slf.get().session.create_execution_ctx();
         let builder = slf.get().scan_builder(
             projection.map(|p| p.0),
             expr.map(|e| e.into_inner()),
@@ -135,7 +139,7 @@ impl PyVortexFile {
         indices: Option<PyArrayRef>,
         batch_size: Option<usize>,
     ) -> PyVortexResult<PyRepeatedScan> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = slf.get().session.create_execution_ctx();
         let builder = slf.get().scan_builder(
             projection.map(|p| p.0),
             expr.map(|e| e.into_inner()),
@@ -186,7 +190,10 @@ impl PyVortexFile {
     }
 
     fn to_dataset(slf: Bound<Self>) -> PyVortexResult<PyVortexDataset> {
-        Ok(PyVortexDataset::try_new(slf.get().vxf.clone())?)
+        Ok(PyVortexDataset::try_new(
+            slf.get().vxf.clone(),
+            slf.get().session.clone(),
+        )?)
     }
 
     #[pyo3(signature = (*))]

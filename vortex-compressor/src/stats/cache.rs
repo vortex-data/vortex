@@ -8,6 +8,7 @@ use std::any::TypeId;
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
+use vortex_array::ExecutionCtx;
 use vortex_array::arrays::Bool;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::VarBinView;
@@ -166,7 +167,7 @@ impl ArrayAndStats {
     }
 
     /// Returns float stats, generating them lazily on first access.
-    pub fn float_stats(&mut self) -> &FloatStats {
+    pub fn float_stats(&mut self, ctx: &mut ExecutionCtx) -> &FloatStats {
         let array = self.array.clone();
         let opts = self.opts;
 
@@ -175,7 +176,7 @@ impl ArrayAndStats {
                 .as_opt::<Primitive>()
                 .vortex_expect("the array is guaranteed to already be canonical by construction")
                 .into_owned();
-            FloatStats::generate_opts(&primitive, opts)
+            FloatStats::generate_opts(&primitive, opts, ctx)
         })
     }
 

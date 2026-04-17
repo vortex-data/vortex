@@ -28,9 +28,7 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
@@ -256,16 +254,12 @@ pub(crate) fn number_type_from_ptype(ptype: PType) -> NumberType {
     }
 }
 
-fn collect_valid(parray: ArrayView<'_, Primitive>) -> VortexResult<PrimitiveArray> {
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    let mask = parray.array().validity()?.to_mask(
-        parray.array().len(),
-        &mut ctx,
-    )?;
-    let result = parray
-        .array()
-        .filter(mask)?
-        .execute::<PrimitiveArray>(&mut ctx)?;
+fn collect_valid(
+    parray: ArrayView<'_, Primitive>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
+    let mask = parray.array().validity()?.to_mask(parray.array().len(), ctx)?;
+    let result = parray.array().filter(mask)?.execute::<PrimitiveArray>(ctx)?;
     Ok(result)
 }
 
@@ -300,10 +294,11 @@ impl Pco {
         parray: ArrayView<'_, Primitive>,
         level: usize,
         values_per_page: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<PcoArray> {
         let dtype = parray.dtype().clone();
         let validity = parray.validity()?;
-        let data = PcoData::from_primitive(parray, level, values_per_page)?;
+        let data = PcoData::from_primitive(parray, level, values_per_page, ctx)?;
         Self::try_new(dtype, data, validity)
     }
 }
@@ -409,8 +404,15 @@ impl PcoData {
         parray: ArrayView<'_, Primitive>,
         level: usize,
         values_per_page: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
-        Self::from_primitive_with_values_per_chunk(parray, level, VALUES_PER_CHUNK, values_per_page)
+        Self::from_primitive_with_values_per_chunk(
+            parray,
+            level,
+            VALUES_PER_CHUNK,
+            values_per_page,
+            ctx,
+        )
     }
 
     pub(crate) fn from_primitive_with_values_per_chunk(
@@ -418,6 +420,7 @@ impl PcoData {
         level: usize,
         values_per_chunk: usize,
         values_per_page: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
         let number_type = number_type_from_dtype(parray.dtype());
         let values_per_page = if values_per_page == 0 {
@@ -431,7 +434,7 @@ impl PcoData {
             .with_compression_level(level)
             .with_paging_spec(PagingSpec::EqualPagesUpTo(values_per_page));
 
-        let values = collect_valid(parray)?;
+        let values = collect_valid(parray, ctx)?;
         let n_values = values.len();
 
         let fc = FileCompressor::default();
@@ -485,14 +488,19 @@ impl PcoData {
         ))
     }
 
-    pub fn from_array(array: ArrayRef, level: usize, nums_per_page: usize) -> VortexResult<Self> {
+    pub fn from_array(
+        array: ArrayRef,
+        level: usize,
+        nums_per_page: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Self> {
         let parray = array.try_downcast::<Primitive>().map_err(|a| {
             vortex_err!(
                 "Pco can only encode primitive arrays, got {}",
                 a.encoding_id()
             )
         })?;
-        Self::from_primitive(parray.as_view(), level, nums_per_page)
+        Self::from_primitive(parray.as_view(), level, nums_per_page, ctx)
     }
 
     pub fn decompress(
@@ -650,6 +658,8 @@ impl OperationsVTable<Pco> for Pco {
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
@@ -659,12 +669,13 @@ mod tests {
 
     #[test]
     fn test_slice_nullable() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create a nullable array with some nulls
         let values = PrimitiveArray::new(
             buffer![10u32, 20, 30, 40, 50, 60],
             Validity::from_iter([false, true, true, true, true, false]),
         );
-        let pco = Pco::from_primitive(values.as_view(), 0, 128).unwrap();
+        let pco = Pco::from_primitive(values.as_view(), 0, 128, &mut ctx).unwrap();
         assert_arrays_eq!(
             pco,
             PrimitiveArray::from_option_iter([

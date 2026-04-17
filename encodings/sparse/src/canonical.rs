@@ -8,8 +8,6 @@ use num_traits::NumCast;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListViewArray;
@@ -165,6 +163,7 @@ fn execute_sparse_lists(
                 array.len(),
                 total_canonical_values,
                 validity,
+                ctx,
             )
         })
     }))
@@ -178,6 +177,7 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
     len: usize,
     total_canonical_values: usize,
     validity: Validity,
+    ctx: &mut ExecutionCtx,
 ) -> ArrayRef {
     // Create the builder with appropriate types. It is easy to just use the same type for both
     // `offsets` and `sizes` since we have no other constraints.
@@ -204,7 +204,7 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
             builder
                 .append_value(
                     patch_values
-                        .execute_scalar(patch_idx, &mut LEGACY_SESSION.create_execution_ctx())
+                        .execute_scalar(patch_idx, ctx)
                         .vortex_expect("scalar_at")
                         .as_list(),
                 )
@@ -250,6 +250,7 @@ fn execute_sparse_fixed_size_list(
             fill_value,
             array.len(),
             validity,
+            ctx,
         )
         .into_array()
     }))
@@ -267,6 +268,7 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
     fill_value: ListScalar,
     array_len: usize,
     validity: Validity,
+    ctx: &mut ExecutionCtx,
 ) -> FixedSizeListArray {
     let list_size = values.list_size();
     let element_dtype = values.elements().dtype();
@@ -302,7 +304,7 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
                 builder
                     .append_scalar(
                         &patch_list
-                            .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                            .execute_scalar(i, ctx)
                             .vortex_expect("scalar_at"),
                     )
                     .vortex_expect("element dtype must match");

@@ -7,9 +7,8 @@ use num_traits::CheckedAdd;
 use num_traits::CheckedSub;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
@@ -90,16 +89,14 @@ pub fn sequence_decompress(array: &SequenceArray) -> VortexResult<ArrayRef> {
 ///    we might want a different array for that since sequence provide fast access.
 pub fn sequence_encode(
     primitive_array: ArrayView<'_, Primitive>,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     if primitive_array.is_empty() {
         // we cannot encode an empty array
         return Ok(None);
     }
 
-    if !primitive_array
-        .array()
-        .all_valid(&mut LEGACY_SESSION.create_execution_ctx())?
-    {
+    if !primitive_array.array().all_valid(ctx)? {
         return Ok(None);
     }
 
@@ -164,7 +161,7 @@ mod tests {
     fn test_encode_array_success() {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let primitive_array = PrimitiveArray::from_iter([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
-        let encoded = sequence_encode(primitive_array.as_view()).unwrap();
+        let encoded = sequence_encode(primitive_array.as_view(), &mut ctx).unwrap();
         assert!(encoded.is_some());
         let decoded = encoded.unwrap().execute::<PrimitiveArray>(&mut ctx).unwrap();
         assert_arrays_eq!(decoded, primitive_array);
@@ -174,7 +171,7 @@ mod tests {
     fn test_encode_array_1_success() {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let primitive_array = PrimitiveArray::from_iter([0]);
-        let encoded = sequence_encode(primitive_array.as_view()).unwrap();
+        let encoded = sequence_encode(primitive_array.as_view(), &mut ctx).unwrap();
         assert!(encoded.is_some());
         let decoded = encoded.unwrap().execute::<PrimitiveArray>(&mut ctx).unwrap();
         assert_arrays_eq!(decoded, primitive_array);
@@ -182,17 +179,19 @@ mod tests {
 
     #[test]
     fn test_encode_array_fail() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let primitive_array = PrimitiveArray::from_iter([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0]);
 
-        let encoded = sequence_encode(primitive_array.as_view()).unwrap();
+        let encoded = sequence_encode(primitive_array.as_view(), &mut ctx).unwrap();
         assert!(encoded.is_none());
     }
 
     #[test]
     fn test_encode_array_fail_oob() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let primitive_array = PrimitiveArray::from_iter(vec![100i8; 1000]);
 
-        let encoded = sequence_encode(primitive_array.as_view()).unwrap();
+        let encoded = sequence_encode(primitive_array.as_view(), &mut ctx).unwrap();
         assert!(encoded.is_none());
     }
 
@@ -200,7 +199,7 @@ mod tests {
     fn test_encode_all_u8_values() {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let primitive_array = PrimitiveArray::from_iter(0u8..=255);
-        let encoded = sequence_encode(primitive_array.as_view()).unwrap();
+        let encoded = sequence_encode(primitive_array.as_view(), &mut ctx).unwrap();
         assert!(encoded.is_some());
         let decoded = encoded.unwrap().execute::<PrimitiveArray>(&mut ctx).unwrap();
         assert_arrays_eq!(decoded, primitive_array);

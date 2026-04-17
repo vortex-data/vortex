@@ -29,7 +29,7 @@ impl OperationsVTable<RLE> for RLE {
             .vortex_expect("Index must not be null");
 
         let chunk_id = (offset_in_chunk + index) / FL_CHUNK_SIZE;
-        let value_idx_offset = array.values_idx_offset(chunk_id);
+        let value_idx_offset = array.values_idx_offset(chunk_id, ctx);
 
         let scalar = array
             .values()

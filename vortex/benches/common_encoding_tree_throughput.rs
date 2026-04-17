@@ -185,7 +185,7 @@ mod setup {
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let prim_array = PrimitiveArray::from_iter(values);
-        let runend = RunEnd::encode(prim_array.into_array()).unwrap();
+        let runend = RunEnd::encode(prim_array.into_array(), &mut ctx).unwrap();
 
         // Compress the ends with FoR <- BitPacked
         let ends_prim = runend

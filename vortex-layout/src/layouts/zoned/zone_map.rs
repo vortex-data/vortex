@@ -7,7 +7,6 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::StructArray;
@@ -219,12 +218,9 @@ impl StatsAccumulator {
         Ok(())
     }
 
-    pub fn push_chunk(&mut self, array: &ArrayRef) -> VortexResult<()> {
+    pub fn push_chunk(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
         for builder in self.builders.iter_mut() {
-            if let Some(v) = array
-                .statistics()
-                .compute_stat(builder.stat(), &mut LEGACY_SESSION.create_execution_ctx())?
-            {
+            if let Some(v) = array.statistics().compute_stat(builder.stat(), ctx)? {
                 builder.append_scalar(v.cast(&v.dtype().as_nullable())?)?;
             } else {
                 builder.append_null();
@@ -325,9 +321,9 @@ mod tests {
         builder2.append_value("wait a minute");
         let mut acc =
             StatsAccumulator::new(builder.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
-        acc.push_chunk(&builder.finish())
+        acc.push_chunk(&builder.finish(), &mut ctx)
             .vortex_expect("push_chunk should succeed for test data");
-        acc.push_chunk(&builder2.finish())
+        acc.push_chunk(&builder2.finish(), &mut ctx)
             .vortex_expect("push_chunk should succeed for test data");
         let stats_table = acc
             .as_stats_table()
@@ -369,7 +365,7 @@ mod tests {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = buffer![0, 1, 2].into_array();
         let mut acc = StatsAccumulator::new(array.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
-        acc.push_chunk(&array)
+        acc.push_chunk(&array, &mut ctx)
             .vortex_expect("push_chunk should succeed for test array");
         let stats_table = acc
             .as_stats_table()

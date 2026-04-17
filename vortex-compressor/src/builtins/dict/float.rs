@@ -10,6 +10,8 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
@@ -85,7 +87,10 @@ impl Scheme for FloatDictScheme {
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> CompressionEstimate {
-        let stats = data.float_stats();
+        // TRAIT-IMPL BOUNDARY: `Scheme::expected_compression_ratio` has a fixed signature
+        // and does not receive an `ExecutionCtx`, so we fall back to the legacy session here.
+        let mut exec_ctx = LEGACY_SESSION.create_execution_ctx();
+        let stats = data.float_stats(&mut exec_ctx);
 
         if stats.value_count() == 0 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
@@ -111,7 +116,10 @@ impl Scheme for FloatDictScheme {
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
         // TODO(connor): Fight the borrow checker (needs interior mutability)!
-        let stats = data.float_stats().clone();
+        let stats = {
+            let mut exec_ctx = compressor.execution_ctx();
+            data.float_stats(&mut exec_ctx).clone()
+        };
         let dict = dictionary_encode(data.array_as_primitive(), &stats)?;
 
         let has_all_values_referenced = dict.has_all_values_referenced();
@@ -269,6 +277,7 @@ mod tests {
             GenerateStatsOptions {
                 count_distinct_values: true,
             },
+            &mut ctx,
         );
         let dict_array = dictionary_encode(array.as_view(), &stats)?;
         assert_eq!(dict_array.values().len(), 2);
