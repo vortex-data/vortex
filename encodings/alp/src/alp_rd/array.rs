@@ -16,6 +16,7 @@ use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
@@ -213,7 +214,13 @@ impl VTable for ALPRD {
                 )
             })
             .transpose()?;
-        let left_parts_patches = ALPRDData::canonicalize_patches(&left_parts, left_parts_patches)?;
+        // NOTE: `VTable::deserialize` has a fixed trait signature without `ExecutionCtx`, so we
+        // cannot plumb a ctx in here. We construct a legacy ctx locally at this trait boundary.
+        let left_parts_patches = ALPRDData::canonicalize_patches(
+            &left_parts,
+            left_parts_patches,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         let slots = ALPRDData::make_slots(&left_parts, &right_parts, &left_parts_patches);
         let data = ALPRDData::new(
             left_parts_dictionary,
@@ -371,9 +378,11 @@ impl ALPRD {
         right_parts: ArrayRef,
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ALPRDArray> {
         let len = left_parts.len();
-        let left_parts_patches = ALPRDData::canonicalize_patches(&left_parts, left_parts_patches)?;
+        let left_parts_patches =
+            ALPRDData::canonicalize_patches(&left_parts, left_parts_patches, ctx)?;
         let slots = ALPRDData::make_slots(&left_parts, &right_parts, &left_parts_patches);
         let data = ALPRDData::new(left_parts_dictionary, right_bit_width, left_parts_patches);
         Array::try_from_parts(ArrayParts::new(ALPRD, dtype, len, data).with_slots(slots))
@@ -404,13 +413,11 @@ impl ALPRDData {
     fn canonicalize_patches(
         left_parts: &ArrayRef,
         left_parts_patches: Option<Patches>,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Patches>> {
         left_parts_patches
             .map(|patches| {
-                if !patches
-                    .values()
-                    .all_valid(&mut LEGACY_SESSION.create_execution_ctx())?
-                {
+                if !patches.values().all_valid(ctx)? {
                     vortex_bail!("patches must be all valid: {}", patches.values());
                 }
                 // TODO(ngates): assert the DType, don't cast it.
@@ -418,9 +425,8 @@ impl ALPRDData {
                 let mut patches = patches.cast_values(&left_parts.dtype().as_nonnullable())?;
                 // Force execution of the lazy cast so patch values are materialized
                 // before serialization.
-                #[expect(deprecated)]
-                let canonical = patches.values().to_canonical()?.into_array();
-                *patches.values_mut() = canonical;
+                let canonical = patches.values().clone().execute::<Canonical>(ctx)?;
+                *patches.values_mut() = canonical.into_array();
                 Ok(patches)
             })
             .transpose()
@@ -662,8 +668,8 @@ impl ValidityChild<ALPRD> for ALPRD {
 mod test {
     use prost::Message;
     use rstest::rstest;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::PType;
@@ -681,6 +687,7 @@ mod test {
         #[case] reals: Vec<T>,
         #[case] seed: T,
     ) {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert_eq!(reals.len(), 1024, "test expects 1024-length fixture");
         // Null out some of the values.
         let mut reals: Vec<Option<T>> = reals.into_iter().map(Some).collect();
@@ -694,10 +701,13 @@ mod test {
         // Pick a seed that we know will trigger lots of patches.
         let encoder: alp_rd::RDEncoder = alp_rd::RDEncoder::new(&[seed.powi(-2)]);
 
-        let rd_array = encoder.encode(real_array.as_view());
+        let rd_array = encoder.encode(real_array.as_view(), &mut ctx);
 
-        #[expect(deprecated)]
-        let decoded = rd_array.as_array().to_primitive();
+        let decoded = rd_array
+            .as_array()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
 
         assert_arrays_eq!(decoded, PrimitiveArray::from_option_iter(reals));
     }

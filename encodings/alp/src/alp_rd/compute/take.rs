@@ -48,6 +48,7 @@ impl TakeExecute for ALPRD {
                 right_parts,
                 array.right_bit_width(),
                 left_parts_exceptions,
+                ctx,
             )?
             .into_array(),
         ))
@@ -58,8 +59,8 @@ impl TakeExecute for ALPRD {
 mod test {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
@@ -75,8 +76,9 @@ mod test {
         use vortex_array::IntoArray as _;
         use vortex_buffer::buffer;
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_iter([a, b, outlier]);
-        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view(), &mut ctx);
 
         assert!(encoded.left_parts_patches().is_some());
         assert!(
@@ -87,11 +89,11 @@ mod test {
                 .is_unsigned_int()
         );
 
-        #[expect(deprecated)]
         let taken = encoded
             .take(buffer![0, 2].into_array())
             .unwrap()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
 
         assert_arrays_eq!(taken, PrimitiveArray::from_iter([a, outlier]));
     }
@@ -100,8 +102,9 @@ mod test {
     #[case(0.1f32, 0.2f32, 3e25f32)]
     #[case(0.1f64, 0.2f64, 3e100f64)]
     fn take_with_nulls<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_iter([a, b, outlier]);
-        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view(), &mut ctx);
 
         assert!(encoded.left_parts_patches().is_some());
         assert!(
@@ -112,11 +115,11 @@ mod test {
                 .is_unsigned_int()
         );
 
-        #[expect(deprecated)]
         let taken = encoded
             .take(PrimitiveArray::from_option_iter([Some(0), Some(2), None]).into_array())
             .unwrap()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
 
         assert_arrays_eq!(
             taken,
@@ -128,9 +131,13 @@ mod test {
     #[case(0.1f32, 0.2f32, 3e25f32)]
     #[case(0.1f64, 0.2f64, 3e100f64)]
     fn test_take_conformance_alprd<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         test_take_conformance(
             &RDEncoder::new(&[a, b])
-                .encode(PrimitiveArray::from_iter([a, b, outlier, b, outlier]).as_view())
+                .encode(
+                    PrimitiveArray::from_iter([a, b, outlier, b, outlier]).as_view(),
+                    &mut ctx,
+                )
                 .into_array(),
         );
     }
@@ -139,11 +146,13 @@ mod test {
     #[case(0.1f32, 3e25f32)]
     #[case(0.5f64, 1e100f64)]
     fn test_take_with_nulls_conformance<T: ALPRDFloat>(#[case] a: T, #[case] outlier: T) {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         test_take_conformance(
             &RDEncoder::new(&[a])
                 .encode(
                     PrimitiveArray::from_option_iter([Some(a), None, Some(outlier), Some(a), None])
                         .as_view(),
+                    &mut ctx,
                 )
                 .into_array(),
         );

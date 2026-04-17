@@ -2,11 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::Nullable;
@@ -16,7 +13,11 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
-pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Option<ArrayRef>> {
+pub fn cast_canonical_array(
+    array: &ArrayRef,
+    target: &DType,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
     // TODO(joe): support more casting options
     let is_int_to_int = target.is_int() && array.dtype().is_int();
     let is_float_to_float = target.is_float() && array.dtype().is_float();
@@ -36,18 +37,14 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
                 match_each_integer_ptype!(target.as_ptype(), |Out| {
                     #[allow(clippy::cast_possible_truncation)]
                     {
-                        #[expect(deprecated)]
-                        let prim = array.to_primitive();
+                        let prim = array.clone().execute::<PrimitiveArray>(ctx)?;
                         PrimitiveArray::new(
                             prim.as_slice::<In>()
                                 .iter()
                                 .map(|v| *v as Out)
                                 .collect::<Buffer<Out>>(),
                             Validity::from_mask(
-                                array.validity()?.to_mask(
-                                    array.len(),
-                                    &mut LEGACY_SESSION.create_execution_ctx(),
-                                )?,
+                                array.validity()?.to_mask(array.len(), ctx)?,
                                 target.nullability(),
                             ),
                         )
@@ -69,8 +66,7 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
 
         match (from_ptype, to_ptype) {
             (PType::F32, PType::F64) => {
-                #[expect(deprecated)]
-                let prim = array.to_primitive();
+                let prim = array.clone().execute::<PrimitiveArray>(ctx)?;
                 Ok(Some(
                     PrimitiveArray::new(
                         prim.as_slice::<f32>()
@@ -78,9 +74,7 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
                             .map(|v| *v as f64)
                             .collect::<Buffer<f64>>(),
                         Validity::from_mask(
-                            array
-                                .validity()?
-                                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())?,
+                            array.validity()?.to_mask(array.len(), ctx)?,
                             target.nullability(),
                         ),
                     )
@@ -88,8 +82,7 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
                 ))
             }
             (PType::F64, PType::F32) => {
-                #[expect(deprecated)]
-                let prim = array.to_primitive();
+                let prim = array.clone().execute::<PrimitiveArray>(ctx)?;
                 #[expect(clippy::cast_possible_truncation)]
                 Ok(Some(
                     PrimitiveArray::new(
@@ -98,9 +91,7 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
                             .map(|v| *v as f32)
                             .collect::<Buffer<f32>>(),
                         Validity::from_mask(
-                            array
-                                .validity()?
-                                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())?,
+                            array.validity()?.to_mask(array.len(), ctx)?,
                             target.nullability(),
                         ),
                     )

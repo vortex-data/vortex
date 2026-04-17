@@ -9,6 +9,8 @@
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::DictArrayExt;
@@ -70,7 +72,9 @@ impl Scheme for StringDictScheme {
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> CompressionEstimate {
-        let stats = data.string_stats();
+        // TODO(ctx): trait fixes - Scheme::expected_compression_ratio has a fixed signature.
+        let mut local_ctx = LEGACY_SESSION.create_execution_ctx();
+        let stats = data.string_stats(&mut local_ctx);
 
         if stats.value_count() == 0 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);

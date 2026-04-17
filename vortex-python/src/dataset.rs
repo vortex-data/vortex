@@ -11,8 +11,9 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyString;
 use vortex::array::ArrayRef;
-#[expect(deprecated)]
-use vortex::array::ToCanonical;
+use vortex::array::ExecutionCtx;
+use vortex::array::VortexSessionExecute;
+use vortex::array::arrays::PrimitiveArray;
 use vortex::array::iter::ArrayIteratorExt;
 use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
@@ -23,6 +24,7 @@ use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::layout::scan::split_by::SplitBy;
+use vortex::session::VortexSession;
 
 use crate::RUNTIME;
 use crate::SESSION;
@@ -54,6 +56,7 @@ pub fn read_array_from_reader(
     filter: Option<Expression>,
     indices: Option<ArrayRef>,
     row_range: Option<(u64, u64)>,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let mut scan = vortex_file.scan()?.with_projection(projection);
 
@@ -62,8 +65,7 @@ pub fn read_array_from_reader(
     }
 
     if let Some(indices) = indices {
-        #[expect(deprecated)]
-        let primitive = indices.to_primitive();
+        let primitive = indices.execute::<PrimitiveArray>(ctx)?;
         let indices = primitive.into_buffer();
         scan = scan.with_row_indices(indices);
     }
@@ -106,12 +108,17 @@ fn filter_from_python(row_filter: Option<&Bound<PyExpr>>) -> Option<Expression> 
 pub struct PyVortexDataset {
     vxf: VortexFile,
     schema: SchemaRef,
+    session: VortexSession,
 }
 
 impl PyVortexDataset {
-    pub fn try_new(vxf: VortexFile) -> VortexResult<Self> {
+    pub fn try_new(vxf: VortexFile, session: VortexSession) -> VortexResult<Self> {
         let schema = Arc::new(vxf.dtype().to_arrow_schema()?);
-        Ok(Self { vxf, schema })
+        Ok(Self {
+            vxf,
+            schema,
+            session,
+        })
     }
 
     pub async fn from_url(
@@ -127,7 +134,7 @@ impl PyVortexDataset {
             }
             ResolvedStore::Path(path) => SESSION.open_options().open_path(path).await?,
         };
-        PyVortexDataset::try_new(vxf)
+        PyVortexDataset::try_new(vxf, SESSION.clone())
     }
 }
 
@@ -145,12 +152,14 @@ impl PyVortexDataset {
         indices: Option<PyArrayRef>,
         row_range: Option<(u64, u64)>,
     ) -> PyVortexResult<PyArrayRef> {
+        let mut ctx = self.session.create_execution_ctx();
         let array = read_array_from_reader(
             &self.vxf,
             projection_from_python(columns)?,
             filter_from_python(row_filter),
             indices.map(|i| i.into_inner()),
             row_range,
+            &mut ctx,
         )?;
         Ok(PyArrayRef::from(array))
     }

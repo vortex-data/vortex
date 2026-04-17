@@ -526,8 +526,6 @@ mod tests {
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -785,6 +783,7 @@ mod tests {
     #[case(1000, 200)]
     #[case(2048, 512)]
     fn test_sliced_to_primitive(#[case] size: usize, #[case] slice_start: usize) {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values: Vec<Option<f64>> = (0..size)
             .map(|i| {
                 if i % 5 == 0 {
@@ -798,19 +797,13 @@ mod tests {
             .collect();
 
         let array = PrimitiveArray::from_option_iter(values.clone());
-        let encoded = alp_encode(
-            array.as_view(),
-            None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let encoded = alp_encode(array.as_view(), None, &mut ctx).unwrap();
 
         let slice_end = size - slice_start;
         let slice_len = slice_end - slice_start;
         let sliced_encoded = encoded.slice(slice_start..slice_end).unwrap();
 
-        #[expect(deprecated)]
-        let result_primitive = sliced_encoded.to_primitive();
+        let result_primitive = sliced_encoded.execute::<PrimitiveArray>(&mut ctx).unwrap();
 
         for idx in 0..slice_len {
             let expected_value = values[slice_start + idx];
@@ -819,10 +812,7 @@ mod tests {
                 .as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(
-                    result_primitive.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )
+                .to_mask(result_primitive.as_ref().len(), &mut ctx)
                 .unwrap()
                 .value(idx);
             assert_eq!(

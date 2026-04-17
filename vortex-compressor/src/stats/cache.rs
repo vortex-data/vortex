@@ -8,8 +8,8 @@ use std::any::TypeId;
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::Bool;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::VarBinView;
 use vortex_error::VortexExpect;
@@ -138,51 +138,59 @@ impl ArrayAndStats {
     }
 
     /// Returns bool stats, generating them lazily on first access.
-    pub fn bool_stats(&mut self) -> &BoolStats {
+    pub fn bool_stats(&mut self, ctx: &mut ExecutionCtx) -> &BoolStats {
         let array = self.array.clone();
 
         self.cache.get_or_insert_with::<BoolStats>(|| {
-            #[expect(deprecated)]
-            let bool_array = array.to_bool();
-            BoolStats::generate(&bool_array).vortex_expect("BoolStats shouldn't fail")
+            let bool_array = array
+                .as_opt::<Bool>()
+                .vortex_expect("the array is guaranteed to already be canonical by construction")
+                .into_owned();
+            BoolStats::generate(&bool_array, ctx).vortex_expect("BoolStats shouldn't fail")
         })
     }
 
     // TODO(connor): These should all have interior mutability instead!!!
 
     /// Returns integer stats, generating them lazily on first access.
-    pub fn integer_stats(&mut self) -> &IntegerStats {
+    pub fn integer_stats(&mut self, ctx: &mut ExecutionCtx) -> &IntegerStats {
         let array = self.array.clone();
         let opts = self.opts;
 
         self.cache.get_or_insert_with::<IntegerStats>(|| {
-            #[expect(deprecated)]
-            let primitive = array.to_primitive();
-            IntegerStats::generate_opts(&primitive, opts)
+            let primitive = array
+                .as_opt::<Primitive>()
+                .vortex_expect("the array is guaranteed to already be canonical by construction")
+                .into_owned();
+            IntegerStats::generate_opts(&primitive, opts, ctx)
         })
     }
 
     /// Returns float stats, generating them lazily on first access.
-    pub fn float_stats(&mut self) -> &FloatStats {
+    pub fn float_stats(&mut self, ctx: &mut ExecutionCtx) -> &FloatStats {
         let array = self.array.clone();
         let opts = self.opts;
 
         self.cache.get_or_insert_with::<FloatStats>(|| {
-            #[expect(deprecated)]
-            let primitive = array.to_primitive();
-            FloatStats::generate_opts(&primitive, opts)
+            let primitive = array
+                .as_opt::<Primitive>()
+                .vortex_expect("the array is guaranteed to already be canonical by construction")
+                .into_owned();
+            FloatStats::generate_opts(&primitive, opts, ctx)
         })
     }
 
     /// Returns string stats, generating them lazily on first access.
-    pub fn string_stats(&mut self) -> &StringStats {
+    pub fn string_stats(&mut self, ctx: &mut ExecutionCtx) -> &StringStats {
         let array = self.array.clone();
         let opts = self.opts;
 
         self.cache.get_or_insert_with::<StringStats>(|| {
-            #[expect(deprecated)]
-            let varbinview = array.to_varbinview();
-            StringStats::generate_opts(&varbinview, opts)
+            let varbinview = array
+                .as_opt::<VarBinView>()
+                .vortex_expect("the array is guaranteed to already be canonical by construction")
+                .into_owned();
+            StringStats::generate_opts(&varbinview, opts, ctx)
         })
     }
 

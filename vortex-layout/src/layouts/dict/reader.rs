@@ -263,6 +263,7 @@ mod tests {
 
     use rstest::rstest;
     use vortex_array::ArrayContext;
+    use vortex_array::Canonical;
     use vortex_array::IntoArray as _;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::MaskFuture;
@@ -466,6 +467,7 @@ mod tests {
     #[test]
     fn reading_is_null_works() {
         block_on(|handle| async move {
+            let mut ctx_exec = LEGACY_SESSION.create_execution_ctx();
             let session = session_with_handle(handle);
             let strategy = DictStrategy::new(
                 FlatLayoutStrategy::default(),
@@ -525,12 +527,11 @@ mod tests {
             let expected = array
                 .validity()
                 .unwrap()
-                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .to_mask(array.len(), &mut ctx_exec)
                 .unwrap()
                 .into_array();
-            #[expect(deprecated)]
             let actual_canonical = actual
-                .to_canonical()
+                .execute::<Canonical>(&mut ctx_exec)
                 .vortex_expect("to_canonical failed")
                 .into_array();
             assert_arrays_eq!(actual_canonical, expected);

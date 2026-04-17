@@ -35,13 +35,20 @@ static SESSION: LazyLock<VortexSession> =
 
 const N: usize = NUM_STRINGS;
 
-static FSST_URLS: LazyLock<FSSTArray> = LazyLock::new(|| make_fsst_short_urls(N));
-static FSST_CB_URLS: LazyLock<FSSTArray> = LazyLock::new(|| make_fsst_clickbench_urls(N));
-static FSST_LOG_LINES: LazyLock<FSSTArray> = LazyLock::new(|| make_fsst_log_lines(N));
-static FSST_JSON_STRINGS: LazyLock<FSSTArray> = LazyLock::new(|| make_fsst_json_strings(N));
-static FSST_FILE_PATHS: LazyLock<FSSTArray> = LazyLock::new(|| make_fsst_file_paths(N));
-static FSST_EMAILS: LazyLock<FSSTArray> = LazyLock::new(|| make_fsst_emails(N));
-static FSST_RARE_MATCH: LazyLock<FSSTArray> = LazyLock::new(|| make_fsst_rare_match(N));
+static FSST_URLS: LazyLock<FSSTArray> =
+    LazyLock::new(|| make_fsst_short_urls(N, &mut SESSION.create_execution_ctx()));
+static FSST_CB_URLS: LazyLock<FSSTArray> =
+    LazyLock::new(|| make_fsst_clickbench_urls(N, &mut SESSION.create_execution_ctx()));
+static FSST_LOG_LINES: LazyLock<FSSTArray> =
+    LazyLock::new(|| make_fsst_log_lines(N, &mut SESSION.create_execution_ctx()));
+static FSST_JSON_STRINGS: LazyLock<FSSTArray> =
+    LazyLock::new(|| make_fsst_json_strings(N, &mut SESSION.create_execution_ctx()));
+static FSST_FILE_PATHS: LazyLock<FSSTArray> =
+    LazyLock::new(|| make_fsst_file_paths(N, &mut SESSION.create_execution_ctx()));
+static FSST_EMAILS: LazyLock<FSSTArray> =
+    LazyLock::new(|| make_fsst_emails(N, &mut SESSION.create_execution_ctx()));
+static FSST_RARE_MATCH: LazyLock<FSSTArray> =
+    LazyLock::new(|| make_fsst_rare_match(N, &mut SESSION.create_execution_ctx()));
 
 enum Dataset {
     Urls,

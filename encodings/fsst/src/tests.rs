@@ -3,8 +3,9 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbin::builder::VarBinBuilder;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar;
@@ -30,11 +31,13 @@ pub(crate) fn build_fsst_array() -> ArrayRef {
     let compressor = fsst_train_compressor(&input_array);
     let len = input_array.len();
     let dtype = input_array.dtype().clone();
-    fsst_compress(input_array, len, &dtype, &compressor).into_array()
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    fsst_compress(input_array, len, &dtype, &compressor, &mut ctx).into_array()
 }
 
 #[test]
 fn test_fsst_array_ops() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // first test the scalar_at values
     let fsst_array = build_fsst_array();
     assert_nth_scalar!(
@@ -96,8 +99,11 @@ fn test_fsst_array_ops() {
     );
 
     // test to_canonical
-    #[expect(deprecated)]
-    let canonical_array = fsst_array.to_varbinview().into_array();
+    let canonical_array = fsst_array
+        .clone()
+        .execute::<VarBinViewArray>(&mut ctx)
+        .unwrap()
+        .into_array();
 
     assert_arrays_eq!(fsst_array, canonical_array);
 }

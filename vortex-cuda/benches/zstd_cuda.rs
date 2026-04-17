@@ -50,14 +50,22 @@ fn generate_string_data(count: usize) -> Vec<&'static str> {
 }
 
 /// Create a ZSTD-compressed array
-fn make_zstd_array(num_strings: usize) -> VortexResult<(ZstdArray, usize)> {
+fn make_zstd_array(
+    num_strings: usize,
+    cuda_ctx: &mut vortex_cuda::CudaExecutionCtx,
+) -> VortexResult<(ZstdArray, usize)> {
     let strings = generate_string_data(num_strings);
     let var_bin_view = VarBinViewArray::from_iter_str(strings.iter().copied());
     let uncompressed_size: usize = strings.iter().map(|s| s.len()).sum();
     let zstd_compression_level = -10; // Less compression but faster.
     let zstd_array =
         // Disable dictionary as nvCOMP doesn't support ZSTD dictionaries.
-        Zstd::from_var_bin_view_without_dict(&var_bin_view, zstd_compression_level, 2048)?;
+        Zstd::from_var_bin_view_without_dict(
+            &var_bin_view,
+            zstd_compression_level,
+            2048,
+            cuda_ctx.execution_ctx(),
+        )?;
 
     Ok((zstd_array, uncompressed_size))
 }
@@ -120,8 +128,10 @@ fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
     let mut group = c.benchmark_group("ZSTD_cuda");
 
     for (num_strings, label) in BENCH_ARGS {
-        let (zstd_array, uncompressed_size) =
-            make_zstd_array(*num_strings).vortex_expect("failed to create ZSTD array");
+        let mut setup_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+        let (zstd_array, uncompressed_size) = make_zstd_array(*num_strings, &mut setup_ctx)
+            .vortex_expect("failed to create ZSTD array");
 
         group.throughput(Throughput::Bytes(uncompressed_size as u64));
         group.bench_with_input(

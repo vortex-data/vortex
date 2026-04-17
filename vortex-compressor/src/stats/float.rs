@@ -8,8 +8,7 @@ use std::hash::Hash;
 use itertools::Itertools;
 use num_traits::Float;
 use rustc_hash::FxBuildHasher;
-use vortex_array::LEGACY_SESSION;
-use vortex_array::VortexSessionExecute;
+use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::NativePType;
@@ -109,11 +108,12 @@ impl FloatStats {
     fn generate_opts_fallible(
         input: &PrimitiveArray,
         opts: GenerateStatsOptions,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
         match input.ptype() {
-            PType::F16 => typed_float_stats::<f16>(input, opts.count_distinct_values),
-            PType::F32 => typed_float_stats::<f32>(input, opts.count_distinct_values),
-            PType::F64 => typed_float_stats::<f64>(input, opts.count_distinct_values),
+            PType::F16 => typed_float_stats::<f16>(input, opts.count_distinct_values, ctx),
+            PType::F32 => typed_float_stats::<f32>(input, opts.count_distinct_values, ctx),
+            PType::F64 => typed_float_stats::<f64>(input, opts.count_distinct_values, ctx),
             _ => vortex_panic!("cannot generate FloatStats from ptype {}", input.ptype()),
         }
     }
@@ -126,13 +126,17 @@ impl FloatStats {
 
 impl FloatStats {
     /// Generates stats with default options.
-    pub fn generate(input: &PrimitiveArray) -> Self {
-        Self::generate_opts(input, GenerateStatsOptions::default())
+    pub fn generate(input: &PrimitiveArray, ctx: &mut ExecutionCtx) -> Self {
+        Self::generate_opts(input, GenerateStatsOptions::default(), ctx)
     }
 
     /// Generates stats with provided options.
-    pub fn generate_opts(input: &PrimitiveArray, opts: GenerateStatsOptions) -> Self {
-        Self::generate_opts_fallible(input, opts)
+    pub fn generate_opts(
+        input: &PrimitiveArray,
+        opts: GenerateStatsOptions,
+        ctx: &mut ExecutionCtx,
+    ) -> Self {
+        Self::generate_opts_fallible(input, opts, ctx)
             .vortex_expect("FloatStats::generate_opts should not fail")
     }
 
@@ -161,6 +165,7 @@ impl FloatStats {
 fn typed_float_stats<T: NativePType + Float>(
     array: &PrimitiveArray,
     count_distinct_values: bool,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<FloatStats>
 where
     NativeValue<T>: Hash + Eq,
@@ -176,8 +181,7 @@ where
         });
     }
 
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    if array.all_invalid(&mut ctx)? {
+    if array.all_invalid(ctx)? {
         return Ok(FloatStats {
             null_count: u32::try_from(array.len())?,
             value_count: 0,
@@ -194,7 +198,7 @@ where
 
     let null_count = array
         .statistics()
-        .compute_null_count(&mut ctx)
+        .compute_null_count(ctx)
         .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
     let value_count = array.len() - null_count;
 
@@ -206,10 +210,10 @@ where
         HashSet::with_hasher(FxBuildHasher)
     };
 
-    let validity = array.as_ref().validity()?.to_mask(
-        array.as_ref().len(),
-        &mut LEGACY_SESSION.create_execution_ctx(),
-    )?;
+    let validity = array
+        .as_ref()
+        .validity()?
+        .to_mask(array.as_ref().len(), ctx)?;
 
     let mut runs = 1;
     let head_idx = validity
@@ -272,35 +276,39 @@ where
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
     use super::FloatStats;
 
     #[test]
-    fn test_float_stats() {
+    fn test_float_stats() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let floats = buffer![0.0f32, 1.0f32, 2.0f32].into_array();
-        #[expect(deprecated)]
-        let floats = floats.to_primitive();
+        let floats = floats.execute::<PrimitiveArray>(&mut ctx)?;
 
         let stats = FloatStats::generate_opts(
             &floats,
             crate::stats::GenerateStatsOptions {
                 count_distinct_values: true,
             },
+            &mut ctx,
         );
 
         assert_eq!(stats.value_count, 3);
         assert_eq!(stats.null_count, 0);
         assert_eq!(stats.average_run_length, 1);
         assert_eq!(stats.distinct_count().unwrap(), 3);
+        Ok(())
     }
 
     #[test]
     fn test_float_stats_leading_nulls() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let floats = PrimitiveArray::new(
             buffer![0.0f32, 1.0f32, 2.0f32],
             Validity::from_iter([false, true, true]),
@@ -311,6 +319,7 @@ mod tests {
             crate::stats::GenerateStatsOptions {
                 count_distinct_values: true,
             },
+            &mut ctx,
         );
 
         assert_eq!(stats.value_count, 2);

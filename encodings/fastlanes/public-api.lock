@@ -468,7 +468,7 @@ pub struct vortex_fastlanes::RLE
 
 impl vortex_fastlanes::RLE
 
-pub fn vortex_fastlanes::RLE::encode(array: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>) -> vortex_error::VortexResult<vortex_fastlanes::RLEArray>
+pub fn vortex_fastlanes::RLE::encode(array: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_fastlanes::RLEArray>
 
 pub unsafe fn vortex_fastlanes::RLE::new_unchecked(values: vortex_array::array::erased::ArrayRef, indices: vortex_array::array::erased::ArrayRef, values_idx_offsets: vortex_array::array::erased::ArrayRef, offset: usize, length: usize) -> vortex_fastlanes::RLEArray
 
@@ -532,7 +532,7 @@ pub struct vortex_fastlanes::RLEData
 
 impl vortex_fastlanes::RLEData
 
-pub fn vortex_fastlanes::RLEData::encode(array: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>) -> vortex_error::VortexResult<vortex_fastlanes::RLEArray>
+pub fn vortex_fastlanes::RLEData::encode(array: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_fastlanes::RLEArray>
 
 impl vortex_fastlanes::RLEData
 

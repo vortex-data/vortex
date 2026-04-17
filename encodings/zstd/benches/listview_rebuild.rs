@@ -5,6 +5,8 @@
 
 use divan::Bencher;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::listview::ListViewRebuildMode;
@@ -21,7 +23,7 @@ fn rebuild_naive(bencher: Bencher) {
     let validity = dudes.validity().unwrap();
     let dudes = Zstd::try_new(
         dtype,
-        ZstdData::from_array(dudes, 9, 1024).unwrap(),
+        ZstdData::from_array(dudes, 9, 1024, &mut LEGACY_SESSION.create_execution_ctx()).unwrap(),
         validity,
     )
     .unwrap()

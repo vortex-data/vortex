@@ -89,8 +89,8 @@ impl CastReduce for Sequence {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
@@ -119,6 +119,7 @@ mod tests {
 
     #[test]
     fn test_cast_sequence_u32_to_i64() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let sequence = Sequence::try_new_typed(100u32, 10u32, Nullability::NonNullable, 4).unwrap();
 
         let casted = sequence
@@ -131,13 +132,13 @@ mod tests {
         );
 
         // Verify the values
-        #[expect(deprecated)]
-        let decoded = casted.to_primitive();
+        let decoded = casted.execute::<PrimitiveArray>(&mut ctx).unwrap();
         assert_arrays_eq!(decoded, PrimitiveArray::from_iter([100i64, 110, 120, 130]));
     }
 
     #[test]
     fn test_cast_sequence_i16_to_i32_nullable() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Test ptype change AND nullability change in one cast
         let sequence = Sequence::try_new_typed(5i16, 3i16, Nullability::NonNullable, 3).unwrap();
 
@@ -151,8 +152,7 @@ mod tests {
         );
 
         // Verify the values
-        #[expect(deprecated)]
-        let decoded = casted.to_primitive();
+        let decoded = casted.execute::<PrimitiveArray>(&mut ctx).unwrap();
         assert_arrays_eq!(
             decoded,
             PrimitiveArray::from_option_iter([Some(5i32), Some(8), Some(11)])
@@ -161,6 +161,7 @@ mod tests {
 
     #[test]
     fn test_cast_sequence_to_float_delegates_to_canonical() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let sequence = Sequence::try_new_typed(0i32, 1i32, Nullability::NonNullable, 5).unwrap();
 
         // Cast to float should delegate to canonical (SequenceArray doesn't support float)
@@ -175,8 +176,7 @@ mod tests {
         );
 
         // Verify the values were correctly converted
-        #[expect(deprecated)]
-        let decoded = casted.to_primitive();
+        let decoded = casted.execute::<PrimitiveArray>(&mut ctx).unwrap();
         assert_arrays_eq!(
             decoded,
             PrimitiveArray::from_iter([0.0f32, 1.0, 2.0, 3.0, 4.0])

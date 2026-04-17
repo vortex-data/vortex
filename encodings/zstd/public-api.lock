@@ -98,7 +98,7 @@ pub struct vortex_zstd::ZstdData
 
 impl vortex_zstd::ZstdData
 
-pub fn vortex_zstd::ZstdData::from_array(array: vortex_array::array::erased::ArrayRef, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_zstd::ZstdData::from_array(array: vortex_array::array::erased::ArrayRef, level: i32, values_per_frame: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_zstd::ZstdData::from_canonical(canonical: &vortex_array::canonical::Canonical, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<core::option::Option<Self>>
 

@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex::VortexSessionDefault;
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
 use vortex::encodings::fastlanes::RLE;
 use vortex::error::VortexResult;
+use vortex_session::VortexSession;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
@@ -31,6 +34,9 @@ impl FlatLayoutFixture for RleFixture {
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
+        let session = VortexSession::default();
+        let mut ctx = session.create_execution_ctx();
+
         let runs_i32: PrimitiveArray = (0..N as i32).map(|i| i / 64).collect();
         let single_run: PrimitiveArray = std::iter::repeat_n(42u64, N).collect();
         let nullable_runs = PrimitiveArray::from_option_iter(
@@ -69,14 +75,14 @@ impl FlatLayoutFixture for RleFixture {
                 "short_runs_u8",
             ]),
             vec![
-                RLE::encode(runs_i32.as_view())?.into_array(),
-                RLE::encode(single_run.as_view())?.into_array(),
-                RLE::encode(nullable_runs.as_view())?.into_array(),
-                RLE::encode(alternating_singletons.as_view())?.into_array(),
-                RLE::encode(exact_boundary_runs.as_view())?.into_array(),
-                RLE::encode(giant_final_run.as_view())?.into_array(),
-                RLE::encode(all_null_i32.as_view())?.into_array(),
-                RLE::encode(short_runs_u8.as_view())?.into_array(),
+                RLE::encode(runs_i32.as_view(), &mut ctx)?.into_array(),
+                RLE::encode(single_run.as_view(), &mut ctx)?.into_array(),
+                RLE::encode(nullable_runs.as_view(), &mut ctx)?.into_array(),
+                RLE::encode(alternating_singletons.as_view(), &mut ctx)?.into_array(),
+                RLE::encode(exact_boundary_runs.as_view(), &mut ctx)?.into_array(),
+                RLE::encode(giant_final_run.as_view(), &mut ctx)?.into_array(),
+                RLE::encode(all_null_i32.as_view(), &mut ctx)?.into_array(),
+                RLE::encode(short_runs_u8.as_view(), &mut ctx)?.into_array(),
             ],
             N,
             Validity::NonNullable,

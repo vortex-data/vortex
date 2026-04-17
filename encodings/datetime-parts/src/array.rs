@@ -271,13 +271,16 @@ impl DateTimeParts {
     }
 
     /// Construct a [`DateTimePartsArray`] from a [`TemporalArray`].
-    pub fn try_from_temporal(temporal: TemporalArray) -> VortexResult<DateTimePartsArray> {
+    pub fn try_from_temporal(
+        temporal: TemporalArray,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<DateTimePartsArray> {
         let dtype = temporal.dtype().clone();
         let TemporalParts {
             days,
             seconds,
             subseconds,
-        } = split_temporal(temporal)?;
+        } = split_temporal(temporal, ctx)?;
         Self::try_new(dtype, days, seconds, subseconds)
     }
 }

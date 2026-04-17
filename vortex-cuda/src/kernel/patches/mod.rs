@@ -101,10 +101,9 @@ mod tests {
     use std::sync::Arc;
 
     use cudarc::driver::DeviceRepr;
+    use vortex::array::ExecutionCtx;
     use vortex::array::IntoArray;
     use vortex::array::LEGACY_SESSION;
-    #[expect(deprecated)]
-    use vortex::array::ToCanonical;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::primitive::PrimitiveDataParts;
@@ -146,32 +145,30 @@ mod tests {
     }
 
     async fn full_test_case<Values: NativePType + DeviceRepr, Indices: NativePType + DeviceRepr>() {
-        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty()).unwrap();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty()).unwrap();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
         let values = PrimitiveArray::from_iter(0..128);
-        let values = force_cast::<Values>(values);
+        let values = force_cast::<Values>(values, &mut ctx);
 
         let patch_idx = PrimitiveArray::new(buffer![0, 8, 16, 32], Validity::NonNullable);
-        let patch_idx = force_cast::<Indices>(patch_idx);
+        let patch_idx = force_cast::<Indices>(patch_idx, &mut ctx);
 
         let patch_val = PrimitiveArray::new(buffer![99, 99, 99, 99], Validity::NonNullable);
-        let patch_val = force_cast::<Values>(patch_val);
+        let patch_val = force_cast::<Values>(patch_val, &mut ctx);
 
         // Copy all to GPU
         let patches =
             Patches::new(128, 0, patch_idx.into_array(), patch_val.into_array(), None).unwrap();
 
-        let cpu_result = values
-            .clone()
-            .patch(&patches, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap();
+        let cpu_result = values.clone().patch(&patches, &mut ctx).unwrap();
 
         let PrimitiveDataParts {
             buffer: cuda_buffer,
             ..
         } = values.into_data_parts();
 
-        let handle = ctx.ensure_on_device(cuda_buffer).await.unwrap();
+        let handle = cuda_ctx.ensure_on_device(cuda_buffer).await.unwrap();
         let device_buf = handle
             .as_device()
             .as_any()
@@ -179,7 +176,7 @@ mod tests {
             .unwrap()
             .clone();
 
-        let patched_buf = execute_patches::<Values, Indices>(patches, device_buf, &mut ctx)
+        let patched_buf = execute_patches::<Values, Indices>(patches, device_buf, &mut cuda_ctx)
             .await
             .unwrap();
 
@@ -189,7 +186,7 @@ mod tests {
             Validity::NonNullable,
         )
         .into_array()
-        .execute::<vortex::array::Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+        .execute::<vortex::array::Canonical>(&mut ctx)
         .unwrap()
         .into_host()
         .await
@@ -199,13 +196,12 @@ mod tests {
         assert_arrays_eq!(cpu_result, gpu_result);
     }
 
-    fn force_cast<T: NativePType>(array: PrimitiveArray) -> PrimitiveArray {
-        #[expect(deprecated)]
-        let result = array
+    fn force_cast<T: NativePType>(array: PrimitiveArray, ctx: &mut ExecutionCtx) -> PrimitiveArray {
+        array
             .into_array()
             .cast(DType::Primitive(T::PTYPE, Nullability::NonNullable))
             .unwrap()
-            .to_primitive();
-        result
+            .execute::<PrimitiveArray>(ctx)
+            .unwrap()
     }
 }

@@ -23,15 +23,15 @@ impl SliceKernel for RLE {
     fn slice(
         array: ArrayView<'_, Self>,
         range: Range<usize>,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let offset_in_chunk = array.offset();
         let chunk_start_idx = (offset_in_chunk + range.start) / FL_CHUNK_SIZE;
         let chunk_end_idx = (offset_in_chunk + range.end).div_ceil(FL_CHUNK_SIZE);
 
-        let values_start_idx = array.values_idx_offset(chunk_start_idx);
+        let values_start_idx = array.values_idx_offset(chunk_start_idx, ctx);
         let values_end_idx = if chunk_end_idx < array.values_idx_offsets().len() {
-            array.values_idx_offset(chunk_end_idx)
+            array.values_idx_offset(chunk_end_idx, ctx)
         } else {
             array.values().len()
         };

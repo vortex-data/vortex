@@ -3,8 +3,7 @@
 
 //! String compression statistics.
 
-use vortex_array::LEGACY_SESSION;
-use vortex_array::VortexSessionExecute;
+use vortex_array::ExecutionCtx;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -49,10 +48,11 @@ impl StringStats {
     fn generate_opts_fallible(
         input: &VarBinViewArray,
         opts: GenerateStatsOptions,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
         let null_count = input
             .statistics()
-            .compute_null_count(&mut LEGACY_SESSION.create_execution_ctx())
+            .compute_null_count(ctx)
             .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
         let value_count = input.len() - null_count;
         let estimated_distinct_count = opts
@@ -70,13 +70,17 @@ impl StringStats {
 
 impl StringStats {
     /// Generates stats with default options.
-    pub fn generate(input: &VarBinViewArray) -> Self {
-        Self::generate_opts(input, GenerateStatsOptions::default())
+    pub fn generate(input: &VarBinViewArray, ctx: &mut ExecutionCtx) -> Self {
+        Self::generate_opts(input, GenerateStatsOptions::default(), ctx)
     }
 
     /// Generates stats with provided options.
-    pub fn generate_opts(input: &VarBinViewArray, opts: GenerateStatsOptions) -> Self {
-        Self::generate_opts_fallible(input, opts)
+    pub fn generate_opts(
+        input: &VarBinViewArray,
+        opts: GenerateStatsOptions,
+        ctx: &mut ExecutionCtx,
+    ) -> Self {
+        Self::generate_opts_fallible(input, opts, ctx)
             .vortex_expect("StringStats::generate_opts should not fail")
     }
 

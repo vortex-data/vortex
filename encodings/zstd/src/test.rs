@@ -4,8 +4,6 @@
 
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -23,16 +21,16 @@ use crate::Zstd;
 
 #[test]
 fn test_zstd_compress_decompress() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let data: Vec<i32> = (0..200).collect();
     let array = PrimitiveArray::from_iter(data.clone());
 
-    let compressed = Zstd::from_primitive(&array, 3, 0).unwrap();
+    let compressed = Zstd::from_primitive(&array, 3, 0, &mut ctx).unwrap();
     // this data should be compressible
     assert!(compressed.frames.len() < array.into_array().nbytes() as usize);
     assert!(compressed.dictionary.is_none());
 
     // check full decompression works
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let decompressed = Zstd::decompress(&compressed, &mut ctx).unwrap();
     assert_arrays_eq!(decompressed, PrimitiveArray::from_iter(data));
 
@@ -49,19 +47,21 @@ fn test_zstd_compress_decompress() {
 
 #[test]
 fn test_zstd_empty() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let data: Vec<i32> = vec![];
     let array = PrimitiveArray::new(
         data.iter().cloned().collect::<Buffer<_>>(),
         Validity::NonNullable,
     );
 
-    let compressed = Zstd::from_primitive(&array, 3, 100).unwrap();
+    let compressed = Zstd::from_primitive(&array, 3, 100, &mut ctx).unwrap();
 
     assert_arrays_eq!(compressed, PrimitiveArray::from_iter(data));
 }
 
 #[test]
 fn test_zstd_with_validity_and_multi_frame() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let data: Vec<i32> = (0..200).collect();
     let mut validity: Vec<bool> = vec![false; 200];
     validity[3] = true;
@@ -71,18 +71,17 @@ fn test_zstd_with_validity_and_multi_frame() {
         Validity::Array(BoolArray::from_iter(validity).into_array()),
     );
 
-    let compressed = Zstd::from_primitive(&array, 0, 30).unwrap();
+    let compressed = Zstd::from_primitive(&array, 0, 30, &mut ctx).unwrap();
     assert!(compressed.dictionary.is_none());
     assert_nth_scalar!(compressed, 0, None::<i32>);
     assert_nth_scalar!(compressed, 3, 3);
     assert_nth_scalar!(compressed, 10, None::<i32>);
     assert_nth_scalar!(compressed, 177, 177);
 
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    #[expect(deprecated)]
     let decompressed = Zstd::decompress(&compressed, &mut ctx)
         .unwrap()
-        .to_primitive();
+        .execute::<PrimitiveArray>(&mut ctx)
+        .unwrap();
     let decompressed_values = decompressed.as_slice::<i32>();
     assert_eq!(decompressed_values[3], 3);
     assert_eq!(decompressed_values[177], 177);
@@ -96,15 +95,9 @@ fn test_zstd_with_validity_and_multi_frame() {
 
     // check slicing works
     let slice = compressed.slice(176..179).unwrap();
-    #[expect(deprecated)]
-    let primitive = slice.to_primitive();
+    let primitive = slice.execute::<PrimitiveArray>(&mut ctx).unwrap();
     assert_eq!(
-        i32::try_from(
-            &primitive
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap()
-        )
-        .unwrap(),
+        i32::try_from(&primitive.execute_scalar(1, &mut ctx).unwrap()).unwrap(),
         177
     );
     assert!(
@@ -121,39 +114,39 @@ fn test_zstd_with_validity_and_multi_frame() {
 
 #[test]
 fn test_zstd_with_dict() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let data: Vec<i32> = (0..200).collect();
     let array = PrimitiveArray::new(
         data.iter().cloned().collect::<Buffer<_>>(),
         Validity::NonNullable,
     );
 
-    let compressed = Zstd::from_primitive(&array, 0, 16).unwrap();
+    let compressed = Zstd::from_primitive(&array, 0, 16, &mut ctx).unwrap();
     assert!(compressed.dictionary.is_some());
     assert_nth_scalar!(compressed, 0, 0);
     assert_nth_scalar!(compressed, 199, 199);
 
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    #[expect(deprecated)]
     let decompressed = Zstd::decompress(&compressed, &mut ctx)
         .unwrap()
-        .to_primitive();
+        .execute::<PrimitiveArray>(&mut ctx)
+        .unwrap();
     assert_arrays_eq!(decompressed, PrimitiveArray::from_iter(data));
 
     // check slicing works
     let slice = compressed.slice(176..179).unwrap();
-    #[expect(deprecated)]
-    let primitive = slice.to_primitive();
+    let primitive = slice.execute::<PrimitiveArray>(&mut ctx).unwrap();
     assert_arrays_eq!(primitive, PrimitiveArray::from_iter([176, 177, 178]));
 }
 
 #[test]
 fn test_validity_vtable() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let mask_bools = vec![false, true, true, false, true];
     let array = PrimitiveArray::new(
         (0..5).collect::<Buffer<_>>(),
         Validity::Array(BoolArray::from_iter(mask_bools.clone()).into_array()),
     );
-    let compressed = Zstd::from_primitive(&array, 3, 0).unwrap();
+    let compressed = Zstd::from_primitive(&array, 3, 0, &mut ctx).unwrap();
     let arr = compressed.as_array();
     assert_eq!(
         arr.validity()
@@ -175,6 +168,7 @@ fn test_validity_vtable() {
 
 #[test]
 fn test_zstd_var_bin_view() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let data: [Option<&'static [u8]>; 5] = [
         Some(b"foo"),
         Some(b"bar"),
@@ -184,7 +178,7 @@ fn test_zstd_var_bin_view() {
     ];
     let array = VarBinViewArray::from_iter(data, DType::Utf8(Nullability::Nullable));
 
-    let compressed = Zstd::from_var_bin_view(&array, 0, 3).unwrap();
+    let compressed = Zstd::from_var_bin_view(&array, 0, 3, &mut ctx).unwrap();
     assert!(compressed.dictionary.is_none());
     assert_nth_scalar!(compressed, 0, "foo");
     assert_nth_scalar!(compressed, 1, "bar");
@@ -200,6 +194,7 @@ fn test_zstd_var_bin_view() {
 
 #[test]
 fn test_zstd_decompress_var_bin_view() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let data: [Option<&'static [u8]>; 5] = [
         Some(b"foo"),
         Some(b"bar"),
@@ -209,7 +204,7 @@ fn test_zstd_decompress_var_bin_view() {
     ];
     let array = VarBinViewArray::from_iter(data, DType::Utf8(Nullability::Nullable));
 
-    let compressed = Zstd::from_var_bin_view(&array, 0, 3).unwrap();
+    let compressed = Zstd::from_var_bin_view(&array, 0, 3, &mut ctx).unwrap();
     assert!(compressed.dictionary.is_none());
     assert_nth_scalar!(compressed, 0, "foo");
     assert_nth_scalar!(compressed, 1, "bar");
@@ -217,11 +212,10 @@ fn test_zstd_decompress_var_bin_view() {
     assert_nth_scalar!(compressed, 3, "Lorem ipsum dolor sit amet");
     assert_nth_scalar!(compressed, 4, "baz");
 
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    #[expect(deprecated)]
     let decompressed = Zstd::decompress(&compressed, &mut ctx)
         .unwrap()
-        .to_varbinview();
+        .execute::<VarBinViewArray>(&mut ctx)
+        .unwrap();
     assert_nth_scalar!(decompressed, 0, "foo");
     assert_nth_scalar!(decompressed, 1, "bar");
     assert_nth_scalar!(decompressed, 2, None::<String>);
@@ -231,8 +225,10 @@ fn test_zstd_decompress_var_bin_view() {
 
 #[test]
 fn test_sliced_array_children() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let data: Vec<Option<i32>> = (0..10).map(|v| (v != 5).then_some(v)).collect();
-    let compressed = Zstd::from_primitive(&PrimitiveArray::from_option_iter(data), 0, 100).unwrap();
+    let compressed =
+        Zstd::from_primitive(&PrimitiveArray::from_option_iter(data), 0, 100, &mut ctx).unwrap();
     let sliced = compressed.slice(0..4).unwrap();
     sliced.children();
 }
@@ -241,11 +237,12 @@ fn test_sliced_array_children() {
 /// the buffer alignment when compressing primitive arrays.
 #[test]
 fn test_zstd_frame_start_buffer_alignment() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let data = vec![0u8; 2];
     let aligned_buffer = Buffer::copy_from_aligned(&data, Alignment::new(8));
     // u8 array now has a 8-byte alignment.
     let array = PrimitiveArray::new(aligned_buffer, Validity::NonNullable);
-    let compressed = Zstd::from_primitive(&array, 0, 1);
+    let compressed = Zstd::from_primitive(&array, 0, 1, &mut ctx);
 
     assert!(compressed.is_ok());
 }

@@ -5,6 +5,8 @@ use arrow_array::RunArray;
 use arrow_array::types::RunEndIndexType;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrow::FromArrowArray;
@@ -53,7 +55,9 @@ where
         };
 
         // SAFETY: arrow-rs enforces the RunEndArray invariants, we inherit their guarantees.
-        RunEndData::validate_parts(&ends_slice, &values_slice, offset, len)?;
+        // TODO(ctx): trait fixes - FromArrowArray::from_arrow has a fixed signature.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        RunEndData::validate_parts(&ends_slice, &values_slice, offset, len, &mut ctx)?;
         Ok(unsafe { RunEndData::new_unchecked(offset) })
     }
 }
@@ -76,6 +80,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray as _;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute as _;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::primitive::PrimitiveArrayExt;
@@ -331,7 +336,11 @@ mod tests {
         #[case] expected_ends: &[i32],
         #[case] expected_values: &[i32],
     ) -> VortexResult<()> {
-        let array = RunEnd::encode(PrimitiveArray::from_iter(input.iter().copied()).into_array())?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let array = RunEnd::encode(
+            PrimitiveArray::from_iter(input.iter().copied()).into_array(),
+            &mut ctx,
+        )?;
         let sliced = array.into_array().slice(slice_range.clone())?;
         let target = ree_type(DataType::Int32, DataType::Int32);
         let result = execute(sliced, &target)?;

@@ -21,11 +21,7 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
-use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -270,11 +266,12 @@ impl Zstd {
         vbv: &VarBinViewArray,
         level: i32,
         values_per_frame: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ZstdArray> {
         let validity = vbv.validity()?;
         Self::try_new(
             vbv.dtype().clone(),
-            ZstdData::from_var_bin_view_without_dict(vbv, level, values_per_frame)?,
+            ZstdData::from_var_bin_view_without_dict(vbv, level, values_per_frame, ctx)?,
             validity,
         )
     }
@@ -284,11 +281,12 @@ impl Zstd {
         parray: &PrimitiveArray,
         level: i32,
         values_per_frame: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ZstdArray> {
         let validity = parray.validity()?;
         Self::try_new(
             parray.dtype().clone(),
-            ZstdData::from_primitive(parray, level, values_per_frame)?,
+            ZstdData::from_primitive(parray, level, values_per_frame, ctx)?,
             validity,
         )
     }
@@ -298,11 +296,12 @@ impl Zstd {
         vbv: &VarBinViewArray,
         level: i32,
         values_per_frame: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ZstdArray> {
         let validity = vbv.validity()?;
         Self::try_new(
             vbv.dtype().clone(),
-            ZstdData::from_var_bin_view(vbv, level, values_per_frame)?,
+            ZstdData::from_var_bin_view(vbv, level, values_per_frame, ctx)?,
             validity,
         )
     }
@@ -366,21 +365,23 @@ fn choose_max_dict_size(uncompressed_size: usize) -> usize {
     (uncompressed_size / 100).clamp(256, 100 * 1024)
 }
 
-fn collect_valid_primitive(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
-    let mask = parray.as_ref().validity()?.to_mask(
-        parray.as_ref().len(),
-        &mut LEGACY_SESSION.create_execution_ctx(),
-    )?;
-    #[expect(deprecated)]
-    let result = parray.filter(mask)?.to_primitive();
+fn collect_valid_primitive(
+    parray: &PrimitiveArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
+    let mask = parray
+        .as_ref()
+        .validity()?
+        .to_mask(parray.as_ref().len(), ctx)?;
+    let result = parray.filter(mask)?.execute::<PrimitiveArray>(ctx)?;
     Ok(result)
 }
 
-fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usize>)> {
-    let mask = vbv.as_ref().validity()?.to_mask(
-        vbv.as_ref().len(),
-        &mut LEGACY_SESSION.create_execution_ctx(),
-    )?;
+fn collect_valid_vbv(
+    vbv: &VarBinViewArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(ByteBuffer, Vec<usize>)> {
+    let mask = vbv.as_ref().validity()?.to_mask(vbv.as_ref().len(), ctx)?;
     let buffer_and_value_byte_indices = match mask.bit_buffer() {
         AllOr::None => (Buffer::empty(), Vec::new()),
         _ => {
@@ -625,8 +626,9 @@ impl ZstdData {
         parray: &PrimitiveArray,
         level: i32,
         values_per_frame: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
-        Self::from_primitive_impl(parray, level, values_per_frame, true)
+        Self::from_primitive_impl(parray, level, values_per_frame, true, ctx)
     }
 
     /// Creates a ZstdArray from a primitive array without using a dictionary.
@@ -646,8 +648,9 @@ impl ZstdData {
         parray: &PrimitiveArray,
         level: i32,
         values_per_frame: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
-        Self::from_primitive_impl(parray, level, values_per_frame, false)
+        Self::from_primitive_impl(parray, level, values_per_frame, false, ctx)
     }
 
     fn from_primitive_impl(
@@ -655,11 +658,12 @@ impl ZstdData {
         level: i32,
         values_per_frame: usize,
         use_dictionary: bool,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
         let byte_width = parray.ptype().byte_width();
 
         // We compress only the valid elements.
-        let values = collect_valid_primitive(parray)?;
+        let values = collect_valid_primitive(parray, ctx)?;
         let n_values = values.len();
         let values_per_frame = if values_per_frame > 0 {
             values_per_frame
@@ -709,8 +713,9 @@ impl ZstdData {
         vbv: &VarBinViewArray,
         level: i32,
         values_per_frame: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
-        Self::from_var_bin_view_impl(vbv, level, values_per_frame, true)
+        Self::from_var_bin_view_impl(vbv, level, values_per_frame, true, ctx)
     }
 
     /// Creates a ZstdArray from a VarBinView array without using a dictionary.
@@ -730,8 +735,9 @@ impl ZstdData {
         vbv: &VarBinViewArray,
         level: i32,
         values_per_frame: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
-        Self::from_var_bin_view_impl(vbv, level, values_per_frame, false)
+        Self::from_var_bin_view_impl(vbv, level, values_per_frame, false, ctx)
     }
 
     fn from_var_bin_view_impl(
@@ -739,6 +745,7 @@ impl ZstdData {
         level: i32,
         values_per_frame: usize,
         use_dictionary: bool,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
         // Approach for strings: we prefix each string with its length as a u32.
         // This is the same as what Parquet does. In some cases it may be better
@@ -746,7 +753,7 @@ impl ZstdData {
         // this approach is simpler and can be best in cases when there is
         // mutual information between strings and their lengths.
         // We compress only the valid elements.
-        let (value_bytes, value_byte_indices) = collect_valid_vbv(vbv)?;
+        let (value_bytes, value_byte_indices) = collect_valid_vbv(vbv, ctx)?;
         let n_values = value_byte_indices.len();
         let values_per_frame = if values_per_frame > 0 {
             values_per_frame
@@ -785,26 +792,33 @@ impl ZstdData {
         canonical: &Canonical,
         level: i32,
         values_per_frame: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Self>> {
         match canonical {
             Canonical::Primitive(parray) => Ok(Some(ZstdData::from_primitive(
                 parray,
                 level,
                 values_per_frame,
+                ctx,
             )?)),
             Canonical::VarBinView(vbv) => Ok(Some(ZstdData::from_var_bin_view(
                 vbv,
                 level,
                 values_per_frame,
+                ctx,
             )?)),
             _ => Ok(None),
         }
     }
 
-    pub fn from_array(array: ArrayRef, level: i32, values_per_frame: usize) -> VortexResult<Self> {
-        #[expect(deprecated)]
-        let canonical = array.to_canonical()?;
-        Self::from_canonical(&canonical, level, values_per_frame)?
+    pub fn from_array(
+        array: ArrayRef,
+        level: i32,
+        values_per_frame: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Self> {
+        let canonical = array.execute::<Canonical>(ctx)?;
+        Self::from_canonical(&canonical, level, values_per_frame, ctx)?
             .ok_or_else(|| vortex_err!("Zstd can only encode Primitive and VarBinView arrays"))
     }
 

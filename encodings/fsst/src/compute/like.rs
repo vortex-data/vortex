@@ -5,9 +5,8 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::varbin::VarBinArrayExt;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar_fn::fns::like::LikeKernel;
@@ -24,7 +23,7 @@ impl LikeKernel for FSST {
         array: ArrayView<'_, Self>,
         pattern: &ArrayRef,
         options: LikeOptions,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let Some(pattern_scalar) = pattern.as_constant() else {
             return Ok(None);
@@ -59,8 +58,7 @@ impl LikeKernel for FSST {
 
         let negated = options.negated;
         let codes = array.codes();
-        #[expect(deprecated)]
-        let offsets = codes.offsets().to_primitive();
+        let offsets = codes.offsets().clone().execute::<PrimitiveArray>(ctx)?;
         let all_bytes = codes.bytes();
         let all_bytes = all_bytes.as_slice();
         let n = codes.len();
@@ -115,7 +113,13 @@ mod tests {
         let compressor = fsst_train_compressor(&varbin);
         let len = varbin.len();
         let dtype = varbin.dtype().clone();
-        fsst_compress(varbin, len, &dtype, &compressor)
+        fsst_compress(
+            varbin,
+            len,
+            &dtype,
+            &compressor,
+            &mut SESSION.create_execution_ctx(),
+        )
     }
 
     fn run_like(array: FSSTArray, pattern: &str, opts: LikeOptions) -> VortexResult<BoolArray> {

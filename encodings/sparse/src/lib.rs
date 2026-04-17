@@ -20,12 +20,10 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
-use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builtins::ArrayBuiltins;
@@ -270,8 +268,12 @@ impl Sparse {
     }
 
     /// Encode the given array as a [`SparseArray`].
-    pub fn encode(array: &ArrayRef, fill_value: Option<Scalar>) -> VortexResult<ArrayRef> {
-        SparseData::encode(array, fill_value)
+    pub fn encode(
+        array: &ArrayRef,
+        fill_value: Option<Scalar>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        SparseData::encode(array, fill_value, ctx)
     }
 }
 
@@ -396,7 +398,11 @@ impl SparseData {
     /// Encode given array as a SparseArray.
     ///
     /// Optionally provided fill value will be respected if the array is less than 90% null.
-    pub fn encode(array: &ArrayRef, fill_value: Option<Scalar>) -> VortexResult<ArrayRef> {
+    pub fn encode(
+        array: &ArrayRef,
+        fill_value: Option<Scalar>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
         if let Some(fill_value) = fill_value.as_ref()
             && !array.dtype().eq_ignore_nullability(fill_value.dtype())
         {
@@ -406,9 +412,7 @@ impl SparseData {
                 fill_value.dtype()
             )
         }
-        let mask = array
-            .validity()?
-            .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())?;
+        let mask = array.validity()?.to_mask(array.len(), ctx)?;
 
         if mask.all_false() {
             // Array is constant NULL
@@ -417,10 +421,9 @@ impl SparseData {
             );
         } else if mask.false_count() as f64 > (0.9 * mask.len() as f64) {
             // Array is dominated by NULL but has non-NULL values
-            // TODO(joe): use exe ctx?
             let non_null_values = array
                 .filter(mask.clone())?
-                .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+                .execute::<Canonical>(ctx)?
                 .into_array();
             let non_null_indices = match mask.indices() {
                 AllOr::All => {
@@ -454,8 +457,7 @@ impl SparseData {
             fill.cast(array.dtype())?
         } else {
             // TODO(robert): Support other dtypes, only thing missing is getting most common value out of the array
-            #[expect(deprecated)]
-            let primitive = array.to_primitive();
+            let primitive = array.clone().execute::<PrimitiveArray>(ctx)?;
             let (top_pvalue, _) = primitive
                 .top_value()?
                 .vortex_expect("Non empty or all null array");
@@ -464,16 +466,15 @@ impl SparseData {
         };
 
         let fill_array = ConstantArray::new(fill.clone(), array.len()).into_array();
-        #[expect(deprecated)]
         let non_top_bool = array
             .binary(fill_array.clone(), Operator::NotEq)?
             .fill_null(Scalar::bool(true, Nullability::NonNullable))?
-            .to_bool();
+            .execute::<BoolArray>(ctx)?;
         let non_top_mask = Mask::from_buffer(non_top_bool.to_bit_buffer());
 
         let non_top_values = array
             .filter(non_top_mask.clone())?
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .execute::<Canonical>(ctx)?
             .into_array();
 
         let indices: Buffer<u64> = match non_top_mask {
@@ -746,26 +747,26 @@ mod test {
 
     #[test]
     fn encode_with_nulls() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let original = PrimitiveArray::new(
             buffer![0i32, 1, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4],
             Validity::from_iter(vec![
                 true, true, false, true, false, true, false, true, true, false, true, false,
             ]),
         );
-        let sparse = Sparse::encode(&original.clone().into_array(), None)
+        let sparse = Sparse::encode(&original.clone().into_array(), None, &mut ctx)
             .vortex_expect("Sparse::encode should succeed for test data");
         assert_eq!(
             sparse
                 .validity()
                 .unwrap()
-                .to_mask(sparse.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .to_mask(sparse.len(), &mut ctx)
                 .unwrap(),
             Mask::from_iter(vec![
                 true, true, false, true, false, true, false, true, true, false, true, false,
             ])
         );
-        #[expect(deprecated)]
-        let sparse_primitive = sparse.to_primitive();
+        let sparse_primitive = sparse.execute::<PrimitiveArray>(&mut ctx).unwrap();
         assert_arrays_eq!(sparse_primitive, original);
     }
 
