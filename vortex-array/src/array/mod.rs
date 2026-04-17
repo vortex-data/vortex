@@ -69,6 +69,9 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
     fn slots(&self) -> &[Option<ArrayRef>];
 
     /// Returns mutable slots of the array.
+    ///
+    /// # Safety: any slot (Some(child)) that replaces an existing slot must have a compatible
+    /// DType and length.
     unsafe fn slots_mut(&mut self) -> &mut [Option<ArrayRef>];
 
     /// Returns the encoding ID of the array.
