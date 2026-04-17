@@ -276,6 +276,7 @@ mod tests {
             crate::stats::GenerateStatsOptions {
                 count_distinct_values: true,
             },
+            &mut ctx,
         );
         let dict_array = dictionary_encode(array.as_view(), &stats).unwrap();
         assert_eq!(dict_array.values().len(), 2);

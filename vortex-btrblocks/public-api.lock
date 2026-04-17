@@ -58,7 +58,7 @@ impl vortex_compressor::scheme::Scheme for vortex_btrblocks::schemes::decimal::D
 
 pub fn vortex_btrblocks::schemes::decimal::DecimalScheme::compress(&self, compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_btrblocks::schemes::decimal::DecimalScheme::expected_compression_ratio(&self, _data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_compressor::estimate::CompressionEstimate
+pub fn vortex_btrblocks::schemes::decimal::DecimalScheme::expected_compression_ratio(&self, _data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext, _exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_btrblocks::schemes::decimal::DecimalScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 
@@ -98,9 +98,9 @@ impl core::marker::StructuralPartialEq for vortex_btrblocks::schemes::float::ALP
 
 impl vortex_compressor::scheme::Scheme for vortex_btrblocks::schemes::float::ALPRDScheme
 
-pub fn vortex_btrblocks::schemes::float::ALPRDScheme::compress(&self, _compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+pub fn vortex_btrblocks::schemes::float::ALPRDScheme::compress(&self, compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_btrblocks::schemes::float::ALPRDScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_compressor::estimate::CompressionEstimate
+pub fn vortex_btrblocks::schemes::float::ALPRDScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext, _exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_btrblocks::schemes::float::ALPRDScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 
@@ -130,7 +130,7 @@ impl vortex_compressor::scheme::Scheme for vortex_btrblocks::schemes::float::ALP
 
 pub fn vortex_btrblocks::schemes::float::ALPScheme::compress(&self, compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_btrblocks::schemes::float::ALPScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_compressor::estimate::CompressionEstimate
+pub fn vortex_btrblocks::schemes::float::ALPScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext, _exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_btrblocks::schemes::float::ALPScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 
@@ -166,7 +166,7 @@ pub fn vortex_btrblocks::schemes::float::FloatRLEScheme::compress(&self, compres
 
 pub fn vortex_btrblocks::schemes::float::FloatRLEScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
-pub fn vortex_btrblocks::schemes::float::FloatRLEScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_compressor::estimate::CompressionEstimate
+pub fn vortex_btrblocks::schemes::float::FloatRLEScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext, exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_btrblocks::schemes::float::FloatRLEScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 
@@ -200,7 +200,7 @@ pub fn vortex_btrblocks::schemes::float::NullDominatedSparseScheme::compress(&se
 
 pub fn vortex_btrblocks::schemes::float::NullDominatedSparseScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
-pub fn vortex_btrblocks::schemes::float::NullDominatedSparseScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_compressor::estimate::CompressionEstimate
+pub fn vortex_btrblocks::schemes::float::NullDominatedSparseScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext, exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_btrblocks::schemes::float::NullDominatedSparseScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 
@@ -232,7 +232,7 @@ impl vortex_compressor::scheme::Scheme for vortex_btrblocks::schemes::float::Pco
 
 pub fn vortex_btrblocks::schemes::float::PcoScheme::compress(&self, _compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_btrblocks::schemes::float::PcoScheme::expected_compression_ratio(&self, _data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_compressor::estimate::CompressionEstimate
+pub fn vortex_btrblocks::schemes::float::PcoScheme::expected_compression_ratio(&self, _data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext, _exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_btrblocks::schemes::float::PcoScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 
@@ -270,9 +270,9 @@ impl core::marker::StructuralPartialEq for vortex_btrblocks::schemes::integer::B
 
 impl vortex_compressor::scheme::Scheme for vortex_btrblocks::schemes::integer::BitPackingScheme
 
-pub fn vortex_btrblocks::schemes::integer::BitPackingScheme::compress(&self, _compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+pub fn vortex_btrblocks::schemes::integer::BitPackingScheme::compress(&self, compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_btrblocks::schemes::integer::BitPackingScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_compressor::estimate::CompressionEstimate
+pub fn vortex_btrblocks::schemes::integer::BitPackingScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext, exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_btrblocks::schemes::integer::BitPackingScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 
@@ -304,7 +304,7 @@ pub fn vortex_btrblocks::schemes::integer::FoRScheme::ancestor_exclusions(&self)
 
 pub fn vortex_btrblocks::schemes::integer::FoRScheme::compress(&self, compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_btrblocks::schemes::integer::FoRScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_compressor::estimate::CompressionEstimate
+pub fn vortex_btrblocks::schemes::integer::FoRScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext, exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_btrblocks::schemes::integer::FoRScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 
@@ -338,7 +338,7 @@ pub fn vortex_btrblocks::schemes::integer::IntRLEScheme::compress(&self, compres
 
 pub fn vortex_btrblocks::schemes::integer::IntRLEScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
-pub fn vortex_btrblocks::schemes::integer::IntRLEScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_compressor::estimate::CompressionEstimate
+pub fn vortex_btrblocks::schemes::integer::IntRLEScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext, exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_btrblocks::schemes::integer::IntRLEScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 
@@ -370,7 +370,7 @@ impl vortex_compressor::scheme::Scheme for vortex_btrblocks::schemes::integer::P
 
 pub fn vortex_btrblocks::schemes::integer::PcoScheme::compress(&self, _compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_btrblocks::schemes::integer::PcoScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_compressor::estimate::CompressionEstimate
+pub fn vortex_btrblocks::schemes::integer::PcoScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext, _exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_btrblocks::schemes::integer::PcoScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 
@@ -404,7 +404,7 @@ pub fn vortex_btrblocks::schemes::integer::RunEndScheme::compress(&self, compres
 
 pub fn vortex_btrblocks::schemes::integer::RunEndScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
-pub fn vortex_btrblocks::schemes::integer::RunEndScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_compressor::estimate::CompressionEstimate
+pub fn vortex_btrblocks::schemes::integer::RunEndScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext, exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_btrblocks::schemes::integer::RunEndScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 
@@ -436,9 +436,9 @@ impl vortex_compressor::scheme::Scheme for vortex_btrblocks::schemes::integer::S
 
 pub fn vortex_btrblocks::schemes::integer::SequenceScheme::ancestor_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::AncestorExclusion>
 
-pub fn vortex_btrblocks::schemes::integer::SequenceScheme::compress(&self, _compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+pub fn vortex_btrblocks::schemes::integer::SequenceScheme::compress(&self, compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_btrblocks::schemes::integer::SequenceScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_compressor::estimate::CompressionEstimate
+pub fn vortex_btrblocks::schemes::integer::SequenceScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext, exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_btrblocks::schemes::integer::SequenceScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 
@@ -470,7 +470,7 @@ pub fn vortex_btrblocks::schemes::integer::SparseScheme::compress(&self, compres
 
 pub fn vortex_btrblocks::schemes::integer::SparseScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
-pub fn vortex_btrblocks::schemes::integer::SparseScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_compressor::estimate::CompressionEstimate
+pub fn vortex_btrblocks::schemes::integer::SparseScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext, exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_btrblocks::schemes::integer::SparseScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 
@@ -508,7 +508,7 @@ pub fn vortex_btrblocks::schemes::integer::ZigZagScheme::compress(&self, compres
 
 pub fn vortex_btrblocks::schemes::integer::ZigZagScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
-pub fn vortex_btrblocks::schemes::integer::ZigZagScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_compressor::estimate::CompressionEstimate
+pub fn vortex_btrblocks::schemes::integer::ZigZagScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext, exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_btrblocks::schemes::integer::ZigZagScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 
@@ -550,7 +550,7 @@ impl vortex_compressor::scheme::Scheme for vortex_btrblocks::schemes::string::FS
 
 pub fn vortex_btrblocks::schemes::string::FSSTScheme::compress(&self, compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_btrblocks::schemes::string::FSSTScheme::expected_compression_ratio(&self, _data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_compressor::estimate::CompressionEstimate
+pub fn vortex_btrblocks::schemes::string::FSSTScheme::expected_compression_ratio(&self, _data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext, _exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_btrblocks::schemes::string::FSSTScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 
@@ -584,7 +584,7 @@ pub fn vortex_btrblocks::schemes::string::NullDominatedSparseScheme::compress(&s
 
 pub fn vortex_btrblocks::schemes::string::NullDominatedSparseScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
-pub fn vortex_btrblocks::schemes::string::NullDominatedSparseScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_compressor::estimate::CompressionEstimate
+pub fn vortex_btrblocks::schemes::string::NullDominatedSparseScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext, exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_btrblocks::schemes::string::NullDominatedSparseScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 
@@ -616,7 +616,7 @@ impl vortex_compressor::scheme::Scheme for vortex_btrblocks::schemes::string::Zs
 
 pub fn vortex_btrblocks::schemes::string::ZstdScheme::compress(&self, _compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_btrblocks::schemes::string::ZstdScheme::expected_compression_ratio(&self, _data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_compressor::estimate::CompressionEstimate
+pub fn vortex_btrblocks::schemes::string::ZstdScheme::expected_compression_ratio(&self, _data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext, _exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_btrblocks::schemes::string::ZstdScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 
@@ -648,7 +648,7 @@ impl vortex_compressor::scheme::Scheme for vortex_btrblocks::schemes::temporal::
 
 pub fn vortex_btrblocks::schemes::temporal::TemporalScheme::compress(&self, compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_btrblocks::schemes::temporal::TemporalScheme::expected_compression_ratio(&self, _data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_compressor::estimate::CompressionEstimate
+pub fn vortex_btrblocks::schemes::temporal::TemporalScheme::expected_compression_ratio(&self, _data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext, _exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_btrblocks::schemes::temporal::TemporalScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 
@@ -706,4 +706,4 @@ pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::fmt(&self, f: &mut core::fm
 
 pub const vortex_btrblocks::ALL_SCHEMES: &[&dyn vortex_compressor::scheme::Scheme]
 
-pub fn vortex_btrblocks::compress_patches(patches: vortex_array::patches::Patches, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::patches::Patches>
+pub fn vortex_btrblocks::compress_patches(patches: vortex_array::patches::Patches, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::patches::Patches>
