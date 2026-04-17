@@ -1,11 +1,18 @@
-[workspace]
-
 [package]
 name = "cosine-similarity-bench"
-version = "0.1.0"
-edition = "2024"
-publish = false
 description = "End-to-end scan-based cosine similarity benchmark over flat f32 vectors."
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+include.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
 
 [[bin]]
 name = "cosine-similarity-bench"
@@ -17,25 +24,46 @@ harness = false
 
 [dependencies]
 aligned-vec = "0.6"
-anyhow = "1.0"
-aws-config = { version = "1.5", features = ["behavior-version-latest"] }
-aws-sdk-s3 = "1.60"
-clap = { version = "4.5", features = ["derive"] }
-futures = "0.3"
-rand = "0.8"
-rand_distr = "0.4"
-rayon = "1.10"
-sysinfo = "0.32"
-tokio = { version = "1.40", features = ["full"] }
+anyhow = { workspace = true }
+# Pin to versions compatible with the workspace's rustc 1.90.0 MSRV. The
+# AWS SDK releases from late 2026 bumped MSRV to 1.91; we pin the whole
+# smithy family here so cargo resolves transitives to 1.90-compatible versions
+# rather than chasing the latest.
+aws-config = { version = "=1.8.13", features = ["behavior-version-latest"] }
+aws-credential-types = "=1.2.11"
+aws-runtime = "=1.6.0"
+aws-sdk-s3 = "=1.122.0"
+aws-sdk-sso = "=1.93.0"
+aws-sdk-ssooidc = "=1.95.0"
+aws-sdk-sts = "=1.97.0"
+aws-sigv4 = "=1.3.8"
+aws-smithy-async = "=1.2.11"
+aws-smithy-checksums = "=0.64.3"
+aws-smithy-eventstream = "=0.60.18"
+aws-smithy-http = "=0.63.3"
+aws-smithy-http-client = "=1.1.9"
+aws-smithy-json = "=0.62.3"
+aws-smithy-observability = "=0.2.4"
+aws-smithy-query = "=0.60.13"
+aws-smithy-runtime = "=1.10.0"
+aws-smithy-runtime-api = "=1.11.3"
+aws-smithy-types = "=1.4.3"
+aws-smithy-xml = "=0.60.13"
+aws-types = "=1.3.11"
+clap = { workspace = true, features = ["derive"] }
+futures = { workspace = true, features = ["std"] }
+parking_lot = { workspace = true }
+rand = { workspace = true }
+rand_distr = { workspace = true }
+sysinfo = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [dev-dependencies]
-criterion = "0.5"
-tempfile = "3.10"
+criterion = { workspace = true }
+tempfile = { workspace = true }
 
-[profile.release]
-lto = "thin"
-codegen-units = 1
-debug = "line-tables-only"
+[lints]
+workspace = true

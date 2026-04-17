@@ -13,7 +13,7 @@ use aligned_vec::AVec;
 use aligned_vec::ConstAlign;
 use anyhow::Context;
 use anyhow::Result;
-use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::StandardNormal;
@@ -27,9 +27,7 @@ pub const ALIGN: usize = 4096;
 /// `n_vectors * dim * 4`).
 pub fn generate(path: &Path, n_vectors: u64, dim: usize, seed: u64) -> Result<u64> {
     anyhow::ensure!(dim > 0, "dim must be positive");
-    let bytes_per_vec = dim
-        .checked_mul(std::mem::size_of::<f32>())
-        .context("dim too large")?;
+    let bytes_per_vec = dim.checked_mul(size_of::<f32>()).context("dim too large")?;
     let total_bytes = (n_vectors as u128)
         .checked_mul(bytes_per_vec as u128)
         .context("corpus size overflow")?;

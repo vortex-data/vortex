@@ -7,7 +7,6 @@
 //! range stalls the pipeline.
 
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::time::Instant;
 
 use anyhow::Context;
@@ -15,6 +14,7 @@ use anyhow::Result;
 use aws_sdk_s3::Client;
 use futures::StreamExt;
 use futures::stream;
+use parking_lot::Mutex;
 
 use crate::kernel::DotKernel;
 use crate::kernel::ScanSink;
@@ -35,7 +35,7 @@ pub struct S3ScanConfig {
 pub async fn run_once(client: &Client, cfg: &S3ScanConfig) -> Result<IterationResult> {
     anyhow::ensure!(cfg.dim > 0, "dim must be positive");
     anyhow::ensure!(cfg.concurrency > 0, "concurrency must be positive");
-    let bytes_per_vec = (cfg.dim * std::mem::size_of::<f32>()) as u64;
+    let bytes_per_vec = (cfg.dim * size_of::<f32>()) as u64;
     anyhow::ensure!(cfg.range_bytes > 0, "range_bytes must be positive");
     anyhow::ensure!(
         cfg.range_bytes.is_multiple_of(bytes_per_vec),
@@ -120,7 +120,6 @@ pub async fn run_once(client: &Client, cfg: &S3ScanConfig) -> Result<IterationRe
             );
             latencies
                 .lock()
-                .unwrap()
                 .push(req_start.elapsed().as_micros() as u64);
 
             // Compute on the returned buffer. AWS SDK delivers aligned heap
@@ -145,7 +144,7 @@ pub async fn run_once(client: &Client, cfg: &S3ScanConfig) -> Result<IterationRe
 
             let mut local = ScanSink::new();
             scan_block(kernel, &query, &owned, dim, &mut local);
-            sink.lock().unwrap().merge(&local);
+            sink.lock().merge(&local);
             Ok::<_, anyhow::Error>(())
         }
     }))
@@ -157,8 +156,8 @@ pub async fn run_once(client: &Client, cfg: &S3ScanConfig) -> Result<IterationRe
 
     let elapsed = t0.elapsed();
     let cpu_percent = cpu.finish();
-    let combined = *sink.lock().unwrap();
-    let all_latencies = std::mem::take(&mut *latencies.lock().unwrap());
+    let combined = *sink.lock();
+    let all_latencies = std::mem::take(&mut *latencies.lock());
 
     std::hint::black_box(combined.sum);
     std::hint::black_box(combined.max);

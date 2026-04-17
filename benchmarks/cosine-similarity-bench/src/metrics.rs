@@ -54,16 +54,16 @@ pub struct RunSummary {
 
 impl RunSummary {
     pub fn report(&self, label: &str) {
-        if self.iters.is_empty() {
+        let Some(last) = self.iters.last() else {
             println!("[{label}] no iterations completed");
             return;
-        }
+        };
         let mut gbs: Vec<f64> = self.iters.iter().map(|i| i.gb_per_sec()).collect();
-        gbs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        // total_cmp handles NaN deterministically, avoiding a partial_cmp unwrap.
+        gbs.sort_by(|a, b| a.total_cmp(b));
         let median = gbs[gbs.len() / 2];
         let min = gbs[0];
         let max = gbs[gbs.len() - 1];
-        let last = self.iters.last().unwrap();
         let (p50, p99) = last.latency_p50_p99_us();
 
         println!(
@@ -108,7 +108,7 @@ impl CpuSampler {
         sys.refresh_processes_specifics(
             ProcessesToUpdate::Some(&[pid]),
             true,
-            ProcessRefreshKind::new().with_cpu(),
+            ProcessRefreshKind::nothing().with_cpu(),
         );
         let start_cpu = process_cpu_time();
         Self {
@@ -125,7 +125,7 @@ impl CpuSampler {
         self.sys.refresh_processes_specifics(
             ProcessesToUpdate::Some(&[self.pid]),
             true,
-            ProcessRefreshKind::new().with_cpu(),
+            ProcessRefreshKind::nothing().with_cpu(),
         );
         let cpu = process_cpu_time().saturating_sub(self.start_cpu);
         let wall = self.start.elapsed();
@@ -142,7 +142,7 @@ impl CpuSampler {
 fn process_cpu_time() -> Duration {
     // SAFETY: getrusage(RUSAGE_SELF, &out) only writes to the provided struct.
     let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
-    let rc = unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) };
+    let rc = unsafe { libc::getrusage(libc::RUSAGE_SELF, &raw mut usage) };
     if rc != 0 {
         return Duration::ZERO;
     }

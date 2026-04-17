@@ -6,7 +6,17 @@
 //!  * `scan-s3`    - stream an S3 object through the dot-product kernel.
 //!
 //! See the crate README for the design of the IO path and kernel.
-#![allow(clippy::too_many_arguments)]
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_possible_wrap,
+    clippy::many_single_char_names,
+    clippy::too_many_arguments,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 
 use std::path::PathBuf;
 
@@ -274,7 +284,7 @@ fn cmd_scan_local(
             direct,
         };
         for _ in 0..warmup {
-            let _ = scan_local::run_once(&cfg).context("warmup")?;
+            let _warmup = scan_local::run_once(&cfg).context("warmup")?;
         }
         let mut iter_results: Vec<IterationResult> = Vec::with_capacity(iters);
         for _ in 0..iters {
@@ -326,7 +336,7 @@ fn cmd_scan_s3(
                 kernel,
             };
             for _ in 0..warmup {
-                let _ = scan_s3::run_once(&client, &cfg).await.context("warmup")?;
+                let _warmup = scan_s3::run_once(&client, &cfg).await.context("warmup")?;
             }
             let mut iter_results: Vec<IterationResult> = Vec::with_capacity(iters);
             for _ in 0..iters {

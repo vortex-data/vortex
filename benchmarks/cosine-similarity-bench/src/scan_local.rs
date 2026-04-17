@@ -97,7 +97,7 @@ pub fn run_once(cfg: &LocalScanConfig) -> Result<IterationResult> {
         cfg.chunk_bytes.is_multiple_of(ALIGN),
         "chunk_bytes must be {ALIGN}-aligned"
     );
-    let bytes_per_vec = cfg.dim * std::mem::size_of::<f32>();
+    let bytes_per_vec = cfg.dim * size_of::<f32>();
     anyhow::ensure!(
         cfg.chunk_bytes.is_multiple_of(bytes_per_vec),
         "chunk_bytes ({}) must be a multiple of vector size ({})",
@@ -167,7 +167,7 @@ pub fn run_once(cfg: &LocalScanConfig) -> Result<IterationResult> {
                     let floats: &[f32] = unsafe {
                         std::slice::from_raw_parts(
                             bytes.as_ptr() as *const f32,
-                            bytes.len() / std::mem::size_of::<f32>(),
+                            bytes.len() / size_of::<f32>(),
                         )
                     };
                     scan_block(kernel, &query, floats, dim, &mut sink);
@@ -180,7 +180,9 @@ pub fn run_once(cfg: &LocalScanConfig) -> Result<IterationResult> {
     let mut combined = ScanSink::new();
     let mut all_latencies = Vec::<u64>::new();
     for h in handles {
-        let (sink, lat) = h.join().expect("worker panicked")?;
+        let (sink, lat) = h
+            .join()
+            .map_err(|_| anyhow::anyhow!("scan worker thread panicked"))??;
         combined.merge(&sink);
         all_latencies.extend_from_slice(&lat);
     }

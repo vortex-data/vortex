@@ -3,7 +3,9 @@
 //!
 //! Reports throughput in GFLOPs/sec per iteration (dot product of D elements
 //! is 2*D floating-point operations - one multiply + one add per lane).
+#![allow(clippy::many_single_char_names)]
 
+use std::hint::black_box;
 use std::time::Duration;
 
 use cosine_similarity_bench::kernel::DotKernel;
@@ -11,16 +13,15 @@ use cosine_similarity_bench::kernel::dot_scalar;
 use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
-use criterion::black_box;
 use criterion::criterion_group;
 use criterion::criterion_main;
-use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 fn random_unit(dim: usize, seed: u64) -> Vec<f32> {
     let mut rng = StdRng::seed_from_u64(seed);
-    let mut v: Vec<f32> = (0..dim).map(|_| rng.gen_range(-1.0f32..1.0f32)).collect();
+    let mut v: Vec<f32> = (0..dim).map(|_| rng.random_range(-1.0f32..1.0f32)).collect();
     let n = v
         .iter()
         .map(|x| x * x)

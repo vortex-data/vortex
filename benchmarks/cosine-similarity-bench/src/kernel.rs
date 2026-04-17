@@ -56,12 +56,14 @@ mod avx2 {
     #[inline]
     #[target_feature(enable = "avx,avx2")]
     unsafe fn hsum(v: __m256) -> f32 {
-        let lo = _mm256_castps256_ps128(v);
-        let hi = _mm256_extractf128_ps::<1>(v);
-        let s = _mm_add_ps(lo, hi);
-        let s = _mm_add_ps(s, _mm_movehl_ps(s, s));
-        let s = _mm_add_ss(s, _mm_shuffle_ps::<0x55>(s, s));
-        _mm_cvtss_f32(s)
+        unsafe {
+            let lo = _mm256_castps256_ps128(v);
+            let hi = _mm256_extractf128_ps::<1>(v);
+            let s = _mm_add_ps(lo, hi);
+            let s = _mm_add_ps(s, _mm_movehl_ps(s, s));
+            let s = _mm_add_ss(s, _mm_shuffle_ps::<0x55>(s, s));
+            _mm_cvtss_f32(s)
+        }
     }
 
     /// AVX2 dot product with 8 accumulators, 64 f32 per iteration.
@@ -529,7 +531,7 @@ impl ScanSink {
 
 #[cfg(test)]
 mod tests {
-    use rand::Rng;
+    use rand::RngExt;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
@@ -537,7 +539,7 @@ mod tests {
 
     fn random_unit(dim: usize, seed: u64) -> Vec<f32> {
         let mut rng = StdRng::seed_from_u64(seed);
-        let mut v: Vec<f32> = (0..dim).map(|_| rng.gen_range(-1.0..1.0)).collect();
+        let mut v: Vec<f32> = (0..dim).map(|_| rng.random_range(-1.0..1.0)).collect();
         let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
         for x in &mut v {
             *x /= norm;

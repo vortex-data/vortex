@@ -14,18 +14,21 @@ Both scan modes run the same SIMD dot-product kernel. The scan output is a
 running sum and a running max over all computed similarities, printed at the
 end so the compiler cannot dead-code-eliminate the compute.
 
-## Crate is standalone
+## Workspace member
 
-This lives under `benchmarks/` but is detached from the parent Vortex
-workspace (see `[workspace]` at the top of its `Cargo.toml`). Build and test
-it from inside `benchmarks/cosine-similarity-bench/`:
+This crate is part of the Vortex workspace; it lives under `benchmarks/` and
+shares the root `Cargo.lock`. Build and test it with the usual `-p` flag
+from anywhere inside the repo:
 
 ```bash
-cd benchmarks/cosine-similarity-bench
-cargo build --release
-cargo test --release
-cargo bench --bench kernel
+cargo build -p cosine-similarity-bench --release
+cargo test -p cosine-similarity-bench --release
+cargo bench -p cosine-similarity-bench --bench kernel
 ```
+
+The crate has no runtime dependency on any Vortex internal. It's designed
+to be a standalone, hand-rolled scan baseline that the vector-search
+benchmark can compare Vortex-native scans against.
 
 ## Kernel
 
