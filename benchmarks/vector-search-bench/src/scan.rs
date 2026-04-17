@@ -3,10 +3,19 @@
 
 //! Per-iteration scan driver.
 //!
-//! Each iteration re-opens every `.vortex` shard fresh (so the segment cache is re-primed
-//! per run), pushes the cosine-similarity filter through the scan, and drains the resulting
-//! [`vortex::array::stream::ArrayStream`]. The wall-clock around the entire per-iteration
-//! pass is the headline number; we track the mean and median across iterations.
+//! Each iteration re-opens every shard fresh (so any caches are re-primed per run), pushes the
+//! cosine-similarity filter through the scan, and counts matches. The wall-clock around the
+//! entire per-iteration pass is the headline number; we track the mean and median across
+//! iterations.
+//!
+//! Two scan backends live here and are picked by [`crate::compression::VectorFlavor`]:
+//!
+//! - Vortex flavors open the `.vortex` file, attach the filter expression, and drain the
+//!   resulting [`vortex::array::stream::ArrayStream`].
+//! - The handrolled synchronous baseline bypasses Vortex and does a straight `std::fs::read`
+//!   plus a dot-product loop via [`crate::baseline::scan_shard_raw_f32`], dispatched onto a
+//!   blocking thread so the async timer still covers the full pass without tying up the tokio
+//!   runtime.
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -20,9 +29,11 @@ use vortex::array::ArrayRef;
 use vortex::file::OpenOptionsSessionExt;
 
 use crate::SESSION;
+use crate::baseline::l2_normalize_copy;
+use crate::baseline::scan_shard_raw_f32;
 use crate::compression::VectorFlavor;
 use crate::expression::similarity_filter;
-use crate::prepare::CompressedVortexDataset;
+use crate::prepare::PreparedDataset;
 
 /// Inputs to a scan run.
 #[derive(Debug, Clone)]
@@ -36,7 +47,7 @@ pub struct ScanConfig {
 /// Aggregate timing + counters for one `(flavor)` scan.
 #[derive(Debug, Clone)]
 pub struct ScanTiming {
-    /// Which compression flavor's `.vortex` files were scanned.
+    /// Which flavor's shard files were scanned.
     pub flavor: VectorFlavor,
     /// Arithmetic mean of the per-iteration wall times.
     pub mean: Duration,
@@ -54,9 +65,9 @@ pub struct ScanTiming {
     pub bytes_scanned: u64,
 }
 
-/// Scan every shard in a [`CompressedVortexDataset`] under the given config.
+/// Scan every shard in a [`PreparedDataset`] under the given config.
 pub async fn run_search_scan(
-    dataset: &CompressedVortexDataset,
+    dataset: &PreparedDataset,
     query: &[f32],
     config: &ScanConfig,
 ) -> Result<ScanTiming> {
@@ -66,15 +77,27 @@ pub async fn run_search_scan(
         config.iterations
     );
 
-    let bytes_scanned = total_file_size(&dataset.vortex_files)?;
+    let bytes_scanned = total_file_size(&dataset.shard_files)?;
+    let dim = dataset.dataset.dim() as usize;
+
+    // Normalize the query once up-front; the handrolled baseline reuses it across iterations.
+    // Vortex's cosine kernel handles normalization itself so the raw query is fine there.
+    let normalized_query = l2_normalize_copy(query);
 
     let mut all_runs = Vec::with_capacity(config.iterations);
     let mut matches = 0u64;
     let mut rows_scanned = 0u64;
 
     for iter_idx in 0..config.iterations {
-        let (wall, iter_matches, iter_rows) =
-            run_one_iteration(&dataset.vortex_files, query, config.threshold).await?;
+        let (wall, iter_matches, iter_rows) = run_one_iteration(
+            dataset.flavor,
+            &dataset.shard_files,
+            query,
+            &normalized_query,
+            config.threshold,
+            dim,
+        )
+        .await?;
         tracing::debug!(
             "{} iter {} -> {:?} ({} matches, {} rows)",
             dataset.flavor.label(),
@@ -113,16 +136,26 @@ fn total_file_size(paths: &[PathBuf]) -> Result<u64> {
 }
 
 async fn run_one_iteration(
-    vortex_files: &[PathBuf],
+    flavor: VectorFlavor,
+    shard_files: &[PathBuf],
     query: &[f32],
+    normalized_query: &[f32],
     threshold: f32,
+    dim: usize,
 ) -> Result<(Duration, u64, u64)> {
     let mut matches = 0u64;
     let mut rows_scanned = 0u64;
 
     let started = Instant::now();
-    for path in vortex_files {
-        let (m, r) = scan_one_file(path, query, threshold).await?;
+    for path in shard_files {
+        let (m, r) = match flavor {
+            VectorFlavor::Uncompressed | VectorFlavor::TurboQuant => {
+                scan_one_vortex_file(path, query, threshold).await?
+            }
+            VectorFlavor::SynchronousHandrolled => {
+                scan_one_handrolled_file(path, normalized_query, threshold, dim).await?
+            }
+        };
         matches = matches.saturating_add(m);
         rows_scanned = rows_scanned.saturating_add(r);
     }
@@ -130,7 +163,7 @@ async fn run_one_iteration(
     Ok((started.elapsed(), matches, rows_scanned))
 }
 
-async fn scan_one_file(path: &Path, query: &[f32], threshold: f32) -> Result<(u64, u64)> {
+async fn scan_one_vortex_file(path: &Path, query: &[f32], threshold: f32) -> Result<(u64, u64)> {
     let file = SESSION
         .open_options()
         .open_path(path)
@@ -148,6 +181,24 @@ async fn scan_one_file(path: &Path, query: &[f32], threshold: f32) -> Result<(u6
 
     let matches: u64 = chunks.iter().map(|c| c.len() as u64).sum();
     Ok((matches, total_rows))
+}
+
+/// Offload the synchronous baseline scan onto a blocking thread so the tokio runtime isn't
+/// blocked on CPU + blocking I/O. Wall-clock is still attributed correctly because the calling
+/// iteration awaits the join handle inside the timed region.
+async fn scan_one_handrolled_file(
+    path: &Path,
+    normalized_query: &[f32],
+    threshold: f32,
+    dim: usize,
+) -> Result<(u64, u64)> {
+    let path = path.to_path_buf();
+    let normalized_query = normalized_query.to_vec();
+    tokio::task::spawn_blocking(move || {
+        scan_shard_raw_f32(&path, &normalized_query, threshold, dim)
+    })
+    .await
+    .context("baseline scan task panicked")?
 }
 
 /// Arithmetic mean of a list of [`Duration`]s. Empty lists return [`Duration::ZERO`].

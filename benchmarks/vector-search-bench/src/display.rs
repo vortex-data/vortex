@@ -28,13 +28,13 @@ use anyhow::Result;
 use tabled::settings::Style;
 
 use crate::compression::VectorFlavor;
-use crate::prepare::CompressedVortexDataset;
+use crate::prepare::PreparedDataset;
 use crate::scan::ScanTiming;
 
 /// Final column-per-flavor row set for one dataset.
 pub struct DatasetReport<'a> {
     pub dataset_name: &'a str,
-    pub vortex_results: &'a [(VectorFlavor, &'a CompressedVortexDataset, &'a ScanTiming)],
+    pub vortex_results: &'a [(VectorFlavor, &'a PreparedDataset, &'a ScanTiming)],
 }
 
 /// Render the full report into the given writer as a tabled table.
@@ -77,7 +77,7 @@ pub fn render(report: &DatasetReport<'_>, writer: &mut dyn Write) -> Result<()> 
 
 fn make_row<F>(metric: &str, report: &DatasetReport<'_>, vortex_cell: F) -> Vec<String>
 where
-    F: Fn(VectorFlavor, &CompressedVortexDataset, &ScanTiming) -> String,
+    F: Fn(VectorFlavor, &PreparedDataset, &ScanTiming) -> String,
 {
     let mut row = vec![metric.to_owned()];
     for &(flavor, prep, scan) in report.vortex_results {

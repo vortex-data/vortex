@@ -4,9 +4,15 @@
 //! Per-flavor on-disk ingest.
 //!
 //! For each `(dataset, layout, flavor)` triple, [`prepare_flavor`] streams every parquet shard
-//! through the [`crate::ingest::ChunkTransform`] and writes one `.vortex` file per shard. The
-//! pipeline is idempotent (existing `.vortex` files are skipped) and reports end-to-end wall-clock
-//! time, summed input parquet bytes, and total output bytes.
+//! into one per-shard output file:
+//!
+//! - Vortex flavors run the chunk transform + [`crate::compression::VectorFlavor`] write options
+//!   and emit a `.vortex` file.
+//! - The handrolled baseline flavor skips Vortex entirely and emits a flat `.f32` file via
+//!   [`crate::baseline::write_shard_raw_f32`].
+//!
+//! The pipeline is idempotent (existing shard outputs are skipped) so repeated runs only
+//! materialize new combinations.
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -34,26 +40,30 @@ use vortex_bench::vector_dataset::TrainLayout;
 use vortex_bench::vector_dataset::VectorDataset;
 
 use crate::SESSION;
+use crate::baseline::write_shard_raw_f32;
 use crate::compression::VectorFlavor;
 use crate::ingest::transform_chunk;
 
-/// The paths of the vortex files that result from preparing one `(dataset, layout, flavor)` triple.
+/// One prepared `(dataset, layout, flavor)` triple: the per-shard output files, ready to scan.
+///
+/// For Vortex flavors these are `.vortex` files; for the handrolled baseline they are flat `.f32`
+/// files. The scan dispatcher branches on [`Self::flavor`] to pick the right reader.
 #[derive(Debug, Clone)]
-pub struct CompressedVortexDataset {
+pub struct PreparedDataset {
     pub dataset: VectorDataset,
     pub layout: TrainLayout,
     pub flavor: VectorFlavor,
-    pub vortex_files: Vec<PathBuf>,
+    pub shard_files: Vec<PathBuf>,
 }
 
-/// Drive [`prepare_flavor`] across a list of flavors, returning a [`CompressedVortexDataset`] per
-/// flavor in input order.
+/// Drive [`prepare_flavor`] across a list of flavors, returning a [`PreparedDataset`] per flavor
+/// in input order.
 pub async fn prepare_all(
     dataset: VectorDataset,
     layout: TrainLayout,
     paths_for_dataset: &DatasetPaths,
     flavors: &[VectorFlavor],
-) -> Result<Vec<CompressedVortexDataset>> {
+) -> Result<Vec<PreparedDataset>> {
     let mut results = Vec::with_capacity(flavors.len());
 
     for &flavor in flavors {
@@ -64,7 +74,7 @@ pub async fn prepare_all(
     Ok(results)
 }
 
-/// Prepare one flavor of one dataset by writing one `.vortex` file per train shard.
+/// Prepare one flavor of one dataset by writing one shard output per train shard.
 ///
 /// This function is sequential (for now).
 pub async fn prepare_flavor(
@@ -72,42 +82,48 @@ pub async fn prepare_flavor(
     layout: TrainLayout,
     paths_for_dataset: &DatasetPaths,
     flavor: VectorFlavor,
-) -> Result<CompressedVortexDataset> {
-    let mut vortex_files = Vec::with_capacity(paths_for_dataset.train_files.len());
+) -> Result<PreparedDataset> {
+    let mut shard_files = Vec::with_capacity(paths_for_dataset.train_files.len());
 
     for parquet_path in &paths_for_dataset.train_files {
         let parquet_path = parquet_path.clone();
-        let vortex_path = parquet_to_vortex_path(&parquet_path, dataset, layout, flavor)?;
+        let output_path = parquet_to_output_path(&parquet_path, dataset, layout, flavor)?;
 
-        let already_cached = vortex_path.exists();
+        let already_cached = output_path.exists();
         if already_cached {
             warn!(
-                "skipping cached vortex shard {} ({} flavor)",
-                vortex_path.display(),
+                "skipping cached shard {} ({} flavor)",
+                output_path.display(),
                 flavor.label()
             );
         } else {
             info!(
                 "ingesting {} -> {} ({} flavor)",
                 parquet_path.display(),
-                vortex_path.display(),
+                output_path.display(),
                 flavor.label(),
             );
         }
 
-        let written_path = idempotent_async(vortex_path.as_path(), |tmp| async move {
-            write_shard_streaming(&parquet_path, &tmp, flavor).await
+        let dim = dataset.dim() as usize;
+        let src_ptype = dataset.element_ptype();
+        let written_path = idempotent_async(output_path.as_path(), |tmp| async move {
+            if flavor.is_vortex() {
+                write_shard_streaming(&parquet_path, &tmp, flavor).await
+            } else {
+                write_shard_raw_f32(&parquet_path, &tmp, dim, src_ptype).await
+            }
         })
         .await?;
 
-        vortex_files.push(written_path);
+        shard_files.push(written_path);
     }
 
-    Ok(CompressedVortexDataset {
+    Ok(PreparedDataset {
         dataset,
         layout,
         flavor,
-        vortex_files,
+        shard_files,
     })
 }
 
@@ -196,12 +212,12 @@ fn transform_chunk_with_error(
     })
 }
 
-/// Translate a parquet shard path to its `.vortex` companion under the flavor directory.
+/// Translate a parquet shard path to its output companion under the flavor directory.
 ///
-/// Just swaps the file extension and rebases the file name into the per-[`VectorFlavor`] flavor
-/// directory. The shard stem is preserved so a directory listing pairs `00-of-10.parquet` with
-/// `00-of-10.vortex`.
-pub fn parquet_to_vortex_path(
+/// Just swaps the file extension (to `flavor.output_extension()`) and rebases the file name into
+/// the per-[`VectorFlavor`] flavor directory. The shard stem is preserved so a directory listing
+/// pairs `00-of-10.parquet` with e.g. `00-of-10.vortex` or `00-of-10.f32`.
+pub fn parquet_to_output_path(
     parquet: &Path,
     dataset: VectorDataset,
     layout: TrainLayout,
@@ -212,9 +228,9 @@ pub fn parquet_to_vortex_path(
         .with_context(|| format!("parquet path {} has no file stem", parquet.display()))?
         .to_owned();
 
-    // TODO(connor): Is there a better way to do this?
     let mut name = stem;
-    name.push(".vortex");
+    name.push(".");
+    name.push(flavor.output_extension());
 
     Ok(flavor_dir(dataset, layout, flavor).join(name))
 }

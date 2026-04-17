@@ -21,7 +21,7 @@ use vector_search_bench::compression::ALL_VECTOR_FLAVORS;
 use vector_search_bench::compression::VectorFlavor;
 use vector_search_bench::display::DatasetReport;
 use vector_search_bench::display::render;
-use vector_search_bench::prepare::CompressedVortexDataset;
+use vector_search_bench::prepare::PreparedDataset;
 use vector_search_bench::prepare::prepare_all;
 use vector_search_bench::query::get_random_query_vector;
 use vector_search_bench::scan::ScanConfig;
@@ -133,7 +133,7 @@ async fn main() -> Result<()> {
     }
 
     // Collect the benchmark results.
-    let pairs: Vec<(VectorFlavor, &CompressedVortexDataset, &ScanTiming)> = prepared
+    let pairs: Vec<(VectorFlavor, &PreparedDataset, &ScanTiming)> = prepared
         .iter()
         .zip(scan_timings.iter())
         .map(|(prep, scan)| (prep.flavor, prep, scan))

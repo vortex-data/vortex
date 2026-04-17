@@ -3,6 +3,7 @@
 
 //! `vector-search-bench` vector similarity-search benchmark over several datasets.
 
+pub mod baseline;
 pub mod compression;
 pub mod display;
 pub mod expression;
