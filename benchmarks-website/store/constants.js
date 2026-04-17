@@ -1,7 +1,6 @@
 import { FAN_OUT_GROUPS, QUERY_SUITES } from "../src/config.js";
 
 export const MAX_POINTS = 200;
-export const DUCKDB_OPTIONS = { threads: "4" };
 export const DEFAULT_CACHE_DIR_NAME = "vortex-benchmarks-website-cache";
 
 export const GROUPS = [

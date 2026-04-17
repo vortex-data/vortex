@@ -1,5 +1,5 @@
 import { GROUPS, QUERY_GROUP_EXCLUSIONS } from "./constants.js";
-import { queryRows } from "./db.js";
+import { queryRows, withConnection } from "./db.js";
 import { firstLine } from "./utils.js";
 
 const COMMITS_QUERY = `
@@ -329,13 +329,38 @@ function finalizeGroups(groups) {
   }
 }
 
-export async function buildMetadata(connection, lastUpdated) {
+async function fetchCoreMetadata(connection) {
   const commits = await queryRows(connection, COMMITS_QUERY);
   const chartRows = await queryRows(connection, CHART_ROWS_QUERY);
+
+  return { commits, chartRows };
+}
+
+async function fetchSummaryMetadata(connection) {
   const randomAccessRows = await queryRows(connection, RANDOM_ACCESS_SUMMARY_QUERY);
   const compressionRows = await queryRows(connection, COMPRESSION_SUMMARY_QUERY);
-  const compressionSizeRows = await queryRows(connection, COMPRESSION_SIZE_SUMMARY_QUERY);
-  const querySummaryRows = await queryRows(connection, QUERY_SUMMARY_QUERY);
+  const compressionSizeRows = await queryRows(
+    connection,
+    COMPRESSION_SIZE_SUMMARY_QUERY,
+  );
+
+  return {
+    randomAccessRows,
+    compressionRows,
+    compressionSizeRows,
+  };
+}
+
+export async function buildMetadata(instance, lastUpdated) {
+  const [
+    { commits, chartRows },
+    { randomAccessRows, compressionRows, compressionSizeRows },
+    querySummaryRows,
+  ] = await Promise.all([
+    withConnection(instance, fetchCoreMetadata),
+    withConnection(instance, fetchSummaryMetadata),
+    withConnection(instance, (connection) => queryRows(connection, QUERY_SUMMARY_QUERY)),
+  ]);
 
   const groups = buildEmptyGroups();
   appendChartRows(groups, chartRows, commits.length);

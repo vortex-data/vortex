@@ -1,6 +1,5 @@
 import { DuckDBInstance } from "@duckdb/node-api";
 import { prepareInputFiles } from "./store/cache.js";
-import { DUCKDB_OPTIONS } from "./store/constants.js";
 import { queryRows, withConnection } from "./store/db.js";
 import { downsample, downsampleLevel } from "./store/downsample.js";
 import { buildMetadata, collectDiagnostics } from "./store/metadata.js";
@@ -57,11 +56,10 @@ async function buildStoreState({ instance, inputs }) {
   });
 
   const lastUpdated = new Date().toISOString();
-  const { commits, metadata, chartIndex } = await withConnection(
-    instance,
-    async (connection) => buildMetadata(connection, lastUpdated),
-  );
-  const diagnostics = await withConnection(instance, collectDiagnostics);
+  const [{ commits, metadata, chartIndex }, diagnostics] = await Promise.all([
+    buildMetadata(instance, lastUpdated),
+    withConnection(instance, collectDiagnostics),
+  ]);
 
   return {
     commits,
@@ -196,7 +194,7 @@ export class BenchmarkStore {
     if (this.instance) return this.instance;
 
     if (!this.instancePromise) {
-      this.instancePromise = DuckDBInstance.create(":memory:", DUCKDB_OPTIONS)
+      this.instancePromise = DuckDBInstance.create(":memory:")
         .then((instance) => {
           this.instance = instance;
           return instance;
