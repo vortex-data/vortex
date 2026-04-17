@@ -6,9 +6,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use vortex::array::Canonical;
+use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
-use vortex::array::LEGACY_SESSION;
-use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::ExtensionArray;
@@ -31,14 +30,19 @@ use vortex::error::VortexResult;
 /// Move all canonical data from to_host from device.
 #[async_trait]
 pub trait CanonicalCudaExt {
-    async fn into_host(self) -> VortexResult<Self>
+    /// Copy all device-resident buffers in this canonical array back to the host.
+    ///
+    /// The provided [`ExecutionCtx`] is used to re-canonicalize nested children
+    /// (e.g. struct fields, extension storage) on the CPU after their buffers
+    /// are moved.
+    async fn into_host(self, ctx: &mut ExecutionCtx) -> VortexResult<Self>
     where
         Self: Sized;
 }
 
 #[async_trait]
 impl CanonicalCudaExt for Canonical {
-    async fn into_host(self) -> VortexResult<Self> {
+    async fn into_host(self, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         match self {
             Canonical::Struct(struct_array) => {
                 // Children should all be canonical now
@@ -55,8 +59,8 @@ impl CanonicalCudaExt for Canonical {
                     host_fields.push(
                         field
                             .clone()
-                            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
-                            .into_host()
+                            .execute::<Canonical>(ctx)?
+                            .into_host(ctx)
                             .await?
                             .into_array(),
                     );
@@ -142,8 +146,8 @@ impl CanonicalCudaExt for Canonical {
                 let host_storage = ext
                     .storage_array()
                     .clone()
-                    .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
-                    .into_host()
+                    .execute::<Canonical>(ctx)?
+                    .into_host(ctx)
                     .await?
                     .into_array();
                 Ok(Canonical::Extension(ExtensionArray::new(

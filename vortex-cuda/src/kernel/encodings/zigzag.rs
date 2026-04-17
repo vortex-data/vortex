@@ -124,13 +124,13 @@ mod tests {
             PrimitiveArray::new(Buffer::from(encoded_data), NonNullable).into_array(),
         )?;
 
-        let cpu_result = crate::canonicalize_cpu(zigzag_array.clone())?;
+        let cpu_result = crate::canonicalize_cpu(zigzag_array.clone(), cuda_ctx.execution_ctx())?;
 
         let gpu_result = ZigZagExecutor
             .execute(zigzag_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 

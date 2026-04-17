@@ -339,7 +339,7 @@ mod tests {
             .vortex_expect("failed to create Dict array");
 
         // Get baseline from CPU canonicalization
-        let baseline = crate::canonicalize_cpu(dict_array.clone())?;
+        let baseline = crate::canonicalize_cpu(dict_array.clone(), cuda_ctx.execution_ctx())?;
 
         // Execute on CUDA
         let cuda_result = DictExecutor
@@ -374,7 +374,7 @@ mod tests {
             .vortex_expect("failed to create Dict array");
 
         // Get baseline from CPU canonicalization
-        let baseline = crate::canonicalize_cpu(dict_array.clone())?;
+        let baseline = crate::canonicalize_cpu(dict_array.clone(), cuda_ctx.execution_ctx())?;
 
         // Execute on CUDA
         let cuda_result = DictExecutor
@@ -406,7 +406,7 @@ mod tests {
             .vortex_expect("failed to create Dict array");
 
         // Get baseline from CPU canonicalization
-        let baseline = crate::canonicalize_cpu(dict_array.clone())?;
+        let baseline = crate::canonicalize_cpu(dict_array.clone(), cuda_ctx.execution_ctx())?;
 
         // Execute on CUDA
         let cuda_result = DictExecutor
@@ -437,7 +437,7 @@ mod tests {
             .vortex_expect("failed to create Dict array");
 
         // Get baseline from CPU canonicalization
-        let baseline = crate::canonicalize_cpu(dict_array.clone())?;
+        let baseline = crate::canonicalize_cpu(dict_array.clone(), cuda_ctx.execution_ctx())?;
 
         // Execute on CUDA
         let cuda_result = DictExecutor
@@ -470,7 +470,7 @@ mod tests {
             .vortex_expect("failed to create Dict array");
 
         // Get baseline from CPU canonicalization
-        let baseline = crate::canonicalize_cpu(dict_array.clone())?;
+        let baseline = crate::canonicalize_cpu(dict_array.clone(), cuda_ctx.execution_ctx())?;
 
         let cuda_result = DictExecutor
             .execute(dict_array.into_array(), &mut cuda_ctx)
@@ -507,7 +507,7 @@ mod tests {
             .vortex_expect("failed to create Dict array");
 
         // Get baseline from CPU canonicalization
-        let baseline = crate::canonicalize_cpu(dict_array.clone())?;
+        let baseline = crate::canonicalize_cpu(dict_array.clone(), cuda_ctx.execution_ctx())?;
 
         // Execute on CUDA
         let cuda_result = DictExecutor
@@ -551,7 +551,7 @@ mod tests {
             .vortex_expect("failed to create Dict array");
 
         // Get baseline from CPU canonicalization
-        let baseline = crate::canonicalize_cpu(dict_array.clone())?;
+        let baseline = crate::canonicalize_cpu(dict_array.clone(), cuda_ctx.execution_ctx())?;
 
         // Execute on CUDA
         let cuda_result = DictExecutor
@@ -596,7 +596,7 @@ mod tests {
             .vortex_expect("failed to create Dict array");
 
         // Get baseline from CPU canonicalization
-        let baseline = crate::canonicalize_cpu(dict_array.clone())?;
+        let baseline = crate::canonicalize_cpu(dict_array.clone(), cuda_ctx.execution_ctx())?;
 
         // Execute on CUDA
         let cuda_result = DictExecutor
@@ -629,7 +629,7 @@ mod tests {
             .vortex_expect("failed to create Dict array");
 
         // Get baseline from CPU canonicalization
-        let baseline = crate::canonicalize_cpu(dict_array.clone())?;
+        let baseline = crate::canonicalize_cpu(dict_array.clone(), cuda_ctx.execution_ctx())?;
 
         // Execute on CUDA
         let cuda_result = DictExecutor
@@ -669,7 +669,7 @@ mod tests {
         let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
             .vortex_expect("failed to create Dict array");
 
-        let baseline = crate::canonicalize_cpu(dict_array.clone())?;
+        let baseline = crate::canonicalize_cpu(dict_array.clone(), cuda_ctx.execution_ctx())?;
 
         let cuda_result = DictExecutor
             .execute(dict_array.into_array(), &mut cuda_ctx)
@@ -697,7 +697,7 @@ mod tests {
         let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
             .vortex_expect("failed to create Dict array");
 
-        let baseline = crate::canonicalize_cpu(dict_array.clone())?;
+        let baseline = crate::canonicalize_cpu(dict_array.clone(), cuda_ctx.execution_ctx())?;
 
         let cuda_result = DictExecutor
             .execute(dict_array.into_array(), &mut cuda_ctx)
@@ -725,7 +725,7 @@ mod tests {
         let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
             .vortex_expect("failed to create Dict array");
 
-        let baseline = crate::canonicalize_cpu(dict_array.clone())?;
+        let baseline = crate::canonicalize_cpu(dict_array.clone(), cuda_ctx.execution_ctx())?;
 
         let cuda_result = DictExecutor
             .execute(dict_array.into_array(), &mut cuda_ctx)
@@ -756,7 +756,7 @@ mod tests {
         let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
             .vortex_expect("failed to create Dict array");
 
-        let baseline = crate::canonicalize_cpu(dict_array.clone())?;
+        let baseline = crate::canonicalize_cpu(dict_array.clone(), cuda_ctx.execution_ctx())?;
 
         let cuda_result = DictExecutor
             .execute(dict_array.into_array(), &mut cuda_ctx)
@@ -792,7 +792,7 @@ mod tests {
         let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
             .vortex_expect("failed to create Dict array");
 
-        let baseline = crate::canonicalize_cpu(dict_array.clone())?;
+        let baseline = crate::canonicalize_cpu(dict_array.clone(), cuda_ctx.execution_ctx())?;
 
         let cuda_result = DictExecutor
             .execute(dict_array.into_array(), &mut cuda_ctx)
@@ -806,9 +806,12 @@ mod tests {
     }
 
     /// Helper to copy a CUDA VarBinViewArray result to host memory.
-    async fn cuda_varbinview_to_host(vbv: VarBinViewArray) -> VortexResult<VarBinViewArray> {
+    async fn cuda_varbinview_to_host(
+        vbv: VarBinViewArray,
+        ctx: &mut vortex::array::ExecutionCtx,
+    ) -> VortexResult<VarBinViewArray> {
         Ok(Canonical::VarBinView(vbv)
-            .into_host()
+            .into_host(ctx)
             .await?
             .into_varbinview())
     }
@@ -825,14 +828,14 @@ mod tests {
         let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
             .vortex_expect("failed to create Dict array");
 
-        let baseline = crate::canonicalize_cpu(dict_array.clone())?;
+        let baseline = crate::canonicalize_cpu(dict_array.clone(), cuda_ctx.execution_ctx())?;
 
         let cuda_result = DictExecutor
             .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
-        let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
+        let cuda_result = cuda_varbinview_to_host(cuda_result, cuda_ctx.execution_ctx()).await?;
 
         assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
         Ok(())
@@ -850,14 +853,14 @@ mod tests {
         let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
             .vortex_expect("failed to create Dict array");
 
-        let baseline = crate::canonicalize_cpu(dict_array.clone())?;
+        let baseline = crate::canonicalize_cpu(dict_array.clone(), cuda_ctx.execution_ctx())?;
 
         let cuda_result = DictExecutor
             .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
-        let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
+        let cuda_result = cuda_varbinview_to_host(cuda_result, cuda_ctx.execution_ctx()).await?;
 
         assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
         Ok(())
@@ -877,14 +880,14 @@ mod tests {
         let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
             .vortex_expect("failed to create Dict array");
 
-        let baseline = crate::canonicalize_cpu(dict_array.clone())?;
+        let baseline = crate::canonicalize_cpu(dict_array.clone(), cuda_ctx.execution_ctx())?;
 
         let cuda_result = DictExecutor
             .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
-        let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
+        let cuda_result = cuda_varbinview_to_host(cuda_result, cuda_ctx.execution_ctx()).await?;
 
         assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
         Ok(())
@@ -907,14 +910,14 @@ mod tests {
         let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
             .vortex_expect("failed to create Dict array");
 
-        let baseline = crate::canonicalize_cpu(dict_array.clone())?;
+        let baseline = crate::canonicalize_cpu(dict_array.clone(), cuda_ctx.execution_ctx())?;
 
         let cuda_result = DictExecutor
             .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
-        let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
+        let cuda_result = cuda_varbinview_to_host(cuda_result, cuda_ctx.execution_ctx()).await?;
 
         assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
         Ok(())
@@ -932,14 +935,14 @@ mod tests {
         let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
             .vortex_expect("failed to create Dict array");
 
-        let baseline = crate::canonicalize_cpu(dict_array.clone())?;
+        let baseline = crate::canonicalize_cpu(dict_array.clone(), cuda_ctx.execution_ctx())?;
 
         let cuda_result = DictExecutor
             .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
-        let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
+        let cuda_result = cuda_varbinview_to_host(cuda_result, cuda_ctx.execution_ctx()).await?;
 
         assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
         Ok(())
@@ -958,14 +961,14 @@ mod tests {
         let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
             .vortex_expect("failed to create Dict array");
 
-        let baseline = crate::canonicalize_cpu(dict_array.clone())?;
+        let baseline = crate::canonicalize_cpu(dict_array.clone(), cuda_ctx.execution_ctx())?;
 
         let cuda_result = DictExecutor
             .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
-        let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
+        let cuda_result = cuda_varbinview_to_host(cuda_result, cuda_ctx.execution_ctx()).await?;
 
         assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
         Ok(())
@@ -991,14 +994,14 @@ mod tests {
         let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
             .vortex_expect("failed to create Dict array");
 
-        let baseline = crate::canonicalize_cpu(dict_array.clone())?;
+        let baseline = crate::canonicalize_cpu(dict_array.clone(), cuda_ctx.execution_ctx())?;
 
         let cuda_result = DictExecutor
             .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
-        let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
+        let cuda_result = cuda_varbinview_to_host(cuda_result, cuda_ctx.execution_ctx()).await?;
 
         assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
         Ok(())
@@ -1027,7 +1030,7 @@ mod tests {
         let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
             .vortex_expect("failed to create Dict array");
 
-        let baseline = crate::canonicalize_cpu(dict_array.clone())?;
+        let baseline = crate::canonicalize_cpu(dict_array.clone(), cuda_ctx.execution_ctx())?;
 
         let cuda_result = DictExecutor
             .execute(dict_array.into_array(), &mut cuda_ctx)

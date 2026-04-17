@@ -86,13 +86,9 @@ use crate::kernel::SliceExecutor;
 #[cfg(test)]
 pub(crate) fn canonicalize_cpu(
     array: impl vortex::array::IntoArray,
+    ctx: &mut vortex::array::ExecutionCtx,
 ) -> vortex::error::VortexResult<vortex::array::Canonical> {
-    use vortex::array::LEGACY_SESSION;
-    use vortex::array::VortexSessionExecute;
-
-    array
-        .into_array()
-        .execute::<vortex::array::Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+    array.into_array().execute::<vortex::array::Canonical>(ctx)
 }
 
 /// Checks if CUDA is available on the system by looking for nvcc.

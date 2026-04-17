@@ -129,13 +129,15 @@ mod tests {
 
         let array = Sequence::try_new_typed(base, multiplier, nullability, len).unwrap();
 
-        let cpu_result = crate::canonicalize_cpu(array.clone()).unwrap().into_array();
+        let cpu_result = crate::canonicalize_cpu(array.clone(), cuda_ctx.execution_ctx())
+            .unwrap()
+            .into_array();
 
         let gpu_result = SequenceExecutor
             .execute(array.into_array(), &mut cuda_ctx)
             .await
             .unwrap()
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await
             .unwrap()
             .into_array();

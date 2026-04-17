@@ -239,11 +239,11 @@ mod tests {
         let input = PrimitiveArray::from_iter(0i64..1024).into_array();
         let compressed = ZstdBuffers::compress(&input, 3, &VortexSession::empty())?;
 
-        let cpu_result = crate::canonicalize_cpu(compressed.clone())?;
+        let cpu_result = crate::canonicalize_cpu(compressed.clone(), cuda_ctx.execution_ctx())?;
         let gpu_result = ZstdBuffersExecutor
             .execute(compressed.into_array(), &mut cuda_ctx)
             .await?
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?;
 
         assert_arrays_eq!(cpu_result.into_array(), gpu_result.into_array());
@@ -266,11 +266,11 @@ mod tests {
         .into_array();
         let compressed = ZstdBuffers::compress(&input, 3, &VortexSession::empty())?;
 
-        let cpu_result = crate::canonicalize_cpu(compressed.clone())?;
+        let cpu_result = crate::canonicalize_cpu(compressed.clone(), cuda_ctx.execution_ctx())?;
         let gpu_result = ZstdBuffersExecutor
             .execute(compressed.into_array(), &mut cuda_ctx)
             .await?
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?;
 
         assert_arrays_eq!(cpu_result.into_array(), gpu_result.into_array());

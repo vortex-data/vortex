@@ -205,13 +205,13 @@ mod tests {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let cpu_result = crate::canonicalize_cpu(runend_array.clone())?;
+        let cpu_result = crate::canonicalize_cpu(runend_array.clone(), cuda_ctx.execution_ctx())?;
 
         let gpu_result = RunEndExecutor
             .execute(runend_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 
@@ -235,13 +235,13 @@ mod tests {
         let runend_array = make_runend_array(ends, values);
         assert_eq!(runend_array.len(), total_len);
 
-        let cpu_result = crate::canonicalize_cpu(runend_array.clone())?;
+        let cpu_result = crate::canonicalize_cpu(runend_array.clone(), cuda_ctx.execution_ctx())?;
 
         let gpu_result = RunEndExecutor
             .execute(runend_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 
@@ -257,13 +257,13 @@ mod tests {
 
         let runend_array = make_runend_array(vec![100u32], vec![42i32]);
 
-        let cpu_result = crate::canonicalize_cpu(runend_array.clone())?;
+        let cpu_result = crate::canonicalize_cpu(runend_array.clone(), cuda_ctx.execution_ctx())?;
 
         let gpu_result = RunEndExecutor
             .execute(runend_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 
@@ -284,13 +284,13 @@ mod tests {
 
         let runend_array = make_runend_array(ends, values);
 
-        let cpu_result = crate::canonicalize_cpu(runend_array.clone())?;
+        let cpu_result = crate::canonicalize_cpu(runend_array.clone(), cuda_ctx.execution_ctx())?;
 
         let gpu_result = RunEndExecutor
             .execute(runend_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 
@@ -314,7 +314,8 @@ mod tests {
             PrimitiveArray::new(Buffer::from(vec![10i32, 0, 30]), validity).into_array();
         let runend_array = RunEnd::new(ends_array, values_array);
 
-        let cpu_result = crate::canonicalize_cpu(runend_array.clone())?.into_array();
+        let cpu_result =
+            crate::canonicalize_cpu(runend_array.clone(), cuda_ctx.execution_ctx())?.into_array();
 
         // execute_cuda should fall back to CPU and still produce the correct result.
         let gpu_result = runend_array
@@ -322,7 +323,7 @@ mod tests {
             .execute_cuda(&mut cuda_ctx)
             .await
             .vortex_expect("GPU/CPU fallback should succeed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 

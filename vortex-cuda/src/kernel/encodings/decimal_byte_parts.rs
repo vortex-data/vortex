@@ -96,8 +96,8 @@ mod tests {
         )
         .vortex_expect("create DecimalBytePartsArray");
 
-        let cpu_result =
-            crate::canonicalize_cpu(dbp_array.clone()).vortex_expect("CPU canonicalize");
+        let cpu_result = crate::canonicalize_cpu(dbp_array.clone(), cuda_ctx.execution_ctx())
+            .vortex_expect("CPU canonicalize");
 
         let gpu_result = DecimalBytePartsExecutor
             .execute(dbp_array.into_array(), &mut cuda_ctx)

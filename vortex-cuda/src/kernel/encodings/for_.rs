@@ -162,13 +162,13 @@ mod tests {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let cpu_result = crate::canonicalize_cpu(for_array.clone())?;
+        let cpu_result = crate::canonicalize_cpu(for_array.clone(), cuda_ctx.execution_ctx())?;
 
         let gpu_result = FoRExecutor
             .execute(for_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 
@@ -190,13 +190,14 @@ mod tests {
         let packed = BitPacked::encode(&values, 3).unwrap().into_array();
         let for_array = FoR::try_new(packed, (-8i8).into()).unwrap();
 
-        let cpu_result = crate::canonicalize_cpu(for_array.clone()).unwrap();
+        let cpu_result =
+            crate::canonicalize_cpu(for_array.clone(), cuda_ctx.execution_ctx()).unwrap();
 
         let gpu_result = FoRExecutor
             .execute(for_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await
             .vortex_expect("copying to host failed")
             .into_array();

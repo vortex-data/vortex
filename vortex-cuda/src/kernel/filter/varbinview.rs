@@ -74,13 +74,14 @@ mod tests {
 
         let filter_array = FilterArray::try_new(input.into_array(), mask.clone())?;
 
-        let cpu_result = crate::canonicalize_cpu(filter_array.clone())?.into_array();
+        let cpu_result =
+            crate::canonicalize_cpu(filter_array.clone(), cuda_ctx.execution_ctx())?.into_array();
 
         let gpu_result = FilterExecutor
             .execute(filter_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU filter failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 

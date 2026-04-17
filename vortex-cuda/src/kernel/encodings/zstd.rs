@@ -448,7 +448,7 @@ mod tests {
         // Slice the array to get a subset (indices 2..7)
         let sliced_zstd = zstd_array.slice(2..7)?;
 
-        let cpu_result = crate::canonicalize_cpu(sliced_zstd.clone())?;
+        let cpu_result = crate::canonicalize_cpu(sliced_zstd.clone(), cuda_ctx.execution_ctx())?;
         let gpu_result = ZstdExecutor
             .execute(sliced_zstd.clone(), &mut cuda_ctx)
             .await?;
@@ -476,14 +476,15 @@ mod tests {
 
         let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0)?;
 
-        let cpu_result = crate::canonicalize_cpu(zstd_array.clone())?.into_array();
+        let cpu_result =
+            crate::canonicalize_cpu(zstd_array.clone(), cuda_ctx.execution_ctx())?.into_array();
 
         // execute_cuda should fall back to CPU and still produce the correct result.
         let gpu_result = zstd_array
             .into_array()
             .execute_cuda(&mut cuda_ctx)
             .await?
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 
