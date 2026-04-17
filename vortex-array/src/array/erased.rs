@@ -661,6 +661,7 @@ impl<V: VTable> Matcher for V {
 
     fn try_match<'a>(array: &'a ArrayRef) -> Option<ArrayView<'a, V>> {
         let inner = array.0.as_any().downcast_ref::<ArrayInner<V>>()?;
+        // # Safety checked by `downcast_ref`.
         Some(unsafe { ArrayView::new_unchecked(array, &inner.data) })
     }
 }
