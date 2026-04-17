@@ -71,7 +71,8 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns mutable slots of the array.
     ///
     /// # Safety: any slot (Some(child)) that replaces an existing slot must have a compatible
-    /// DType and length.
+    /// DType and length. Currently compatible means equal, but there is no reason why that must
+    /// be the case.
     unsafe fn slots_mut(&mut self) -> &mut [Option<ArrayRef>];
 
     /// Returns the encoding ID of the array.
