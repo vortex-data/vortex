@@ -7,7 +7,8 @@
     "vite": "vite",
     "server": "node server.js",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "export-sql": "node scripts/export-bootstrap-sql.js"
   },
   "engines": {
     "node": ">=18.0.0"
