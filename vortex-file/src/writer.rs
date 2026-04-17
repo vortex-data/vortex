@@ -165,6 +165,7 @@ impl VortexWriteOptions {
             stream,
             self.file_statistics.clone().into(),
             self.max_variable_length_statistics_size,
+            &self.session,
         );
 
         // First, write the magic bytes.

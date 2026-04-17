@@ -42,6 +42,7 @@ impl FilterKernel for RunEnd {
                 array,
                 mask_values.indices(),
                 &Validity::NonNullable,
+                ctx,
             )?))
         } else {
             let primitive_run_ends = array.ends().clone().execute::<PrimitiveArray>(ctx)?;

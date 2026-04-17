@@ -9,8 +9,10 @@ use pyo3::prelude::*;
 use pyo3::types::PyList;
 use pyo3_object_store::PyObjectStore;
 use vortex::array::ArrayRef;
-#[expect(deprecated)]
-use vortex::array::ToCanonical;
+use vortex::array::ExecutionCtx;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
+use vortex::array::arrays::PrimitiveArray;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::dtype::DType;
 use vortex::dtype::FieldNames;
@@ -109,12 +111,14 @@ impl PyVortexFile {
         indices: Option<PyArrayRef>,
         batch_size: Option<usize>,
     ) -> PyVortexResult<PyArrayIterator> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let builder = slf.get().scan_builder(
             projection.map(|p| p.0),
             expr.map(|e| e.into_inner()),
             limit,
             indices.map(|i| i.into_inner()),
             batch_size,
+            &mut ctx,
         )?;
 
         Ok(PyArrayIterator::new(Box::new(
@@ -131,12 +135,14 @@ impl PyVortexFile {
         indices: Option<PyArrayRef>,
         batch_size: Option<usize>,
     ) -> PyVortexResult<PyRepeatedScan> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let builder = slf.get().scan_builder(
             projection.map(|p| p.0),
             expr.map(|e| e.into_inner()),
             limit,
             indices.map(|i| i.into_inner()),
             batch_size,
+            &mut ctx,
         )?;
 
         let scan = builder.prepare()?;
@@ -202,6 +208,7 @@ impl PyVortexFile {
         limit: Option<u64>,
         indices: Option<ArrayRef>,
         batch_size: Option<usize>,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ScanBuilder<ArrayRef>> {
         let mut builder = self
             .vxf
@@ -215,8 +222,7 @@ impl PyVortexFile {
 
         if let Some(indices) = indices {
             let casted = indices.cast(DType::Primitive(PType::U64, NonNullable))?;
-            #[expect(deprecated)]
-            let indices = casted.to_primitive().into_buffer::<u64>();
+            let indices = casted.execute::<PrimitiveArray>(ctx)?.into_buffer::<u64>();
             builder = builder.with_row_indices(indices);
         }
 

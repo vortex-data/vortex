@@ -3,9 +3,10 @@
 
 use pyo3::prelude::*;
 use vortex::array::IntoArray;
-#[expect(deprecated)]
-use vortex::array::ToCanonical;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::Dict;
+use vortex::array::arrays::PrimitiveArray;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPRD;
 use vortex::encodings::datetime_parts::DateTimeParts;
@@ -90,8 +91,8 @@ impl EncodingSubclass for PyZigZagArray {
 impl PyZigZagArray {
     #[staticmethod]
     pub fn encode(array: PyArrayRef) -> PyVortexResult<PyArrayRef> {
-        #[expect(deprecated)]
-        let primitive = array.inner().clone().to_primitive();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let primitive = array.inner().clone().execute::<PrimitiveArray>(&mut ctx)?;
         Ok(PyVortex(zigzag_encode(primitive.as_view())?.into_array()))
     }
 }

@@ -18,8 +18,6 @@ use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex::array::ToCanonical;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::builders::dict::dict_encode;
@@ -75,23 +73,24 @@ fn canonicalize(array: impl IntoArray, ctx: &mut ExecutionCtx) -> VortexResult<C
 
 // Setup functions
 fn setup_primitive_arrays() -> (PrimitiveArray, PrimitiveArray, PrimitiveArray) {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let mut rng = StdRng::seed_from_u64(0);
     let uint_array =
         PrimitiveArray::from_iter((0..NUM_VALUES).map(|_| rng.random_range(42u32..256)));
-    #[expect(deprecated)]
     let int_array = uint_array
         .clone()
         .into_array()
         .cast(PType::I32.into())
         .unwrap()
-        .to_primitive();
-    #[expect(deprecated)]
+        .execute::<PrimitiveArray>(&mut ctx)
+        .unwrap();
     let float_array = uint_array
         .clone()
         .into_array()
         .cast(PType::F64.into())
         .unwrap()
-        .to_primitive();
+        .execute::<PrimitiveArray>(&mut ctx)
+        .unwrap();
     (uint_array, int_array, float_array)
 }
 
@@ -343,7 +342,9 @@ fn bench_zstd_compress_u32(bencher: Bencher) {
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| array.clone())
-        .bench_values(|a| ZstdData::from_array(a, 3, 8192).unwrap());
+        .bench_values(|a| {
+            ZstdData::from_array(a, 3, 8192, &mut LEGACY_SESSION.create_execution_ctx()).unwrap()
+        });
 }
 
 #[cfg(feature = "zstd")]
@@ -354,7 +355,13 @@ fn bench_zstd_decompress_u32(bencher: Bencher) {
     let validity = uint_array.validity().unwrap();
     let compressed = Zstd::try_new(
         dtype,
-        ZstdData::from_array(uint_array.into_array(), 3, 8192).unwrap(),
+        ZstdData::from_array(
+            uint_array.into_array(),
+            3,
+            8192,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap(),
         validity,
     )
     .unwrap()
@@ -429,7 +436,9 @@ fn bench_zstd_compress_string(bencher: Bencher) {
 
     with_byte_counter(bencher, nbytes)
         .with_inputs(|| array.clone())
-        .bench_values(|a| ZstdData::from_array(a, 3, 8192).unwrap());
+        .bench_values(|a| {
+            ZstdData::from_array(a, 3, 8192, &mut LEGACY_SESSION.create_execution_ctx()).unwrap()
+        });
 }
 
 #[cfg(feature = "zstd")]
@@ -441,7 +450,13 @@ fn bench_zstd_decompress_string(bencher: Bencher) {
     let validity = varbinview_arr.validity().unwrap();
     let compressed = Zstd::try_new(
         dtype,
-        ZstdData::from_array(varbinview_arr.clone().into_array(), 3, 8192).unwrap(),
+        ZstdData::from_array(
+            varbinview_arr.clone().into_array(),
+            3,
+            8192,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap(),
         validity,
     )
     .unwrap()

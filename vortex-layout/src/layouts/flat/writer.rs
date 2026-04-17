@@ -201,8 +201,6 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::MaskFuture;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Dict;
@@ -344,6 +342,7 @@ mod tests {
     #[test]
     fn struct_array_round_trip() {
         block_on(|handle| async {
+            let mut ctx_exec = LEGACY_SESSION.create_execution_ctx();
             let session = SESSION.clone().with_handle(handle);
             let mut validity_builder = BitBufferMut::with_capacity(2);
             validity_builder.append(true);
@@ -400,26 +399,29 @@ mod tests {
                 result
                     .validity()
                     .unwrap()
-                    .to_mask(result.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                    .to_mask(result.len(), &mut ctx_exec)
                     .unwrap()
                     .bit_buffer(),
                 AllOr::Some(&validity_boolean_buffer)
             );
-            #[expect(deprecated)]
-            let result_struct = result.to_struct();
-            #[expect(deprecated)]
+            let result_struct = result
+                .clone()
+                .execute::<StructArray>(&mut ctx_exec)
+                .unwrap();
             let field_a = result_struct
                 .unmasked_field_by_name("a")
                 .unwrap()
-                .to_primitive();
+                .clone()
+                .execute::<PrimitiveArray>(&mut ctx_exec)
+                .unwrap();
             assert_eq!(field_a.as_slice::<u64>(), &[1, 2]);
-            #[expect(deprecated)]
-            let result_struct_b = result.to_struct();
-            #[expect(deprecated)]
+            let result_struct_b = result.execute::<StructArray>(&mut ctx_exec).unwrap();
             let field_b = result_struct_b
                 .unmasked_field_by_name("b")
                 .unwrap()
-                .to_primitive();
+                .clone()
+                .execute::<PrimitiveArray>(&mut ctx_exec)
+                .unwrap();
             assert_eq!(field_b.as_slice::<u64>(), &[3, 4]);
         })
     }

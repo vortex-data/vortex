@@ -388,9 +388,8 @@ pub mod test_harness {
     use rand::RngExt;
     use rand::rngs::StdRng;
     use vortex_array::ArrayRef;
+    use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::BufferMut;
@@ -403,6 +402,7 @@ pub mod test_harness {
         len: usize,
         fraction_patches: f64,
         fraction_null: f64,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let values = (0..len)
             .map(|_| {
@@ -414,9 +414,8 @@ pub mod test_harness {
             })
             .collect::<BufferMut<i32>>();
 
-        #[expect(deprecated)]
         let values = if fraction_null == 0.0 {
-            values.into_array().to_primitive()
+            values.into_array().execute::<PrimitiveArray>(ctx)?
         } else {
             let validity = Validity::from_iter((0..len).map(|_| !rng.random_bool(fraction_null)));
             PrimitiveArray::new(values, validity)
@@ -432,8 +431,6 @@ mod test {
 
     use rand::SeedableRng;
     use rand::rngs::StdRng;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::assert_arrays_eq;
@@ -502,18 +499,18 @@ mod test {
 
     #[test]
     fn canonicalize_chunked_of_bitpacked() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let mut rng = StdRng::seed_from_u64(0);
 
         let chunks = (0..10)
-            .map(|_| make_array(&mut rng, 100, 0.25, 0.25).unwrap())
+            .map(|_| make_array(&mut rng, 100, 0.25, 0.25, &mut ctx).unwrap())
             .collect::<Vec<_>>();
         let chunked = ChunkedArray::from_iter(chunks).into_array();
 
-        #[expect(deprecated)]
-        let into_ca = chunked.to_primitive();
+        let into_ca = chunked.clone().execute::<PrimitiveArray>(&mut ctx)?;
         let mut primitive_builder =
             PrimitiveBuilder::<i32>::with_capacity(chunked.dtype().nullability(), 10 * 100);
-        chunked.append_to_builder(&mut primitive_builder, &mut SESSION.create_execution_ctx())?;
+        chunked.append_to_builder(&mut primitive_builder, &mut ctx)?;
         let ca_into = primitive_builder.finish();
 
         assert_arrays_eq!(into_ca, ca_into);
@@ -529,7 +526,8 @@ mod test {
     }
 
     #[test]
-    fn test_chunk_offsets() {
+    fn test_chunk_offsets() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let patch_value = 1u32 << 20;
         let patch_indices = [100usize, 200, 3000, 3100];
         let mut values = vec![0u32; 4096usize];
@@ -542,18 +540,24 @@ mod test {
         let bitpacked = bitpack_encode(&array, 4, None).unwrap();
 
         let patches = bitpacked.patches().unwrap();
-        #[expect(deprecated)]
-        let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
+        let chunk_offsets = patches
+            .chunk_offsets()
+            .as_ref()
+            .unwrap()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
 
         // chunk 0 (0-1023): patches at 100, 200 -> starts at patch index 0
         // chunk 1 (1024-2047): no patches -> points to patch index 2
         // chunk 2 (2048-3071): patch at 3000 -> starts at patch index 2
         // chunk 3 (3072-4095): patch at 3100 -> starts at patch index 3
         assert_arrays_eq!(chunk_offsets, PrimitiveArray::from_iter([0u64, 2, 2, 3]));
+        Ok(())
     }
 
     #[test]
-    fn test_chunk_offsets_no_patches_in_middle() {
+    fn test_chunk_offsets_no_patches_in_middle() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let patch_value = 1u32 << 20;
         let patch_indices = [100usize, 200, 2500];
         let mut values = vec![0u32; 3072usize];
@@ -566,14 +570,20 @@ mod test {
         let bitpacked = bitpack_encode(&array, 4, None).unwrap();
 
         let patches = bitpacked.patches().unwrap();
-        #[expect(deprecated)]
-        let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
+        let chunk_offsets = patches
+            .chunk_offsets()
+            .as_ref()
+            .unwrap()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
 
         assert_arrays_eq!(chunk_offsets, PrimitiveArray::from_iter([0u64, 2, 2]));
+        Ok(())
     }
 
     #[test]
-    fn test_chunk_offsets_trailing_empty_chunks() {
+    fn test_chunk_offsets_trailing_empty_chunks() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let patch_value = 1u32 << 20;
         let patch_indices = [100usize, 200, 1500];
         let mut values = vec![0u32; 5120usize];
@@ -586,8 +596,12 @@ mod test {
         let bitpacked = bitpack_encode(&array, 4, None).unwrap();
 
         let patches = bitpacked.patches().unwrap();
-        #[expect(deprecated)]
-        let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
+        let chunk_offsets = patches
+            .chunk_offsets()
+            .as_ref()
+            .unwrap()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
 
         // chunk 0 (0-1023): patches at 100, 200 -> starts at patch index 0
         // chunk 1 (1024-2047): patch at 1500 -> starts at patch index 2
@@ -595,10 +609,12 @@ mod test {
         // chunk 3 (3072-4095): no patches -> points to patch index 3 (remaining chunks filled)
         // chunk 4 (4096-5119): no patches -> points to patch index 3 (remaining chunks filled)
         assert_arrays_eq!(chunk_offsets, PrimitiveArray::from_iter([0u64, 2, 3, 3, 3]));
+        Ok(())
     }
 
     #[test]
-    fn test_chunk_offsets_single_chunk() {
+    fn test_chunk_offsets_single_chunk() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let patch_value = 1u32 << 20;
         let patch_indices = [100usize, 200];
         let mut values = vec![0u32; 500usize];
@@ -611,10 +627,15 @@ mod test {
         let bitpacked = bitpack_encode(&array, 4, None).unwrap();
 
         let patches = bitpacked.patches().unwrap();
-        #[expect(deprecated)]
-        let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
+        let chunk_offsets = patches
+            .chunk_offsets()
+            .as_ref()
+            .unwrap()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
 
         // Single chunk starting at patch index 0.
         assert_arrays_eq!(chunk_offsets, PrimitiveArray::from_iter([0u64]));
+        Ok(())
     }
 }

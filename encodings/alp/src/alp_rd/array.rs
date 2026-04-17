@@ -16,6 +16,7 @@ use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
@@ -407,10 +408,8 @@ impl ALPRDData {
     ) -> VortexResult<Option<Patches>> {
         left_parts_patches
             .map(|patches| {
-                if !patches
-                    .values()
-                    .all_valid(&mut LEGACY_SESSION.create_execution_ctx())?
-                {
+                let mut ctx = LEGACY_SESSION.create_execution_ctx();
+                if !patches.values().all_valid(&mut ctx)? {
                     vortex_bail!("patches must be all valid: {}", patches.values());
                 }
                 // TODO(ngates): assert the DType, don't cast it.
@@ -418,9 +417,8 @@ impl ALPRDData {
                 let mut patches = patches.cast_values(&left_parts.dtype().as_nonnullable())?;
                 // Force execution of the lazy cast so patch values are materialized
                 // before serialization.
-                #[expect(deprecated)]
-                let canonical = patches.values().to_canonical()?.into_array();
-                *patches.values_mut() = canonical;
+                let canonical = patches.values().clone().execute::<Canonical>(&mut ctx)?;
+                *patches.values_mut() = canonical.into_array();
                 Ok(patches)
             })
             .transpose()
@@ -662,8 +660,8 @@ impl ValidityChild<ALPRD> for ALPRD {
 mod test {
     use prost::Message;
     use rstest::rstest;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::PType;
@@ -681,6 +679,7 @@ mod test {
         #[case] reals: Vec<T>,
         #[case] seed: T,
     ) {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert_eq!(reals.len(), 1024, "test expects 1024-length fixture");
         // Null out some of the values.
         let mut reals: Vec<Option<T>> = reals.into_iter().map(Some).collect();
@@ -696,8 +695,11 @@ mod test {
 
         let rd_array = encoder.encode(real_array.as_view());
 
-        #[expect(deprecated)]
-        let decoded = rd_array.as_array().to_primitive();
+        let decoded = rd_array
+            .as_array()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
 
         assert_arrays_eq!(decoded, PrimitiveArray::from_option_iter(reals));
     }

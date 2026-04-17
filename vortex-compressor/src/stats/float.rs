@@ -272,19 +272,20 @@ where
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
     use super::FloatStats;
 
     #[test]
-    fn test_float_stats() {
+    fn test_float_stats() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let floats = buffer![0.0f32, 1.0f32, 2.0f32].into_array();
-        #[expect(deprecated)]
-        let floats = floats.to_primitive();
+        let floats = floats.execute::<PrimitiveArray>(&mut ctx)?;
 
         let stats = FloatStats::generate_opts(
             &floats,
@@ -297,6 +298,7 @@ mod tests {
         assert_eq!(stats.null_count, 0);
         assert_eq!(stats.average_run_length, 1);
         assert_eq!(stats.distinct_count().unwrap(), 3);
+        Ok(())
     }
 
     #[test]

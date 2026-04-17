@@ -166,8 +166,6 @@ mod test {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -270,6 +268,7 @@ mod test {
 
     #[test]
     fn take_nullable_with_nullables() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let start =
             BitPackedData::encode(&buffer![1i32, 2i32, 3i32, 4i32].into_array(), 1).unwrap();
 
@@ -282,14 +281,8 @@ mod test {
             taken_primitive,
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), None, Some(4)])
         );
-        #[expect(deprecated)]
-        let taken_primitive_prim = taken_primitive.to_primitive();
-        assert_eq!(
-            taken_primitive_prim
-                .invalid_count(&mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap(),
-            1
-        );
+        let taken_primitive_prim = taken_primitive.execute::<PrimitiveArray>(&mut ctx).unwrap();
+        assert_eq!(taken_primitive_prim.invalid_count(&mut ctx).unwrap(), 1);
     }
 
     #[rstest]

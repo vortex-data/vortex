@@ -247,8 +247,6 @@ fn decode_nullable_sequential(
 #[cfg(test)]
 mod tests {
     use vortex_array::LEGACY_SESSION;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -368,14 +366,14 @@ mod tests {
 
     #[test]
     fn decode_bools_nullable_few_runs() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Test few runs (uses fast path): 5 runs of length 2000 each
         let ends = PrimitiveArray::from_iter([2000u32, 4000, 6000, 8000, 10000]);
         let values = BoolArray::new(
             BitBuffer::from(vec![true, false, true, false, true]),
             Validity::from(BitBuffer::from(vec![true, false, true, false, true])),
         );
-        #[expect(deprecated)]
-        let decoded = runend_decode_bools(ends, values, 0, 10000)?.to_bool();
+        let decoded = runend_decode_bools(ends, values, 0, 10000)?.execute::<BoolArray>(&mut ctx)?;
 
         // Check length and a few values
         assert_eq!(decoded.len(), 10000);
@@ -384,10 +382,7 @@ mod tests {
             decoded
                 .as_ref()
                 .validity()?
-                .to_mask(
-                    decoded.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx()
-                )
+                .to_mask(decoded.as_ref().len(), &mut ctx)
                 .unwrap()
                 .value(0)
         );
@@ -397,10 +392,7 @@ mod tests {
             !decoded
                 .as_ref()
                 .validity()?
-                .to_mask(
-                    decoded.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx()
-                )
+                .to_mask(decoded.as_ref().len(), &mut ctx)
                 .unwrap()
                 .value(2000)
         );
@@ -409,10 +401,7 @@ mod tests {
             decoded
                 .as_ref()
                 .validity()?
-                .to_mask(
-                    decoded.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx()
-                )
+                .to_mask(decoded.as_ref().len(), &mut ctx)
                 .unwrap()
                 .value(4000)
         );

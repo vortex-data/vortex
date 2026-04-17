@@ -140,13 +140,15 @@ mod test {
             ],
             validity.clone(),
         );
-        let date_times = DateTimeParts::try_from_temporal(TemporalArray::new_timestamp(
-            milliseconds.clone().into_array(),
-            TimeUnit::Milliseconds,
-            Some("UTC".into()),
-        ))?;
-
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
+        let date_times = DateTimeParts::try_from_temporal(
+            TemporalArray::new_timestamp(
+                milliseconds.clone().into_array(),
+                TimeUnit::Milliseconds,
+                Some("UTC".into()),
+            ),
+            &mut ctx,
+        )?;
 
         assert!(
             date_times

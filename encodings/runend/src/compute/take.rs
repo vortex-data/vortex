@@ -7,8 +7,6 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::match_each_integer_ptype;
@@ -51,7 +49,7 @@ impl TakeExecute for RunEnd {
         });
 
         let indices_validity = primitive_indices.validity()?;
-        take_indices_unchecked(array, &checked_indices, &indices_validity).map(Some)
+        take_indices_unchecked(array, &checked_indices, &indices_validity, ctx).map(Some)
     }
 }
 
@@ -60,9 +58,9 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
     array: ArrayView<'_, RunEnd>,
     indices: &[T],
     validity: &Validity,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    #[expect(deprecated)]
-    let ends = array.ends().to_primitive();
+    let ends = array.ends().clone().execute::<PrimitiveArray>(ctx)?;
     let ends_len = ends.len();
 
     // TODO(joe): use the validity mask to skip search sorted.
@@ -91,7 +89,7 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::Canonical;

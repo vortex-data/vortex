@@ -23,8 +23,6 @@ use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::ConstantArray;
@@ -367,12 +365,12 @@ fn choose_max_dict_size(uncompressed_size: usize) -> usize {
 }
 
 fn collect_valid_primitive(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
-    let mask = parray.as_ref().validity()?.to_mask(
-        parray.as_ref().len(),
-        &mut LEGACY_SESSION.create_execution_ctx(),
-    )?;
-    #[expect(deprecated)]
-    let result = parray.filter(mask)?.to_primitive();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mask = parray
+        .as_ref()
+        .validity()?
+        .to_mask(parray.as_ref().len(), &mut ctx)?;
+    let result = parray.filter(mask)?.execute::<PrimitiveArray>(&mut ctx)?;
     Ok(result)
 }
 
@@ -801,9 +799,13 @@ impl ZstdData {
         }
     }
 
-    pub fn from_array(array: ArrayRef, level: i32, values_per_frame: usize) -> VortexResult<Self> {
-        #[expect(deprecated)]
-        let canonical = array.to_canonical()?;
+    pub fn from_array(
+        array: ArrayRef,
+        level: i32,
+        values_per_frame: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Self> {
+        let canonical = array.execute::<Canonical>(ctx)?;
         Self::from_canonical(&canonical, level, values_per_frame)?
             .ok_or_else(|| vortex_err!("Zstd can only encode Primitive and VarBinView arrays"))
     }

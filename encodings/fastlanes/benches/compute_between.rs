@@ -12,8 +12,6 @@ use vortex_alp::alp_encode;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
@@ -52,15 +50,14 @@ fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast>(
         .map(|_| T::from_usize(rng.random_range(0..10_000)).vortex_expect(""))
         .collect::<PrimitiveArray>();
 
-    let alp = alp_encode(
-        a.as_view(),
-        None,
-        &mut LEGACY_SESSION.create_execution_ctx(),
-    )
-    .vortex_expect("");
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let alp = alp_encode(a.as_view(), None, &mut ctx).vortex_expect("");
 
-    #[expect(deprecated)]
-    let encoded = alp.encoded().to_primitive();
+    let encoded = alp
+        .encoded()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)
+        .vortex_expect("");
 
     let bp = bitpack_to_best_bit_width(&encoded)
         .vortex_expect("")

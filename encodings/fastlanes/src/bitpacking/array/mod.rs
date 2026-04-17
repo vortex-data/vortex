@@ -333,8 +333,8 @@ impl<T: TypedArrayRef<crate::BitPacked>> BitPackedArrayExt for T {}
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_buffer::Buffer;
@@ -344,6 +344,7 @@ mod test {
 
     #[test]
     fn test_encode() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = [
             Some(1u64),
             None,
@@ -356,8 +357,11 @@ mod test {
         let uncompressed = PrimitiveArray::from_option_iter(values);
         let packed = BitPackedData::encode(&uncompressed.into_array(), 1).unwrap();
         let expected = PrimitiveArray::from_option_iter(values);
-        #[expect(deprecated)]
-        let packed_primitive = packed.as_array().to_primitive();
+        let packed_primitive = packed
+            .as_array()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_arrays_eq!(packed_primitive, expected);
     }
 
@@ -373,13 +377,17 @@ mod test {
 
     #[test]
     fn signed_with_patches() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values: Buffer<i32> = (0i32..=512).collect();
         let parray = values.clone().into_array();
 
         let packed_with_patches = BitPackedData::encode(&parray, 9).unwrap();
         assert!(packed_with_patches.patches().is_some());
-        #[expect(deprecated)]
-        let packed_primitive = packed_with_patches.as_array().to_primitive();
+        let packed_primitive = packed_with_patches
+            .as_array()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_arrays_eq!(
             packed_primitive,
             PrimitiveArray::new(values, vortex_array::validity::Validity::NonNullable)

@@ -202,6 +202,8 @@ fn compare_dtp(
 #[cfg(test)]
 mod test {
     use rstest::rstest;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::dtype::IntegerPType;
@@ -217,11 +219,14 @@ mod test {
         value: T,
         validity: Validity,
     ) -> DateTimePartsArray {
-        DateTimeParts::try_from_temporal(TemporalArray::new_timestamp(
-            PrimitiveArray::new(buffer![value], validity).into_array(),
-            TimeUnit::Seconds,
-            Some("UTC".into()),
-        ))
+        DateTimeParts::try_from_temporal(
+            TemporalArray::new_timestamp(
+                PrimitiveArray::new(buffer![value], validity).into_array(),
+                TimeUnit::Seconds,
+                Some("UTC".into()),
+            ),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
         .expect("Failed to construct DateTimePartsArray from TemporalArray")
     }
 

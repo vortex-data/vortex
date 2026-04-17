@@ -52,8 +52,6 @@ mod test {
     use std::sync::LazyLock;
 
     use itertools::Itertools;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::primitive::PrimitiveArrayExt;
     use vortex_array::assert_arrays_eq;
@@ -156,6 +154,7 @@ mod test {
 
     #[test]
     fn test_overflow() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_iter(i8::MIN..=i8::MAX);
         let compressed = FoRData::encode(array.clone()).unwrap();
         assert_eq!(
@@ -167,16 +166,16 @@ mod test {
                 .unwrap()
         );
 
-        #[expect(deprecated)]
         let encoded = compressed
             .encoded()
-            .to_primitive()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?
             .reinterpret_cast(PType::U8);
         let unsigned: Vec<u8> = (0..=u8::MAX).collect_vec();
         let expected_unsigned = PrimitiveArray::from_iter(unsigned);
         assert_eq!(encoded.as_slice::<u8>(), expected_unsigned.as_slice::<u8>());
 
-        let decompressed = decompress(&compressed, &mut SESSION.create_execution_ctx())?;
+        let decompressed = decompress(&compressed, &mut ctx)?;
         array
             .as_slice::<i8>()
             .iter()
@@ -184,12 +183,7 @@ mod test {
             .for_each(|(i, v)| {
                 assert_eq!(
                     *v,
-                    i8::try_from(
-                        &compressed
-                            .execute_scalar(i, &mut SESSION.create_execution_ctx())
-                            .unwrap()
-                    )
-                    .unwrap()
+                    i8::try_from(&compressed.execute_scalar(i, &mut ctx).unwrap()).unwrap()
                 );
             });
         assert_arrays_eq!(decompressed, array);

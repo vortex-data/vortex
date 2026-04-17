@@ -160,8 +160,6 @@ mod tests {
 
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::Nullability;
@@ -220,8 +218,10 @@ mod tests {
 
     #[test]
     fn test_all_zeros() -> VortexResult<()> {
-        #[expect(deprecated)]
-        let zeros = buffer![0u16, 0, 0, 0].into_array().to_primitive();
+        let mut ctx = SESSION.create_execution_ctx();
+        let zeros = buffer![0u16, 0, 0, 0]
+            .into_array()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let bitpacked = encode(&zeros, 0);
         let actual = unpack(&bitpacked)?;
         assert_arrays_eq!(actual, PrimitiveArray::from_iter([0u16, 0, 0, 0]));
@@ -230,8 +230,10 @@ mod tests {
 
     #[test]
     fn test_simple_patches() -> VortexResult<()> {
-        #[expect(deprecated)]
-        let zeros = buffer![0u16, 1, 0, 1].into_array().to_primitive();
+        let mut ctx = SESSION.create_execution_ctx();
+        let zeros = buffer![0u16, 1, 0, 1]
+            .into_array()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let bitpacked = encode(&zeros, 0);
         let actual = unpack(&bitpacked)?;
         assert_arrays_eq!(actual, PrimitiveArray::from_iter([0u16, 1, 0, 1]));
@@ -240,8 +242,10 @@ mod tests {
 
     #[test]
     fn test_one_full_chunk() -> VortexResult<()> {
-        #[expect(deprecated)]
-        let zeros = BufferMut::from_iter(0u16..1024).into_array().to_primitive();
+        let mut ctx = SESSION.create_execution_ctx();
+        let zeros = BufferMut::from_iter(0u16..1024)
+            .into_array()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let bitpacked = encode(&zeros, 10);
         let actual = unpack(&bitpacked)?;
         assert_arrays_eq!(actual, PrimitiveArray::from_iter(0u16..1024));
@@ -250,10 +254,10 @@ mod tests {
 
     #[test]
     fn test_three_full_chunks_with_patches() -> VortexResult<()> {
-        #[expect(deprecated)]
+        let mut ctx = SESSION.create_execution_ctx();
         let zeros = BufferMut::from_iter((5u16..1029).chain(5u16..1029).chain(5u16..1029))
             .into_array()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let bitpacked = encode(&zeros, 10);
         assert!(bitpacked.patches().is_some());
         let actual = unpack(&bitpacked)?;
@@ -266,8 +270,10 @@ mod tests {
 
     #[test]
     fn test_one_full_chunk_and_one_short_chunk_no_patch() -> VortexResult<()> {
-        #[expect(deprecated)]
-        let zeros = BufferMut::from_iter(0u16..1025).into_array().to_primitive();
+        let mut ctx = SESSION.create_execution_ctx();
+        let zeros = BufferMut::from_iter(0u16..1025)
+            .into_array()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let bitpacked = encode(&zeros, 11);
         assert!(bitpacked.patches().is_none());
         let actual = unpack(&bitpacked)?;
@@ -277,10 +283,10 @@ mod tests {
 
     #[test]
     fn test_one_full_chunk_and_one_short_chunk_with_patches() -> VortexResult<()> {
-        #[expect(deprecated)]
+        let mut ctx = SESSION.create_execution_ctx();
         let zeros = BufferMut::from_iter(512u16..1537)
             .into_array()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let bitpacked = encode(&zeros, 10);
         assert_eq!(bitpacked.len(), 1025);
         assert!(bitpacked.patches().is_some());
@@ -291,42 +297,36 @@ mod tests {
 
     #[test]
     fn test_offset_and_short_chunk_and_patches() -> VortexResult<()> {
-        #[expect(deprecated)]
+        let mut ctx = SESSION.create_execution_ctx();
         let zeros = BufferMut::from_iter(512u16..1537)
             .into_array()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let bitpacked = encode(&zeros, 10);
         assert_eq!(bitpacked.len(), 1025);
         assert!(bitpacked.patches().is_some());
         let slice_ref = bitpacked.into_array().slice(1023..1025).unwrap();
-        let actual = {
-            let mut ctx = SESSION.create_execution_ctx();
-            slice_ref
-                .execute::<Canonical>(&mut ctx)
-                .unwrap()
-                .into_primitive()
-        };
+        let actual = slice_ref
+            .execute::<Canonical>(&mut ctx)
+            .unwrap()
+            .into_primitive();
         assert_arrays_eq!(actual, PrimitiveArray::from_iter([1535u16, 1536]));
         Ok(())
     }
 
     #[test]
     fn test_offset_and_short_chunk_with_chunks_between_and_patches() -> VortexResult<()> {
-        #[expect(deprecated)]
+        let mut ctx = SESSION.create_execution_ctx();
         let zeros = BufferMut::from_iter(512u16..2741)
             .into_array()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let bitpacked = encode(&zeros, 10);
         assert_eq!(bitpacked.len(), 2229);
         assert!(bitpacked.patches().is_some());
         let slice_ref = bitpacked.into_array().slice(1023..2049).unwrap();
-        let actual = {
-            let mut ctx = SESSION.create_execution_ctx();
-            slice_ref
-                .execute::<Canonical>(&mut ctx)
-                .unwrap()
-                .into_primitive()
-        };
+        let actual = slice_ref
+            .execute::<Canonical>(&mut ctx)
+            .unwrap()
+            .into_primitive();
         assert_arrays_eq!(
             actual,
             PrimitiveArray::from_iter((1023u16..2049).map(|x| x + 512))

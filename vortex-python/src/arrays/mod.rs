@@ -23,11 +23,11 @@ use pyo3::types::PyRange;
 use pyo3::types::PyRangeMethods;
 use pyo3_bytes::PyBytes;
 use vortex::array::ArrayRef;
+use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex::array::ToCanonical;
 use vortex::array::VortexSessionExecute;
+use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::Chunked;
 use vortex::array::arrays::bool::BoolArrayExt;
 use vortex::array::arrays::chunked::ChunkedArrayExt;
@@ -527,12 +527,11 @@ impl PyArray {
     /// ]
     /// ```
     fn filter(slf: Bound<Self>, mask: PyArrayRef) -> PyVortexResult<PyArrayRef> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        #[expect(deprecated)]
-        let mask_bool = (&*mask as &ArrayRef).to_bool();
-        let mask = mask_bool.to_mask_fill_null_false(&mut LEGACY_SESSION.create_execution_ctx());
-        #[expect(deprecated)]
-        let canonical = slf.filter(mask)?.to_canonical()?;
+        let mask_bool = (&*mask as &ArrayRef).clone().execute::<BoolArray>(&mut ctx)?;
+        let mask = mask_bool.to_mask_fill_null_false(&mut ctx);
+        let canonical = slf.filter(mask)?.execute::<Canonical>(&mut ctx)?;
         let inner = canonical.into_array();
         Ok(PyArrayRef::from(inner))
     }

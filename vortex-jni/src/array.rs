@@ -29,9 +29,9 @@ use jni::sys::jstring;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayView;
 use vortex::array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex::array::ToCanonical;
 use vortex::array::VortexSessionExecute;
+use vortex::array::arrays::ExtensionArray;
+use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBin;
 use vortex::array::arrays::VarBinView;
 use vortex::array::arrays::extension::ExtensionArrayExt;
@@ -235,8 +235,11 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getField(
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
 
     try_or_throw(&mut env, |_| {
-        #[expect(deprecated)]
-        let struct_array = array_ref.inner.to_struct();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let struct_array = array_ref
+            .inner
+            .clone()
+            .execute::<StructArray>(&mut ctx)?;
         let idx = index as usize;
         if idx >= struct_array.struct_fields().nfields() {
             return Err(vortex_err!("Field index out of bounds").into());
@@ -304,18 +307,15 @@ macro_rules! get_primitive {
         ) -> $jtype {
             let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
             try_or_throw(&mut env, |_| {
+                let mut ctx = LEGACY_SESSION.create_execution_ctx();
                 let scalar_value = if array_ref.is_extension {
-                    #[expect(deprecated)]
-                    let ext = array_ref.inner.to_extension();
-                    ext.storage_array().execute_scalar(
-                        index as usize,
-                        &mut LEGACY_SESSION.create_execution_ctx(),
-                    )?
+                    let ext = array_ref
+                        .inner
+                        .clone()
+                        .execute::<ExtensionArray>(&mut ctx)?;
+                    ext.storage_array().execute_scalar(index as usize, &mut ctx)?
                 } else {
-                    array_ref.inner.execute_scalar(
-                        index as usize,
-                        &mut LEGACY_SESSION.create_execution_ctx(),
-                    )?
+                    array_ref.inner.execute_scalar(index as usize, &mut ctx)?
                 };
 
                 Ok(scalar_value
@@ -347,15 +347,15 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBigDecimal(
 ) -> jobject {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |env| {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let scalar_value = if array_ref.is_extension {
-            #[expect(deprecated)]
-            let ext = array_ref.inner.to_extension();
-            ext.storage_array()
-                .execute_scalar(index as usize, &mut LEGACY_SESSION.create_execution_ctx())?
-        } else {
-            array_ref
+            let ext = array_ref
                 .inner
-                .execute_scalar(index as usize, &mut LEGACY_SESSION.create_execution_ctx())?
+                .clone()
+                .execute::<ExtensionArray>(&mut ctx)?;
+            ext.storage_array().execute_scalar(index as usize, &mut ctx)?
+        } else {
+            array_ref.inner.execute_scalar(index as usize, &mut ctx)?
         };
 
         let decimal_scalar = scalar_value.as_decimal();

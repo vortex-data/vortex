@@ -242,21 +242,23 @@ impl_encode!(f64, u64);
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::dict::DictArraySlotsExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
     use super::dictionary_encode;
     use crate::stats::FloatStats;
     use crate::stats::GenerateStatsOptions;
 
     #[test]
-    fn test_float_dict_encode() {
+    fn test_float_dict_encode() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = buffer![1f32, 2f32, 2f32, 0f32, 1f32];
         let validity =
             Validity::Array(BoolArray::from_iter([true, true, true, false, true]).into_array());
@@ -268,7 +270,7 @@ mod tests {
                 count_distinct_values: true,
             },
         );
-        let dict_array = dictionary_encode(array.as_view(), &stats).unwrap();
+        let dict_array = dictionary_encode(array.as_view(), &stats)?;
         assert_eq!(dict_array.values().len(), 2);
         assert_eq!(dict_array.codes().len(), 5);
 
@@ -277,8 +279,12 @@ mod tests {
             Validity::Array(BoolArray::from_iter([true, true, true, false, true]).into_array()),
         )
         .into_array();
-        #[expect(deprecated)]
-        let undict = dict_array.as_array().to_primitive().into_array();
+        let undict = dict_array
+            .as_array()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?
+            .into_array();
         assert_arrays_eq!(undict, expected);
+        Ok(())
     }
 }

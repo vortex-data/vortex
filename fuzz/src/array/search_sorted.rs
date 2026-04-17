@@ -5,11 +5,12 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use vortex_array::ArrayRef;
-use vortex_array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
-use vortex_array::VortexSessionExecute;
+use vortex_array::ExecutionCtx;
 use vortex_array::accessor::ArrayAccessor;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
@@ -63,18 +64,15 @@ pub fn search_sorted_canonical_array(
     array: &ArrayRef,
     scalar: &Scalar,
     side: SearchSortedSide,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<SearchResult> {
     match array.dtype() {
         DType::Bool(_) => {
-            #[expect(deprecated)]
-            let bool_array = array.to_bool();
+            let bool_array = array.clone().execute::<BoolArray>(ctx)?;
             let validity = bool_array
                 .as_ref()
                 .validity()?
-                .to_mask(
-                    bool_array.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )?
+                .to_mask(bool_array.as_ref().len(), ctx)?
                 .to_bit_buffer();
             let opt_values = bool_array
                 .to_bit_buffer()
@@ -86,15 +84,11 @@ pub fn search_sorted_canonical_array(
             SearchNullableSlice(opt_values).search_sorted(&Some(to_find), side)
         }
         DType::Primitive(p, _) => {
-            #[expect(deprecated)]
-            let primitive_array = array.to_primitive();
+            let primitive_array = array.clone().execute::<PrimitiveArray>(ctx)?;
             let validity = primitive_array
                 .as_ref()
                 .validity()?
-                .to_mask(
-                    primitive_array.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )?
+                .to_mask(primitive_array.as_ref().len(), ctx)?
                 .to_bit_buffer();
             match_each_native_ptype!(p, |P| {
                 let opt_values = primitive_array
@@ -109,15 +103,11 @@ pub fn search_sorted_canonical_array(
             })
         }
         DType::Decimal(d, _) => {
-            #[expect(deprecated)]
-            let decimal_array = array.to_decimal();
+            let decimal_array = array.clone().execute::<DecimalArray>(ctx)?;
             let validity = decimal_array
                 .as_ref()
                 .validity()?
-                .to_mask(
-                    decimal_array.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )?
+                .to_mask(decimal_array.as_ref().len(), ctx)?
                 .to_bit_buffer();
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 let buf = decimal_array.buffer::<D>();
@@ -142,8 +132,7 @@ pub fn search_sorted_canonical_array(
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            #[expect(deprecated)]
-            let utf8 = array.to_varbinview();
+            let utf8 = array.clone().execute::<VarBinViewArray>(ctx)?;
             let opt_values =
                 utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>());
             let to_find = if matches!(array.dtype(), DType::Utf8(_)) {
@@ -154,9 +143,8 @@ pub fn search_sorted_canonical_array(
             SearchNullableSlice(opt_values).search_sorted(&Some(to_find), side)
         }
         DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => {
-            let mut ctx = LEGACY_SESSION.create_execution_ctx();
             let scalar_vals = (0..array.len())
-                .map(|i| array.execute_scalar(i, &mut ctx))
+                .map(|i| array.execute_scalar(i, ctx))
                 .collect::<VortexResult<Vec<_>>>()?;
             scalar_vals.search_sorted(&scalar.cast(array.dtype())?, side)
         }
