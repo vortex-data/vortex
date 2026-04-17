@@ -29,8 +29,8 @@ use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
-use vortex_buffer::BitBuffer;
 use vortex_buffer::ByteBuffer;
+use vortex_buffer::{BitBuffer, BitBufferMut};
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -151,7 +151,8 @@ impl VTable for ByteBool {
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let boolean_buffer = BitBuffer::from(array.as_slice());
+        // convert truthy values to set/unset bits
+        let boolean_buffer = BitBufferMut::from(array.truthy_bytes()).freeze();
         let validity = array.validity()?;
         Ok(ExecutionResult::done(
             BoolArray::new(boolean_buffer, validity).into_array(),
@@ -225,7 +226,7 @@ impl ByteBool {
     /// # Safety
     ///
     /// Every byte of `buffer` must be `0x00` or `0x01`. Any other byte value is
-    /// Undefined Behavior because [`ByteBoolData::as_slice`] reinterprets the buffer
+    /// Undefined Behavior because [`ByteBoolData::truthy_bytes`] reinterprets the buffer
     /// as `&[bool]`, and a `bool` with any bit pattern other than 0 or 1 is UB.
     /// If `validity` is [`Validity::Array`], its length must equal `buffer.len()`.
     pub unsafe fn new_unchecked(buffer: BufferHandle, validity: Validity) -> ByteBoolArray {
@@ -295,7 +296,7 @@ impl ByteBoolData {
 
     /// Validate that every byte of `buffer` is `0x00` or `0x01`.
     ///
-    /// [`ByteBoolData::as_slice`] transmutes the buffer's bytes to `&[bool]`; any byte
+    /// [`ByteBoolData::truthy_bytes`] transmutes the buffer's bytes to `&[bool]`; any byte
     /// other than `0x00` or `0x01` would produce a `bool` with an invalid bit pattern,
     /// which is Undefined Behavior per the Rust reference.
     ///
@@ -345,7 +346,7 @@ impl ByteBoolData {
     /// # Safety
     ///
     /// Every byte of `buffer` must be `0x00` or `0x01`. Any other byte value is
-    /// Undefined Behavior because [`ByteBoolData::as_slice`] reinterprets the buffer
+    /// Undefined Behavior because [`ByteBoolData::truthy_bytes`] reinterprets the buffer
     /// as `&[bool]`, and a `bool` with any bit pattern other than 0 or 1 is UB.
     /// If `validity` is [`Validity::Array`], its length must equal `buffer.len()`.
     pub unsafe fn new_unchecked(buffer: BufferHandle, validity: Validity) -> Self {
@@ -394,9 +395,11 @@ impl ByteBoolData {
         &self.buffer
     }
 
-    pub fn as_slice(&self) -> &[bool] {
-        // Safety: The internal buffer contains byte-sized bools
-        unsafe { std::mem::transmute(self.buffer().as_host().as_slice()) }
+    /// Get access to the underlying 8-bit truthy values.
+    ///
+    /// The zero byte indicates `false`, and any non-zero byte is a `true`.
+    pub fn truthy_bytes(&self) -> &[u8] {
+        self.buffer().as_host().as_slice()
     }
 }
 
@@ -514,7 +517,7 @@ mod tests {
         // SAFETY: all bytes are 0 or 1.
         let arr = unsafe { ByteBool::new_unchecked(handle, Validity::NonNullable) };
         assert_eq!(arr.len(), 4);
-        assert_eq!(arr.as_slice(), &[false, true, true, false]);
+        assert_eq!(arr.truthy_bytes(), &[false, true, true, false]);
     }
 
     #[test]
