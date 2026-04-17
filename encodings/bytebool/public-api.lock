@@ -78,13 +78,11 @@ impl vortex_bytebool::ByteBoolData
 
 pub fn vortex_bytebool::ByteBoolData::buffer(&self) -> &vortex_array::buffer::BufferHandle
 
-pub fn vortex_bytebool::ByteBoolData::from_vec<V: core::convert::Into<vortex_array::validity::Validity>>(data: alloc::vec::Vec<bool>, validity: V) -> Self
-
 pub fn vortex_bytebool::ByteBoolData::is_empty(&self) -> bool
 
 pub fn vortex_bytebool::ByteBoolData::len(&self) -> usize
 
-pub fn vortex_bytebool::ByteBoolData::new(buffer: vortex_array::buffer::BufferHandle, validity: vortex_array::validity::Validity) -> Self
+pub fn vortex_bytebool::ByteBoolData::new(buffer: vortex_array::buffer::BufferHandle) -> Self
 
 pub fn vortex_bytebool::ByteBoolData::truthy_bytes(&self) -> &[u8]
 
@@ -93,14 +91,6 @@ pub fn vortex_bytebool::ByteBoolData::validate(buffer: &vortex_array::buffer::Bu
 impl core::clone::Clone for vortex_bytebool::ByteBoolData
 
 pub fn vortex_bytebool::ByteBoolData::clone(&self) -> vortex_bytebool::ByteBoolData
-
-impl core::convert::From<alloc::vec::Vec<bool>> for vortex_bytebool::ByteBoolData
-
-pub fn vortex_bytebool::ByteBoolData::from(value: alloc::vec::Vec<bool>) -> Self
-
-impl core::convert::From<alloc::vec::Vec<core::option::Option<bool>>> for vortex_bytebool::ByteBoolData
-
-pub fn vortex_bytebool::ByteBoolData::from(value: alloc::vec::Vec<core::option::Option<bool>>) -> Self
 
 impl core::fmt::Debug for vortex_bytebool::ByteBoolData
 
