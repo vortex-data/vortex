@@ -3,8 +3,7 @@
 
 //! TurboQuant compression scheme.
 //!
-//! The scheme first normalizes the input via [`normalize_as_l2_denorm`], then encodes the
-//! normalized child via [`turboquant_encode_unchecked`]. The result is:
+//! The scheme is a thin [`Scheme`] adapter over [`turboquant_compress`], which produces:
 //!
 //! ```text
 //! ScalarFnArray(L2Denorm, [
@@ -18,8 +17,7 @@
 //!
 //! Decompression is automatic: executing the outer array walks the ScalarFn tree.
 //!
-//! [`normalize_as_l2_denorm`]: crate::scalar_fns::l2_denorm::normalize_as_l2_denorm
-//! [`turboquant_encode_unchecked`]: crate::encodings::turboquant::turboquant_encode_unchecked
+//! [`turboquant_compress`]: crate::encodings::turboquant::turboquant_compress
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;

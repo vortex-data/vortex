@@ -4,7 +4,6 @@
 //! Inner product expression for tensor-like types.
 
 use std::fmt::Formatter;
-use std::sync::Arc;
 
 use num_traits::Float;
 use prost::Message;
@@ -32,13 +31,10 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::proto::dtype as pb;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
-use vortex_array::extension::EmptyMetadata;
 use vortex_array::match_each_float_ptype;
-use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
@@ -443,29 +439,10 @@ impl InnerProduct {
         let mut rotated_query = vec![0.0f32; padded_dim];
         rotation.rotate(&padded_query, &mut rotated_query);
 
-        // Build the rewritten constant as a `Vector<padded_dim, f32>` extension scalar. We reuse
-        // the original storage FSL nullability so the new extension dtype stays consistent with
-        // whatever the original tree expected.
-        let storage_fsl_nullability = const_storage.dtype().nullability();
-        let element_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
-        let children: Vec<Scalar> = rotated_query
-            .into_iter()
-            .map(|v| Scalar::primitive(v, Nullability::NonNullable))
-            .collect();
-        let fsl_scalar =
-            Scalar::fixed_size_list(element_dtype.clone(), children, storage_fsl_nullability);
-
-        // Build a fresh `Vector<padded_dim, f32>` extension dtype. We cannot reuse the
-        // original extension dtype because that one has `dim`, not `padded_dim`.
-        let padded_dim_u32 = u32::try_from(padded_dim).vortex_expect("padded_dim fits u32");
-        let new_fsl_dtype = DType::FixedSizeList(
-            Arc::new(element_dtype),
-            padded_dim_u32,
-            storage_fsl_nullability,
-        );
-        let new_ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, new_fsl_dtype)?.erased();
-        let new_constant =
-            ConstantArray::new(Scalar::extension_ref(new_ext_dtype, fsl_scalar), len).into_array();
+        // Wrap the rotated query as a `Vector<padded_dim, f32>` constant broadcast to `len`
+        // rows. The new extension dtype has `padded_dim` instead of `dim`, matching the
+        // SorfTransform child we are about to dot it with.
+        let new_constant = Vector::constant_array(&rotated_query, len)?;
 
         // Extract the SorfTransform child (the already-padded Vector<padded_dim, f32>).
         let sorf_child = sorf_view
@@ -581,8 +558,9 @@ impl InnerProduct {
         let values: &[f32] = values_prim.as_slice::<f32>();
         debug_assert_eq!(codes.len(), len * padded_dim);
 
-        // The hot loop is extracted into [`execute_dict_constant_inner_product`] with
-        // unchecked indexing so the compiler can vectorize the inner gather-accumulate.
+        // The hot loop is extracted into [`execute_dict_constant_inner_product`] so the
+        // compiler can prove the chunked indices stay in bounds and vectorize the inner
+        // gather-accumulate.
         let out = execute_dict_constant_inner_product(q, values, codes, len, padded_dim);
 
         // SAFETY: the buffer length equals `len`, which matches the validity length.

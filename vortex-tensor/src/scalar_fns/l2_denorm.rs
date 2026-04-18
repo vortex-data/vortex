@@ -213,7 +213,11 @@ impl ScalarFnVTable for L2Denorm {
 
         if let Some(const_norms) = norms_ref.as_opt::<Constant>() {
             let norm_scalar = const_norms.scalar();
-            vortex_ensure!(norm_scalar.dtype().is_float());
+            vortex_ensure!(
+                norm_scalar.dtype().is_float(),
+                "L2Denorm constant norms must be a float scalar, got {}",
+                norm_scalar.dtype(),
+            );
 
             if let Some(norm_value) = norm_scalar.value() {
                 return execute_l2_denorm_constant_norms(
