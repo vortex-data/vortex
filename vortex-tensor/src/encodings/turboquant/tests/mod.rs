@@ -78,15 +78,6 @@ fn make_vector_ext(fsl: &FixedSizeListArray) -> ExtensionArray {
     ExtensionArray::new(ext_dtype, fsl.clone().into_array())
 }
 
-/// Full encode pipeline: normalize → TQ-encode → wrap in L2Denorm.
-fn normalize_and_encode(
-    ext: &ExtensionArray,
-    config: &TurboQuantConfig,
-    ctx: &mut vortex_array::ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    turboquant_compress(ext.as_ref().clone(), config, ctx)
-}
-
 /// Unwrap an L2Denorm ScalarFnArray into (sorf_child, norms_child).
 fn unwrap_l2denorm(encoded: &ArrayRef) -> (ArrayRef, ArrayRef) {
     let sfn = encoded
@@ -166,8 +157,7 @@ fn encode_decode(
         let prim = fsl.elements().clone().execute::<PrimitiveArray>(&mut ctx)?;
         prim.as_slice::<f32>().to_vec()
     };
-    let ext = make_vector_ext(fsl);
-    let encoded = normalize_and_encode(&ext, config, &mut ctx)?;
+    let encoded = turboquant_compress(make_vector_ext(fsl).into_array(), config, &mut ctx)?;
     let decoded_ext = encoded.execute::<ExtensionArray>(&mut ctx)?;
     let decoded_fsl = decoded_ext
         .storage_array()

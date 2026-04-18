@@ -130,7 +130,7 @@ fn roundtrip_edge_cases(#[case] num_rows: usize) -> VortexResult<()> {
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_compress(ext.into_array(), &config, &mut ctx)?;
     let decoded = encoded.execute::<ExtensionArray>(&mut ctx)?;
     assert_eq!(decoded.len(), num_rows);
     Ok(())
@@ -255,7 +255,7 @@ fn f64_input_encodes_successfully() -> VortexResult<()> {
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_compress(ext.into_array(), &config, &mut ctx)?;
     let (_sorf_child, norms_child) = unwrap_l2denorm(&encoded);
     assert_eq!(norms_child.len(), num_rows);
     Ok(())
@@ -288,7 +288,7 @@ fn f16_input_encodes_successfully() -> VortexResult<()> {
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_compress(ext.into_array(), &config, &mut ctx)?;
     let (_sorf_child, norms_child) = unwrap_l2denorm(&encoded);
     assert_eq!(norms_child.len(), num_rows);
 
