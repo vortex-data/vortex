@@ -46,13 +46,10 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::ExtensionArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
-use vortex_array::dtype::extension::ExtDType;
-use vortex_array::extension::EmptyMetadata;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
@@ -106,11 +103,8 @@ pub fn build_constant_query_vector<T: NativePType + Into<PValue>>(
         .map(|&v| Scalar::primitive(v, Nullability::NonNullable))
         .collect();
     let storage_scalar = Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
-
     let storage = ConstantArray::new(storage_scalar, num_rows).into_array();
-
-    let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, storage.dtype().clone())?.erased();
-    Ok(ExtensionArray::new(ext_dtype, storage).into_array())
+    Vector::wrap_storage(storage)
 }
 
 /// Build the lazy similarity-search expression tree for a prepared database array and a

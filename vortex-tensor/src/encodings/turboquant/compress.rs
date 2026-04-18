@@ -15,7 +15,6 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Extension;
-use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::DictArray;
@@ -23,8 +22,6 @@ use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::dtype::Nullability;
-use vortex_array::dtype::extension::ExtDType;
-use vortex_array::extension::EmptyMetadata;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -242,7 +239,7 @@ pub unsafe fn turboquant_encode_unchecked(
             Validity::NonNullable,
             0,
         )?;
-        let empty_padded_vector = wrap_padded_as_vector(empty_fsl.into_array())?;
+        let empty_padded_vector = Vector::wrap_storage(empty_fsl.into_array())?;
 
         let sorf_options = SorfOptions {
             seed,
@@ -258,7 +255,7 @@ pub unsafe fn turboquant_encode_unchecked(
     let core = turboquant_quantize_core(&fsl, seed, config.bit_width, config.num_rounds, ctx)?;
     let quantized_fsl =
         build_quantized_fsl(num_rows, core.all_indices, &core.centroids, core.padded_dim)?;
-    let padded_vector = wrap_padded_as_vector(quantized_fsl)?;
+    let padded_vector = Vector::wrap_storage(quantized_fsl)?;
 
     let sorf_options = SorfOptions {
         seed,
@@ -267,13 +264,6 @@ pub unsafe fn turboquant_encode_unchecked(
         element_ptype,
     };
     Ok(SorfTransform::try_new_array(&sorf_options, padded_vector, num_rows)?.into_array())
-}
-
-/// Wrap an `FSL<f32, padded_dim>` in a [`Vector`](crate::vector::Vector) extension so it can be
-/// passed as the child of [`SorfTransform`], which expects a `Vector<padded_dim>` input.
-fn wrap_padded_as_vector(fsl: ArrayRef) -> VortexResult<ArrayRef> {
-    let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
-    Ok(ExtensionArray::new(ext_dtype, fsl).into_array())
 }
 
 /// Apply the full TurboQuant compression pipeline to a [`Vector`](crate::vector::Vector)

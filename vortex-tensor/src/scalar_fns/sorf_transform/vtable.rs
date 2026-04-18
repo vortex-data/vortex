@@ -143,9 +143,7 @@ impl ScalarFnVTable for SorfTransform {
                     validity,
                     0,
                 )?;
-                let ext_dtype =
-                    ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
-                Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
+                Vector::wrap_storage(fsl.into_array())
             });
         }
 
@@ -330,7 +328,5 @@ fn inverse_rotate_typed<T: NativePType + Float + FromPrimitive>(
 
     let elements = PrimitiveArray::new::<T>(output.freeze(), Validity::NonNullable);
     let fsl = FixedSizeListArray::try_new(elements.into_array(), dim_u32, validity, num_rows)?;
-
-    let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
-    Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
+    Vector::wrap_storage(fsl.into_array())
 }
