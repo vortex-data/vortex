@@ -4,21 +4,14 @@
 //! Reusable helpers for building brute-force vector similarity search expressions over
 //! [`Vector`] extension arrays.
 //!
-//! This module exposes two small building blocks that, combined with
-//! [`turboquant_compress`](crate::encodings::turboquant::turboquant_compress), make it
-//! straightforward to stand up a cosine-similarity-plus-threshold scan on top of a prepared
-//! data array:
+//! [`build_similarity_search_tree`] wires together [`Vector::constant_array`] (which broadcasts
+//! the query into the shape expected by [`CosineSimilarity`]) and
+//! [`turboquant_compress`](crate::encodings::turboquant::turboquant_compress) (when the data is
+//! pre-compressed) into a lazy `Binary(Gt, [CosineSimilarity(data, query), threshold])`
+//! expression.
 //!
-//! - [`build_constant_query_vector`] wraps a single query vector into a
-//!   [`Vector`] extension array whose storage is a [`ConstantArray`] broadcast
-//!   across `num_rows` rows. This is the shape expected by
-//!   [`CosineSimilarity::try_new_array`] for the RHS of a database-vs-query scan.
-//! - [`build_similarity_search_tree`] wires everything together into a lazy
-//!   `Binary(Gt, [CosineSimilarity(data, query), threshold])` expression.
-//!
-//! Executing the tree from [`build_similarity_search_tree`] into a
-//! [`BoolArray`](vortex_array::arrays::BoolArray) yields one boolean per row indicating whether
-//! that row's cosine similarity to the query exceeds `threshold`.
+//! Executing the tree into a [`BoolArray`](vortex_array::arrays::BoolArray) yields one boolean
+//! per row indicating whether that row's cosine similarity to the query exceeds `threshold`.
 //!
 //! # Example
 //!
@@ -39,13 +32,13 @@
 //! ```
 //!
 //! [`Vector`]: crate::vector::Vector
-//! [`CosineSimilarity::try_new_array`]: crate::scalar_fns::cosine_similarity::CosineSimilarity::try_new_array
+//! [`Vector::constant_array`]: crate::vector::Vector::constant_array
+//! [`CosineSimilarity`]: crate::scalar_fns::cosine_similarity::CosineSimilarity
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::PValue;
@@ -55,32 +48,6 @@ use vortex_error::VortexResult;
 
 use crate::scalar_fns::cosine_similarity::CosineSimilarity;
 use crate::vector::Vector;
-
-/// Build a [`Vector`] extension array whose storage is a [`ConstantArray`] broadcasting a single
-/// query vector across `num_rows` rows.
-///
-/// The element type is inferred from `T` (e.g. `f32` or `f64`). This is the shape expected for
-/// the RHS of a database-vs-query [`CosineSimilarity`] scan: the `ScalarFnArray` contract
-/// requires both children to have the same length, so rather than hand-rolling a 1-row input we
-/// broadcast the query across the whole database.
-///
-/// # Errors
-///
-/// Returns an error if the [`Vector`] extension dtype rejects the constructed storage dtype.
-pub fn build_constant_query_vector<T: NativePType + Into<PValue>>(
-    query: &[T],
-    num_rows: usize,
-) -> VortexResult<ArrayRef> {
-    let element_dtype = DType::Primitive(T::PTYPE, Nullability::NonNullable);
-
-    let children: Vec<Scalar> = query
-        .iter()
-        .map(|&v| Scalar::primitive(v, Nullability::NonNullable))
-        .collect();
-    let storage_scalar = Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
-    let storage = ConstantArray::new(storage_scalar, num_rows).into_array();
-    Vector::wrap_storage(storage)
-}
 
 /// Build the lazy similarity-search expression tree for a prepared database array and a
 /// single query vector.
@@ -113,7 +80,7 @@ pub fn build_similarity_search_tree<T: NativePType + Into<PValue>>(
     threshold: T,
 ) -> VortexResult<ArrayRef> {
     let num_rows = data.len();
-    let query_vec = build_constant_query_vector(query, num_rows)?;
+    let query_vec = Vector::constant_array(query, num_rows)?;
 
     let cosine = CosineSimilarity::try_new_array(data, query_vec, num_rows)?.into_array();
 
@@ -127,26 +94,14 @@ pub fn build_similarity_search_tree<T: NativePType + Into<PValue>>(
 mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
-    use vortex_array::arrays::Extension;
     use vortex_array::arrays::bool::BoolArrayExt;
     use vortex_error::VortexResult;
 
-    use super::build_constant_query_vector;
     use super::build_similarity_search_tree;
     use crate::encodings::turboquant::TurboQuantConfig;
     use crate::encodings::turboquant::turboquant_compress;
     use crate::tests::SESSION;
     use crate::utils::test_helpers::vector_array;
-
-    #[test]
-    fn constant_query_vector_has_vector_extension_dtype() -> VortexResult<()> {
-        let query = vec![1.0f32, 0.0, 0.0, 0.0];
-        let rhs = build_constant_query_vector(&query, 5)?;
-
-        assert_eq!(rhs.len(), 5);
-        assert!(rhs.as_opt::<Extension>().is_some());
-        Ok(())
-    }
 
     #[test]
     fn similarity_search_tree_executes_to_bool_array() -> VortexResult<()> {

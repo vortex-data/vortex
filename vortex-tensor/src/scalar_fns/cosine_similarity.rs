@@ -329,10 +329,10 @@ mod tests {
     use crate::tests::SESSION;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::constant_tensor_array;
-    use crate::utils::test_helpers::constant_vector_array;
     use crate::utils::test_helpers::l2_denorm_array;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
+    use crate::vector::Vector;
 
     /// Evaluates cosine similarity between two tensor arrays and returns the result as `Vec<f64>`.
     fn eval_cosine_similarity(lhs: ArrayRef, rhs: ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
@@ -491,7 +491,7 @@ mod tests {
                 1.0, 0.0, 0.0, // vector 3
             ],
         )?;
-        let query = constant_vector_array(&[1.0, 0.0, 0.0], 4)?;
+        let query = Vector::constant_array(&[1.0, 0.0, 0.0], 4)?;
 
         assert_close(
             &eval_cosine_similarity(data, query, 4)?,
@@ -686,7 +686,7 @@ mod tests {
     #[test]
     fn vector_constant_matches_plain() -> VortexResult<()> {
         // Exercise the `Vector` extension variant through the new pre-pass.
-        let lhs = constant_vector_array(&[1.0, 2.0, 2.0], 4)?;
+        let lhs = Vector::constant_array(&[1.0, 2.0, 2.0], 4)?;
         let rhs = vector_array(
             3,
             &[

@@ -387,16 +387,17 @@ impl InnerProduct {
     /// from `padded_dim` to `dim` applied by `SorfTransform` and `R` is the SORF forward
     /// matrix. See the proof in the crate-level docs and in the plan file.
     ///
-    /// Returns `Ok(None)` if neither side matches or when `element_ptype` is not `F32`. The
-    /// caller is expected to fall through to the standard path in that case.
+    /// Returns `Ok(None)` if neither side matches, when the operand element type is not `F32`,
+    /// or when the constant side is not a constant-backed tensor extension. The caller is
+    /// expected to fall through to the standard path in that case.
     ///
-    /// # TODO(connor):
+    /// # F32-only
     ///
-    /// This rewrite is only sound for `PType::F32` because `SorfTransform` applies an
-    /// `f32 -> element_ptype` cast at the end of its execute (see `sorf_transform/vtable.rs`
-    /// line ~218). For F16/F64 the cast changes the inner product's rounding and would
-    /// change the semantics of the rewrite. Until we push the cast through `InnerProduct`,
-    /// this path only fires for F32.
+    /// TODO(connor): this rewrite is only sound for `PType::F32` because `SorfTransform`
+    /// applies an `f32 -> element_ptype` cast at the end of its `execute`. For `F16`/`F64`
+    /// the cast changes the inner product's rounding and the rewrite would not be
+    /// semantically equivalent. Until we push the cast through `InnerProduct`, both the
+    /// SorfTransform output ptype and the constant-side element ptype must be `F32` here.
     fn try_execute_sorf_constant(
         &self,
         lhs_ref: &ArrayRef,
@@ -414,10 +415,6 @@ impl InnerProduct {
                 return Ok(None);
             };
 
-        // TODO(connor): pull-through is only sound for F32 because SorfTransform applies an
-        // `f32 -> element_ptype` cast at the end of its execute. For F16/F64 the rewrite
-        // would change the inner product's rounding semantics. Fall through so the standard
-        // path (which does the cast before inner product) handles it.
         if sorf_view.options.element_ptype != PType::F32 {
             return Ok(None);
         }
@@ -432,11 +429,9 @@ impl InnerProduct {
         let seed = sorf_view.options.seed;
         let padded_dim = dim.next_power_of_two();
 
-        // Extract the single stored row of the constant via the stride-0 short-circuit.
+        // Extract the single stored row of the constant via the `is_constant` short-circuit.
         let flat = extract_flat_elements(&const_storage, dim, ctx)?;
         if flat.ptype() != PType::F32 {
-            // TODO(connor): as above, f16/f64 are not supported by this rewrite yet. The
-            // standard path handles them correctly.
             return Ok(None);
         }
 
@@ -935,8 +930,7 @@ mod tests {
         use crate::scalar_fns::sorf_transform::SorfTransform;
         use crate::tests::SESSION;
         use crate::utils::extract_flat_elements;
-        use crate::utils::test_helpers::constant_vector_array;
-        use crate::utils::test_helpers::literal_vector_array;
+                use crate::utils::test_helpers::literal_vector_array;
         use crate::utils::test_helpers::vector_array;
         use crate::vector::Vector;
 
@@ -1079,7 +1073,7 @@ mod tests {
 
             // Query has `dim` elements.
             let query_elems: Vec<f32> = (0..dim).map(|i| (i as f32 * 0.1).sin()).collect();
-            let const_rhs = constant_vector_array(&query_elems, num_rows)?;
+            let const_rhs = Vector::constant_array(&query_elems, num_rows)?;
 
             // Ground truth: decode LHS to plain f32 vectors, dot each with the query.
             let decoded = decode_sorf_dict(
@@ -1117,7 +1111,7 @@ mod tests {
                 build_sorf_with_dict_child(dim, num_rows, seed, num_rounds)?;
 
             let query_elems: Vec<f32> = (0..dim).map(|i| (i as f32 * 0.2).cos()).collect();
-            let const_lhs = constant_vector_array(&query_elems, num_rows)?;
+            let const_lhs = Vector::constant_array(&query_elems, num_rows)?;
 
             let decoded = decode_sorf_dict(
                 &codes,
@@ -1155,7 +1149,7 @@ mod tests {
             assert_eq!(padded_dim, dim as usize);
 
             let query_elems: Vec<f32> = (0..dim).map(|i| i as f32 * 0.01 - 0.5).collect();
-            let const_rhs = constant_vector_array(&query_elems, num_rows)?;
+            let const_rhs = Vector::constant_array(&query_elems, num_rows)?;
 
             let decoded = decode_sorf_dict(
                 &codes,
@@ -1192,7 +1186,7 @@ mod tests {
                 build_sorf_with_dict_child(dim, num_rows, seed, num_rounds)?;
 
             let query_elems: Vec<f32> = vec![0.0; dim as usize];
-            let const_rhs = constant_vector_array(&query_elems, num_rows)?;
+            let const_rhs = Vector::constant_array(&query_elems, num_rows)?;
 
             let actual = eval_ip_f32(sorf, const_rhs, num_rows)?;
             assert_eq!(actual.len(), 0);
@@ -1215,7 +1209,7 @@ mod tests {
             let dict_lhs = dict_vector_f32(list_size, &codes, &values)?;
 
             let query: Vec<f32> = (0..list_size).map(|i| (i as f32 + 1.0) * 0.3).collect();
-            let const_rhs = constant_vector_array(&query, num_rows)?;
+            let const_rhs = Vector::constant_array(&query, num_rows)?;
 
             let expected: Vec<f32> = (0..num_rows)
                 .map(|row| {
@@ -1245,7 +1239,7 @@ mod tests {
             let dict_rhs = dict_vector_f32(list_size, &codes, &values)?;
 
             let query: Vec<f32> = vec![0.5, -1.0, 2.5, -0.25];
-            let const_lhs = constant_vector_array(&query, num_rows)?;
+            let const_lhs = Vector::constant_array(&query, num_rows)?;
 
             let expected: Vec<f32> = (0..num_rows)
                 .map(|row| {
@@ -1293,7 +1287,7 @@ mod tests {
             let dict_lhs = Vector::wrap_storage(fsl.into_array())?;
 
             let query: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
-            let const_rhs = constant_vector_array(&query, num_rows)?;
+            let const_rhs = Vector::constant_array(&query, num_rows)?;
 
             // Build expected by decoding by hand.
             let expected: Vec<f32> = (0..num_rows)
@@ -1324,7 +1318,7 @@ mod tests {
             let plain_lhs = vector_array(dim, &lhs_elems)?;
 
             let query: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
-            let const_rhs = constant_vector_array(&query, num_rows)?;
+            let const_rhs = Vector::constant_array(&query, num_rows)?;
 
             let expected: Vec<f32> = (0..num_rows)
                 .map(|row| {
@@ -1351,7 +1345,7 @@ mod tests {
             let dict_lhs = dict_vector_f32(list_size, &codes, &values)?;
 
             let query: Vec<f32> = vec![0.0; 4];
-            let const_rhs = constant_vector_array(&query, num_rows)?;
+            let const_rhs = Vector::constant_array(&query, num_rows)?;
 
             let actual = eval_ip_f32(dict_lhs, const_rhs, num_rows)?;
             assert_eq!(actual.len(), 0);
@@ -1371,7 +1365,7 @@ mod tests {
                 build_sorf_with_dict_child(dim, num_rows, seed, num_rounds)?;
 
             let query_elems: Vec<f32> = (0..dim).map(|i| ((i as f32) * 0.15).sin() * 0.4).collect();
-            let const_rhs = constant_vector_array(&query_elems, num_rows)?;
+            let const_rhs = Vector::constant_array(&query_elems, num_rows)?;
 
             // Ground truth via full decode + naive dot.
             let decoded = decode_sorf_dict(
@@ -1444,7 +1438,7 @@ mod tests {
 
             let dict_lhs = dict_vector_f32(list_size, &codes, &values)?;
             let query: Vec<f32> = (0..list_size).map(|_| rng.next_f32()).collect();
-            let const_rhs = constant_vector_array(&query, num_rows)?;
+            let const_rhs = Vector::constant_array(&query, num_rows)?;
 
             let expected: Vec<f32> = (0..num_rows)
                 .map(|row| {
@@ -1488,7 +1482,7 @@ mod tests {
             // has cancellation.
             let mut rng = XorShift64::new(seed ^ 0xABCD_1234);
             let query: Vec<f32> = (0..dim).map(|_| rng.next_f32()).collect();
-            let const_rhs = constant_vector_array(&query, num_rows)?;
+            let const_rhs = Vector::constant_array(&query, num_rows)?;
 
             let decoded = decode_sorf_dict(
                 &codes,
@@ -1534,7 +1528,7 @@ mod tests {
 
             let dict_lhs = dict_vector_f32(list_size, &codes, &values)?;
             let query: Vec<f32> = (0..list_size).map(|_| rng.next_f32()).collect();
-            let const_rhs = constant_vector_array(&query, num_rows)?;
+            let const_rhs = Vector::constant_array(&query, num_rows)?;
 
             let expected: Vec<f32> = (0..num_rows)
                 .map(|row| {
@@ -1584,7 +1578,7 @@ mod tests {
                 SorfTransform::try_new_array(&sorf_options, padded_vector, num_rows)?.into_array();
 
             let query: Vec<f32> = (0..dim).map(|_| rng.next_f32()).collect();
-            let const_rhs = constant_vector_array(&query, num_rows)?;
+            let const_rhs = Vector::constant_array(&query, num_rows)?;
 
             let decoded = decode_sorf_dict(
                 &codes,
@@ -1634,7 +1628,7 @@ mod tests {
 
             let mut rng = XorShift64::new(seed ^ (num_rounds as u64));
             let query: Vec<f32> = (0..dim).map(|_| rng.next_f32()).collect();
-            let const_rhs = constant_vector_array(&query, num_rows)?;
+            let const_rhs = Vector::constant_array(&query, num_rows)?;
 
             let decoded = decode_sorf_dict(
                 &codes,
@@ -1668,7 +1662,7 @@ mod tests {
 
             let mut rng = XorShift64::new(seed);
             let query: Vec<f32> = (0..dim).map(|_| rng.next_f32()).collect();
-            let const_lhs = constant_vector_array(&query, num_rows)?;
+            let const_lhs = Vector::constant_array(&query, num_rows)?;
 
             let decoded = decode_sorf_dict(
                 &codes,

@@ -241,19 +241,10 @@ pub mod test_helpers {
         Ok(ExtensionArray::new(ext_dtype, storage).into_array())
     }
 
-    /// Builds a [`Vector`] extension array whose storage is a [`ConstantArray`], representing a
-    /// single query vector broadcast to `len` rows.
-    pub fn constant_vector_array<T: NativePType + Into<PValue>>(
-        elements: &[T],
-        len: usize,
-    ) -> VortexResult<ArrayRef> {
-        Vector::wrap_storage(ConstantArray::new(fsl_scalar(elements), len).into_array())
-    }
-
     /// Builds a [`ConstantArray`] whose scalar is itself a [`Vector`] extension scalar, broadcast
     /// to `len` rows. This is the shape produced by an `lit(vector_scalar)` literal expression —
     /// the constant lives at the extension level rather than inside the FSL storage, in contrast
-    /// to [`constant_vector_array`].
+    /// to [`Vector::constant_array`].
     pub fn literal_vector_array<T: NativePType + Into<PValue>>(
         elements: &[T],
         len: usize,

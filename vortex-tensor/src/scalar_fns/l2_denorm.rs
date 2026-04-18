@@ -114,7 +114,7 @@ impl L2Denorm {
         len: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ScalarFnArray> {
-        validate_l2_denorm_children(&normalized, &norms, ctx)?;
+        validate_l2_normalized_rows_against_norms(&normalized, Some(&norms), ctx)?;
 
         // SAFETY: We just validated that it is normalized.
         unsafe { Self::new_array_unchecked(normalized, norms, len) }
@@ -521,8 +521,8 @@ pub(crate) fn try_build_constant_l2_denorm(
     let ext_dtype = input.dtype().as_extension().clone();
     let storage_fsl_nullability = storage.dtype().nullability();
 
-    // `extract_flat_elements` takes the stride-0 single-row path for `Constant` storage, so
-    // this is cheap and does not expand the constant to the full column length.
+    // `extract_flat_elements` takes the `is_constant` single-row path for `Constant` storage,
+    // so this is cheap and does not expand the constant to the full column length.
     let flat = extract_flat_elements(storage, list_size, ctx)?;
 
     let (normalized_fsl_scalar, norms_scalar) = match_each_float_ptype!(flat.ptype(), |T| {
@@ -603,23 +603,17 @@ fn unit_norm_tolerance(element_ptype: PType) -> f64 {
 
 /// Validates that every valid row of `input` is already L2-normalized (either length 1 or 0).
 pub fn validate_l2_normalized_rows(input: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
-    validate_l2_normalized_rows_impl(input, None, ctx)
+    validate_l2_normalized_rows_against_norms(input, None, ctx)
 }
 
-/// Validates that the `normalized` and `norms` children jointly satisfy the [`L2Denorm`]
-/// invariants, which are:
+/// Validates that `normalized` and (when supplied) the matching `norms` jointly satisfy the
+/// [`L2Denorm`] invariants:
 ///
-/// - All vectors in the normalized array have length 1 or 0.
-/// - If the vector has a norm of 0, then the vector must be all 0s.
-fn validate_l2_denorm_children(
-    normalized: &ArrayRef,
-    norms: &ArrayRef,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<()> {
-    validate_l2_normalized_rows_impl(normalized, Some(norms), ctx)
-}
-
-fn validate_l2_normalized_rows_impl(
+/// - Every valid row of `normalized` has L2 norm `1.0` or `0.0` (within element-precision
+///   tolerance).
+/// - When `norms` is supplied, every stored norm is non-negative and any row whose stored
+///   norm is `0.0` is exactly the zero vector in `normalized`.
+fn validate_l2_normalized_rows_against_norms(
     normalized: &ArrayRef,
     norms: Option<&ArrayRef>,
     ctx: &mut ExecutionCtx,
@@ -777,9 +771,9 @@ mod tests {
     use crate::tests::SESSION;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::constant_tensor_array;
-    use crate::utils::test_helpers::constant_vector_array;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
+    use crate::vector::Vector;
 
     /// Evaluates L2 denorm on a tensor/vector array and returns the executed array.
     fn eval_l2_denorm(normalized: ArrayRef, norms: ArrayRef, len: usize) -> VortexResult<ArrayRef> {
@@ -999,7 +993,7 @@ mod tests {
 
     #[test]
     fn normalize_as_l2_denorm_supports_constant_vectors() -> VortexResult<()> {
-        let input = constant_vector_array(&[3.0, 4.0], 2)?;
+        let input = Vector::constant_array(&[3.0, 4.0], 2)?;
         let mut ctx = SESSION.create_execution_ctx();
         let roundtrip = normalize_as_l2_denorm(input.clone(), &mut ctx)?;
         let actual = roundtrip.into_array().execute(&mut ctx)?;
@@ -1013,7 +1007,7 @@ mod tests {
         // The constant fast path in `normalize_as_l2_denorm` must produce an `L2Denorm` whose
         // normalized storage and norms child are both still `ConstantArray`s. This is what
         // allows downstream ops (cosine similarity, inner product) to short-circuit.
-        let input = constant_vector_array(&[3.0, 4.0], 16)?;
+        let input = Vector::constant_array(&[3.0, 4.0], 16)?;
         let mut ctx = SESSION.create_execution_ctx();
         let roundtrip = normalize_as_l2_denorm(input, &mut ctx)?;
 

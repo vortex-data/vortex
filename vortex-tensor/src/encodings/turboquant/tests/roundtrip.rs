@@ -178,7 +178,7 @@ fn rejects_invalid_bit_width(#[case] bit_width: u8) {
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let normalized = normalize_as_l2_denorm(ext.clone(), &mut ctx)
+    let normalized = normalize_as_l2_denorm(ext, &mut ctx)
         .unwrap()
         .child_at(0)
         .clone();
@@ -341,7 +341,7 @@ fn checked_encode_accepts_normalized_f16_input() -> VortexResult<()> {
     };
 
     let mut ctx = SESSION.create_execution_ctx();
-    let normalized = normalize_as_l2_denorm(ext.clone(), &mut ctx)?
+    let normalized = normalize_as_l2_denorm(ext, &mut ctx)?
         .child_at(0)
         .clone();
     let normalized_ext = normalized
