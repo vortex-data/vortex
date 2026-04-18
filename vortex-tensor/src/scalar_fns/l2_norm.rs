@@ -84,7 +84,7 @@ impl ScalarFnVTable for L2Norm {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.tensor.l2_norm")
+        ScalarFnId::new("vortex.tensor.l2_norm")
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
@@ -142,7 +142,7 @@ impl ScalarFnVTable for L2Norm {
         if let Some(sfn) = input_ref.as_opt::<ExactScalarFn<L2Denorm>>() {
             let norms = sfn
                 .nth_child(1)
-                .vortex_expect("L2Denom must have at 2 children");
+                .vortex_expect("L2Denorm must have 2 children");
 
             vortex_ensure_eq!(norms.dtype(), &norm_dtype);
 

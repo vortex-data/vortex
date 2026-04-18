@@ -99,7 +99,7 @@ impl ScalarFnVTable for InnerProduct {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.tensor.inner_product")
+        ScalarFnId::new("vortex.tensor.inner_product")
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
