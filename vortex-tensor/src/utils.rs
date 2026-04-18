@@ -80,12 +80,12 @@ pub fn cast_to_f32(prim: PrimitiveArray) -> VortexResult<Buffer<f32>> {
 /// The flat primitive elements of a tensor storage array, with typed row access.
 ///
 /// This struct hides the stride detail that arises from the [`ConstantArray`] optimization: a
-/// constant input materializes only a single row (stride=0), while a full array uses
-/// stride=list_size.
+/// constant-backed input materializes only a single row that every index reads (`is_constant =
+/// true`), while a full array stores one row per index.
 pub struct FlatElements {
     elems: PrimitiveArray,
-    stride: usize,
     list_size: usize,
+    is_constant: bool,
 }
 
 impl FlatElements {
@@ -96,10 +96,14 @@ impl FlatElements {
     }
 
     /// Returns the `i`-th row as a typed slice of length `list_size`.
+    ///
+    /// When the source was a constant-backed storage, all indices resolve to the single stored
+    /// row.
     #[must_use]
     pub fn row<T: NativePType>(&self, i: usize) -> &[T] {
+        let row_idx = if self.is_constant { 0 } else { i };
         let slice = self.elems.as_slice::<T>();
-        &slice[i * self.stride..][..self.list_size]
+        &slice[row_idx * self.list_size..][..self.list_size]
     }
 }
 
@@ -114,26 +118,21 @@ pub fn extract_flat_elements(
     list_size: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<FlatElements> {
-    if let Some(constant) = storage.as_opt::<Constant>() {
-        // Rewrite the array as a length 1 array so when we canonicalize, we do not duplicate a huge
-        // amount of data.
+    // Constant-backed storage: materialize just the single stored row so canonicalization does
+    // not expand the array to the full column length.
+    let (source, is_constant) = if let Some(constant) = storage.as_opt::<Constant>() {
         let single = ConstantArray::new(constant.scalar().clone(), 1).into_array();
-        let fsl: FixedSizeListArray = single.execute(ctx)?;
-        let elems: PrimitiveArray = fsl.elements().clone().execute(ctx)?;
-        return Ok(FlatElements {
-            elems,
-            stride: 0,
-            list_size,
-        });
-    }
+        (single, true)
+    } else {
+        (storage.clone(), false)
+    };
 
-    // Otherwise we have to fully expand all of the data.
-    let fsl: FixedSizeListArray = storage.clone().execute(ctx)?;
+    let fsl: FixedSizeListArray = source.execute(ctx)?;
     let elems: PrimitiveArray = fsl.elements().clone().execute(ctx)?;
     Ok(FlatElements {
         elems,
-        stride: list_size,
         list_size,
+        is_constant,
     })
 }
 
