@@ -39,9 +39,16 @@
 //
 // ## Mixed-width support
 //
-// LOAD sources from pending subtrees may have a narrower type than the
-// output (e.g. u8 dict codes in a u32 plan). load_element() widens
-// to T via static_cast — no separate widen kernel or smem intermediate.
+// Dict codes, RunEnd ends, and other child arrays may have a narrower
+// element type than the output T. Two mechanisms handle this:
+//
+// LOAD       load_element() dispatches on the per-stage PTypeTag to
+//            read at the source's native width and static_cast to T.
+// BITUNPACK  bitunpack_typed() unpacks at the source's native width,
+//            then widens to T in-place via a backward scan
+//            (widen_inplace). The smem region is pre-allocated at
+//            max(source_width, T) bytes per element by the Rust plan
+//            builder, so the widen never overflows.
 
 #include <assert.h>
 #include <cuda.h>
@@ -203,6 +210,22 @@ scatter_patches_chunk(const GPUPatches &patches, T *__restrict out, uint32_t chu
 // Source ops
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// Widen U-sized elements in shared memory to T-sized, in-place.
+/// Backward scan ensures no unread element is overwritten since
+/// sizeof(T) >= sizeof(U) guarantees the write at index i touches
+/// only bytes beyond those of src[i].
+template <typename T, typename U>
+__device__ inline void widen_inplace(T *dst, uint32_t len) {
+    if constexpr (sizeof(T) <= sizeof(U)) {
+        return;
+    }
+    const U *src = reinterpret_cast<const U *>(dst);
+    for (int32_t i = static_cast<int32_t>(len) - 1 - threadIdx.x; i >= 0; i -= blockDim.x) {
+        dst[i] = static_cast<T>(src[i]);
+    }
+    __syncthreads();
+}
+
 /// FastLanes cooperative unpack — all threads in the block scatter-write
 /// decoded elements into `dst`. Caller must issue __syncthreads() before
 /// any thread reads from `dst`.
@@ -233,6 +256,68 @@ __device__ inline void bitunpack(const T *__restrict packed,
             const auto &patches = *reinterpret_cast<const GPUPatches *>(src.params.bitunpack.patches_ptr);
             scatter_patches_chunk<T>(patches, chunk_dst, first_block + c);
         }
+    }
+}
+
+/// Dispatch bitunpack at the source's native element width, then widen
+/// to T in-place so all downstream scalar ops and smem consumers see
+/// T-sized elements. Falls back to the direct `bitunpack<T>` path when
+/// the source ptype already matches T. Issues __syncthreads() before
+/// returning on all paths.
+///
+/// Accepts explicit chunk_start / chunk_len so it works for both input
+/// stages (full decode with chunk_start=0, chunk_len=stage.len) and
+/// the output stage (tiled with varying chunk_start / chunk_len).
+template <typename T>
+__device__ inline void bitunpack_typed(T *__restrict dst,
+                                       const void *__restrict packed,
+                                       uint64_t chunk_start,
+                                       uint32_t chunk_len,
+                                       const struct SourceOp &src,
+                                       PTypeTag source_ptype) {
+    // Fast path: source width matches T — no widening needed.
+    if (ptype_byte_width(source_ptype) == sizeof(T)) {
+        bitunpack<T>(reinterpret_cast<const T *>(packed), dst, chunk_start, chunk_len, src);
+        __syncthreads();
+        return;
+    }
+
+    // Compute total elements written by bitunpack (including alignment
+    // padding) so widen_inplace covers the full scratch region.
+    const uint32_t elem_off = src.params.bitunpack.element_offset;
+    const uint32_t dst_off = (chunk_start + elem_off) % FL_CHUNK;
+    const uint32_t n_chunks = (chunk_len + dst_off + FL_CHUNK - 1) / FL_CHUNK;
+    const uint32_t total_elems = n_chunks * FL_CHUNK;
+
+    // Narrow source: unpack at native width, then widen to T.
+    switch (source_ptype) {
+    case PTYPE_U8:
+    case PTYPE_I8: {
+        auto *narrow = reinterpret_cast<uint8_t *>(dst);
+        bitunpack<uint8_t>(reinterpret_cast<const uint8_t *>(packed), narrow, chunk_start, chunk_len, src);
+        __syncthreads();
+        widen_inplace<T, uint8_t>(dst, total_elems);
+        break;
+    }
+    case PTYPE_U16:
+    case PTYPE_I16: {
+        auto *narrow = reinterpret_cast<uint16_t *>(dst);
+        bitunpack<uint16_t>(reinterpret_cast<const uint16_t *>(packed), narrow, chunk_start, chunk_len, src);
+        __syncthreads();
+        widen_inplace<T, uint16_t>(dst, total_elems);
+        break;
+    }
+    case PTYPE_U32:
+    case PTYPE_I32:
+    case PTYPE_F32: {
+        auto *narrow = reinterpret_cast<uint32_t *>(dst);
+        bitunpack<uint32_t>(reinterpret_cast<const uint32_t *>(packed), narrow, chunk_start, chunk_len, src);
+        __syncthreads();
+        widen_inplace<T, uint32_t>(dst, total_elems);
+        break;
+    }
+    default:
+        __builtin_unreachable();
     }
 }
 
@@ -354,16 +439,14 @@ __device__ void execute_output_stage(T *__restrict output,
         if (src.op_code == SourceOp::BITUNPACK) {
             chunk_len = bitunpack_tile_len(stage, block_len, elem_idx);
             T *scratch = reinterpret_cast<T *>(smem + stage.smem_byte_offset);
-            bitunpack<T>(reinterpret_cast<const T *>(stage.input_ptr),
-                         scratch,
-                         block_start + elem_idx,
-                         chunk_len,
-                         src);
+            bitunpack_typed<T>(scratch,
+                               reinterpret_cast<const void *>(stage.input_ptr),
+                               block_start + elem_idx,
+                               chunk_len,
+                               src,
+                               ptype);
             const uint32_t align = (block_start + elem_idx + src.params.bitunpack.element_offset) % FL_CHUNK;
             smem_src = scratch + align;
-            // Write barrier: all threads finished bitunpack (and any
-            // patches), safe to read from scratch.
-            __syncthreads();
         } else {
             chunk_len = block_len;
         }
@@ -438,11 +521,12 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
     const auto &src = stage.source;
 
     if (src.op_code == SourceOp::BITUNPACK) {
-        T *raw_smem = smem_out;
-        bitunpack<T>(reinterpret_cast<const T *>(stage.input_ptr), smem_out, 0, stage.len, src);
-        // Write barrier: cooperative bitunpack finished, safe to read
-        // decoded elements below.
-        __syncthreads();
+        bitunpack_typed<T>(smem_out,
+                           reinterpret_cast<const void *>(stage.input_ptr),
+                           0,
+                           stage.len,
+                           src,
+                           stage.source_ptype);
 
         smem_out += src.params.bitunpack.element_offset % SMEM_TILE_SIZE;
 
