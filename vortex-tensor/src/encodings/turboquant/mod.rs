@@ -144,6 +144,7 @@ pub(crate) mod compress;
 
 mod scheme;
 pub use compress::TurboQuantConfig;
+pub use compress::turboquant_compress;
 pub use compress::turboquant_encode;
 pub use compress::turboquant_encode_unchecked;
 pub use scheme::TurboQuantScheme;

@@ -21,6 +21,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::DictArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::extension::EmptyMetadata;
@@ -36,6 +37,8 @@ use crate::encodings::turboquant::MIN_DIMENSION;
 use crate::encodings::turboquant::centroids::compute_centroid_boundaries;
 use crate::encodings::turboquant::centroids::find_nearest_centroid;
 use crate::encodings::turboquant::centroids::get_centroids;
+use crate::scalar_fns::l2_denorm::L2Denorm;
+use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 use crate::scalar_fns::l2_denorm::validate_l2_normalized_rows;
 use crate::scalar_fns::sorf_transform::SorfMatrix;
 use crate::scalar_fns::sorf_transform::SorfOptions;
@@ -271,4 +274,44 @@ pub unsafe fn turboquant_encode_unchecked(
 fn wrap_padded_as_vector(fsl: ArrayRef) -> VortexResult<ArrayRef> {
     let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
     Ok(ExtensionArray::new(ext_dtype, fsl).into_array())
+}
+
+/// Apply the full TurboQuant compression pipeline to a [`Vector`](crate::vector::Vector)
+/// extension array: normalize the rows via [`normalize_as_l2_denorm`], quantize the normalized
+/// child via [`turboquant_encode_unchecked`], and reattach the stored norms as the outer
+/// [`L2Denorm`] wrapper.
+///
+/// The returned array has the canonical TurboQuant shape:
+///
+/// ```text
+/// ScalarFnArray(L2Denorm, [
+///     ScalarFnArray(SorfTransform, [FSL(Dict(codes, centroids))]),
+///     norms,
+/// ])
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if `input` is not a tensor-like extension array, if normalization fails, or
+/// if [`turboquant_encode_unchecked`] rejects the input shape.
+pub fn turboquant_compress(
+    input: ArrayRef,
+    config: &TurboQuantConfig,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let l2_denorm = normalize_as_l2_denorm(input, ctx)?;
+    let normalized = l2_denorm.child_at(0).clone();
+    let norms = l2_denorm.child_at(1).clone();
+    let num_rows = l2_denorm.len();
+
+    let normalized_ext = normalized
+        .as_opt::<Extension>()
+        .vortex_expect("normalize_as_l2_denorm always produces an Extension array child");
+
+    // SAFETY: `normalize_as_l2_denorm` guarantees every row is unit-norm (or zero for null rows).
+    let tq = unsafe { turboquant_encode_unchecked(normalized_ext, config, ctx) }?;
+
+    // SAFETY: TurboQuant is a lossy approximation of the normalized child, so we intentionally
+    // bypass the strict normalized-row validation when reattaching the stored norms.
+    Ok(unsafe { L2Denorm::new_array_unchecked(tq, norms, num_rows) }?.into_array())
 }

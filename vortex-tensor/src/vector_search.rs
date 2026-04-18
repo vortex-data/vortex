@@ -46,9 +46,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::Extension;
 use vortex_array::arrays::ExtensionArray;
-use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
@@ -59,13 +57,10 @@ use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 
 use crate::encodings::turboquant::TurboQuantConfig;
-use crate::encodings::turboquant::turboquant_encode_unchecked;
+use crate::encodings::turboquant::turboquant_compress;
 use crate::scalar_fns::cosine_similarity::CosineSimilarity;
-use crate::scalar_fns::l2_denorm::L2Denorm;
-use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 use crate::vector::Vector;
 
 /// Apply the canonical TurboQuant encoding pipeline to a `Vector<dim, f32>` array.
@@ -86,21 +81,7 @@ use crate::vector::Vector;
 /// Returns an error if `data` is not a [`Vector`] extension array, if normalization fails, or
 /// if the underlying TurboQuant encoder rejects the input shape.
 pub fn compress_turboquant(data: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-    let l2_denorm = normalize_as_l2_denorm(data, ctx)?;
-    let normalized = l2_denorm.child_at(0).clone();
-    let norms = l2_denorm.child_at(1).clone();
-    let num_rows = l2_denorm.len();
-
-    let Some(normalized_ext) = normalized.as_opt::<Extension>() else {
-        vortex_bail!("normalize_as_l2_denorm must produce an Extension array child");
-    };
-
-    let config = TurboQuantConfig::default();
-    // SAFETY: `normalize_as_l2_denorm` guarantees every row is unit-norm (or zero), which is
-    // the invariant `turboquant_encode_unchecked` expects.
-    let tq = unsafe { turboquant_encode_unchecked(normalized_ext, &config, ctx) }?;
-
-    Ok(unsafe { L2Denorm::new_array_unchecked(tq, norms, num_rows) }?.into_array())
+    turboquant_compress(data, &TurboQuantConfig::default(), ctx)
 }
 
 /// Build a [`Vector`] extension array whose storage is a [`ConstantArray`] broadcasting a single
