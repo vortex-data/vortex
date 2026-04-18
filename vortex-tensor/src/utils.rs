@@ -154,10 +154,12 @@ pub fn extract_l2_denorm_children(array: &ArrayRef) -> (ArrayRef, ArrayRef) {
 #[cfg(test)]
 pub mod test_helpers {
     use vortex_array::ArrayRef;
+    use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::FixedSizeListArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -170,6 +172,7 @@ pub mod test_helpers {
 
     use crate::fixed_shape::FixedShapeTensor;
     use crate::fixed_shape::FixedShapeTensorMetadata;
+    use crate::scalar_fns::l2_denorm::L2Denorm;
     use crate::vector::Vector;
 
     /// Builds a [`FixedShapeTensor`] extension array from flat f64 elements and a logical shape.
@@ -245,6 +248,20 @@ pub mod test_helpers {
             ExtDType::<Vector>::try_new(EmptyMetadata, storage.dtype().clone())?.erased();
 
         Ok(ExtensionArray::new(ext_dtype, storage).into_array())
+    }
+
+    /// Creates an [`L2Denorm`] scalar function array from pre-normalized f64 tensor elements and
+    /// f64 norms. The caller must ensure every row of `normalized_elements` is unit-norm or zero.
+    pub fn l2_denorm_array(
+        shape: &[usize],
+        normalized_elements: &[f64],
+        norms: &[f64],
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let len = norms.len();
+        let normalized = tensor_array(shape, normalized_elements)?;
+        let norms = PrimitiveArray::from_iter(norms.iter().copied()).into_array();
+        Ok(L2Denorm::try_new_array(normalized, norms, len, ctx)?.into_array())
     }
 
     /// Asserts that each element in `actual` is within `1e-10` of the corresponding `expected`

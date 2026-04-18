@@ -56,7 +56,7 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::matcher::AnyTensor;
-use crate::scalar_fns::l2_denorm::L2Denorm;
+use crate::scalar_fns::l2_denorm::DenormOrientation;
 use crate::scalar_fns::sorf_transform::SorfMatrix;
 use crate::scalar_fns::sorf_transform::SorfTransform;
 use crate::utils::extract_flat_elements;
@@ -167,23 +167,19 @@ impl ScalarFnVTable for InnerProduct {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let mut lhs_ref = args.get(0)?;
-        let mut rhs_ref = args.get(1)?;
+        let lhs_ref = args.get(0)?;
+        let rhs_ref = args.get(1)?;
         let len = args.row_count();
 
-        // Check if any of our children have be already normalized.
-        {
-            let lhs_is_denorm = lhs_ref.is::<ExactScalarFn<L2Denorm>>();
-            let rhs_is_denorm = rhs_ref.is::<ExactScalarFn<L2Denorm>>();
-
-            if lhs_is_denorm && rhs_is_denorm {
-                return self.execute_both_denorm(&lhs_ref, &rhs_ref, len, ctx);
-            } else if lhs_is_denorm || rhs_is_denorm {
-                if rhs_is_denorm {
-                    (lhs_ref, rhs_ref) = (rhs_ref, lhs_ref);
-                }
-                return self.execute_one_denorm(&lhs_ref, &rhs_ref, len, ctx);
+        // Take any L2Denorm-wrapped fast path that applies.
+        match DenormOrientation::classify(&lhs_ref, &rhs_ref) {
+            DenormOrientation::Both { lhs, rhs } => {
+                return self.execute_both_denorm(lhs, rhs, len, ctx);
             }
+            DenormOrientation::One { denorm, plain } => {
+                return self.execute_one_denorm(denorm, plain, len, ctx);
+            }
+            DenormOrientation::Neither => {}
         }
 
         // Reduction case 1: `InnerProduct(SorfTransform(x), const)` rewrites to
@@ -647,8 +643,8 @@ fn inner_product_row<T: Float + NativePType>(a: &[T], b: &[T]) -> T {
 /// For each row, computes `sum(q[j] * values[codes[row * dim + j]])` using the codebook
 /// `values` directly instead of decoding the dictionary into dense vectors.
 ///
-/// The inner loop uses four independent accumulators so the CPU can pipeline FP additions
-/// instead of waiting for each `fadd` to retire before starting the next.
+/// The inner loop uses `PARTIAL_SUMS` independent accumulators so the CPU can pipeline FP
+/// additions instead of waiting for each `fadd` to retire before starting the next.
 fn execute_dict_constant_inner_product(
     q: &[f32],
     values: &[f32],
@@ -704,6 +700,7 @@ mod tests {
     use crate::scalar_fns::l2_denorm::L2Denorm;
     use crate::tests::SESSION;
     use crate::utils::test_helpers::assert_close;
+    use crate::utils::test_helpers::l2_denorm_array;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
 
@@ -818,28 +815,14 @@ mod tests {
         Ok(())
     }
 
-    /// Creates an `L2Denorm` scalar function array from pre-normalized elements and norms.
-    fn l2_denorm_array(
-        shape: &[usize],
-        normalized_elements: &[f64],
-        norms: &[f64],
-    ) -> VortexResult<ArrayRef> {
-        use vortex_array::IntoArray;
-
-        let len = norms.len();
-        let normalized = tensor_array(shape, normalized_elements)?;
-        let norms = PrimitiveArray::from_iter(norms.iter().copied()).into_array();
-        let mut ctx = SESSION.create_execution_ctx();
-        Ok(L2Denorm::try_new_array(normalized, norms, len, &mut ctx)?.into_array())
-    }
-
     #[test]
     fn both_denorm() -> VortexResult<()> {
         // LHS: [3.0, 4.0] = L2Denorm([0.6, 0.8], 5.0).
         // RHS: [1.0, 0.0] = L2Denorm([1.0, 0.0], 1.0).
         // dot([3.0, 4.0], [1.0, 0.0]) = 3.0.
-        let lhs = l2_denorm_array(&[2], &[0.6, 0.8], &[5.0])?;
-        let rhs = l2_denorm_array(&[2], &[1.0, 0.0], &[1.0])?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let lhs = l2_denorm_array(&[2], &[0.6, 0.8], &[5.0], &mut ctx)?;
+        let rhs = l2_denorm_array(&[2], &[1.0, 0.0], &[1.0], &mut ctx)?;
 
         // Expected: 5.0 * 1.0 * dot([0.6, 0.8], [1.0, 0.0]) = 5.0 * 0.6 = 3.0.
         assert_close(&eval_inner_product(lhs, rhs, 1)?, &[3.0]);
@@ -850,8 +833,9 @@ mod tests {
     fn both_denorm_multiple_rows() -> VortexResult<()> {
         // Row 0: [3.0, 4.0] dot [3.0, 4.0] = 25.0.
         // Row 1: [1.0, 0.0] dot [0.0, 1.0] = 0.0.
-        let lhs = l2_denorm_array(&[2], &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0])?;
-        let rhs = l2_denorm_array(&[2], &[0.6, 0.8, 0.0, 1.0], &[5.0, 1.0])?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let lhs = l2_denorm_array(&[2], &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0], &mut ctx)?;
+        let rhs = l2_denorm_array(&[2], &[0.6, 0.8, 0.0, 1.0], &[5.0, 1.0], &mut ctx)?;
 
         assert_close(&eval_inner_product(lhs, rhs, 2)?, &[25.0, 0.0]);
         Ok(())
@@ -862,7 +846,8 @@ mod tests {
         // LHS: L2Denorm([0.6, 0.8], 5.0) representing [3.0, 4.0].
         // RHS: plain [1.0, 2.0].
         // dot([3.0, 4.0], [1.0, 2.0]) = 3.0 + 8.0 = 11.0.
-        let lhs = l2_denorm_array(&[2], &[0.6, 0.8], &[5.0])?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let lhs = l2_denorm_array(&[2], &[0.6, 0.8], &[5.0], &mut ctx)?;
         let rhs = tensor_array(&[2], &[1.0, 2.0])?;
 
         assert_close(&eval_inner_product(lhs, rhs, 1)?, &[11.0]);
@@ -874,8 +859,9 @@ mod tests {
         // LHS: plain [1.0, 2.0].
         // RHS: L2Denorm([0.6, 0.8], 5.0) representing [3.0, 4.0].
         // dot([1.0, 2.0], [3.0, 4.0]) = 3.0 + 8.0 = 11.0.
+        let mut ctx = SESSION.create_execution_ctx();
         let lhs = tensor_array(&[2], &[1.0, 2.0])?;
-        let rhs = l2_denorm_array(&[2], &[0.6, 0.8], &[5.0])?;
+        let rhs = l2_denorm_array(&[2], &[0.6, 0.8], &[5.0], &mut ctx)?;
 
         assert_close(&eval_inner_product(lhs, rhs, 1)?, &[11.0]);
         Ok(())
@@ -889,7 +875,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
 
         let lhs = L2Denorm::try_new_array(normalized_l, norms_l, 2, &mut ctx)?.into_array();
-        let rhs = l2_denorm_array(&[2], &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0])?;
+        let rhs = l2_denorm_array(&[2], &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0], &mut ctx)?;
 
         let scalar_fn = InnerProduct::new().erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 2)?;

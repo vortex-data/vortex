@@ -22,6 +22,7 @@ use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::ScalarFnVTable as ScalarFnArrayEncoding;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts;
@@ -695,6 +696,51 @@ fn validate_l2_normalized_rows_impl(
     });
 
     Ok(())
+}
+
+/// Classification of a binary operand pair by which side (if any) is wrapped in [`L2Denorm`].
+///
+/// Symmetric binary tensor operators (e.g. [`CosineSimilarity`], [`InnerProduct`]) have identical
+/// fast paths for "only the lhs is denormalized" and "only the rhs is denormalized", and a separate
+/// fast path for "both are denormalized". Rather than hand-rolling the commutative swap at every
+/// call site, callers classify their operands with [`Self::classify`] and pattern-match on the
+/// returned variant.
+///
+/// [`CosineSimilarity`]: crate::scalar_fns::cosine_similarity::CosineSimilarity
+/// [`InnerProduct`]: crate::scalar_fns::inner_product::InnerProduct
+pub(crate) enum DenormOrientation<'a> {
+    /// Both operands are [`ExactScalarFn<L2Denorm>`] arrays.
+    Both {
+        lhs: &'a ArrayRef,
+        rhs: &'a ArrayRef,
+    },
+    /// Exactly one operand is an [`ExactScalarFn<L2Denorm>`]; the other is plain.
+    One {
+        denorm: &'a ArrayRef,
+        plain: &'a ArrayRef,
+    },
+    /// Neither operand is an [`ExactScalarFn<L2Denorm>`].
+    Neither,
+}
+
+impl<'a> DenormOrientation<'a> {
+    /// Classify `(lhs, rhs)` by which side (if any) is wrapped in [`L2Denorm`].
+    pub(crate) fn classify(lhs: &'a ArrayRef, rhs: &'a ArrayRef) -> Self {
+        let lhs_denorm = lhs.is::<ExactScalarFn<L2Denorm>>();
+        let rhs_denorm = rhs.is::<ExactScalarFn<L2Denorm>>();
+        match (lhs_denorm, rhs_denorm) {
+            (true, true) => Self::Both { lhs, rhs },
+            (true, false) => Self::One {
+                denorm: lhs,
+                plain: rhs,
+            },
+            (false, true) => Self::One {
+                denorm: rhs,
+                plain: lhs,
+            },
+            (false, false) => Self::Neither,
+        }
+    }
 }
 
 #[cfg(test)]
