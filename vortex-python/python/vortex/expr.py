@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from typing import Protocol
+from typing import cast as typing_cast
 
 import pyarrow as pa
 
@@ -32,7 +33,7 @@ def plan(
     expr: Expr,
     *,
     schema: pa.Schema | None = None,
-    file: _HasDType | None = None,
+    file: object | None = None,
     kind: str = "expr",
 ) -> Expr:
     """Plan an expression against an Arrow schema or Vortex file."""
@@ -45,7 +46,7 @@ def plan(
         scope = DType.from_arrow_schema(schema)
     else:
         assert file is not None
-        scope = file.dtype
+        scope = typing_cast(_HasDType, file).dtype
     return _expr.plan(expr, scope, kind=kind)
 
 

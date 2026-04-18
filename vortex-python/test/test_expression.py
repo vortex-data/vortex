@@ -176,4 +176,4 @@ def test_plan_requires_exactly_one_scope():
         _ = ve.plan(expr)
 
     with pytest.raises(ValueError, match="exactly one"):
-        _ = ve.plan(expr, schema=pa.schema([("x", pa.int32())]), file=object())  # pyright: ignore[reportArgumentType]
+        _ = ve.plan(expr, schema=pa.schema([("x", pa.int32())]), file=object())

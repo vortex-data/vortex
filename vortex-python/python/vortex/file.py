@@ -222,7 +222,7 @@ class VortexFile:
         columns : :class:`vortex.Expr` | list[str] | None
             Either an expression over the columns of the file (only referenced columns will be read
             from the file) or an explicit list of desired columns.
-        filter : :class:`vortex.Expr` | :class:`pyarrow.compute.Expression` | None
+        filter : :class:`vortex.Expr` | ``pyarrow.compute.Expression`` | None
             The predicate used to filter rows. The filter columns need not appear in the projection.
         limit : :class:`int` | None
             The maximum number of rows to read after filtering. If None, read all rows.
