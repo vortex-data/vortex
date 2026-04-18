@@ -47,6 +47,7 @@ use vortex_session::VortexSession;
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::utils::extract_flat_elements;
+use crate::utils::extract_l2_denorm_children;
 use crate::utils::validate_tensor_float_input;
 
 /// L2 norm (Euclidean norm) of a tensor or vector column.
@@ -139,13 +140,9 @@ impl ScalarFnVTable for L2Norm {
         // L2Norm(L2Denorm(normalized, norms)) is defined to read back the authoritative stored
         // norms. Exact callers of lossy encodings like TurboQuant opt into that storage semantics
         // instead of forcing a decode-and-recompute path here.
-        if let Some(sfn) = input_ref.as_opt::<ExactScalarFn<L2Denorm>>() {
-            let norms = sfn
-                .nth_child(1)
-                .vortex_expect("L2Denorm must have 2 children");
-
+        if input_ref.is::<ExactScalarFn<L2Denorm>>() {
+            let (_, norms) = extract_l2_denorm_children(&input_ref);
             vortex_ensure_eq!(norms.dtype(), &norm_dtype);
-
             return Ok(norms);
         }
 
