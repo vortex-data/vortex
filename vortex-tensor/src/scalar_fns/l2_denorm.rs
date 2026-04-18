@@ -765,16 +765,12 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::extension::ExtDType;
-    use vortex_array::extension::EmptyMetadata;
     use vortex_array::extension::datetime::Date;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
-    use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
 
-    use crate::fixed_shape::FixedShapeTensor;
-    use crate::fixed_shape::FixedShapeTensorMetadata;
     use crate::scalar_fns::l2_denorm::L2Denorm;
     use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
     use crate::scalar_fns::l2_denorm::validate_l2_normalized_rows;
@@ -784,7 +780,6 @@ mod tests {
     use crate::utils::test_helpers::constant_vector_array;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
-    use crate::vector::Vector;
 
     /// Evaluates L2 denorm on a tensor/vector array and returns the executed array.
     fn eval_l2_denorm(normalized: ArrayRef, norms: ArrayRef, len: usize) -> VortexResult<ArrayRef> {
@@ -793,35 +788,11 @@ mod tests {
         result.into_array().execute(&mut ctx)
     }
 
-    fn integer_tensor_array(shape: &[usize], elements: &[i32]) -> VortexResult<ArrayRef> {
-        let list_size: u32 = shape.iter().product::<usize>().max(1).try_into().unwrap();
-        let row_count = elements.len() / list_size as usize;
-
-        let elems: ArrayRef = Buffer::copy_from(elements).into_array();
-        let fsl = FixedSizeListArray::new(elems, list_size, Validity::NonNullable, row_count);
-
-        let metadata = FixedShapeTensorMetadata::new(shape.to_vec());
-        let ext_dtype =
-            ExtDType::<FixedShapeTensor>::try_new(metadata, fsl.dtype().clone())?.erased();
-
-        Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
-    }
-
     fn non_tensor_extension_array() -> VortexResult<ArrayRef> {
         let storage = PrimitiveArray::from_iter([1i32, 2]).into_array();
         let ext_dtype =
             ExtDType::<Date>::try_new(TimeUnit::Days, storage.dtype().clone())?.erased();
         Ok(ExtensionArray::new(ext_dtype, storage).into_array())
-    }
-
-    fn f16_vector_array(dim: u32, elements: &[f32]) -> VortexResult<ArrayRef> {
-        let row_count = elements.len() / dim as usize;
-        let values: Vec<_> = elements.iter().copied().map(half::f16::from_f32).collect();
-        let elems: ArrayRef = Buffer::copy_from(values.as_slice()).into_array();
-        let fsl = FixedSizeListArray::new(elems, dim, Validity::NonNullable, row_count);
-
-        let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
-        Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
     }
 
     fn tensor_snapshot(array: ArrayRef) -> VortexResult<(DType, Vec<bool>, Vec<f64>)> {
@@ -912,7 +883,7 @@ mod tests {
 
     #[test]
     fn l2_denorm_rejects_integer_tensor_lhs() -> VortexResult<()> {
-        let lhs = integer_tensor_array(&[2], &[1, 2, 3, 4])?;
+        let lhs = tensor_array(&[2], &[1i32, 2, 3, 4])?;
         let rhs = PrimitiveArray::from_iter([1.0f64, 1.0]).into_array();
 
         let mut ctx = SESSION.create_execution_ctx();
@@ -934,7 +905,7 @@ mod tests {
 
     #[test]
     fn validate_l2_normalized_rows_accepts_normalized_f16_input() -> VortexResult<()> {
-        let input = f16_vector_array(2, &[3.0, 4.0, 0.0, 0.0])?;
+        let input = vector_array(2, &[3.0f32, 4.0, 0.0, 0.0].map(half::f16::from_f32))?;
         let mut ctx = SESSION.create_execution_ctx();
         let roundtrip = normalize_as_l2_denorm(input, &mut ctx)?;
         validate_l2_normalized_rows(&roundtrip.child_at(0).clone(), &mut ctx)?;

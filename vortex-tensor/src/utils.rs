@@ -177,10 +177,10 @@ pub mod test_helpers {
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::NativePType;
     use vortex_array::dtype::Nullability;
-    use vortex_array::dtype::PType;
     use vortex_array::dtype::extension::ExtDType;
-    use vortex_array::extension::EmptyMetadata;
+    use vortex_array::scalar::PValue;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
@@ -191,92 +191,90 @@ pub mod test_helpers {
     use crate::scalar_fns::l2_denorm::L2Denorm;
     use crate::vector::Vector;
 
-    /// Builds a [`FixedShapeTensor`] extension array from flat f64 elements and a logical shape.
-    ///
-    /// The number of rows is inferred from the total element count divided by the product of the
-    /// shape dimensions. For 0-dimensional tensors (scalar), each element is one row.
-    pub fn tensor_array(shape: &[usize], elements: &[f64]) -> VortexResult<ArrayRef> {
-        let list_size: u32 = shape.iter().product::<usize>().max(1).try_into().unwrap();
+    /// Builds a `FixedSizeList<T, list_size>` storage array from flat `elements`. The row count is
+    /// inferred from `elements.len() / list_size`.
+    fn flat_fsl<T: NativePType>(elements: &[T], list_size: u32) -> ArrayRef {
         let row_count = elements.len() / list_size as usize;
-
         let elems: ArrayRef = Buffer::copy_from(elements).into_array();
-        let fsl = FixedSizeListArray::new(elems, list_size, Validity::NonNullable, row_count);
-
-        let metadata = FixedShapeTensorMetadata::new(shape.to_vec());
-        let ext_dtype =
-            ExtDType::<FixedShapeTensor>::try_new(metadata, fsl.dtype().clone())?.erased();
-
-        Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
+        FixedSizeListArray::new(elems, list_size, Validity::NonNullable, row_count).into_array()
     }
 
-    /// Builds a [`Vector`] extension array from flat f64 elements and a vector dimension size.
-    pub fn vector_array(dim: u32, elements: &[f64]) -> VortexResult<ArrayRef> {
-        let row_count = elements.len() / dim as usize;
-
-        let elems: ArrayRef = Buffer::copy_from(elements).into_array();
-        let fsl = FixedSizeListArray::new(elems, dim, Validity::NonNullable, row_count);
-
-        let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
-
-        Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
-    }
-
-    /// Builds a [`FixedShapeTensor`] extension array whose storage is a [`ConstantArray`],
-    /// representing a single query tensor broadcast to `len` rows.
-    pub fn constant_tensor_array(
-        shape: &[usize],
-        elements: &[f64],
-        len: usize,
-    ) -> VortexResult<ArrayRef> {
-        let element_dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
-
+    /// Builds an FSL-valued [`Scalar`] from `elements` for use as a constant query.
+    fn fsl_scalar<T: NativePType + Into<PValue>>(elements: &[T]) -> Scalar {
+        let element_dtype = DType::Primitive(T::PTYPE, Nullability::NonNullable);
         let children: Vec<Scalar> = elements
             .iter()
             .map(|&v| Scalar::primitive(v, Nullability::NonNullable))
             .collect();
-        let storage_scalar =
-            Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
+        Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable)
+    }
 
-        let storage = ConstantArray::new(storage_scalar, len).into_array();
-
+    /// Builds a [`FixedShapeTensor`] extension array from flat `elements` and a logical shape.
+    ///
+    /// The number of rows is inferred from the total element count divided by the product of the
+    /// shape dimensions. For 0-dimensional tensors (scalar), each element is one row.
+    pub fn tensor_array<T: NativePType>(shape: &[usize], elements: &[T]) -> VortexResult<ArrayRef> {
+        let list_size: u32 = shape.iter().product::<usize>().max(1).try_into().unwrap();
+        let storage = flat_fsl(elements, list_size);
         let metadata = FixedShapeTensorMetadata::new(shape.to_vec());
         let ext_dtype =
             ExtDType::<FixedShapeTensor>::try_new(metadata, storage.dtype().clone())?.erased();
+        Ok(ExtensionArray::new(ext_dtype, storage).into_array())
+    }
 
+    /// Builds a [`Vector`] extension array from flat `elements` and a vector dimension size.
+    pub fn vector_array<T: NativePType>(dim: u32, elements: &[T]) -> VortexResult<ArrayRef> {
+        Vector::wrap_storage(flat_fsl(elements, dim))
+    }
+
+    /// Builds a [`FixedShapeTensor`] extension array whose storage is a [`ConstantArray`],
+    /// representing a single query tensor broadcast to `len` rows.
+    pub fn constant_tensor_array<T: NativePType + Into<PValue>>(
+        shape: &[usize],
+        elements: &[T],
+        len: usize,
+    ) -> VortexResult<ArrayRef> {
+        let storage = ConstantArray::new(fsl_scalar(elements), len).into_array();
+        let metadata = FixedShapeTensorMetadata::new(shape.to_vec());
+        let ext_dtype =
+            ExtDType::<FixedShapeTensor>::try_new(metadata, storage.dtype().clone())?.erased();
         Ok(ExtensionArray::new(ext_dtype, storage).into_array())
     }
 
     /// Builds a [`Vector`] extension array whose storage is a [`ConstantArray`], representing a
     /// single query vector broadcast to `len` rows.
-    pub fn constant_vector_array(elements: &[f64], len: usize) -> VortexResult<ArrayRef> {
-        let element_dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
-
-        let children: Vec<Scalar> = elements
-            .iter()
-            .map(|&v| Scalar::primitive(v, Nullability::NonNullable))
-            .collect();
-        let storage_scalar =
-            Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
-
-        let storage = ConstantArray::new(storage_scalar, len).into_array();
-
-        let ext_dtype =
-            ExtDType::<Vector>::try_new(EmptyMetadata, storage.dtype().clone())?.erased();
-
-        Ok(ExtensionArray::new(ext_dtype, storage).into_array())
+    pub fn constant_vector_array<T: NativePType + Into<PValue>>(
+        elements: &[T],
+        len: usize,
+    ) -> VortexResult<ArrayRef> {
+        Vector::wrap_storage(ConstantArray::new(fsl_scalar(elements), len).into_array())
     }
 
-    /// Creates an [`L2Denorm`] scalar function array from pre-normalized f64 tensor elements and
-    /// f64 norms. The caller must ensure every row of `normalized_elements` is unit-norm or zero.
-    pub fn l2_denorm_array(
+    /// Builds a [`ConstantArray`] whose scalar is itself a [`Vector`] extension scalar, broadcast
+    /// to `len` rows. This is the shape produced by an `lit(vector_scalar)` literal expression —
+    /// the constant lives at the extension level rather than inside the FSL storage, in contrast
+    /// to [`constant_vector_array`].
+    pub fn literal_vector_array<T: NativePType + Into<PValue>>(
+        elements: &[T],
+        len: usize,
+    ) -> ArrayRef {
+        use vortex_array::extension::EmptyMetadata;
+        let ext_scalar = Scalar::extension::<Vector>(EmptyMetadata, fsl_scalar(elements));
+        ConstantArray::new(ext_scalar, len).into_array()
+    }
+
+    /// Creates an [`L2Denorm`] scalar function array from pre-normalized tensor elements and
+    /// matching norms. The caller must ensure every row of `normalized_elements` is unit-norm or
+    /// zero.
+    pub fn l2_denorm_array<T: NativePType>(
         shape: &[usize],
-        normalized_elements: &[f64],
-        norms: &[f64],
+        normalized_elements: &[T],
+        norms: &[T],
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let len = norms.len();
         let normalized = tensor_array(shape, normalized_elements)?;
-        let norms = PrimitiveArray::from_iter(norms.iter().copied()).into_array();
+        let norms = PrimitiveArray::new(Buffer::copy_from(norms), Validity::NonNullable).into_array();
         Ok(L2Denorm::try_new_array(normalized, norms, len, ctx)?.into_array())
     }
 

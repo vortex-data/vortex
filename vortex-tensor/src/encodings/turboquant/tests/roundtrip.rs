@@ -4,6 +4,7 @@
 use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::Extension;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -12,6 +13,8 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
 use super::*;
+use crate::encodings::turboquant::turboquant_encode_unchecked;
+use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 
 #[rstest]
 #[case(128, 1)]
@@ -130,7 +133,7 @@ fn roundtrip_edge_cases(#[case] num_rows: usize) -> VortexResult<()> {
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_compress(ext.into_array(), &config, &mut ctx)?;
+    let encoded = turboquant_compress(ext, &config, &mut ctx)?;
     let decoded = encoded.execute::<ExtensionArray>(&mut ctx)?;
     assert_eq!(decoded.len(), num_rows);
     Ok(())
@@ -141,7 +144,17 @@ fn roundtrip_edge_cases(#[case] num_rows: usize) -> VortexResult<()> {
 #[case(64)]
 #[case(127)]
 fn rejects_dimension_below_128(#[case] dim: usize) {
-    let fsl = make_fsl_small(dim);
+    let elements = PrimitiveArray::new::<f32>(
+        BufferMut::from_iter((0..dim).map(|i| i as f32 + 1.0)).freeze(),
+        Validity::NonNullable,
+    );
+    let fsl = FixedSizeListArray::try_new(
+        elements.into_array(),
+        dim.try_into().expect("dim fits u32"),
+        Validity::NonNullable,
+        1,
+    )
+    .unwrap();
     let ext = make_vector_ext(&fsl);
     let config = TurboQuantConfig {
         bit_width: 2,
@@ -149,9 +162,8 @@ fn rejects_dimension_below_128(#[case] dim: usize) {
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    assert!(
-        crate::encodings::turboquant::turboquant_encode(ext.as_view(), &config, &mut ctx).is_err()
-    );
+    let view = ext.as_opt::<Extension>().expect("Vector extension");
+    assert!(crate::encodings::turboquant::turboquant_encode(view, &config, &mut ctx).is_err());
 }
 
 #[rstest]
@@ -166,7 +178,7 @@ fn rejects_invalid_bit_width(#[case] bit_width: u8) {
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let normalized = normalize_as_l2_denorm(ext.as_ref().clone(), &mut ctx)
+    let normalized = normalize_as_l2_denorm(ext.clone(), &mut ctx)
         .unwrap()
         .child_at(0)
         .clone();
@@ -255,7 +267,7 @@ fn f64_input_encodes_successfully() -> VortexResult<()> {
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_compress(ext.into_array(), &config, &mut ctx)?;
+    let encoded = turboquant_compress(ext, &config, &mut ctx)?;
     let (_sorf_child, norms_child) = unwrap_l2denorm(&encoded);
     assert_eq!(norms_child.len(), num_rows);
     Ok(())
@@ -288,7 +300,7 @@ fn f16_input_encodes_successfully() -> VortexResult<()> {
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_compress(ext.into_array(), &config, &mut ctx)?;
+    let encoded = turboquant_compress(ext, &config, &mut ctx)?;
     let (_sorf_child, norms_child) = unwrap_l2denorm(&encoded);
     assert_eq!(norms_child.len(), num_rows);
 
@@ -329,7 +341,7 @@ fn checked_encode_accepts_normalized_f16_input() -> VortexResult<()> {
     };
 
     let mut ctx = SESSION.create_execution_ctx();
-    let normalized = normalize_as_l2_denorm(ext.as_ref().clone(), &mut ctx)?
+    let normalized = normalize_as_l2_denorm(ext.clone(), &mut ctx)?
         .child_at(0)
         .clone();
     let normalized_ext = normalized

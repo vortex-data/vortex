@@ -912,15 +912,11 @@ mod tests {
         reason = "tests build small fixtures with deterministic in-range indices"
     )]
     mod constant_query_optimizations {
-        use std::sync::LazyLock;
-
         use rstest::rstest;
         use vortex_array::ArrayRef;
         use vortex_array::IntoArray;
         use vortex_array::VortexSessionExecute;
         use vortex_array::arrays::Constant;
-        use vortex_array::arrays::ConstantArray;
-        use vortex_array::arrays::ExtensionArray;
         use vortex_array::arrays::FixedSizeListArray;
         use vortex_array::arrays::PrimitiveArray;
         use vortex_array::arrays::ScalarFnArray;
@@ -928,67 +924,24 @@ mod tests {
         use vortex_array::dtype::DType;
         use vortex_array::dtype::Nullability;
         use vortex_array::dtype::PType;
-        use vortex_array::dtype::extension::ExtDType;
-        use vortex_array::extension::EmptyMetadata;
-        use vortex_array::scalar::Scalar;
-        use vortex_array::session::ArraySession;
         use vortex_array::validity::Validity;
         use vortex_buffer::Buffer;
         use vortex_error::VortexResult;
-        use vortex_session::VortexSession;
 
         use crate::scalar_fns::inner_product::InnerProduct;
         use crate::scalar_fns::inner_product::constant_tensor_storage;
         use crate::scalar_fns::sorf_transform::SorfMatrix;
         use crate::scalar_fns::sorf_transform::SorfOptions;
         use crate::scalar_fns::sorf_transform::SorfTransform;
+        use crate::tests::SESSION;
         use crate::utils::extract_flat_elements;
+        use crate::utils::test_helpers::constant_vector_array;
+        use crate::utils::test_helpers::literal_vector_array;
+        use crate::utils::test_helpers::vector_array;
         use crate::vector::Vector;
 
-        static SESSION: LazyLock<VortexSession> =
-            LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
-
-        /// Compact f32 Vector<dim> extension over a column-major `elements` slice.
-        fn vector_f32(dim: u32, elements: &[f32]) -> VortexResult<ArrayRef> {
-            let row_count = elements.len() / dim as usize;
-            let elems: ArrayRef = Buffer::copy_from(elements).into_array();
-            let fsl = FixedSizeListArray::new(elems, dim, Validity::NonNullable, row_count);
-            let ext_dtype =
-                ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
-            Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
-        }
-
-        /// Compact constant-backed f32 Vector<dim> extension with a single stored row.
-        fn constant_vector_f32(elements: &[f32], len: usize) -> VortexResult<ArrayRef> {
-            let element_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
-            let children: Vec<Scalar> = elements
-                .iter()
-                .map(|&v| Scalar::primitive(v, Nullability::NonNullable))
-                .collect();
-            let storage_scalar =
-                Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
-            let storage = ConstantArray::new(storage_scalar, len).into_array();
-            let ext_dtype =
-                ExtDType::<Vector>::try_new(EmptyMetadata, storage.dtype().clone())?.erased();
-            Ok(ExtensionArray::new(ext_dtype, storage).into_array())
-        }
-
-        /// Expression-literal shape: a ConstantArray whose scalar itself is a Vector extension.
-        fn literal_vector_f32(elements: &[f32], len: usize) -> ArrayRef {
-            let element_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
-            let children: Vec<Scalar> = elements
-                .iter()
-                .map(|&v| Scalar::primitive(v, Nullability::NonNullable))
-                .collect();
-            let storage_scalar =
-                Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
-            let vector_scalar = Scalar::extension::<Vector>(EmptyMetadata, storage_scalar);
-            ConstantArray::new(vector_scalar, len).into_array()
-        }
-
-        /// Build an `ExtensionArray<Vector<list_size, f32>>` whose storage is
-        /// `FSL(DictArray(codes: u8, values: f32))`. This mirrors the shape that
-        /// TurboQuant produces as the SorfTransform child.
+        /// Build a `Vector<list_size, f32>` whose storage is `FSL(DictArray(codes: u8, values:
+        /// f32))`. This mirrors the shape that TurboQuant produces as the SorfTransform child.
         fn dict_vector_f32(list_size: u32, codes: &[u8], values: &[f32]) -> VortexResult<ArrayRef> {
             let num_rows = codes.len() / list_size as usize;
             let codes_arr =
@@ -1004,9 +957,7 @@ mod tests {
                 Validity::NonNullable,
                 num_rows,
             )?;
-            let ext_dtype =
-                ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
-            Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
+            Vector::wrap_storage(fsl.into_array())
         }
 
         /// Execute an inner product and return the flat `f32` results.
@@ -1092,7 +1043,7 @@ mod tests {
 
         #[test]
         fn constant_tensor_storage_accepts_extension_scalar_literal() -> VortexResult<()> {
-            let literal = literal_vector_f32(&[1.0, 2.0, 3.0], 5);
+            let literal = literal_vector_array(&[1.0f32, 2.0, 3.0], 5);
             let storage =
                 constant_tensor_storage(&literal).expect("literal vector should be recognized");
 
@@ -1128,7 +1079,7 @@ mod tests {
 
             // Query has `dim` elements.
             let query_elems: Vec<f32> = (0..dim).map(|i| (i as f32 * 0.1).sin()).collect();
-            let const_rhs = constant_vector_f32(&query_elems, num_rows)?;
+            let const_rhs = constant_vector_array(&query_elems, num_rows)?;
 
             // Ground truth: decode LHS to plain f32 vectors, dot each with the query.
             let decoded = decode_sorf_dict(
@@ -1166,7 +1117,7 @@ mod tests {
                 build_sorf_with_dict_child(dim, num_rows, seed, num_rounds)?;
 
             let query_elems: Vec<f32> = (0..dim).map(|i| (i as f32 * 0.2).cos()).collect();
-            let const_lhs = constant_vector_f32(&query_elems, num_rows)?;
+            let const_lhs = constant_vector_array(&query_elems, num_rows)?;
 
             let decoded = decode_sorf_dict(
                 &codes,
@@ -1204,7 +1155,7 @@ mod tests {
             assert_eq!(padded_dim, dim as usize);
 
             let query_elems: Vec<f32> = (0..dim).map(|i| i as f32 * 0.01 - 0.5).collect();
-            let const_rhs = constant_vector_f32(&query_elems, num_rows)?;
+            let const_rhs = constant_vector_array(&query_elems, num_rows)?;
 
             let decoded = decode_sorf_dict(
                 &codes,
@@ -1241,7 +1192,7 @@ mod tests {
                 build_sorf_with_dict_child(dim, num_rows, seed, num_rounds)?;
 
             let query_elems: Vec<f32> = vec![0.0; dim as usize];
-            let const_rhs = constant_vector_f32(&query_elems, num_rows)?;
+            let const_rhs = constant_vector_array(&query_elems, num_rows)?;
 
             let actual = eval_ip_f32(sorf, const_rhs, num_rows)?;
             assert_eq!(actual.len(), 0);
@@ -1264,7 +1215,7 @@ mod tests {
             let dict_lhs = dict_vector_f32(list_size, &codes, &values)?;
 
             let query: Vec<f32> = (0..list_size).map(|i| (i as f32 + 1.0) * 0.3).collect();
-            let const_rhs = constant_vector_f32(&query, num_rows)?;
+            let const_rhs = constant_vector_array(&query, num_rows)?;
 
             let expected: Vec<f32> = (0..num_rows)
                 .map(|row| {
@@ -1294,7 +1245,7 @@ mod tests {
             let dict_rhs = dict_vector_f32(list_size, &codes, &values)?;
 
             let query: Vec<f32> = vec![0.5, -1.0, 2.5, -0.25];
-            let const_lhs = constant_vector_f32(&query, num_rows)?;
+            let const_lhs = constant_vector_array(&query, num_rows)?;
 
             let expected: Vec<f32> = (0..num_rows)
                 .map(|row| {
@@ -1339,12 +1290,10 @@ mod tests {
                 Validity::NonNullable,
                 num_rows,
             )?;
-            let ext_dtype =
-                ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
-            let dict_lhs = ExtensionArray::new(ext_dtype, fsl.into_array()).into_array();
+            let dict_lhs = Vector::wrap_storage(fsl.into_array())?;
 
             let query: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
-            let const_rhs = constant_vector_f32(&query, num_rows)?;
+            let const_rhs = constant_vector_array(&query, num_rows)?;
 
             // Build expected by decoding by hand.
             let expected: Vec<f32> = (0..num_rows)
@@ -1372,10 +1321,10 @@ mod tests {
             let lhs_elems: Vec<f32> = (0..num_rows * dim as usize)
                 .map(|i| i as f32 * 0.25)
                 .collect();
-            let plain_lhs = vector_f32(dim, &lhs_elems)?;
+            let plain_lhs = vector_array(dim, &lhs_elems)?;
 
             let query: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
-            let const_rhs = constant_vector_f32(&query, num_rows)?;
+            let const_rhs = constant_vector_array(&query, num_rows)?;
 
             let expected: Vec<f32> = (0..num_rows)
                 .map(|row| {
@@ -1402,7 +1351,7 @@ mod tests {
             let dict_lhs = dict_vector_f32(list_size, &codes, &values)?;
 
             let query: Vec<f32> = vec![0.0; 4];
-            let const_rhs = constant_vector_f32(&query, num_rows)?;
+            let const_rhs = constant_vector_array(&query, num_rows)?;
 
             let actual = eval_ip_f32(dict_lhs, const_rhs, num_rows)?;
             assert_eq!(actual.len(), 0);
@@ -1422,7 +1371,7 @@ mod tests {
                 build_sorf_with_dict_child(dim, num_rows, seed, num_rounds)?;
 
             let query_elems: Vec<f32> = (0..dim).map(|i| ((i as f32) * 0.15).sin() * 0.4).collect();
-            let const_rhs = constant_vector_f32(&query_elems, num_rows)?;
+            let const_rhs = constant_vector_array(&query_elems, num_rows)?;
 
             // Ground truth via full decode + naive dot.
             let decoded = decode_sorf_dict(
@@ -1495,7 +1444,7 @@ mod tests {
 
             let dict_lhs = dict_vector_f32(list_size, &codes, &values)?;
             let query: Vec<f32> = (0..list_size).map(|_| rng.next_f32()).collect();
-            let const_rhs = constant_vector_f32(&query, num_rows)?;
+            let const_rhs = constant_vector_array(&query, num_rows)?;
 
             let expected: Vec<f32> = (0..num_rows)
                 .map(|row| {
@@ -1539,7 +1488,7 @@ mod tests {
             // has cancellation.
             let mut rng = XorShift64::new(seed ^ 0xABCD_1234);
             let query: Vec<f32> = (0..dim).map(|_| rng.next_f32()).collect();
-            let const_rhs = constant_vector_f32(&query, num_rows)?;
+            let const_rhs = constant_vector_array(&query, num_rows)?;
 
             let decoded = decode_sorf_dict(
                 &codes,
@@ -1585,7 +1534,7 @@ mod tests {
 
             let dict_lhs = dict_vector_f32(list_size, &codes, &values)?;
             let query: Vec<f32> = (0..list_size).map(|_| rng.next_f32()).collect();
-            let const_rhs = constant_vector_f32(&query, num_rows)?;
+            let const_rhs = constant_vector_array(&query, num_rows)?;
 
             let expected: Vec<f32> = (0..num_rows)
                 .map(|row| {
@@ -1635,7 +1584,7 @@ mod tests {
                 SorfTransform::try_new_array(&sorf_options, padded_vector, num_rows)?.into_array();
 
             let query: Vec<f32> = (0..dim).map(|_| rng.next_f32()).collect();
-            let const_rhs = constant_vector_f32(&query, num_rows)?;
+            let const_rhs = constant_vector_array(&query, num_rows)?;
 
             let decoded = decode_sorf_dict(
                 &codes,
@@ -1685,7 +1634,7 @@ mod tests {
 
             let mut rng = XorShift64::new(seed ^ (num_rounds as u64));
             let query: Vec<f32> = (0..dim).map(|_| rng.next_f32()).collect();
-            let const_rhs = constant_vector_f32(&query, num_rows)?;
+            let const_rhs = constant_vector_array(&query, num_rows)?;
 
             let decoded = decode_sorf_dict(
                 &codes,
@@ -1719,7 +1668,7 @@ mod tests {
 
             let mut rng = XorShift64::new(seed);
             let query: Vec<f32> = (0..dim).map(|_| rng.next_f32()).collect();
-            let const_lhs = constant_vector_f32(&query, num_rows)?;
+            let const_lhs = constant_vector_array(&query, num_rows)?;
 
             let decoded = decode_sorf_dict(
                 &codes,
