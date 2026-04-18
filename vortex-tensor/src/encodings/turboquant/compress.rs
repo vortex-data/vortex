@@ -25,6 +25,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::extension::EmptyMetadata;
 use vortex_array::validity::Validity;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -136,10 +137,8 @@ fn build_quantized_fsl(
     padded_dim: usize,
 ) -> VortexResult<ArrayRef> {
     let codes = PrimitiveArray::new::<u8>(all_indices.freeze(), Validity::NonNullable);
-
-    let mut centroids_buf = BufferMut::<f32>::with_capacity(centroids.len());
-    centroids_buf.extend_from_slice(centroids);
-    let centroids_array = PrimitiveArray::new::<f32>(centroids_buf.freeze(), Validity::NonNullable);
+    let centroids_array =
+        PrimitiveArray::new::<f32>(Buffer::copy_from(centroids), Validity::NonNullable);
 
     let dict = DictArray::try_new(codes.into_array(), centroids_array.into_array())?;
 
