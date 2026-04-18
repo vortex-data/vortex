@@ -31,7 +31,6 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
 use crate::scalar_fns::inner_product::BinaryTensorOpMetadata;
@@ -40,7 +39,7 @@ use crate::scalar_fns::l2_denorm::DenormOrientation;
 use crate::scalar_fns::l2_denorm::try_build_constant_l2_denorm;
 use crate::scalar_fns::l2_norm::L2Norm;
 use crate::utils::extract_l2_denorm_children;
-use crate::utils::validate_tensor_float_input;
+use crate::utils::validate_binary_tensor_float_inputs;
 
 /// Cosine similarity between two columns.
 ///
@@ -116,16 +115,8 @@ impl ScalarFnVTable for CosineSimilarity {
         let lhs = &arg_dtypes[0];
         let rhs = &arg_dtypes[1];
 
-        // Both must have the same dtype (ignoring top-level nullability).
-        vortex_ensure!(
-            lhs.eq_ignore_nullability(rhs),
-            "CosineSimilarity requires both inputs to have the same dtype, got {lhs} and {rhs}"
-        );
-
-        // We don't need to look at rhs anymore since we know lhs and rhs are equal.
-        let tensor_match = validate_tensor_float_input(lhs)?;
+        let tensor_match = validate_binary_tensor_float_inputs("CosineSimilarity", lhs, rhs)?;
         let ptype = tensor_match.element_ptype();
-
         let nullability = Nullability::from(lhs.is_nullable() || rhs.is_nullable());
         Ok(DType::Primitive(ptype, nullability))
     }
@@ -153,7 +144,7 @@ impl ScalarFnVTable for CosineSimilarity {
         // Take any L2Denorm-wrapped fast path that applies.
         match DenormOrientation::classify(&lhs_ref, &rhs_ref) {
             DenormOrientation::Both { lhs, rhs } => {
-                return self.execute_both_denorm(lhs, rhs, len, ctx);
+                return self.execute_both_denorm(lhs, rhs, len);
             }
             DenormOrientation::One { denorm, plain } => {
                 return self.execute_one_denorm(denorm, plain, len, ctx);
@@ -258,7 +249,6 @@ impl CosineSimilarity {
         lhs_ref: &ArrayRef,
         rhs_ref: &ArrayRef,
         len: usize,
-        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let validity = lhs_ref.validity()?.and(rhs_ref.validity()?)?;
 

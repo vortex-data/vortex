@@ -49,7 +49,7 @@ impl Matcher for AnyVector {
 
         let dimensions = *list_size;
 
-        assert!(element_dtype.is_float(), "element dtype must be primitive");
+        assert!(element_dtype.is_float(), "element dtype must be float");
         assert!(
             !element_dtype.is_nullable(),
             "element dtype must be non-nullable"
@@ -86,6 +86,13 @@ impl VectorMatcherMetadata {
     /// Returns the number of dimensions of the vector.
     pub fn dimensions(&self) -> u32 {
         self.dimensions
+    }
+
+    /// Returns the flattened element count per vector row. Always equal to
+    /// [`dimensions`](Self::dimensions); exists as a `usize`-typed alias that mirrors
+    /// [`FixedShapeTensorMatcherMetadata::list_size`](crate::fixed_shape::FixedShapeTensorMatcherMetadata::list_size).
+    pub fn list_size(&self) -> usize {
+        self.dimensions as usize
     }
 }
 

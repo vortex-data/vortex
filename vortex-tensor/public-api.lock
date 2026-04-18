@@ -576,6 +576,8 @@ pub fn vortex_tensor::vector::VectorMatcherMetadata::dimensions(&self) -> u32
 
 pub fn vortex_tensor::vector::VectorMatcherMetadata::element_ptype(&self) -> vortex_array::dtype::ptype::PType
 
+pub fn vortex_tensor::vector::VectorMatcherMetadata::list_size(&self) -> usize
+
 pub fn vortex_tensor::vector::VectorMatcherMetadata::try_new(element_ptype: vortex_array::dtype::ptype::PType, dimensions: u32) -> vortex_error::VortexResult<Self>
 
 impl core::clone::Clone for vortex_tensor::vector::VectorMatcherMetadata

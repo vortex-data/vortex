@@ -61,6 +61,7 @@ use crate::scalar_fns::sorf_transform::SorfMatrix;
 use crate::scalar_fns::sorf_transform::SorfTransform;
 use crate::utils::extract_flat_elements;
 use crate::utils::extract_l2_denorm_children;
+use crate::utils::validate_binary_tensor_float_inputs;
 use crate::vector::Vector;
 
 /// Inner product (dot product) between two columns.
@@ -131,32 +132,9 @@ impl ScalarFnVTable for InnerProduct {
         let lhs = &arg_dtypes[0];
         let rhs = &arg_dtypes[1];
 
-        // Both must have the same dtype (ignoring top-level nullability).
-        vortex_ensure!(
-            lhs.eq_ignore_nullability(rhs),
-            "InnerProduct requires both inputs to have the same dtype, got {lhs} and {rhs}"
-        );
-
-        // Both inputs must be tensor-like extension types.
-        let lhs_ext = lhs
-            .as_extension_opt()
-            .ok_or_else(|| vortex_err!("InnerProduct lhs must be an extension type, got {lhs}"))?;
-
-        vortex_ensure!(
-            lhs_ext.is::<AnyTensor>(),
-            "InnerProduct inputs must be an `AnyTensor`, got {lhs}"
-        );
-
-        let tensor_match = lhs_ext
-            .metadata_opt::<AnyTensor>()
-            .ok_or_else(|| vortex_err!("InnerProduct inputs must be an `AnyTensor`, got {lhs}"))?;
+        // TODO(connor): relax the float-only gate once integer tensors are supported.
+        let tensor_match = validate_binary_tensor_float_inputs("InnerProduct", lhs, rhs)?;
         let ptype = tensor_match.element_ptype();
-        // TODO(connor): This should support integer tensors!
-        vortex_ensure!(
-            ptype.is_float(),
-            "InnerProduct element dtype must be a float primitive, got {ptype}"
-        );
-
         let nullability = Nullability::from(lhs.is_nullable() || rhs.is_nullable());
         Ok(DType::Primitive(ptype, nullability))
     }

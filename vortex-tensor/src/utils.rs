@@ -43,6 +43,23 @@ pub fn validate_tensor_float_input(input_dtype: &DType) -> VortexResult<TensorMa
     Ok(tensor_match)
 }
 
+/// Validates that two arguments of a binary tensor-like operator share the same float tensor
+/// dtype (ignoring top-level nullability), returning the shared [`TensorMatch`].
+///
+/// `op_name` is interpolated into the shape-mismatch error message so callers get a
+/// self-identifying diagnostic (e.g. "InnerProduct requires both inputs ...").
+pub fn validate_binary_tensor_float_inputs<'a>(
+    op_name: &str,
+    lhs: &'a DType,
+    rhs: &DType,
+) -> VortexResult<TensorMatch<'a>> {
+    vortex_ensure!(
+        lhs.eq_ignore_nullability(rhs),
+        "{op_name} requires both inputs to have the same dtype, got {lhs} and {rhs}"
+    );
+    validate_tensor_float_input(lhs)
+}
+
 /// Cast a float [`PrimitiveArray`] to a `Buffer<f32>`.
 ///
 /// Several operations in this crate (SORF transform, TurboQuant quantization) work exclusively
