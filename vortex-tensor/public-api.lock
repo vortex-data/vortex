@@ -142,7 +142,7 @@ impl vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'_>
 
 pub fn vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'_>::element_ptype(&self) -> vortex_array::dtype::ptype::PType
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'_>::list_size(&self) -> usize
+pub fn vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'_>::flat_list_size(&self) -> u32
 
 pub fn vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'_>::metadata(&self) -> &vortex_tensor::fixed_shape::FixedShapeTensorMetadata
 
@@ -222,7 +222,7 @@ impl vortex_tensor::matcher::TensorMatch<'_>
 
 pub fn vortex_tensor::matcher::TensorMatch<'_>::element_ptype(self) -> vortex_array::dtype::ptype::PType
 
-pub fn vortex_tensor::matcher::TensorMatch<'_>::list_size(self) -> usize
+pub fn vortex_tensor::matcher::TensorMatch<'_>::list_size(self) -> u32
 
 impl<'a> core::clone::Clone for vortex_tensor::matcher::TensorMatch<'a>
 
@@ -382,7 +382,7 @@ pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::validity(&self, _options:
 
 pub fn vortex_tensor::scalar_fns::l2_denorm::normalize_as_l2_denorm(input: vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
 
-pub fn vortex_tensor::scalar_fns::l2_denorm::validate_l2_normalized_rows(input: &vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
+pub fn vortex_tensor::scalar_fns::l2_denorm::validate_l2_normalized_rows_against_norms(normalized: &vortex_array::array::erased::ArrayRef, norms: core::option::Option<&vortex_array::array::erased::ArrayRef>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
 
 pub mod vortex_tensor::scalar_fns::l2_norm
 
@@ -570,11 +570,9 @@ pub struct vortex_tensor::vector::VectorMatcherMetadata
 
 impl vortex_tensor::vector::VectorMatcherMetadata
 
-pub fn vortex_tensor::vector::VectorMatcherMetadata::dimensions(&self) -> usize
+pub fn vortex_tensor::vector::VectorMatcherMetadata::dimensions(&self) -> u32
 
 pub fn vortex_tensor::vector::VectorMatcherMetadata::element_ptype(&self) -> vortex_array::dtype::ptype::PType
-
-pub fn vortex_tensor::vector::VectorMatcherMetadata::list_size(&self) -> u32
 
 pub fn vortex_tensor::vector::VectorMatcherMetadata::try_new(element_ptype: vortex_array::dtype::ptype::PType, dimensions: u32) -> vortex_error::VortexResult<Self>
 

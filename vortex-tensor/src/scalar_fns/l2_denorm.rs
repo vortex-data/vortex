@@ -60,6 +60,7 @@ use vortex_session::VortexSession;
 
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_norm::L2Norm;
+use crate::utils::extract_constant_flat_row;
 use crate::utils::extract_flat_elements;
 use crate::utils::validate_tensor_float_input;
 
@@ -525,12 +526,12 @@ pub(crate) fn try_build_constant_l2_denorm(
     let ext_dtype = input.dtype().as_extension().clone();
     let storage_fsl_nullability = storage.dtype().nullability();
 
-    // `extract_flat_elements` takes the `is_constant` single-row path for `Constant` storage, so
-    // this is cheap and does not expand the constant to the full column length.
-    let flat = extract_flat_elements(storage, list_size, ctx)?;
+    // Materialize just the single stored row; this does not expand the constant to the full
+    // column length.
+    let flat = extract_constant_flat_row(storage, ctx)?;
 
     let (normalized_fsl_scalar, norms_scalar) = match_each_float_ptype!(flat.ptype(), |T| {
-        let row = flat.row::<T>(0);
+        let row = flat.as_slice::<T>();
 
         let mut sum_sq = T::zero();
         for &x in row {
@@ -605,11 +606,6 @@ fn unit_norm_tolerance(element_ptype: PType) -> f64 {
     }
 }
 
-/// Validates that every valid row of `input` is already L2-normalized (either length 1 or 0).
-pub fn validate_l2_normalized_rows(input: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
-    validate_l2_normalized_rows_against_norms(input, None, ctx)
-}
-
 /// Validates that `normalized` and (when supplied) the matching `norms` jointly satisfy the
 /// [`L2Denorm`] invariants:
 ///
@@ -617,7 +613,7 @@ pub fn validate_l2_normalized_rows(input: &ArrayRef, ctx: &mut ExecutionCtx) -> 
 ///   tolerance).
 /// - When `norms` is supplied, every stored norm is non-negative and any row whose stored norm is
 ///   `0.0` is exactly the zero vector in `normalized`.
-fn validate_l2_normalized_rows_against_norms(
+pub fn validate_l2_normalized_rows_against_norms(
     normalized: &ArrayRef,
     norms: Option<&ArrayRef>,
     ctx: &mut ExecutionCtx,
@@ -771,7 +767,7 @@ mod tests {
 
     use crate::scalar_fns::l2_denorm::L2Denorm;
     use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
-    use crate::scalar_fns::l2_denorm::validate_l2_normalized_rows;
+    use crate::scalar_fns::l2_denorm::validate_l2_normalized_rows_against_norms;
     use crate::tests::SESSION;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::constant_tensor_array;
@@ -906,7 +902,7 @@ mod tests {
         let input = vector_array(2, &[3.0f32, 4.0, 0.0, 0.0].map(half::f16::from_f32))?;
         let mut ctx = SESSION.create_execution_ctx();
         let roundtrip = normalize_as_l2_denorm(input, &mut ctx)?;
-        validate_l2_normalized_rows(&roundtrip.child_at(0).clone(), &mut ctx)?;
+        validate_l2_normalized_rows_against_norms(&roundtrip.child_at(0).clone(), None, &mut ctx)?;
         Ok(())
     }
 
@@ -914,7 +910,7 @@ mod tests {
     fn validate_l2_normalized_rows_rejects_unnormalized_input() -> VortexResult<()> {
         let input = vector_array(2, &[3.0, 4.0, 1.0, 0.0])?;
         let mut ctx = SESSION.create_execution_ctx();
-        let result = validate_l2_normalized_rows(&input, &mut ctx);
+        let result = validate_l2_normalized_rows_against_norms(&input, None, &mut ctx);
         assert!(result.is_err());
         Ok(())
     }

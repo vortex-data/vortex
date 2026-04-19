@@ -55,6 +55,7 @@ use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_denorm::DenormOrientation;
 use crate::scalar_fns::sorf_transform::SorfMatrix;
 use crate::scalar_fns::sorf_transform::SorfTransform;
+use crate::utils::extract_constant_flat_row;
 use crate::utils::extract_flat_elements;
 use crate::utils::extract_l2_denorm_children;
 use crate::utils::validate_binary_tensor_float_inputs;
@@ -425,15 +426,15 @@ impl InnerProduct {
         let seed = sorf_view.options.seed;
         let padded_dim = dim.next_power_of_two();
 
-        // Extract the single stored row of the constant via the `is_constant` short-circuit.
-        let flat = extract_flat_elements(&const_storage, dim, ctx)?;
+        // Extract the single stored row of the constant.
+        let flat = extract_constant_flat_row(&const_storage, ctx)?;
         if flat.ptype() != PType::F32 {
             return Ok(None);
         }
 
         // Zero-pad the query from `dim` to `padded_dim` and forward-rotate.
         let mut padded_query = vec![0.0f32; padded_dim];
-        padded_query[..dim].copy_from_slice(flat.row::<f32>(0));
+        padded_query[..dim].copy_from_slice(flat.as_slice::<f32>());
 
         let rotation = SorfMatrix::try_new(seed, dim, num_rounds)?;
         let mut rotated_query = vec![0.0f32; padded_dim];
@@ -533,7 +534,7 @@ impl InnerProduct {
 
         let padded_dim = usize::try_from(fsl.list_size()).vortex_expect("fsl list_size fits usize");
 
-        let flat = extract_flat_elements(&const_storage, padded_dim, ctx)?;
+        let flat = extract_constant_flat_row(&const_storage, ctx)?;
         if flat.ptype() != PType::F32 {
             // TODO(connor): case 2 is f32-only. For f16/f64 we fall through to the standard
             // path, which computes the inner product with the correct element type.
@@ -552,7 +553,7 @@ impl InnerProduct {
             return Ok(Some(empty.into_array()));
         }
 
-        let q: &[f32] = flat.row::<f32>(0);
+        let q: &[f32] = flat.as_slice::<f32>();
         debug_assert_eq!(q.len(), padded_dim);
         let codes: &[u8] = codes_prim.as_slice::<u8>();
         let values: &[f32] = values_prim.as_slice::<f32>();
