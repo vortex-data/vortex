@@ -92,7 +92,7 @@ impl ScalarFnVTable for SorfTransform {
 
         let expected_padded = options.dimension.next_power_of_two();
         vortex_ensure_eq!(
-            vector_metadata.list_size(),
+            vector_metadata.dimensions(),
             expected_padded,
             "SorfTransform child Vector must have dimension {expected_padded} (next power of two \
              for dimension {})",

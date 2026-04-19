@@ -31,7 +31,7 @@ pub struct FixedShapeTensorMatcherMetadata<'a> {
     ///
     /// This matches the `FixedSizeList` list size in the storage dtype, which is the product of
     /// the logical shape dimensions.
-    flat_list_size: usize,
+    flat_list_size: u32,
 }
 
 impl Matcher for AnyFixedShapeTensor {
@@ -64,7 +64,7 @@ impl Matcher for AnyFixedShapeTensor {
         Some(FixedShapeTensorMatcherMetadata {
             metadata,
             element_ptype: element_dtype.as_ptype(),
-            flat_list_size: *list_size as usize,
+            flat_list_size: *list_size,
         })
     }
 }
@@ -81,7 +81,7 @@ impl FixedShapeTensorMatcherMetadata<'_> {
     }
 
     /// Returns the flattened element count for each tensor row.
-    pub fn list_size(&self) -> usize {
+    pub fn flat_list_size(&self) -> u32 {
         self.flat_list_size
     }
 }
@@ -118,7 +118,7 @@ mod tests {
 
         let metadata = ext_dtype.metadata::<AnyFixedShapeTensor>();
         assert_eq!(metadata.element_ptype(), PType::F32);
-        assert_eq!(metadata.list_size(), 24);
+        assert_eq!(metadata.flat_list_size(), 24);
         assert_eq!(metadata.metadata().logical_shape(), &[2, 3, 4]);
         Ok(())
     }

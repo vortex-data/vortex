@@ -169,7 +169,7 @@ pub fn tq_validate_vector_dtype(dtype: &DType) -> VortexResult<VectorMatcherMeta
             vortex_err!("TurboQuant dtype must be a Vector extension type, got {dtype}")
         })?;
 
-    let dimensions = vector_metadata.list_size();
+    let dimensions = vector_metadata.dimensions();
     vortex_ensure!(
         dimensions >= MIN_DIMENSION,
         "TurboQuant requires dimension >= {MIN_DIMENSION}, got {dimensions}",

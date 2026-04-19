@@ -83,7 +83,7 @@ impl Scheme for TurboQuantScheme {
             .bit_width()
             .try_into()
             .vortex_expect("invalid bit width for TurboQuant");
-        let dimension = vector_metadata.list_size();
+        let dimension = vector_metadata.dimensions();
 
         CompressionEstimate::Verdict(EstimateVerdict::Ratio(estimate_compression_ratio(
             element_bit_width,

@@ -4,10 +4,11 @@
 //! Reusable helpers for building brute-force vector similarity search expressions over
 //! [`Vector`] extension arrays.
 //!
-//! [`build_similarity_search_tree`] wires together `Vector::constant_array` (which broadcasts the
-//! query into the shape expected by [`CosineSimilarity`]) and [`turboquant_encode`] (when the\
-//! data is pre-compressed) into a lazy `Binary(Gt, [CosineSimilarity(data, query), threshold])`
-//! expression.
+//! [`build_similarity_search_tree`] broadcasts the query into the shape expected by
+//! [`CosineSimilarity`] via `Vector::constant_array` and returns a lazy
+//! `Binary(Gt, [CosineSimilarity(data, query), threshold])` expression. The caller is responsible
+//! for preparing `data` (e.g. by running it through [`turboquant_encode`]); this builder does not
+//! compress.
 //!
 //! Executing the tree into a [`BoolArray`] yields one boolean per row indicating whether that row's
 //! cosine similarity to the query exceeds `threshold`.

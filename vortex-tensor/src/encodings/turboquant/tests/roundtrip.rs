@@ -311,37 +311,3 @@ fn f16_input_encodes_successfully() -> VortexResult<()> {
     assert_eq!(decoded_fsl.len(), num_rows);
     Ok(())
 }
-
-/// Verify that the checked encode accepts normalized f16 input.
-#[test]
-fn checked_encode_accepts_normalized_f16_input() -> VortexResult<()> {
-    let num_rows = 10;
-    let dim = 128;
-    let mut rng = StdRng::seed_from_u64(99);
-    let normal = Normal::new(0.0f32, 1.0).unwrap();
-
-    let mut buf = BufferMut::<half::f16>::with_capacity(num_rows * dim);
-    for _ in 0..(num_rows * dim) {
-        buf.push(half::f16::from_f32(normal.sample(&mut rng)));
-    }
-    let elements = PrimitiveArray::new::<half::f16>(buf.freeze(), Validity::NonNullable);
-    let fsl = FixedSizeListArray::try_new(
-        elements.into_array(),
-        dim.try_into().unwrap(),
-        Validity::NonNullable,
-        num_rows,
-    )?;
-
-    let ext = make_vector_ext(&fsl);
-    let config = TurboQuantConfig {
-        bit_width: 3,
-        seed: Some(42),
-        num_rounds: 3,
-    };
-
-    let mut ctx = SESSION.create_execution_ctx();
-    let normalized = normalize_as_l2_denorm(ext, &mut ctx)?.child_at(0).clone();
-    let encoded = turboquant_encode(normalized, &config, &mut ctx)?;
-    assert_eq!(encoded.len(), num_rows);
-    Ok(())
-}

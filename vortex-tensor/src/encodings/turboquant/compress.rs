@@ -171,7 +171,7 @@ pub unsafe fn turboquant_encode_unchecked(
 
     let core = turboquant_quantize_core(&fsl, seed, config.bit_width, config.num_rounds, ctx)?;
     let quantized_fsl =
-        build_quantized_fsl(num_rows, core.all_indices, &core.centroids, core.padded_dim)?;
+        build_quantized_fsl(num_rows, core.all_indices, core.centroids, core.padded_dim)?;
     let padded_vector = Vector::try_new_vector_array(quantized_fsl)?;
 
     let sorf_options = SorfOptions {
@@ -185,8 +185,8 @@ pub unsafe fn turboquant_encode_unchecked(
 
 /// Shared intermediate results from the quantization loop.
 struct QuantizationResult {
-    centroids: Vec<f32>,
-    all_indices: BufferMut<u8>,
+    centroids: Buffer<f32>,
+    all_indices: Buffer<u8>,
     padded_dim: usize,
 }
 
@@ -202,8 +202,7 @@ fn turboquant_quantize_core(
     num_rounds: u8,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<QuantizationResult> {
-    let dimension =
-        usize::try_from(fsl.list_size()).vortex_expect("u32 FixedSizeList dimension fits in usize");
+    let dimension = fsl.list_size() as usize;
     let num_rows = fsl.len();
 
     let rotation = SorfMatrix::try_new(seed, dimension, num_rounds as usize)?;
@@ -238,7 +237,7 @@ fn turboquant_quantize_core(
 
     Ok(QuantizationResult {
         centroids,
-        all_indices,
+        all_indices: all_indices.freeze(),
         padded_dim,
     })
 }
@@ -250,13 +249,12 @@ fn turboquant_quantize_core(
 /// without knowledge of the rotation.
 fn build_quantized_fsl(
     num_rows: usize,
-    all_indices: BufferMut<u8>,
-    centroids: &[f32],
+    all_indices: Buffer<u8>,
+    centroids: Buffer<f32>,
     padded_dim: usize,
 ) -> VortexResult<ArrayRef> {
-    let codes = PrimitiveArray::new::<u8>(all_indices.freeze(), Validity::NonNullable);
-    let centroids_array =
-        PrimitiveArray::new::<f32>(Buffer::copy_from(centroids), Validity::NonNullable);
+    let codes = PrimitiveArray::new::<u8>(all_indices, Validity::NonNullable);
+    let centroids_array = PrimitiveArray::new::<f32>(centroids, Validity::NonNullable);
 
     let dict = DictArray::try_new(codes.into_array(), centroids_array.into_array())?;
 

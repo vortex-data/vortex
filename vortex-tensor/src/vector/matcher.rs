@@ -84,13 +84,8 @@ impl VectorMatcherMetadata {
     }
 
     /// Returns the number of dimensions of the vector.
-    pub fn list_size(&self) -> u32 {
+    pub fn dimensions(&self) -> u32 {
         self.dimensions
-    }
-
-    /// Returns the flattened element count per vector row.
-    pub fn dimensions(&self) -> usize {
-        self.dimensions as usize
     }
 }
 
@@ -125,7 +120,7 @@ mod tests {
 
         let metadata = ext_dtype.metadata::<AnyVector>();
         assert_eq!(metadata.element_ptype(), PType::F32);
-        assert_eq!(metadata.list_size(), 256);
+        assert_eq!(metadata.dimensions(), 256);
         Ok(())
     }
 

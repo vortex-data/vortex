@@ -182,7 +182,7 @@ impl ScalarFnVTable for InnerProduct {
         let tensor_match = ext
             .metadata_opt::<AnyTensor>()
             .vortex_expect("we already validated this in `return_dtype`");
-        let dimensions = tensor_match.list_size();
+        let dimensions = tensor_match.list_size() as usize;
 
         // Extract the storage array from each extension input. We pass the storage (FSL) rather
         // than the extension array to avoid canonicalizing the extension wrapper.

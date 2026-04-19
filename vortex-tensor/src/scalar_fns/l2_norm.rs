@@ -132,7 +132,7 @@ impl ScalarFnVTable for L2Norm {
         let tensor_match = ext
             .metadata_opt::<AnyTensor>()
             .vortex_expect("we already validated this in `return_dtype`");
-        let tensor_flat_size = tensor_match.list_size();
+        let tensor_flat_size = tensor_match.list_size() as usize;
         let element_ptype = tensor_match.element_ptype();
 
         let norm_dtype = DType::Primitive(element_ptype, ext.nullability());

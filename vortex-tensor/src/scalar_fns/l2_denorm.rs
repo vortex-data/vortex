@@ -240,7 +240,7 @@ impl ScalarFnVTable for L2Denorm {
             .as_extension()
             .metadata_opt::<AnyTensor>()
             .vortex_expect("we already validated this in `return_dtype`");
-        let tensor_flat_size = tensor_match.list_size();
+        let tensor_flat_size = tensor_match.list_size() as usize;
 
         let flat = extract_flat_elements(normalized.storage_array(), tensor_flat_size, ctx)?;
 
@@ -423,7 +423,7 @@ pub fn normalize_as_l2_denorm(
 ) -> VortexResult<ScalarFnArray> {
     let row_count = input.len();
     let tensor_match = validate_tensor_float_input(input.dtype())?;
-    let tensor_flat_size = tensor_match.list_size();
+    let tensor_flat_size = tensor_match.list_size() as usize;
 
     // Constant fast path: if the input is a constant-backed extension, normalize the single
     // stored row once and return an `L2Denorm` whose children are both `ConstantArray`s.
@@ -520,7 +520,7 @@ pub(crate) fn try_build_constant_l2_denorm(
         .as_extension()
         .metadata_opt::<AnyTensor>()
         .vortex_expect("caller validated input has AnyTensor metadata");
-    let list_size = tensor_match.list_size();
+    let list_size = tensor_match.list_size() as usize;
     let original_nullability = input.dtype().nullability();
     let ext_dtype = input.dtype().as_extension().clone();
     let storage_fsl_nullability = storage.dtype().nullability();
@@ -630,7 +630,7 @@ fn validate_l2_normalized_rows_against_norms(
     let tensor_match = validate_tensor_float_input(normalized.dtype())?;
     let element_ptype = tensor_match.element_ptype();
     let tolerance = unit_norm_tolerance(element_ptype);
-    let tensor_flat_size = tensor_match.list_size();
+    let tensor_flat_size = tensor_match.list_size() as usize;
 
     if let Some(norms) = norms {
         vortex_ensure_eq!(
