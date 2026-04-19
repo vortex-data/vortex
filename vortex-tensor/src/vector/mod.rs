@@ -25,9 +25,7 @@ impl Vector {
     ///
     /// The storage's dtype is reused verbatim for the extension's storage dtype, so the caller
     /// is responsible for having already constructed an FSL with the float element ptype and
-    /// non-nullable elements that [`Vector::validate_dtype`](ExtVTable::validate_dtype) requires.
-    ///
-    /// [`ExtVTable::validate_dtype`]: vortex_array::dtype::extension::ExtVTable::validate_dtype
+    /// non-nullable elements that [`Vector`]'s `validate_dtype` requires.
     ///
     /// # Errors
     ///
