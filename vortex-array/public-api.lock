@@ -21546,6 +21546,8 @@ pub fn vortex_array::Array<vortex_array::arrays::Extension>::new(ext_dtype: vort
 
 pub fn vortex_array::Array<vortex_array::arrays::Extension>::try_new(ext_dtype: vortex_array::dtype::extension::ExtDTypeRef, storage_array: vortex_array::ArrayRef) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::Array<vortex_array::arrays::Extension>::try_new_from_vtable<V: vortex_array::dtype::extension::ExtVTable>(vtable: V, metadata: <V as vortex_array::dtype::extension::ExtVTable>::Metadata, storage_array: vortex_array::ArrayRef) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::Array<vortex_array::arrays::Filter>
 
 pub fn vortex_array::Array<vortex_array::arrays::Filter>::new(array: vortex_array::ArrayRef, mask: vortex_mask::Mask) -> Self

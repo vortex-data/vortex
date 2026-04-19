@@ -45,7 +45,7 @@ impl TensorMatch<'_> {
     pub fn list_size(self) -> usize {
         match self {
             Self::FixedShapeTensor(metadata) => metadata.list_size(),
-            Self::Vector(metadata) => metadata.dimensions() as usize,
+            Self::Vector(metadata) => metadata.dimensions(),
         }
     }
 }

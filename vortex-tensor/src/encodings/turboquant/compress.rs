@@ -15,16 +15,15 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Extension;
-use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::DictArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::dtype::Nullability;
-use vortex_array::dtype::extension::ExtDType;
-use vortex_array::extension::EmptyMetadata;
 use vortex_array::validity::Validity;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -35,7 +34,8 @@ use crate::encodings::turboquant::MIN_DIMENSION;
 use crate::encodings::turboquant::centroids::compute_centroid_boundaries;
 use crate::encodings::turboquant::centroids::find_nearest_centroid;
 use crate::encodings::turboquant::centroids::get_centroids;
-use crate::scalar_fns::l2_denorm::validate_l2_normalized_rows;
+use crate::scalar_fns::l2_denorm::L2Denorm;
+use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 use crate::scalar_fns::sorf_transform::SorfMatrix;
 use crate::scalar_fns::sorf_transform::SorfOptions;
 use crate::scalar_fns::sorf_transform::SorfTransform;
@@ -62,6 +62,125 @@ impl Default for TurboQuantConfig {
             num_rounds: 3,
         }
     }
+}
+
+/// Apply the full TurboQuant compression pipeline to a [`Vector`](crate::vector::Vector)
+/// extension array: normalize the rows via [`normalize_as_l2_denorm`], quantize the normalized
+/// child via [`turboquant_encode_unchecked`], and reattach the stored norms as the outer
+/// [`L2Denorm`] wrapper.
+///
+/// The returned array has the canonical TurboQuant shape:
+///
+/// ```text
+/// ScalarFnArray(L2Denorm, [
+///     ScalarFnArray(SorfTransform, [FSL(Dict(codes, centroids))]),
+///     norms,
+/// ])
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if `input` is not a tensor-like extension array, if normalization fails, or
+/// if [`turboquant_encode_unchecked`] rejects the input shape.
+pub fn turboquant_encode(
+    input: ArrayRef,
+    config: &TurboQuantConfig,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    // We must normalize the array before we can encode it with TurboQuant.
+    let l2_denorm = normalize_as_l2_denorm(input, ctx)?;
+    let normalized = l2_denorm.child_at(0).clone();
+    let norms = l2_denorm.child_at(1).clone();
+    let num_rows = l2_denorm.len();
+
+    let normalized_ext = normalized
+        .as_opt::<Extension>()
+        .vortex_expect("normalize_as_l2_denorm always produces an Extension array child");
+
+    // SAFETY: `normalize_as_l2_denorm` guarantees every row is unit-norm (or zero for null rows).
+    let tq = unsafe { turboquant_encode_unchecked(normalized_ext, config, ctx) }?;
+
+    // SAFETY: TurboQuant is a lossy approximation of the normalized child, so we intentionally
+    // bypass the strict normalized-row validation when reattaching the stored norms.
+    Ok(unsafe { L2Denorm::new_array_unchecked(tq, norms, num_rows) }?.into_array())
+}
+
+/// Encode a non-nullable, L2-normalized [`Vector`](crate::vector::Vector) extension array into a
+/// `ScalarFnArray(SorfTransform, [FSL(Dict(codes, centroids))])`, without validating the unit-norm
+/// precondition.
+///
+/// # Safety
+///
+/// The caller must ensure:
+///
+/// - The input dtype is non-nullable.
+/// - Every row is L2-normalized (unit norm) or is a zero vector.
+///
+/// Passing non-unit-norm vectors will not cause memory unsafety, but will produce silently
+/// incorrect quantization results.
+pub unsafe fn turboquant_encode_unchecked(
+    ext: ArrayView<Extension>,
+    config: &TurboQuantConfig,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let ext_dtype = ext.dtype().clone();
+    let storage = ext.storage_array();
+    let fsl = storage.clone().execute::<FixedSizeListArray>(ctx)?;
+
+    vortex_ensure!(
+        config.bit_width >= 1 && config.bit_width <= MAX_BIT_WIDTH,
+        "bit_width must be 1-{MAX_BIT_WIDTH}, got {}",
+        config.bit_width
+    );
+    let dimension = fsl.list_size();
+    vortex_ensure!(
+        dimension >= MIN_DIMENSION,
+        "TurboQuant requires dimension >= {MIN_DIMENSION}, got {dimension}",
+    );
+
+    let vector_metadata = ext_dtype.as_extension().metadata::<AnyVector>();
+    let element_ptype = vector_metadata.element_ptype();
+
+    let seed = config.seed.unwrap_or(42);
+    let num_rows = fsl.len();
+
+    if fsl.is_empty() {
+        let padded_dim = dimension.next_power_of_two();
+        let empty_codes = PrimitiveArray::empty::<u8>(Nullability::NonNullable);
+        let empty_centroids = PrimitiveArray::empty::<f32>(Nullability::NonNullable);
+        let empty_dict =
+            DictArray::try_new(empty_codes.into_array(), empty_centroids.into_array())?;
+        let empty_fsl = FixedSizeListArray::try_new(
+            empty_dict.into_array(),
+            padded_dim,
+            Validity::NonNullable,
+            0,
+        )?;
+        let empty_padded_vector = Vector::try_new_vector_array(empty_fsl.into_array())?;
+
+        let sorf_options = SorfOptions {
+            seed,
+            num_rounds: config.num_rounds,
+            dimension,
+            element_ptype,
+        };
+        return Ok(
+            SorfTransform::try_new_array(&sorf_options, empty_padded_vector, 0)?.into_array(),
+        );
+    }
+
+    let core = turboquant_quantize_core(&fsl, seed, config.bit_width, config.num_rounds, ctx)?;
+    let quantized_fsl =
+        build_quantized_fsl(num_rows, core.all_indices, &core.centroids, core.padded_dim)?;
+    let padded_vector = Vector::try_new_vector_array(quantized_fsl)?;
+
+    let sorf_options = SorfOptions {
+        seed,
+        num_rounds: config.num_rounds,
+        dimension,
+        element_ptype,
+    };
+    Ok(SorfTransform::try_new_array(&sorf_options, padded_vector, num_rows)?.into_array())
 }
 
 /// Shared intermediate results from the quantization loop.
@@ -126,9 +245,9 @@ fn turboquant_quantize_core(
 
 /// Build a quantized representation: `FSL(DictArray(codes, centroids), padded_dim)`.
 ///
-/// This is a Dict-encoded FixedSizeList where each row of `padded_dim` u8 codes
-/// indexes into the centroid codebook. The Dict can be independently sliced, taken,
-/// or executed (dequantized) without knowledge of the rotation.
+/// This is a Dict-encoded FixedSizeList where each row of `padded_dim` u8 codes indexes into the
+/// centroid codebook. The Dict can be independently sliced, taken, or executed (dequantized)
+/// without knowledge of the rotation.
 fn build_quantized_fsl(
     num_rows: usize,
     all_indices: BufferMut<u8>,
@@ -136,10 +255,8 @@ fn build_quantized_fsl(
     padded_dim: usize,
 ) -> VortexResult<ArrayRef> {
     let codes = PrimitiveArray::new::<u8>(all_indices.freeze(), Validity::NonNullable);
-
-    let mut centroids_buf = BufferMut::<f32>::with_capacity(centroids.len());
-    centroids_buf.extend_from_slice(centroids);
-    let centroids_array = PrimitiveArray::new::<f32>(centroids_buf.freeze(), Validity::NonNullable);
+    let centroids_array =
+        PrimitiveArray::new::<f32>(Buffer::copy_from(centroids), Validity::NonNullable);
 
     let dict = DictArray::try_new(codes.into_array(), centroids_array.into_array())?;
 
@@ -152,124 +269,4 @@ fn build_quantized_fsl(
         num_rows,
     )?
     .into_array())
-}
-
-/// Encode a non-nullable, L2-normalized [`Vector`](crate::vector::Vector) extension array into a
-/// `ScalarFnArray(SorfTransform, [FSL(Dict(codes, centroids))])`.
-///
-/// The input must be a non-nullable Vector extension array whose rows are already unit-norm.
-/// **Null vectors are not supported.** The caller must normalize and strip nullability before
-/// calling this function, for example via [`normalize_as_l2_denorm`].
-///
-/// This function validates that every row is L2-normalized (or is exactly 0.0). Use
-/// [`turboquant_encode_unchecked`] to skip this check when the caller has just performed
-/// normalization.
-///
-/// The returned array is a `SorfTransform` ScalarFnArray wrapping `FSL(Dict)` that decompresses
-/// to unit-norm vectors. The caller is responsible for wrapping it in an [`L2Denorm`] ScalarFnArray
-/// if the original magnitudes need to be restored.
-///
-/// [`normalize_as_l2_denorm`]: crate::scalar_fns::l2_denorm::normalize_as_l2_denorm
-/// [`L2Denorm`]: crate::scalar_fns::l2_denorm::L2Denorm
-pub fn turboquant_encode(
-    ext: ArrayView<Extension>,
-    config: &TurboQuantConfig,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let ext_dtype = ext.dtype().clone();
-
-    vortex_ensure!(
-        !ext_dtype.is_nullable(),
-        "TurboQuant input must be non-nullable (normalize first via L2Denorm), got {ext_dtype}",
-    );
-
-    validate_l2_normalized_rows(ext.as_ref(), ctx)?;
-
-    // SAFETY: We just validated that the input is non-nullable and all rows are unit-norm.
-    unsafe { turboquant_encode_unchecked(ext, config, ctx) }
-}
-
-/// Encode a non-nullable, L2-normalized [`Vector`](crate::vector::Vector) extension array into a
-/// `ScalarFnArray(SorfTransform, [FSL(Dict(codes, centroids))])`, without validating the unit-norm
-/// precondition.
-///
-/// # Safety
-///
-/// The caller must ensure:
-///
-/// - The input dtype is non-nullable.
-/// - Every row is L2-normalized (unit norm) or is a zero vector.
-///
-/// Passing non-unit-norm vectors will not cause memory unsafety, but will produce silently
-/// incorrect quantization results.
-pub unsafe fn turboquant_encode_unchecked(
-    ext: ArrayView<Extension>,
-    config: &TurboQuantConfig,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let ext_dtype = ext.dtype().clone();
-    let storage = ext.storage_array();
-    let fsl = storage.clone().execute::<FixedSizeListArray>(ctx)?;
-
-    vortex_ensure!(
-        config.bit_width >= 1 && config.bit_width <= MAX_BIT_WIDTH,
-        "bit_width must be 1-{MAX_BIT_WIDTH}, got {}",
-        config.bit_width
-    );
-    let dimension = fsl.list_size();
-    vortex_ensure!(
-        dimension >= MIN_DIMENSION,
-        "TurboQuant requires dimension >= {MIN_DIMENSION}, got {dimension}",
-    );
-
-    let vector_metadata = ext_dtype.as_extension().metadata::<AnyVector>();
-    let element_ptype = vector_metadata.element_ptype();
-
-    let seed = config.seed.unwrap_or(42);
-    let num_rows = fsl.len();
-
-    if fsl.is_empty() {
-        let padded_dim = dimension.next_power_of_two();
-        let empty_codes = PrimitiveArray::empty::<u8>(Nullability::NonNullable);
-        let empty_centroids = PrimitiveArray::empty::<f32>(Nullability::NonNullable);
-        let empty_dict =
-            DictArray::try_new(empty_codes.into_array(), empty_centroids.into_array())?;
-        let empty_fsl = FixedSizeListArray::try_new(
-            empty_dict.into_array(),
-            padded_dim,
-            Validity::NonNullable,
-            0,
-        )?;
-        let empty_padded_vector = wrap_padded_as_vector(empty_fsl.into_array())?;
-
-        let sorf_options = SorfOptions {
-            seed,
-            num_rounds: config.num_rounds,
-            dimension,
-            element_ptype,
-        };
-        return Ok(
-            SorfTransform::try_new_array(&sorf_options, empty_padded_vector, 0)?.into_array(),
-        );
-    }
-
-    let core = turboquant_quantize_core(&fsl, seed, config.bit_width, config.num_rounds, ctx)?;
-    let quantized_fsl =
-        build_quantized_fsl(num_rows, core.all_indices, &core.centroids, core.padded_dim)?;
-    let padded_vector = wrap_padded_as_vector(quantized_fsl)?;
-
-    let sorf_options = SorfOptions {
-        seed,
-        num_rounds: config.num_rounds,
-        dimension,
-        element_ptype,
-    };
-    Ok(SorfTransform::try_new_array(&sorf_options, padded_vector, num_rows)?.into_array())
-}
-
-/// Wrap an `FSL<f32, padded_dim>` in a [`Vector`](crate::vector::Vector) extension so it can be
-/// passed as the child of [`SorfTransform`], which expects a `Vector<padded_dim>` input.
-fn wrap_padded_as_vector(fsl: ArrayRef) -> VortexResult<ArrayRef> {
-    let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
-    Ok(ExtensionArray::new(ext_dtype, fsl).into_array())
 }

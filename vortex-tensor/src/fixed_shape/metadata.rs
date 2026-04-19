@@ -215,6 +215,7 @@ impl fmt::Display for FixedShapeTensorMetadata {
         }
 
         if let Some(perm) = &self.permutation {
+            write!(f, ", [")?;
             for (i, p) in perm.iter().enumerate() {
                 if i > 0 {
                     write!(f, ", ")?;
@@ -350,6 +351,44 @@ mod tests {
     ) -> VortexResult<()> {
         let m = FixedShapeTensorMetadata::new(shape).with_permutation(perm)?;
         assert_eq!(m.physical_shape().collect::<Vec<_>>(), expected);
+        Ok(())
+    }
+
+    // -- Display --
+
+    #[test]
+    fn display_shape_only() {
+        let m = FixedShapeTensorMetadata::new(vec![2, 3, 4]);
+        assert_eq!(m.to_string(), "Tensor(2, 3, 4)");
+    }
+
+    #[test]
+    fn display_scalar_0d() {
+        let m = FixedShapeTensorMetadata::new(vec![]);
+        assert_eq!(m.to_string(), "Tensor()");
+    }
+
+    #[test]
+    fn display_with_dim_names() -> VortexResult<()> {
+        let m = FixedShapeTensorMetadata::new(vec![3, 4])
+            .with_dim_names(vec!["rows".into(), "cols".into()])?;
+        assert_eq!(m.to_string(), "Tensor(rows: 3, cols: 4)");
+        Ok(())
+    }
+
+    #[test]
+    fn display_with_permutation() -> VortexResult<()> {
+        let m = FixedShapeTensorMetadata::new(vec![2, 3, 4]).with_permutation(vec![1, 0, 2])?;
+        assert_eq!(m.to_string(), "Tensor(2, 3, 4, [1, 0, 2])");
+        Ok(())
+    }
+
+    #[test]
+    fn display_with_dim_names_and_permutation() -> VortexResult<()> {
+        let m = FixedShapeTensorMetadata::new(vec![2, 3, 4])
+            .with_dim_names(vec!["x".into(), "y".into(), "z".into()])?
+            .with_permutation(vec![1, 2, 0])?;
+        assert_eq!(m.to_string(), "Tensor(x: 2, y: 3, z: 4, [1, 2, 0])");
         Ok(())
     }
 

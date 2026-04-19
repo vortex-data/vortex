@@ -14,8 +14,8 @@ use crate::scalar::ScalarValue;
 
 /// The public API for defining new extension types.
 ///
-/// This is the non-object-safe trait that plugin authors implement to define a new extension
-/// type. It specifies the type's identity, metadata, serialization, and validation.
+/// This is the non-object-safe trait that plugin authors implement to define a new extension type.
+/// It specifies the type's identity, metadata, serialization, and validation.
 pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     /// Associated type containing the deserialized metadata for this extension type.
     type Metadata: 'static + Send + Sync + Clone + Debug + Display + Eq + Hash;
@@ -39,11 +39,11 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     /// Validate that the given storage type is compatible with this extension type.
     fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()>;
 
-    /// Can a value of `other` be implicitly widened into this type?
-    /// e.g. GeographyType might accept Point, LineString, etc.
+    /// Can a value of `other` be implicitly widened into this type? (e.g. GeographyType might
+    /// accept Point, LineString, etc.)
     ///
-    /// Implementors only need to override one of `can_coerce_from` or `can_coerce_to` — both
-    /// exist so that either side of the coercion can provide the logic.
+    /// Implementors only need to override one of `can_coerce_from` or `can_coerce_to`. We have both
+    /// so that either side of the coercion can provide the logic.
     fn can_coerce_from(ext_dtype: &ExtDType<Self>, other: &DType) -> bool {
         let _ = (ext_dtype, other);
         false
@@ -51,14 +51,15 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
 
     /// Can this type be implicitly widened into `other`?
     ///
-    /// Implementors only need to override one of `can_coerce_from` or `can_coerce_to` — both
-    /// exist so that either side of the coercion can provide the logic.
+    /// Implementors only need to override one of `can_coerce_from` or `can_coerce_to`. We have both
+    /// so that either side of the coercion can provide the logic.
     fn can_coerce_to(ext_dtype: &ExtDType<Self>, other: &DType) -> bool {
         let _ = (ext_dtype, other);
         false
     }
 
     /// Given two types in a Uniform context, what is their least supertype?
+    ///
     /// Return None if no supertype exists.
     fn least_supertype(ext_dtype: &ExtDType<Self>, other: &DType) -> Option<DType> {
         let _ = (ext_dtype, other);
@@ -69,7 +70,8 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
 
     /// Validate the given storage value is compatible with the extension type.
     ///
-    /// By default, this calls [`unpack_native()`](ExtVTable::unpack_native) and discards the result.
+    /// By default, this calls [`unpack_native()`](ExtVTable::unpack_native) and discards the
+    /// result.
     ///
     /// # Errors
     ///

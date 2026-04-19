@@ -49,7 +49,7 @@ impl Matcher for AnyVector {
 
         let dimensions = *list_size;
 
-        assert!(element_dtype.is_float(), "element dtype must be primitive");
+        assert!(element_dtype.is_float(), "element dtype must be float");
         assert!(
             !element_dtype.is_nullable(),
             "element dtype must be non-nullable"
@@ -84,8 +84,13 @@ impl VectorMatcherMetadata {
     }
 
     /// Returns the number of dimensions of the vector.
-    pub fn dimensions(&self) -> u32 {
+    pub fn list_size(&self) -> u32 {
         self.dimensions
+    }
+
+    /// Returns the flattened element count per vector row.
+    pub fn dimensions(&self) -> usize {
+        self.dimensions as usize
     }
 }
 
@@ -120,7 +125,7 @@ mod tests {
 
         let metadata = ext_dtype.metadata::<AnyVector>();
         assert_eq!(metadata.element_ptype(), PType::F32);
-        assert_eq!(metadata.dimensions(), 256);
+        assert_eq!(metadata.list_size(), 256);
         Ok(())
     }
 
