@@ -522,8 +522,7 @@ impl InnerProduct {
 
         // Gate: u8 codes and f32 centroids.
         if codes_prim.ptype() != PType::U8 {
-            // TODO(connor): support wider code widths (u16, u32). TurboQuant only emits u8
-            // codes today, so this is the only path we need for now.
+            // TODO(connor): Should we support wider codes?
             return Ok(None);
         }
         if values_prim.ptype() != PType::F32 {

@@ -19,9 +19,8 @@ use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 pub struct L2DenormScheme;
 
 impl Scheme for L2DenormScheme {
-    // TODO(connor): FIX THIS!!!
     fn scheme_name(&self) -> &'static str {
-        "vortex.tensor.UNSTABLE.l2_denorm"
+        "vortex.tensor.l2_denorm"
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {

@@ -245,9 +245,7 @@ impl ScalarFnVTable for L2Denorm {
 
         let flat = extract_flat_elements(normalized.storage_array(), tensor_flat_size, ctx)?;
 
-        // TODO(connor): Theoretically we could model this as a multiplication between the
-        // normalized array and a `RunEnd(Sequence(0, dimensions), norms)`. But since we have
-        // already canonicalized the array, it is probably not faster to do that.
+        // TODO(connor): Do we want a "broadcast" expression for the List types, or is this fine?
         match_each_float_ptype!(flat.ptype(), |T| {
             let norms = norms.as_slice::<T>();
 

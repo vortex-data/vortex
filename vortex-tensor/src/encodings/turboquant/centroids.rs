@@ -28,7 +28,6 @@ const CONVERGENCE_EPSILON: f64 = 1e-12;
 /// Number of numerical integration points for computing conditional expectations.
 const INTEGRATION_POINTS: usize = 1000;
 
-// TODO(connor): Maybe we should just store an `ArrayRef` here?
 /// Global centroid cache keyed by (dimension, bit_width).
 static CENTROID_CACHE: LazyLock<DashMap<(u32, u8), Buffer<f32>>> = LazyLock::new(DashMap::default);
 
