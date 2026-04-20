@@ -332,6 +332,41 @@ __device__ inline uint32_t bitunpack_tile_len(const Stage &stage, uint32_t block
     return min(SMEM_TILE_SIZE - off, block_len - tile_off);
 }
 
+/// Decode a BITUNPACK chunk into shared memory scratch and apply patches.
+/// Returns a pointer into scratch adjusted for element_offset alignment.
+///
+/// Isolated as __noinline__ so that the patch call site's register pressure
+/// does not pollute the caller's (execute_output_stage) tile loop.
+template <typename T>
+__device__ __noinline__ const T *
+bitunpack_and_patch(const Stage &stage,
+                    const struct SourceOp &src,
+                    char *__restrict smem,
+                    uint64_t block_start,
+                    uint32_t elem_idx,
+                    uint32_t chunk_len) {
+    T *scratch = reinterpret_cast<T *>(smem + stage.smem_byte_offset);
+    bitunpack<T>(reinterpret_cast<const T *>(stage.input_ptr),
+                 scratch,
+                 block_start + elem_idx,
+                 chunk_len,
+                 src);
+    constexpr uint32_t FL_CHUNK = 1024;
+    const uint32_t align = (block_start + elem_idx + src.params.bitunpack.element_offset) % FL_CHUNK;
+    // Write barrier: all threads finished bitunpack, safe to read from scratch.
+    __syncthreads();
+
+    // Overwrite patched positions in the decoded scratch buffer.
+    if (src.params.bitunpack.patches_ptr != 0) {
+        const uint32_t chunk = static_cast<uint32_t>(
+            (block_start + elem_idx + src.params.bitunpack.element_offset) / FL_CHUNK);
+        apply_patches<T>(src.params.bitunpack.patches_ptr, scratch, chunk);
+        __syncthreads();
+    }
+
+    return scratch + align;
+}
+
 /// Process the final / output stage: decode source → apply scalar ops →
 /// streaming-store to global memory. Handles the full block, tiling through
 /// smem scratch for BITUNPACK.
@@ -369,17 +404,7 @@ __device__ void execute_output_stage(T *__restrict output,
         // tiling happens in the inner tile_idx loop.
         if (src.op_code == SourceOp::BITUNPACK) {
             chunk_len = bitunpack_tile_len(stage, block_len, elem_idx);
-            T *scratch = reinterpret_cast<T *>(smem + stage.smem_byte_offset);
-            bitunpack<T>(reinterpret_cast<const T *>(stage.input_ptr),
-                         scratch,
-                         block_start + elem_idx,
-                         chunk_len,
-                         src);
-            constexpr uint32_t FL_CHUNK = 1024; // FastLanes chunk size
-            const uint32_t align = (block_start + elem_idx + src.params.bitunpack.element_offset) % FL_CHUNK;
-            smem_src = scratch + align;
-            // Write barrier: all threads finished bitunpack, safe to read from scratch.
-            __syncthreads();
+            smem_src = bitunpack_and_patch<T>(stage, src, smem, block_start, elem_idx, chunk_len);
         } else {
             chunk_len = block_len;
         }
@@ -454,11 +479,20 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
     const auto &src = stage.source;
 
     if (src.op_code == SourceOp::BITUNPACK) {
+        T *raw_smem = smem_out;
         bitunpack<T>(reinterpret_cast<const T *>(stage.input_ptr), smem_out, 0, stage.len, src);
-        smem_out += src.params.bitunpack.element_offset % SMEM_TILE_SIZE;
         // Write barrier: cooperative bitunpack finished, safe to read
-        // decoded elements in the scalar-op loop below.
+        // decoded elements below.
         __syncthreads();
+
+        // if (src.params.bitunpack.patches_ptr != 0) {
+            // apply_patches_range<T>(src.params.bitunpack.patches_ptr,
+            //                        raw_smem, stage.len,
+            //                        src.params.bitunpack.element_offset);
+            // __syncthreads();
+        // }
+
+        smem_out += src.params.bitunpack.element_offset % SMEM_TILE_SIZE;
 
         if (stage.num_scalar_ops > 0) {
             for (uint32_t i = threadIdx.x; i < stage.len; i += blockDim.x) {
@@ -472,6 +506,13 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
             // now fully populated for subsequent stages to read.
             __syncthreads();
         }
+
+        // if (stage.alp_patches_ptr != 0) {
+            // apply_patches_range<T>(stage.alp_patches_ptr,
+            //                        reinterpret_cast<T *>(smem + stage.smem_byte_offset),
+            //                        stage.len, 0);
+            // __syncthreads();
+        // }
     } else {
         if (src.op_code == SourceOp::RUNEND) {
             // Seed each thread's cursor with the run containing its first

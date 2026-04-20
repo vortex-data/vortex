@@ -34,6 +34,7 @@ pub use encodings::ZstdKernelPrep;
 pub use encodings::zstd_kernel_prepare;
 pub(crate) use encodings::*;
 pub(crate) use filter::FilterExecutor;
+pub(crate) use patches::types::pack_patches_for_fused_dispatch;
 pub(crate) use slice::SliceExecutor;
 
 use crate::CudaKernelEvents;

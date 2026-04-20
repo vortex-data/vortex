@@ -16,6 +16,7 @@ use vortex::array::arrays::Slice;
 use vortex::array::arrays::dict::DictArraySlotsExt;
 use vortex::array::arrays::slice::SliceArrayExt;
 use vortex::array::buffer::BufferHandle;
+use vortex::array::patches::Patches;
 use vortex::array::validity::Validity;
 use vortex::dtype::PType;
 use vortex::encodings::alp::ALP;
@@ -45,6 +46,7 @@ use super::ptype_to_tag;
 use super::tag_to_ptype;
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
+use crate::kernel::pack_patches_for_fused_dispatch;
 
 /// A plan whose source buffers have been copied to the device, ready for kernel launch.
 pub struct MaterializedPlan {
@@ -69,10 +71,10 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
     let id = array.encoding_id();
     if id == ALP.id() {
         let arr = array.as_::<ALP>();
-        return arr.patches().is_none() && arr.dtype().as_ptype() == PType::F32;
+        return arr.dtype().as_ptype() == PType::F32;
     }
     if id == BitPacked.id() {
-        return array.as_::<BitPacked>().patches().is_none();
+        return true;
     }
     if id == Dict.id() {
         let arr = array.as_::<Dict>();
@@ -127,6 +129,10 @@ struct Stage {
     source_buffer_index: Option<usize>,
     /// PType tag for the source op's output type.
     source_ptype: PTypeTag,
+    /// Patches from a BitPacked source, to be packed and uploaded at materialize time.
+    bitunpack_patches: Option<Patches>,
+    /// Patches from an ALP source, to be packed and uploaded at materialize time.
+    alp_patches: Option<Patches>,
 }
 
 impl Stage {
@@ -136,6 +142,8 @@ impl Stage {
             scalar_ops: vec![],
             source_buffer_index,
             source_ptype,
+            bitunpack_patches: None,
+            alp_patches: None,
         }
     }
 }
@@ -367,20 +375,44 @@ impl FusedPlan {
         // Byte offsets are passed directly to the C ABI — the kernel now
         // indexes shared memory by byte offset and casts to the correct type
         // using source_ptype / output_ptype.
-        let stages: Vec<MaterializedStage> = self
-            .stages
-            .iter()
-            .map(|(stage, smem_byte_offset, len)| {
-                MaterializedStage::new(
-                    resolve_ptr(stage),
-                    *smem_byte_offset,
-                    *len,
-                    stage.source_ptype,
-                    stage.source,
-                    &stage.scalar_ops,
-                )
-            })
-            .collect();
+        let mut stages: Vec<MaterializedStage> = Vec::new();
+        for (stage, smem_byte_offset, len) in &self.stages {
+            let mut source = stage.source;
+
+            // Pack BitPacked patches if present.
+            if let Some(patches) = &stage.bitunpack_patches {
+                let element_offset = unsafe { source.params.bitunpack.element_offset } as u16;
+                let ptype = tag_to_ptype(stage.source_ptype);
+                let packed =
+                    pack_patches_for_fused_dispatch(patches, element_offset, *len as usize, ptype)?;
+                let device_buf = ctx.ensure_on_device_sync(packed)?;
+                let ptr = device_buf.cuda_device_ptr()?;
+                source.params.bitunpack.patches_ptr = ptr;
+                device_buffers.push(device_buf);
+            }
+
+            // Pack ALP patches — stored on PackedStage, applied post-scalar-ops.
+            let mut alp_patches_ptr: u64 = 0;
+            if let Some(patches) = &stage.alp_patches {
+                // ALP patches are float values — use f32 (the only ALP output supported).
+                let alp_ptype = PType::F32;
+                let packed = pack_patches_for_fused_dispatch(patches, 0, *len as usize, alp_ptype)?;
+                let device_buf = ctx.ensure_on_device_sync(packed)?;
+                alp_patches_ptr = device_buf.cuda_device_ptr()?;
+                device_buffers.push(device_buf);
+            }
+
+            let mut mat = MaterializedStage::new(
+                resolve_ptr(stage),
+                *smem_byte_offset,
+                *len,
+                stage.source_ptype,
+                source,
+                &stage.scalar_ops,
+            );
+            mat.alp_patches_ptr = alp_patches_ptr;
+            stages.push(mat);
+        }
 
         Ok(MaterializedPlan {
             dispatch_plan: CudaDispatchPlan::new(stages, self.output_ptype),
@@ -498,20 +530,18 @@ impl FusedPlan {
     fn walk_bitpacked(&mut self, array: ArrayRef) -> VortexResult<Stage> {
         let bp = array.as_::<BitPacked>();
 
-        if bp.patches().is_some() {
-            vortex_bail!("Dynamic dispatch does not support BitPackedArray with patches");
-        }
-
         let source_ptype = ptype_to_tag(PType::try_from(bp.dtype()).map_err(|_| {
             vortex_err!("BitPacked must have primitive dtype, got {:?}", bp.dtype())
         })?);
         let buf_index = self.source_buffers.len();
         self.source_buffers.push(Some(bp.packed().clone()));
-        Ok(Stage::new(
+        let mut stage = Stage::new(
             SourceOp::bitunpack(bp.bit_width(), bp.offset()),
             Some(buf_index),
             source_ptype,
-        ))
+        );
+        stage.bitunpack_patches = bp.patches();
+        Ok(stage)
     }
 
     fn walk_for(
@@ -564,10 +594,6 @@ impl FusedPlan {
     ) -> VortexResult<Stage> {
         let alp = array.as_::<ALP>();
 
-        if alp.patches().is_some() {
-            vortex_bail!("Dynamic dispatch does not support ALPArray with patches");
-        }
-
         let ptype = alp.dtype().as_ptype();
         if ptype != PType::F32 {
             vortex_bail!(
@@ -576,6 +602,7 @@ impl FusedPlan {
             );
         }
 
+        let patches = alp.patches();
         let exponents = alp.exponents();
         let alp_f = <f32 as ALPFloat>::F10[exponents.f as usize];
         let alp_e = <f32 as ALPFloat>::IF10[exponents.e as usize];
@@ -583,6 +610,7 @@ impl FusedPlan {
 
         let mut pipeline = self.walk(encoded, pending_subtrees)?;
         pipeline.scalar_ops.push(ScalarOp::alp(alp_f, alp_e));
+        pipeline.alp_patches = patches;
         Ok(pipeline)
     }
 
