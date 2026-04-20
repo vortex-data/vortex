@@ -4,7 +4,7 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
-use jni::JNIEnv;
+use jni::EnvUnowned;
 use jni::objects::JClass;
 use jni::sys::jint;
 use tracing::level_filters::LevelFilter;
@@ -15,7 +15,7 @@ static LOGGER_INIT: AtomicBool = AtomicBool::new(false);
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeLogging_initLogging(
-    _env: JNIEnv,
+    _env: EnvUnowned,
     _class: JClass,
     level: jint,
 ) {

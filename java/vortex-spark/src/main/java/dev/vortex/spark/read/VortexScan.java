@@ -3,8 +3,8 @@
 
 package dev.vortex.spark.read;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
+import java.util.List;
+import java.util.Map;
 import org.apache.spark.sql.connector.catalog.CatalogV2Util;
 import org.apache.spark.sql.connector.catalog.Column;
 import org.apache.spark.sql.connector.read.Batch;
@@ -16,20 +16,18 @@ import org.apache.spark.sql.types.StructType;
  */
 public final class VortexScan implements Scan {
 
-    private final ImmutableList<String> paths;
-    private final ImmutableList<Column> readColumns;
-    private final ImmutableMap<String, String> formatOptions;
+    private final List<String> paths;
+    private final List<Column> readColumns;
+    private final Map<String, String> formatOptions;
 
     /**
-     * Creates a new VortexScan for the specified file paths and columns.
+     * Creates a new VortexScan for the specified file paths and columns. The caller is
+     * responsible for passing immutable collections; the constructor does not copy.
      *
-     * @param paths the list of Vortex file paths to scan
+     * @param paths       the list of Vortex file paths to scan
      * @param readColumns the list of columns to read from the files
      */
-    public VortexScan(
-            ImmutableList<String> paths,
-            ImmutableList<Column> readColumns,
-            ImmutableMap<String, String> formatOptions) {
+    public VortexScan(List<String> paths, List<Column> readColumns, Map<String, String> formatOptions) {
         this.paths = paths;
         this.readColumns = readColumns;
         this.formatOptions = formatOptions;

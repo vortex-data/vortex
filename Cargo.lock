@@ -1420,7 +1420,7 @@ checksum = "0b023947811758c97c59bf9d1c188fd619ad4718dcaa767947df1cadb14f39f4"
 dependencies = [
  "glob",
  "libc",
- "libloading 0.8.9",
+ "libloading",
 ]
 
 [[package]]
@@ -1978,7 +1978,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3aa12038120eb13347a6ae2ffab1d34efe78150125108627fd85044dd4d6ff1e"
 dependencies = [
  "half",
- "libloading 0.8.9",
+ "libloading",
 ]
 
 [[package]]
@@ -4275,12 +4275,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "handle"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52ed72152641d513a6084a3907bfcba3f35ae2d3335c22ce2242969c25ff8e46"
-
-[[package]]
 name = "hashbag"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4882,13 +4876,43 @@ dependencies = [
  "cesu8",
  "cfg-if",
  "combine",
- "java-locator",
  "jni-sys 0.3.1",
- "libloading 0.7.4",
  "log",
  "thiserror 1.0.69",
  "walkdir",
  "windows-sys 0.45.0",
+]
+
+[[package]]
+name = "jni"
+version = "0.22.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5efd9a482cf3a427f00d6b35f14332adc7902ce91efb778580e180ff90fa3498"
+dependencies = [
+ "cfg-if",
+ "combine",
+ "java-locator",
+ "jni-macros",
+ "jni-sys 0.4.1",
+ "libloading",
+ "log",
+ "simd_cesu8",
+ "thiserror 2.0.18",
+ "walkdir",
+ "windows-link",
+]
+
+[[package]]
+name = "jni-macros"
+version = "0.22.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a00109accc170f0bdb141fed3e393c565b6f5e072365c3bd58f5b062591560a3"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "rustc_version",
+ "simd_cesu8",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -5598,16 +5622,6 @@ checksum = "f12a681b7dd8ce12bff52488013ba614b869148d54dd79836ab85aafdd53f08d"
 dependencies = [
  "arbitrary",
  "cc",
-]
-
-[[package]]
-name = "libloading"
-version = "0.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b67380fd3b2fbe7527a606e18729d21c6f3951633d0500574c4dc22d2d638b9f"
-dependencies = [
- "cfg-if",
- "winapi",
 ]
 
 [[package]]
@@ -8052,7 +8066,7 @@ checksum = "1d99feebc72bae7ab76ba994bb5e121b8d83d910ca40b36e0921f53becc41784"
 dependencies = [
  "core-foundation 0.10.1",
  "core-foundation-sys",
- "jni",
+ "jni 0.21.1",
  "log",
  "once_cell",
  "rustls",
@@ -8467,6 +8481,16 @@ name = "simd-adler32"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "703d5c7ef118737c72f1af64ad2f6f8c5e1921f818cdcb97b8fe6fc69bf66214"
+
+[[package]]
+name = "simd_cesu8"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94f90157bb87cddf702797c5dadfa0be7d266cdf49e22da2fcaa32eff75b2c33"
+dependencies = [
+ "rustc_version",
+ "simdutf8",
+]
 
 [[package]]
 name = "simdutf8"
@@ -10223,7 +10247,7 @@ name = "vortex-cub"
 version = "0.1.0"
 dependencies = [
  "bindgen",
- "libloading 0.8.9",
+ "libloading",
  "paste",
  "vortex-array",
  "vortex-cuda-macros",
@@ -10542,7 +10566,6 @@ dependencies = [
  "custom-labels",
  "futures",
  "glob",
- "handle",
  "itertools 0.14.0",
  "kanal",
  "object_store 0.13.2",
@@ -10584,15 +10607,12 @@ name = "vortex-jni"
 version = "0.1.0"
 dependencies = [
  "arrow-array 58.1.0",
- "arrow-ipc 58.1.0",
  "arrow-schema 58.1.0",
  "futures",
- "jni",
+ "jni 0.22.4",
  "object_store 0.13.2",
  "parking_lot",
- "prost 0.14.3",
  "thiserror 2.0.18",
- "tokio",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -10667,7 +10687,7 @@ name = "vortex-nvcomp"
 version = "0.1.0"
 dependencies = [
  "bindgen",
- "libloading 0.8.9",
+ "libloading",
  "liblzma",
  "reqwest 0.13.2",
  "tar",
