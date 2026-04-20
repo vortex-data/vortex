@@ -193,10 +193,10 @@ impl ScalarFnVTable for Cast {
 
     fn deserialize(
         &self,
-        _metadata: &[u8],
+        metadata: &[u8],
         session: &VortexSession,
     ) -> VortexResult<Self::Options> {
-        let proto = pb::CastOpts::decode(_metadata)?;
+        let proto = pb::CastOpts::decode(metadata)?;
         let mode = CastMode::from(pb::CastMode::try_from(proto.mode).map_err(|_| {
             vortex_err!("Unknown cast mode value {} in Cast expression", proto.mode)
         })?);
