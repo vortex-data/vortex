@@ -21,7 +21,7 @@ arrow-array = { workspace = true, features = ["ffi"] }
 arrow-ipc = { workspace = true }
 arrow-schema = { workspace = true }
 futures = { workspace = true }
-jni = "0.21.1"
+jni = "0.22.0"
 object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
 parking_lot = { workspace = true }
 prost = { workspace = true }
@@ -33,7 +33,7 @@ url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "files", "tokio"] }
 
 [dev-dependencies]
-jni = { version = "0.21.1", features = ["invocation"] }
+jni = { version = "0.22.0", features = ["invocation"] }
 
 [lib]
 crate-type = ["staticlib", "cdylib"]
