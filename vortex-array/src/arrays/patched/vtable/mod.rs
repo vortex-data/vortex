@@ -349,6 +349,7 @@ fn apply_patches_primitive<V: NativePType>(
 
 #[cfg(test)]
 mod tests {
+    use crate::session::ArraySessionExt;
     use rstest::rstest;
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
@@ -588,7 +589,9 @@ mod tests {
         let dtype = array.dtype().clone();
         let len = array.len();
 
-        let ctx = ArrayContext::empty();
+        LEGACY_SESSION.arrays().register(Patched);
+
+        let ctx = ArrayContext::empty().with_registry(LEGACY_SESSION.arrays().registry().clone());
         let serialized = array
             .serialize(&ctx, &LEGACY_SESSION, &SerializeOptions::default())
             .unwrap();
