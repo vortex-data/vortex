@@ -1,0 +1,46 @@
+[package]
+name = "vortex-arrow"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Arrow interop for Vortex arrays"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lints]
+workspace = true
+
+[dependencies]
+arrow-arith = { workspace = true }
+arrow-array = { workspace = true, features = ["ffi"] }
+arrow-buffer = { workspace = true }
+arrow-cast = { workspace = true }
+arrow-data = { workspace = true }
+arrow-ord = { workspace = true }
+arrow-schema = { workspace = true }
+arrow-select = { workspace = true }
+arrow-string = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true, features = ["alloc", "async-await", "std"] }
+half = { workspace = true, features = ["num-traits"] }
+itertools = { workspace = true }
+num-traits = { workspace = true }
+pin-project-lite = { workspace = true }
+prost = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-mask = { workspace = true }
+vortex-session = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }

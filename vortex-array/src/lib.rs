@@ -32,7 +32,7 @@ pub mod accessor;
 pub mod aggregate_fn;
 #[doc(hidden)]
 pub mod aliases;
-mod array;
+pub mod array;
 pub mod arrays;
 pub mod arrow;
 pub mod buffer;
@@ -43,7 +43,7 @@ mod columnar;
 pub mod compute;
 pub mod display;
 pub mod dtype;
-mod executor;
+pub mod executor;
 pub mod expr;
 mod expression;
 pub mod extension;

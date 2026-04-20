@@ -12,6 +12,7 @@ members = [
     "vortex-io",
     "vortex-proto",
     "vortex-array",
+    "vortex-arrow",
     "vortex-tensor",
     "vortex-compressor",
     "vortex-btrblocks",
@@ -266,6 +267,7 @@ zstd = { version = "0.13.3", default-features = false, features = [
 vortex = { version = "0.1.0", path = "./vortex" }
 vortex-alp = { version = "0.1.0", path = "./encodings/alp", default-features = false }
 vortex-array = { version = "0.1.0", path = "./vortex-array", default-features = false }
+vortex-arrow = { version = "0.1.0", path = "./vortex-arrow", default-features = false }
 vortex-btrblocks = { version = "0.1.0", path = "./vortex-btrblocks", default-features = false }
 vortex-buffer = { version = "0.1.0", path = "./vortex-buffer", default-features = false }
 vortex-bytebool = { version = "0.1.0", path = "./encodings/bytebool", default-features = false }

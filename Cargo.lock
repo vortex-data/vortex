@@ -10223,6 +10223,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-arrow"
+version = "0.1.0"
+dependencies = [
+ "arrow-arith 58.1.0",
+ "arrow-array 58.1.0",
+ "arrow-buffer 58.1.0",
+ "arrow-cast 58.1.0",
+ "arrow-data 58.1.0",
+ "arrow-ord 58.1.0",
+ "arrow-schema 58.1.0",
+ "arrow-select 58.1.0",
+ "arrow-string 58.1.0",
+ "bytes",
+ "futures",
+ "half",
+ "itertools 0.14.0",
+ "num-traits",
+ "pin-project-lite",
+ "prost 0.14.3",
+ "rstest",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-mask",
+ "vortex-session",
+]
+
+[[package]]
 name = "vortex-bench"
 version = "0.1.0"
 dependencies = [
