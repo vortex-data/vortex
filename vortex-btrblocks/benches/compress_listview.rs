@@ -185,14 +185,10 @@ mod benchmarks {
         let nbytes = array.nbytes();
         let compressor = BtrBlocksCompressor::default();
         bencher
-            .with_inputs(|| &array)
+            .with_inputs(|| (&array, SESSION.create_execution_ctx()))
             .input_counter(|_| ItemsCount::new(NUM_ROWS))
             .input_counter(move |_| BytesCount::new(nbytes as usize))
-            .bench_refs(|array| {
-                compressor
-                    .compress(array, &mut SESSION.create_execution_ctx())
-                    .unwrap()
-            });
+            .bench_refs(|(array, ctx)| compressor.compress(array, ctx).unwrap());
     }
 }
 

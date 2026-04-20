@@ -53,15 +53,12 @@ mod benchmarks {
             .unwrap();
         let compressor = BtrBlocksCompressor::default();
         bencher
-            .with_inputs(|| &array)
-            .input_counter(|array| ItemsCount::new(array.len()))
-            .input_counter(|array| BytesCount::of_many::<i32>(array.len()))
-            .bench_refs(|array| {
+            .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+            .input_counter(|(array, _)| ItemsCount::new(array.len()))
+            .input_counter(|(array, _)| BytesCount::of_many::<i32>(array.len()))
+            .bench_refs(|(array, ctx)| {
                 compressor
-                    .compress(
-                        &array.clone().into_array(),
-                        &mut SESSION.create_execution_ctx(),
-                    )
+                    .compress(&array.clone().into_array(), ctx)
                     .unwrap()
             });
     }
