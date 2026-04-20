@@ -4,6 +4,7 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -19,6 +20,8 @@ use crate::arrays::slice::SliceReduceAdaptor;
 use crate::arrays::struct_::StructArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimizer::rules::ParentRuleDense;
+use crate::optimizer::rules::ParentRuleEntry;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::fns::cast::Cast;
@@ -27,13 +30,18 @@ use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::validity::Validity;
 
-pub(crate) const PARENT_RULES: ParentRuleSet<Struct> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&StructCastPushDownRule),
-    ParentRuleSet::lift(&StructGetItemRule),
-    ParentRuleSet::lift(&MaskReduceAdaptor(Struct)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(Struct)),
-    ParentRuleSet::lift(&TakeReduceAdaptor(Struct)),
-]);
+static KEYED_PARENT_RULES: [ParentRuleEntry<Struct>; 5] = [
+    ParentRuleSet::lift_id(CachedId::new("vortex.cast"), &StructCastPushDownRule),
+    ParentRuleSet::lift_id(CachedId::new("vortex.get_item"), &StructGetItemRule),
+    ParentRuleSet::lift_id(CachedId::new("vortex.mask"), &MaskReduceAdaptor(Struct)),
+    ParentRuleSet::lift_id(CachedId::new("vortex.slice"), &SliceReduceAdaptor(Struct)),
+    ParentRuleSet::lift_id(CachedId::new("vortex.dict"), &TakeReduceAdaptor(Struct)),
+];
+
+static KEYED_PARENT_RULES_DENSE: ParentRuleDense<Struct> = ParentRuleDense::new();
+
+pub(crate) static PARENT_RULES: ParentRuleSet<Struct> =
+    ParentRuleSet::new_indexed(&KEYED_PARENT_RULES, &KEYED_PARENT_RULES_DENSE, &[]);
 
 /// Rule to push down cast into struct fields.
 ///

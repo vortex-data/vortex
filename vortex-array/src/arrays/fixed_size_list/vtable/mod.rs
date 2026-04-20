@@ -91,7 +91,7 @@ impl VTable for FixedSizeList {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        Self::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+        kernel::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn serialize(

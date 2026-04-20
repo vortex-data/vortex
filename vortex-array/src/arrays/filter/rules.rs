@@ -3,6 +3,7 @@
 
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -15,11 +16,20 @@ use crate::arrays::filter::FilterArrayExt;
 use crate::arrays::struct_::StructDataParts;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
+use crate::optimizer::rules::ParentRuleDense;
+use crate::optimizer::rules::ParentRuleEntry;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 
-pub(super) const PARENT_RULES: ParentRuleSet<Filter> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&FilterFilterRule)]);
+static KEYED_PARENT_RULES: [ParentRuleEntry<Filter>; 1] = [ParentRuleSet::lift_id(
+    CachedId::new("vortex.filter"),
+    &FilterFilterRule,
+)];
+
+static KEYED_PARENT_RULES_DENSE: ParentRuleDense<Filter> = ParentRuleDense::new();
+
+pub(super) static PARENT_RULES: ParentRuleSet<Filter> =
+    ParentRuleSet::new_indexed(&KEYED_PARENT_RULES, &KEYED_PARENT_RULES_DENSE, &[]);
 
 pub(super) const RULES: ReduceRuleSet<Filter> =
     ReduceRuleSet::new(&[&TrivialFilterRule, &FilterStructRule]);

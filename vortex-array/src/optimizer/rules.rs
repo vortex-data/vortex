@@ -151,12 +151,12 @@ pub struct ParentRuleSet<V: VTable> {
 }
 
 /// A parent reduction rule keyed by exact parent encoding id.
-pub(crate) struct ParentRuleEntry<V: VTable> {
+pub struct ParentRuleEntry<V: VTable> {
     parent_id: CachedId,
     rule: &'static dyn DynArrayParentReduceRule<V>,
 }
 
-pub(crate) type ParentRuleDense<V> = OnceLock<Box<[Vec<&'static dyn DynArrayParentReduceRule<V>>]>>;
+pub type ParentRuleDense<V> = OnceLock<Box<[Vec<&'static dyn DynArrayParentReduceRule<V>>]>>;
 
 impl<V: VTable> ParentRuleSet<V> {
     fn rules_for(&self, parent_id: ArrayId) -> &[&'static dyn DynArrayParentReduceRule<V>] {
@@ -192,7 +192,7 @@ impl<V: VTable> ParentRuleSet<V> {
         }
     }
 
-    pub(crate) const fn new_indexed(
+    pub const fn new_indexed(
         keyed: &'static [ParentRuleEntry<V>],
         dense: &'static ParentRuleDense<V>,
         dynamic: &'static [&'static dyn DynArrayParentReduceRule<V>],
@@ -217,7 +217,7 @@ impl<V: VTable> ParentRuleSet<V> {
         unsafe { &*(rule as *const R as *const ParentReduceRuleAdapter<V, R>) }
     }
 
-    pub(crate) const fn lift_id<R: ArrayParentReduceRule<V>>(
+    pub const fn lift_id<R: ArrayParentReduceRule<V>>(
         parent_id: CachedId,
         rule: &'static R,
     ) -> ParentRuleEntry<V> {

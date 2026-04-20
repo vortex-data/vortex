@@ -12,22 +12,35 @@ use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnVTable;
 use vortex_array::dtype::DType;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
+use vortex_array::optimizer::rules::ParentRuleDense;
+use vortex_array::optimizer::rules::ParentRuleEntry;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 use vortex_array::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
 use vortex_error::VortexResult;
+use vortex_session::registry::CachedId;
 
 use crate::RunEnd;
 use crate::array::RunEndArrayExt;
 
-pub(super) const RULES: ParentRuleSet<RunEnd> = ParentRuleSet::new(&[
+static KEYED_PARENT_RULES: [ParentRuleEntry<RunEnd>; 2] = [
     // CastReduceAdaptor must come before RunEndScalarFnRule so that cast operations are executed
     // eagerly (surfacing out-of-range errors immediately) rather than being pushed lazily into
     // the values array by the generic scalar function push-down rule.
-    ParentRuleSet::lift(&CastReduceAdaptor(RunEnd)),
-    ParentRuleSet::lift(&RunEndScalarFnRule),
-    ParentRuleSet::lift(&FillNullReduceAdaptor(RunEnd)),
-]);
+    ParentRuleSet::lift_id(CachedId::new("vortex.cast"), &CastReduceAdaptor(RunEnd)),
+    ParentRuleSet::lift_id(
+        CachedId::new("vortex.fill_null"),
+        &FillNullReduceAdaptor(RunEnd),
+    ),
+];
+
+static KEYED_PARENT_RULES_DENSE: ParentRuleDense<RunEnd> = ParentRuleDense::new();
+
+pub(super) static RULES: ParentRuleSet<RunEnd> = ParentRuleSet::new_indexed(
+    &KEYED_PARENT_RULES,
+    &KEYED_PARENT_RULES_DENSE,
+    &[ParentRuleSet::lift(&RunEndScalarFnRule)],
+);
 
 /// A rule to push down scalar functions through run-end encoding into the values array.
 ///

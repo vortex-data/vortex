@@ -3,6 +3,7 @@
 
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -14,6 +15,8 @@ use crate::arrays::ConstantArray;
 use crate::arrays::MaskedArray;
 use crate::arrays::dict::TakeReduce;
 use crate::arrays::dict::TakeReduceAdaptor;
+use crate::optimizer::rules::ParentRuleDense;
+use crate::optimizer::rules::ParentRuleEntry;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
@@ -59,10 +62,18 @@ impl TakeReduce for Constant {
     }
 }
 
-impl Constant {
-    pub const TAKE_RULES: ParentRuleSet<Self> =
-        ParentRuleSet::new(&[ParentRuleSet::lift(&TakeReduceAdaptor::<Self>(Self))]);
-}
+#[allow(dead_code)]
+static KEYED_TAKE_RULES: [ParentRuleEntry<Constant>; 1] = [ParentRuleSet::lift_id(
+    CachedId::new("vortex.dict"),
+    &TakeReduceAdaptor::<Constant>(Constant),
+)];
+
+#[allow(dead_code)]
+static KEYED_TAKE_RULES_DENSE: ParentRuleDense<Constant> = ParentRuleDense::new();
+
+#[allow(dead_code)]
+pub(crate) static TAKE_PARENT_RULES: ParentRuleSet<Constant> =
+    ParentRuleSet::new_indexed(&KEYED_TAKE_RULES, &KEYED_TAKE_RULES_DENSE, &[]);
 
 #[cfg(test)]
 mod tests {

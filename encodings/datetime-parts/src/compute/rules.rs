@@ -18,6 +18,8 @@ use vortex_array::dtype::DType;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
+use vortex_array::optimizer::rules::ParentRuleDense;
+use vortex_array::optimizer::rules::ParentRuleEntry;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar_fn::fns::between::Between;
 use vortex_array::scalar_fn::fns::binary::Binary;
@@ -25,18 +27,41 @@ use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_session::registry::CachedId;
 
 use crate::DateTimeParts;
 use crate::array::DateTimePartsArrayExt;
 use crate::timestamp;
-pub(crate) const PARENT_RULES: ParentRuleSet<DateTimeParts> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&DTPFilterPushDownRule),
-    ParentRuleSet::lift(&DTPComparisonPushDownRule),
-    ParentRuleSet::lift(&CastReduceAdaptor(DateTimeParts)),
-    ParentRuleSet::lift(&FilterReduceAdaptor(DateTimeParts)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(DateTimeParts)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(DateTimeParts)),
-]);
+
+static KEYED_PARENT_RULES: [ParentRuleEntry<DateTimeParts>; 4] = [
+    ParentRuleSet::lift_id(
+        CachedId::new("vortex.cast"),
+        &CastReduceAdaptor(DateTimeParts),
+    ),
+    ParentRuleSet::lift_id(
+        CachedId::new("vortex.filter"),
+        &FilterReduceAdaptor(DateTimeParts),
+    ),
+    ParentRuleSet::lift_id(
+        CachedId::new("vortex.mask"),
+        &MaskReduceAdaptor(DateTimeParts),
+    ),
+    ParentRuleSet::lift_id(
+        CachedId::new("vortex.slice"),
+        &SliceReduceAdaptor(DateTimeParts),
+    ),
+];
+
+static KEYED_PARENT_RULES_DENSE: ParentRuleDense<DateTimeParts> = ParentRuleDense::new();
+
+pub(crate) static PARENT_RULES: ParentRuleSet<DateTimeParts> = ParentRuleSet::new_indexed(
+    &KEYED_PARENT_RULES,
+    &KEYED_PARENT_RULES_DENSE,
+    &[
+        ParentRuleSet::lift(&DTPFilterPushDownRule),
+        ParentRuleSet::lift(&DTPComparisonPushDownRule),
+    ],
+);
 
 /// Push the filter into the days column of a date time parts, we could extend this to other fields
 /// but its less clear if that is beneficial.

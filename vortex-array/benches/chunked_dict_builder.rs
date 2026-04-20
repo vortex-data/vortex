@@ -63,7 +63,7 @@ fn chunked_dict_primitive_into_canonical<T: NativePType>(
     chunk
         .clone()
         .execute::<Canonical>(&mut SESSION.create_execution_ctx())
-        .unwrap();
+        .vortex_expect("warmup execute failed");
 
     bencher
         .with_inputs(|| (chunk.clone(), SESSION.create_execution_ctx()))

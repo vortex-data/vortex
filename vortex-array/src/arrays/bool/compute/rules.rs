@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -13,17 +14,24 @@ use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimizer::rules::ParentRuleDense;
+use crate::optimizer::rules::ParentRuleEntry;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
-pub(crate) const RULES: ParentRuleSet<Bool> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&BoolMaskedValidityRule),
-    ParentRuleSet::lift(&CastReduceAdaptor(Bool)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(Bool)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(Bool)),
-    ParentRuleSet::lift(&FilterReduceAdaptor(Bool)),
-]);
+static KEYED_PARENT_RULES: [ParentRuleEntry<Bool>; 5] = [
+    ParentRuleSet::lift_id(CachedId::new("vortex.masked"), &BoolMaskedValidityRule),
+    ParentRuleSet::lift_id(CachedId::new("vortex.cast"), &CastReduceAdaptor(Bool)),
+    ParentRuleSet::lift_id(CachedId::new("vortex.mask"), &MaskReduceAdaptor(Bool)),
+    ParentRuleSet::lift_id(CachedId::new("vortex.slice"), &SliceReduceAdaptor(Bool)),
+    ParentRuleSet::lift_id(CachedId::new("vortex.filter"), &FilterReduceAdaptor(Bool)),
+];
+
+static KEYED_PARENT_RULES_DENSE: ParentRuleDense<Bool> = ParentRuleDense::new();
+
+pub(crate) static RULES: ParentRuleSet<Bool> =
+    ParentRuleSet::new_indexed(&KEYED_PARENT_RULES, &KEYED_PARENT_RULES_DENSE, &[]);
 
 /// Rule to push down validity masking from MaskedArray parent into BoolArray child.
 ///

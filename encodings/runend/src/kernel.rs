@@ -14,21 +14,37 @@ use vortex_array::arrays::Slice;
 use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::filter::FilterExecuteAdaptor;
 use vortex_array::kernel::ExecuteParentKernel;
+use vortex_array::kernel::ParentKernelDense;
+use vortex_array::kernel::ParentKernelEntry;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
 use vortex_error::VortexResult;
+use vortex_session::registry::CachedId;
 
 use crate::RunEnd;
 use crate::array::RunEndArrayExt;
 use crate::compute::take_from::RunEndTakeFrom;
 
-pub(super) const PARENT_KERNELS: ParentKernelSet<RunEnd> = ParentKernelSet::new(&[
-    ParentKernelSet::lift(&CompareExecuteAdaptor(RunEnd)),
-    ParentKernelSet::lift(&RunEndSliceKernel),
-    ParentKernelSet::lift(&FilterExecuteAdaptor(RunEnd)),
-    ParentKernelSet::lift(&TakeExecuteAdaptor(RunEnd)),
-    ParentKernelSet::lift(&RunEndTakeFrom),
-]);
+static KEYED_PARENT_KERNELS: [ParentKernelEntry<RunEnd>; 4] = [
+    ParentKernelSet::lift_id(
+        CachedId::new("vortex.binary"),
+        &CompareExecuteAdaptor(RunEnd),
+    ),
+    ParentKernelSet::lift_id(CachedId::new("vortex.slice"), &RunEndSliceKernel),
+    ParentKernelSet::lift_id(
+        CachedId::new("vortex.filter"),
+        &FilterExecuteAdaptor(RunEnd),
+    ),
+    ParentKernelSet::lift_id(CachedId::new("vortex.dict"), &TakeExecuteAdaptor(RunEnd)),
+];
+
+static KEYED_PARENT_KERNELS_DENSE: ParentKernelDense<RunEnd> = ParentKernelDense::new();
+
+pub(super) static PARENT_KERNELS: ParentKernelSet<RunEnd> = ParentKernelSet::new_indexed(
+    &KEYED_PARENT_KERNELS,
+    &KEYED_PARENT_KERNELS_DENSE,
+    &[ParentKernelSet::lift(&RunEndTakeFrom)],
+);
 
 /// Kernel to execute slicing on a RunEnd array.
 ///

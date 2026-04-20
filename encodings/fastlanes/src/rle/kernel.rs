@@ -9,15 +9,25 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::slice::SliceExecuteAdaptor;
 use vortex_array::arrays::slice::SliceKernel;
+use vortex_array::kernel::ParentKernelDense;
+use vortex_array::kernel::ParentKernelEntry;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_error::VortexResult;
+use vortex_session::registry::CachedId;
 
 use crate::FL_CHUNK_SIZE;
 use crate::RLE;
 use crate::rle::RLEArrayExt;
 
+static KEYED_PARENT_KERNELS: [ParentKernelEntry<RLE>; 1] = [ParentKernelSet::lift_id(
+    CachedId::new("vortex.slice"),
+    &SliceExecuteAdaptor(RLE),
+)];
+
+static KEYED_PARENT_KERNELS_DENSE: ParentKernelDense<RLE> = ParentKernelDense::new();
+
 pub(crate) static PARENT_KERNELS: ParentKernelSet<RLE> =
-    ParentKernelSet::new(&[ParentKernelSet::lift(&SliceExecuteAdaptor(RLE))]);
+    ParentKernelSet::new_indexed(&KEYED_PARENT_KERNELS, &KEYED_PARENT_KERNELS_DENSE, &[]);
 
 impl SliceKernel for RLE {
     fn slice(

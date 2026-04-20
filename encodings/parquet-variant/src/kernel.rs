@@ -13,18 +13,35 @@ use vortex_array::arrays::filter::FilterExecuteAdaptor;
 use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::arrays::slice::SliceExecuteAdaptor;
 use vortex_array::arrays::slice::SliceKernel;
+use vortex_array::kernel::ParentKernelDense;
+use vortex_array::kernel::ParentKernelEntry;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_session::registry::CachedId;
 
 use crate::ParquetVariant;
 use crate::ParquetVariantArrayExt;
 
-pub(crate) static PARENT_KERNELS: ParentKernelSet<ParquetVariant> = ParentKernelSet::new(&[
-    ParentKernelSet::lift(&FilterExecuteAdaptor(ParquetVariant)),
-    ParentKernelSet::lift(&SliceExecuteAdaptor(ParquetVariant)),
-    ParentKernelSet::lift(&TakeExecuteAdaptor(ParquetVariant)),
-]);
+static KEYED_PARENT_KERNELS: [ParentKernelEntry<ParquetVariant>; 3] = [
+    ParentKernelSet::lift_id(
+        CachedId::new("vortex.filter"),
+        &FilterExecuteAdaptor(ParquetVariant),
+    ),
+    ParentKernelSet::lift_id(
+        CachedId::new("vortex.slice"),
+        &SliceExecuteAdaptor(ParquetVariant),
+    ),
+    ParentKernelSet::lift_id(
+        CachedId::new("vortex.dict"),
+        &TakeExecuteAdaptor(ParquetVariant),
+    ),
+];
+
+static KEYED_PARENT_KERNELS_DENSE: ParentKernelDense<ParquetVariant> = ParentKernelDense::new();
+
+pub(crate) static PARENT_KERNELS: ParentKernelSet<ParquetVariant> =
+    ParentKernelSet::new_indexed(&KEYED_PARENT_KERNELS, &KEYED_PARENT_KERNELS_DENSE, &[]);
 
 impl SliceKernel for ParquetVariant {
     fn slice(

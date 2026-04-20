@@ -7,6 +7,7 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -25,6 +26,8 @@ use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::dtype::DType;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
+use crate::optimizer::rules::ParentRuleDense;
+use crate::optimizer::rules::ParentRuleEntry;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 use crate::scalar_fn::ReduceCtx;
@@ -40,10 +43,18 @@ pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> = ReduceRuleSet::new(&[
     &ScalarFnAbstractReduceRule,
 ]);
 
-pub(super) const PARENT_RULES: ParentRuleSet<ScalarFnVTable> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&ScalarFnUnaryFilterPushDownRule),
-    ParentRuleSet::lift(&ScalarFnSliceReduceRule),
-]);
+static KEYED_PARENT_RULES: [ParentRuleEntry<ScalarFnVTable>; 2] = [
+    ParentRuleSet::lift_id(
+        CachedId::new("vortex.filter"),
+        &ScalarFnUnaryFilterPushDownRule,
+    ),
+    ParentRuleSet::lift_id(CachedId::new("vortex.slice"), &ScalarFnSliceReduceRule),
+];
+
+static KEYED_PARENT_RULES_DENSE: ParentRuleDense<ScalarFnVTable> = ParentRuleDense::new();
+
+pub(super) static PARENT_RULES: ParentRuleSet<ScalarFnVTable> =
+    ParentRuleSet::new_indexed(&KEYED_PARENT_RULES, &KEYED_PARENT_RULES_DENSE, &[]);
 
 /// Converts a ScalarFnArray with Pack into a StructArray directly.
 #[derive(Debug)]

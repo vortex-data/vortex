@@ -3,18 +3,26 @@
 
 use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::filter::FilterExecuteAdaptor;
+use vortex_array::kernel::ParentKernelDense;
+use vortex_array::kernel::ParentKernelEntry;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
 use vortex_array::scalar_fn::fns::like::LikeExecuteAdaptor;
+use vortex_session::registry::CachedId;
 
 use crate::FSST;
 
-pub(super) const PARENT_KERNELS: ParentKernelSet<FSST> = ParentKernelSet::new(&[
-    ParentKernelSet::lift(&CompareExecuteAdaptor(FSST)),
-    ParentKernelSet::lift(&FilterExecuteAdaptor(FSST)),
-    ParentKernelSet::lift(&TakeExecuteAdaptor(FSST)),
-    ParentKernelSet::lift(&LikeExecuteAdaptor(FSST)),
-]);
+static KEYED_PARENT_KERNELS: [ParentKernelEntry<FSST>; 4] = [
+    ParentKernelSet::lift_id(CachedId::new("vortex.binary"), &CompareExecuteAdaptor(FSST)),
+    ParentKernelSet::lift_id(CachedId::new("vortex.filter"), &FilterExecuteAdaptor(FSST)),
+    ParentKernelSet::lift_id(CachedId::new("vortex.dict"), &TakeExecuteAdaptor(FSST)),
+    ParentKernelSet::lift_id(CachedId::new("vortex.like"), &LikeExecuteAdaptor(FSST)),
+];
+
+static KEYED_PARENT_KERNELS_DENSE: ParentKernelDense<FSST> = ParentKernelDense::new();
+
+pub(super) static PARENT_KERNELS: ParentKernelSet<FSST> =
+    ParentKernelSet::new_indexed(&KEYED_PARENT_KERNELS, &KEYED_PARENT_KERNELS_DENSE, &[]);
 
 #[cfg(test)]
 mod tests {

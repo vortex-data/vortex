@@ -4,6 +4,7 @@
 use std::ops::Range;
 
 use vortex_error::VortexResult;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -15,14 +16,21 @@ use crate::arrays::slice::SliceReduce;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::match_each_decimal_value_type;
 use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimizer::rules::ParentRuleDense;
+use crate::optimizer::rules::ParentRuleEntry;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
-pub(crate) static RULES: ParentRuleSet<Decimal> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&DecimalMaskedValidityRule),
-    ParentRuleSet::lift(&MaskReduceAdaptor(Decimal)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(Decimal)),
-]);
+static KEYED_PARENT_RULES: [ParentRuleEntry<Decimal>; 3] = [
+    ParentRuleSet::lift_id(CachedId::new("vortex.masked"), &DecimalMaskedValidityRule),
+    ParentRuleSet::lift_id(CachedId::new("vortex.mask"), &MaskReduceAdaptor(Decimal)),
+    ParentRuleSet::lift_id(CachedId::new("vortex.slice"), &SliceReduceAdaptor(Decimal)),
+];
+
+static KEYED_PARENT_RULES_DENSE: ParentRuleDense<Decimal> = ParentRuleDense::new();
+
+pub(crate) static RULES: ParentRuleSet<Decimal> =
+    ParentRuleSet::new_indexed(&KEYED_PARENT_RULES, &KEYED_PARENT_RULES_DENSE, &[]);
 
 /// Rule to push down validity masking from MaskedArray parent into DecimalArray child.
 ///

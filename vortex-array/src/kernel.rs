@@ -40,12 +40,12 @@ pub struct ParentKernelSet<V: VTable> {
 }
 
 /// A parent kernel keyed by exact parent encoding id.
-pub(crate) struct ParentKernelEntry<V: VTable> {
+pub struct ParentKernelEntry<V: VTable> {
     parent_id: CachedId,
     kernel: &'static dyn DynParentKernel<V>,
 }
 
-pub(crate) type ParentKernelDense<V> = OnceLock<Box<[Vec<&'static dyn DynParentKernel<V>>]>>;
+pub type ParentKernelDense<V> = OnceLock<Box<[Vec<&'static dyn DynParentKernel<V>>]>>;
 
 impl<V: VTable> ParentKernelSet<V> {
     fn kernels_for(&self, parent_id: ArrayId) -> &[&'static dyn DynParentKernel<V>] {
@@ -81,7 +81,7 @@ impl<V: VTable> ParentKernelSet<V> {
         }
     }
 
-    pub(crate) const fn new_indexed(
+    pub const fn new_indexed(
         keyed: &'static [ParentKernelEntry<V>],
         dense: &'static ParentKernelDense<V>,
         dynamic: &'static [&'static dyn DynParentKernel<V>],
@@ -106,7 +106,7 @@ impl<V: VTable> ParentKernelSet<V> {
         unsafe { &*(kernel as *const K as *const ParentKernelAdapter<V, K>) }
     }
 
-    pub(crate) const fn lift_id<K: ExecuteParentKernel<V>>(
+    pub const fn lift_id<K: ExecuteParentKernel<V>>(
         parent_id: CachedId,
         kernel: &'static K,
     ) -> ParentKernelEntry<V> {

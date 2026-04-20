@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -16,6 +17,8 @@ use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
+use crate::optimizer::rules::ParentRuleDense;
+use crate::optimizer::rules::ParentRuleEntry;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 use crate::scalar::Scalar;
@@ -44,13 +47,24 @@ impl ArrayReduceRule<Extension> for ExtensionConstantRule {
     }
 }
 
-pub(crate) const PARENT_RULES: ParentRuleSet<Extension> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&ExtensionFilterPushDownRule),
-    ParentRuleSet::lift(&CastReduceAdaptor(Extension)),
-    ParentRuleSet::lift(&FilterReduceAdaptor(Extension)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(Extension)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(Extension)),
-]);
+static KEYED_PARENT_RULES: [ParentRuleEntry<Extension>; 5] = [
+    ParentRuleSet::lift_id(CachedId::new("vortex.filter"), &ExtensionFilterPushDownRule),
+    ParentRuleSet::lift_id(CachedId::new("vortex.cast"), &CastReduceAdaptor(Extension)),
+    ParentRuleSet::lift_id(
+        CachedId::new("vortex.filter"),
+        &FilterReduceAdaptor(Extension),
+    ),
+    ParentRuleSet::lift_id(CachedId::new("vortex.mask"), &MaskReduceAdaptor(Extension)),
+    ParentRuleSet::lift_id(
+        CachedId::new("vortex.slice"),
+        &SliceReduceAdaptor(Extension),
+    ),
+];
+
+static KEYED_PARENT_RULES_DENSE: ParentRuleDense<Extension> = ParentRuleDense::new();
+
+pub(crate) static PARENT_RULES: ParentRuleSet<Extension> =
+    ParentRuleSet::new_indexed(&KEYED_PARENT_RULES, &KEYED_PARENT_RULES_DENSE, &[]);
 
 /// Push filter operations into the storage array of an extension array.
 #[derive(Debug)]

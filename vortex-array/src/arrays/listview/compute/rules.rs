@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -13,17 +14,24 @@ use crate::arrays::dict::TakeReduceAdaptor;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimizer::rules::ParentRuleDense;
+use crate::optimizer::rules::ParentRuleEntry;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
-pub(crate) const PARENT_RULES: ParentRuleSet<ListView> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&ListViewFilterPushDown),
-    ParentRuleSet::lift(&CastReduceAdaptor(ListView)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(ListView)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(ListView)),
-    ParentRuleSet::lift(&TakeReduceAdaptor(ListView)),
-]);
+static KEYED_PARENT_RULES: [ParentRuleEntry<ListView>; 5] = [
+    ParentRuleSet::lift_id(CachedId::new("vortex.filter"), &ListViewFilterPushDown),
+    ParentRuleSet::lift_id(CachedId::new("vortex.cast"), &CastReduceAdaptor(ListView)),
+    ParentRuleSet::lift_id(CachedId::new("vortex.mask"), &MaskReduceAdaptor(ListView)),
+    ParentRuleSet::lift_id(CachedId::new("vortex.slice"), &SliceReduceAdaptor(ListView)),
+    ParentRuleSet::lift_id(CachedId::new("vortex.dict"), &TakeReduceAdaptor(ListView)),
+];
+
+static KEYED_PARENT_RULES_DENSE: ParentRuleDense<ListView> = ParentRuleDense::new();
+
+pub(crate) static PARENT_RULES: ParentRuleSet<ListView> =
+    ParentRuleSet::new_indexed(&KEYED_PARENT_RULES, &KEYED_PARENT_RULES_DENSE, &[]);
 
 #[derive(Debug)]
 struct ListViewFilterPushDown;
