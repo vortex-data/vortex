@@ -47,6 +47,7 @@ use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
+use crate::ALLOWED_ENCODINGS;
 use crate::Footer;
 use crate::MAGIC_BYTES;
 use crate::WriteStrategyBuilder;
@@ -147,7 +148,7 @@ impl VortexWriteOptions {
         // serialised array order is deterministic. The serialisation of arrays are done
         // parallel and with an empty context they can register their encodings to the context
         // in different order, changing the written bytes from run to run.
-        let ctx = ArrayContext::new(self.session.arrays().registry().ids().sorted().collect())
+        let ctx = ArrayContext::new(ALLOWED_ENCODINGS.iter().cloned().sorted().collect())
             // Configure a registry just to ensure only known encodings are interned.
             .with_registry(self.session.arrays().registry().clone());
         let dtype = stream.dtype().clone();
