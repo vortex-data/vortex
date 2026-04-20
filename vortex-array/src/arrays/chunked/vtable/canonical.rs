@@ -46,7 +46,7 @@ pub(super) fn _canonicalize(
     Ok(match array.dtype() {
         DType::Struct(struct_dtype, _) => {
             let struct_array =
-                pack_struct_chunks(&owned_chunks, array.array().validity()?, struct_dtype, ctx)?;
+                pack_struct_chunks(&owned_chunks, array.array().validity()?, struct_dtype)?;
             Canonical::Struct(struct_array)
         }
         DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
