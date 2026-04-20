@@ -13,7 +13,7 @@ use vortex_error::vortex_bail;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
-use crate::ArrayRef;
+use crate::{ArrayRef, Columnar};
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
