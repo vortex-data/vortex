@@ -120,6 +120,8 @@ pub fn vortex_array::aggregate_fn::combined::BinaryCombined::deserialize(&self, 
 
 pub fn vortex_array::aggregate_fn::combined::BinaryCombined::finalize(&self, left: vortex_array::ArrayRef, right: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
+pub fn vortex_array::aggregate_fn::combined::BinaryCombined::finalize_scalar(&self, left_scalar: vortex_array::scalar::Scalar, right_scalar: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
 pub fn vortex_array::aggregate_fn::combined::BinaryCombined::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
 
 pub fn vortex_array::aggregate_fn::combined::BinaryCombined::left(&self) -> Self::Left
@@ -145,6 +147,8 @@ pub fn vortex_array::aggregate_fn::fns::mean::Mean::coerce_args(&self, _options:
 pub fn vortex_array::aggregate_fn::fns::mean::Mean::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::aggregate_fn::combined::CombinedOptions<Self>>
 
 pub fn vortex_array::aggregate_fn::fns::mean::Mean::finalize(&self, sum: vortex_array::ArrayRef, count: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::finalize_scalar(&self, left_scalar: vortex_array::scalar::Scalar, right_scalar: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::fns::mean::Mean::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
 
@@ -503,6 +507,8 @@ pub fn vortex_array::aggregate_fn::fns::mean::Mean::coerce_args(&self, _options:
 pub fn vortex_array::aggregate_fn::fns::mean::Mean::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::aggregate_fn::combined::CombinedOptions<Self>>
 
 pub fn vortex_array::aggregate_fn::fns::mean::Mean::finalize(&self, sum: vortex_array::ArrayRef, count: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::finalize_scalar(&self, left_scalar: vortex_array::scalar::Scalar, right_scalar: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::fns::mean::Mean::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
 
