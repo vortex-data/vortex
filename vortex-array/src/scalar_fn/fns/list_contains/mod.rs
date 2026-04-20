@@ -483,7 +483,6 @@ mod tests {
     use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::list_contains::BoolArray;
-    use crate::scalar_fn::fns::list_contains::Constant;
     use crate::scalar_fn::fns::list_contains::ConstantArray;
     use crate::scalar_fn::fns::list_contains::ListViewArray;
     use crate::scalar_fn::fns::list_contains::PrimitiveArray;
