@@ -5,7 +5,7 @@
 //!
 //! Table functions that resolve to a [`DataSourceRef`] can implement [`DataSourceTableFunction`]
 //! to get a blanket [`TableFunction`] implementation covering init, scan, progress, filter
-//! pushdown, cardinality, partitioning, and virtual columns.
+//! pushdown, cardinality, and partitioning.
 
 use std::ffi::CString;
 use std::fmt::Debug;
@@ -69,7 +69,6 @@ use crate::duckdb::LogicalType;
 use crate::duckdb::TableFilterSetRef;
 use crate::duckdb::TableFunction;
 use crate::duckdb::TableInitInput;
-use crate::duckdb::VirtualColumnsResultRef;
 use crate::exporter::ArrayExporter;
 use crate::exporter::ConversionCache;
 
@@ -83,17 +82,15 @@ use crate::exporter::ConversionCache;
 /// If you define COLUMN_IDENTIFIER_EMPTY, planner takes it, otherwise the
 /// first column. As we don't want to fill the output chunk and we can leave
 /// it uninitialized in this case, we define COLUMN_IDENTIFIER_EMPTY as a
-/// virtual column in our table function vtab's get_virtual_columns.
-/// See vortex-duckdb/cpp/include/duckdb_vx/table_function.h
-/// See virtual_columns in this file
+/// virtual column.
+/// See vortex-duckdb/cpp/table_function.cpp
 static EMPTY_COLUMN_IDX: u64 = 18446744073709551614;
-static EMPTY_COLUMN_NAME: &str = "";
 
 /// A trait for table functions that resolve to a [`DataSourceRef`].
 ///
 /// Implementors only need to define how parameters are declared and how binding produces a
 /// data source. All other [`TableFunction`] methods (init, scan, progress, filter pushdown,
-/// cardinality, partitioning, virtual columns) are provided by a blanket implementation.
+/// cardinality, partitioning) are provided by a blanket implementation.
 pub(crate) trait DataSourceTableFunction: Sized + Debug {
     /// Returns the positional parameters of the table function.
     fn parameters() -> Vec<LogicalType> {
@@ -554,10 +551,6 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         }
 
         Some(result)
-    }
-
-    fn virtual_columns(_bind_data: &Self::BindData, result: &mut VirtualColumnsResultRef) {
-        result.register(EMPTY_COLUMN_IDX, EMPTY_COLUMN_NAME, &LogicalType::bool());
     }
 }
 
