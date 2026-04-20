@@ -25,7 +25,6 @@ use vortex::dtype::arrow::FromArrowType;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::cast;
-use vortex::expr::cast_opts;
 use vortex::expr::get_item;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
@@ -38,7 +37,6 @@ use vortex::expr::root;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
-use vortex::scalar_fn::fns::cast::CastOptions;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::operators::Operator;
@@ -238,9 +236,9 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
             let target_dtype = DType::from_arrow((target.data_type(), target.is_nullable().into()));
             let child = self.convert(cast_col_expr.expr().as_ref())?;
             // Column casts come from schema adaptation (e.g., reading a file with a different
-            // physical schema): match struct fields by name so reordering and added nullable
-            // fields are tolerated.
-            return Ok(cast_opts(child, target_dtype, CastOptions::by_name()));
+            // physical schema): the default by-name match tolerates reordering and added
+            // nullable fields.
+            return Ok(cast(child, target_dtype));
         }
 
         if let Some(is_null_expr) = df.as_any().downcast_ref::<df_expr::IsNullExpr>() {

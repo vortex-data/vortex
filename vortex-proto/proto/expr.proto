@@ -73,8 +73,9 @@ message LikeOpts {
 }
 
 enum CastMode {
-  BY_POSITION = 0;
-  BY_NAME = 1;
+  // BY_NAME is the default cast mode; positional cast requires an explicit option.
+  BY_NAME = 0;
+  BY_POSITION = 1;
 }
 
 message CastOpts {

@@ -770,9 +770,9 @@ impl core::marker::StructuralPartialEq for vortex_proto::expr::select_opts::Opts
 
 #[repr(i32)] pub enum vortex_proto::expr::CastMode
 
-pub vortex_proto::expr::CastMode::ByName = 1
+pub vortex_proto::expr::CastMode::ByName = 0
 
-pub vortex_proto::expr::CastMode::ByPosition = 0
+pub vortex_proto::expr::CastMode::ByPosition = 1
 
 impl vortex_proto::expr::CastMode
 

@@ -9014,10 +9014,6 @@ impl core::convert::From<vortex_array::dtype::DType> for vortex_array::dtype::Fi
 
 pub fn vortex_array::dtype::FieldDType::from(value: vortex_array::dtype::DType) -> Self
 
-impl core::convert::From<vortex_array::dtype::DType> for vortex_array::scalar_fn::fns::cast::CastFnOptions
-
-pub fn vortex_array::scalar_fn::fns::cast::CastFnOptions::from(target: vortex_array::dtype::DType) -> Self
-
 impl core::convert::From<vortex_array::dtype::PType> for &vortex_array::dtype::DType
 
 pub fn &vortex_array::dtype::DType::from(item: vortex_array::dtype::PType) -> Self
@@ -15810,10 +15806,6 @@ impl core::convert::From<vortex_proto::expr::CastMode> for vortex_array::scalar_
 
 pub fn vortex_array::scalar_fn::fns::cast::CastMode::from(mode: vortex_proto::expr::CastMode) -> Self
 
-impl core::default::Default for vortex_array::scalar_fn::fns::cast::CastMode
-
-pub fn vortex_array::scalar_fn::fns::cast::CastMode::default() -> vortex_array::scalar_fn::fns::cast::CastMode
-
 impl core::fmt::Debug for vortex_array::scalar_fn::fns::cast::CastMode
 
 pub fn vortex_array::scalar_fn::fns::cast::CastMode::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -15906,10 +15898,6 @@ impl core::cmp::PartialEq for vortex_array::scalar_fn::fns::cast::CastFnOptions
 
 pub fn vortex_array::scalar_fn::fns::cast::CastFnOptions::eq(&self, other: &vortex_array::scalar_fn::fns::cast::CastFnOptions) -> bool
 
-impl core::convert::From<vortex_array::dtype::DType> for vortex_array::scalar_fn::fns::cast::CastFnOptions
-
-pub fn vortex_array::scalar_fn::fns::cast::CastFnOptions::from(target: vortex_array::dtype::DType) -> Self
-
 impl core::fmt::Debug for vortex_array::scalar_fn::fns::cast::CastFnOptions
 
 pub fn vortex_array::scalar_fn::fns::cast::CastFnOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -15945,10 +15933,6 @@ impl core::cmp::Eq for vortex_array::scalar_fn::fns::cast::CastOptions
 impl core::cmp::PartialEq for vortex_array::scalar_fn::fns::cast::CastOptions
 
 pub fn vortex_array::scalar_fn::fns::cast::CastOptions::eq(&self, other: &vortex_array::scalar_fn::fns::cast::CastOptions) -> bool
-
-impl core::default::Default for vortex_array::scalar_fn::fns::cast::CastOptions
-
-pub fn vortex_array::scalar_fn::fns::cast::CastOptions::default() -> vortex_array::scalar_fn::fns::cast::CastOptions
 
 impl core::fmt::Debug for vortex_array::scalar_fn::fns::cast::CastOptions
 

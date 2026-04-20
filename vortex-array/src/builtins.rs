@@ -40,10 +40,14 @@ use crate::scalar_fn::fns::zip::Zip;
 
 /// A collection of built-in scalar functions that can be applied to expressions or arrays.
 pub trait ExprBuiltins: Sized {
-    /// Cast to the given data type using the default [`CastOptions`].
+    /// Cast to the given data type using by-name field matching (the default).
+    ///
+    /// For positional cast, use [`cast_opts`](Self::cast_opts) with
+    /// [`CastOptions::by_position`].
     fn cast(&self, dtype: DType) -> VortexResult<Expression>;
 
-    /// Cast to the given data type with explicit [`CastOptions`].
+    /// Cast to the given data type with explicit [`CastOptions`]. Use this when positional
+    /// field matching is required.
     fn cast_opts(&self, dtype: DType, options: CastOptions) -> VortexResult<Expression>;
 
     /// Replace null values with the given fill value.
@@ -78,7 +82,7 @@ pub trait ExprBuiltins: Sized {
 
 impl ExprBuiltins for Expression {
     fn cast(&self, dtype: DType) -> VortexResult<Expression> {
-        self.cast_opts(dtype, CastOptions::default())
+        self.cast_opts(dtype, CastOptions::by_name())
     }
 
     fn cast_opts(&self, dtype: DType, options: CastOptions) -> VortexResult<Expression> {
@@ -123,10 +127,14 @@ impl ExprBuiltins for Expression {
 }
 
 pub trait ArrayBuiltins: Sized {
-    /// Cast to the given data type using the default [`CastOptions`].
+    /// Cast to the given data type using by-name field matching (the default).
+    ///
+    /// For positional cast, use [`cast_opts`](Self::cast_opts) with
+    /// [`CastOptions::by_position`].
     fn cast(&self, dtype: DType) -> VortexResult<ArrayRef>;
 
-    /// Cast to the given data type with explicit [`CastOptions`].
+    /// Cast to the given data type with explicit [`CastOptions`]. Use this when positional
+    /// field matching is required.
     fn cast_opts(&self, dtype: DType, options: CastOptions) -> VortexResult<ArrayRef>;
 
     /// Replace null values with the given fill value.
@@ -169,7 +177,7 @@ pub trait ArrayBuiltins: Sized {
 
 impl ArrayBuiltins for ArrayRef {
     fn cast(&self, dtype: DType) -> VortexResult<ArrayRef> {
-        self.cast_opts(dtype, CastOptions::default())
+        self.cast_opts(dtype, CastOptions::by_name())
     }
 
     fn cast_opts(&self, dtype: DType, options: CastOptions) -> VortexResult<ArrayRef> {

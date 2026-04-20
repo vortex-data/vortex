@@ -198,14 +198,17 @@ impl<'a> StructScalar<'a> {
         )
     }
 
-    /// Casts this struct scalar to another struct type using the default [`CastOptions`].
+    /// Casts this struct scalar to another struct type using by-name field matching (the default).
+    ///
+    /// For positional cast, use [`cast_opts`](Self::cast_opts) with
+    /// [`CastOptions::by_position`].
     ///
     /// # Errors
     ///
     /// Returns an error if the target type is not a struct, or if the cast is otherwise invalid
-    /// per the default cast options (see [`Self::cast_opts`]).
+    /// per the by-name cast rules (see [`Self::cast_opts`]).
     pub fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
-        self.cast_opts(dtype, CastOptions::default())
+        self.cast_opts(dtype, CastOptions::by_name())
     }
 
     /// Casts this struct scalar to another struct type, honoring the given [`CastOptions`].

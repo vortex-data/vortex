@@ -518,10 +518,10 @@ pub fn pack(
 
 // ---- Cast ----
 
-/// Creates an expression that casts values to a target data type using the default
-/// [`CastOptions`].
+/// Creates an expression that casts values to a target data type, matching struct fields by name.
 ///
-/// Converts the input expression's values to the specified target type.
+/// This is the default cast behavior. Positional cast must be requested explicitly via
+/// [`cast_opts`] with [`CastOptions::by_position`].
 ///
 /// ```rust
 /// # use vortex_array::dtype::{DType, Nullability, PType};
@@ -529,10 +529,23 @@ pub fn pack(
 /// let expr = cast(root(), DType::Primitive(PType::I64, Nullability::NonNullable));
 /// ```
 pub fn cast(child: Expression, target: DType) -> Expression {
-    cast_opts(child, target, CastOptions::default())
+    cast_opts(child, target, CastOptions::by_name())
 }
 
 /// Creates an expression that casts values to a target data type with explicit [`CastOptions`].
+///
+/// Use this when you need positional cast semantics:
+///
+/// ```rust
+/// # use vortex_array::dtype::{DType, Nullability, PType};
+/// # use vortex_array::expr::{cast_opts, root};
+/// # use vortex_array::scalar_fn::fns::cast::CastOptions;
+/// let expr = cast_opts(
+///     root(),
+///     DType::Primitive(PType::I64, Nullability::NonNullable),
+///     CastOptions::by_position(),
+/// );
+/// ```
 pub fn cast_opts(child: Expression, target: DType, options: CastOptions) -> Expression {
     Cast.try_new_expr(CastFnOptions::new(target, options), [child])
         .vortex_expect("Failed to create Cast expression")

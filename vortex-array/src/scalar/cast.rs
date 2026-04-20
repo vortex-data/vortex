@@ -13,14 +13,17 @@ use crate::scalar::Scalar;
 use crate::scalar_fn::fns::cast::CastOptions;
 
 impl Scalar {
-    /// Cast this scalar to another data type using the default [`CastOptions`].
+    /// Cast this scalar to another data type using by-name field matching (the default).
+    ///
+    /// For positional cast, use [`cast_opts`](Self::cast_opts) with
+    /// [`CastOptions::by_position`].
     ///
     /// # Errors
     ///
     /// Returns an error if the cast is not supported or if a null value is cast to a non-nullable
     /// type.
     pub fn cast(&self, target_dtype: &DType) -> VortexResult<Scalar> {
-        self.cast_opts(target_dtype, CastOptions::default())
+        self.cast_opts(target_dtype, CastOptions::by_name())
     }
 
     /// Cast this scalar to another data type, honoring the given [`CastOptions`].

@@ -230,9 +230,6 @@ mod tests {
             .to_struct();
         assert_eq!(result.dtype(), &target_dtype);
         assert_eq!(result.len(), 3);
-        #[expect(deprecated)]
-        let nfields = result.to_struct().struct_fields().nfields();
-        assert_eq!(nfields, 2);
         assert_eq!(result.struct_fields().nfields(), 2);
         assert_arrays_eq!(result.unmasked_field(0), buffer![1i32, 2, 3].into_array());
         assert_arrays_eq!(

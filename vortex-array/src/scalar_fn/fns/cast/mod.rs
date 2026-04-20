@@ -55,13 +55,15 @@ pub struct Cast;
 /// Most relevant when casting between struct types, where matching fields by name allows
 /// reordering and schema evolution, while matching by position requires the source and target
 /// struct to have the same field order.
-#[derive(Copy, Clone, Hash, Eq, PartialEq, Debug, Default)]
+///
+/// By-name is the default cast behavior and does not need to be requested explicitly. By-position
+/// must always be opted into via [`CastOptions::by_position`].
+#[derive(Copy, Clone, Hash, Eq, PartialEq, Debug)]
 pub enum CastMode {
-    /// Match fields by position.
-    ByPosition,
-    /// Match fields by name. This is the default.
-    #[default]
+    /// Match fields by name. This is the implicit default of [`cast`](crate::expr::cast).
     ByName,
+    /// Match fields by position. Requires explicit [`CastOptions::by_position`].
+    ByPosition,
 }
 
 impl CastMode {
@@ -96,7 +98,12 @@ impl From<pb::CastMode> for CastMode {
 ///
 /// The target data type is passed separately alongside these options; `CastOptions` captures
 /// only knobs that tweak *how* the cast is performed.
-#[derive(Copy, Clone, Hash, Eq, PartialEq, Debug, Default)]
+///
+/// `CastOptions` intentionally has no `Default`: by-name is already the default behavior of the
+/// plain [`cast`](crate::expr::cast) helpers, so callers that pass options must be explicit about
+/// which mode they want — typically [`CastOptions::by_position`] when they need positional
+/// semantics.
+#[derive(Copy, Clone, Hash, Eq, PartialEq, Debug)]
 pub struct CastOptions {
     mode: CastMode,
 }
@@ -107,12 +114,15 @@ impl CastOptions {
         Self { mode }
     }
 
-    /// Options that match struct fields by name (the default).
+    /// Options that match struct fields by name. This is the same behavior as
+    /// [`cast`](crate::expr::cast), and is exposed so callers can be explicit about the cast
+    /// mode (e.g. in tests) or pass [`CastOptions`] generically.
     pub fn by_name() -> Self {
         Self::new(CastMode::ByName)
     }
 
-    /// Options that match struct fields by position.
+    /// Options that match struct fields by position. Positional cast must always be requested
+    /// explicitly; there is no default-options path that selects this mode.
     pub fn by_position() -> Self {
         Self::new(CastMode::ByPosition)
     }
@@ -154,19 +164,12 @@ impl CastFnOptions {
     }
 }
 
-impl From<DType> for CastFnOptions {
-    fn from(target: DType) -> Self {
-        Self::new(target, CastOptions::default())
-    }
-}
-
 impl Display for CastFnOptions {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        // Omit the mode when it matches the default to keep the common case terse.
-        if self.options.mode == CastMode::default() {
-            write!(f, "{}", self.target)
-        } else {
-            write!(f, "{}: {}", self.options, self.target)
+        // Omit the mode for the implicit default (by-name) to keep the common case terse.
+        match self.options.mode {
+            CastMode::ByName => write!(f, "{}", self.target),
+            CastMode::ByPosition => write!(f, "{}: {}", self.options, self.target),
         }
     }
 }

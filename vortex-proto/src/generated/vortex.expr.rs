@@ -168,8 +168,9 @@ pub struct CaseWhenOpts {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum CastMode {
-    ByPosition = 0,
-    ByName = 1,
+    /// BY_NAME is the default cast mode; positional cast requires an explicit option.
+    ByName = 0,
+    ByPosition = 1,
 }
 impl CastMode {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -178,15 +179,15 @@ impl CastMode {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            Self::ByPosition => "BY_POSITION",
             Self::ByName => "BY_NAME",
+            Self::ByPosition => "BY_POSITION",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
-            "BY_POSITION" => Some(Self::ByPosition),
             "BY_NAME" => Some(Self::ByName),
+            "BY_POSITION" => Some(Self::ByPosition),
             _ => None,
         }
     }

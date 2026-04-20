@@ -15,7 +15,11 @@ use vortex_error::VortexResult;
 use crate::Pco;
 use crate::PcoData;
 impl CastReduce for Pco {
-    fn cast(array: ArrayView<'_, Self>, dtype: &DType,_options: &CastOptions) -> VortexResult<Option<ArrayRef>> {
+    fn cast(
+        array: ArrayView<'_, Self>,
+        dtype: &DType,
+        _options: &CastOptions,
+    ) -> VortexResult<Option<ArrayRef>> {
         if !dtype.is_nullable()
             || !array
                 .array()
