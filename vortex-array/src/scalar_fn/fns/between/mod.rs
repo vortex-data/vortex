@@ -13,7 +13,7 @@ use vortex_error::vortex_bail;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
-use crate::{ArrayRef, Columnar};
+use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -324,14 +324,13 @@ impl ScalarFnVTable for Between {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::buffer;
 
     use super::*;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::DecimalArray;
@@ -346,8 +345,12 @@ mod tests {
     use crate::expr::root;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
+    use crate::session::ArraySession;
     use crate::test_harness::to_int_indices;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn test_display() {
@@ -388,7 +391,6 @@ mod tests {
         let array = buffer![1, 0, 1, 0, 1].into_array();
         let upper = buffer![2, 1, 1, 0, 0].into_array();
 
-        #[expect(deprecated)]
         let matches = between_canonical(
             &array,
             &lower,
@@ -397,10 +399,11 @@ mod tests {
                 lower_strict,
                 upper_strict,
             },
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
-        .to_bool();
+        .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
+        .unwrap();
 
         let indices = to_int_indices(matches).unwrap();
         assert_eq!(indices, expected);
@@ -418,7 +421,6 @@ mod tests {
         )
         .into_array();
 
-        #[expect(deprecated)]
         let matches = between_canonical(
             &array,
             &lower,
@@ -427,10 +429,11 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::NonStrict,
             },
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
-        .to_bool();
+        .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
+        .unwrap();
 
         let indices = to_int_indices(matches).unwrap();
         assert!(indices.is_empty());
@@ -446,10 +449,11 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::NonStrict,
             },
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
-        .to_bool();
+        .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
+        .unwrap();
         let indices = to_int_indices(matches).unwrap();
         assert_eq!(indices, vec![0, 1, 3]);
 
@@ -465,10 +469,11 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::NonStrict,
             },
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
-        .to_bool();
+        .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
+        .unwrap();
         let indices = to_int_indices(matches).unwrap();
         assert_eq!(indices, vec![0, 1, 2, 3, 4]);
     }
@@ -507,7 +512,7 @@ mod tests {
                 lower_strict: StrictComparison::Strict,
                 upper_strict: StrictComparison::NonStrict,
             },
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
         assert_arrays_eq!(
@@ -524,7 +529,7 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::Strict,
             },
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
         assert_arrays_eq!(
