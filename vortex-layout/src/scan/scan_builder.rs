@@ -555,6 +555,10 @@ mod test {
                 unreachable!("scan should not be polled in this test")
             }))
         }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
     }
 
     #[test]
@@ -649,6 +653,10 @@ mod test {
 
             let array = PrimitiveArray::from_iter(values?).into_array();
             Ok(Box::pin(async move { Ok(array) }))
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
         }
     }
 
@@ -749,6 +757,10 @@ mod test {
             Ok(Box::pin(async move {
                 unreachable!("scan should not be polled in this test")
             }))
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
         }
     }
 

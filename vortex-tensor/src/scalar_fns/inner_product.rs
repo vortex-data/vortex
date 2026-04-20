@@ -4,7 +4,6 @@
 //! Inner product expression for tensor-like types.
 
 use std::fmt::Formatter;
-use std::sync::Arc;
 
 use num_traits::Float;
 use prost::Message;
@@ -32,13 +31,10 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::proto::dtype as pb;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
-use vortex_array::extension::EmptyMetadata;
 use vortex_array::match_each_float_ptype;
-use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
@@ -56,11 +52,13 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::matcher::AnyTensor;
-use crate::scalar_fns::l2_denorm::L2Denorm;
+use crate::scalar_fns::l2_denorm::DenormOrientation;
 use crate::scalar_fns::sorf_transform::SorfMatrix;
 use crate::scalar_fns::sorf_transform::SorfTransform;
+use crate::utils::extract_constant_flat_row;
 use crate::utils::extract_flat_elements;
 use crate::utils::extract_l2_denorm_children;
+use crate::utils::validate_binary_tensor_float_inputs;
 use crate::vector::Vector;
 
 /// Inner product (dot product) between two columns.
@@ -99,7 +97,7 @@ impl ScalarFnVTable for InnerProduct {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.tensor.inner_product")
+        ScalarFnId::new("vortex.tensor.inner_product")
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
@@ -131,32 +129,9 @@ impl ScalarFnVTable for InnerProduct {
         let lhs = &arg_dtypes[0];
         let rhs = &arg_dtypes[1];
 
-        // Both must have the same dtype (ignoring top-level nullability).
-        vortex_ensure!(
-            lhs.eq_ignore_nullability(rhs),
-            "InnerProduct requires both inputs to have the same dtype, got {lhs} and {rhs}"
-        );
-
-        // Both inputs must be tensor-like extension types.
-        let lhs_ext = lhs
-            .as_extension_opt()
-            .ok_or_else(|| vortex_err!("InnerProduct lhs must be an extension type, got {lhs}"))?;
-
-        vortex_ensure!(
-            lhs_ext.is::<AnyTensor>(),
-            "InnerProduct inputs must be an `AnyTensor`, got {lhs}"
-        );
-
-        let tensor_match = lhs_ext
-            .metadata_opt::<AnyTensor>()
-            .ok_or_else(|| vortex_err!("InnerProduct inputs must be an `AnyTensor`, got {lhs}"))?;
+        // TODO(connor): relax the float-only gate once integer tensors are supported.
+        let tensor_match = validate_binary_tensor_float_inputs("InnerProduct", lhs, rhs)?;
         let ptype = tensor_match.element_ptype();
-        // TODO(connor): This should support integer tensors!
-        vortex_ensure!(
-            ptype.is_float(),
-            "InnerProduct element dtype must be a float primitive, got {ptype}"
-        );
-
         let nullability = Nullability::from(lhs.is_nullable() || rhs.is_nullable());
         Ok(DType::Primitive(ptype, nullability))
     }
@@ -167,23 +142,19 @@ impl ScalarFnVTable for InnerProduct {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let mut lhs_ref = args.get(0)?;
-        let mut rhs_ref = args.get(1)?;
+        let lhs_ref = args.get(0)?;
+        let rhs_ref = args.get(1)?;
         let len = args.row_count();
 
-        // Check if any of our children have be already normalized.
-        {
-            let lhs_is_denorm = lhs_ref.is::<ExactScalarFn<L2Denorm>>();
-            let rhs_is_denorm = rhs_ref.is::<ExactScalarFn<L2Denorm>>();
-
-            if lhs_is_denorm && rhs_is_denorm {
-                return self.execute_both_denorm(&lhs_ref, &rhs_ref, len, ctx);
-            } else if lhs_is_denorm || rhs_is_denorm {
-                if rhs_is_denorm {
-                    (lhs_ref, rhs_ref) = (rhs_ref, lhs_ref);
-                }
-                return self.execute_one_denorm(&lhs_ref, &rhs_ref, len, ctx);
+        // Take any L2Denorm-wrapped fast path that applies.
+        match DenormOrientation::classify(&lhs_ref, &rhs_ref) {
+            DenormOrientation::Both { lhs, rhs } => {
+                return self.execute_both_denorm(lhs, rhs, len, ctx);
             }
+            DenormOrientation::One { denorm, plain } => {
+                return self.execute_one_denorm(denorm, plain, len, ctx);
+            }
+            DenormOrientation::Neither => {}
         }
 
         // Reduction case 1: `InnerProduct(SorfTransform(x), const)` rewrites to
@@ -212,7 +183,7 @@ impl ScalarFnVTable for InnerProduct {
         let tensor_match = ext
             .metadata_opt::<AnyTensor>()
             .vortex_expect("we already validated this in `return_dtype`");
-        let dimensions = tensor_match.list_size();
+        let dimensions = tensor_match.list_size() as usize;
 
         // Extract the storage array from each extension input. We pass the storage (FSL) rather
         // than the extension array to avoid canonicalizing the extension wrapper.
@@ -409,20 +380,21 @@ impl InnerProduct {
     /// Fast path when one side is `ExactScalarFn<SorfTransform>` and the other side is a
     /// constant-backed tensor-like extension. Rewrites to
     /// `InnerProduct(sorf_child, forward_rotate(zero_pad(const_query)))` because SORF is
-    /// orthogonal, so `<T(R^{-1} x), c> = <x, R · zero_pad(c)>` where `T` is the truncation
-    /// from `padded_dim` to `dim` applied by `SorfTransform` and `R` is the SORF forward
-    /// matrix. See the proof in the crate-level docs and in the plan file.
+    /// orthogonal, so `<T(R^{-1} x), c> = <x, R · zero_pad(c)>` where `T` is the truncation from
+    /// `padded_dim` to `dim` applied by `SorfTransform` and `R` is the SORF forward matrix. See the
+    /// proof in the crate-level docs and in the plan file.
     ///
-    /// Returns `Ok(None)` if neither side matches or when `element_ptype` is not `F32`. The
-    /// caller is expected to fall through to the standard path in that case.
+    /// Returns `Ok(None)` if neither side matches, when the operand element type is not `F32`, or
+    /// when the constant side is not a constant-backed tensor extension. The caller is expected to
+    /// fall through to the standard path in that case.
     ///
-    /// # TODO(connor):
+    /// # F32-only
     ///
-    /// This rewrite is only sound for `PType::F32` because `SorfTransform` applies an
-    /// `f32 -> element_ptype` cast at the end of its execute (see `sorf_transform/vtable.rs`
-    /// line ~218). For F16/F64 the cast changes the inner product's rounding and would
-    /// change the semantics of the rewrite. Until we push the cast through `InnerProduct`,
-    /// this path only fires for F32.
+    /// TODO(connor): this rewrite is only sound for `PType::F32` because `SorfTransform` applies an
+    /// `f32 -> element_ptype` cast at the end of its `execute`. For `F16`/`F64` the cast changes
+    /// the inner product's rounding and the rewrite would not be semantically equivalent. Until we
+    /// push the cast through `InnerProduct`, both the SorfTransform output ptype and the
+    /// constant-side element ptype must be `F32` here.
     fn try_execute_sorf_constant(
         &self,
         lhs_ref: &ArrayRef,
@@ -440,10 +412,6 @@ impl InnerProduct {
                 return Ok(None);
             };
 
-        // TODO(connor): pull-through is only sound for F32 because SorfTransform applies an
-        // `f32 -> element_ptype` cast at the end of its execute. For F16/F64 the rewrite
-        // would change the inner product's rounding semantics. Fall through so the standard
-        // path (which does the cast before inner product) handles it.
         if sorf_view.options.element_ptype != PType::F32 {
             return Ok(None);
         }
@@ -458,45 +426,24 @@ impl InnerProduct {
         let seed = sorf_view.options.seed;
         let padded_dim = dim.next_power_of_two();
 
-        // Extract the single stored row of the constant via the stride-0 short-circuit.
-        let flat = extract_flat_elements(&const_storage, dim, ctx)?;
+        // Extract the single stored row of the constant.
+        let flat = extract_constant_flat_row(&const_storage, ctx)?;
         if flat.ptype() != PType::F32 {
-            // TODO(connor): as above, f16/f64 are not supported by this rewrite yet. The
-            // standard path handles them correctly.
             return Ok(None);
         }
 
         // Zero-pad the query from `dim` to `padded_dim` and forward-rotate.
         let mut padded_query = vec![0.0f32; padded_dim];
-        padded_query[..dim].copy_from_slice(flat.row::<f32>(0));
+        padded_query[..dim].copy_from_slice(flat.as_slice::<f32>());
 
         let rotation = SorfMatrix::try_new(seed, dim, num_rounds)?;
         let mut rotated_query = vec![0.0f32; padded_dim];
         rotation.rotate(&padded_query, &mut rotated_query);
 
-        // Build the rewritten constant as a `Vector<padded_dim, f32>` extension scalar. We reuse
-        // the original storage FSL nullability so the new extension dtype stays consistent with
-        // whatever the original tree expected.
-        let storage_fsl_nullability = const_storage.dtype().nullability();
-        let element_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
-        let children: Vec<Scalar> = rotated_query
-            .into_iter()
-            .map(|v| Scalar::primitive(v, Nullability::NonNullable))
-            .collect();
-        let fsl_scalar =
-            Scalar::fixed_size_list(element_dtype.clone(), children, storage_fsl_nullability);
-
-        // Build a fresh `Vector<padded_dim, f32>` extension dtype. We cannot reuse the
-        // original extension dtype because that one has `dim`, not `padded_dim`.
-        let padded_dim_u32 = u32::try_from(padded_dim).vortex_expect("padded_dim fits u32");
-        let new_fsl_dtype = DType::FixedSizeList(
-            Arc::new(element_dtype),
-            padded_dim_u32,
-            storage_fsl_nullability,
-        );
-        let new_ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, new_fsl_dtype)?.erased();
-        let new_constant =
-            ConstantArray::new(Scalar::extension_ref(new_ext_dtype, fsl_scalar), len).into_array();
+        // Wrap the rotated query as a `Vector<padded_dim, f32>` constant broadcast to `len`
+        // rows. The new extension dtype has `padded_dim` instead of `dim`, matching the
+        // SorfTransform child we are about to dot it with.
+        let new_constant = Vector::constant_array(&rotated_query, len)?;
 
         // Extract the SorfTransform child (the already-padded Vector<padded_dim, f32>).
         let sorf_child = sorf_view
@@ -575,8 +522,7 @@ impl InnerProduct {
 
         // Gate: u8 codes and f32 centroids.
         if codes_prim.ptype() != PType::U8 {
-            // TODO(connor): support wider code widths (u16, u32). TurboQuant only emits u8
-            // codes today, so this is the only path we need for now.
+            // TODO(connor): Should we support wider codes?
             return Ok(None);
         }
         if values_prim.ptype() != PType::F32 {
@@ -587,7 +533,7 @@ impl InnerProduct {
 
         let padded_dim = usize::try_from(fsl.list_size()).vortex_expect("fsl list_size fits usize");
 
-        let flat = extract_flat_elements(&const_storage, padded_dim, ctx)?;
+        let flat = extract_constant_flat_row(&const_storage, ctx)?;
         if flat.ptype() != PType::F32 {
             // TODO(connor): case 2 is f32-only. For f16/f64 we fall through to the standard
             // path, which computes the inner product with the correct element type.
@@ -606,14 +552,14 @@ impl InnerProduct {
             return Ok(Some(empty.into_array()));
         }
 
-        let q: &[f32] = flat.row::<f32>(0);
+        let q: &[f32] = flat.as_slice::<f32>();
         debug_assert_eq!(q.len(), padded_dim);
         let codes: &[u8] = codes_prim.as_slice::<u8>();
         let values: &[f32] = values_prim.as_slice::<f32>();
         debug_assert_eq!(codes.len(), len * padded_dim);
 
-        // The hot loop is extracted into [`execute_dict_constant_inner_product`] with
-        // unchecked indexing so the compiler can vectorize the inner gather-accumulate.
+        // The hot loop is extracted into [`execute_dict_constant_inner_product`] so the compiler
+        // can prove the chunked indices stay in bounds and vectorize the inner gather-accumulate.
         let out = execute_dict_constant_inner_product(q, values, codes, len, padded_dim);
 
         // SAFETY: the buffer length equals `len`, which matches the validity length.
@@ -644,10 +590,10 @@ fn inner_product_row<T: Float + NativePType>(a: &[T], b: &[T]) -> T {
 
 /// Compute inner products between a constant query vector and dictionary-encoded rows.
 ///
-/// For each row, computes `sum(q[j] * values[codes[row * dim + j]])` using the codebook
-/// `values` directly instead of decoding the dictionary into dense vectors.
+/// For each row, computes `sum(q[j] * values[codes[row * dim + j]])` using the codebook `values`
+/// directly instead of decoding the dictionary into dense vectors.
 ///
-/// The inner loop uses four independent accumulators so the CPU can pipeline FP additions
+/// The inner loop uses `PARTIAL_SUMS` independent accumulators so the CPU can pipeline FP additions
 /// instead of waiting for each `fadd` to retire before starting the next.
 fn execute_dict_constant_inner_product(
     q: &[f32],
@@ -704,6 +650,7 @@ mod tests {
     use crate::scalar_fns::l2_denorm::L2Denorm;
     use crate::tests::SESSION;
     use crate::utils::test_helpers::assert_close;
+    use crate::utils::test_helpers::l2_denorm_array;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
 
@@ -818,28 +765,14 @@ mod tests {
         Ok(())
     }
 
-    /// Creates an `L2Denorm` scalar function array from pre-normalized elements and norms.
-    fn l2_denorm_array(
-        shape: &[usize],
-        normalized_elements: &[f64],
-        norms: &[f64],
-    ) -> VortexResult<ArrayRef> {
-        use vortex_array::IntoArray;
-
-        let len = norms.len();
-        let normalized = tensor_array(shape, normalized_elements)?;
-        let norms = PrimitiveArray::from_iter(norms.iter().copied()).into_array();
-        let mut ctx = SESSION.create_execution_ctx();
-        Ok(L2Denorm::try_new_array(normalized, norms, len, &mut ctx)?.into_array())
-    }
-
     #[test]
     fn both_denorm() -> VortexResult<()> {
         // LHS: [3.0, 4.0] = L2Denorm([0.6, 0.8], 5.0).
         // RHS: [1.0, 0.0] = L2Denorm([1.0, 0.0], 1.0).
         // dot([3.0, 4.0], [1.0, 0.0]) = 3.0.
-        let lhs = l2_denorm_array(&[2], &[0.6, 0.8], &[5.0])?;
-        let rhs = l2_denorm_array(&[2], &[1.0, 0.0], &[1.0])?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let lhs = l2_denorm_array(&[2], &[0.6, 0.8], &[5.0], &mut ctx)?;
+        let rhs = l2_denorm_array(&[2], &[1.0, 0.0], &[1.0], &mut ctx)?;
 
         // Expected: 5.0 * 1.0 * dot([0.6, 0.8], [1.0, 0.0]) = 5.0 * 0.6 = 3.0.
         assert_close(&eval_inner_product(lhs, rhs, 1)?, &[3.0]);
@@ -850,8 +783,9 @@ mod tests {
     fn both_denorm_multiple_rows() -> VortexResult<()> {
         // Row 0: [3.0, 4.0] dot [3.0, 4.0] = 25.0.
         // Row 1: [1.0, 0.0] dot [0.0, 1.0] = 0.0.
-        let lhs = l2_denorm_array(&[2], &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0])?;
-        let rhs = l2_denorm_array(&[2], &[0.6, 0.8, 0.0, 1.0], &[5.0, 1.0])?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let lhs = l2_denorm_array(&[2], &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0], &mut ctx)?;
+        let rhs = l2_denorm_array(&[2], &[0.6, 0.8, 0.0, 1.0], &[5.0, 1.0], &mut ctx)?;
 
         assert_close(&eval_inner_product(lhs, rhs, 2)?, &[25.0, 0.0]);
         Ok(())
@@ -862,7 +796,8 @@ mod tests {
         // LHS: L2Denorm([0.6, 0.8], 5.0) representing [3.0, 4.0].
         // RHS: plain [1.0, 2.0].
         // dot([3.0, 4.0], [1.0, 2.0]) = 3.0 + 8.0 = 11.0.
-        let lhs = l2_denorm_array(&[2], &[0.6, 0.8], &[5.0])?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let lhs = l2_denorm_array(&[2], &[0.6, 0.8], &[5.0], &mut ctx)?;
         let rhs = tensor_array(&[2], &[1.0, 2.0])?;
 
         assert_close(&eval_inner_product(lhs, rhs, 1)?, &[11.0]);
@@ -874,8 +809,9 @@ mod tests {
         // LHS: plain [1.0, 2.0].
         // RHS: L2Denorm([0.6, 0.8], 5.0) representing [3.0, 4.0].
         // dot([1.0, 2.0], [3.0, 4.0]) = 3.0 + 8.0 = 11.0.
+        let mut ctx = SESSION.create_execution_ctx();
         let lhs = tensor_array(&[2], &[1.0, 2.0])?;
-        let rhs = l2_denorm_array(&[2], &[0.6, 0.8], &[5.0])?;
+        let rhs = l2_denorm_array(&[2], &[0.6, 0.8], &[5.0], &mut ctx)?;
 
         assert_close(&eval_inner_product(lhs, rhs, 1)?, &[11.0]);
         Ok(())
@@ -889,7 +825,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
 
         let lhs = L2Denorm::try_new_array(normalized_l, norms_l, 2, &mut ctx)?.into_array();
-        let rhs = l2_denorm_array(&[2], &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0])?;
+        let rhs = l2_denorm_array(&[2], &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0], &mut ctx)?;
 
         let scalar_fn = InnerProduct::new().erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 2)?;
@@ -948,15 +884,11 @@ mod tests {
         reason = "tests build small fixtures with deterministic in-range indices"
     )]
     mod constant_query_optimizations {
-        use std::sync::LazyLock;
-
         use rstest::rstest;
         use vortex_array::ArrayRef;
         use vortex_array::IntoArray;
         use vortex_array::VortexSessionExecute;
         use vortex_array::arrays::Constant;
-        use vortex_array::arrays::ConstantArray;
-        use vortex_array::arrays::ExtensionArray;
         use vortex_array::arrays::FixedSizeListArray;
         use vortex_array::arrays::PrimitiveArray;
         use vortex_array::arrays::ScalarFnArray;
@@ -964,67 +896,23 @@ mod tests {
         use vortex_array::dtype::DType;
         use vortex_array::dtype::Nullability;
         use vortex_array::dtype::PType;
-        use vortex_array::dtype::extension::ExtDType;
-        use vortex_array::extension::EmptyMetadata;
-        use vortex_array::scalar::Scalar;
-        use vortex_array::session::ArraySession;
         use vortex_array::validity::Validity;
         use vortex_buffer::Buffer;
         use vortex_error::VortexResult;
-        use vortex_session::VortexSession;
 
         use crate::scalar_fns::inner_product::InnerProduct;
         use crate::scalar_fns::inner_product::constant_tensor_storage;
         use crate::scalar_fns::sorf_transform::SorfMatrix;
         use crate::scalar_fns::sorf_transform::SorfOptions;
         use crate::scalar_fns::sorf_transform::SorfTransform;
+        use crate::tests::SESSION;
         use crate::utils::extract_flat_elements;
+        use crate::utils::test_helpers::literal_vector_array;
+        use crate::utils::test_helpers::vector_array;
         use crate::vector::Vector;
 
-        static SESSION: LazyLock<VortexSession> =
-            LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
-
-        /// Compact f32 Vector<dim> extension over a column-major `elements` slice.
-        fn vector_f32(dim: u32, elements: &[f32]) -> VortexResult<ArrayRef> {
-            let row_count = elements.len() / dim as usize;
-            let elems: ArrayRef = Buffer::copy_from(elements).into_array();
-            let fsl = FixedSizeListArray::new(elems, dim, Validity::NonNullable, row_count);
-            let ext_dtype =
-                ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
-            Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
-        }
-
-        /// Compact constant-backed f32 Vector<dim> extension with a single stored row.
-        fn constant_vector_f32(elements: &[f32], len: usize) -> VortexResult<ArrayRef> {
-            let element_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
-            let children: Vec<Scalar> = elements
-                .iter()
-                .map(|&v| Scalar::primitive(v, Nullability::NonNullable))
-                .collect();
-            let storage_scalar =
-                Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
-            let storage = ConstantArray::new(storage_scalar, len).into_array();
-            let ext_dtype =
-                ExtDType::<Vector>::try_new(EmptyMetadata, storage.dtype().clone())?.erased();
-            Ok(ExtensionArray::new(ext_dtype, storage).into_array())
-        }
-
-        /// Expression-literal shape: a ConstantArray whose scalar itself is a Vector extension.
-        fn literal_vector_f32(elements: &[f32], len: usize) -> ArrayRef {
-            let element_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
-            let children: Vec<Scalar> = elements
-                .iter()
-                .map(|&v| Scalar::primitive(v, Nullability::NonNullable))
-                .collect();
-            let storage_scalar =
-                Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
-            let vector_scalar = Scalar::extension::<Vector>(EmptyMetadata, storage_scalar);
-            ConstantArray::new(vector_scalar, len).into_array()
-        }
-
-        /// Build an `ExtensionArray<Vector<list_size, f32>>` whose storage is
-        /// `FSL(DictArray(codes: u8, values: f32))`. This mirrors the shape that
-        /// TurboQuant produces as the SorfTransform child.
+        /// Build a `Vector<list_size, f32>` whose storage is `FSL(DictArray(codes: u8, values:
+        /// f32))`. This mirrors the shape that TurboQuant produces as the SorfTransform child.
         fn dict_vector_f32(list_size: u32, codes: &[u8], values: &[f32]) -> VortexResult<ArrayRef> {
             let num_rows = codes.len() / list_size as usize;
             let codes_arr =
@@ -1040,9 +928,7 @@ mod tests {
                 Validity::NonNullable,
                 num_rows,
             )?;
-            let ext_dtype =
-                ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
-            Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
+            Vector::try_new_vector_array(fsl.into_array())
         }
 
         /// Execute an inner product and return the flat `f32` results.
@@ -1128,7 +1014,7 @@ mod tests {
 
         #[test]
         fn constant_tensor_storage_accepts_extension_scalar_literal() -> VortexResult<()> {
-            let literal = literal_vector_f32(&[1.0, 2.0, 3.0], 5);
+            let literal = literal_vector_array(&[1.0f32, 2.0, 3.0], 5);
             let storage =
                 constant_tensor_storage(&literal).expect("literal vector should be recognized");
 
@@ -1164,7 +1050,7 @@ mod tests {
 
             // Query has `dim` elements.
             let query_elems: Vec<f32> = (0..dim).map(|i| (i as f32 * 0.1).sin()).collect();
-            let const_rhs = constant_vector_f32(&query_elems, num_rows)?;
+            let const_rhs = Vector::constant_array(&query_elems, num_rows)?;
 
             // Ground truth: decode LHS to plain f32 vectors, dot each with the query.
             let decoded = decode_sorf_dict(
@@ -1202,7 +1088,7 @@ mod tests {
                 build_sorf_with_dict_child(dim, num_rows, seed, num_rounds)?;
 
             let query_elems: Vec<f32> = (0..dim).map(|i| (i as f32 * 0.2).cos()).collect();
-            let const_lhs = constant_vector_f32(&query_elems, num_rows)?;
+            let const_lhs = Vector::constant_array(&query_elems, num_rows)?;
 
             let decoded = decode_sorf_dict(
                 &codes,
@@ -1240,7 +1126,7 @@ mod tests {
             assert_eq!(padded_dim, dim as usize);
 
             let query_elems: Vec<f32> = (0..dim).map(|i| i as f32 * 0.01 - 0.5).collect();
-            let const_rhs = constant_vector_f32(&query_elems, num_rows)?;
+            let const_rhs = Vector::constant_array(&query_elems, num_rows)?;
 
             let decoded = decode_sorf_dict(
                 &codes,
@@ -1277,7 +1163,7 @@ mod tests {
                 build_sorf_with_dict_child(dim, num_rows, seed, num_rounds)?;
 
             let query_elems: Vec<f32> = vec![0.0; dim as usize];
-            let const_rhs = constant_vector_f32(&query_elems, num_rows)?;
+            let const_rhs = Vector::constant_array(&query_elems, num_rows)?;
 
             let actual = eval_ip_f32(sorf, const_rhs, num_rows)?;
             assert_eq!(actual.len(), 0);
@@ -1300,7 +1186,7 @@ mod tests {
             let dict_lhs = dict_vector_f32(list_size, &codes, &values)?;
 
             let query: Vec<f32> = (0..list_size).map(|i| (i as f32 + 1.0) * 0.3).collect();
-            let const_rhs = constant_vector_f32(&query, num_rows)?;
+            let const_rhs = Vector::constant_array(&query, num_rows)?;
 
             let expected: Vec<f32> = (0..num_rows)
                 .map(|row| {
@@ -1330,7 +1216,7 @@ mod tests {
             let dict_rhs = dict_vector_f32(list_size, &codes, &values)?;
 
             let query: Vec<f32> = vec![0.5, -1.0, 2.5, -0.25];
-            let const_lhs = constant_vector_f32(&query, num_rows)?;
+            let const_lhs = Vector::constant_array(&query, num_rows)?;
 
             let expected: Vec<f32> = (0..num_rows)
                 .map(|row| {
@@ -1375,12 +1261,10 @@ mod tests {
                 Validity::NonNullable,
                 num_rows,
             )?;
-            let ext_dtype =
-                ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
-            let dict_lhs = ExtensionArray::new(ext_dtype, fsl.into_array()).into_array();
+            let dict_lhs = Vector::try_new_vector_array(fsl.into_array())?;
 
             let query: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
-            let const_rhs = constant_vector_f32(&query, num_rows)?;
+            let const_rhs = Vector::constant_array(&query, num_rows)?;
 
             // Build expected by decoding by hand.
             let expected: Vec<f32> = (0..num_rows)
@@ -1408,10 +1292,10 @@ mod tests {
             let lhs_elems: Vec<f32> = (0..num_rows * dim as usize)
                 .map(|i| i as f32 * 0.25)
                 .collect();
-            let plain_lhs = vector_f32(dim, &lhs_elems)?;
+            let plain_lhs = vector_array(dim, &lhs_elems)?;
 
             let query: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
-            let const_rhs = constant_vector_f32(&query, num_rows)?;
+            let const_rhs = Vector::constant_array(&query, num_rows)?;
 
             let expected: Vec<f32> = (0..num_rows)
                 .map(|row| {
@@ -1438,7 +1322,7 @@ mod tests {
             let dict_lhs = dict_vector_f32(list_size, &codes, &values)?;
 
             let query: Vec<f32> = vec![0.0; 4];
-            let const_rhs = constant_vector_f32(&query, num_rows)?;
+            let const_rhs = Vector::constant_array(&query, num_rows)?;
 
             let actual = eval_ip_f32(dict_lhs, const_rhs, num_rows)?;
             assert_eq!(actual.len(), 0);
@@ -1458,7 +1342,7 @@ mod tests {
                 build_sorf_with_dict_child(dim, num_rows, seed, num_rounds)?;
 
             let query_elems: Vec<f32> = (0..dim).map(|i| ((i as f32) * 0.15).sin() * 0.4).collect();
-            let const_rhs = constant_vector_f32(&query_elems, num_rows)?;
+            let const_rhs = Vector::constant_array(&query_elems, num_rows)?;
 
             // Ground truth via full decode + naive dot.
             let decoded = decode_sorf_dict(
@@ -1531,7 +1415,7 @@ mod tests {
 
             let dict_lhs = dict_vector_f32(list_size, &codes, &values)?;
             let query: Vec<f32> = (0..list_size).map(|_| rng.next_f32()).collect();
-            let const_rhs = constant_vector_f32(&query, num_rows)?;
+            let const_rhs = Vector::constant_array(&query, num_rows)?;
 
             let expected: Vec<f32> = (0..num_rows)
                 .map(|row| {
@@ -1575,7 +1459,7 @@ mod tests {
             // has cancellation.
             let mut rng = XorShift64::new(seed ^ 0xABCD_1234);
             let query: Vec<f32> = (0..dim).map(|_| rng.next_f32()).collect();
-            let const_rhs = constant_vector_f32(&query, num_rows)?;
+            let const_rhs = Vector::constant_array(&query, num_rows)?;
 
             let decoded = decode_sorf_dict(
                 &codes,
@@ -1621,7 +1505,7 @@ mod tests {
 
             let dict_lhs = dict_vector_f32(list_size, &codes, &values)?;
             let query: Vec<f32> = (0..list_size).map(|_| rng.next_f32()).collect();
-            let const_rhs = constant_vector_f32(&query, num_rows)?;
+            let const_rhs = Vector::constant_array(&query, num_rows)?;
 
             let expected: Vec<f32> = (0..num_rows)
                 .map(|row| {
@@ -1671,7 +1555,7 @@ mod tests {
                 SorfTransform::try_new_array(&sorf_options, padded_vector, num_rows)?.into_array();
 
             let query: Vec<f32> = (0..dim).map(|_| rng.next_f32()).collect();
-            let const_rhs = constant_vector_f32(&query, num_rows)?;
+            let const_rhs = Vector::constant_array(&query, num_rows)?;
 
             let decoded = decode_sorf_dict(
                 &codes,
@@ -1721,7 +1605,7 @@ mod tests {
 
             let mut rng = XorShift64::new(seed ^ (num_rounds as u64));
             let query: Vec<f32> = (0..dim).map(|_| rng.next_f32()).collect();
-            let const_rhs = constant_vector_f32(&query, num_rows)?;
+            let const_rhs = Vector::constant_array(&query, num_rows)?;
 
             let decoded = decode_sorf_dict(
                 &codes,
@@ -1755,7 +1639,7 @@ mod tests {
 
             let mut rng = XorShift64::new(seed);
             let query: Vec<f32> = (0..dim).map(|_| rng.next_f32()).collect();
-            let const_lhs = constant_vector_f32(&query, num_rows)?;
+            let const_lhs = Vector::constant_array(&query, num_rows)?;
 
             let decoded = decode_sorf_dict(
                 &codes,

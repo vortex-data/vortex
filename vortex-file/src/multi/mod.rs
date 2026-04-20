@@ -98,7 +98,7 @@ impl MultiFileDataSource {
     ///
     /// Discovers files via glob, opens the first file eagerly to determine the schema,
     /// and creates lazy factories for the remaining files.
-    pub async fn build(self) -> VortexResult<impl DataSource> {
+    pub async fn build(self) -> VortexResult<MultiLayoutDataSource> {
         if self.glob_sources.is_empty() {
             vortex_bail!("MultiFileDataSource requires at least one glob pattern");
         }
@@ -140,13 +140,8 @@ impl MultiFileDataSource {
 
         // Open first file eagerly for dtype.
         let (first_file_listing, first_fs) = &all_files[0];
-        let first_file = open_file(
-            first_fs,
-            first_file_listing,
-            &self.session,
-            self.open_options_fn.as_ref(),
-        )
-        .await?;
+        let open_fn = self.open_options_fn.as_ref();
+        let first_file = open_file(first_fs, first_file_listing, &self.session, open_fn).await?;
         let first_reader = layout_reader_with_stats(&first_file)?;
 
         let factories: Vec<Arc<dyn LayoutReaderFactory>> = all_files[1..]

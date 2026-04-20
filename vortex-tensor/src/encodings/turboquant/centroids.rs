@@ -11,6 +11,7 @@
 
 use std::sync::LazyLock;
 
+use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_utils::aliases::dash_map::DashMap;
@@ -27,16 +28,15 @@ const CONVERGENCE_EPSILON: f64 = 1e-12;
 /// Number of numerical integration points for computing conditional expectations.
 const INTEGRATION_POINTS: usize = 1000;
 
-// TODO(connor): Maybe we should just store an `ArrayRef` here?
 /// Global centroid cache keyed by (dimension, bit_width).
-static CENTROID_CACHE: LazyLock<DashMap<(u32, u8), Vec<f32>>> = LazyLock::new(DashMap::default);
+static CENTROID_CACHE: LazyLock<DashMap<(u32, u8), Buffer<f32>>> = LazyLock::new(DashMap::default);
 
 /// Get or compute cached centroids for the given dimension and bit width.
 ///
 /// Returns `2^bit_width` centroids sorted in ascending order, representing optimal scalar
 /// quantization levels for the coordinate distribution after random rotation in
 /// `dimension`-dimensional space.
-pub fn get_centroids(dimension: u32, bit_width: u8) -> VortexResult<Vec<f32>> {
+pub fn get_centroids(dimension: u32, bit_width: u8) -> VortexResult<Buffer<f32>> {
     vortex_ensure!(
         (1..=MAX_BIT_WIDTH).contains(&bit_width),
         "TurboQuant bit_width must be 1-{}, got {bit_width}",
@@ -92,7 +92,7 @@ impl HalfIntExponent {
 /// The probability distribution function is:
 ///   `f(x) = C_d * (1 - x^2)^((d-3)/2)` on `[-1, 1]`
 /// where `C_d` is the normalizing constant.
-fn max_lloyd_centroids(dimension: u32, bit_width: u8) -> Vec<f32> {
+fn max_lloyd_centroids(dimension: u32, bit_width: u8) -> Buffer<f32> {
     debug_assert!((1..=MAX_BIT_WIDTH).contains(&bit_width));
     let num_centroids = 1usize << bit_width;
 
@@ -288,7 +288,7 @@ mod tests {
     #[case(128, 4)]
     fn centroids_within_bounds(#[case] dim: u32, #[case] bits: u8) -> VortexResult<()> {
         let centroids = get_centroids(dim, bits)?;
-        for &val in &centroids {
+        for &val in centroids.iter() {
             assert!(
                 (-1.0..=1.0).contains(&val),
                 "centroid out of [-1, 1]: {val}",

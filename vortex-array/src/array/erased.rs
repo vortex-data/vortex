@@ -431,6 +431,56 @@ impl ArrayRef {
         self.with_slots(slots)
     }
 
+    /// Take a slot for executor-owned physical rewrites. This has the result that the array may
+    /// either be taken or cloned from the parent.
+    ///
+    /// The array can be put back with [`put_slot_unchecked`].
+    ///
+    /// # Safety
+    /// The caller must put back a slot with the same logical dtype and length before exposing the
+    /// parent array, and must only use this for physical rewrites.
+    pub(crate) unsafe fn take_slot_unchecked(
+        mut self,
+        slot_idx: usize,
+    ) -> VortexResult<(ArrayRef, ArrayRef)> {
+        let child = if let Some(inner) = Arc::get_mut(&mut self.0) {
+            // # Safety: ensured by the caller.
+            unsafe { inner.slots_mut()[slot_idx].take() }
+                .vortex_expect("take_slot_unchecked cannot take an absent slot")
+        } else {
+            self.slots()[slot_idx]
+                .as_ref()
+                .vortex_expect("take_slot_unchecked cannot take an absent slot")
+                .clone()
+        };
+
+        Ok((self, child))
+    }
+
+    /// Puts an array into `slot_idx` by either, cloning the inner array if the Arc is not exclusive
+    /// or replacing the slot in this `ArrayRef`.
+    /// This is the mirror of [`take_slot_unchecked`].
+    ///
+    /// # Safety
+    /// The replacement must have the same logical dtype and length as the taken slot, and this
+    /// must only be used for physical rewrites.
+    pub(crate) unsafe fn put_slot_unchecked(
+        mut self,
+        slot_idx: usize,
+        replacement: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
+        if let Some(inner) = Arc::get_mut(&mut self.0) {
+            // # Safety: ensured by the caller.
+            unsafe { inner.slots_mut()[slot_idx] = Some(replacement) };
+            return Ok(self);
+        }
+
+        let mut slots = self.slots().to_vec();
+        slots[slot_idx] = Some(replacement);
+        let inner = Arc::clone(&self.0);
+        inner.with_slots(self, slots)
+    }
+
     /// Returns a new array with the provided slots.
     ///
     /// This is only valid for physical rewrites: slot count, presence, logical `DType`, and
@@ -611,6 +661,7 @@ impl<V: VTable> Matcher for V {
 
     fn try_match<'a>(array: &'a ArrayRef) -> Option<ArrayView<'a, V>> {
         let inner = array.0.as_any().downcast_ref::<ArrayInner<V>>()?;
+        // # Safety checked by `downcast_ref`.
         Some(unsafe { ArrayView::new_unchecked(array, &inner.data) })
     }
 }

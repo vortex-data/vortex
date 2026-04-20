@@ -42,10 +42,10 @@ impl TensorMatch<'_> {
     }
 
     /// Returns the flattened element count for each logical tensor row.
-    pub fn list_size(self) -> usize {
+    pub fn list_size(self) -> u32 {
         match self {
-            Self::FixedShapeTensor(metadata) => metadata.list_size(),
-            Self::Vector(metadata) => metadata.dimensions() as usize,
+            Self::FixedShapeTensor(metadata) => metadata.flat_list_size(),
+            Self::Vector(metadata) => metadata.dimensions(),
         }
     }
 }

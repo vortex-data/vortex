@@ -10,6 +10,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::Canonical;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::BoolArray;
@@ -36,7 +37,10 @@ use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 /// Shared implementation for both `canonicalize` and `execute` methods.
-pub(crate) fn constant_canonicalize(array: ArrayView<'_, Constant>) -> VortexResult<Canonical> {
+pub(crate) fn constant_canonicalize(
+    array: ArrayView<'_, Constant>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Canonical> {
     let scalar = array.scalar();
 
     let validity = match array.dtype().nullability() {
@@ -163,7 +167,16 @@ pub(crate) fn constant_canonicalize(array: ArrayView<'_, Constant>) -> VortexRes
             let s = scalar.as_extension();
 
             let storage_scalar = s.to_storage_scalar();
-            let storage_self = ConstantArray::new(storage_scalar, array.len()).into_array();
+
+            // NB: We need to execute the constant array to be canonical because there is a
+            // reduction rule that turns `Extension(Constant(..))` into `Constant(Extension(..))`,
+            // and if we don't do this we create an infinite cycle.
+            // See `ExtensionConstantRule` for more details.
+            let storage_self = ConstantArray::new(storage_scalar, array.len())
+                .into_array()
+                .execute::<Canonical>(ctx)?
+                .into_array();
+
             Canonical::Extension(ExtensionArray::new(ext_dtype.clone(), storage_self))
         }
         DType::Variant(_) => {

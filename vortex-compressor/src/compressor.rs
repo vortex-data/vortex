@@ -28,6 +28,7 @@ use vortex_array::arrays::list::ListArrayExt;
 use vortex_array::arrays::listview::ListViewArrayExt;
 use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::arrays::scalar_fn::AnyScalarFn;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -254,6 +255,11 @@ impl CascadingCompressor {
                     return Ok(result);
                 }
 
+                // TODO(connor): HACK TO SUPPORT L2 DENORMALIZATION!!!
+                if result.is::<AnyScalarFn>() {
+                    return Ok(result);
+                }
+
                 // Otherwise, fall back to compressing the underlying storage array.
                 let compressed_storage = self.compress(ext_array.storage_array())?;
 
@@ -335,6 +341,11 @@ impl CascadingCompressor {
             // Only choose the compressed array if it is smaller than the canonical one.
             if compressed.nbytes() < before_nbytes {
                 // TODO(connor): Add a tracing warning here too.
+                return Ok(compressed);
+            }
+
+            // TODO(connor): HACK TO SUPPORT L2 DENORMALIZATION!!!
+            if compressed.is::<AnyScalarFn>() {
                 return Ok(compressed);
             }
         }

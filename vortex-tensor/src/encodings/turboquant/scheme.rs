@@ -3,8 +3,7 @@
 
 //! TurboQuant compression scheme.
 //!
-//! The scheme first normalizes the input via [`normalize_as_l2_denorm`], then encodes the
-//! normalized child via [`turboquant_encode_unchecked`]. The result is:
+//! The scheme is a thin [`Scheme`] adapter over [`turboquant_encode`], which produces:
 //!
 //! ```text
 //! ScalarFnArray(L2Denorm, [
@@ -18,14 +17,10 @@
 //!
 //! Decompression is automatic: executing the outer array walks the ScalarFn tree.
 //!
-//! [`normalize_as_l2_denorm`]: crate::scalar_fns::l2_denorm::normalize_as_l2_denorm
-//! [`turboquant_encode_unchecked`]: crate::encodings::turboquant::turboquant_encode_unchecked
+//! [`turboquant_encode`]: crate::encodings::turboquant::turboquant_encode
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
-use vortex_array::IntoArray;
-use vortex_array::arrays::Extension;
-use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_compressor::CascadingCompressor;
 use vortex_compressor::ctx::CompressorContext;
 use vortex_compressor::estimate::CompressionEstimate;
@@ -38,9 +33,7 @@ use vortex_error::VortexResult;
 use crate::encodings::turboquant::MAX_CENTROIDS;
 use crate::encodings::turboquant::TurboQuantConfig;
 use crate::encodings::turboquant::tq_validate_vector_dtype;
-use crate::encodings::turboquant::turboquant_encode_unchecked;
-use crate::scalar_fns::l2_denorm::L2Denorm;
-use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
+use crate::encodings::turboquant::turboquant_encode;
 
 /// TurboQuant compression scheme for [`Vector`] extension types.
 ///
@@ -105,33 +98,8 @@ impl Scheme for TurboQuantScheme {
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let ext_array = data
-            .array()
-            .as_opt::<Extension>()
-            .vortex_expect("expected an extension array");
-
         let mut ctx = compressor.execution_ctx();
-
-        // 1. Normalize: produces L2Denorm(normalized_vectors, norms).
-        let l2_denorm = normalize_as_l2_denorm(ext_array.as_ref().clone(), &mut ctx)?;
-        let normalized = l2_denorm.child_at(0).clone();
-        let norms = l2_denorm.child_at(1).clone();
-        let num_rows = l2_denorm.len();
-
-        // 2. Quantize the normalized child: SorfTransform(FSL(Dict)).
-        let normalized_ext = normalized
-            .as_opt::<Extension>()
-            .vortex_expect("normalized child should be an Extension array");
-
-        let config = TurboQuantConfig::default();
-        // SAFETY: We just normalized the input via `normalize_as_l2_denorm`, so all rows are
-        // guaranteed to be unit-norm (or zero for originally-null rows).
-        let sorf_dict = unsafe { turboquant_encode_unchecked(normalized_ext, &config, &mut ctx)? };
-
-        // 3. Wrap back in L2Denorm: the SorfTransform is the "normalized" child.
-        // SAFETY: TurboQuant is a lossy approximation of the normalized child, so we intentionally
-        // bypass the strict normalized-row validation when reattaching the stored norms.
-        Ok(unsafe { L2Denorm::new_array_unchecked(sorf_dict, norms, num_rows) }?.into_array())
+        turboquant_encode(data.array().clone(), &TurboQuantConfig::default(), &mut ctx)
     }
 }
 

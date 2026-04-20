@@ -70,13 +70,13 @@ impl ScalarFnVTable for SorfTransform {
 
     fn fmt_sql(
         &self,
-        _options: &Self::Options,
+        options: &Self::Options,
         expr: &Expression,
         f: &mut Formatter<'_>,
     ) -> fmt::Result {
         write!(f, "sorf_transform(")?;
         expr.child(0).fmt_sql(f)?;
-        write!(f, ")")
+        write!(f, ", {options})")
     }
 
     fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
@@ -143,9 +143,7 @@ impl ScalarFnVTable for SorfTransform {
                     validity,
                     0,
                 )?;
-                let ext_dtype =
-                    ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
-                Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
+                Vector::try_new_vector_array(fsl.into_array())
             });
         }
 
@@ -220,15 +218,8 @@ impl ScalarFnArrayVTable for SorfTransform {
         view: &ScalarFnArrayView<Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        let options = view.options;
         Ok(Some(
-            SorfTransformMetadata {
-                seed: options.seed,
-                num_rounds: u32::from(options.num_rounds),
-                dimension: options.dimension,
-                element_ptype: options.element_ptype as i32,
-            }
-            .encode_to_vec(),
+            SorfTransformMetadata::from(view.options).encode_to_vec(),
         ))
     }
 
@@ -240,20 +231,9 @@ impl ScalarFnArrayVTable for SorfTransform {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ScalarFnArrayParts<Self>> {
-        let metadata = SorfTransformMetadata::decode(metadata)
-            .map_err(|e| vortex_err!("Failed to decode SorfTransformMetadata: {e}"))?;
-        let options = SorfOptions {
-            seed: metadata.seed,
-            num_rounds: u8::try_from(metadata.num_rounds).map_err(|_| {
-                vortex_err!(
-                    "SorfTransform num_rounds {} does not fit in u8",
-                    metadata.num_rounds
-                )
-            })?,
-            dimension: metadata.dimension,
-            element_ptype: metadata.element_ptype(),
-        };
-        validate_sorf_options(&options)?;
+        let options = SorfTransformMetadata::decode(metadata)
+            .map_err(|e| vortex_err!("Failed to decode SorfTransformMetadata: {e}"))?
+            .to_options()?;
 
         // `return_dtype` sets the output FSL's nullability to the child's nullability (see
         // `return_dtype` above), so we read the child nullability back from the parent dtype.
@@ -316,7 +296,37 @@ fn inverse_rotate_typed<T: NativePType + Float + FromPrimitive>(
 
     let elements = PrimitiveArray::new::<T>(output.freeze(), Validity::NonNullable);
     let fsl = FixedSizeListArray::try_new(elements.into_array(), dim_u32, validity, num_rows)?;
+    Vector::try_new_vector_array(fsl.into_array())
+}
 
-    let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
-    Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
+impl From<&SorfOptions> for SorfTransformMetadata {
+    fn from(options: &SorfOptions) -> Self {
+        Self {
+            seed: options.seed,
+            num_rounds: u32::from(options.num_rounds),
+            dimension: options.dimension,
+            element_ptype: options.element_ptype as i32,
+        }
+    }
+}
+
+impl SorfTransformMetadata {
+    /// Rebuild the [`SorfOptions`] this metadata was serialized from, validating that the wire
+    /// values are in range.
+    fn to_options(&self) -> VortexResult<SorfOptions> {
+        let num_rounds = u8::try_from(self.num_rounds).map_err(|_| {
+            vortex_err!(
+                "SorfTransform num_rounds {} does not fit in u8",
+                self.num_rounds
+            )
+        })?;
+        let options = SorfOptions {
+            seed: self.seed,
+            num_rounds,
+            dimension: self.dimension,
+            element_ptype: self.element_ptype(),
+        };
+        validate_sorf_options(&options)?;
+        Ok(options)
+    }
 }

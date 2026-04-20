@@ -29,7 +29,7 @@ use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
-use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -131,7 +131,7 @@ impl VTable for ByteBool {
         }
         let buffer = buffers[0].clone();
 
-        let data = ByteBoolData::new(buffer, validity.clone());
+        let data = ByteBoolData::new(buffer);
         let slots = ByteBoolData::make_slots(&validity, len);
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
@@ -149,7 +149,8 @@ impl VTable for ByteBool {
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let boolean_buffer = BitBuffer::from(array.as_slice());
+        // convert truthy values to set/unset bits
+        let boolean_buffer = BitBufferMut::from(array.truthy_bytes()).freeze();
         let validity = array.validity()?;
         Ok(ExecutionResult::done(
             BoolArray::new(boolean_buffer, validity).into_array(),
@@ -198,9 +199,17 @@ pub struct ByteBool;
 
 impl ByteBool {
     pub fn new(buffer: BufferHandle, validity: Validity) -> ByteBoolArray {
+        if let Some(len) = validity.maybe_len() {
+            assert_eq!(
+                buffer.len(),
+                len,
+                "ByteBool validity and bytes must have same length"
+            );
+        }
         let dtype = DType::Bool(validity.nullability());
+
         let slots = ByteBoolData::make_slots(&validity, buffer.len());
-        let data = ByteBoolData::new(buffer, validity);
+        let data = ByteBoolData::new(buffer);
         let len = data.len();
         unsafe {
             Array::from_parts_unchecked(
@@ -212,29 +221,22 @@ impl ByteBool {
     /// Construct a [`ByteBoolArray`] from a `Vec<bool>` and validity.
     pub fn from_vec<V: Into<Validity>>(data: Vec<bool>, validity: V) -> ByteBoolArray {
         let validity = validity.into();
-        let data = ByteBoolData::from_vec(data, validity.clone());
-        let dtype = DType::Bool(validity.nullability());
-        let len = data.len();
-        let slots = ByteBoolData::make_slots(&validity, len);
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(ByteBool, dtype, len, data).with_slots(slots),
-            )
-        }
+        // NOTE: this will not cause allocation on release builds
+        let bytes: Vec<u8> = data.into_iter().map(|b| b as u8).collect();
+        let handle = BufferHandle::new_host(ByteBuffer::from(bytes));
+        ByteBool::new(handle, validity)
     }
 
     /// Construct a [`ByteBoolArray`] from optional bools.
     pub fn from_option_vec(data: Vec<Option<bool>>) -> ByteBoolArray {
         let validity = Validity::from_iter(data.iter().map(|v| v.is_some()));
-        let data = ByteBoolData::from(data);
-        let dtype = DType::Bool(validity.nullability());
-        let len = data.len();
-        let slots = ByteBoolData::make_slots(&validity, len);
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(ByteBool, dtype, len, data).with_slots(slots),
-            )
-        }
+        // NOTE: this will not cause allocation on release builds
+        let bytes: Vec<u8> = data
+            .into_iter()
+            .map(|b| b.unwrap_or_default() as u8)
+            .collect();
+        let handle = BufferHandle::new_host(ByteBuffer::from(bytes));
+        ByteBool::new(handle, validity)
     }
 }
 
@@ -265,17 +267,7 @@ impl ByteBoolData {
         vec![validity_to_child(validity, len)]
     }
 
-    pub fn new(buffer: BufferHandle, validity: Validity) -> Self {
-        let length = buffer.len();
-        if let Some(vlen) = validity.maybe_len()
-            && length != vlen
-        {
-            vortex_panic!(
-                "Buffer length ({}) does not match validity length ({})",
-                length,
-                vlen
-            );
-        }
+    pub fn new(buffer: BufferHandle) -> Self {
         Self { buffer }
     }
 
@@ -289,21 +281,15 @@ impl ByteBoolData {
         self.buffer.len() == 0
     }
 
-    // TODO(ngates): deprecate construction from vec
-    pub fn from_vec<V: Into<Validity>>(data: Vec<bool>, validity: V) -> Self {
-        let validity = validity.into();
-        // SAFETY: we are transmuting a Vec<bool> into a Vec<u8>
-        let data: Vec<u8> = unsafe { std::mem::transmute(data) };
-        Self::new(BufferHandle::new_host(ByteBuffer::from(data)), validity)
-    }
-
     pub fn buffer(&self) -> &BufferHandle {
         &self.buffer
     }
 
-    pub fn as_slice(&self) -> &[bool] {
-        // Safety: The internal buffer contains byte-sized bools
-        unsafe { std::mem::transmute(self.buffer().as_host().as_slice()) }
+    /// Get access to the underlying 8-bit truthy values.
+    ///
+    /// The zero byte indicates `false`, and any non-zero byte is a `true`.
+    pub fn truthy_bytes(&self) -> &[u8] {
+        self.buffer().as_host().as_slice()
     }
 }
 
@@ -323,23 +309,6 @@ impl OperationsVTable<ByteBool> for ByteBool {
             array.buffer.as_host()[index] == 1,
             array.dtype().nullability(),
         ))
-    }
-}
-
-impl From<Vec<bool>> for ByteBoolData {
-    fn from(value: Vec<bool>) -> Self {
-        Self::from_vec(value, Validity::AllValid)
-    }
-}
-
-impl From<Vec<Option<bool>>> for ByteBoolData {
-    fn from(value: Vec<Option<bool>>) -> Self {
-        let validity = Validity::from_iter(value.iter().map(|v| v.is_some()));
-
-        // This doesn't reallocate, and the compiler even vectorizes it
-        let data = value.into_iter().map(Option::unwrap_or_default).collect();
-
-        Self::from_vec(data, validity)
     }
 }
 

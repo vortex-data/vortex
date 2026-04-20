@@ -27,7 +27,7 @@ fn nullable_vectors_roundtrip() -> VortexResult<()> {
         num_rounds: 4,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext, &config, &mut ctx)?;
 
     assert_eq!(encoded.len(), 10);
     assert!(encoded.dtype().is_nullable());
@@ -88,7 +88,7 @@ fn nullable_norms_match_validity() -> VortexResult<()> {
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext, &config, &mut ctx)?;
     let (_sorf_child, norms_child) = unwrap_l2denorm(&encoded);
 
     let norms_validity = norms_child.validity()?;
@@ -118,7 +118,7 @@ fn nullable_l2_norm_readthrough() -> VortexResult<()> {
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext, &config, &mut ctx)?;
 
     let norm_sfn = L2Norm::try_new_array(encoded, 5)?;
     let norms: PrimitiveArray = norm_sfn.into_array().execute(&mut ctx)?;
@@ -160,7 +160,7 @@ fn nullable_slice_preserves_validity() -> VortexResult<()> {
         num_rounds: 2,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext, &config, &mut ctx)?;
 
     let sliced = encoded.slice(1..6)?;
     assert_eq!(sliced.len(), 5);
