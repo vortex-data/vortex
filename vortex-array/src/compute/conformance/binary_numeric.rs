@@ -20,6 +20,7 @@
 //! - Subtraction (`-`)
 //! - Multiplication (`*`)
 //! - Division (`/`)
+//! - Safe division (`//`) — like division but returns 0 on a zero divisor
 
 use itertools::Itertools;
 use num_traits::Num;
@@ -104,11 +105,12 @@ where
         .cast(array.dtype())
         .vortex_expect("operation should succeed in conformance test");
 
-    let operators: [NumericOperator; 4] = [
+    let operators: [NumericOperator; 5] = [
         NumericOperator::Add,
         NumericOperator::Sub,
         NumericOperator::Mul,
         NumericOperator::Div,
+        NumericOperator::SafeDiv,
     ];
 
     for operator in operators {
@@ -338,13 +340,15 @@ where
         .cast(array.dtype())
         .vortex_expect("operation should succeed in conformance test");
 
-    // Only test operators that make sense for the given scalar
+    // Only test operators that make sense for the given scalar.
+    // Regular Div is skipped when the scalar is zero (it would error); SafeDiv is always
+    // exercised because it is specifically defined to yield zero on a zero divisor.
     let operators = if scalar_value == T::zero() {
-        // Skip division by zero
         vec![
             NumericOperator::Add,
             NumericOperator::Sub,
             NumericOperator::Mul,
+            NumericOperator::SafeDiv,
         ]
     } else {
         vec![
@@ -352,6 +356,7 @@ where
             NumericOperator::Sub,
             NumericOperator::Mul,
             NumericOperator::Div,
+            NumericOperator::SafeDiv,
         ]
     };
 

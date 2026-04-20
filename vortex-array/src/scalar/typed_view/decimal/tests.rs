@@ -886,6 +886,31 @@ fn test_decimal_scalar_checked_div_by_zero() {
 }
 
 #[test]
+fn test_decimal_scalar_safe_div_by_zero() {
+    use crate::scalar::NumericOperator;
+
+    let decimal1 = Scalar::decimal(
+        DecimalValue::I64(1000),
+        DecimalDType::new(10, 2),
+        Nullability::NonNullable,
+    );
+    let scalar1 = decimal1.as_decimal();
+
+    let decimal2 = Scalar::decimal(
+        DecimalValue::I64(0),
+        DecimalDType::new(10, 2),
+        Nullability::NonNullable,
+    );
+    let scalar2 = decimal2.as_decimal();
+
+    // SafeDiv returns zero (not None) when the non-null divisor is zero.
+    let result = scalar1
+        .checked_binary_numeric(&scalar2, NumericOperator::SafeDiv)
+        .unwrap();
+    assert!(result.decimal_value().unwrap().is_zero());
+}
+
+#[test]
 fn test_decimal_scalar_null_handling() {
     use crate::scalar::NumericOperator;
 

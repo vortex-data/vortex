@@ -18,6 +18,9 @@ pub enum NumericOperator {
     Mul,
     /// Binary element-wise division of two arrays or of two scalars.
     Div,
+    /// Binary element-wise division that yields 0 instead of erroring when the right-hand-side
+    /// is a non-null zero. Integer overflow still errs, matching [`NumericOperator::Div`].
+    SafeDiv,
 }
 
 impl fmt::Display for NumericOperator {
@@ -33,6 +36,7 @@ impl From<NumericOperator> for crate::scalar_fn::fns::operators::Operator {
             NumericOperator::Sub => crate::scalar_fn::fns::operators::Operator::Sub,
             NumericOperator::Mul => crate::scalar_fn::fns::operators::Operator::Mul,
             NumericOperator::Div => crate::scalar_fn::fns::operators::Operator::Div,
+            NumericOperator::SafeDiv => crate::scalar_fn::fns::operators::Operator::SafeDiv,
         }
     }
 }

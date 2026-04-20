@@ -142,7 +142,7 @@ impl ScalarFnVTable for Binary {
         &self,
         op: &Operator,
         args: &dyn ExecutionArgs,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let lhs = args.get(0)?;
         let rhs = args.get(1)?;
@@ -156,10 +156,11 @@ impl ScalarFnVTable for Binary {
             Operator::Gte => execute_compare(&lhs, &rhs, CompareOperator::Gte),
             Operator::And => execute_boolean(&lhs, &rhs, Operator::And),
             Operator::Or => execute_boolean(&lhs, &rhs, Operator::Or),
-            Operator::Add => execute_numeric(&lhs, &rhs, NumericOperator::Add),
-            Operator::Sub => execute_numeric(&lhs, &rhs, NumericOperator::Sub),
-            Operator::Mul => execute_numeric(&lhs, &rhs, NumericOperator::Mul),
-            Operator::Div => execute_numeric(&lhs, &rhs, NumericOperator::Div),
+            Operator::Add => execute_numeric(&lhs, &rhs, NumericOperator::Add, ctx),
+            Operator::Sub => execute_numeric(&lhs, &rhs, NumericOperator::Sub, ctx),
+            Operator::Mul => execute_numeric(&lhs, &rhs, NumericOperator::Mul, ctx),
+            Operator::Div => execute_numeric(&lhs, &rhs, NumericOperator::Div, ctx),
+            Operator::SafeDiv => execute_numeric(&lhs, &rhs, NumericOperator::SafeDiv, ctx),
         }
     }
 
@@ -263,7 +264,9 @@ impl ScalarFnVTable for Binary {
                 lhs.stat_falsification(catalog)?,
                 rhs.stat_falsification(catalog)?,
             )),
-            Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => None,
+            Operator::Add | Operator::Sub | Operator::Mul | Operator::Div | Operator::SafeDiv => {
+                None
+            }
         }
     }
 

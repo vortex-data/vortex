@@ -222,13 +222,17 @@ impl<'a> DecimalScalar<'a> {
         // Handle null cases using SQL semantics
         let result_value = match (self.decimal_value, other.decimal_value) {
             (None, _) | (_, None) => None,
+            (Some(_), Some(rhs)) if op == NumericOperator::SafeDiv && rhs.is_zero() => {
+                // Non-null zero divisor: return zero rather than erroring.
+                Some(DecimalValue::zero(&self.decimal_type))
+            }
             (Some(lhs), Some(rhs)) => {
                 // Perform the operation
                 let operation_result = match op {
                     NumericOperator::Add => lhs.checked_add(&rhs),
                     NumericOperator::Sub => lhs.checked_sub(&rhs),
                     NumericOperator::Mul => lhs.checked_mul(&rhs),
-                    NumericOperator::Div => lhs.checked_div(&rhs),
+                    NumericOperator::Div | NumericOperator::SafeDiv => lhs.checked_div(&rhs),
                 }?;
 
                 // Check if the result fits within the precision constraints

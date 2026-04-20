@@ -734,3 +734,73 @@ fn test_f16_nans_equal() {
     let nan3 = f16::from_f16(nan1).unwrap();
     assert_eq!(nan1.to_bits(), nan3.to_bits(),);
 }
+
+#[test]
+fn test_checked_binary_numeric_safe_div_integer() {
+    let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+    let value1 = ScalarValue::Primitive(PValue::I32(20));
+    let value2 = ScalarValue::Primitive(PValue::I32(4));
+    let scalar1 = PrimitiveScalar::try_new(&dtype, Some(&value1)).unwrap();
+    let scalar2 = PrimitiveScalar::try_new(&dtype, Some(&value2)).unwrap();
+
+    let result = scalar1
+        .checked_binary_numeric(&scalar2, NumericOperator::SafeDiv)
+        .unwrap();
+    assert_eq!(result.typed_value::<i32>(), Some(5));
+}
+
+#[test]
+fn test_checked_binary_numeric_safe_div_integer_by_zero() {
+    let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+    let value1 = ScalarValue::Primitive(PValue::I32(10));
+    let value2 = ScalarValue::Primitive(PValue::I32(0));
+    let scalar1 = PrimitiveScalar::try_new(&dtype, Some(&value1)).unwrap();
+    let scalar2 = PrimitiveScalar::try_new(&dtype, Some(&value2)).unwrap();
+
+    let result = scalar1
+        .checked_binary_numeric(&scalar2, NumericOperator::SafeDiv)
+        .unwrap();
+    assert_eq!(result.typed_value::<i32>(), Some(0));
+}
+
+#[test]
+fn test_checked_binary_numeric_safe_div_integer_overflow_still_errs() {
+    // i32::MIN / -1 overflows; SafeDiv preserves that behavior (returns None).
+    let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+    let value1 = ScalarValue::Primitive(PValue::I32(i32::MIN));
+    let value2 = ScalarValue::Primitive(PValue::I32(-1));
+    let scalar1 = PrimitiveScalar::try_new(&dtype, Some(&value1)).unwrap();
+    let scalar2 = PrimitiveScalar::try_new(&dtype, Some(&value2)).unwrap();
+
+    let result = scalar1.checked_binary_numeric(&scalar2, NumericOperator::SafeDiv);
+    assert!(result.is_none());
+}
+
+#[test]
+fn test_checked_binary_numeric_safe_div_float_by_zero() {
+    // Float SafeDiv by zero yields 0.0, not Inf or NaN.
+    let dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
+    let value1 = ScalarValue::Primitive(PValue::F32(1.0));
+    let value2 = ScalarValue::Primitive(PValue::F32(0.0));
+    let scalar1 = PrimitiveScalar::try_new(&dtype, Some(&value1)).unwrap();
+    let scalar2 = PrimitiveScalar::try_new(&dtype, Some(&value2)).unwrap();
+
+    let result = scalar1
+        .checked_binary_numeric(&scalar2, NumericOperator::SafeDiv)
+        .unwrap();
+    assert_eq!(result.typed_value::<f32>(), Some(0.0));
+}
+
+#[test]
+fn test_checked_binary_numeric_safe_div_null_propagates() {
+    // Null on either side yields null.
+    let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
+    let null_scalar = PrimitiveScalar::try_new(&dtype, None).unwrap();
+    let value = ScalarValue::Primitive(PValue::I32(0));
+    let zero_scalar = PrimitiveScalar::try_new(&dtype, Some(&value)).unwrap();
+
+    let result = null_scalar
+        .checked_binary_numeric(&zero_scalar, NumericOperator::SafeDiv)
+        .unwrap();
+    assert_eq!(result.typed_value::<i32>(), None);
+}

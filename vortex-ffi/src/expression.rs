@@ -158,6 +158,9 @@ pub enum vx_binary_operator {
     VX_OPERATOR_MUL = 10,
     /// Divide the left side by the right side
     VX_OPERATOR_DIV = 11,
+    /// Divide the left side by the right side, returning 0 when the right side is 0.
+    /// Integer overflow still errors, matching VX_OPERATOR_DIV.
+    VX_OPERATOR_SAFE_DIV = 12,
 }
 
 impl From<vx_binary_operator> for Operator {
@@ -175,6 +178,7 @@ impl From<vx_binary_operator> for Operator {
             vx_binary_operator::VX_OPERATOR_SUB => Operator::Sub,
             vx_binary_operator::VX_OPERATOR_MUL => Operator::Mul,
             vx_binary_operator::VX_OPERATOR_DIV => Operator::Div,
+            vx_binary_operator::VX_OPERATOR_SAFE_DIV => Operator::SafeDiv,
         }
     }
 }

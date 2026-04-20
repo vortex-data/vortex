@@ -15,6 +15,7 @@ use num_traits::CheckedAdd;
 use num_traits::CheckedDiv;
 use num_traits::CheckedMul;
 use num_traits::CheckedSub;
+use num_traits::Zero;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -339,6 +340,9 @@ impl<'a> PrimitiveScalar<'a> {
                         NumericOperator::Sub => Some(lhs - rhs),
                         NumericOperator::Mul => Some(lhs * rhs),
                         NumericOperator::Div => Some(lhs / rhs),
+                        NumericOperator::SafeDiv => {
+                            Some(if rhs == P::zero() { P::zero() } else { lhs / rhs })
+                        }
                     }
                 };
                 Some(Self { dtype: result_dtype, ptype, pvalue: value_or_null.map(PValue::from) })
@@ -373,6 +377,13 @@ impl<'a> PrimitiveScalar<'a> {
                 NumericOperator::Sub => lhs.checked_sub(&rhs).map(Some),
                 NumericOperator::Mul => lhs.checked_mul(&rhs).map(Some),
                 NumericOperator::Div => lhs.checked_div(&rhs).map(Some),
+                NumericOperator::SafeDiv => {
+                    if rhs == P::zero() {
+                        Some(Some(P::zero()))
+                    } else {
+                        lhs.checked_div(&rhs).map(Some)
+                    }
+                }
             },
         };
 

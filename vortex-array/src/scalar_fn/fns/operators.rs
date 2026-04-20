@@ -48,6 +48,12 @@ pub enum Operator {
     Mul,
     /// Divide the left side by the right side
     Div,
+    /// Divide the left side by the right side, returning 0 when the right side is 0.
+    ///
+    /// Null propagation matches [`Operator::Div`]: if either input is null, the result is null.
+    /// Unlike [`Operator::Div`], a non-null zero divisor yields a non-null 0 result rather than
+    /// an error. Integer overflow (e.g. `i32::MIN / -1`) still errs, matching [`Operator::Div`].
+    SafeDiv,
 }
 
 impl From<Operator> for i32 {
@@ -72,6 +78,7 @@ impl From<Operator> for BinaryOp {
             Operator::Sub => BinaryOp::Sub,
             Operator::Mul => BinaryOp::Mul,
             Operator::Div => BinaryOp::Div,
+            Operator::SafeDiv => BinaryOp::SafeDiv,
         }
     }
 }
@@ -99,6 +106,7 @@ impl From<BinaryOp> for Operator {
             BinaryOp::Sub => Operator::Sub,
             BinaryOp::Mul => Operator::Mul,
             BinaryOp::Div => Operator::Div,
+            BinaryOp::SafeDiv => Operator::SafeDiv,
         }
     }
 }
@@ -118,6 +126,7 @@ impl Display for Operator {
             Operator::Sub => "-",
             Operator::Mul => "*",
             Operator::Div => "/",
+            Operator::SafeDiv => "//",
         };
         Display::fmt(display, f)
     }
@@ -137,7 +146,8 @@ impl Operator {
             | Operator::Add
             | Operator::Sub
             | Operator::Mul
-            | Operator::Div => None,
+            | Operator::Div
+            | Operator::SafeDiv => None,
         }
     }
 
@@ -162,12 +172,15 @@ impl Operator {
             Operator::Or => Some(Operator::Or),
             Operator::Add => Some(Operator::Add),
             Operator::Mul => Some(Operator::Mul),
-            Operator::Sub | Operator::Div => None,
+            Operator::Sub | Operator::Div | Operator::SafeDiv => None,
         }
     }
 
     pub fn is_arithmetic(&self) -> bool {
-        matches!(self, Self::Add | Self::Sub | Self::Mul | Self::Div)
+        matches!(
+            self,
+            Self::Add | Self::Sub | Self::Mul | Self::Div | Self::SafeDiv
+        )
     }
 
     pub fn is_comparison(&self) -> bool {

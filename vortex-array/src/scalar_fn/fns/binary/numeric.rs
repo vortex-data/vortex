@@ -1,29 +1,47 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use num_traits::CheckedDiv;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
+use crate::arrays::PrimitiveArray;
 use crate::arrow::Datum;
 use crate::arrow::from_arrow_array_with_len;
+#[expect(deprecated)]
+use crate::canonical::ToCanonical;
+use crate::dtype::DType;
+use crate::dtype::NativePType;
+use crate::match_each_native_ptype;
 use crate::scalar::NumericOperator;
+use crate::validity::Validity;
 
 /// Execute a numeric operation between two arrays.
 ///
 /// This is the entry point for numeric operations from the binary expression.
-/// Handles constant-constant directly, otherwise falls back to Arrow.
+/// Handles constant-constant directly, otherwise falls back to Arrow (or the
+/// dedicated SafeDiv kernel).
 pub(crate) fn execute_numeric(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
     op: NumericOperator,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     if let Some(result) = constant_numeric(lhs, rhs, op)? {
         return Ok(result);
     }
-    arrow_numeric(lhs, rhs, op)
+    match op {
+        NumericOperator::SafeDiv => arrow_safe_div(lhs, rhs, ctx),
+        _ => arrow_numeric(lhs, rhs, op),
+    }
 }
 
 /// Implementation of numeric operations using the Arrow crate.
@@ -43,9 +61,82 @@ pub(crate) fn arrow_numeric(
         NumericOperator::Sub => arrow_arith::numeric::sub(&left, &right)?,
         NumericOperator::Mul => arrow_arith::numeric::mul(&left, &right)?,
         NumericOperator::Div => arrow_arith::numeric::div(&left, &right)?,
+        NumericOperator::SafeDiv => {
+            unreachable!("SafeDiv is dispatched to arrow_safe_div in execute_numeric")
+        }
     };
 
     from_arrow_array_with_len(array.as_ref(), len, nullable)
+}
+
+/// Element-wise SafeDiv kernel for primitive numeric arrays.
+///
+/// Single-pass hand-written kernel: integer `x / 0` yields `0` (not an error), float `x / 0.0`
+/// yields `0.0` (not `Inf`/`NaN`). Integer overflow (e.g. `i32::MIN / -1`) still errs, matching
+/// [`NumericOperator::Div`]. Nulls propagate from either side.
+fn arrow_safe_div(
+    lhs: &ArrayRef,
+    rhs: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    if !matches!(lhs.dtype(), DType::Primitive(..)) {
+        vortex_bail!(
+            "safe_div is only implemented for primitive arrays, got {}",
+            lhs.dtype()
+        );
+    }
+
+    #[expect(deprecated)]
+    let lhs = lhs.to_primitive();
+    #[expect(deprecated)]
+    let rhs = rhs.to_primitive();
+
+    // `Validity::and` on two `Validity::Array` variants returns a lazy expression; materialize
+    // it here so downstream reads see the combined bitmap rather than the unevaluated AND node.
+    let validity = match lhs.validity()?.and(rhs.validity()?)? {
+        Validity::Array(v) => Validity::Array(v.execute::<BoolArray>(ctx)?.into_array()),
+        other => other,
+    };
+    let ptype = lhs.ptype();
+
+    match_each_native_ptype!(ptype,
+        integral: |T| {
+            safe_div_integral::<T>(lhs.as_slice::<T>(), rhs.as_slice::<T>(), validity)
+        },
+        floating: |T| {
+            Ok(safe_div_floating::<T>(lhs.as_slice::<T>(), rhs.as_slice::<T>(), validity))
+        }
+    )
+}
+
+fn safe_div_integral<T: NativePType + CheckedDiv>(
+    lhs: &[T],
+    rhs: &[T],
+    validity: Validity,
+) -> VortexResult<ArrayRef> {
+    let zero = T::zero();
+    let mut buffer = BufferMut::<T>::with_capacity(lhs.len());
+    for (l, r) in lhs.iter().zip(rhs) {
+        let value = if *r == zero {
+            zero
+        } else {
+            l.checked_div(r)
+                .ok_or_else(|| vortex_err!("integer overflow in safe_div"))?
+        };
+        buffer.push(value);
+    }
+    Ok(PrimitiveArray::new(buffer.freeze(), validity).into_array())
+}
+
+fn safe_div_floating<T: NativePType>(lhs: &[T], rhs: &[T], validity: Validity) -> ArrayRef {
+    let zero = T::zero();
+    let buffer = BufferMut::<T>::from_trusted_len_iter(
+        lhs.iter()
+            .zip(rhs)
+            .map(|(&l, &r)| if r == zero { zero } else { l / r }),
+    )
+    .freeze();
+    PrimitiveArray::new(buffer, validity).into_array()
 }
 
 fn constant_numeric(
@@ -134,5 +225,52 @@ mod test {
         let values = buffer![f32::MIN, 2.0, 3.0].into_array();
         let _results = sub_scalar(&values, 1.0f32).unwrap();
         let _results = sub_scalar(&values, f32::MAX).unwrap();
+    }
+
+    fn safe_div(lhs: ArrayRef, rhs: ArrayRef) -> VortexResult<ArrayRef> {
+        lhs.binary(rhs, Operator::SafeDiv)
+            .and_then(|a| {
+                a.execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            })
+            .map(|a| a.0.into_array())
+    }
+
+    #[test]
+    fn test_safe_div_integer_by_zero_yields_zero() {
+        let lhs = buffer![10i32, 20, 30].into_array();
+        let rhs = buffer![2i32, 0, 5].into_array();
+        let result = safe_div(lhs, rhs).unwrap();
+        assert_arrays_eq!(result, PrimitiveArray::from_iter([5i32, 0, 6]));
+    }
+
+    #[test]
+    fn test_safe_div_float_by_zero_is_zero_not_inf() {
+        let lhs = buffer![1.0f64, 2.0, 3.0].into_array();
+        let rhs = buffer![2.0f64, 0.0, 6.0].into_array();
+        let result = safe_div(lhs, rhs).unwrap();
+        assert_arrays_eq!(result, PrimitiveArray::from_iter([0.5f64, 0.0, 0.5]));
+    }
+
+    #[test]
+    fn test_safe_div_nullable_propagation() {
+        let lhs =
+            PrimitiveArray::from_option_iter([Some(10i32), Some(20), None, Some(40)]).into_array();
+        let rhs =
+            PrimitiveArray::from_option_iter([Some(2i32), Some(0), Some(0), None]).into_array();
+        // Expected: 10/2=5, 20/0=0 (safe), null lhs -> null, null rhs -> null.
+        let result = safe_div(lhs, rhs).unwrap();
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(5i32), Some(0), None, None])
+        );
+    }
+
+    #[test]
+    fn test_safe_div_constant_zero_rhs() {
+        // Constant-constant fast path: checked_binary_numeric in constant_numeric().
+        let lhs = buffer![7i32, 8, 9].into_array();
+        let rhs = ConstantArray::new(0i32, lhs.len()).into_array();
+        let result = safe_div(lhs, rhs).unwrap();
+        assert_arrays_eq!(result, PrimitiveArray::from_iter([0i32, 0, 0]));
     }
 }
