@@ -118,7 +118,7 @@ impl VortexWrite for DuckDbFsWriter {
 
         let runtime = RUNTIME.handle();
         let buffer = runtime
-            .spawn_blocking(move || {
+            .spawn_blocking_io(move || {
                 let mut err: cpp::duckdb_vx_error = ptr::null_mut();
                 let mut out_len: cpp::idx_t = 0;
                 let status = unsafe {
@@ -149,7 +149,7 @@ impl VortexWrite for DuckDbFsWriter {
 
         let runtime = RUNTIME.handle();
         runtime
-            .spawn_blocking(move || {
+            .spawn_blocking_io(move || {
                 let mut err: cpp::duckdb_vx_error = ptr::null_mut();
                 let status = unsafe { cpp::duckdb_vx_fs_sync(handle.as_ptr(), &raw mut err) };
                 if status != cpp::duckdb_state::DuckDBSuccess {

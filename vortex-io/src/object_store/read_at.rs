@@ -134,7 +134,7 @@ impl VortexReadAt for ObjectStoreReadAt {
                 #[cfg(not(target_arch = "wasm32"))]
                 GetResultPayload::File(file, _) => {
                     handle
-                        .spawn_blocking(move || {
+                        .spawn_blocking_io(move || {
                             read_exact_at(&file, buffer.as_mut_slice(), range.start)?;
                             Ok::<_, io::Error>(buffer)
                         })

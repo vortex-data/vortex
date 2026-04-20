@@ -126,7 +126,7 @@ impl VortexReadAt for FileReadAt {
         let allocator = Arc::clone(&self.allocator);
         async move {
             handle
-                .spawn_blocking(move || {
+                .spawn_blocking_io(move || {
                     let mut buffer = allocator.allocate(length, alignment)?;
                     read_exact_at(&file, buffer.as_mut_slice(), offset)?;
                     Ok(BufferHandle::new_host(buffer.freeze()))
