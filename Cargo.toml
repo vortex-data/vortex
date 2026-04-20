@@ -202,7 +202,7 @@ public-api = "0.51"
 pyo3 = { version = "0.28.0" }
 pyo3-bytes = "0.6"
 pyo3-log = "0.13.0"
-pyo3-object_store = "0.9.0"
+pyo3-object_store = "0.10.0"
 quote = "1.0.44"
 rand = "0.10.1"
 rand_distr = "0.6"
