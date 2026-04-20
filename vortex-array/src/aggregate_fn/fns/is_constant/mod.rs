@@ -59,8 +59,8 @@ fn arrays_value_equal(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> Vor
     }
 
     // Check validity masks match (null positions must be identical).
-    let a_mask = a.validity()?.to_mask(a.len(), ctx)?;
-    let b_mask = b.validity()?.to_mask(b.len(), ctx)?;
+    let a_mask = a.validity()?.execute_mask(a.len(), ctx)?;
+    let b_mask = b.validity()?.execute_mask(b.len(), ctx)?;
     if a_mask != b_mask {
         return Ok(false);
     }

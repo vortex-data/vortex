@@ -54,7 +54,7 @@ pub fn compare_canonical_array(
                         array
                             .validity()
                             .vortex_expect("validity_mask")
-                            .to_mask(array.len(), ctx)
+                            .execute_mask(array.len(), ctx)
                             .vortex_expect("Failed to compute validity mask")
                             .to_bit_buffer()
                             .iter(),
@@ -84,7 +84,7 @@ pub fn compare_canonical_array(
                             array
                                 .validity()
                                 .vortex_expect("validity_mask")
-                                .to_mask(array.len(), ctx)
+                                .execute_mask(array.len(), ctx)
                                 .vortex_expect("Failed to compute validity mask")
                                 .to_bit_buffer()
                                 .iter(),
@@ -117,7 +117,7 @@ pub fn compare_canonical_array(
                             array
                                 .validity()
                                 .vortex_expect("validity_mask")
-                                .to_mask(array.len(), ctx)
+                                .execute_mask(array.len(), ctx)
                                 .vortex_expect("Failed to compute validity mask")
                                 .to_bit_buffer()
                                 .iter(),

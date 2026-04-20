@@ -151,7 +151,7 @@ fn test_validity_vtable() {
     assert_eq!(
         arr.validity()
             .unwrap()
-            .to_mask(arr.len(), &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_mask(arr.len(), &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap(),
         Mask::from_iter(mask_bools)
     );
@@ -160,7 +160,7 @@ fn test_validity_vtable() {
         sliced
             .validity()
             .unwrap()
-            .to_mask(sliced.len(), &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_mask(sliced.len(), &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap(),
         Mask::from_iter(vec![true, true, false])
     );

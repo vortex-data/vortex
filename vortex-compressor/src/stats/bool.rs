@@ -46,7 +46,7 @@ impl BoolStats {
         let validity = input
             .as_ref()
             .validity()?
-            .to_mask(input.as_ref().len(), ctx)?;
+            .execute_mask(input.as_ref().len(), ctx)?;
         let null_count = validity.false_count();
         let value_count = validity.true_count();
 

@@ -527,7 +527,7 @@ mod tests {
             let expected = array
                 .validity()
                 .unwrap()
-                .to_mask(array.len(), &mut ctx_exec)
+                .execute_mask(array.len(), &mut ctx_exec)
                 .unwrap()
                 .into_array();
             let actual_canonical = actual

@@ -44,7 +44,7 @@ pub fn cast_canonical_array(
                                 .map(|v| *v as Out)
                                 .collect::<Buffer<Out>>(),
                             Validity::from_mask(
-                                array.validity()?.to_mask(array.len(), ctx)?,
+                                array.validity()?.execute_mask(array.len(), ctx)?,
                                 target.nullability(),
                             ),
                         )
@@ -74,7 +74,7 @@ pub fn cast_canonical_array(
                             .map(|v| *v as f64)
                             .collect::<Buffer<f64>>(),
                         Validity::from_mask(
-                            array.validity()?.to_mask(array.len(), ctx)?,
+                            array.validity()?.execute_mask(array.len(), ctx)?,
                             target.nullability(),
                         ),
                     )
@@ -91,7 +91,7 @@ pub fn cast_canonical_array(
                             .map(|v| *v as f32)
                             .collect::<Buffer<f32>>(),
                         Validity::from_mask(
-                            array.validity()?.to_mask(array.len(), ctx)?,
+                            array.validity()?.execute_mask(array.len(), ctx)?,
                             target.nullability(),
                         ),
                     )

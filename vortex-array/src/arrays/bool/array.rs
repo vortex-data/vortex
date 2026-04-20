@@ -99,7 +99,7 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
         BitBuffer::new_with_offset(buffer, self.as_ref().len(), self.offset)
     }
 
-    fn maybe_to_mask(&self, ctx: &mut ExecutionCtx) -> VortexResult<Option<Mask>> {
+    fn maybe_execute_mask(&self, ctx: &mut ExecutionCtx) -> VortexResult<Option<Mask>> {
         let all_valid = match &self.validity() {
             Validity::NonNullable | Validity::AllValid => true,
             Validity::AllInvalid => false,
@@ -108,8 +108,8 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
         Ok(all_valid.then(|| Mask::from_buffer(self.to_bit_buffer())))
     }
 
-    fn to_mask(&self, ctx: &mut ExecutionCtx) -> Mask {
-        self.maybe_to_mask(ctx)
+    fn execute_mask(&self, ctx: &mut ExecutionCtx) -> Mask {
+        self.maybe_execute_mask(ctx)
             .vortex_expect("failed to check validity")
             .vortex_expect("cannot convert nullable boolean array to mask")
     }
@@ -117,7 +117,7 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
     fn to_mask_fill_null_false(&self, ctx: &mut ExecutionCtx) -> Mask {
         let validity_mask = self
             .validity()
-            .to_mask(self.as_ref().len(), ctx)
+            .execute_mask(self.as_ref().len(), ctx)
             .vortex_expect("Failed to compute validity mask");
         let buffer = match validity_mask {
             Mask::AllTrue(_) => self.to_bit_buffer(),

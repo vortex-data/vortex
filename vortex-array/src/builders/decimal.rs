@@ -211,7 +211,7 @@ impl ArrayBuilder for DecimalBuilder {
                 .as_ref()
                 .validity()
                 .vortex_expect("validity_mask")
-                .to_mask(
+                .execute_mask(
                     decimal_array.as_ref().len(),
                     &mut LEGACY_SESSION.create_execution_ctx(),
                 )

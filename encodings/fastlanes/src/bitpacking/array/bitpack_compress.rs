@@ -206,7 +206,10 @@ pub fn gather_patches(
     };
 
     let array_len = parray.len();
-    let validity_mask = parray.as_ref().validity()?.to_mask(parray.len(), ctx)?;
+    let validity_mask = parray
+        .as_ref()
+        .validity()?
+        .execute_mask(parray.len(), ctx)?;
 
     let patches = if array_len < u8::MAX as usize {
         match_each_integer_ptype!(parray.ptype(), |T| {
@@ -316,7 +319,7 @@ fn bit_width_histogram_typed<T: NativePType + PrimInt>(
     let mut bit_widths = vec![0usize; size_of::<T>() * 8 + 1];
     match array
         .validity()?
-        .to_mask(array.as_ref().len(), ctx)?
+        .execute_mask(array.as_ref().len(), ctx)?
         .bit_buffer()
     {
         AllOr::All => {
@@ -477,7 +480,7 @@ mod test {
                 .as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(compressed.as_ref().len(), &mut ctx)
+                .execute_mask(compressed.as_ref().len(), &mut ctx)
                 .unwrap()
                 .to_bit_buffer()
                 .set_indices()

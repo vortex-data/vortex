@@ -150,7 +150,7 @@ fn execute_sparse_lists(
 
     let validity = {
         let arr = array.as_array();
-        Validity::from_mask(arr.validity()?.to_mask(arr.len(), ctx)?, nullability)
+        Validity::from_mask(arr.validity()?.execute_mask(arr.len(), ctx)?, nullability)
     };
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {
@@ -241,7 +241,7 @@ fn execute_sparse_fixed_size_list(
 
     let validity = {
         let arr = array.as_array();
-        Validity::from_mask(arr.validity()?.to_mask(arr.len(), ctx)?, nullability)
+        Validity::from_mask(arr.validity()?.execute_mask(arr.len(), ctx)?, nullability)
     };
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {
@@ -435,7 +435,7 @@ fn execute_sparse_struct(
                     let v = unresolved_patches.values();
                     v.validity()
                         .vortex_expect("validity_mask")
-                        .to_mask(v.len(), ctx)
+                        .execute_mask(v.len(), ctx)
                         .vortex_expect("Failed to compute validity mask")
                 },
                 Nullability::Nullable,
@@ -507,7 +507,7 @@ fn execute_varbin(
     let validity = {
         let arr = array.as_array();
         Validity::from_mask(
-            arr.validity()?.to_mask(arr.len(), ctx)?,
+            arr.validity()?.execute_mask(arr.len(), ctx)?,
             dtype.nullability(),
         )
     };

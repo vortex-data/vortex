@@ -124,6 +124,6 @@ where
         buffer
             .freeze()
             .slice(offset_within_chunk..(offset_within_chunk + array.len())),
-        Validity::copy_from_array(&array.clone().into_array())?,
+        array.validity()?,
     ))
 }

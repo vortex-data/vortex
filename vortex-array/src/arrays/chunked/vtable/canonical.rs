@@ -42,17 +42,13 @@ pub(super) fn _canonicalize(
     let owned_chunks: Vec<ArrayRef> = array.iter_chunks().cloned().collect();
     Ok(match array.dtype() {
         DType::Struct(struct_dtype, _) => {
-            let struct_array = pack_struct_chunks(
-                &owned_chunks,
-                Validity::copy_from_array(array.array())?,
-                struct_dtype,
-                ctx,
-            )?;
+            let struct_array =
+                pack_struct_chunks(&owned_chunks, array.array().validity()?, struct_dtype, ctx)?;
             Canonical::Struct(struct_array)
         }
         DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
             &owned_chunks,
-            Validity::copy_from_array(array.array())?,
+            array.array().validity()?,
             elem_dtype,
             ctx,
         )?),

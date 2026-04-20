@@ -77,7 +77,8 @@ fn compare_fsst_constant(
         return Ok(Some(
             BoolArray::new(
                 buffer,
-                Validity::copy_from_array(left.array())?
+                left.array()
+                    .validity()?
                     .union_nullability(right.dtype().nullability()),
             )
             .into_array(),

@@ -32,7 +32,7 @@ pub fn sort_canonical_array(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexR
                     bool_array
                         .as_ref()
                         .validity()?
-                        .to_mask(bool_array.as_ref().len(), ctx)?
+                        .execute_mask(bool_array.as_ref().len(), ctx)?
                         .to_bit_buffer()
                         .iter(),
                 )
@@ -52,7 +52,7 @@ pub fn sort_canonical_array(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexR
                         primitive_array
                             .as_ref()
                             .validity()?
-                            .to_mask(primitive_array.as_ref().len(), ctx)?
+                            .execute_mask(primitive_array.as_ref().len(), ctx)?
                             .to_bit_buffer()
                             .iter(),
                     )
@@ -74,7 +74,7 @@ pub fn sort_canonical_array(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexR
                         decimal_array
                             .as_ref()
                             .validity()?
-                            .to_mask(decimal_array.as_ref().len(), ctx)?
+                            .execute_mask(decimal_array.as_ref().len(), ctx)?
                             .to_bit_buffer()
                             .iter(),
                     )

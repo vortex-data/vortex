@@ -301,7 +301,7 @@ impl VTable for FSST {
             array
                 .array()
                 .validity()?
-                .to_mask(array.array().len(), ctx)?,
+                .execute_mask(array.array().len(), ctx)?,
         );
         Ok(())
     }

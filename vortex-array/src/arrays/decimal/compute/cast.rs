@@ -397,7 +397,7 @@ mod tests {
             .as_ref()
             .validity()
             .unwrap()
-            .to_mask(
+            .execute_mask(
                 casted.as_ref().len(),
                 &mut LEGACY_SESSION.create_execution_ctx(),
             )

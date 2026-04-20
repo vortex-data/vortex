@@ -45,7 +45,7 @@ fn to_arrow_decimal32(array: DecimalArray, ctx: &mut ExecutionCtx) -> VortexResu
         array
             .as_ref()
             .validity()?
-            .to_mask(array.as_ref().len(), ctx)?,
+            .execute_mask(array.as_ref().len(), ctx)?,
     );
     let buffer: Buffer<i32> = match array.values_type() {
         DecimalType::I8 => {
@@ -94,7 +94,7 @@ fn to_arrow_decimal64(array: DecimalArray, ctx: &mut ExecutionCtx) -> VortexResu
         array
             .as_ref()
             .validity()?
-            .to_mask(array.as_ref().len(), ctx)?,
+            .execute_mask(array.as_ref().len(), ctx)?,
     );
     let buffer: Buffer<i64> = match array.values_type() {
         DecimalType::I8 => {
@@ -138,7 +138,7 @@ fn to_arrow_decimal128(array: DecimalArray, ctx: &mut ExecutionCtx) -> VortexRes
         array
             .as_ref()
             .validity()?
-            .to_mask(array.as_ref().len(), ctx)?,
+            .execute_mask(array.as_ref().len(), ctx)?,
     );
     let buffer: Buffer<i128> = match array.values_type() {
         DecimalType::I8 => {
@@ -177,7 +177,7 @@ fn to_arrow_decimal256(array: DecimalArray, ctx: &mut ExecutionCtx) -> VortexRes
         array
             .as_ref()
             .validity()?
-            .to_mask(array.as_ref().len(), ctx)?,
+            .execute_mask(array.as_ref().len(), ctx)?,
     );
     let buffer: Buffer<i256> = match array.values_type() {
         DecimalType::I8 => {

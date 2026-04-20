@@ -72,7 +72,7 @@ pub fn search_sorted_canonical_array(
             let validity = bool_array
                 .as_ref()
                 .validity()?
-                .to_mask(bool_array.as_ref().len(), ctx)?
+                .execute_mask(bool_array.as_ref().len(), ctx)?
                 .to_bit_buffer();
             let opt_values = bool_array
                 .to_bit_buffer()
@@ -88,7 +88,7 @@ pub fn search_sorted_canonical_array(
             let validity = primitive_array
                 .as_ref()
                 .validity()?
-                .to_mask(primitive_array.as_ref().len(), ctx)?
+                .execute_mask(primitive_array.as_ref().len(), ctx)?
                 .to_bit_buffer();
             match_each_native_ptype!(p, |P| {
                 let opt_values = primitive_array
@@ -107,7 +107,7 @@ pub fn search_sorted_canonical_array(
             let validity = decimal_array
                 .as_ref()
                 .validity()?
-                .to_mask(decimal_array.as_ref().len(), ctx)?
+                .execute_mask(decimal_array.as_ref().len(), ctx)?
                 .to_bit_buffer();
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 let buf = decimal_array.buffer::<D>();

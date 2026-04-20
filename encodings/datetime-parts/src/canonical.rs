@@ -96,11 +96,7 @@ pub fn decode_to_temporal(
     }
 
     Ok(TemporalArray::new_timestamp(
-        PrimitiveArray::new(
-            values.freeze(),
-            Validity::copy_from_array(&array.clone().into_array())?,
-        )
-        .into_array(),
+        PrimitiveArray::new(values.freeze(), array.validity()?).into_array(),
         options.unit,
         options.tz.clone(),
     ))

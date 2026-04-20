@@ -261,7 +261,7 @@ fn collect_valid(
     let mask = parray
         .array()
         .validity()?
-        .to_mask(parray.array().len(), ctx)?;
+        .execute_mask(parray.array().len(), ctx)?;
     let result = parray
         .array()
         .filter(mask)?

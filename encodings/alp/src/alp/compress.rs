@@ -79,7 +79,7 @@ where
     let validity = values
         .array()
         .validity()?
-        .to_mask(values.array().len(), ctx)?;
+        .execute_mask(values.array().len(), ctx)?;
     // exceptional_positions may contain exceptions at invalid positions (which contain garbage
     // data). We remove null exceptions in order to keep the Patches small.
     let (valid_exceptional_positions, valid_exceptional_values): (Buffer<u64>, Buffer<T>) =

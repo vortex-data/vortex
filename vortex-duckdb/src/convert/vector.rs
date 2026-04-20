@@ -318,7 +318,7 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             .map(|a| a.into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_LIST => {
-            let validity = vector.validity_ref(len).to_mask();
+            let validity = vector.validity_ref(len).execute_mask();
             let entries = vector.as_slice_with_len::<duckdb_list_entry>(len);
 
             let (offsets, sizes, child_min_length) = process_duckdb_lists(entries, &validity)?;
@@ -531,7 +531,7 @@ mod tests {
                 .as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(vortex_values.as_ref().len(), &mut ctx)
+                .execute_mask(vortex_values.as_ref().len(), &mut ctx)
                 .unwrap(),
             Mask::from_indices(3, vec![0, 2])
         );
@@ -653,7 +653,7 @@ mod tests {
                 .as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(vortex_array.as_ref().len(), &mut ctx)
+                .execute_mask(vortex_array.as_ref().len(), &mut ctx)
                 .unwrap(),
             Mask::from_indices(3, vec![0, 2])
         );
@@ -830,7 +830,7 @@ mod tests {
                 .as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(vortex_array.as_ref().len(), &mut ctx)
+                .execute_mask(vortex_array.as_ref().len(), &mut ctx)
                 .unwrap(),
             Mask::from_indices(2, vec![0])
         );
@@ -958,7 +958,7 @@ mod tests {
                 .as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(vortex_array.as_ref().len(), &mut ctx)
+                .execute_mask(vortex_array.as_ref().len(), &mut ctx)
                 .unwrap(),
             Mask::from_indices(3, vec![0, 2])
         );
