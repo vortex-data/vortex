@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::path::Path;
+
 use base16ct::HexDisplay;
 use serde::Serialize;
 use sha2::Digest;
