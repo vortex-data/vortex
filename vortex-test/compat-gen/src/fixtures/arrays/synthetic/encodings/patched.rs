@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(dead_code)]
-
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -16,6 +14,10 @@ use vortex_session::VortexSession;
 
 use crate::fixtures::FlatLayoutFixture;
 
+#[expect(
+    dead_code,
+    reason = "This will be unused until we stabilize Patched array"
+)]
 pub struct PatchedFixture;
 
 impl FlatLayoutFixture for PatchedFixture {
