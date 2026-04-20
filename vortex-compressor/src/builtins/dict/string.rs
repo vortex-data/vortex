@@ -8,9 +8,8 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::DictArrayExt;
@@ -70,11 +69,10 @@ impl Scheme for StringDictScheme {
     fn expected_compression_ratio(
         &self,
         data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
+        _compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        // TODO(ctx): trait fixes - Scheme::expected_compression_ratio has a fixed signature.
-        let mut local_ctx = LEGACY_SESSION.create_execution_ctx();
-        let stats = data.string_stats(&mut local_ctx);
+        let stats = data.string_stats(exec_ctx);
 
         if stats.value_count() == 0 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
@@ -97,21 +95,24 @@ impl Scheme for StringDictScheme {
         &self,
         compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
-        ctx: CompressorContext,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let dict = dict_encode(data.array())?;
 
         // Values = child 0.
-        let compressed_values = compressor.compress_child(dict.values(), &ctx, self.id(), 0)?;
+        let compressed_values =
+            compressor.compress_child(dict.values(), &compress_ctx, self.id(), 0, exec_ctx)?;
 
         // Codes = child 1.
         let narrowed_codes = dict
             .codes()
             .clone()
-            .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?
+            .execute::<PrimitiveArray>(exec_ctx)?
             .narrow()?
             .into_array();
-        let compressed_codes = compressor.compress_child(&narrowed_codes, &ctx, self.id(), 1)?;
+        let compressed_codes =
+            compressor.compress_child(&narrowed_codes, &compress_ctx, self.id(), 1, exec_ctx)?;
 
         // SAFETY: compressing codes or values does not alter the invariants.
         unsafe {

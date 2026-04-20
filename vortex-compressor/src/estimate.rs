@@ -7,6 +7,7 @@ use std::fmt;
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_error::VortexResult;
 
@@ -29,6 +30,7 @@ pub type EstimateFn = dyn FnOnce(
         &CascadingCompressor,
         &mut ArrayAndStats,
         CompressorContext,
+        &mut ExecutionCtx,
     ) -> VortexResult<EstimateVerdict>
     + Send
     + Sync;
@@ -179,23 +181,23 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     scheme: &S,
     compressor: &CascadingCompressor,
     array: &ArrayRef,
-    ctx: CompressorContext,
+    compress_ctx: CompressorContext,
+    exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<EstimateScore> {
-    let sample_array = if ctx.is_sample() {
+    let sample_array = if compress_ctx.is_sample() {
         array.clone()
     } else {
         let sample_count = sample_count_approx_one_percent(array.len());
         // `ArrayAndStats` expects a canonical array (so that it can easily compute lazy stats).
-        let canonical: Canonical =
-            sample(array, SAMPLE_SIZE, sample_count).execute(&mut compressor.execution_ctx())?;
+        let canonical: Canonical = sample(array, SAMPLE_SIZE, sample_count).execute(exec_ctx)?;
         canonical.into_array()
     };
 
     let mut sample_data = ArrayAndStats::new(sample_array, scheme.stats_options());
-    let error_ctx = trace::enabled_error_context(&ctx);
-    let sample_ctx = ctx.with_sampling();
+    let error_ctx = trace::enabled_error_context(&compress_ctx);
+    let sample_ctx = compress_ctx.with_sampling();
 
-    let compressed = match scheme.compress(compressor, &mut sample_data, sample_ctx) {
+    let compressed = match scheme.compress(compressor, &mut sample_data, sample_ctx, exec_ctx) {
         Ok(compressed) => compressed,
         Err(err) => {
             trace::sample_compress_failed(scheme.id(), error_ctx.as_ref(), &err);

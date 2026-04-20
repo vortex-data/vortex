@@ -8,8 +8,10 @@
 //!
 //! Run with: cargo run --example compression_showcase
 
+use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinArray;
@@ -17,6 +19,7 @@ use vortex::array::validity::Validity;
 use vortex::compressor::BtrBlocksCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
+use vortex::session::VortexSession;
 use vortex_buffer::Buffer;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -63,7 +66,11 @@ fn compress_sequential_data() -> Result<(), Box<dyn std::error::Error>> {
 
     // Compress using default strategy
     let compressor = BtrBlocksCompressor::default();
-    let compressed = compressor.compress(&sequential.into_array())?;
+    let session = VortexSession::default();
+    let compressed = compressor.compress(
+        &sequential.into_array(),
+        &mut session.create_execution_ctx(),
+    )?;
 
     let compressed_size = compressed.nbytes();
     let ratio = uncompressed_size as f64 / compressed_size as f64;
@@ -91,7 +98,9 @@ fn compress_repetitive_data() -> Result<(), Box<dyn std::error::Error>> {
     println!("    Uncompressed size: ~{} bytes", uncompressed_size);
 
     let compressor = BtrBlocksCompressor::default();
-    let compressed = compressor.compress(&array.into_array())?;
+    let session = VortexSession::default();
+    let compressed =
+        compressor.compress(&array.into_array(), &mut session.create_execution_ctx())?;
 
     let compressed_size = compressed.nbytes();
     let ratio = uncompressed_size as f64 / compressed_size as f64;
@@ -123,7 +132,9 @@ fn compress_string_data() -> Result<(), Box<dyn std::error::Error>> {
     println!("    Uncompressed size: ~{} bytes", uncompressed_size);
 
     let compressor = BtrBlocksCompressor::default();
-    let compressed = compressor.compress(&array.into_array())?;
+    let session = VortexSession::default();
+    let compressed =
+        compressor.compress(&array.into_array(), &mut session.create_execution_ctx())?;
 
     let compressed_size = compressed.nbytes();
     let ratio = uncompressed_size as f64 / compressed_size as f64;
@@ -146,7 +157,8 @@ fn compress_float_data() -> Result<(), Box<dyn std::error::Error>> {
     println!("    Uncompressed size: ~{} bytes", uncompressed_size);
 
     let compressor = BtrBlocksCompressor::default();
-    let compressed = compressor.compress(&array)?;
+    let session = VortexSession::default();
+    let compressed = compressor.compress(&array, &mut session.create_execution_ctx())?;
 
     let compressed_size = compressed.nbytes();
     let ratio = uncompressed_size as f64 / compressed_size as f64;
@@ -172,7 +184,9 @@ fn compress_sparse_data() -> Result<(), Box<dyn std::error::Error>> {
     println!("    Uncompressed size: ~{} bytes", uncompressed_size);
 
     let compressor = BtrBlocksCompressor::default();
-    let compressed = compressor.compress(&array.into_array())?;
+    let session = VortexSession::default();
+    let compressed =
+        compressor.compress(&array.into_array(), &mut session.create_execution_ctx())?;
 
     let compressed_size = compressed.nbytes();
     let ratio = uncompressed_size as f64 / compressed_size as f64;
@@ -222,7 +236,11 @@ fn compress_structured_data() -> Result<(), Box<dyn std::error::Error>> {
     println!("    Uncompressed size: ~{} bytes", uncompressed_size);
 
     let compressor = BtrBlocksCompressor::default();
-    let compressed = compressor.compress(&struct_array.into_array())?;
+    let session = VortexSession::default();
+    let compressed = compressor.compress(
+        &struct_array.into_array(),
+        &mut session.create_execution_ctx(),
+    )?;
 
     let compressed_size = compressed.nbytes();
     let ratio = uncompressed_size as f64 / compressed_size as f64;

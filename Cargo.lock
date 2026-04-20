@@ -10382,6 +10382,7 @@ dependencies = [
  "vortex-pco",
  "vortex-runend",
  "vortex-sequence",
+ "vortex-session",
  "vortex-sparse",
  "vortex-tensor",
  "vortex-utils",
@@ -10463,6 +10464,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-error",
  "vortex-mask",
+ "vortex-session",
  "vortex-utils",
 ]
 

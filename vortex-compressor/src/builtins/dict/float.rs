@@ -9,9 +9,8 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
@@ -85,12 +84,10 @@ impl Scheme for FloatDictScheme {
     fn expected_compression_ratio(
         &self,
         data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
+        _compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        // TRAIT-IMPL BOUNDARY: `Scheme::expected_compression_ratio` has a fixed signature
-        // and does not receive an `ExecutionCtx`, so we fall back to the legacy session here.
-        let mut exec_ctx = LEGACY_SESSION.create_execution_ctx();
-        let stats = data.float_stats(&mut exec_ctx);
+        let stats = data.float_stats(exec_ctx);
 
         if stats.value_count() == 0 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
@@ -113,28 +110,28 @@ impl Scheme for FloatDictScheme {
         &self,
         compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
-        ctx: CompressorContext,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         // TODO(connor): Fight the borrow checker (needs interior mutability)!
-        let stats = {
-            let mut exec_ctx = compressor.execution_ctx();
-            data.float_stats(&mut exec_ctx).clone()
-        };
+        let stats = data.float_stats(exec_ctx).clone();
         let dict = dictionary_encode(data.array_as_primitive(), &stats)?;
 
         let has_all_values_referenced = dict.has_all_values_referenced();
 
         // Values = child 0.
-        let compressed_values = compressor.compress_child(dict.values(), &ctx, self.id(), 0)?;
+        let compressed_values =
+            compressor.compress_child(dict.values(), &compress_ctx, self.id(), 0, exec_ctx)?;
 
         // Codes = child 1.
         let narrowed_codes = dict
             .codes()
             .clone()
-            .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?
+            .execute::<PrimitiveArray>(exec_ctx)?
             .narrow()?
             .into_array();
-        let compressed_codes = compressor.compress_child(&narrowed_codes, &ctx, self.id(), 1)?;
+        let compressed_codes =
+            compressor.compress_child(&narrowed_codes, &compress_ctx, self.id(), 1, exec_ctx)?;
 
         // SAFETY: compressing codes or values does not alter the invariants.
         unsafe {
@@ -250,15 +247,16 @@ impl_encode!(f64, u64);
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::dict::DictArraySlotsExt;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::dictionary_encode;
     use crate::stats::FloatStats;
@@ -266,7 +264,9 @@ mod tests {
 
     #[test]
     fn test_float_dict_encode() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = VortexSession::empty()
+            .with::<ArraySession>()
+            .create_execution_ctx();
         let values = buffer![1f32, 2f32, 2f32, 0f32, 1f32];
         let validity =
             Validity::Array(BoolArray::from_iter([true, true, true, false, true]).into_array());
