@@ -32,7 +32,7 @@ use vortex_error::VortexResult;
 use crate::encodings::turboquant::TurboQuantConfig;
 use crate::encodings::turboquant::turboquant_encode;
 use crate::tests::SESSION;
-use crate::vector::Vector;
+use crate::types::vector::Vector;
 
 /// Create a FixedSizeListArray of random f32 vectors with the given validity.
 fn make_fsl_with_validity(

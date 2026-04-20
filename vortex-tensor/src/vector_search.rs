@@ -48,7 +48,7 @@ use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexResult;
 
 use crate::scalar_fns::cosine_similarity::CosineSimilarity;
-use crate::vector::Vector;
+use crate::types::vector::Vector;
 
 /// Build the lazy similarity-search expression tree for a prepared database array and a
 /// single query vector.

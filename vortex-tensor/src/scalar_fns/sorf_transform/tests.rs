@@ -36,7 +36,7 @@ use crate::encodings::turboquant::centroids::compute_centroid_boundaries;
 use crate::encodings::turboquant::centroids::find_nearest_centroid;
 use crate::encodings::turboquant::centroids::get_centroids;
 use crate::tests::SESSION;
-use crate::vector::Vector;
+use crate::types::vector::Vector;
 
 /// Build a unit-normalized input vector array and forward-transform + quantize it, returning
 /// `(input_f32, Vector<padded_dim>(FSL(Dict(codes, centroids))), padded_dim)`.
@@ -300,7 +300,10 @@ fn return_dtype_is_vector_extension() -> VortexResult<()> {
     let ext = return_dtype
         .as_extension_opt()
         .expect("return dtype should be an extension type");
-    assert!(ext.metadata_opt::<crate::vector::AnyVector>().is_some());
+    assert!(
+        ext.metadata_opt::<crate::types::vector::AnyVector>()
+            .is_some()
+    );
 
     // Inner FSL should have the original (unpadded) dimension.
     let DType::FixedSizeList(_, inner_dim, _) = ext.storage_dtype() else {

@@ -242,10 +242,10 @@ pub mod test_helpers {
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
 
-    use crate::fixed_shape::FixedShapeTensor;
-    use crate::fixed_shape::FixedShapeTensorMetadata;
     use crate::scalar_fns::l2_denorm::L2Denorm;
-    use crate::vector::Vector;
+    use crate::types::fixed_shape::FixedShapeTensor;
+    use crate::types::fixed_shape::FixedShapeTensorMetadata;
+    use crate::types::vector::Vector;
 
     /// Builds a `FixedSizeList<T, list_size>` storage array from flat `elements`. The row count is
     /// inferred from `elements.len() / list_size`.

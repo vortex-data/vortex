@@ -7,10 +7,10 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDTypeRef;
 use vortex_array::dtype::extension::Matcher;
 
-use crate::fixed_shape::AnyFixedShapeTensor;
-use crate::fixed_shape::FixedShapeTensorMatcherMetadata;
-use crate::vector::AnyVector;
-use crate::vector::VectorMatcherMetadata;
+use crate::types::fixed_shape::AnyFixedShapeTensor;
+use crate::types::fixed_shape::FixedShapeTensorMatcherMetadata;
+use crate::types::vector::AnyVector;
+use crate::types::vector::VectorMatcherMetadata;
 
 /// Matcher for any tensor-like extension type.
 ///
