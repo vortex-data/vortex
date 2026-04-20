@@ -15,8 +15,7 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::arrow::Datum;
-use crate::arrow::from_arrow_array_with_len;
+use crate::arrow_hooks::arrow_compute;
 use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
@@ -201,33 +200,19 @@ impl ScalarFnVTable for Like {
     }
 }
 
-/// Implementation of LIKE using the Arrow crate.
+/// Implementation of LIKE via the registered arrow compute hook.
 pub(crate) fn arrow_like(
     array: &ArrayRef,
     pattern: &ArrayRef,
     options: LikeOptions,
 ) -> VortexResult<ArrayRef> {
-    let nullable = array.dtype().is_nullable() | pattern.dtype().is_nullable();
-    let len = array.len();
     assert_eq!(
         array.len(),
         pattern.len(),
         "Arrow Like: length mismatch for {}",
         array.encoding_id()
     );
-
-    // convert the pattern to the preferred array datatype
-    let lhs = Datum::try_new(array)?;
-    let rhs = Datum::try_new_with_target_datatype(pattern, lhs.data_type())?;
-
-    let result = match (options.negated, options.case_insensitive) {
-        (false, false) => arrow_string::like::like(&lhs, &rhs)?,
-        (true, false) => arrow_string::like::nlike(&lhs, &rhs)?,
-        (false, true) => arrow_string::like::ilike(&lhs, &rhs)?,
-        (true, true) => arrow_string::like::nilike(&lhs, &rhs)?,
-    };
-
-    from_arrow_array_with_len(&result, len, nullable)
+    (arrow_compute()?.like)(array, pattern, options)
 }
 
 /// Variants of the LIKE filter that we know how to turn into a stats pruning predicate.s

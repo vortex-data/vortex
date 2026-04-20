@@ -19,6 +19,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_error::VortexResult;
 
 mod buffer_ext;
+mod compute;
 mod convert;
 mod datum;
 mod dtype;

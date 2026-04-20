@@ -1,14 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_array::BinaryArray;
-use arrow_array::StringArray;
-use arrow_ord::cmp;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -19,8 +15,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbin::VarBinArrayExt;
-use crate::arrow::Datum;
-use crate::arrow::from_arrow_array_with_len;
+use crate::arrow_hooks::arrow_compute;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -80,38 +75,20 @@ impl CompareKernel for VarBin {
                 ));
             }
 
-            let lhs = Datum::try_new(lhs.array())?;
-
-            // Use StringViewArray/BinaryViewArray to match the Utf8View/BinaryView types
-            // produced by Datum::try_new (which uses into_arrow_preferred())
-            let arrow_rhs: &dyn arrow_array::Datum = match rhs_const.dtype() {
-                DType::Utf8(_) => &rhs_const
-                    .as_utf8()
-                    .value()
-                    .map(StringArray::new_scalar)
-                    .unwrap_or_else(|| arrow_array::Scalar::new(StringArray::new_null(1))),
-                DType::Binary(_) => &rhs_const
-                    .as_binary()
-                    .value()
-                    .map(BinaryArray::new_scalar)
-                    .unwrap_or_else(|| arrow_array::Scalar::new(BinaryArray::new_null(1))),
+            match rhs_const.dtype() {
+                DType::Utf8(_) | DType::Binary(_) => {}
                 _ => vortex_bail!(
                     "VarBin array RHS can only be Utf8 or Binary, given {}",
                     rhs_const.dtype()
                 ),
-            };
-
-            let array = match operator {
-                CompareOperator::Eq => cmp::eq(&lhs, arrow_rhs),
-                CompareOperator::NotEq => cmp::neq(&lhs, arrow_rhs),
-                CompareOperator::Gt => cmp::gt(&lhs, arrow_rhs),
-                CompareOperator::Gte => cmp::gt_eq(&lhs, arrow_rhs),
-                CompareOperator::Lt => cmp::lt(&lhs, arrow_rhs),
-                CompareOperator::Lte => cmp::lt_eq(&lhs, arrow_rhs),
             }
-            .map_err(|err| vortex_err!("Failed to compare VarBin array: {}", err))?;
 
-            Ok(Some(from_arrow_array_with_len(&array, len, nullable)?))
+            let _ = (len, nullable); // still useful context for future work
+            Ok(Some((arrow_compute()?.varbin_compare_with_const)(
+                lhs.array(),
+                &rhs_const,
+                operator,
+            )?))
         } else if !rhs.is::<VarBin>() {
             // NOTE: If the rhs is not a VarBin array it will be canonicalized to a VarBinView
             // Arrow doesn't support comparing VarBin to VarBinView arrays, so we convert ourselves

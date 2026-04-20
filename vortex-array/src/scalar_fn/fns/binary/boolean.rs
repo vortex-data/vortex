@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_array::cast::AsArray;
-use arrow_schema::DataType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -10,8 +8,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrow::FromArrowArray;
-use crate::arrow::IntoArrowArray;
+use crate::arrow_hooks::arrow_compute;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
@@ -44,20 +41,9 @@ pub(crate) fn execute_boolean(
     arrow_execute_boolean(lhs.clone(), rhs.clone(), op)
 }
 
-/// Arrow implementation for Kleene boolean operations using [`Operator`].
+/// Implementation for Kleene boolean operations via the registered arrow compute hook.
 fn arrow_execute_boolean(lhs: ArrayRef, rhs: ArrayRef, op: Operator) -> VortexResult<ArrayRef> {
-    let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
-
-    let lhs = lhs.into_arrow(&DataType::Boolean)?.as_boolean().clone();
-    let rhs = rhs.into_arrow(&DataType::Boolean)?.as_boolean().clone();
-
-    let array = match op {
-        Operator::And => arrow_arith::boolean::and_kleene(&lhs, &rhs)?,
-        Operator::Or => arrow_arith::boolean::or_kleene(&lhs, &rhs)?,
-        other => return Err(vortex_err!("Not a boolean operator: {other}")),
-    };
-
-    ArrayRef::from_arrow(&array, nullable)
+    (arrow_compute()?.boolean)(&lhs, &rhs, op)
 }
 
 /// Constant-folds a boolean operation between two constant arrays.

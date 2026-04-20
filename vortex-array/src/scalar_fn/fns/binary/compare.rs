@@ -1,13 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::cmp::Ordering;
-
-use arrow_array::BooleanArray;
-use arrow_buffer::NullBuffer;
-use arrow_ord::cmp;
-use arrow_ord::ord::make_comparator;
-use arrow_schema::SortOptions;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -23,9 +16,7 @@ use crate::arrays::ScalarFnVTable;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
-use crate::arrow::Datum;
-use crate::arrow::IntoArrowArray;
-use crate::arrow::from_arrow_array_with_len;
+use crate::arrow_hooks::arrow_compute;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::kernel::ExecuteParentKernel;
@@ -136,49 +127,7 @@ pub(crate) fn execute_compare(
         return Ok(ConstantArray::new(result, lhs.len()).into_array());
     }
 
-    arrow_compare_arrays(lhs, rhs, op)
-}
-
-/// Fall back to Arrow for comparison.
-fn arrow_compare_arrays(
-    left: &ArrayRef,
-    right: &ArrayRef,
-    operator: CompareOperator,
-) -> VortexResult<ArrayRef> {
-    assert_eq!(left.len(), right.len());
-
-    let nullable = left.dtype().is_nullable() || right.dtype().is_nullable();
-
-    // Arrow's vectorized comparison kernels don't support nested types.
-    // For nested types, fall back to `make_comparator` which does element-wise comparison.
-    let arrow_array: BooleanArray = if left.dtype().is_nested() || right.dtype().is_nested() {
-        let rhs = right.clone().into_arrow_preferred()?;
-        let lhs = left.clone().into_arrow(rhs.data_type())?;
-
-        assert!(
-            lhs.data_type().equals_datatype(rhs.data_type()),
-            "lhs data_type: {}, rhs data_type: {}",
-            lhs.data_type(),
-            rhs.data_type()
-        );
-
-        compare_nested_arrow_arrays(lhs.as_ref(), rhs.as_ref(), operator)?
-    } else {
-        // Fast path: use vectorized kernels for primitive types.
-        let lhs = Datum::try_new(left)?;
-        let rhs = Datum::try_new_with_target_datatype(right, lhs.data_type())?;
-
-        match operator {
-            CompareOperator::Eq => cmp::eq(&lhs, &rhs)?,
-            CompareOperator::NotEq => cmp::neq(&lhs, &rhs)?,
-            CompareOperator::Gt => cmp::gt(&lhs, &rhs)?,
-            CompareOperator::Gte => cmp::gt_eq(&lhs, &rhs)?,
-            CompareOperator::Lt => cmp::lt(&lhs, &rhs)?,
-            CompareOperator::Lte => cmp::lt_eq(&lhs, &rhs)?,
-        }
-    };
-
-    from_arrow_array_with_len(&arrow_array, left.len(), nullable)
+    (arrow_compute()?.compare)(lhs, rhs, op)
 }
 
 pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: CompareOperator) -> VortexResult<Scalar> {
@@ -209,36 +158,6 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: CompareOperator) -> Vort
     Ok(Scalar::bool(b, nullability))
 }
 
-/// Compare two Arrow arrays element-wise using [`make_comparator`].
-///
-/// This function is required for nested types (Struct, List, FixedSizeList) because Arrow's
-/// vectorized comparison kernels ([`cmp::eq`], [`cmp::neq`], etc.) do not support them.
-///
-/// The vectorized kernels are faster but only work on primitive types, so for non-nested types,
-/// prefer using the vectorized kernels directly for better performance.
-pub fn compare_nested_arrow_arrays(
-    lhs: &dyn arrow_array::Array,
-    rhs: &dyn arrow_array::Array,
-    operator: CompareOperator,
-) -> VortexResult<BooleanArray> {
-    let compare_arrays_at = make_comparator(lhs, rhs, SortOptions::default())?;
-
-    let cmp_fn = match operator {
-        CompareOperator::Eq => Ordering::is_eq,
-        CompareOperator::NotEq => Ordering::is_ne,
-        CompareOperator::Gt => Ordering::is_gt,
-        CompareOperator::Gte => Ordering::is_ge,
-        CompareOperator::Lt => Ordering::is_lt,
-        CompareOperator::Lte => Ordering::is_le,
-    };
-
-    let values = (0..lhs.len())
-        .map(|i| cmp_fn(compare_arrays_at(i, i)))
-        .collect();
-    let nulls = NullBuffer::union(lhs.nulls(), rhs.nulls());
-
-    Ok(BooleanArray::new(values, nulls))
-}
 
 #[cfg(test)]
 mod tests {

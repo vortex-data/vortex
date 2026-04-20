@@ -4,7 +4,6 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use arrow_array::BooleanArray;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
@@ -22,7 +21,6 @@ use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
-use crate::arrow::BitBufferArrowExt;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::validity::Validity;
@@ -326,14 +324,31 @@ impl FromIterator<bool> for BoolArray {
 
 impl FromIterator<Option<bool>> for BoolArray {
     fn from_iter<I: IntoIterator<Item = Option<bool>>>(iter: I) -> Self {
-        let (buffer, nulls) = BooleanArray::from_iter(iter).into_parts();
-
-        BoolArray::new(
-            BitBuffer::from_arrow_boolean_buffer(buffer),
-            nulls
-                .map(|n| Validity::from(BitBuffer::from_arrow_boolean_buffer(n.into_inner())))
-                .unwrap_or(Validity::AllValid),
-        )
+        let iter = iter.into_iter();
+        let (min, max) = iter.size_hint();
+        let cap = max.unwrap_or(min);
+        let mut values = BitBufferMut::with_capacity(cap);
+        let mut nulls = BitBufferMut::with_capacity(cap);
+        let mut any_null = false;
+        for item in iter {
+            match item {
+                Some(v) => {
+                    values.append(v);
+                    nulls.append(true);
+                }
+                None => {
+                    values.append(false);
+                    nulls.append(false);
+                    any_null = true;
+                }
+            }
+        }
+        let validity = if any_null {
+            Validity::from(nulls.freeze())
+        } else {
+            Validity::AllValid
+        };
+        BoolArray::new(values.freeze(), validity)
     }
 }
 

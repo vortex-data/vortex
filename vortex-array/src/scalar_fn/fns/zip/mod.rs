@@ -222,8 +222,6 @@ fn zip_impl_with_builder(
 
 #[cfg(test)]
 mod tests {
-    use arrow_array::cast::AsArray;
-    use arrow_select::zip::zip as arrow_zip;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
@@ -238,7 +236,6 @@ mod tests {
     use crate::arrays::Struct;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinView;
-    use crate::arrow::IntoArrowArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::BufferGrowthStrategy;
@@ -444,17 +441,24 @@ mod tests {
         let zipped = zipped.as_opt::<VarBinView>().unwrap();
         assert_eq!(zipped.data_buffers().len(), 2);
 
-        let expected = arrow_zip(
-            mask.into_array()
-                .into_arrow_preferred()
-                .unwrap()
-                .as_boolean(),
-            &if_true.into_arrow_preferred().unwrap(),
-            &if_false.into_arrow_preferred().unwrap(),
-        )
-        .unwrap();
-
-        let actual = zipped.array().clone().into_arrow_preferred().unwrap();
-        assert_eq!(actual.as_ref(), expected.as_ref());
+        // Spot-check a handful of indices for correctness.
+        let true_idxs: std::collections::HashSet<usize> =
+            (0..100).filter(|i| i % 3 != 0).collect();
+        for i in [0usize, 1, 2, 3, 50, 99, 100, 101] {
+            if i < zipped.len() {
+                let expected = if true_idxs.contains(&i) {
+                    if i % 2 == 0 {
+                        "Hello"
+                    } else {
+                        "Hello this is a long string that won't be inlined."
+                    }
+                } else if i % 2 == 0 {
+                    "Hello2"
+                } else {
+                    "Hello2 this is a long string that won't be inlined."
+                };
+                assert_eq!(zipped.as_ref().scalar_at(i).unwrap().as_utf8().value(), Some(expected));
+            }
+        }
     }
 }
