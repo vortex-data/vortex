@@ -9,6 +9,7 @@ use arrow_schema::Schema;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
+use datafusion_common::arrow::array::RecordBatch;
 use datafusion_common::exec_datafusion_err;
 use datafusion_datasource::FileRange;
 use datafusion_datasource::PartitionedFile;
@@ -364,6 +365,7 @@ impl FileOpener for VortexOpener {
 
             let stream_schema = Arc::new(stream_schema);
             let handle = session.handle();
+            let file_location = file.object_meta.location.clone();
 
             let stream = scan_builder
                 .with_metrics_registry(metrics_registry)
@@ -372,7 +374,7 @@ impl FileOpener for VortexOpener {
                 .with_ordered(has_output_ordering)
                 .into_stream()
                 .map_err(|e| exec_datafusion_err!("Failed to create Vortex stream: {e}"))?
-                .then(move |chunk| {
+                .map(move |chunk| {
                     let session = session.clone();
                     let stream_schema = Arc::clone(&stream_schema);
                     let handle = handle.clone();
@@ -383,33 +385,11 @@ impl FileOpener for VortexOpener {
                         })
                     })
                 })
+                .buffered(2)
                 .map_ok(move |rb| {
-                    // We try and slice the stream into respecting datafusion's configured batch size.
-                    stream::iter(
-                        (0..rb.num_rows().div_ceil(batch_size * 2))
-                            .flat_map(move |block_idx| {
-                                let offset = block_idx * batch_size * 2;
-
-                                // If we have less than two batches worth of rows left, we keep them together as a single batch.
-                                if rb.num_rows() - offset < 2 * batch_size {
-                                    let length = rb.num_rows() - offset;
-                                    [Some(rb.slice(offset, length)), None].into_iter()
-                                } else {
-                                    let first = rb.slice(offset, batch_size);
-                                    let second = rb.slice(offset + batch_size, batch_size);
-                                    [Some(first), Some(second)].into_iter()
-                                }
-                            })
-                            .flatten()
-                            .map(Ok),
-                    )
+                    stream::iter(split_record_batch(rb, batch_size).into_iter().map(Ok))
                 })
-                .map_err(move |e: VortexError| {
-                    DataFusionError::External(Box::new(e.with_context(format!(
-                        "Failed to read Vortex file: {}",
-                        file.object_meta.location
-                    ))))
-                })
+                .map_err(move |e: VortexError| vortex_file_read_error(&file_location, e))
                 .try_flatten()
                 .map(move |batch| {
                     if projector.projection().as_ref().is_empty() {
@@ -460,6 +440,33 @@ fn byte_range_to_row_range(byte_range: Range<u64>, row_count: u64, total_size: u
     start_row..u64::min(row_count, end_row)
 }
 
+fn split_record_batch(rb: RecordBatch, batch_size: usize) -> Vec<RecordBatch> {
+    assert!(batch_size > 0, "batch size must be positive");
+
+    let mut batches = Vec::new();
+    let mut offset = 0;
+
+    while offset < rb.num_rows() {
+        let remaining = rb.num_rows() - offset;
+        if remaining < 2 * batch_size {
+            batches.push(rb.slice(offset, remaining));
+            break;
+        }
+
+        batches.push(rb.slice(offset, batch_size));
+        batches.push(rb.slice(offset + batch_size, batch_size));
+        offset += batch_size * 2;
+    }
+
+    batches
+}
+
+fn vortex_file_read_error(path: &Path, error: VortexError) -> DataFusionError {
+    DataFusionError::External(Box::new(
+        error.with_context(format!("Failed to read Vortex file: {path}")),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -486,6 +493,7 @@ mod tests {
     use datafusion_expr::Operator;
     use datafusion_physical_expr::expressions as df_expr;
     use datafusion_physical_expr::projection::ProjectionExpr;
+    use futures::TryStreamExt;
     use insta::assert_snapshot;
     use itertools::Itertools;
     use object_store::ObjectStore;

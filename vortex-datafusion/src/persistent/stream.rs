@@ -15,14 +15,14 @@ use futures::stream::BoxStream;
 /// Utility to end a stream early if its backing [`PartitionFile`] can be pruned away by an updated dynamic expression.
 pub(crate) struct PrunableStream {
     file_pruner: FilePruner,
-    stream: BoxStream<'static, DFResult<RecordBatch>>,
+    stream: Option<BoxStream<'static, DFResult<RecordBatch>>>,
 }
 
 impl PrunableStream {
     pub fn new(file_pruner: FilePruner, stream: BoxStream<'static, DFResult<RecordBatch>>) -> Self {
         Self {
             file_pruner,
-            stream,
+            stream: Some(stream),
         }
     }
 }
@@ -32,9 +32,13 @@ impl Stream for PrunableStream {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.as_mut().file_pruner.should_prune()? {
+            self.stream.take();
             Poll::Ready(None)
         } else {
-            self.stream.poll_next_unpin(cx)
+            match self.stream.as_mut() {
+                Some(stream) => stream.poll_next_unpin(cx),
+                None => Poll::Ready(None),
+            }
         }
     }
 }

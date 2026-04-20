@@ -429,7 +429,7 @@ impl DataSource for VortexDataSource {
             let handle = session.handle();
             let stream = scan_streams
                 .try_flatten_unordered(Some(num_partitions.get() * 2))
-                .then(move |result| {
+                .map(move |result| {
                     let session = session.clone();
                     let schema = Arc::clone(&projected_schema);
                     let handle = handle.clone();
@@ -438,6 +438,7 @@ impl DataSource for VortexDataSource {
                         result.and_then(|chunk| chunk.execute_record_batch(&schema, &mut ctx))
                     })
                 })
+                .buffered(2)
                 .map(|result| result.map_err(|e| DataFusionError::External(Box::new(e))));
 
             // Apply leftover projection (expressions that couldn't be pushed into Vortex).
