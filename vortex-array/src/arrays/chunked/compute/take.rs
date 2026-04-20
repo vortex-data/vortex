@@ -34,7 +34,7 @@ fn take_chunked(
     let indices_mask = indices
         .as_ref()
         .validity()?
-        .to_mask(indices.as_ref().len(), ctx)?;
+        .execute_mask(indices.as_ref().len(), ctx)?;
     let indices_values = indices.as_slice::<u64>();
     let n = indices_values.len();
 
@@ -103,7 +103,7 @@ fn take_chunked(
         indices
             .as_ref()
             .validity()?
-            .to_mask(indices.as_ref().len(), ctx)?,
+            .execute_mask(indices.as_ref().len(), ctx)?,
         indices.dtype().nullability(),
     );
     flat.take(PrimitiveArray::new(final_take.freeze(), take_validity).into_array())

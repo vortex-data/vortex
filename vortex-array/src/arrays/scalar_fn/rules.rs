@@ -10,10 +10,7 @@ use vortex_error::VortexResult;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
@@ -37,11 +34,8 @@ use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::validity::Validity;
 
-pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> = ReduceRuleSet::new(&[
-    &ScalarFnPackToStructRule,
-    &ScalarFnConstantRule,
-    &ScalarFnAbstractReduceRule,
-]);
+pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> =
+    ReduceRuleSet::new(&[&ScalarFnPackToStructRule, &ScalarFnAbstractReduceRule]);
 
 static KEYED_PARENT_RULES: [ParentRuleEntry<ScalarFnVTable>; 2] = [
     ParentRuleSet::lift_id(
@@ -79,24 +73,6 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnPackToStructRule {
             )?
             .into_array(),
         ))
-    }
-}
-
-#[derive(Debug)]
-struct ScalarFnConstantRule;
-impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
-    fn reduce(&self, array: ArrayView<'_, ScalarFnVTable>) -> VortexResult<Option<ArrayRef>> {
-        if !array.children().iter().all(|c| c.is::<Constant>()) {
-            return Ok(None);
-        }
-        if array.is_empty() {
-            Ok(Some(Canonical::empty(array.dtype()).into_array()))
-        } else {
-            let result = array
-                .array()
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?;
-            Ok(Some(ConstantArray::new(result, array.len()).into_array()))
-        }
     }
 }
 

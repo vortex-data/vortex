@@ -13,7 +13,6 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
@@ -77,7 +76,8 @@ fn compare_fsst_constant(
         return Ok(Some(
             BoolArray::new(
                 buffer,
-                Validity::copy_from_array(left.array())?
+                left.array()
+                    .validity()?
                     .union_nullability(right.dtype().nullability()),
             )
             .into_array(),
@@ -123,8 +123,8 @@ fn compare_fsst_constant(
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::VarBinArray;
@@ -141,6 +141,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_compare_fsst() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let lhs = VarBinArray::from_iter(
             [
                 Some("hello"),
@@ -154,18 +155,18 @@ mod tests {
         let compressor = fsst_train_compressor(&lhs);
         let len = lhs.len();
         let dtype = lhs.dtype().clone();
-        let lhs = fsst_compress(lhs, len, &dtype, &compressor);
+        let lhs = fsst_compress(lhs, len, &dtype, &compressor, &mut ctx);
 
         let rhs = ConstantArray::new("world", lhs.len());
 
         // Ensure fastpath for Eq exists, and returns correct answer
-        #[expect(deprecated)]
         let equals = lhs
             .clone()
             .into_array()
             .binary(rhs.clone().into_array(), Operator::Eq)
             .unwrap()
-            .to_bool();
+            .execute::<BoolArray>(&mut ctx)
+            .unwrap();
 
         assert_eq!(equals.dtype(), &DType::Bool(Nullability::Nullable));
 
@@ -175,13 +176,13 @@ mod tests {
         );
 
         // Ensure fastpath for Eq exists, and returns correct answer
-        #[expect(deprecated)]
         let not_equals = lhs
             .clone()
             .into_array()
             .binary(rhs.into_array(), Operator::NotEq)
             .unwrap()
-            .to_bool();
+            .execute::<BoolArray>(&mut ctx)
+            .unwrap();
 
         assert_eq!(not_equals.dtype(), &DType::Bool(Nullability::Nullable));
         assert_arrays_eq!(

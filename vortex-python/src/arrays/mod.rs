@@ -23,11 +23,11 @@ use pyo3::types::PyRange;
 use pyo3::types::PyRangeMethods;
 use pyo3_bytes::PyBytes;
 use vortex::array::ArrayRef;
+use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex::array::ToCanonical;
 use vortex::array::VortexSessionExecute;
+use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::Chunked;
 use vortex::array::arrays::bool::BoolArrayExt;
 use vortex::array::arrays::chunked::ChunkedArrayExt;
@@ -527,12 +527,16 @@ impl PyArray {
     /// ]
     /// ```
     fn filter(slf: Bound<Self>, mask: PyArrayRef) -> PyVortexResult<PyArrayRef> {
+        // PyArray/PyArrayRef do not currently carry a VortexSession; threading one
+        // through would change the FromPyObject contract. Use LEGACY_SESSION until
+        // the wrappers are refactored.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        #[expect(deprecated)]
-        let mask_bool = (&*mask as &ArrayRef).to_bool();
-        let mask = mask_bool.to_mask_fill_null_false(&mut LEGACY_SESSION.create_execution_ctx());
-        #[expect(deprecated)]
-        let canonical = slf.filter(mask)?.to_canonical()?;
+        let mask_bool = (&*mask as &ArrayRef)
+            .clone()
+            .execute::<BoolArray>(&mut ctx)?;
+        let mask = mask_bool.to_mask_fill_null_false(&mut ctx);
+        let canonical = slf.filter(mask)?.execute::<Canonical>(&mut ctx)?;
         let inner = canonical.into_array();
         Ok(PyArrayRef::from(inner))
     }
@@ -608,6 +612,10 @@ impl PyArray {
     /// ```
     // TODO(ngates): return a vortex.Scalar
     fn scalar_at(slf: Bound<Self>, index: usize) -> PyVortexResult<Bound<PyScalar>> {
+        // PyArray/PyArrayRef do not currently carry a VortexSession; threading one
+        // through would change the FromPyObject contract. Use LEGACY_SESSION until
+        // the wrappers are refactored.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let py = slf.py();
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
         if index >= slf.len() {
@@ -617,10 +625,7 @@ impl PyArray {
             ))
             .into());
         }
-        Ok(PyScalar::init(
-            py,
-            slf.execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())?,
-        )?)
+        Ok(PyScalar::init(py, slf.execute_scalar(index, &mut ctx)?)?)
     }
 
     /// Filter, permute, and/or repeat elements by their index.

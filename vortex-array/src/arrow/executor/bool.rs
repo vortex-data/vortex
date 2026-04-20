@@ -24,7 +24,7 @@ pub fn canonical_bool_to_arrow(
             array
                 .as_ref()
                 .validity()?
-                .to_mask(array.as_ref().len(), ctx)?,
+                .execute_mask(array.as_ref().len(), ctx)?,
         ),
     )))
 }

@@ -7,11 +7,10 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Patched;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::scalar::Scalar;
@@ -140,7 +139,9 @@ impl Scheme for FoRScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        let stats = data.integer_stats();
+        // TODO(ctx): trait fixes - Scheme::expected_compression_ratio has a fixed signature.
+        let mut local_ctx = LEGACY_SESSION.create_execution_ctx();
+        let stats = data.integer_stats(&mut local_ctx);
 
         // Only apply when the min is not already zero.
         if stats.erased().min_is_zero() {
@@ -187,11 +188,15 @@ impl Scheme for FoRScheme {
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        #[expect(deprecated)]
-        let primitive = data.array().to_primitive();
+        let primitive = data
+            .array()
+            .clone()
+            .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?;
         let for_array = FoR::encode(primitive)?;
-        #[expect(deprecated)]
-        let biased = for_array.encoded().to_primitive();
+        let biased = for_array
+            .encoded()
+            .clone()
+            .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?;
 
         // Immediately bitpack. If any other scheme was preferable, it would be chosen instead
         // of bitpacking.
@@ -275,7 +280,9 @@ impl Scheme for ZigZagScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        let stats = data.integer_stats();
+        // TODO(ctx): trait fixes - Scheme::expected_compression_ratio has a fixed signature.
+        let mut local_ctx = LEGACY_SESSION.create_execution_ctx();
+        let stats = data.integer_stats(&mut local_ctx);
 
         // ZigZag is only useful when there are negative values.
         if !stats.erased().min_is_negative() {
@@ -293,8 +300,10 @@ impl Scheme for ZigZagScheme {
     ) -> VortexResult<ArrayRef> {
         // Zigzag encode the values, then recursively compress the inner values.
         let zag = zigzag_encode(data.array_as_primitive())?;
-        #[expect(deprecated)]
-        let encoded = zag.encoded().to_primitive();
+        let encoded = zag
+            .encoded()
+            .clone()
+            .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?;
 
         let compressed = compressor.compress_child(&encoded.into_array(), &ctx, self.id(), 0)?;
 
@@ -318,7 +327,9 @@ impl Scheme for BitPackingScheme {
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> CompressionEstimate {
-        let stats = data.integer_stats();
+        // TODO(ctx): trait fixes - Scheme::expected_compression_ratio has a fixed signature.
+        let mut local_ctx = LEGACY_SESSION.create_execution_ctx();
+        let stats = data.integer_stats(&mut local_ctx);
 
         // BitPacking only works for non-negative values.
         if stats.erased().min_is_negative() {
@@ -330,13 +341,13 @@ impl Scheme for BitPackingScheme {
 
     fn compress(
         &self,
-        _compressor: &CascadingCompressor,
+        compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
         let primitive_array = data.array_as_primitive();
 
-        let histogram = bit_width_histogram(primitive_array)?;
+        let histogram = bit_width_histogram(primitive_array, &mut compressor.execution_ctx())?;
         let bw = find_best_bit_width(primitive_array.ptype(), &histogram)?;
 
         // If best bw is determined to be the current bit-width, return the original array.
@@ -346,7 +357,12 @@ impl Scheme for BitPackingScheme {
 
         // Otherwise we can bitpack the array.
         let primitive_array = primitive_array.into_owned();
-        let packed = bitpack_encode(&primitive_array, bw, Some(&histogram))?;
+        let packed = bitpack_encode(
+            &primitive_array,
+            bw,
+            Some(&histogram),
+            &mut compressor.execution_ctx(),
+        )?;
 
         let packed_stats = packed.statistics().to_owned();
         let ptype = packed.dtype().as_ptype();
@@ -368,17 +384,19 @@ impl Scheme for BitPackingScheme {
 
             match patches {
                 None => array,
-                Some(p) => Patched::from_array_and_patches(
-                    array,
-                    &p,
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )?
-                .with_stats_set(packed_stats)
-                .into_array(),
+                Some(p) => {
+                    Patched::from_array_and_patches(array, &p, &mut compressor.execution_ctx())?
+                        .with_stats_set(packed_stats)
+                        .into_array()
+                }
             }
         } else {
             // Compress patches and place back into BitPackedArray.
-            let patches = parts.patches.take().map(compress_patches).transpose()?;
+            let patches = parts
+                .patches
+                .take()
+                .map(|p| compress_patches(p, &mut compressor.execution_ctx()))
+                .transpose()?;
             parts.patches = patches;
             BitPacked::try_new(
                 parts.packed,
@@ -446,7 +464,9 @@ impl Scheme for SparseScheme {
         _ctx: CompressorContext,
     ) -> CompressionEstimate {
         let len = data.array_len() as f64;
-        let stats = data.integer_stats();
+        // TODO(ctx): trait fixes - Scheme::expected_compression_ratio has a fixed signature.
+        let mut local_ctx = LEGACY_SESSION.create_execution_ctx();
+        let stats = data.integer_stats(&mut local_ctx);
         let value_count = stats.value_count();
 
         // All-null arrays should be compressed as constant instead anyways.
@@ -492,7 +512,7 @@ impl Scheme for SparseScheme {
     ) -> VortexResult<ArrayRef> {
         let len = data.array_len();
         // TODO(connor): Fight the borrow checker (needs interior mutability)!
-        let stats = data.integer_stats().clone();
+        let stats = data.integer_stats(&mut compressor.execution_ctx()).clone();
         let array = data.array();
 
         let (most_frequent_value, most_frequent_count) = stats
@@ -522,11 +542,15 @@ impl Scheme for SparseScheme {
                 most_frequent_value.ptype(),
                 array.dtype().nullability(),
             )),
+            &mut compressor.execution_ctx(),
         )?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
-            #[expect(deprecated)]
-            let sparse_values_primitive = sparse.patches().values().to_primitive();
+            let sparse_values_primitive = sparse
+                .patches()
+                .values()
+                .clone()
+                .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?;
             let compressed_values = compressor.compress_child(
                 &sparse_values_primitive.into_array(),
                 &ctx,
@@ -534,8 +558,12 @@ impl Scheme for SparseScheme {
                 0,
             )?;
 
-            #[expect(deprecated)]
-            let indices = sparse.patches().indices().to_primitive().narrow()?;
+            let indices = sparse
+                .patches()
+                .indices()
+                .clone()
+                .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?
+                .narrow()?;
 
             let compressed_indices =
                 compressor.compress_child(&indices.into_array(), &ctx, self.id(), 1)?;
@@ -615,7 +643,9 @@ impl Scheme for RunEndScheme {
         _ctx: CompressorContext,
     ) -> CompressionEstimate {
         // If the run length is below the threshold, drop it.
-        if data.integer_stats().average_run_length() < RUN_END_THRESHOLD {
+        // TODO(ctx): trait fixes - Scheme::expected_compression_ratio has a fixed signature.
+        let mut local_ctx = LEGACY_SESSION.create_execution_ctx();
+        if data.integer_stats(&mut local_ctx).average_run_length() < RUN_END_THRESHOLD {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
@@ -629,10 +659,10 @@ impl Scheme for RunEndScheme {
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
         // Run-end encode the ends.
-        let (ends, values) = runend_encode(data.array_as_primitive());
+        let (ends, values) =
+            runend_encode(data.array_as_primitive(), &mut compressor.execution_ctx());
 
-        #[expect(deprecated)]
-        let values_primitive = values.to_primitive();
+        let values_primitive = values.execute::<PrimitiveArray>(&mut compressor.execution_ctx())?;
         let compressed_values =
             compressor.compress_child(&values_primitive.into_array(), &ctx, self.id(), 0)?;
 
@@ -640,8 +670,14 @@ impl Scheme for RunEndScheme {
 
         // SAFETY: compression doesn't affect invariants.
         Ok(unsafe {
-            RunEnd::new_unchecked(compressed_ends, compressed_values, 0, data.array_len())
-                .into_array()
+            RunEnd::new_unchecked(
+                compressed_ends,
+                compressed_values,
+                0,
+                data.array_len(),
+                &mut compressor.execution_ctx(),
+            )
+            .into_array()
         })
     }
 }
@@ -686,7 +722,9 @@ impl Scheme for SequenceScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        let stats = data.integer_stats();
+        // TODO(ctx): trait fixes - Scheme::expected_compression_ratio has a fixed signature.
+        let mut local_ctx = LEGACY_SESSION.create_execution_ctx();
+        let stats = data.integer_stats(&mut local_ctx);
 
         // `SequenceArray` does not support nulls.
         if stats.null_count() > 0 {
@@ -706,8 +744,10 @@ impl Scheme for SequenceScheme {
         // why do we divide the ratio by 2???
 
         CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-            |_compressor, data, _ctx| {
-                let Some(encoded) = sequence_encode(data.array_as_primitive())? else {
+            |compressor, data, _ctx| {
+                let Some(encoded) =
+                    sequence_encode(data.array_as_primitive(), &mut compressor.execution_ctx())?
+                else {
                     // If we are unable to sequence encode this array, make sure we skip.
                     return Ok(EstimateVerdict::Skip);
                 };
@@ -722,16 +762,16 @@ impl Scheme for SequenceScheme {
 
     fn compress(
         &self,
-        _compressor: &CascadingCompressor,
+        compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let stats = data.integer_stats();
+        let stats = data.integer_stats(&mut compressor.execution_ctx());
 
         if stats.null_count() > 0 {
             vortex_bail!("sequence encoding does not support nulls");
         }
-        sequence_encode(data.array_as_primitive())?
+        sequence_encode(data.array_as_primitive(), &mut compressor.execution_ctx())?
             .ok_or_else(|| vortex_err!("cannot sequence encode array"))
     }
 }
@@ -763,7 +803,7 @@ impl Scheme for PcoScheme {
 
     fn compress(
         &self,
-        _compressor: &CascadingCompressor,
+        compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
@@ -771,6 +811,7 @@ impl Scheme for PcoScheme {
             data.array_as_primitive(),
             pco::DEFAULT_COMPRESSION_LEVEL,
             8192,
+            &mut compressor.execution_ctx(),
         )?
         .into_array())
     }
@@ -783,18 +824,23 @@ pub(crate) fn rle_compress(
     data: &mut ArrayAndStats,
     ctx: CompressorContext,
 ) -> VortexResult<ArrayRef> {
-    let rle_array = RLE::encode(data.array_as_primitive())?;
+    let rle_array = RLE::encode(data.array_as_primitive(), &mut compressor.execution_ctx())?;
 
-    #[expect(deprecated)]
-    let rle_values_primitive = rle_array.values().to_primitive();
+    let rle_values_primitive = rle_array
+        .values()
+        .clone()
+        .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?;
     let compressed_values =
         compressor.compress_child(&rle_values_primitive.into_array(), &ctx, scheme.id(), 0)?;
 
     // Delta is an unstable encoding, once we deem it stable we can switch over to this always.
     #[cfg(feature = "unstable_encodings")]
     let compressed_indices = {
-        #[expect(deprecated)]
-        let rle_indices_primitive = rle_array.indices().to_primitive().narrow()?;
+        let rle_indices_primitive = rle_array
+            .indices()
+            .clone()
+            .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?
+            .narrow()?;
         try_compress_delta(
             compressor,
             &rle_indices_primitive.into_array(),
@@ -806,13 +852,19 @@ pub(crate) fn rle_compress(
 
     #[cfg(not(feature = "unstable_encodings"))]
     let compressed_indices = {
-        #[expect(deprecated)]
-        let rle_indices_primitive = rle_array.indices().to_primitive().narrow()?;
+        let rle_indices_primitive = rle_array
+            .indices()
+            .clone()
+            .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?
+            .narrow()?;
         compressor.compress_child(&rle_indices_primitive.into_array(), &ctx, scheme.id(), 1)?
     };
 
-    #[expect(deprecated)]
-    let rle_offsets_primitive = rle_array.values_idx_offsets().to_primitive().narrow()?;
+    let rle_offsets_primitive = rle_array
+        .values_idx_offsets()
+        .clone()
+        .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?
+        .narrow()?;
     let compressed_offsets =
         compressor.compress_child(&rle_offsets_primitive.into_array(), &ctx, scheme.id(), 2)?;
 
@@ -837,8 +889,9 @@ fn try_compress_delta(
     parent_id: SchemeId,
     child_index: usize,
 ) -> VortexResult<ArrayRef> {
-    #[expect(deprecated)]
-    let child_primitive = child.to_primitive();
+    let child_primitive = child
+        .clone()
+        .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?;
     let (bases, deltas) =
         vortex_fastlanes::delta_compress(&child_primitive, &mut compressor.execution_ctx())?;
 
@@ -882,7 +935,9 @@ impl Scheme for IntRLEScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        if data.integer_stats().average_run_length() < RUN_LENGTH_THRESHOLD {
+        // TODO(ctx): trait fixes - Scheme::expected_compression_ratio has a fixed signature.
+        let mut local_ctx = LEGACY_SESSION.create_execution_ctx();
+        if data.integer_stats(&mut local_ctx).average_run_length() < RUN_LENGTH_THRESHOLD {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 

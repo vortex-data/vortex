@@ -207,6 +207,8 @@ mod tests {
     use vortex::encodings::fastlanes::BitPackedArrayExt;
     use vortex::error::VortexExpect;
     use vortex::session::VortexSession;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::CanonicalCudaExt;
@@ -228,7 +230,11 @@ mod tests {
         let array = PrimitiveArray::new(iter.collect::<Buffer<_>>(), NonNullable);
 
         // Last two items should be patched
-        let bp_with_patches = BitPacked::encode(&array.into_array(), bw)?;
+        let bp_with_patches = BitPacked::encode(
+            &array.into_array(),
+            bw,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         assert!(bp_with_patches.patches().is_some());
 
         let cpu_result = crate::canonicalize_cpu(bp_with_patches.clone())?.into_array();
@@ -259,7 +265,11 @@ mod tests {
         );
 
         // Last two items should be patched
-        let bp_with_patches = BitPacked::encode(&array.into_array(), 9)?;
+        let bp_with_patches = BitPacked::encode(
+            &array.into_array(),
+            9,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         assert!(bp_with_patches.patches().is_some());
 
         let cpu_result = crate::canonicalize_cpu(bp_with_patches.clone())?.into_array();
@@ -301,8 +311,12 @@ mod tests {
             NonNullable,
         );
 
-        let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), bit_width)
-            .vortex_expect("operation should succeed in test");
+        let bitpacked_array = BitPacked::encode(
+            &primitive_array.into_array(),
+            bit_width,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .vortex_expect("operation should succeed in test");
         let cpu_result = crate::canonicalize_cpu(bitpacked_array.clone())?;
 
         let gpu_result = block_on(async {
@@ -350,8 +364,12 @@ mod tests {
             NonNullable,
         );
 
-        let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), bit_width)
-            .vortex_expect("operation should succeed in test");
+        let bitpacked_array = BitPacked::encode(
+            &primitive_array.into_array(),
+            bit_width,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .vortex_expect("operation should succeed in test");
         let cpu_result = crate::canonicalize_cpu(bitpacked_array.clone())?;
 
         let gpu_result = block_on(async {
@@ -415,8 +433,12 @@ mod tests {
             NonNullable,
         );
 
-        let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), bit_width)
-            .vortex_expect("operation should succeed in test");
+        let bitpacked_array = BitPacked::encode(
+            &primitive_array.into_array(),
+            bit_width,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .vortex_expect("operation should succeed in test");
         let cpu_result = crate::canonicalize_cpu(bitpacked_array.clone())?;
 
         let gpu_result = block_on(async {
@@ -512,8 +534,12 @@ mod tests {
             NonNullable,
         );
 
-        let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), bit_width)
-            .vortex_expect("operation should succeed in test");
+        let bitpacked_array = BitPacked::encode(
+            &primitive_array.into_array(),
+            bit_width,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .vortex_expect("operation should succeed in test");
         let cpu_result = crate::canonicalize_cpu(bitpacked_array.clone())?;
         let gpu_result = block_on(async {
             BitPackedExecutor
@@ -545,8 +571,12 @@ mod tests {
             NonNullable,
         );
 
-        let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), bit_width)
-            .vortex_expect("operation should succeed in test");
+        let bitpacked_array = BitPacked::encode(
+            &primitive_array.into_array(),
+            bit_width,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .vortex_expect("operation should succeed in test");
         let sliced_array = bitpacked_array.into_array().slice(67..3969)?;
         assert!(sliced_array.is::<BitPacked>());
         let cpu_result = crate::canonicalize_cpu(sliced_array.clone())?;
@@ -579,7 +609,11 @@ mod tests {
         let primitive_array = PrimitiveArray::new(buffer![100u8, 101, 102, 3, 4, 5], NonNullable);
 
         // Encode with bit width 4. First 3 elements patched, remainder will pack.
-        let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), 4)?;
+        let bitpacked_array = BitPacked::encode(
+            &primitive_array.into_array(),
+            4,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         assert!(
             bitpacked_array.patches().is_some(),
             "Expected patches to be present"
@@ -625,7 +659,11 @@ mod tests {
         let primitive_array =
             PrimitiveArray::new(Buffer::from_iter(values.iter().copied()), NonNullable);
 
-        let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), 9)?;
+        let bitpacked_array = BitPacked::encode(
+            &primitive_array.into_array(),
+            9,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         assert!(
             bitpacked_array.patches().is_some(),
             "Expected patches to be present"
@@ -678,7 +716,11 @@ mod tests {
         let primitive_array =
             PrimitiveArray::new(Buffer::from_iter(values.iter().copied()), NonNullable);
 
-        let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), 9)?;
+        let bitpacked_array = BitPacked::encode(
+            &primitive_array.into_array(),
+            9,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         assert!(
             bitpacked_array.patches().is_some(),
             "Expected patches to be present"

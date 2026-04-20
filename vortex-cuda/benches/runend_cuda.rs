@@ -34,7 +34,11 @@ use vortex_cuda_macros::cuda_not_available;
 use crate::common::TimedLaunchStrategy;
 
 /// Creates a run-end encoded array with the specified output length and average run length.
-fn make_runend_array_typed<T>(output_len: usize, avg_run_len: usize) -> RunEndArray
+fn make_runend_array_typed<T>(
+    output_len: usize,
+    avg_run_len: usize,
+    ctx: &mut vortex::array::ExecutionCtx,
+) -> RunEndArray
 where
     T: NativePType + From<u8>,
 {
@@ -55,7 +59,7 @@ where
     let ends_array = PrimitiveArray::new(Buffer::from(ends), Validity::NonNullable).into_array();
     let values_array =
         PrimitiveArray::new(Buffer::from(values), Validity::NonNullable).into_array();
-    RunEnd::new(ends_array, values_array)
+    RunEnd::new(ends_array, values_array, ctx)
 }
 
 /// Benchmark run-end decoding for a specific type with varying run lengths
@@ -69,7 +73,8 @@ where
         group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
 
         for run_len in [10, 1000, 100000] {
-            let runend_array = make_runend_array_typed::<T>(len, run_len);
+            let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty()).unwrap();
+            let runend_array = make_runend_array_typed::<T>(len, run_len, cuda_ctx.execution_ctx());
 
             group.bench_with_input(
                 BenchmarkId::new("runend", format!("{len_str}_{type_name}_runlen_{run_len}")),

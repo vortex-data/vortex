@@ -58,7 +58,7 @@ mod test {
     use crate::bitpacking::array::BitPackedArrayExt;
 
     fn bp(array: &ArrayRef, bit_width: u8) -> BitPackedArray {
-        BitPackedData::encode(array, bit_width).unwrap()
+        BitPackedData::encode(array, bit_width, &mut LEGACY_SESSION.create_execution_ctx()).unwrap()
     }
 
     fn slice_via_reduce(array: &BitPackedArray, range: Range<usize>) -> BitPackedArray {
@@ -141,8 +141,9 @@ mod test {
 
     #[test]
     fn slice_empty_patches() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // We create an array that has 1 element that does not fit in the 6-bit range.
-        let array = BitPackedData::encode(&buffer![0u32..=64].into_array(), 6).unwrap();
+        let array = BitPackedData::encode(&buffer![0u32..=64].into_array(), 6, &mut ctx).unwrap();
 
         assert!(array.patches().is_some());
 
@@ -213,9 +214,10 @@ mod test {
 
     #[test]
     fn scalar_at() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = (0u32..257).collect::<Buffer<_>>();
         let uncompressed = values.clone().into_array();
-        let packed = BitPackedData::encode(&uncompressed, 8).unwrap();
+        let packed = BitPackedData::encode(&uncompressed, 8, &mut ctx).unwrap();
         assert!(packed.patches().is_some());
 
         let patches = packed.patches().unwrap().indices().clone();

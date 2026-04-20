@@ -7,8 +7,6 @@ use std::sync::LazyLock;
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -43,14 +41,14 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 use crate::Pco;
 #[test]
 fn test_compress_decompress() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let data: Vec<i32> = (0..200).collect();
     let array = PrimitiveArray::from_iter(data.clone());
-    let compressed = Pco::from_primitive(array.as_view(), 3, 0).unwrap();
+    let compressed = Pco::from_primitive(array.as_view(), 3, 0, &mut ctx).unwrap();
     // this data should be compressible
     assert!(compressed.pages.len() < array.into_array().nbytes() as usize);
 
     // check full decompression works
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let unsliced_validity = child_to_validity(
         &compressed.as_ref().slots()[0],
         compressed.dtype().nullability(),
@@ -71,13 +69,13 @@ fn test_compress_decompress() {
 
 #[test]
 fn test_compress_decompress_small() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let array = PrimitiveArray::from_option_iter([None, Some(1)]);
-    let compressed = Pco::from_primitive(array.as_view(), 3, 0).unwrap();
+    let compressed = Pco::from_primitive(array.as_view(), 3, 0, &mut ctx).unwrap();
 
     let expected = array.into_array();
     assert_arrays_eq!(compressed, expected);
 
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let unsliced_validity = child_to_validity(
         &compressed.as_ref().slots()[0],
         compressed.dtype().nullability(),
@@ -88,10 +86,10 @@ fn test_compress_decompress_small() {
 
 #[test]
 fn test_empty() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let data: Vec<i32> = vec![];
     let array = PrimitiveArray::from_iter(data.clone());
-    let compressed = Pco::from_primitive(array.as_view(), 3, 100).unwrap();
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let compressed = Pco::from_primitive(array.as_view(), 3, 100, &mut ctx).unwrap();
     let unsliced_validity = child_to_validity(
         &compressed.as_ref().slots()[0],
         compressed.dtype().nullability(),
@@ -102,6 +100,7 @@ fn test_empty() {
 
 #[test]
 fn test_validity_and_multiple_chunks_and_pages() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let data: Vec<i32> = (0..200).collect();
     let mut validity: Vec<bool> = vec![true; 200];
     validity[7..15].fill(false);
@@ -121,6 +120,7 @@ fn test_validity_and_multiple_chunks_and_pages() {
             compression_level,
             values_per_chunk,
             values_per_page,
+            &mut ctx,
         )
         .unwrap(),
         validity,
@@ -141,10 +141,8 @@ fn test_validity_and_multiple_chunks_and_pages() {
     let slice = compressed.slice(100..103).unwrap();
     assert_nth_scalar!(slice, 0, 100);
     assert_nth_scalar!(slice, 2, 102);
-    #[expect(deprecated)]
-    let primitive = slice.to_primitive();
+    let primitive = slice.execute::<PrimitiveArray>(&mut ctx).unwrap();
 
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     assert!(
         primitive
             .validity()
@@ -159,18 +157,19 @@ fn test_validity_and_multiple_chunks_and_pages() {
 
 #[test]
 fn test_validity_vtable() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let data: Vec<i32> = (0..5).collect();
     let mask_bools = vec![false, true, true, false, true];
     let array = PrimitiveArray::new(
         Buffer::from(data),
         Validity::Array(BoolArray::from_iter(mask_bools.clone()).into_array()),
     );
-    let compressed = Pco::from_primitive(array.as_view(), 3, 0).unwrap();
+    let compressed = Pco::from_primitive(array.as_view(), 3, 0, &mut ctx).unwrap();
     let arr = compressed.as_array();
     assert_eq!(
         arr.validity()
             .unwrap()
-            .to_mask(arr.len(), &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_mask(arr.len(), &mut ctx)
             .unwrap(),
         Mask::from_iter(mask_bools)
     );
@@ -179,7 +178,7 @@ fn test_validity_vtable() {
         sliced
             .validity()
             .unwrap()
-            .to_mask(sliced.len(), &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_mask(sliced.len(), &mut ctx)
             .unwrap(),
         Mask::from_iter(vec![true, true, false])
     );
@@ -187,8 +186,9 @@ fn test_validity_vtable() {
 
 #[test]
 fn test_serde() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let data: PrimitiveArray = (0i32..1_000_000).collect();
-    let pco = Pco::from_primitive(data.as_view(), 3, 100)?.into_array();
+    let pco = Pco::from_primitive(data.as_view(), 3, 100, &mut ctx)?.into_array();
 
     let context = ArrayContext::empty();
 
@@ -213,7 +213,6 @@ fn test_serde() -> VortexResult<()> {
         &ReadContext::new(context.to_ids()),
         &SESSION,
     )?;
-    let mut ctx = SESSION.create_execution_ctx();
     let data_type = data.dtype().to_arrow_dtype()?;
     let pco_arrow = pco.execute_arrow(Some(&data_type), &mut ctx)?;
     let decoded_arrow = decoded.execute_arrow(Some(&data_type), &mut ctx)?;

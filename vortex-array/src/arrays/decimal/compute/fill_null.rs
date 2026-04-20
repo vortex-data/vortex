@@ -131,7 +131,7 @@ mod tests {
             p.as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(p.as_ref().len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(p.as_ref().len(), &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .all_true()
         );

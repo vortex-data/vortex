@@ -236,7 +236,7 @@ fn sorf_transform_roundtrip_isolation() -> VortexResult<()> {
     use crate::scalar_fns::sorf_transform::SorfMatrix;
     use crate::scalar_fns::sorf_transform::SorfOptions;
     use crate::scalar_fns::sorf_transform::SorfTransform;
-    use crate::vector::Vector;
+    use crate::types::vector::Vector;
 
     let dim = 128usize;
     let seed = 99u64;

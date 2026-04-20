@@ -99,7 +99,7 @@ impl AggregateFnVTable for First {
         if partial.value.is_some() {
             return Ok(true);
         }
-        if let Some(idx) = batch.validity()?.to_mask(batch.len(), ctx)?.first() {
+        if let Some(idx) = batch.validity()?.execute_mask(batch.len(), ctx)?.first() {
             let scalar = batch.execute_scalar(idx, ctx)?;
             partial.value = Some(scalar.into_nullable());
         }

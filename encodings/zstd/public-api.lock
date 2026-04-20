@@ -6,11 +6,11 @@ impl vortex_zstd::Zstd
 
 pub fn vortex_zstd::Zstd::decompress(array: &vortex_zstd::ZstdArray, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_zstd::Zstd::from_primitive(parray: &vortex_array::arrays::primitive::vtable::PrimitiveArray, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<vortex_zstd::ZstdArray>
+pub fn vortex_zstd::Zstd::from_primitive(parray: &vortex_array::arrays::primitive::vtable::PrimitiveArray, level: i32, values_per_frame: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_zstd::ZstdArray>
 
-pub fn vortex_zstd::Zstd::from_var_bin_view(vbv: &vortex_array::arrays::varbinview::vtable::VarBinViewArray, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<vortex_zstd::ZstdArray>
+pub fn vortex_zstd::Zstd::from_var_bin_view(vbv: &vortex_array::arrays::varbinview::vtable::VarBinViewArray, level: i32, values_per_frame: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_zstd::ZstdArray>
 
-pub fn vortex_zstd::Zstd::from_var_bin_view_without_dict(vbv: &vortex_array::arrays::varbinview::vtable::VarBinViewArray, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<vortex_zstd::ZstdArray>
+pub fn vortex_zstd::Zstd::from_var_bin_view_without_dict(vbv: &vortex_array::arrays::varbinview::vtable::VarBinViewArray, level: i32, values_per_frame: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_zstd::ZstdArray>
 
 pub fn vortex_zstd::Zstd::try_new(dtype: vortex_array::dtype::DType, data: vortex_zstd::ZstdData, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<vortex_zstd::ZstdArray>
 
@@ -98,17 +98,17 @@ pub struct vortex_zstd::ZstdData
 
 impl vortex_zstd::ZstdData
 
-pub fn vortex_zstd::ZstdData::from_array(array: vortex_array::array::erased::ArrayRef, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_zstd::ZstdData::from_array(array: vortex_array::array::erased::ArrayRef, level: i32, values_per_frame: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_zstd::ZstdData::from_canonical(canonical: &vortex_array::canonical::Canonical, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<core::option::Option<Self>>
+pub fn vortex_zstd::ZstdData::from_canonical(canonical: &vortex_array::canonical::Canonical, level: i32, values_per_frame: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<Self>>
 
-pub fn vortex_zstd::ZstdData::from_primitive(parray: &vortex_array::arrays::primitive::vtable::PrimitiveArray, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_zstd::ZstdData::from_primitive(parray: &vortex_array::arrays::primitive::vtable::PrimitiveArray, level: i32, values_per_frame: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_zstd::ZstdData::from_primitive_without_dict(parray: &vortex_array::arrays::primitive::vtable::PrimitiveArray, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_zstd::ZstdData::from_primitive_without_dict(parray: &vortex_array::arrays::primitive::vtable::PrimitiveArray, level: i32, values_per_frame: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_zstd::ZstdData::from_var_bin_view(vbv: &vortex_array::arrays::varbinview::vtable::VarBinViewArray, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_zstd::ZstdData::from_var_bin_view(vbv: &vortex_array::arrays::varbinview::vtable::VarBinViewArray, level: i32, values_per_frame: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_zstd::ZstdData::from_var_bin_view_without_dict(vbv: &vortex_array::arrays::varbinview::vtable::VarBinViewArray, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_zstd::ZstdData::from_var_bin_view_without_dict(vbv: &vortex_array::arrays::varbinview::vtable::VarBinViewArray, level: i32, values_per_frame: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_zstd::ZstdData::into_parts(self, validity: vortex_array::validity::Validity) -> vortex_zstd::ZstdDataParts
 

@@ -767,11 +767,11 @@ mod tests {
     use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
     use crate::scalar_fns::l2_denorm::validate_l2_normalized_rows_against_norms;
     use crate::tests::SESSION;
+    use crate::types::vector::Vector;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::constant_tensor_array;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
-    use crate::vector::Vector;
 
     /// Evaluates L2 denorm on a tensor/vector array and returns the executed array.
     fn eval_l2_denorm(normalized: ArrayRef, norms: ArrayRef, len: usize) -> VortexResult<ArrayRef> {

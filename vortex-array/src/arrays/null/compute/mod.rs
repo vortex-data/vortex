@@ -38,7 +38,7 @@ mod test {
             sliced_arr
                 .validity()
                 .unwrap()
-                .to_mask(sliced_arr.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(sliced_arr.len(), &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Mask::AllFalse(4)
         ));
@@ -59,7 +59,7 @@ mod test {
             taken_arr
                 .validity()
                 .unwrap()
-                .to_mask(taken_arr.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(taken_arr.len(), &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Mask::AllFalse(5)
         ));

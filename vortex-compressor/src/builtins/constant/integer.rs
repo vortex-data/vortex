@@ -5,6 +5,8 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_error::VortexResult;
 
 use super::is_integer_primitive;
@@ -38,7 +40,9 @@ impl Scheme for IntConstantScheme {
         }
 
         let array_len = data.array().len();
-        let stats = data.integer_stats();
+        // TODO(ctx): trait fixes - Scheme::expected_compression_ratio has a fixed signature.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let stats = data.integer_stats(&mut ctx);
 
         // Note that we only compute distinct counts if other schemes have requested it.
         if let Some(distinct_count) = stats.distinct_count() {

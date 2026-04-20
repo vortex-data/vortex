@@ -8,10 +8,11 @@ use async_trait::async_trait;
 use futures::TryStreamExt;
 use glob::glob;
 use vortex::array::ArrayRef;
+use vortex::array::Canonical;
+use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
-#[expect(deprecated)]
-use vortex::array::ToCanonical;
 use vortex::array::arrays::ChunkedArray;
+use vortex::array::arrays::StructArray;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::expr::col;
 use vortex::expr::pack;
@@ -52,7 +53,7 @@ impl Dataset for TPCHLCommentChunked {
         "TPC-H l_comment chunked"
     }
 
-    async fn to_vortex_array(&self) -> Result<ArrayRef> {
+    async fn to_vortex_array(&self, ctx: &mut ExecutionCtx) -> Result<ArrayRef> {
         let base_path = "tpch".to_data_path();
         let scale_factor_dir = base_path.join("1.0");
         let data_dir = scale_factor_dir.join(Format::OnDiskVortex.name());
@@ -77,10 +78,13 @@ impl Dataset for TPCHLCommentChunked {
             let file_chunks: Vec<_> = file
                 .scan()?
                 .with_projection(pack(vec![("l_comment", col("l_comment"))], NonNullable))
-                .map(|a| {
-                    #[expect(deprecated)]
-                    let canonical = a.to_canonical()?;
-                    Ok(canonical.into_array())
+                .map({
+                    let ctx = ctx.clone();
+                    move |a| {
+                        let mut ctx = ctx.clone();
+                        let canonical = a.execute::<Canonical>(&mut ctx)?;
+                        Ok(canonical.into_array())
+                    }
                 })
                 .into_array_stream()?
                 .try_collect()
@@ -104,10 +108,9 @@ impl Dataset for TPCHLCommentCanonical {
         "TPC-H l_comment canonical"
     }
 
-    async fn to_vortex_array(&self) -> Result<ArrayRef> {
-        let comments_chunked = TPCHLCommentChunked.to_vortex_array().await?;
-        #[expect(deprecated)]
-        let comments_canonical = comments_chunked.to_struct().into_array();
+    async fn to_vortex_array(&self, ctx: &mut ExecutionCtx) -> Result<ArrayRef> {
+        let comments_chunked = TPCHLCommentChunked.to_vortex_array(ctx).await?;
+        let comments_canonical = comments_chunked.execute::<StructArray>(ctx)?.into_array();
         Ok(ChunkedArray::from_iter([comments_canonical]).into_array())
     }
 

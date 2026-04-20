@@ -26,7 +26,7 @@ impl TakeReduce for Constant {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let result = match indices
             .validity()?
-            .to_mask(indices.len(), &mut ctx)?
+            .execute_mask(indices.len(), &mut ctx)?
             .bit_buffer()
         {
             AllOr::All => {
@@ -123,7 +123,7 @@ mod tests {
             taken
                 .validity()
                 .unwrap()
-                .to_mask(taken.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(taken.len(), &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .indices(),
             AllOr::Some(valid_indices)
@@ -149,7 +149,7 @@ mod tests {
             taken
                 .validity()
                 .unwrap()
-                .to_mask(taken.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(taken.len(), &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .indices(),
             AllOr::All

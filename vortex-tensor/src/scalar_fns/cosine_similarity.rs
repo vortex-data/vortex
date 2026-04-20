@@ -327,12 +327,12 @@ mod tests {
     use crate::scalar_fns::cosine_similarity::CosineSimilarity;
     use crate::scalar_fns::l2_denorm::L2Denorm;
     use crate::tests::SESSION;
+    use crate::types::vector::Vector;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::constant_tensor_array;
     use crate::utils::test_helpers::l2_denorm_array;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
-    use crate::vector::Vector;
 
     /// Evaluates cosine similarity between two tensor arrays and returns the result as `Vec<f64>`.
     fn eval_cosine_similarity(lhs: ArrayRef, rhs: ArrayRef, len: usize) -> VortexResult<Vec<f64>> {

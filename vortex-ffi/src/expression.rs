@@ -294,8 +294,8 @@ mod tests {
     use std::sync::Arc;
 
     use vortex::array::IntoArray;
-    #[expect(deprecated)]
-    use vortex::array::ToCanonical;
+    use vortex::array::LEGACY_SESSION;
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::ListArray;
     use vortex::array::arrays::PrimitiveArray;
@@ -347,6 +347,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_get_item() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let (array, names_array, ages_array) = struct_array();
         unsafe {
             let root = vx_expression_root();
@@ -362,8 +363,10 @@ mod tests {
             {
                 let applied_array = vx_array::as_ref(applied_array);
                 let expected: Buffer<u8> = ages_array.to_buffer();
-                #[expect(deprecated)]
-                let prim = applied_array.to_primitive();
+                let prim = applied_array
+                    .clone()
+                    .execute::<PrimitiveArray>(&mut ctx)
+                    .unwrap();
                 assert_eq!(prim.to_buffer(), expected);
             }
             vx_array_free(applied_array);
@@ -433,6 +436,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_and_or() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let col1 = BoolArray::from_iter([true, false, true, true]);
         let col2 = BoolArray::from_iter([false, true, true, false]);
         let col3 = BoolArray::from_iter([false, true, true, true]);
@@ -468,8 +472,10 @@ mod tests {
             assert!(error.is_null());
             assert!(!applied_array.is_null());
             {
-                #[expect(deprecated)]
-                let array = vx_array::as_ref(applied_array).to_bool();
+                let array = vx_array::as_ref(applied_array)
+                    .clone()
+                    .execute::<BoolArray>(&mut ctx)
+                    .unwrap();
                 let expected = BoolArray::from_iter([false, false, true, false]);
                 assert_eq!(array.to_bit_buffer(), expected.to_bit_buffer());
             }
@@ -482,8 +488,10 @@ mod tests {
             assert!(error.is_null());
             assert!(!applied_array.is_null());
             {
-                #[expect(deprecated)]
-                let array = vx_array::as_ref(applied_array).to_bool();
+                let array = vx_array::as_ref(applied_array)
+                    .clone()
+                    .execute::<BoolArray>(&mut ctx)
+                    .unwrap();
                 let expected = BoolArray::from_iter([true, true, true, false]);
                 assert_eq!(array.to_bit_buffer(), expected.to_bit_buffer());
             }
@@ -520,6 +528,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_list_contains() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let elements = buffer![1i32, 2, 3, 4, 5].into_array();
         let offsets = buffer![0u32, 2, 5, 5].into_array();
         let array = ListArray::try_new(elements, offsets, Validity::NonNullable).unwrap();
@@ -537,8 +546,10 @@ mod tests {
             assert!(error.is_null());
             assert!(!applied.is_null());
             {
-                #[expect(deprecated)]
-                let applied = vx_array::as_ref(applied).to_bool();
+                let applied = vx_array::as_ref(applied)
+                    .clone()
+                    .execute::<BoolArray>(&mut ctx)
+                    .unwrap();
                 let expected = BoolArray::from_iter([true, false, false]);
                 assert_eq!(applied.to_bit_buffer(), expected.to_bit_buffer());
             }

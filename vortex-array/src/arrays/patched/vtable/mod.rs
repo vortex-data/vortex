@@ -373,6 +373,7 @@ mod tests {
     use crate::patches::Patches;
     use crate::serde::SerializeOptions;
     use crate::serde::SerializedArray;
+    use crate::session::ArraySessionExt;
     use crate::validity::Validity;
 
     #[test]
@@ -588,7 +589,9 @@ mod tests {
         let dtype = array.dtype().clone();
         let len = array.len();
 
-        let ctx = ArrayContext::empty();
+        LEGACY_SESSION.arrays().register(Patched);
+
+        let ctx = ArrayContext::empty().with_registry(LEGACY_SESSION.arrays().registry().clone());
         let serialized = array
             .serialize(&ctx, &LEGACY_SESSION, &SerializeOptions::default())
             .unwrap();

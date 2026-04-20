@@ -204,6 +204,8 @@ fn is_constant_zero(array: &ArrayRef) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
@@ -242,7 +244,7 @@ mod tests {
             time_unit,
             None,
         );
-        DateTimeParts::try_from_temporal(temporal)
+        DateTimeParts::try_from_temporal(temporal, &mut LEGACY_SESSION.create_execution_ctx())
             .vortex_expect("TemporalArray must produce valid DateTimeParts")
     }
 
@@ -375,7 +377,9 @@ mod tests {
             TimeUnit::Seconds,
             None,
         );
-        let dtp = DateTimeParts::try_from_temporal(temporal).unwrap();
+        let dtp =
+            DateTimeParts::try_from_temporal(temporal, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap();
         let len = dtp.len();
 
         // Compare against midnight constant

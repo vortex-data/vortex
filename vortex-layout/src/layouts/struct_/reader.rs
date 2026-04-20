@@ -11,8 +11,7 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::builtins::ArrayBuiltins;
@@ -354,14 +353,15 @@ impl LayoutReader for StructReader {
             ),
         };
 
+        let session = self.session.clone();
         Ok(Box::pin(async move {
             if let Some(validity_fut) = validity_fut {
                 let (array, validity) = try_join!(projected, validity_fut)?;
 
                 // If root expression was a pack, then we apply the validity to each child field
                 if is_pack_merge {
-                    #[expect(deprecated)]
-                    let struct_array = array.to_struct();
+                    let mut ctx = session.create_execution_ctx();
+                    let struct_array = array.execute::<StructArray>(&mut ctx)?;
                     let masked_fields: Vec<ArrayRef> = struct_array
                         .iter_unmasked_fields()
                         .map(|a| a.clone().mask(validity.clone()))
@@ -400,8 +400,6 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::MaskFuture;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -675,6 +673,7 @@ mod tests {
     fn test_struct_layout_select(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
         let expr = pack(
             [("a", get_item("a", root())), ("b", get_item("b", root()))],
@@ -695,16 +694,14 @@ mod tests {
         assert_eq!(result.len(), 2);
 
         let expected_a = PrimitiveArray::from_iter([7i32, 2]);
-        #[expect(deprecated)]
-        let result_struct_a = result.to_struct();
+        let result_struct_a = result.clone().execute::<StructArray>(&mut ctx).unwrap();
         assert_arrays_eq!(
             result_struct_a.unmasked_field_by_name("a").unwrap(),
             expected_a
         );
 
         let expected_b = PrimitiveArray::from_iter([4i32, 5]);
-        #[expect(deprecated)]
-        let result_struct_b = result.to_struct();
+        let result_struct_b = result.execute::<StructArray>(&mut ctx).unwrap();
         assert_arrays_eq!(
             result_struct_b.unmasked_field_by_name("b").unwrap(),
             expected_b

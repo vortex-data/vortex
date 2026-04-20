@@ -33,7 +33,7 @@ impl PrimitiveArray {
         match_each_native_ptype!(self.ptype(), |P| {
             let (top, count) = typed_top_value(
                 self.as_slice::<P>(),
-                self.as_ref().validity()?.to_mask(
+                self.as_ref().validity()?.execute_mask(
                     self.as_ref().len(),
                     &mut LEGACY_SESSION.create_execution_ctx(),
                 )?,

@@ -13,14 +13,13 @@ use vortex_array::CanonicalValidity;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
@@ -311,7 +310,7 @@ impl CascadingCompressor {
         if array.is_empty() {
             return Ok(array);
         }
-        if array.all_invalid(&mut LEGACY_SESSION.create_execution_ctx())? {
+        if array.all_invalid(&mut self.execution_ctx())? {
             return Ok(
                 ConstantArray::new(Scalar::null(array.dtype().clone()), array.len()).into_array(),
             );
@@ -488,8 +487,11 @@ impl CascadingCompressor {
 
         // Record the root scheme with the offsets child index so root exclusion rules apply.
         let offset_ctx = ctx.descend_with_scheme(ROOT_SCHEME_ID, root_list_children::OFFSETS);
-        #[expect(deprecated)]
-        let list_offsets_primitive = list_array.offsets().to_primitive().narrow()?;
+        let list_offsets_primitive = list_array
+            .offsets()
+            .clone()
+            .execute::<PrimitiveArray>(&mut self.execution_ctx())?
+            .narrow()?;
         let compressed_offsets =
             self.compress_canonical(Canonical::Primitive(list_offsets_primitive), offset_ctx)?;
 
@@ -511,16 +513,22 @@ impl CascadingCompressor {
         let offset_ctx = ctx
             .clone()
             .descend_with_scheme(ROOT_SCHEME_ID, root_list_children::OFFSETS);
-        #[expect(deprecated)]
-        let list_view_offsets_primitive = list_view.offsets().to_primitive().narrow()?;
+        let list_view_offsets_primitive = list_view
+            .offsets()
+            .clone()
+            .execute::<PrimitiveArray>(&mut self.execution_ctx())?
+            .narrow()?;
         let compressed_offsets = self.compress_canonical(
             Canonical::Primitive(list_view_offsets_primitive),
             offset_ctx,
         )?;
 
         let sizes_ctx = ctx.descend_with_scheme(ROOT_SCHEME_ID, root_list_children::SIZES);
-        #[expect(deprecated)]
-        let list_view_sizes_primitive = list_view.sizes().to_primitive().narrow()?;
+        let list_view_sizes_primitive = list_view
+            .sizes()
+            .clone()
+            .execute::<PrimitiveArray>(&mut self.execution_ctx())?
+            .narrow()?;
         let compressed_sizes =
             self.compress_canonical(Canonical::Primitive(list_view_sizes_primitive), sizes_ctx)?;
 

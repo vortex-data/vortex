@@ -55,11 +55,11 @@ use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_denorm::DenormOrientation;
 use crate::scalar_fns::sorf_transform::SorfMatrix;
 use crate::scalar_fns::sorf_transform::SorfTransform;
+use crate::types::vector::Vector;
 use crate::utils::extract_constant_flat_row;
 use crate::utils::extract_flat_elements;
 use crate::utils::extract_l2_denorm_children;
 use crate::utils::validate_binary_tensor_float_inputs;
-use crate::vector::Vector;
 
 /// Inner product (dot product) between two columns.
 ///
@@ -906,10 +906,10 @@ mod tests {
         use crate::scalar_fns::sorf_transform::SorfOptions;
         use crate::scalar_fns::sorf_transform::SorfTransform;
         use crate::tests::SESSION;
+        use crate::types::vector::Vector;
         use crate::utils::extract_flat_elements;
         use crate::utils::test_helpers::literal_vector_array;
         use crate::utils::test_helpers::vector_array;
-        use crate::vector::Vector;
 
         /// Build a `Vector<list_size, f32>` whose storage is `FSL(DictArray(codes: u8, values:
         /// f32))`. This mirrors the shape that TurboQuant produces as the SorfTransform child.

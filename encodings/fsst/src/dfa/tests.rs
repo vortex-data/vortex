@@ -229,7 +229,13 @@ fn make_fsst_str(strings: &[Option<&str>]) -> FSSTArray {
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
     let dtype = varbin.dtype().clone();
-    fsst_compress(varbin, len, &dtype, &compressor)
+    fsst_compress(
+        varbin,
+        len,
+        &dtype,
+        &compressor,
+        &mut SESSION.create_execution_ctx(),
+    )
 }
 
 fn run_like(array: FSSTArray, pattern_arr: ArrayRef) -> VortexResult<BoolArray> {

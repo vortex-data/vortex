@@ -12,13 +12,12 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::filter::execute::values_to_mask;
 use crate::arrow::FromArrowArray;
 use crate::arrow::IntoArrowArray;
 
 pub fn filter_varbinview(array: &VarBinViewArray, mask: &Arc<MaskValues>) -> VarBinViewArray {
     // Delegate to the Arrow implementation of filter over `VarBinView`.
-    arrow_filter_fn(&array.clone().into_array(), &values_to_mask(mask))
+    arrow_filter_fn(&array.clone().into_array(), &Mask::Values(Arc::clone(mask)))
         .vortex_expect("VarBinViewArray is Arrow-compatible and supports arrow_filter_fn")
         .as_::<VarBinView>()
         .into_owned()

@@ -304,7 +304,7 @@ impl ArrayBuilder for VarBinViewBuilder {
                 .as_ref()
                 .validity()
                 .vortex_expect("validity_mask")
-                .to_mask(
+                .execute_mask(
                     array.as_ref().len(),
                     &mut LEGACY_SESSION.create_execution_ctx(),
                 )
@@ -330,7 +330,7 @@ impl ArrayBuilder for VarBinViewBuilder {
                     .as_ref()
                     .validity()
                     .vortex_expect("validity_mask")
-                    .to_mask(
+                    .execute_mask(
                         array.as_ref().len(),
                         &mut LEGACY_SESSION.create_execution_ctx(),
                     )

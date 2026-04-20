@@ -500,8 +500,6 @@ mod tests {
     use cudarc::driver::PushKernelArg;
     use rstest::rstest;
     use vortex::array::IntoArray;
-    #[expect(deprecated)]
-    use vortex::array::ToCanonical;
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::scalar::Scalar;
@@ -542,8 +540,12 @@ mod tests {
             .map(|i| ((i as u64) % (max_val + 1)) as u32)
             .collect();
         let primitive = PrimitiveArray::new(Buffer::from(values), NonNullable);
-        BitPacked::encode(&primitive.into_array(), bit_width)
-            .vortex_expect("failed to create BitPacked array")
+        BitPacked::encode(
+            &primitive.into_array(),
+            bit_width,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .vortex_expect("failed to create BitPacked array")
     }
 
     fn dispatch_plan(
@@ -823,11 +825,11 @@ mod tests {
             expected.push(values[run]);
         }
 
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let ends_arr = PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array();
         let values_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-        let re = RunEnd::new(ends_arr, values_arr);
+        let re = RunEnd::new(ends_arr, values_arr, cuda_ctx.execution_ctx());
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let plan = dispatch_plan(&re.into_array(), &cuda_ctx)?;
 
         let actual =
@@ -851,12 +853,20 @@ mod tests {
 
         // BitPack+FoR the dict values
         let dict_prim = PrimitiveArray::new(Buffer::from(dict_residuals), NonNullable);
-        let dict_bp = BitPacked::encode(&dict_prim.into_array(), 6)?;
+        let dict_bp = BitPacked::encode(
+            &dict_prim.into_array(),
+            6,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         let dict_for = FoR::try_new(dict_bp.into_array(), Scalar::from(dict_reference))?;
 
         // BitPack the codes
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPacked::encode(&codes_prim.into_array(), 6)?;
+        let codes_bp = BitPacked::encode(
+            &codes_prim.into_array(),
+            6,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
 
         let dict = DictArray::try_new(codes_bp.into_array(), dict_for.into_array())?;
 
@@ -872,6 +882,7 @@ mod tests {
 
     #[crate::test]
     fn test_alp_for_bitpacked() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // ALP(FoR(BitPacked)): encode each layer, then reassemble the tree
         // bottom-up because encode() methods produce flat outputs.
         let len = 3000;
@@ -881,15 +892,14 @@ mod tests {
             .collect();
         let float_prim = PrimitiveArray::new(Buffer::from(floats.clone()), NonNullable);
 
-        let alp = alp_encode(
-            float_prim.as_view(),
-            Some(exponents),
+        let alp = alp_encode(float_prim.as_view(), Some(exponents), &mut ctx)?;
+        assert!(alp.patches().is_none());
+        let for_arr = FoR::encode(alp.encoded().clone().execute::<PrimitiveArray>(&mut ctx)?)?;
+        let bp = BitPacked::encode(
+            for_arr.encoded(),
+            6,
             &mut LEGACY_SESSION.create_execution_ctx(),
         )?;
-        assert!(alp.patches().is_none());
-        #[expect(deprecated)]
-        let for_arr = FoR::encode(alp.encoded().to_primitive())?;
-        let bp = BitPacked::encode(for_arr.encoded(), 6)?;
 
         let tree = ALP::new(
             FoR::try_new(bp.into_array(), for_arr.reference_scalar().clone())?.into_array(),
@@ -923,7 +933,11 @@ mod tests {
             .collect();
 
         let prim = PrimitiveArray::new(Buffer::from(raw), NonNullable);
-        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        let bp = BitPacked::encode(
+            &prim.into_array(),
+            bit_width,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         let zz = ZigZag::try_new(bp.into_array())?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
@@ -950,12 +964,12 @@ mod tests {
             expected.push(values[run] + reference);
         }
 
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let ends_arr = PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array();
         let values_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-        let re = RunEnd::new(ends_arr, values_arr);
+        let re = RunEnd::new(ends_arr, values_arr, cuda_ctx.execution_ctx());
         let for_arr = FoR::try_new(re.into_array(), Scalar::from(reference))?;
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let plan = dispatch_plan(&for_arr.into_array(), &cuda_ctx)?;
 
         let actual =
@@ -1006,7 +1020,11 @@ mod tests {
         // BitPack codes, then wrap in FoR (reference=0 so values unchanged)
         let bit_width: u8 = 3;
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPacked::encode(&codes_prim.into_array(), bit_width)?;
+        let codes_bp = BitPacked::encode(
+            &codes_prim.into_array(),
+            bit_width,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         let codes_for = FoR::try_new(codes_bp.into_array(), Scalar::from(0u32))?;
 
         let values_prim = PrimitiveArray::new(Buffer::from(dict_values), NonNullable);
@@ -1032,7 +1050,11 @@ mod tests {
 
         let bit_width: u8 = 2;
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPacked::encode(&codes_prim.into_array(), bit_width)?;
+        let codes_bp = BitPacked::encode(
+            &codes_prim.into_array(),
+            bit_width,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         let values_prim = PrimitiveArray::new(Buffer::from(dict_values), NonNullable);
 
         let dict = DictArray::try_new(codes_bp.into_array(), values_prim.into_array())?;
@@ -1117,9 +1139,10 @@ mod tests {
         let values: Vec<u32> = vec![10, 20, 30];
         let len = 3000;
 
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let ends_arr = PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array();
         let values_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-        let re = RunEnd::new(ends_arr, values_arr);
+        let re = RunEnd::new(ends_arr, values_arr, cuda_ctx.execution_ctx());
         let array = re.into_array();
 
         // Ends (u64) are wider than values (u32), so the kernel would truncate
@@ -1131,7 +1154,6 @@ mod tests {
         );
 
         // Execute through the non-fused dispatch path.
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let canonical = try_gpu_dispatch(&array, &mut cuda_ctx).await?;
         let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
 
@@ -1226,7 +1248,11 @@ mod tests {
             .collect();
 
         let prim = PrimitiveArray::new(Buffer::from(raw), NonNullable);
-        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        let bp = BitPacked::encode(
+            &prim.into_array(),
+            bit_width,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         let zz = ZigZag::try_new(bp.into_array())?;
 
         let sliced = zz.into_array().slice(slice_start..slice_end)?;
@@ -1322,7 +1348,11 @@ mod tests {
 
         let data: Vec<u32> = (0..len).map(|i| (i as u32) % max_val).collect();
         let prim = PrimitiveArray::new(Buffer::from(data.clone()), NonNullable);
-        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        let bp = BitPacked::encode(
+            &prim.into_array(),
+            bit_width,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
 
         let sliced = bp.into_array().slice(slice_start..slice_end)?;
         let expected: Vec<u32> = data[slice_start..slice_end].to_vec();
@@ -1368,7 +1398,11 @@ mod tests {
 
         let encoded_data: Vec<u32> = (0..len).map(|i| (i as u32) % max_val).collect();
         let prim = PrimitiveArray::new(Buffer::from(encoded_data.clone()), NonNullable);
-        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        let bp = BitPacked::encode(
+            &prim.into_array(),
+            bit_width,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         let for_arr = FoR::try_new(bp.into_array(), Scalar::from(reference))?;
 
         let all_decoded: Vec<u32> = encoded_data.iter().map(|&v| v + reference).collect();
@@ -1421,12 +1455,20 @@ mod tests {
 
         // BitPack+FoR the dict values
         let dict_prim = PrimitiveArray::new(Buffer::from(dict_residuals), NonNullable);
-        let dict_bp = BitPacked::encode(&dict_prim.into_array(), 6)?;
+        let dict_bp = BitPacked::encode(
+            &dict_prim.into_array(),
+            6,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         let dict_for = FoR::try_new(dict_bp.into_array(), Scalar::from(dict_reference))?;
 
         // BitPack the codes
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPacked::encode(&codes_prim.into_array(), 6)?;
+        let codes_bp = BitPacked::encode(
+            &codes_prim.into_array(),
+            6,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
 
         let dict = DictArray::try_new(codes_bp.into_array(), dict_for.into_array())?;
 
@@ -1526,7 +1568,12 @@ mod tests {
             .collect();
 
         let primitive = PrimitiveArray::new(Buffer::from(residuals), NonNullable);
-        let bp = BitPacked::encode(&primitive.into_array(), bit_width).vortex_expect("bitpack u8");
+        let bp = BitPacked::encode(
+            &primitive.into_array(),
+            bit_width,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .vortex_expect("bitpack u8");
         let for_arr = FoR::try_new(
             bp.into_array(),
             Scalar::primitive(reference, Nullability::NonNullable),
@@ -1557,7 +1604,12 @@ mod tests {
             .collect();
 
         let primitive = PrimitiveArray::new(Buffer::from(residuals), NonNullable);
-        let bp = BitPacked::encode(&primitive.into_array(), bit_width).vortex_expect("bitpack u16");
+        let bp = BitPacked::encode(
+            &primitive.into_array(),
+            bit_width,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .vortex_expect("bitpack u16");
         let for_arr = FoR::try_new(
             bp.into_array(),
             Scalar::primitive(reference, Nullability::NonNullable),
@@ -1586,7 +1638,12 @@ mod tests {
             .collect();
 
         let primitive = PrimitiveArray::new(Buffer::from(residuals), NonNullable);
-        let bp = BitPacked::encode(&primitive.into_array(), bit_width).vortex_expect("bitpack u64");
+        let bp = BitPacked::encode(
+            &primitive.into_array(),
+            bit_width,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .vortex_expect("bitpack u64");
         let for_arr = FoR::try_new(
             bp.into_array(),
             Scalar::primitive(reference, Nullability::NonNullable),
@@ -1617,7 +1674,12 @@ mod tests {
     async fn test_single_element() -> VortexResult<()> {
         let values: Vec<u32> = vec![42];
         let primitive = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
-        let bp = BitPacked::encode(&primitive.into_array(), 6).vortex_expect("bitpack");
+        let bp = BitPacked::encode(
+            &primitive.into_array(),
+            6,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .vortex_expect("bitpack");
         let for_arr = FoR::try_new(
             bp.into_array(),
             Scalar::primitive(0u32, Nullability::NonNullable),
@@ -1646,7 +1708,12 @@ mod tests {
         let expected: Vec<u32> = residuals.iter().map(|&r| r + reference).collect();
 
         let primitive = PrimitiveArray::new(Buffer::from(residuals), NonNullable);
-        let bp = BitPacked::encode(&primitive.into_array(), bit_width).vortex_expect("bitpack");
+        let bp = BitPacked::encode(
+            &primitive.into_array(),
+            bit_width,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .vortex_expect("bitpack");
         let for_arr = FoR::try_new(
             bp.into_array(),
             Scalar::primitive(reference, Nullability::NonNullable),
@@ -1683,9 +1750,10 @@ mod tests {
         let values: Vec<u16> = vec![100, 200, 300, 400];
         let len = 2000;
 
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let ends_arr = PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array();
         let values_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-        let re = RunEnd::new(ends_arr, values_arr);
+        let re = RunEnd::new(ends_arr, values_arr, cuda_ctx.execution_ctx());
         let array = re.into_array();
 
         // Ends (u32) are wider than values (u16), so the kernel would truncate
@@ -1696,7 +1764,6 @@ mod tests {
             "expected Unfused for RunEnd with wider ends"
         );
 
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let canonical = try_gpu_dispatch(&array, &mut cuda_ctx).await?;
         let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
 
@@ -1729,8 +1796,12 @@ mod tests {
 
         let codes_prim = PrimitiveArray::new(Buffer::from(codes.clone()), NonNullable);
         // BitPack the u8 codes at 2 bits (4 values need 2 bits)
-        let codes_bp =
-            BitPacked::encode(&codes_prim.into_array(), 2).vortex_expect("bitpack codes");
+        let codes_bp = BitPacked::encode(
+            &codes_prim.into_array(),
+            2,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .vortex_expect("bitpack codes");
         let values_prim = PrimitiveArray::new(Buffer::from(dict_values.clone()), NonNullable);
         let dict = DictArray::try_new(codes_bp.into_array(), values_prim.into_array())?;
         let array = dict.into_array();
@@ -1902,7 +1973,11 @@ mod tests {
             PrimitiveArray::from_option_iter(values.iter().map(|v| v.map(|x| x - reference)));
 
         // BitPacked::encode preserves nullable validity from the input.
-        let bp = BitPacked::encode(&residuals.into_array(), 6)?;
+        let bp = BitPacked::encode(
+            &residuals.into_array(),
+            6,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         let for_arr = FoR::try_new(bp.into_array(), reference.into())?;
 
         // Verify the plan actually fuses (not just a LOAD).

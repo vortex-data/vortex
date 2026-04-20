@@ -26,6 +26,7 @@ use tracing::info;
 use tracing::trace;
 use url::Url;
 use vortex::array::ArrayRef;
+use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::error::VortexResult;
@@ -452,7 +453,7 @@ impl Dataset for PBIBenchmark {
         &self.name
     }
 
-    async fn to_vortex_array(&self) -> anyhow::Result<ArrayRef> {
+    async fn to_vortex_array(&self, _ctx: &mut ExecutionCtx) -> anyhow::Result<ArrayRef> {
         let dataset = self.dataset()?;
         dataset.write_as_vortex().await?;
         // reading only the first table, each table in a PBI benchmark

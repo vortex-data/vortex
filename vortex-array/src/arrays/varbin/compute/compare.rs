@@ -184,7 +184,7 @@ mod test {
                 .as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(
+                .execute_mask(
                     result.as_ref().len(),
                     &mut LEGACY_SESSION.create_execution_ctx()
                 )
@@ -220,7 +220,7 @@ mod test {
                 .as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(
+                .execute_mask(
                     result.as_ref().len(),
                     &mut LEGACY_SESSION.create_execution_ctx()
                 )

@@ -690,25 +690,25 @@ pub fn vortex_compressor::stats::ArrayAndStats::array_as_utf8(&self) -> vortex_a
 
 pub fn vortex_compressor::stats::ArrayAndStats::array_len(&self) -> usize
 
-pub fn vortex_compressor::stats::ArrayAndStats::bool_stats(&mut self) -> &vortex_compressor::stats::BoolStats
+pub fn vortex_compressor::stats::ArrayAndStats::bool_stats(&mut self, ctx: &mut vortex_array::executor::ExecutionCtx) -> &vortex_compressor::stats::BoolStats
 
-pub fn vortex_compressor::stats::ArrayAndStats::float_stats(&mut self) -> &vortex_compressor::stats::FloatStats
+pub fn vortex_compressor::stats::ArrayAndStats::float_stats(&mut self, ctx: &mut vortex_array::executor::ExecutionCtx) -> &vortex_compressor::stats::FloatStats
 
 pub fn vortex_compressor::stats::ArrayAndStats::get_or_insert_with<T: 'static>(&mut self, f: impl core::ops::function::FnOnce() -> T) -> &T
 
-pub fn vortex_compressor::stats::ArrayAndStats::integer_stats(&mut self) -> &vortex_compressor::stats::IntegerStats
+pub fn vortex_compressor::stats::ArrayAndStats::integer_stats(&mut self, ctx: &mut vortex_array::executor::ExecutionCtx) -> &vortex_compressor::stats::IntegerStats
 
 pub fn vortex_compressor::stats::ArrayAndStats::into_array(self) -> vortex_array::array::erased::ArrayRef
 
 pub fn vortex_compressor::stats::ArrayAndStats::new(array: vortex_array::array::erased::ArrayRef, opts: vortex_compressor::stats::GenerateStatsOptions) -> Self
 
-pub fn vortex_compressor::stats::ArrayAndStats::string_stats(&mut self) -> &vortex_compressor::stats::StringStats
+pub fn vortex_compressor::stats::ArrayAndStats::string_stats(&mut self, ctx: &mut vortex_array::executor::ExecutionCtx) -> &vortex_compressor::stats::StringStats
 
 pub struct vortex_compressor::stats::BoolStats
 
 impl vortex_compressor::stats::BoolStats
 
-pub fn vortex_compressor::stats::BoolStats::generate(input: &vortex_array::arrays::bool::vtable::BoolArray) -> vortex_error::VortexResult<Self>
+pub fn vortex_compressor::stats::BoolStats::generate(input: &vortex_array::arrays::bool::vtable::BoolArray, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_compressor::stats::BoolStats::is_constant(&self) -> bool
 
@@ -748,9 +748,9 @@ pub fn vortex_compressor::stats::FloatStats::average_run_length(&self) -> u32
 
 pub fn vortex_compressor::stats::FloatStats::erased(&self) -> &vortex_compressor::stats::FloatErasedStats
 
-pub fn vortex_compressor::stats::FloatStats::generate(input: &vortex_array::arrays::primitive::vtable::PrimitiveArray) -> Self
+pub fn vortex_compressor::stats::FloatStats::generate(input: &vortex_array::arrays::primitive::vtable::PrimitiveArray, ctx: &mut vortex_array::executor::ExecutionCtx) -> Self
 
-pub fn vortex_compressor::stats::FloatStats::generate_opts(input: &vortex_array::arrays::primitive::vtable::PrimitiveArray, opts: vortex_compressor::stats::GenerateStatsOptions) -> Self
+pub fn vortex_compressor::stats::FloatStats::generate_opts(input: &vortex_array::arrays::primitive::vtable::PrimitiveArray, opts: vortex_compressor::stats::GenerateStatsOptions, ctx: &mut vortex_array::executor::ExecutionCtx) -> Self
 
 pub fn vortex_compressor::stats::FloatStats::null_count(&self) -> u32
 
@@ -838,9 +838,9 @@ pub fn vortex_compressor::stats::IntegerStats::average_run_length(&self) -> u32
 
 pub fn vortex_compressor::stats::IntegerStats::erased(&self) -> &vortex_compressor::stats::IntegerErasedStats
 
-pub fn vortex_compressor::stats::IntegerStats::generate(input: &vortex_array::arrays::primitive::vtable::PrimitiveArray) -> Self
+pub fn vortex_compressor::stats::IntegerStats::generate(input: &vortex_array::arrays::primitive::vtable::PrimitiveArray, ctx: &mut vortex_array::executor::ExecutionCtx) -> Self
 
-pub fn vortex_compressor::stats::IntegerStats::generate_opts(input: &vortex_array::arrays::primitive::vtable::PrimitiveArray, opts: vortex_compressor::stats::GenerateStatsOptions) -> Self
+pub fn vortex_compressor::stats::IntegerStats::generate_opts(input: &vortex_array::arrays::primitive::vtable::PrimitiveArray, opts: vortex_compressor::stats::GenerateStatsOptions, ctx: &mut vortex_array::executor::ExecutionCtx) -> Self
 
 pub fn vortex_compressor::stats::IntegerStats::null_count(&self) -> u32
 
@@ -912,9 +912,9 @@ impl vortex_compressor::stats::StringStats
 
 pub fn vortex_compressor::stats::StringStats::estimated_distinct_count(&self) -> core::option::Option<u32>
 
-pub fn vortex_compressor::stats::StringStats::generate(input: &vortex_array::arrays::varbinview::vtable::VarBinViewArray) -> Self
+pub fn vortex_compressor::stats::StringStats::generate(input: &vortex_array::arrays::varbinview::vtable::VarBinViewArray, ctx: &mut vortex_array::executor::ExecutionCtx) -> Self
 
-pub fn vortex_compressor::stats::StringStats::generate_opts(input: &vortex_array::arrays::varbinview::vtable::VarBinViewArray, opts: vortex_compressor::stats::GenerateStatsOptions) -> Self
+pub fn vortex_compressor::stats::StringStats::generate_opts(input: &vortex_array::arrays::varbinview::vtable::VarBinViewArray, opts: vortex_compressor::stats::GenerateStatsOptions, ctx: &mut vortex_array::executor::ExecutionCtx) -> Self
 
 pub fn vortex_compressor::stats::StringStats::null_count(&self) -> u32
 

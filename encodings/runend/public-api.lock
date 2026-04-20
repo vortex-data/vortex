@@ -2,17 +2,17 @@ pub mod vortex_runend
 
 pub mod vortex_runend::compress
 
-pub fn vortex_runend::compress::runend_decode_primitive(ends: vortex_array::arrays::primitive::vtable::PrimitiveArray, values: vortex_array::arrays::primitive::vtable::PrimitiveArray, offset: usize, length: usize) -> vortex_error::VortexResult<vortex_array::arrays::primitive::vtable::PrimitiveArray>
+pub fn vortex_runend::compress::runend_decode_primitive(ends: vortex_array::arrays::primitive::vtable::PrimitiveArray, values: vortex_array::arrays::primitive::vtable::PrimitiveArray, offset: usize, length: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::primitive::vtable::PrimitiveArray>
 
 pub fn vortex_runend::compress::runend_decode_typed_primitive<T: vortex_array::dtype::ptype::NativePType>(run_ends: impl core::iter::traits::iterator::Iterator<Item = usize>, values: &[T], values_validity: vortex_mask::Mask, values_nullability: vortex_array::dtype::nullability::Nullability, length: usize) -> vortex_array::arrays::primitive::vtable::PrimitiveArray
 
-pub fn vortex_runend::compress::runend_decode_varbinview(ends: vortex_array::arrays::primitive::vtable::PrimitiveArray, values: vortex_array::arrays::varbinview::vtable::VarBinViewArray, offset: usize, length: usize) -> vortex_error::VortexResult<vortex_array::arrays::varbinview::vtable::VarBinViewArray>
+pub fn vortex_runend::compress::runend_decode_varbinview(ends: vortex_array::arrays::primitive::vtable::PrimitiveArray, values: vortex_array::arrays::varbinview::vtable::VarBinViewArray, offset: usize, length: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::varbinview::vtable::VarBinViewArray>
 
-pub fn vortex_runend::compress::runend_encode(array: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>) -> (vortex_array::arrays::primitive::vtable::PrimitiveArray, vortex_array::array::erased::ArrayRef)
+pub fn vortex_runend::compress::runend_encode(array: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>, ctx: &mut vortex_array::executor::ExecutionCtx) -> (vortex_array::arrays::primitive::vtable::PrimitiveArray, vortex_array::array::erased::ArrayRef)
 
 pub mod vortex_runend::decompress_bool
 
-pub fn vortex_runend::decompress_bool::runend_decode_bools(ends: vortex_array::arrays::primitive::vtable::PrimitiveArray, values: vortex_array::arrays::bool::vtable::BoolArray, offset: usize, length: usize) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+pub fn vortex_runend::decompress_bool::runend_decode_bools(ends: vortex_array::arrays::primitive::vtable::PrimitiveArray, values: vortex_array::arrays::bool::vtable::BoolArray, offset: usize, length: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub fn vortex_runend::decompress_bool::runend_decode_typed_bool(run_ends: impl core::iter::traits::iterator::Iterator<Item = usize>, values: &vortex_buffer::bit::buf::BitBuffer, values_validity: vortex_mask::Mask, values_nullability: vortex_array::dtype::nullability::Nullability, length: usize) -> vortex_array::array::erased::ArrayRef
 
@@ -20,13 +20,13 @@ pub struct vortex_runend::RunEnd
 
 impl vortex_runend::RunEnd
 
-pub fn vortex_runend::RunEnd::encode(array: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_runend::RunEndArray>
+pub fn vortex_runend::RunEnd::encode(array: vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_runend::RunEndArray>
 
-pub fn vortex_runend::RunEnd::new(ends: vortex_array::array::erased::ArrayRef, values: vortex_array::array::erased::ArrayRef) -> vortex_runend::RunEndArray
+pub fn vortex_runend::RunEnd::new(ends: vortex_array::array::erased::ArrayRef, values: vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_runend::RunEndArray
 
-pub unsafe fn vortex_runend::RunEnd::new_unchecked(ends: vortex_array::array::erased::ArrayRef, values: vortex_array::array::erased::ArrayRef, offset: usize, length: usize) -> vortex_runend::RunEndArray
+pub unsafe fn vortex_runend::RunEnd::new_unchecked(ends: vortex_array::array::erased::ArrayRef, values: vortex_array::array::erased::ArrayRef, offset: usize, length: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_runend::RunEndArray
 
-pub fn vortex_runend::RunEnd::try_new(ends: vortex_array::array::erased::ArrayRef, values: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_runend::RunEndArray>
+pub fn vortex_runend::RunEnd::try_new(ends: vortex_array::array::erased::ArrayRef, values: vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_runend::RunEndArray>
 
 pub fn vortex_runend::RunEnd::try_new_offset_length(ends: vortex_array::array::erased::ArrayRef, values: vortex_array::array::erased::ArrayRef, offset: usize, length: usize) -> vortex_error::VortexResult<vortex_runend::RunEndArray>
 
@@ -100,7 +100,7 @@ pub struct vortex_runend::RunEndData
 
 impl vortex_runend::RunEndData
 
-pub fn vortex_runend::RunEndData::encode(array: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<Self>
+pub fn vortex_runend::RunEndData::encode(array: vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_runend::RunEndData::into_parts(self, ends: vortex_array::array::erased::ArrayRef, values: vortex_array::array::erased::ArrayRef) -> vortex_runend::RunEndDataParts
 

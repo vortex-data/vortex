@@ -42,6 +42,7 @@ impl FilterKernel for RunEnd {
                 array,
                 mask_values.indices(),
                 &Validity::NonNullable,
+                ctx,
             )?))
         } else {
             let primitive_run_ends = array.ends().clone().execute::<PrimitiveArray>(ctx)?;
@@ -64,6 +65,7 @@ impl FilterKernel for RunEnd {
                         values,
                         0,
                         mask_values.true_count(),
+                        ctx,
                     )
                     .into_array(),
                 ))
@@ -126,8 +128,11 @@ mod tests {
     use crate::RunEndArray;
 
     fn ree_array() -> RunEndArray {
-        RunEnd::encode(PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array())
-            .unwrap()
+        RunEnd::encode(
+            PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -135,11 +140,13 @@ mod tests {
         let arr = ree_array().slice(2..7).unwrap();
         let filtered = arr.filter(Mask::from_iter([true, false, false, true, true]))?;
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert_arrays_eq!(
             filtered,
             RunEnd::new(
                 PrimitiveArray::from_iter([1u8, 2, 3]).into_array(),
-                PrimitiveArray::from_iter([1i32, 4, 2]).into_array()
+                PrimitiveArray::from_iter([1i32, 4, 2]).into_array(),
+                &mut ctx,
             )
         );
         Ok(())
@@ -157,7 +164,8 @@ mod tests {
             .iter()
             .flat_map(|&v| std::iter::repeat_n(v, 32))
             .collect();
-        let arr = RunEnd::encode(PrimitiveArray::from_iter(values).into_array())?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let arr = RunEnd::encode(PrimitiveArray::from_iter(values).into_array(), &mut ctx)?;
 
         // Slice off the first 16 rows. Slice(RunEnd), 112 rows, 4 runs.
         let sliced = arr.into_array().slice(16..128)?;
@@ -166,7 +174,6 @@ mod tests {
         let mask = Mask::from_iter((0..sliced.len()).map(|i| i % 2 == 0));
         let filtered = sliced.filter(mask)?;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let executed = filtered.execute_until::<RunEnd>(&mut ctx)?;
         assert_eq!(
             executed.encoding_id().as_ref(),

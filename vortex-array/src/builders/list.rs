@@ -229,7 +229,7 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
             array
                 .validity()
                 .vortex_expect("validity_mask in extend_from_array_unchecked")
-                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("Failed to compute validity mask"),
         );
 

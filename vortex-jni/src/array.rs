@@ -28,10 +28,9 @@ use jni::sys::jshort;
 use jni::sys::jstring;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayView;
-use vortex::array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex::array::ToCanonical;
 use vortex::array::VortexSessionExecute;
+use vortex::array::arrays::ExtensionArray;
+use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBin;
 use vortex::array::arrays::VarBinView;
 use vortex::array::arrays::extension::ExtensionArrayExt;
@@ -45,6 +44,7 @@ use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::scalar::DecimalValue;
 
+use crate::SESSION;
 use crate::errors::JNIError;
 use crate::errors::try_or_throw;
 
@@ -235,8 +235,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getField(
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
 
     try_or_throw(&mut env, |_| {
-        #[expect(deprecated)]
-        let struct_array = array_ref.inner.to_struct();
+        let mut ctx = SESSION.create_execution_ctx();
+        let struct_array = array_ref.inner.clone().execute::<StructArray>(&mut ctx)?;
         let idx = index as usize;
         if idx >= struct_array.struct_fields().nfields() {
             return Err(vortex_err!("Field index out of bounds").into());
@@ -271,9 +271,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getNull(
 ) -> jboolean {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |_| {
-        let is_null = array_ref
-            .inner
-            .is_invalid(index as usize, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let is_null = array_ref.inner.is_invalid(index as usize, &mut ctx)?;
         if is_null { Ok(JNI_TRUE) } else { Ok(JNI_FALSE) }
     })
 }
@@ -286,9 +285,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getNullCount(
 ) -> jint {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |_| {
-        let count = array_ref
-            .inner
-            .invalid_count(&mut LEGACY_SESSION.create_execution_ctx())?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let count = array_ref.inner.invalid_count(&mut ctx)?;
         Ok(jint::try_from(count).unwrap_or(-1))
     })
 }
@@ -304,18 +302,16 @@ macro_rules! get_primitive {
         ) -> $jtype {
             let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
             try_or_throw(&mut env, |_| {
+                let mut ctx = SESSION.create_execution_ctx();
                 let scalar_value = if array_ref.is_extension {
-                    #[expect(deprecated)]
-                    let ext = array_ref.inner.to_extension();
-                    ext.storage_array().execute_scalar(
-                        index as usize,
-                        &mut LEGACY_SESSION.create_execution_ctx(),
-                    )?
+                    let ext = array_ref
+                        .inner
+                        .clone()
+                        .execute::<ExtensionArray>(&mut ctx)?;
+                    ext.storage_array()
+                        .execute_scalar(index as usize, &mut ctx)?
                 } else {
-                    array_ref.inner.execute_scalar(
-                        index as usize,
-                        &mut LEGACY_SESSION.create_execution_ctx(),
-                    )?
+                    array_ref.inner.execute_scalar(index as usize, &mut ctx)?
                 };
 
                 Ok(scalar_value
@@ -347,15 +343,16 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBigDecimal(
 ) -> jobject {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |env| {
+        let mut ctx = SESSION.create_execution_ctx();
         let scalar_value = if array_ref.is_extension {
-            #[expect(deprecated)]
-            let ext = array_ref.inner.to_extension();
-            ext.storage_array()
-                .execute_scalar(index as usize, &mut LEGACY_SESSION.create_execution_ctx())?
-        } else {
-            array_ref
+            let ext = array_ref
                 .inner
-                .execute_scalar(index as usize, &mut LEGACY_SESSION.create_execution_ctx())?
+                .clone()
+                .execute::<ExtensionArray>(&mut ctx)?;
+            ext.storage_array()
+                .execute_scalar(index as usize, &mut ctx)?
+        } else {
+            array_ref.inner.execute_scalar(index as usize, &mut ctx)?
         };
 
         let decimal_scalar = scalar_value.as_decimal();
@@ -417,9 +414,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBool(
 ) -> jboolean {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |_| {
-        let value = array_ref
-            .inner
-            .execute_scalar(index as usize, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let value = array_ref.inner.execute_scalar(index as usize, &mut ctx)?;
         match value.as_bool().value() {
             None => Ok(JNI_FALSE),
             Some(b) => {
@@ -442,9 +438,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getUTF8<'local>(
 ) -> jstring {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |env| {
-        let value = array_ref
-            .inner
-            .execute_scalar(index as usize, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let value = array_ref.inner.execute_scalar(index as usize, &mut ctx)?;
         match value.as_utf8().value() {
             None => Ok(JObject::null().into_raw()),
             Some(buf_str) => Ok(env.new_string(buf_str.as_str())?.into_raw()),
@@ -492,9 +487,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBinary<'local>(
 ) -> jbyteArray {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |env| {
-        let value = array_ref
-            .inner
-            .execute_scalar(index as usize, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let value = array_ref.inner.execute_scalar(index as usize, &mut ctx)?;
         match value.as_binary().value() {
             None => Ok(JObject::null().into_raw()),
             Some(buf) => Ok(env.byte_array_from_slice(buf.as_slice())?.into_raw()),

@@ -19,6 +19,8 @@ use jiff::tz::TimeZone;
 use num_traits::AsPrimitive;
 use tempfile::NamedTempFile;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::DictArray;
@@ -823,7 +825,9 @@ async fn write_vortex_file_with_encodings() -> NamedTempFile {
     // 4. Run-End
     let run_ends = buffer![3u32, 5];
     let run_values = buffer![100i32, 200];
-    let rle_array = RunEnd::try_new(run_ends.into_array(), run_values.into_array()).unwrap();
+    let mut rle_ctx = LEGACY_SESSION.create_execution_ctx();
+    let rle_array =
+        RunEnd::try_new(run_ends.into_array(), run_values.into_array(), &mut rle_ctx).unwrap();
 
     // 5. Sequence array
     let sequence_array = Sequence::try_new(

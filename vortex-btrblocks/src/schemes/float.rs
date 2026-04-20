@@ -14,10 +14,9 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Patched;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::PType;
@@ -111,7 +110,7 @@ impl Scheme for ALPScheme {
         let alp_encoded = alp_encode(
             data.array_as_primitive(),
             None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut compressor.execution_ctx(),
         )?;
 
         // Compress the ALP ints.
@@ -132,13 +131,16 @@ impl Scheme for ALPScheme {
                 Some(p) => Ok(Patched::from_array_and_patches(
                     alp_array,
                     &p,
-                    &mut LEGACY_SESSION.create_execution_ctx(),
+                    &mut compressor.execution_ctx(),
                 )?
                 .with_stats_set(alp_stats)
                 .into_array()),
             }
         } else {
-            let patches = alp_encoded.patches().map(compress_patches).transpose()?;
+            let patches = alp_encoded
+                .patches()
+                .map(|p| compress_patches(p, &mut compressor.execution_ctx()))
+                .transpose()?;
 
             Ok(ALP::new(compressed_alp_ints, exponents, patches).into_array())
         }
@@ -169,7 +171,7 @@ impl Scheme for ALPRDScheme {
 
     fn compress(
         &self,
-        _compressor: &CascadingCompressor,
+        compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
@@ -181,11 +183,14 @@ impl Scheme for ALPRDScheme {
             ptype => vortex_panic!("cannot ALPRD compress ptype {ptype}"),
         };
 
-        let alp_rd = encoder.encode(primitive_array);
+        let alp_rd = encoder.encode(primitive_array, &mut compressor.execution_ctx());
         let dtype = alp_rd.dtype().clone();
         let right_bit_width = alp_rd.right_bit_width();
         let mut parts = ALPRDArrayOwnedExt::into_data_parts(alp_rd);
-        parts.left_parts_patches = parts.left_parts_patches.map(compress_patches).transpose()?;
+        parts.left_parts_patches = parts
+            .left_parts_patches
+            .map(|p| compress_patches(p, &mut compressor.execution_ctx()))
+            .transpose()?;
 
         Ok(vortex_alp::ALPRD::try_new(
             dtype,
@@ -194,6 +199,7 @@ impl Scheme for ALPRDScheme {
             parts.right_parts,
             right_bit_width,
             parts.left_parts_patches,
+            &mut compressor.execution_ctx(),
         )?
         .into_array())
     }
@@ -227,7 +233,10 @@ impl Scheme for NullDominatedSparseScheme {
         _ctx: CompressorContext,
     ) -> CompressionEstimate {
         let len = data.array_len() as f64;
-        let stats = data.float_stats();
+        // TRAIT-IMPL BOUNDARY: `Scheme::expected_compression_ratio` has a fixed signature
+        // and does not receive an `ExecutionCtx`, so we fall back to the legacy session here.
+        let mut exec_ctx = LEGACY_SESSION.create_execution_ctx();
+        let stats = data.float_stats(&mut exec_ctx);
         let value_count = stats.value_count();
 
         // All-null arrays should be compressed as constant instead anyways.
@@ -251,11 +260,15 @@ impl Scheme for NullDominatedSparseScheme {
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
         // We pass None as we only run this pathway for NULL-dominated float arrays.
-        let sparse_encoded = Sparse::encode(data.array(), None)?;
+        let sparse_encoded = Sparse::encode(data.array(), None, &mut compressor.execution_ctx())?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
-            #[expect(deprecated)]
-            let indices = sparse.patches().indices().to_primitive().narrow()?;
+            let indices = sparse
+                .patches()
+                .indices()
+                .clone()
+                .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?
+                .narrow()?;
             let compressed_indices =
                 compressor.compress_child(&indices.into_array(), &ctx, self.id(), 0)?;
 
@@ -292,7 +305,7 @@ impl Scheme for PcoScheme {
 
     fn compress(
         &self,
-        _compressor: &CascadingCompressor,
+        compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
@@ -300,6 +313,7 @@ impl Scheme for PcoScheme {
             data.array_as_primitive(),
             pco::DEFAULT_COMPRESSION_LEVEL,
             8192,
+            &mut compressor.execution_ctx(),
         )?
         .into_array())
     }
@@ -337,7 +351,12 @@ impl Scheme for FloatRLEScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        if data.float_stats().average_run_length() < super::integer::RUN_LENGTH_THRESHOLD {
+        // TRAIT-IMPL BOUNDARY: `Scheme::expected_compression_ratio` has a fixed signature
+        // and does not receive an `ExecutionCtx`, so we fall back to the legacy session here.
+        let mut exec_ctx = LEGACY_SESSION.create_execution_ctx();
+        if data.float_stats(&mut exec_ctx).average_run_length()
+            < super::integer::RUN_LENGTH_THRESHOLD
+        {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
