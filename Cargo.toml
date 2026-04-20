@@ -233,7 +233,7 @@ strum = "0.28"
 syn = { version = "2.0.117", features = ["full"] }
 sysinfo = "0.38.0"
 tabled = { version = "0.20.0", default-features = false }
-taffy = "0.9.0"
+taffy = "0.10.0"
 take_mut = "0.2.2"
 tar = "0.4"
 target-lexicon = "0.13"
