@@ -17,6 +17,7 @@ use vortex_array::IntoArray;
 use vortex_array::TypedArrayRef;
 use vortex_array::arrays::VariantArray;
 use vortex_array::arrow::ArrowArrayExecutor;
+use vortex_array::arrow::BitBufferArrowExt;
 use vortex_array::arrow::FromArrowArray;
 use vortex_array::arrow::to_arrow_null_buffer;
 use vortex_array::dtype::DType;
@@ -179,7 +180,7 @@ impl ParquetVariantData {
                 if nulls.null_count() == nulls.len() {
                     Validity::AllInvalid
                 } else {
-                    Validity::from(BitBuffer::from(nulls.inner().clone()))
+                    Validity::from(BitBuffer::from_arrow_boolean_buffer(nulls.inner().clone()))
                 }
             })
             .unwrap_or(Validity::NonNullable);

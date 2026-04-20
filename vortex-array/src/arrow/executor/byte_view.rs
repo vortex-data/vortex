@@ -12,6 +12,7 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::VarBinViewArray;
+use crate::arrow::ByteBufferArrowExt;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::arrow::null_buffer::to_null_buffer;
 use crate::builtins::ArrayBuiltins;

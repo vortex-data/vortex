@@ -22,6 +22,7 @@ use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
+use crate::arrow::BitBufferArrowExt;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::validity::Validity;
@@ -328,9 +329,9 @@ impl FromIterator<Option<bool>> for BoolArray {
         let (buffer, nulls) = BooleanArray::from_iter(iter).into_parts();
 
         BoolArray::new(
-            BitBuffer::from(buffer),
+            BitBuffer::from_arrow_boolean_buffer(buffer),
             nulls
-                .map(|n| Validity::from(BitBuffer::from(n.into_inner())))
+                .map(|n| Validity::from(BitBuffer::from_arrow_boolean_buffer(n.into_inner())))
                 .unwrap_or(Validity::AllValid),
         )
     }

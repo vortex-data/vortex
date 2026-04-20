@@ -27,6 +27,7 @@ use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewDataParts;
 use crate::arrays::listview::ListViewRebuildMode;
 use crate::arrow::ArrowArrayExecutor;
+use crate::arrow::BufferArrowExt;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;

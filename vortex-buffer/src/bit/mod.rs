@@ -6,23 +6,23 @@
 //! This module provides a wrapper on top of the `Buffer` type to store mutable and immutable
 //! bitsets. The bitsets are stored in little-endian order, meaning that the least significant bit
 //! of the first byte is the first bit in the bitset.
-#[cfg(feature = "arrow")]
-mod arrow;
 mod buf;
 mod buf_mut;
+mod chunk_iterator;
 mod count_ones;
+mod iterator;
 mod macros;
 mod ops;
 
-pub use arrow_buffer::bit_chunk_iterator::BitChunkIterator;
-pub use arrow_buffer::bit_chunk_iterator::BitChunks;
-pub use arrow_buffer::bit_chunk_iterator::UnalignedBitChunk;
-pub use arrow_buffer::bit_chunk_iterator::UnalignedBitChunkIterator;
-pub use arrow_buffer::bit_iterator::BitIndexIterator;
-pub use arrow_buffer::bit_iterator::BitIterator;
-pub use arrow_buffer::bit_iterator::BitSliceIterator;
 pub use buf::*;
 pub use buf_mut::*;
+pub use chunk_iterator::BitChunkIterator;
+pub use chunk_iterator::BitChunks;
+pub use chunk_iterator::UnalignedBitChunk;
+pub use chunk_iterator::UnalignedBitChunkIterator;
+pub use iterator::BitIndexIterator;
+pub use iterator::BitIterator;
+pub use iterator::BitSliceIterator;
 
 /// Get the bit value at `index` out of `buf`.
 ///

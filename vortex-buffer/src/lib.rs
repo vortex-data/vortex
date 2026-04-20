@@ -39,12 +39,6 @@
 //! | `arrow_buffer::ScalarBuffer<T> ` | ✔️        | ❌️️️               | ✔️       |
 //! | `bytes::Bytes`                   | ✔️        | ❌️️️               | ❌️️️       |
 //! | `Vec<T>`                         | ❌️        | ❌️️               | ✔️       |
-//!
-//! ## Features
-//!
-//! The `arrow` feature can be enabled to provide conversion functions to/from Arrow Rust buffers,
-//! including `arrow_buffer::Buffer`, `arrow_buffer::ScalarBuffer<T>`, and
-//! `arrow_buffer::OffsetBuffer`.
 
 pub use alignment::*;
 pub use bit::*;
@@ -54,8 +48,6 @@ pub use bytes::*;
 pub use r#const::*;
 pub use string::*;
 mod alignment;
-#[cfg(feature = "arrow")]
-mod arrow;
 mod bit;
 mod buffer;
 mod buffer_mut;

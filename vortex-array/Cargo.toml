@@ -68,7 +68,7 @@ termtree = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 vortex-array-macros = { workspace = true }
-vortex-buffer = { workspace = true, features = ["arrow"] }
+vortex-buffer = { workspace = true }
 vortex-error = { workspace = true, features = ["flatbuffers"] }
 vortex-flatbuffers = { workspace = true, features = ["array", "dtype"] }
 vortex-mask = { workspace = true }

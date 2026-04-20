@@ -20,6 +20,7 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::DecimalArray;
+use crate::arrow::BufferArrowExt;
 use crate::arrow::null_buffer::to_null_buffer;
 use crate::dtype::DecimalType;
 

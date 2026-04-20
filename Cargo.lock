@@ -10304,7 +10304,6 @@ dependencies = [
 name = "vortex-buffer"
 version = "0.1.0"
 dependencies = [
- "arrow-buffer 58.1.0",
  "bitvec",
  "bytes",
  "codspeed-divan-compat",

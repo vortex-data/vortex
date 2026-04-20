@@ -24,7 +24,7 @@ all-features = true
 arrow-buffer = { workspace = true, optional = true }
 itertools = { workspace = true }
 serde = { workspace = true, optional = true, features = ["rc"] }
-vortex-buffer = { workspace = true, features = ["arrow"] }
+vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 
 [dev-dependencies]

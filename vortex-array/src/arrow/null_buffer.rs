@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::BooleanBuffer;
 use arrow_buffer::NullBuffer;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ExecutionCtx;
+use crate::arrow::BitBufferIntoArrow;
 use crate::validity::Validity;
 
 /// Converts a [`Validity`] to an Arrow [`NullBuffer`], executing the validity array if needed.
@@ -27,9 +27,9 @@ pub fn to_null_buffer(mask: Mask) -> Option<NullBuffer> {
     match mask {
         Mask::AllTrue(_) => None,
         Mask::AllFalse(l) => Some(NullBuffer::new_null(l)),
-        Mask::Values(values) => Some(NullBuffer::from(BooleanBuffer::from(
-            values.bit_buffer().clone(),
-        ))),
+        Mask::Values(values) => Some(NullBuffer::from(
+            values.bit_buffer().clone().into_arrow_boolean_buffer(),
+        )),
     }
 }
 

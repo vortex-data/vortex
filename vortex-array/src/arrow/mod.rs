@@ -7,6 +7,7 @@ use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
 use vortex_error::VortexResult;
 
+mod buffer_ext;
 mod convert;
 mod datum;
 mod executor;
@@ -14,6 +15,7 @@ mod iter;
 mod null_buffer;
 mod record_batch;
 
+pub use buffer_ext::*;
 pub use datum::*;
 pub use executor::*;
 pub use iter::*;

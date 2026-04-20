@@ -7,6 +7,7 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::arrow::BufferArrowExt;
 use vortex_array::arrow::FromArrowArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::scalar::PValue;

@@ -17,13 +17,11 @@ version = { workspace = true }
 all-features = true
 
 [features]
-arrow = []
 memmap2 = ["dep:memmap2"]
 serde = ["dep:serde", "serde/serde_derive"]
 warn-copy = ["dep:tracing"]
 
 [dependencies]
-arrow-buffer = { workspace = true }
 bitvec = { workspace = true }
 bytes = { workspace = true }
 itertools = { workspace = true }

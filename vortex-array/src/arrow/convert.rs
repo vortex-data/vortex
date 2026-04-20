@@ -69,6 +69,9 @@ use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrow::BitBufferArrowExt;
+use crate::arrow::BufferArrowExt;
+use crate::arrow::ByteBufferArrowExt;
 use crate::arrays::BoolArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::DictArray;
@@ -104,7 +107,11 @@ impl IntoArray for ArrowBuffer {
 
 impl IntoArray for BooleanBuffer {
     fn into_array(self) -> ArrayRef {
-        BoolArray::new(self.into(), Validity::NonNullable).into_array()
+        BoolArray::new(
+            BitBuffer::from_arrow_boolean_buffer(self),
+            Validity::NonNullable,
+        )
+        .into_array()
     }
 }
 
@@ -323,7 +330,7 @@ impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayRef {
 impl FromArrowArray<&ArrowBooleanArray> for ArrayRef {
     fn from_arrow(value: &ArrowBooleanArray, nullable: bool) -> VortexResult<Self> {
         Ok(BoolArray::new(
-            value.values().clone().into(),
+            BitBuffer::from_arrow_boolean_buffer(value.values().clone()),
             nulls(value.nulls(), nullable),
         )
         .into_array())
@@ -483,7 +490,7 @@ fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> Validity {
                 if nulls.null_count() == nulls.len() {
                     Validity::AllInvalid
                 } else {
-                    Validity::from(BitBuffer::from(nulls.inner().clone()))
+                    Validity::from(BitBuffer::from_arrow_boolean_buffer(nulls.inner().clone()))
                 }
             })
             .unwrap_or_else(|| Validity::AllValid)

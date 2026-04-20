@@ -13,6 +13,7 @@ use crate::IntoArray;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::filter::execute::values_to_mask;
+use crate::arrow::BitBufferIntoArrow;
 use crate::arrow::FromArrowArray;
 use crate::arrow::IntoArrowArray;
 
@@ -31,7 +32,8 @@ fn arrow_filter_fn(array: &ArrayRef, mask: &Mask) -> vortex_error::VortexResult<
     };
 
     let array_ref = array.clone().into_arrow_preferred()?;
-    let mask_array = BooleanArray::new(values.bit_buffer().clone().into(), None);
+    let mask_array =
+        BooleanArray::new(values.bit_buffer().clone().into_arrow_boolean_buffer(), None);
     let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
 
     ArrayRef::from_arrow(filtered.as_ref(), array.dtype().is_nullable())

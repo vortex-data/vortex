@@ -16,6 +16,7 @@ use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::listview::ListViewDataParts;
 use crate::arrow::ArrowArrayExecutor;
+use crate::arrow::BufferArrowExt;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
