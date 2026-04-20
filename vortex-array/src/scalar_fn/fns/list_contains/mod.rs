@@ -6,10 +6,10 @@ mod kernel;
 use std::fmt::Formatter;
 use std::ops::BitOr;
 
-use arrow_buffer::bit_iterator::BitIndexIterator;
 pub use kernel::*;
 use num_traits::Zero;
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BitIndexIterator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
