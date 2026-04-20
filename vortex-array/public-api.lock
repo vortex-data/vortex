@@ -15504,7 +15504,7 @@ pub fn vortex_array::scalar_fn::fns::between::Between::stat_expression(&self, op
 
 pub fn vortex_array::scalar_fn::fns::between::Between::stat_falsification(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
 
-pub fn vortex_array::scalar_fn::fns::between::Between::validity(&self, options: &Self::Options, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+pub fn vortex_array::scalar_fn::fns::between::Between::validity(&self, _options: &Self::Options, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
 pub struct vortex_array::scalar_fn::fns::between::BetweenExecuteAdaptor<V>(pub V)
 
@@ -17738,7 +17738,7 @@ pub fn vortex_array::scalar_fn::fns::between::Between::stat_expression(&self, op
 
 pub fn vortex_array::scalar_fn::fns::between::Between::stat_falsification(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
 
-pub fn vortex_array::scalar_fn::fns::between::Between::validity(&self, options: &Self::Options, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+pub fn vortex_array::scalar_fn::fns::between::Between::validity(&self, _options: &Self::Options, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::binary::Binary
 

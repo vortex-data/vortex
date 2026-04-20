@@ -8,6 +8,7 @@ use std::fmt::Formatter;
 
 pub use kernel::*;
 use prost::Message;
+use vortex_array::expr::and;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_proto::expr as pb;
@@ -308,9 +309,18 @@ impl ScalarFnVTable for Between {
         let lhs = Binary.new_expr(options.lower_strict.to_operator(), [lower, arr.clone()]);
         let rhs = Binary.new_expr(options.upper_strict.to_operator(), [arr, upper]);
 
-        Binary
-            .new_expr(Operator::And, [lhs, rhs])
-            .stat_falsification(catalog)
+        and(lhs, rhs).stat_falsification(catalog)
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        let arr = expression.child(0).validity()?;
+        let lower = expression.child(1).validity()?;
+        let upper = expression.child(2).validity()?;
+        Ok(Some(and(and(arr, lower), upper)))
     }
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
