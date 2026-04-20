@@ -45,7 +45,7 @@ mod test {
             .unwrap();
         assert!(!actual.dtype().is_nullable());
         for i in 0..actual.len() {
-            assert_eq!(scalar_at(&actual, i).as_primitive().as_::<i32>().unwrap(), Some(1));
+            assert_eq!(scalar_at(&actual, i).as_primitive().as_::<i32>().unwrap(), 1);
         }
     }
 
@@ -57,7 +57,7 @@ mod test {
             .unwrap();
         assert!(!actual.dtype().is_nullable());
         for i in 0..actual.len() {
-            assert_eq!(scalar_at(&actual, i).as_primitive().as_::<i32>().unwrap(), Some(1));
+            assert_eq!(scalar_at(&actual, i).as_primitive().as_::<i32>().unwrap(), 1);
         }
     }
 
@@ -74,7 +74,7 @@ mod test {
         assert!(!Scalar::from(1).dtype().is_nullable());
         assert!(actual.dtype().is_nullable());
         for i in 0..actual.len() {
-            assert_eq!(scalar_at(&actual, i).as_primitive().as_::<i32>().unwrap(), Some(1));
+            assert_eq!(scalar_at(&actual, i).as_primitive().as_::<i32>().unwrap(), 1);
         }
     }
 }

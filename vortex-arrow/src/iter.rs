@@ -8,7 +8,7 @@ use vortex_error::VortexResult;
 use vortex_array::ArrayRef;
 use crate::FromArrowArray;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::arrow::FromArrowType;
+use crate::FromArrowType;
 use vortex_array::iter::ArrayIterator;
 
 /// An adapter for converting an `ArrowArrayStreamReader` into a Vortex `ArrayStream`.

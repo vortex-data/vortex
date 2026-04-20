@@ -27,7 +27,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::StructFields;
-use vortex_array::dtype::arrow::FromArrowType;
+use crate::FromArrowType;
 use vortex_array::scalar_fn::fns::pack::Pack;
 
 pub(super) fn to_arrow_struct(

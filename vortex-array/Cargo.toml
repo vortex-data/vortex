@@ -60,6 +60,7 @@ termtree = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 vortex-array-macros = { workspace = true }
+vortex-arrow-hook = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true, features = ["flatbuffers"] }
 vortex-flatbuffers = { workspace = true, features = ["array", "dtype"] }
@@ -85,6 +86,10 @@ rstest = { workspace = true }
 serde_json = { workspace = true }
 serde_test = { workspace = true }
 vortex-array = { path = ".", features = ["_test-harness", "table-display"] }
+# vortex-arrow is pulled in only by integration tests under `tests/` so we
+# can exercise the Arrow-backed fallback kernels end-to-end. The shipped
+# library itself has zero Arrow dependencies.
+vortex-arrow = { workspace = true }
 
 [[bench]]
 name = "cast_primitive"

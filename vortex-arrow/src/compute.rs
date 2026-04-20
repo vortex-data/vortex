@@ -19,10 +19,8 @@ use arrow_schema::SortOptions;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::aliases::inventory;
 use vortex_array::array::Array;
 use vortex_array::arrow_hooks::ArrowCompute;
-use vortex_array::arrow_hooks::ArrowComputeRegistration;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::NumericOperator;
@@ -258,8 +256,10 @@ fn apply_cmp_op(
     })
 }
 
-inventory::submit! {
-    ArrowComputeRegistration(ArrowCompute {
+/// Install the Arrow-backed compute implementations into `vortex-array`'s
+/// runtime hooks. Safe to call multiple times; subsequent calls are ignored.
+pub(crate) fn register() {
+    vortex_array::arrow_hooks::register_arrow_compute(ArrowCompute {
         compare: arrow_compare,
         numeric: arrow_numeric,
         boolean: arrow_boolean,
@@ -267,5 +267,5 @@ inventory::submit! {
         zip: arrow_zip,
         filter_varbinview: arrow_filter_varbinview,
         varbin_compare_with_const: arrow_varbin_compare_with_const,
-    })
+    });
 }

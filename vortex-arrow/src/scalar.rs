@@ -99,7 +99,9 @@ fn decimal_to_arrow(scalar: DecimalScalar<'_>) -> Result<Arc<dyn Datum>, VortexE
         Some(DecimalValue::I32(v)) => Ok(Arc::new(Decimal128Array::new_scalar(v as i128))),
         Some(DecimalValue::I64(v)) => Ok(Arc::new(Decimal128Array::new_scalar(v as i128))),
         Some(DecimalValue::I128(v128)) => Ok(Arc::new(Decimal128Array::new_scalar(v128))),
-        Some(DecimalValue::I256(v256)) => Ok(Arc::new(Decimal256Array::new_scalar(v256.into()))),
+        Some(DecimalValue::I256(v256)) => Ok(Arc::new(Decimal256Array::new_scalar(
+            crate::vortex_i256_to_arrow(v256),
+        ))),
         None => Ok(Arc::new(arrow_array::Scalar::new(
             Decimal128Array::new_null(SCALAR_ARRAY_LEN),
         ))),

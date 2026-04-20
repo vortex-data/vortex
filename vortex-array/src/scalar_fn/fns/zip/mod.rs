@@ -457,7 +457,9 @@ mod tests {
                 } else {
                     "Hello2 this is a long string that won't be inlined."
                 };
-                assert_eq!(zipped.as_ref().scalar_at(i).unwrap().as_utf8().value(), Some(expected));
+                let actual_scalar = zipped.as_ref().scalar_at(i).unwrap();
+                let actual_str: &str = actual_scalar.as_utf8().value().unwrap().as_str();
+                assert_eq!(actual_str, expected);
             }
         }
     }

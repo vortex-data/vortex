@@ -197,11 +197,14 @@ fn to_arrow_decimal256(array: DecimalArray, ctx: &mut ExecutionCtx) -> VortexRes
             array
                 .buffer::<i128>()
                 .into_iter()
-                .map(|x| vortex_array::dtype::i256::from_i128(x).into()),
+                .map(|x| crate::vortex_i256_to_arrow(vortex_array::dtype::i256::from_i128(x))),
         ),
-        DecimalType::I256 => {
-            Buffer::<i256>::from_byte_buffer(array.buffer_handle().clone().into_host_sync())
-        }
+        DecimalType::I256 => Buffer::from_trusted_len_iter(
+            array
+                .buffer::<vortex_array::dtype::i256>()
+                .into_iter()
+                .map(crate::vortex_i256_to_arrow),
+        ),
     };
     Ok(Arc::new(
         ArrowDecimal256Array::new(buffer.into_arrow_scalar_buffer(), null_buffer)

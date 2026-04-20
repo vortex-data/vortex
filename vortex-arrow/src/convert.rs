@@ -72,6 +72,7 @@ use vortex_array::IntoArray;
 use crate::BitBufferArrowExt;
 use crate::BufferArrowExt;
 use crate::ByteBufferArrowExt;
+use crate::dtype::time_unit_from_arrow;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::DictArray;
@@ -255,10 +256,10 @@ where
 
     match value.data_type() {
         DataType::Timestamp(time_unit, tz) => {
-            TemporalArray::new_timestamp(arr, time_unit.into(), tz.clone()).into()
+            TemporalArray::new_timestamp(arr, time_unit_from_arrow(*time_unit), tz.clone()).into()
         }
-        DataType::Time32(time_unit) => TemporalArray::new_time(arr, time_unit.into()).into(),
-        DataType::Time64(time_unit) => TemporalArray::new_time(arr, time_unit.into()).into(),
+        DataType::Time32(time_unit) => TemporalArray::new_time(arr, time_unit_from_arrow(*time_unit)).into(),
+        DataType::Time64(time_unit) => TemporalArray::new_time(arr, time_unit_from_arrow(*time_unit)).into(),
         DataType::Date32 => TemporalArray::new_date(arr, TimeUnit::Days).into(),
         DataType::Date64 => TemporalArray::new_date(arr, TimeUnit::Milliseconds).into(),
         DataType::Duration(_) => unimplemented!(),
@@ -280,7 +281,7 @@ where
         // SAFETY: Arrow arrays are already validated (valid UTF-8, valid offsets, correct validity).
         Ok(unsafe {
             VarBinArray::new_unchecked(
-                value.offsets().clone().into_array(),
+                offset_buffer_into_array(value.offsets().clone()),
                 ByteBuffer::from_arrow_buffer(value.values().clone(), Alignment::of::<u8>()),
                 dtype,
                 nulls(value.nulls(), nullable),
@@ -418,7 +419,7 @@ impl<O: IntegerPType + OffsetSizeTrait> FromArrowArray<&GenericListArray<O>> for
         let elements = Self::from_arrow(value.values().as_ref(), elements_are_nullable)?;
 
         // `offsets` are always non-nullable.
-        let offsets = value.offsets().clone().into_array();
+        let offsets = offset_buffer_into_array(value.offsets().clone());
         let nulls = nulls(value.nulls(), nullable);
 
         Ok(ListArray::try_new(elements, offsets, nulls)?.into_array())
@@ -437,8 +438,8 @@ impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListViewArray<O>> 
         let elements = Self::from_arrow(array.values().as_ref(), elements_are_nullable)?;
 
         // `offsets` and `sizes` are always non-nullable.
-        let offsets = array.offsets().clone().into_array();
-        let sizes = array.sizes().clone().into_array();
+        let offsets = scalar_buffer_into_array(array.offsets().clone());
+        let sizes = scalar_buffer_into_array(array.sizes().clone());
         let nulls = nulls(array.nulls(), nullable);
 
         Ok(ListViewArray::try_new(elements, offsets, sizes, nulls)?.into_array())

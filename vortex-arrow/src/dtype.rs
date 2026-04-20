@@ -167,13 +167,13 @@ impl FromArrowType<(&DataType, Nullability)> for DType {
                 DType::Extension(Date::new(TimeUnit::Milliseconds, nullability).erased())
             }
             DataType::Time32(unit) => {
-                DType::Extension(Time::new(unit.into(), nullability).erased())
+                DType::Extension(Time::new(time_unit_from_arrow(*unit), nullability).erased())
             }
             DataType::Time64(unit) => {
-                DType::Extension(Time::new(unit.into(), nullability).erased())
+                DType::Extension(Time::new(time_unit_from_arrow(*unit), nullability).erased())
             }
             DataType::Timestamp(unit, tz) => DType::Extension(
-                Timestamp::new_with_tz(unit.into(), tz.clone(), nullability).erased(),
+                Timestamp::new_with_tz(time_unit_from_arrow(*unit), tz.clone(), nullability).erased(),
             ),
             DataType::List(e)
             | DataType::LargeList(e)

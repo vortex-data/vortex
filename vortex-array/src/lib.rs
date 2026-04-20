@@ -79,7 +79,16 @@ pub mod flatbuffers {
 // TODO(ngates): canonicalize doesn't currently take a session, therefore we cannot invoke execute
 //  from the new array encodings to support back-compat for legacy encodings. So we hold a session
 //  here...
-pub static LEGACY_SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+pub static LEGACY_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    // When compiled for tests, make sure the Arrow-backed fallback compute
+    // kernels are registered. The actual registration lives in `vortex-arrow`.
+    // Thanks to the `#[unsafe(no_mangle)] extern` slot in `arrow_hooks`, calling
+    // `vortex_arrow::init()` from any copy of `vortex-array` writes to the one
+    // shared slot that every copy reads.
+    #[cfg(test)]
+    vortex_arrow::init();
+    VortexSession::empty().with::<ArraySession>()
+});
 
 pub type ArrayContext = Context<ArrayPluginRef>;
+

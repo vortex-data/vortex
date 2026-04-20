@@ -51,6 +51,8 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::executor::ExecutionCtx;
 
+use crate::dtype::DTypeArrowExt;
+
 /// Trait for executing a Vortex array to produce an Arrow array.
 pub trait ArrowArrayExecutor: Sized {
     /// Execute the array to produce an Arrow array.

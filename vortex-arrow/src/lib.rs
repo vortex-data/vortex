@@ -16,7 +16,32 @@ use arrow_schema::DataType;
 use vortex_array::ArrayRef;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
+use vortex_array::dtype::i256 as VortexI256;
 use vortex_error::VortexResult;
+
+/// Register the Arrow-backed compute fallbacks with `vortex-array`'s runtime hooks.
+///
+/// Call this once at program start-up (or at the beginning of any test) to make
+/// the Arrow-backed implementations of `numeric`, `compare`, `boolean`, `like`,
+/// `zip`, and VarBinView filtering available through
+/// [`vortex_array::arrow_hooks::arrow_compute`].
+///
+/// Calling multiple times is harmless - subsequent registrations are ignored.
+pub fn init() {
+    compute::register();
+}
+
+/// Convert a Vortex `i256` into an Arrow [`arrow_buffer::i256`].
+pub fn vortex_i256_to_arrow(value: VortexI256) -> arrow_buffer::i256 {
+    let (low, high) = value.to_parts();
+    arrow_buffer::i256::from_parts(low, high)
+}
+
+/// Convert an Arrow [`arrow_buffer::i256`] into a Vortex `i256`.
+pub fn arrow_i256_to_vortex(value: arrow_buffer::i256) -> VortexI256 {
+    let (low, high) = value.to_parts();
+    VortexI256::from_parts(low, high)
+}
 
 mod buffer_ext;
 mod compute;

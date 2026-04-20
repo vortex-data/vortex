@@ -1013,7 +1013,8 @@ impl Bounded for I256 {
 mod tests {
     use super::*;
     use num_traits::Signed;
-    use rand::{Rng, rng};
+    use rand::rng;
+    use rand::RngExt;
 
     #[test]
     fn test_signed_cmp() {

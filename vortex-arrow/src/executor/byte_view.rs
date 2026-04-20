@@ -18,7 +18,7 @@ use crate::null_buffer::to_null_buffer;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::dtype::arrow::FromArrowType;
+use crate::FromArrowType;
 
 /// Convert a canonical VarBinViewArray directly to Arrow.
 pub fn canonical_varbinview_to_arrow<T: ByteViewType>(
