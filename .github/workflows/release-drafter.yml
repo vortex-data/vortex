@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: release-drafter/release-drafter@v7.1.1
+      - uses: release-drafter/release-drafter@v7.2.0
         with:
           commitish: ${{ github.ref_name }}
           prerelease: ${{ github.event_name == 'workflow_dispatch' }}
