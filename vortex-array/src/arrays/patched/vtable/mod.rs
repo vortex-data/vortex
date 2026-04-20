@@ -349,7 +349,6 @@ fn apply_patches_primitive<V: NativePType>(
 
 #[cfg(test)]
 mod tests {
-    use crate::session::ArraySessionExt;
     use rstest::rstest;
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
@@ -374,6 +373,7 @@ mod tests {
     use crate::patches::Patches;
     use crate::serde::SerializeOptions;
     use crate::serde::SerializedArray;
+    use crate::session::ArraySessionExt;
     use crate::validity::Validity;
 
     #[test]
