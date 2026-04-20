@@ -21,6 +21,10 @@ public:
     explicit ExternalVectorBuffer(duckdb::unique_ptr<CData> data) : data(std::move(data)) {
     }
 
+    void *DataPtr() const {
+        return data->DataPtr();
+    }
+
 private:
     duckdb::unique_ptr<CData> data;
 };

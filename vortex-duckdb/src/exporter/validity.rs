@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex::array::ExecutionCtx;
-use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
@@ -20,8 +19,6 @@ struct ValidityExporter {
 }
 
 pub(super) struct ZeroCopyValidity {
-    /// The underlying byte buffer backing the validity bits.
-    pub(super) buffer: ByteBuffer,
     pub(super) shared_buffer: VectorBuffer,
 }
 
@@ -56,8 +53,7 @@ pub(crate) fn new_exporter(
             };
             let buffer = values.bit_buffer().inner().clone();
             ZeroCopyValidity {
-                shared_buffer: VectorBuffer::new(buffer.clone()),
-                buffer,
+                shared_buffer: VectorBuffer::new(buffer),
             }
         });
         Box::new(ValidityExporter {

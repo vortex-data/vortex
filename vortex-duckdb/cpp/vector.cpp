@@ -65,11 +65,12 @@ public:
 // Same hack for ValidityMask: access protected fields via inheritance.
 class ExternalValidityMask : public ValidityMask {
 public:
-    inline void SetExternal(validity_t *ptr, idx_t cap,
+    inline void SetExternal(idx_t u64_offset, idx_t cap,
                             buffer_ptr<ValidityBuffer> keeper) {
-        validity_mask = ptr;
-        capacity = cap;
         validity_data = std::move(keeper);
+        // Derive validity_mask from validity_data so the two stay consistent.
+        validity_mask = reinterpret_cast<validity_t *>(validity_data.get()) + u64_offset;
+        capacity = cap;
     };
 };
 
@@ -97,23 +98,26 @@ extern "C" void duckdb_vx_vector_set_data_ptr(duckdb_vector ffi_vector, void *pt
 }
 
 extern "C" void duckdb_vx_vector_set_validity_data(duckdb_vector ffi_vector,
-                                                    void *validity_ptr,
+                                                    idx_t u64_offset,
                                                     idx_t capacity,
                                                     duckdb_vx_vector_buffer buffer) {
     auto dvector = reinterpret_cast<vortex::DataVector *>(ffi_vector);
     auto &validity = dvector->GetValidity();
+    // ExternalValidityMask adds no members, so this reinterpret_cast is a safe
+    // "downcast" that only exposes access to ValidityMask's protected fields.
     auto ext_validity = reinterpret_cast<vortex::ExternalValidityMask *>(&validity);
 
     // Use the shared_ptr aliasing constructor: the control block ref-counts the
     // ExternalVectorBuffer (preventing the Rust buffer from being freed),
-    // while the stored pointer satisfies ValidityMask's buffer_ptr<ValidityBuffer> type.
+    // while the stored pointer points to the buffer's data so that validity_mask
+    // can be derived from validity_data.
     auto ext_buf = reinterpret_cast<shared_ptr<vortex::ExternalVectorBuffer> *>(buffer);
     auto keeper = shared_ptr<TemplatedValidityData<validity_t>>(
-        *ext_buf, reinterpret_cast<TemplatedValidityData<validity_t> *>(ext_buf->get()));
+        *ext_buf,
+        reinterpret_cast<TemplatedValidityData<validity_t> *>((*ext_buf)->DataPtr()));
 
-    // Set validity_mask, capacity, and validity_data (which keeps the buffer alive).
-    ext_validity->SetExternal(reinterpret_cast<validity_t *>(validity_ptr), capacity,
-                              std::move(keeper));
+    // Set validity_data, derive validity_mask from it at u64_offset, and set capacity.
+    ext_validity->SetExternal(u64_offset, capacity, std::move(keeper));
 }
 
 extern "C" duckdb_value duckdb_vx_vector_get_value(duckdb_vector ffi_vector, idx_t index) {

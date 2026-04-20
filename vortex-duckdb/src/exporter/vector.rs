@@ -38,12 +38,9 @@ impl VectorRef {
                 } else if let Some(zc) = zero_copy.filter(|_| offset.is_multiple_of(64)) {
                     let u64_offset = offset / 64;
                     // SAFETY: the underlying buffer is u64-aligned (checked in
-                    // can_zero_copy_validity) and we only read through this pointer.
-                    // The cast to *mut is an artifact of the DuckDB C API.
-                    let ptr = zc.buffer.as_slice().as_ptr().cast_mut().cast::<u64>();
-                    // SAFETY: we verified alignment in can_zero_copy_validity
-                    // and the VectorBuffer keeps the data alive.
-                    unsafe { self.set_validity_data(ptr.add(u64_offset), len, &zc.shared_buffer) };
+                    // can_zero_copy_validity) and the VectorBuffer keeps the data alive.
+                    // The C++ side derives the validity pointer from the buffer at u64_offset.
+                    unsafe { self.set_validity_data(u64_offset, len, &zc.shared_buffer) };
                 } else {
                     // If zero_copy is available and offset is aligned, we should
                     // have taken the branch above. Assert this invariant.
