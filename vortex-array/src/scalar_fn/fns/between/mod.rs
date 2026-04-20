@@ -440,7 +440,6 @@ mod tests {
 
         // upper is a fixed constant
         let upper = ConstantArray::new(Scalar::from(2), 5).into_array();
-        #[expect(deprecated)]
         let matches = between_canonical(
             &array,
             &lower,
@@ -460,7 +459,6 @@ mod tests {
         // lower is also a constant
         let lower = ConstantArray::new(Scalar::from(0), 5).into_array();
 
-        #[expect(deprecated)]
         let matches = between_canonical(
             &array,
             &lower,
