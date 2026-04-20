@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -113,7 +114,6 @@ impl BinaryCombined for Mean {
         };
         Ok(Scalar::primitive(value, Nullability::Nullable))
     }
-
 
     fn serialize(&self, _options: &CombinedOptions<Self>) -> VortexResult<Option<Vec<u8>>> {
         unimplemented!("Mean is not yet serializable");
