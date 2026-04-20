@@ -26,6 +26,33 @@ use crate::matcher::AnyTensor;
 use crate::matcher::TensorMatch;
 use crate::scalar_fns::l2_denorm::L2Denorm;
 
+/// Safety factor for unit-norm tolerance. Applied as a constant multiplier on the probabilistic
+/// `√d · ε` bound so that legitimate round-off noise clears the check with headroom.
+pub(crate) const SAFETY_FACTOR: usize = 10;
+
+/// Returns the acceptable unit-norm drift for the given element precision and dimension count.
+///
+/// Uses the `c · √d · ε` bound where ε is machine epsilon and d is the vector dimension. Under
+/// IEEE 754 round-to-nearest the probabilistic (RMS-case) forward error for computing ‖x‖₂ grows
+/// as `O(√d · ε)` rather than the worst-case `O(d · ε)` from the classical Wilkinson bound,
+/// assuming near-independent rounding errors across the d-term summation.
+///
+/// Reference: Croci, Fasi, Higham, Mary, Mikaitis (2022). "Stochastic rounding: implementation,
+/// error analysis and applications." Royal Society Open Science, 9: 211631, §6.1 "Probabilistic
+/// error analysis." https://doi.org/10.1098/rsos.211631
+pub fn unit_norm_tolerance(element_ptype: PType, dimensions: usize) -> f64 {
+    let machine_epsilon: f64 = match element_ptype {
+        PType::F64 => f64::EPSILON,
+        PType::F32 => f32::EPSILON as f64,
+        PType::F16 => f16::EPSILON.to_f64_const(),
+        _ => unreachable!("unit_norm_tolerance requires a float ptype, got {element_ptype:?}"),
+    };
+
+    let dimensions_root = (dimensions as f64).sqrt();
+
+    SAFETY_FACTOR as f64 * machine_epsilon * dimensions_root
+}
+
 /// Validates that `input_dtype` is a float-valued tensor-like extension dtype.
 pub fn validate_tensor_float_input(input_dtype: &DType) -> VortexResult<TensorMatch<'_>> {
     let ext = input_dtype
@@ -48,6 +75,11 @@ pub fn validate_tensor_float_input(input_dtype: &DType) -> VortexResult<TensorMa
 /// Validates that two arguments of a binary tensor-like operator share the same float tensor
 /// dtype (ignoring top-level nullability), returning the shared [`TensorMatch`].
 ///
+/// The plain [`Vector`](crate::vector::Vector) and the
+/// [`NormalizedVector`](crate::normalized_vector::NormalizedVector) refinement are treated as
+/// interchangeable for the purposes of this check, since both share the same storage shape
+/// and operators like inner product or cosine similarity ignore the unit-norm marker.
+///
 /// `op_name` is interpolated into the shape-mismatch error message so callers get a
 /// self-identifying diagnostic (e.g. "InnerProduct requires both inputs ...").
 pub fn validate_binary_tensor_float_inputs<'a>(
@@ -55,11 +87,28 @@ pub fn validate_binary_tensor_float_inputs<'a>(
     lhs: &'a DType,
     rhs: &DType,
 ) -> VortexResult<TensorMatch<'a>> {
+    let dtypes_match = lhs.eq_ignore_nullability(rhs) || vector_shapes_match(lhs, rhs);
     vortex_ensure!(
-        lhs.eq_ignore_nullability(rhs),
+        dtypes_match,
         "{op_name} requires both inputs to have the same dtype, got {lhs} and {rhs}"
     );
     validate_tensor_float_input(lhs)
+}
+
+/// Returns `true` when `lhs` and `rhs` are both vector-shaped extension types (plain `Vector`
+/// or `NormalizedVector`) with the same float ptype and dimension.
+fn vector_shapes_match(lhs: &DType, rhs: &DType) -> bool {
+    let lhs_match = lhs
+        .as_extension_opt()
+        .and_then(|ext| ext.metadata_opt::<crate::types::vector::AnyVector>());
+    let rhs_match = rhs
+        .as_extension_opt()
+        .and_then(|ext| ext.metadata_opt::<crate::types::vector::AnyVector>());
+    matches!(
+        (lhs_match, rhs_match),
+        (Some(l), Some(r))
+            if l.element_ptype() == r.element_ptype() && l.dimensions() == r.dimensions()
+    )
 }
 
 /// Cast a float [`PrimitiveArray`] to a `Buffer<f32>`.
@@ -246,6 +295,7 @@ pub mod test_helpers {
     use crate::scalar_fns::l2_denorm::L2Denorm;
     use crate::types::fixed_shape::FixedShapeTensor;
     use crate::types::fixed_shape::FixedShapeTensorMetadata;
+    use crate::types::normalized_vector::NormalizedVector;
     use crate::types::vector::Vector;
 
     /// Builds a `FixedSizeList<T, list_size>` storage array from flat `elements`. The row count is
@@ -284,6 +334,16 @@ pub mod test_helpers {
         Vector::try_new_vector_array(flat_fsl(elements, dim))
     }
 
+    /// Builds a [`NormalizedVector`] extension array from pre-normalized `elements` and a vector
+    /// dimension size. The caller must ensure each row is unit-norm or the zero vector.
+    pub fn normalized_vector_array<T: NativePType>(
+        dim: u32,
+        elements: &[T],
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        NormalizedVector::try_new(flat_fsl(elements, dim), ctx)
+    }
+
     /// Builds a [`FixedShapeTensor`] extension array whose storage is a [`ConstantArray`],
     /// representing a single query tensor broadcast to `len` rows.
     pub fn constant_tensor_array<T: NativePType + Into<PValue>>(
@@ -311,17 +371,21 @@ pub mod test_helpers {
         ConstantArray::new(ext_scalar, len).into_array()
     }
 
-    /// Creates an [`L2Denorm`] scalar function array from pre-normalized tensor elements and
+    /// Creates an [`L2Denorm`] scalar function array from pre-normalized vector elements and
     /// matching norms. The caller must ensure every row of `normalized_elements` is unit-norm or
     /// zero.
+    ///
+    /// `dim` is the vector dimension (the inner `FixedSizeList` width). The number of rows is
+    /// inferred from `normalized_elements.len() / dim`.
     pub fn l2_denorm_array<T: NativePType>(
-        shape: &[usize],
+        dim: u32,
         normalized_elements: &[T],
         norms: &[T],
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let len = norms.len();
-        let normalized = tensor_array(shape, normalized_elements)?;
+        let storage = flat_fsl(normalized_elements, dim);
+        let normalized = NormalizedVector::try_new(storage, ctx)?;
         let norms =
             PrimitiveArray::new(Buffer::copy_from(norms), Validity::NonNullable).into_array();
         Ok(L2Denorm::try_new_array(normalized, norms, len, ctx)?.into_array())

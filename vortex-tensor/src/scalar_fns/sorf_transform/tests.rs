@@ -7,6 +7,7 @@
 
 use std::sync::Arc;
 
+use prost::Message;
 use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -14,9 +15,11 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::ScalarFnVTable as ScalarFnArrayEncoding;
 use vortex_array::arrays::dict::DictArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -36,6 +39,7 @@ use crate::encodings::turboquant::centroids::compute_centroid_boundaries;
 use crate::encodings::turboquant::centroids::find_nearest_centroid;
 use crate::encodings::turboquant::centroids::get_centroids;
 use crate::tests::SESSION;
+use crate::types::normalized_vector::NormalizedVector;
 use crate::types::vector::Vector;
 
 /// Build a unit-normalized input vector array and forward-transform + quantize it, returning
@@ -362,6 +366,24 @@ fn rejects_non_vector_extension_child_at_construction() {
 }
 
 #[test]
+fn accepts_normalized_vector_child_and_returns_plain_vector() -> VortexResult<()> {
+    let options = default_options(128, 42);
+    let mut values = vec![0.0f32; 128];
+    values[0] = 1.0;
+    let elements = PrimitiveArray::from_iter(values).into_array();
+    let fsl = FixedSizeListArray::try_new(elements, 128, Validity::NonNullable, 1)?;
+    let mut ctx = SESSION.create_execution_ctx();
+    let child = NormalizedVector::try_new(fsl.into_array(), &mut ctx)?;
+
+    let sorf = SorfTransform::try_new_array(&options, child, 1)?.into_array();
+    assert!(sorf.dtype().as_extension().is::<Vector>());
+
+    let result: ExtensionArray = sorf.execute(&mut ctx)?;
+    assert!(result.dtype().as_extension().is::<Vector>());
+    Ok(())
+}
+
+#[test]
 fn rejects_wrong_padded_dimension_at_construction() {
     // Options say dimension=128 so padded_dim should be 128. Pass a Vector<256> instead.
     let options = default_options(128, 42);
@@ -455,6 +477,32 @@ fn trivial_padded_vector(padded_dim: u32, num_rows: usize, validity: Validity) -
     ExtensionArray::new(ext_dtype, fsl.into_array()).into_array()
 }
 
+fn trivial_padded_normalized_vector(
+    padded_dim: u32,
+    num_rows: usize,
+    validity: Validity,
+) -> VortexResult<ArrayRef> {
+    let elements = PrimitiveArray::new(
+        Buffer::<f32>::zeroed(num_rows * padded_dim as usize),
+        Validity::NonNullable,
+    );
+    let fsl = FixedSizeListArray::try_new(elements.into_array(), padded_dim, validity, num_rows)?;
+    let mut ctx = SESSION.create_execution_ctx();
+    NormalizedVector::try_new(fsl.into_array(), &mut ctx)
+}
+
+#[derive(Clone, prost::Message)]
+struct LegacySorfTransformMetadata {
+    #[prost(uint64, tag = "1")]
+    seed: u64,
+    #[prost(uint32, tag = "2")]
+    num_rounds: u32,
+    #[prost(uint32, tag = "3")]
+    dimension: u32,
+    #[prost(enumeration = "PType", tag = "4")]
+    element_ptype: i32,
+}
+
 #[rstest::rstest]
 // Non-power-of-two dimension to exercise `padded_dim = dim.next_power_of_two()`.
 #[case::power_of_two_dim(128, Validity::NonNullable)]
@@ -491,5 +539,99 @@ fn serde_round_trip(#[case] dimension: u32, #[case] validity: Validity) -> Vorte
     assert_eq!(recovered.dtype(), original.dtype());
     assert_eq!(recovered.len(), original.len());
     assert_eq!(recovered.encoding_id(), original.encoding_id());
+    let recovered_scalar_fn = recovered.as_::<ScalarFnArrayEncoding>();
+    assert!(
+        recovered_scalar_fn
+            .child_at(0)
+            .dtype()
+            .as_extension()
+            .is::<Vector>()
+    );
+    Ok(())
+}
+
+#[test]
+fn serde_round_trip_preserves_normalized_vector_child_dtype() -> VortexResult<()> {
+    let dimension = 128;
+    let num_rows = 4;
+    let options = default_options(dimension, 42);
+    let child = trivial_padded_normalized_vector(
+        dimension.next_power_of_two(),
+        num_rows,
+        Validity::NonNullable,
+    )?;
+    let original = SorfTransform::try_new_array(&options, child.clone(), num_rows)?.into_array();
+
+    let plugin = ScalarFnArrayPlugin::new(SorfTransform);
+    let metadata = plugin
+        .serialize(&original, &SESSION)?
+        .expect("SorfTransform serialize must produce metadata");
+
+    let children = vec![child];
+    let recovered = plugin.deserialize(
+        original.dtype(),
+        original.len(),
+        &metadata,
+        &[],
+        &children,
+        &SESSION,
+    )?;
+
+    assert_eq!(recovered.dtype(), original.dtype());
+    assert_eq!(recovered.len(), original.len());
+    assert_eq!(recovered.encoding_id(), original.encoding_id());
+    let recovered_scalar_fn = recovered.as_::<ScalarFnArrayEncoding>();
+    assert!(
+        recovered_scalar_fn
+            .child_at(0)
+            .dtype()
+            .as_extension()
+            .is::<NormalizedVector>()
+    );
+    Ok(())
+}
+
+#[test]
+fn serde_legacy_metadata_derives_plain_vector_child_dtype() -> VortexResult<()> {
+    let dimension = 128;
+    let num_rows = 4;
+    let options = default_options(dimension, 42);
+    let child = trivial_padded_vector(
+        dimension.next_power_of_two(),
+        num_rows,
+        Validity::NonNullable,
+    );
+    let original = SorfTransform::try_new_array(&options, child.clone(), num_rows)?.into_array();
+
+    let legacy_metadata = LegacySorfTransformMetadata {
+        seed: options.seed,
+        num_rounds: u32::from(options.num_rounds),
+        dimension: options.dimension,
+        element_ptype: options.element_ptype as i32,
+    }
+    .encode_to_vec();
+
+    let plugin = ScalarFnArrayPlugin::new(SorfTransform);
+    let children = vec![child];
+    let recovered = plugin.deserialize(
+        original.dtype(),
+        original.len(),
+        &legacy_metadata,
+        &[],
+        &children,
+        &SESSION,
+    )?;
+
+    assert_eq!(recovered.dtype(), original.dtype());
+    assert_eq!(recovered.len(), original.len());
+    assert_eq!(recovered.encoding_id(), original.encoding_id());
+    let recovered_scalar_fn = recovered.as_::<ScalarFnArrayEncoding>();
+    assert!(
+        recovered_scalar_fn
+            .child_at(0)
+            .dtype()
+            .as_extension()
+            .is::<Vector>()
+    );
     Ok(())
 }

@@ -35,10 +35,9 @@ use vortex_session::VortexSession;
 
 use crate::scalar_fns::inner_product::BinaryTensorOpMetadata;
 use crate::scalar_fns::inner_product::InnerProduct;
-use crate::scalar_fns::l2_denorm::DenormOrientation;
+use crate::scalar_fns::l2_denorm::NormalForm;
 use crate::scalar_fns::l2_denorm::try_build_constant_l2_denorm;
 use crate::scalar_fns::l2_norm::L2Norm;
-use crate::utils::extract_l2_denorm_children;
 use crate::utils::validate_binary_tensor_float_inputs;
 
 /// Cosine similarity between two columns.
@@ -141,15 +140,21 @@ impl ScalarFnVTable for CosineSimilarity {
             rhs_ref = sfn.into_array();
         }
 
-        // Take any L2Denorm-wrapped fast path that applies.
-        match DenormOrientation::classify(&lhs_ref, &rhs_ref) {
-            DenormOrientation::Both { lhs, rhs } => {
-                return self.execute_both_denorm(lhs, rhs, len);
+        // Classify each operand by its normal form. When both operands carry a known unit-norm
+        // representation, cosine similarity collapses to the dot product of the unit vectors.
+        let lhs_form = NormalForm::classify(&lhs_ref);
+        let rhs_form = NormalForm::classify(&rhs_ref);
+        match (lhs_form.normalized_array(), rhs_form.normalized_array()) {
+            (Some(unit_lhs), Some(unit_rhs)) => {
+                return self.execute_both_unit(unit_lhs, unit_rhs, &lhs_ref, &rhs_ref, len);
             }
-            DenormOrientation::One { denorm, plain } => {
-                return self.execute_one_denorm(denorm, plain, len, ctx);
+            (Some(unit_lhs), None) => {
+                return self.execute_one_unit(unit_lhs, &rhs_ref, &lhs_ref, len, ctx);
             }
-            DenormOrientation::Neither => {}
+            (None, Some(unit_rhs)) => {
+                return self.execute_one_unit(unit_rhs, &lhs_ref, &rhs_ref, len, ctx);
+            }
+            (None, None) => {}
         }
 
         // Compute combined validity.
@@ -242,22 +247,20 @@ impl ScalarFnArrayVTable for CosineSimilarity {
 }
 
 impl CosineSimilarity {
-    /// Both sides are `L2Denorm`: treat the normalized children as authoritative, so
-    /// `cosine_similarity = dot(n_l, n_r)`.
-    fn execute_both_denorm(
+    /// Both sides carry a known unit-norm representation: cosine similarity collapses to the
+    /// dot product of the unit children.
+    fn execute_both_unit(
         &self,
+        unit_lhs: &ArrayRef,
+        unit_rhs: &ArrayRef,
         lhs_ref: &ArrayRef,
         rhs_ref: &ArrayRef,
         len: usize,
     ) -> VortexResult<ArrayRef> {
         let validity = lhs_ref.validity()?.and(rhs_ref.validity()?)?;
 
-        let (normalized_l, _) = extract_l2_denorm_children(lhs_ref);
-        let (normalized_r, _) = extract_l2_denorm_children(rhs_ref);
-
-        // `L2Denorm` makes the normalized children authoritative, so their dot product is the
-        // cosine similarity even for lossy storage wrappers.
-        let dot = InnerProduct::try_new_array(normalized_l, normalized_r, len)?.into_array();
+        let dot =
+            InnerProduct::try_new_array(unit_lhs.clone(), unit_rhs.clone(), len)?.into_array();
 
         if !matches!(validity, Validity::NonNullable) {
             // Masking always changes the nullability to nullable.
@@ -267,22 +270,21 @@ impl CosineSimilarity {
         }
     }
 
-    /// One side is `L2Denorm`: treat the normalized child as authoritative, so
-    /// `cosine_similarity = dot(n, b) / ||b||`.
-    ///
-    /// The caller must pass the denorm array as `denorm_ref` and the plain array as `plain_ref`.
-    fn execute_one_denorm(
+    /// Exactly one side carries a unit-norm representation: cosine similarity reduces to
+    /// `dot(unit, other) / ||other||`. The norms of the unit side are implicitly `1.0` (naked
+    /// `NormalizedVector`) or stored separately (the outer `L2Denorm` wrapper, which is not
+    /// needed here since cosine ignores magnitude).
+    fn execute_one_unit(
         &self,
-        denorm_ref: &ArrayRef,
+        unit: &ArrayRef,
         plain_ref: &ArrayRef,
+        unit_ref: &ArrayRef,
         len: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let validity = denorm_ref.validity()?.and(plain_ref.validity()?)?;
+        let validity = unit_ref.validity()?.and(plain_ref.validity()?)?;
 
-        let (normalized, _) = extract_l2_denorm_children(denorm_ref);
-
-        let dot_arr = InnerProduct::try_new_array(normalized, plain_ref.clone(), len)?;
+        let dot_arr = InnerProduct::try_new_array(unit.clone(), plain_ref.clone(), len)?;
         let dot: PrimitiveArray = dot_arr.into_array().execute(ctx)?;
 
         let norm_arr = L2Norm::try_new_array(plain_ref.clone(), len)?;
@@ -331,6 +333,7 @@ mod tests {
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::constant_tensor_array;
     use crate::utils::test_helpers::l2_denorm_array;
+    use crate::utils::test_helpers::normalized_vector_array;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
 
@@ -519,13 +522,25 @@ mod tests {
         Ok(())
     }
 
+    /// Naked [`NormalizedVector`](crate::normalized_vector::NormalizedVector) operands take the
+    /// fast path: cosine similarity collapses to the dot product without computing norms.
+    #[test]
+    fn naked_normalized_vector_cosine() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let lhs = normalized_vector_array(2, &[0.6, 0.8, 1.0, 0.0], &mut ctx)?;
+        let rhs = normalized_vector_array(2, &[0.6, 0.8, 0.0, 1.0], &mut ctx)?;
+        // Row 0: identical -> 1.0, Row 1: orthogonal -> 0.0.
+        assert_close(&eval_cosine_similarity(lhs, rhs, 2)?, &[1.0, 0.0]);
+        Ok(())
+    }
+
     #[test]
     fn both_denorm_self_similarity() -> VortexResult<()> {
         // [3.0, 4.0] has norm 5.0, normalized [0.6, 0.8].
         // [1.0, 0.0] has norm 1.0, normalized [1.0, 0.0].
         let mut ctx = SESSION.create_execution_ctx();
-        let lhs = l2_denorm_array(&[2], &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0], &mut ctx)?;
-        let rhs = l2_denorm_array(&[2], &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0], &mut ctx)?;
+        let lhs = l2_denorm_array(2, &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0], &mut ctx)?;
+        let rhs = l2_denorm_array(2, &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0], &mut ctx)?;
 
         // Self-similarity should always be 1.0.
         assert_close(&eval_cosine_similarity(lhs, rhs, 2)?, &[1.0, 1.0]);
@@ -537,8 +552,8 @@ mod tests {
         // [3.0, 0.0] normalized [1.0, 0.0], norm 3.0.
         // [0.0, 4.0] normalized [0.0, 1.0], norm 4.0.
         let mut ctx = SESSION.create_execution_ctx();
-        let lhs = l2_denorm_array(&[2], &[1.0, 0.0], &[3.0], &mut ctx)?;
-        let rhs = l2_denorm_array(&[2], &[0.0, 1.0], &[4.0], &mut ctx)?;
+        let lhs = l2_denorm_array(2, &[1.0, 0.0], &[3.0], &mut ctx)?;
+        let rhs = l2_denorm_array(2, &[0.0, 1.0], &[4.0], &mut ctx)?;
 
         assert_close(&eval_cosine_similarity(lhs, rhs, 1)?, &[0.0]);
         Ok(())
@@ -548,8 +563,8 @@ mod tests {
     fn both_denorm_zero_norm() -> VortexResult<()> {
         // Zero-norm row: normalized is [0.0, 0.0], norm is 0.0.
         let mut ctx = SESSION.create_execution_ctx();
-        let lhs = l2_denorm_array(&[2], &[0.6, 0.8, 0.0, 0.0], &[5.0, 0.0], &mut ctx)?;
-        let rhs = l2_denorm_array(&[2], &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0], &mut ctx)?;
+        let lhs = l2_denorm_array(2, &[0.6, 0.8, 0.0, 0.0], &[5.0, 0.0], &mut ctx)?;
+        let rhs = l2_denorm_array(2, &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0], &mut ctx)?;
 
         // Row 0: dot([0.6, 0.8], [0.6, 0.8]) = 1.0, row 1: dot([0,0], [1,0]) = 0.0.
         assert_close(&eval_cosine_similarity(lhs, rhs, 2)?, &[1.0, 0.0]);
@@ -562,8 +577,8 @@ mod tests {
         // RHS is plain [3.0, 4.0].
         // cosine_similarity([3.0, 4.0], [3.0, 4.0]) = 1.0.
         let mut ctx = SESSION.create_execution_ctx();
-        let lhs = l2_denorm_array(&[2], &[0.6, 0.8], &[5.0], &mut ctx)?;
-        let rhs = tensor_array(&[2], &[3.0, 4.0])?;
+        let lhs = l2_denorm_array(2, &[0.6, 0.8], &[5.0], &mut ctx)?;
+        let rhs = vector_array(2, &[3.0, 4.0])?;
 
         assert_close(&eval_cosine_similarity(lhs, rhs, 1)?, &[1.0]);
         Ok(())
@@ -574,8 +589,8 @@ mod tests {
         // LHS is plain [1.0, 0.0], RHS is L2Denorm([0.6, 0.8], 5.0) representing [3.0, 4.0].
         // cosine_similarity([1.0, 0.0], [3.0, 4.0]) = 3.0 / (1.0 * 5.0) = 0.6.
         let mut ctx = SESSION.create_execution_ctx();
-        let lhs = tensor_array(&[2], &[1.0, 0.0])?;
-        let rhs = l2_denorm_array(&[2], &[0.6, 0.8], &[5.0], &mut ctx)?;
+        let lhs = vector_array(2, &[1.0, 0.0])?;
+        let rhs = l2_denorm_array(2, &[0.6, 0.8], &[5.0], &mut ctx)?;
 
         assert_close(&eval_cosine_similarity(lhs, rhs, 1)?, &[0.6]);
         Ok(())
@@ -585,9 +600,9 @@ mod tests {
     fn both_denorm_null_norms() -> VortexResult<()> {
         // Row 0: valid, row 1: null (via nullable norms on rhs).
         let mut ctx = SESSION.create_execution_ctx();
-        let lhs = l2_denorm_array(&[2], &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0], &mut ctx)?;
+        let lhs = l2_denorm_array(2, &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0], &mut ctx)?;
 
-        let normalized_r = tensor_array(&[2], &[0.6, 0.8, 1.0, 0.0])?;
+        let normalized_r = normalized_vector_array(2, &[0.6, 0.8, 1.0, 0.0], &mut ctx)?;
         let norms_r = PrimitiveArray::from_option_iter([Some(5.0f64), None]).into_array();
         let rhs = L2Denorm::try_new_array(normalized_r, norms_r, 2, &mut ctx)?.into_array();
 
@@ -700,6 +715,34 @@ mod tests {
             &eval_cosine_similarity(lhs, rhs, 4)?,
             &[1.0 / 3.0, 1.0, 2.0 / 3.0, 8.0 / 9.0],
         );
+        Ok(())
+    }
+
+    #[test]
+    fn serde_round_trip_mixed_vector_and_normalized_vector() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let lhs = normalized_vector_array(2, &[0.6, 0.8, 1.0, 0.0], &mut ctx)?;
+        let rhs = vector_array(2, &[3.0, 4.0, 0.0, 1.0])?;
+        let original = CosineSimilarity::try_new_array(lhs.clone(), rhs.clone(), 2)?.into_array();
+
+        let plugin = ScalarFnArrayPlugin::new(CosineSimilarity);
+        let metadata = plugin
+            .serialize(&original, &SESSION)?
+            .expect("CosineSimilarity serialize must produce metadata");
+
+        let children = vec![lhs, rhs];
+        let recovered = plugin.deserialize(
+            original.dtype(),
+            original.len(),
+            &metadata,
+            &[],
+            &children,
+            &SESSION,
+        )?;
+
+        assert_eq!(recovered.dtype(), original.dtype());
+        assert_eq!(recovered.len(), original.len());
+        assert_eq!(recovered.encoding_id(), original.encoding_id());
         Ok(())
     }
 

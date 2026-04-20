@@ -39,8 +39,8 @@ use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 use crate::scalar_fns::sorf_transform::SorfMatrix;
 use crate::scalar_fns::sorf_transform::SorfOptions;
 use crate::scalar_fns::sorf_transform::SorfTransform;
+use crate::types::normalized_vector::NormalizedVector;
 use crate::types::vector::AnyVector;
-use crate::types::vector::Vector;
 use crate::utils::cast_to_f32;
 
 /// Configuration for TurboQuant encoding.
@@ -101,7 +101,7 @@ pub fn turboquant_encode(
     let tq = unsafe { turboquant_encode_unchecked(normalized_ext, config, ctx) }?;
 
     // SAFETY: TurboQuant is a lossy approximation of the normalized child, so we intentionally
-    // bypass the strict normalized-row validation when reattaching the stored norms.
+    // bypass the strict normalized-row and zero-row validation when reattaching the stored norms.
     Ok(unsafe { L2Denorm::new_array_unchecked(tq, norms, num_rows) }?.into_array())
 }
 
@@ -156,7 +156,10 @@ pub unsafe fn turboquant_encode_unchecked(
             Validity::NonNullable,
             0,
         )?;
-        let empty_padded_vector = Vector::try_new_vector_array(empty_fsl.into_array())?;
+        // SAFETY: An empty FSL contains no rows, so the unit-norm-or-zero invariant holds
+        // vacuously.
+        let empty_padded_vector =
+            unsafe { NormalizedVector::new_unchecked(empty_fsl.into_array()) }?;
 
         let sorf_options = SorfOptions {
             seed,
@@ -172,7 +175,11 @@ pub unsafe fn turboquant_encode_unchecked(
     let core = turboquant_quantize_core(&fsl, seed, config.bit_width, config.num_rounds, ctx)?;
     let quantized_fsl =
         build_quantized_fsl(num_rows, core.all_indices, core.centroids, core.padded_dim)?;
-    let padded_vector = Vector::try_new_vector_array(quantized_fsl)?;
+    // SAFETY: TurboQuant is a lossy approximation of the already-unit-norm input. The
+    // quantized rows are approximately unit-norm by construction; downstream callers
+    // (notably the enclosing `L2Denorm` wrapper) treat the stored-norm + NormalizedVector
+    // claim as authoritative rather than decode-verified.
+    let padded_vector = unsafe { NormalizedVector::new_unchecked(quantized_fsl) }?;
 
     let sorf_options = SorfOptions {
         seed,
