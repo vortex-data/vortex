@@ -237,7 +237,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     };
 
                     let compressed = BtrBlocksCompressor::default()
-                        .compress(&indices_array)
+                        .compress(&indices_array, &mut ctx)
                         .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test");
                     (
                         Action::Take(compressed),
@@ -541,14 +541,15 @@ fn random_action_from_list(
 /// Compress an array using the given strategy.
 #[cfg(feature = "zstd")]
 pub fn compress_array(array: &ArrayRef, strategy: CompressorStrategy) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     match strategy {
         CompressorStrategy::Default => BtrBlocksCompressor::default()
-            .compress(array)
+            .compress(array, &mut ctx)
             .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test"),
         CompressorStrategy::Compact => BtrBlocksCompressorBuilder::default()
             .with_compact()
             .build()
-            .compress(array)
+            .compress(array, &mut ctx)
             .vortex_expect("Compact compress should succeed in fuzz test"),
     }
 }
@@ -557,7 +558,7 @@ pub fn compress_array(array: &ArrayRef, strategy: CompressorStrategy) -> ArrayRe
 #[cfg(not(feature = "zstd"))]
 pub fn compress_array(array: &ArrayRef, _strategy: CompressorStrategy) -> ArrayRef {
     BtrBlocksCompressor::default()
-        .compress(array)
+        .compress(array, &mut SESSION.create_execution_ctx())
         .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test")
 }
 

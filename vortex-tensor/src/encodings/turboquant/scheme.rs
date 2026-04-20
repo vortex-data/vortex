@@ -21,6 +21,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_compressor::CascadingCompressor;
 use vortex_compressor::ctx::CompressorContext;
 use vortex_compressor::estimate::CompressionEstimate;
@@ -71,7 +72,8 @@ impl Scheme for TurboQuantScheme {
     fn expected_compression_ratio(
         &self,
         data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         let len = data.array().len();
         let dtype = data.array().dtype();
@@ -94,12 +96,12 @@ impl Scheme for TurboQuantScheme {
 
     fn compress(
         &self,
-        compressor: &CascadingCompressor,
+        _compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
+        _compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let mut ctx = compressor.execution_ctx();
-        turboquant_encode(data.array().clone(), &TurboQuantConfig::default(), &mut ctx)
+        turboquant_encode(data.array().clone(), &TurboQuantConfig::default(), exec_ctx)
     }
 }
 

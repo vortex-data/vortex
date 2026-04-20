@@ -5,8 +5,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
-use vortex_array::LEGACY_SESSION;
-use vortex_array::VortexSessionExecute;
+use vortex_array::ExecutionCtx;
 use vortex_array::aggregate_fn::fns::is_constant::is_constant;
 use vortex_error::VortexResult;
 
@@ -33,19 +32,17 @@ impl Scheme for FloatConstantScheme {
     fn expected_compression_ratio(
         &self,
         data: &mut ArrayAndStats,
-        ctx: CompressorContext,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         // Constant detection on a sample is a false positive, since the sample being constant does
         // not mean the full array is constant.
-        if ctx.is_sample() {
+        if compress_ctx.is_sample() {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         let array_len = data.array().len();
-        // TRAIT-IMPL BOUNDARY: `Scheme::expected_compression_ratio` has a fixed signature
-        // and does not receive an `ExecutionCtx`, so we fall back to the legacy session here.
-        let mut exec_ctx = LEGACY_SESSION.create_execution_ctx();
-        let stats = data.float_stats(&mut exec_ctx);
+        let stats = data.float_stats(exec_ctx);
 
         // Note that we only compute distinct counts if other schemes have requested it.
         if let Some(distinct_count) = stats.distinct_count() {
@@ -69,8 +66,8 @@ impl Scheme for FloatConstantScheme {
         // This is an expensive check, but in practice the distinct count is known because we often
         // include dictionary encoding in our set of schemes, so we rarely call this.
         CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-            |compressor, data, _ctx| {
-                if is_constant(data.array(), &mut compressor.execution_ctx())? {
+            |_compressor, data, _ctx, exec_ctx| {
+                if is_constant(data.array(), exec_ctx)? {
                     Ok(EstimateVerdict::AlwaysUse)
                 } else {
                     Ok(EstimateVerdict::Skip)
@@ -83,8 +80,9 @@ impl Scheme for FloatConstantScheme {
         &self,
         _compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
+        _compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        compress_constant_array_with_validity(data.array())
+        compress_constant_array_with_validity(data.array(), exec_ctx)
     }
 }
