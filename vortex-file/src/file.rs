@@ -10,7 +10,6 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_array::ArrayRef;
 use vortex_array::Columnar;
 use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
@@ -110,7 +109,7 @@ impl VortexFile {
     }
 
     /// Initiate a scan of the file, returning a builder for configuring the scan.
-    pub fn scan(&self) -> VortexResult<ScanBuilder<ArrayRef>> {
+    pub fn scan(&self) -> VortexResult<ScanBuilder> {
         Ok(ScanBuilder::new(
             self.session.clone(),
             self.layout_reader()?,

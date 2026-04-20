@@ -32,7 +32,6 @@ use futures::TryStreamExt;
 use futures::stream;
 use object_store::path::Path;
 use tracing::Instrument;
-use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::error::VortexError;
@@ -362,17 +361,21 @@ impl FileOpener for VortexOpener {
                 scan_builder = scan_builder.with_concurrency(concurrency);
             }
 
+            let stream_schema = Arc::new(stream_schema);
+
             let stream = scan_builder
                 .with_metrics_registry(metrics_registry)
                 .with_projection(scan_projection)
                 .with_some_filter(filter)
                 .with_ordered(has_output_ordering)
-                .map(move |chunk| {
-                    let mut ctx = session.create_execution_ctx();
-                    chunk.execute_record_batch(&stream_schema, &mut ctx)
-                })
                 .into_stream()
                 .map_err(|e| exec_datafusion_err!("Failed to create Vortex stream: {e}"))?
+                .map(move |chunk| {
+                    let mut ctx = session.create_execution_ctx();
+                    chunk.and_then(|chunk| {
+                        chunk.execute_record_batch(stream_schema.as_ref(), &mut ctx)
+                    })
+                })
                 .map_ok(move |rb| {
                     // We try and slice the stream into respecting datafusion's configured batch size.
                     stream::iter(
@@ -426,8 +429,8 @@ fn apply_byte_range(
     file_range: FileRange,
     total_size: u64,
     row_count: u64,
-    scan_builder: ScanBuilder<ArrayRef>,
-) -> ScanBuilder<ArrayRef> {
+    scan_builder: ScanBuilder,
+) -> ScanBuilder {
     let row_range = byte_range_to_row_range(
         file_range.start as u64..file_range.end as u64,
         row_count,

@@ -10,7 +10,6 @@ use std::task::ready;
 
 use futures::Stream;
 use futures::StreamExt;
-use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
@@ -24,15 +23,12 @@ use vortex_array::expr::analysis::immediate_access::immediate_scope_access;
 use vortex_array::expr::root;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
-use vortex_array::stats::StatsSet;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_io::runtime::BlockingRuntime;
-use vortex_io::runtime::Handle;
 use vortex_io::runtime::Task;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_metrics::MetricsRegistry;
@@ -48,7 +44,7 @@ use crate::scan::splits::Splits;
 use crate::scan::splits::attempt_split_ranges;
 
 /// A struct for building a scan operation.
-pub struct ScanBuilder<A> {
+pub struct ScanBuilder {
     session: VortexSession,
     layout_reader: LayoutReaderRef,
     projection: Expression,
@@ -64,11 +60,7 @@ pub struct ScanBuilder<A> {
     split_by: SplitBy,
     /// The number of splits to make progress on concurrently **per-thread**.
     concurrency: usize,
-    /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
-    map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
-    /// Should we try to prune the file (using stats) on open.
-    file_stats: Option<Arc<[StatsSet]>>,
     /// Maximal number of rows to read (after filtering)
     limit: Option<u64>,
     /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
@@ -76,7 +68,7 @@ pub struct ScanBuilder<A> {
     row_offset: u64,
 }
 
-impl ScanBuilder<ArrayRef> {
+impl ScanBuilder {
     pub fn new(session: VortexSession, layout_reader: Arc<dyn LayoutReader>) -> Self {
         Self {
             session,
@@ -90,9 +82,7 @@ impl ScanBuilder<ArrayRef> {
             // We default to four tasks per worker thread, which allows for some I/O lookahead
             // without too much impact on work-stealing.
             concurrency: 4,
-            map_fn: Arc::new(Ok),
             metrics_registry: None,
-            file_stats: None,
             limit: None,
             row_offset: 0,
         }
@@ -119,9 +109,7 @@ impl ScanBuilder<ArrayRef> {
             runtime.block_on_stream(stream),
         ))
     }
-}
 
-impl<A: 'static + Send> ScanBuilder<A> {
     pub fn with_filter(mut self, filter: Expression) -> Self {
         self.filter = Some(filter);
         self
@@ -213,36 +201,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
         &self.session
     }
 
-    /// Map each split of the scan. The function will be run on the spawned task.
-    pub fn map<B: 'static>(
-        self,
-        map_fn: impl Fn(A) -> VortexResult<B> + 'static + Send + Sync,
-    ) -> ScanBuilder<B> {
-        let old_map_fn = self.map_fn;
-        ScanBuilder {
-            session: self.session,
-            layout_reader: self.layout_reader,
-            projection: self.projection,
-            filter: self.filter,
-            ordered: self.ordered,
-            row_range: self.row_range,
-            selection: self.selection,
-            split_by: self.split_by,
-            concurrency: self.concurrency,
-            metrics_registry: self.metrics_registry,
-            file_stats: self.file_stats,
-            limit: self.limit,
-            row_offset: self.row_offset,
-            map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
-        }
-    }
-
-    pub fn prepare(self) -> VortexResult<RepeatedScan<A>> {
+    pub fn prepare(self) -> VortexResult<RepeatedScan> {
         let dtype = self.dtype()?;
-
-        if self.filter.is_some() && self.limit.is_some() {
-            vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
-        }
 
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
         // conjunction splitting if a filter is provided.
@@ -295,26 +255,15 @@ impl<A: 'static + Send> ScanBuilder<A> {
             self.selection,
             splits,
             self.concurrency,
-            self.map_fn,
             self.limit,
             dtype,
         ))
     }
 
-    /// Constructs a task per row split of the scan, returned as a vector of futures.
-    pub fn build(self) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
-        // The ultimate short circuit
-        if self.limit.is_some_and(|l| l == 0) {
-            return Ok(vec![]);
-        }
-
-        self.prepare()?.execute(None)
-    }
-
     /// Returns a [`Stream`] with tasks spawned onto the session's runtime handle.
     pub fn into_stream(
         self,
-    ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
+    ) -> VortexResult<impl Stream<Item = VortexResult<ArrayRef>> + Send + 'static> {
         Ok(LazyScanStream::new(self))
     }
 
@@ -322,84 +271,55 @@ impl<A: 'static + Send> ScanBuilder<A> {
     pub fn into_iter<B: BlockingRuntime>(
         self,
         runtime: &B,
-    ) -> VortexResult<impl Iterator<Item = VortexResult<A>> + 'static> {
+    ) -> VortexResult<impl Iterator<Item = VortexResult<ArrayRef>> + 'static> {
         let stream = self.into_stream()?;
         Ok(runtime.block_on_stream(stream))
     }
 }
 
-enum LazyScanState<A: 'static + Send> {
-    Builder(Option<Box<ScanBuilder<A>>>),
-    Preparing(PreparingScan<A>),
-    Stream(BoxStream<'static, VortexResult<A>>),
+enum LazyScanState {
+    Builder(Option<Box<ScanBuilder>>),
+    Preparing(PreparingScan),
+    Stream(BoxStream<'static, VortexResult<ArrayRef>>),
     Error(Option<vortex_error::VortexError>),
 }
 
-type PreparedScanTasks<A> = Vec<BoxFuture<'static, VortexResult<Option<A>>>>;
-
-struct PreparingScan<A: 'static + Send> {
-    ordered: bool,
-    concurrency: usize,
-    handle: Handle,
-    task: Task<VortexResult<PreparedScanTasks<A>>>,
+struct PreparingScan {
+    task: Task<VortexResult<RepeatedScan>>,
 }
 
-struct LazyScanStream<A: 'static + Send> {
-    state: LazyScanState<A>,
+struct LazyScanStream {
+    state: LazyScanState,
 }
 
-impl<A: 'static + Send> LazyScanStream<A> {
-    fn new(builder: ScanBuilder<A>) -> Self {
+impl LazyScanStream {
+    fn new(builder: ScanBuilder) -> Self {
         Self {
             state: LazyScanState::Builder(Some(Box::new(builder))),
         }
     }
 }
 
-impl<A: 'static + Send> Unpin for LazyScanStream<A> {}
+impl Unpin for LazyScanStream {}
 
-impl<A: 'static + Send> Stream for LazyScanStream<A> {
-    type Item = VortexResult<A>;
+impl Stream for LazyScanStream {
+    type Item = VortexResult<ArrayRef>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
             match &mut self.state {
                 LazyScanState::Builder(builder) => {
                     let builder = builder.take().vortex_expect("polled after completion");
-                    let ordered = builder.ordered;
-                    let num_workers = std::thread::available_parallelism()
-                        .map(|n| n.get())
-                        .unwrap_or(1);
-                    let concurrency = builder.concurrency * num_workers;
                     let handle = builder.session.handle();
-                    let task = handle.spawn_blocking(move || {
-                        builder.prepare().and_then(|scan| scan.execute(None))
-                    });
-                    self.state = LazyScanState::Preparing(PreparingScan {
-                        ordered,
-                        concurrency,
-                        handle,
-                        task,
-                    });
+                    let task = handle.spawn_blocking(move || builder.prepare());
+                    self.state = LazyScanState::Preparing(PreparingScan { task });
                 }
                 LazyScanState::Preparing(preparing) => {
                     match ready!(Pin::new(&mut preparing.task).poll(cx)) {
-                        Ok(tasks) => {
-                            let ordered = preparing.ordered;
-                            let concurrency = preparing.concurrency;
-                            let handle = preparing.handle.clone();
-                            let stream =
-                                futures::stream::iter(tasks).map(move |task| handle.spawn(task));
-                            let stream = if ordered {
-                                stream.buffered(concurrency).boxed()
-                            } else {
-                                stream.buffer_unordered(concurrency).boxed()
-                            };
-                            let stream = stream
-                                .filter_map(|chunk| async move { chunk.transpose() })
-                                .boxed();
-                            self.state = LazyScanState::Stream(stream);
-                        }
+                        Ok(scan) => match scan.execute_stream(None) {
+                            Ok(stream) => self.state = LazyScanState::Stream(stream.boxed()),
+                            Err(err) => self.state = LazyScanState::Error(Some(err)),
+                        },
                         Err(err) => self.state = LazyScanState::Error(Some(err)),
                     }
                 }
@@ -464,6 +384,7 @@ mod test {
     use futures::Stream;
     use futures::task::noop_waker_ref;
     use parking_lot::Mutex;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     #[expect(deprecated)]
@@ -474,6 +395,7 @@ mod test {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::expr::Expression;
+    use vortex_array::expr::root;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_io::runtime::BlockingRuntime;
@@ -681,6 +603,166 @@ mod test {
         assert_eq!(calls.load(Ordering::Relaxed), 1);
         assert_eq!(values.as_ref(), [0, 1, 2, 3]);
 
+        Ok(())
+    }
+
+    #[derive(Debug)]
+    struct FilteringLayoutReader {
+        name: Arc<str>,
+        dtype: DType,
+        row_count: u64,
+        keep_row: fn(u64) -> bool,
+    }
+
+    impl FilteringLayoutReader {
+        fn new(row_count: u64, keep_row: fn(u64) -> bool) -> Self {
+            Self {
+                name: Arc::from("filtering"),
+                dtype: DType::Primitive(PType::I32, Nullability::NonNullable),
+                row_count,
+                keep_row,
+            }
+        }
+    }
+
+    impl LayoutReader for FilteringLayoutReader {
+        fn name(&self) -> &Arc<str> {
+            &self.name
+        }
+
+        fn dtype(&self) -> &DType {
+            &self.dtype
+        }
+
+        fn row_count(&self) -> u64 {
+            self.row_count
+        }
+
+        fn register_splits(
+            &self,
+            _field_mask: &[FieldMask],
+            row_range: &Range<u64>,
+            splits: &mut BTreeSet<u64>,
+        ) -> VortexResult<()> {
+            for split in ((row_range.start + 2)..row_range.end).step_by(2) {
+                splits.insert(split);
+            }
+            splits.insert(row_range.end);
+            Ok(())
+        }
+
+        fn pruning_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            mask: Mask,
+        ) -> VortexResult<MaskFuture> {
+            Ok(MaskFuture::ready(mask))
+        }
+
+        fn filter_evaluation(
+            &self,
+            row_range: &Range<u64>,
+            _expr: &Expression,
+            mask: MaskFuture,
+        ) -> VortexResult<MaskFuture> {
+            let row_range = row_range.clone();
+            let keep_row = self.keep_row;
+            let row_count = usize::try_from(row_range.end - row_range.start)
+                .map_err(|_| vortex_err!("row range must fit in usize"))?;
+
+            Ok(MaskFuture::new(row_count, async move {
+                let input_mask = mask.await?;
+                let filtered = (row_range.start..row_range.end)
+                    .enumerate()
+                    .map(|(idx, row)| input_mask.value(idx) && keep_row(row));
+                Ok(Mask::from_iter(filtered))
+            }))
+        }
+
+        fn projection_evaluation(
+            &self,
+            row_range: &Range<u64>,
+            _expr: &Expression,
+            mask: MaskFuture,
+        ) -> VortexResult<ArrayFuture> {
+            let row_range = row_range.clone();
+
+            Ok(Box::pin(async move {
+                let start = i32::try_from(row_range.start)
+                    .map_err(|_| vortex_err!("row_range.start must fit in i32"))?;
+                let end = i32::try_from(row_range.end)
+                    .map_err(|_| vortex_err!("row_range.end must fit in i32"))?;
+
+                let array = PrimitiveArray::from_iter(start..end).into_array();
+                array.filter(mask.await?)
+            }))
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+    }
+
+    fn collect_scan_values<I>(iter: I) -> VortexResult<Vec<i32>>
+    where
+        I: IntoIterator<Item = VortexResult<ArrayRef>>,
+    {
+        let mut values = Vec::new();
+        for chunk in iter {
+            #[expect(deprecated)]
+            let primitive = chunk?.to_primitive();
+            values.extend(primitive.into_buffer::<i32>());
+        }
+        Ok(values)
+    }
+
+    fn drain_runtime(runtime: &SingleThreadRuntime) {
+        for _ in 0..4 {
+            let mut yielded = false;
+            runtime.block_on(futures::future::poll_fn(move |cx| {
+                if yielded {
+                    Poll::Ready(())
+                } else {
+                    yielded = true;
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+            }));
+        }
+    }
+
+    #[test]
+    fn into_stream_limits_filtered_results() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = crate::scan::test::session_with_handle(runtime.handle());
+        let reader = Arc::new(FilteringLayoutReader::new(8, |_| true));
+
+        let stream = ScanBuilder::new(session, reader)
+            .with_filter(root())
+            .with_limit(3)
+            .into_stream()?;
+        let values = collect_scan_values(runtime.block_on_stream(stream))?;
+        drain_runtime(&runtime);
+
+        assert_eq!(values, [0, 1, 2]);
+        Ok(())
+    }
+
+    #[test]
+    fn prepared_scan_limits_filtered_results() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = crate::scan::test::session_with_handle(runtime.handle());
+        let reader = Arc::new(FilteringLayoutReader::new(8, |row| row % 2 == 1));
+
+        let scan = ScanBuilder::new(session, reader)
+            .with_filter(root())
+            .with_limit(3)
+            .prepare()?;
+        let values = collect_scan_values(scan.execute_array_iter(None, &runtime)?)?;
+        drain_runtime(&runtime);
+
+        assert_eq!(values, [1, 3, 5]);
         Ok(())
     }
 

@@ -1042,89 +1042,77 @@ pub fn vortex_layout::scan::multi::LayoutReaderFactory::open<'life0, 'async_trai
 
 pub mod vortex_layout::scan::repeated_scan
 
-pub struct vortex_layout::scan::repeated_scan::RepeatedScan<A: 'static + core::marker::Send>
+pub struct vortex_layout::scan::repeated_scan::RepeatedScan
 
-impl vortex_layout::scan::repeated_scan::RepeatedScan<vortex_array::array::erased::ArrayRef>
+impl vortex_layout::scan::repeated_scan::RepeatedScan
 
-pub fn vortex_layout::scan::repeated_scan::RepeatedScan<vortex_array::array::erased::ArrayRef>::dtype(&self) -> &vortex_array::dtype::DType
+pub fn vortex_layout::scan::repeated_scan::RepeatedScan::dtype(&self) -> &vortex_array::dtype::DType
 
-pub fn vortex_layout::scan::repeated_scan::RepeatedScan<vortex_array::array::erased::ArrayRef>::execute_array_iter<B: vortex_io::runtime::blocking::BlockingRuntime>(&self, row_range: core::option::Option<core::ops::range::Range<u64>>, runtime: &B) -> vortex_error::VortexResult<impl vortex_array::iter::ArrayIterator + 'static>
+pub fn vortex_layout::scan::repeated_scan::RepeatedScan::execute_array_iter<B: vortex_io::runtime::blocking::BlockingRuntime>(&self, row_range: core::option::Option<core::ops::range::Range<u64>>, runtime: &B) -> vortex_error::VortexResult<impl vortex_array::iter::ArrayIterator + 'static>
 
-pub fn vortex_layout::scan::repeated_scan::RepeatedScan<vortex_array::array::erased::ArrayRef>::execute_array_stream(&self, row_range: core::option::Option<core::ops::range::Range<u64>>) -> vortex_error::VortexResult<impl vortex_array::stream::ArrayStream + core::marker::Send + 'static>
+pub fn vortex_layout::scan::repeated_scan::RepeatedScan::execute_array_stream(&self, row_range: core::option::Option<core::ops::range::Range<u64>>) -> vortex_error::VortexResult<impl vortex_array::stream::ArrayStream + core::marker::Send + 'static>
 
-impl<A: 'static + core::marker::Send> vortex_layout::scan::repeated_scan::RepeatedScan<A>
-
-pub fn vortex_layout::scan::repeated_scan::RepeatedScan<A>::execute(&self, row_range: core::option::Option<core::ops::range::Range<u64>>) -> vortex_error::VortexResult<alloc::vec::Vec<futures_core::future::BoxFuture<'static, vortex_error::VortexResult<core::option::Option<A>>>>>
-
-pub fn vortex_layout::scan::repeated_scan::RepeatedScan<A>::execute_stream(&self, row_range: core::option::Option<core::ops::range::Range<u64>>) -> vortex_error::VortexResult<impl futures_core::stream::Stream<Item = vortex_error::VortexResult<A>> + core::marker::Send + 'static + use<A>>
-
-pub fn vortex_layout::scan::repeated_scan::RepeatedScan<A>::new(session: vortex_session::VortexSession, layout_reader: vortex_layout::LayoutReaderRef, projection: vortex_array::expr::expression::Expression, filter: core::option::Option<vortex_array::expr::expression::Expression>, ordered: bool, row_range: core::option::Option<core::ops::range::Range<u64>>, selection: vortex_scan::selection::Selection, splits: vortex_layout::scan::splits::Splits, concurrency: usize, map_fn: alloc::sync::Arc<(dyn core::ops::function::Fn(vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<A> + core::marker::Send + core::marker::Sync)>, limit: core::option::Option<u64>, dtype: vortex_array::dtype::DType) -> Self
+pub fn vortex_layout::scan::repeated_scan::RepeatedScan::new(session: vortex_session::VortexSession, layout_reader: vortex_layout::LayoutReaderRef, projection: vortex_array::expr::expression::Expression, filter: core::option::Option<vortex_array::expr::expression::Expression>, ordered: bool, row_range: core::option::Option<core::ops::range::Range<u64>>, selection: vortex_scan::selection::Selection, splits: vortex_layout::scan::splits::Splits, concurrency: usize, limit: core::option::Option<u64>, dtype: vortex_array::dtype::DType) -> Self
 
 pub mod vortex_layout::scan::scan_builder
 
-pub struct vortex_layout::scan::scan_builder::ScanBuilder<A>
+pub struct vortex_layout::scan::scan_builder::ScanBuilder
 
-impl vortex_layout::scan::scan_builder::ScanBuilder<vortex_array::array::erased::ArrayRef>
+impl vortex_layout::scan::scan_builder::ScanBuilder
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<vortex_array::array::erased::ArrayRef>::into_array_iter<B: vortex_io::runtime::blocking::BlockingRuntime>(self, runtime: &B) -> vortex_error::VortexResult<impl vortex_array::iter::ArrayIterator + 'static>
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::concurrency(&self) -> usize
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<vortex_array::array::erased::ArrayRef>::into_array_stream(self) -> vortex_error::VortexResult<impl vortex_array::stream::ArrayStream + core::marker::Send + 'static>
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::dtype(&self) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<vortex_array::array::erased::ArrayRef>::new(session: vortex_session::VortexSession, layout_reader: alloc::sync::Arc<dyn vortex_layout::LayoutReader>) -> Self
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::into_array_iter<B: vortex_io::runtime::blocking::BlockingRuntime>(self, runtime: &B) -> vortex_error::VortexResult<impl vortex_array::iter::ArrayIterator + 'static>
 
-impl vortex_layout::scan::scan_builder::ScanBuilder<vortex_array::array::erased::ArrayRef>
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::into_array_stream(self) -> vortex_error::VortexResult<impl vortex_array::stream::ArrayStream + core::marker::Send + 'static>
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<vortex_array::array::erased::ArrayRef>::into_record_batch_reader<B: vortex_io::runtime::blocking::BlockingRuntime>(self, schema: arrow_schema::schema::SchemaRef, runtime: &B) -> vortex_error::VortexResult<impl arrow_array::record_batch::RecordBatchReader + 'static>
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::into_iter<B: vortex_io::runtime::blocking::BlockingRuntime>(self, runtime: &B) -> vortex_error::VortexResult<impl core::iter::traits::iterator::Iterator<Item = vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>> + 'static>
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<vortex_array::array::erased::ArrayRef>::into_record_batch_stream(self, schema: arrow_schema::schema::SchemaRef) -> vortex_error::VortexResult<impl futures_core::stream::Stream<Item = core::result::Result<arrow_array::record_batch::RecordBatch, arrow_schema::error::ArrowError>> + core::marker::Send + 'static>
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::into_stream(self) -> vortex_error::VortexResult<impl futures_core::stream::Stream<Item = vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>> + core::marker::Send + 'static>
 
-impl<A: 'static + core::marker::Send> vortex_layout::scan::scan_builder::ScanBuilder<A>
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::new(session: vortex_session::VortexSession, layout_reader: alloc::sync::Arc<dyn vortex_layout::LayoutReader>) -> Self
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<A>::build(self) -> vortex_error::VortexResult<alloc::vec::Vec<futures_core::future::BoxFuture<'static, vortex_error::VortexResult<core::option::Option<A>>>>>
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::ordered(&self) -> bool
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<A>::concurrency(&self) -> usize
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::prepare(self) -> vortex_error::VortexResult<vortex_layout::scan::repeated_scan::RepeatedScan>
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<A>::dtype(&self) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::session(&self) -> &vortex_session::VortexSession
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<A>::into_iter<B: vortex_io::runtime::blocking::BlockingRuntime>(self, runtime: &B) -> vortex_error::VortexResult<impl core::iter::traits::iterator::Iterator<Item = vortex_error::VortexResult<A>> + 'static>
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::with_concurrency(self, concurrency: usize) -> Self
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<A>::into_stream(self) -> vortex_error::VortexResult<impl futures_core::stream::Stream<Item = vortex_error::VortexResult<A>> + core::marker::Send + 'static + use<A>>
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::with_filter(self, filter: vortex_array::expr::expression::Expression) -> Self
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<A>::map<B: 'static>(self, map_fn: impl core::ops::function::Fn(A) -> vortex_error::VortexResult<B> + 'static + core::marker::Send + core::marker::Sync) -> vortex_layout::scan::scan_builder::ScanBuilder<B>
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::with_limit(self, limit: u64) -> Self
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<A>::ordered(&self) -> bool
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::with_metrics_registry(self, metrics: alloc::sync::Arc<dyn vortex_metrics::MetricsRegistry>) -> Self
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<A>::prepare(self) -> vortex_error::VortexResult<vortex_layout::scan::repeated_scan::RepeatedScan<A>>
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::with_ordered(self, ordered: bool) -> Self
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<A>::session(&self) -> &vortex_session::VortexSession
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::with_projection(self, projection: vortex_array::expr::expression::Expression) -> Self
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<A>::with_concurrency(self, concurrency: usize) -> Self
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::with_row_indices(self, row_indices: vortex_buffer::buffer::Buffer<u64>) -> Self
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<A>::with_filter(self, filter: vortex_array::expr::expression::Expression) -> Self
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::with_row_offset(self, row_offset: u64) -> Self
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<A>::with_limit(self, limit: u64) -> Self
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::with_row_range(self, row_range: core::ops::range::Range<u64>) -> Self
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<A>::with_metrics_registry(self, metrics: alloc::sync::Arc<dyn vortex_metrics::MetricsRegistry>) -> Self
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::with_selection(self, selection: vortex_scan::selection::Selection) -> Self
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<A>::with_ordered(self, ordered: bool) -> Self
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::with_some_filter(self, filter: core::option::Option<vortex_array::expr::expression::Expression>) -> Self
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<A>::with_projection(self, projection: vortex_array::expr::expression::Expression) -> Self
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::with_some_limit(self, limit: core::option::Option<u64>) -> Self
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<A>::with_row_indices(self, row_indices: vortex_buffer::buffer::Buffer<u64>) -> Self
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::with_some_metrics_registry(self, metrics: core::option::Option<alloc::sync::Arc<dyn vortex_metrics::MetricsRegistry>>) -> Self
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<A>::with_row_offset(self, row_offset: u64) -> Self
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::with_split_by(self, split_by: vortex_layout::scan::split_by::SplitBy) -> Self
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<A>::with_row_range(self, row_range: core::ops::range::Range<u64>) -> Self
+impl vortex_layout::scan::scan_builder::ScanBuilder
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<A>::with_selection(self, selection: vortex_scan::selection::Selection) -> Self
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::into_record_batch_reader<B: vortex_io::runtime::blocking::BlockingRuntime>(self, schema: arrow_schema::schema::SchemaRef, runtime: &B) -> vortex_error::VortexResult<impl arrow_array::record_batch::RecordBatchReader + 'static>
 
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<A>::with_some_filter(self, filter: core::option::Option<vortex_array::expr::expression::Expression>) -> Self
-
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<A>::with_some_limit(self, limit: core::option::Option<u64>) -> Self
-
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<A>::with_some_metrics_registry(self, metrics: core::option::Option<alloc::sync::Arc<dyn vortex_metrics::MetricsRegistry>>) -> Self
-
-pub fn vortex_layout::scan::scan_builder::ScanBuilder<A>::with_split_by(self, split_by: vortex_layout::scan::split_by::SplitBy) -> Self
+pub fn vortex_layout::scan::scan_builder::ScanBuilder::into_record_batch_stream(self, schema: arrow_schema::schema::SchemaRef) -> vortex_error::VortexResult<impl futures_core::stream::Stream<Item = core::result::Result<arrow_array::record_batch::RecordBatch, arrow_schema::error::ArrowError>> + core::marker::Send + 'static>
 
 pub fn vortex_layout::scan::scan_builder::filter_and_projection_masks(projection: &vortex_array::expr::expression::Expression, filter: core::option::Option<&vortex_array::expr::expression::Expression>, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<(alloc::vec::Vec<vortex_array::dtype::field_mask::FieldMask>, alloc::vec::Vec<vortex_array::dtype::field_mask::FieldMask>)>
 

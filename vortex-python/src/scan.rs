@@ -3,7 +3,6 @@
 
 use pyo3::exceptions::PyIndexError;
 use pyo3::prelude::*;
-use vortex::array::ArrayRef;
 use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
 use vortex::layout::scan::repeated_scan::RepeatedScan;
@@ -26,7 +25,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
 #[pyclass(name = "RepeatedScan", module = "vortex", frozen)]
 pub struct PyRepeatedScan {
-    pub scan: RepeatedScan<ArrayRef>,
+    pub scan: RepeatedScan,
     pub row_count: u64,
 }
 

@@ -108,7 +108,7 @@ pub struct vortex_datafusion::VortexAccessPlan
 
 impl vortex_datafusion::VortexAccessPlan
 
-pub fn vortex_datafusion::VortexAccessPlan::apply_to_builder<A>(&self, scan_builder: vortex_layout::scan::scan_builder::ScanBuilder<A>) -> vortex_layout::scan::scan_builder::ScanBuilder<A> where A: 'static + core::marker::Send
+pub fn vortex_datafusion::VortexAccessPlan::apply_to_builder(&self, scan_builder: vortex_layout::scan::scan_builder::ScanBuilder) -> vortex_layout::scan::scan_builder::ScanBuilder
 
 pub fn vortex_datafusion::VortexAccessPlan::selection(&self) -> core::option::Option<&vortex_scan::selection::Selection>
 

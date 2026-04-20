@@ -21,7 +21,7 @@ use vortex_scan::selection::Selection;
 use crate::LayoutReader;
 use crate::scan::filter::FilterExpr;
 
-pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
+pub type TaskFuture<T> = BoxFuture<'static, VortexResult<T>>;
 
 /// Logic for executing a single split reading task.
 ///
@@ -33,13 +33,12 @@ pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 /// The intersected row range is then further reduced via expression-based pruning. After pruning
 /// has eliminated more blocks, the full filter is executed over the remainder of the split.
 ///
-/// This mask is then provided to the reader to perform a filtered projection over the split data,
-/// finally mapping the Vortex columnar record batches into some result type `A`.
-pub fn split_exec<A: 'static + Send>(
-    ctx: Arc<TaskContext<A>>,
+/// This mask is then provided to the reader to perform a filtered projection over the split data.
+pub fn split_exec(
+    ctx: Arc<TaskContext>,
     split: Range<u64>,
     limit: Option<&mut u64>,
-) -> VortexResult<TaskFuture<Option<A>>> {
+) -> VortexResult<TaskFuture<Option<ArrayRef>>> {
     // Apply the selection to calculate a read mask
     let read_mask = ctx.selection.row_mask(&split);
     let row_range = read_mask.row_range();
@@ -141,22 +140,20 @@ pub fn split_exec<A: 'static + Send>(
         ctx.reader
             .projection_evaluation(&row_range, &ctx.projection, filter_mask.clone())?;
 
-    let mapper = Arc::clone(&ctx.mapper);
     let array_fut = async move {
         let mask = filter_mask.await?;
         if mask.all_false() {
             return Ok(None);
         }
 
-        let array = projection_future.await?;
-        mapper(array).map(Some)
+        projection_future.await.map(Some)
     };
 
     Ok(array_fut.boxed())
 }
 
 /// Information needed to execute a single split task.
-pub struct TaskContext<A> {
+pub struct TaskContext {
     /// A row selection to apply.
     pub selection: Selection,
     /// The shared filter expression.
@@ -165,6 +162,4 @@ pub struct TaskContext<A> {
     pub reader: Arc<dyn LayoutReader>,
     /// The projection expression to apply to gather the scanned rows.
     pub projection: Expression,
-    /// Function that maps into an A.
-    pub mapper: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
 }
