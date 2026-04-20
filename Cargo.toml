@@ -240,7 +240,7 @@ target-lexicon = "0.13"
 temp-env = "0.3"
 tempfile = "3"
 termtree = { version = "1.0" }
-test-with = "0.15"
+test-with = "0.16"
 thiserror = "2.0.3"
 tokio = { version = "1.48" }
 tokio-stream = "0.1.17"

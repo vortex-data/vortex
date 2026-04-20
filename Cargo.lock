@@ -9339,9 +9339,26 @@ checksum = "d4d1330fe7f7f872cd05165130b10602d667b205fd85be09be2814b115d4ced9"
 
 [[package]]
 name = "test-with"
-version = "0.15.8"
+version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27838d769fa9bf364bf4a352ec88862b6e6cb96a8e6705cc78fbb16ff26ee8b9"
+checksum = "3c292571fb159e65c78c7c88a96e5ddfc326d6819e49b3a040d7b0aa3497925b"
+dependencies = [
+ "byte-unit",
+ "chrono",
+ "num_cpus",
+ "ping",
+ "reqwest 0.13.2",
+ "sysinfo",
+ "test-with-derive",
+ "uzers",
+ "which",
+]
+
+[[package]]
+name = "test-with-derive"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01b95b557b54c0d50b04688ab86aaeaf16f201a0341936f3bfa19497dee081bd"
 dependencies = [
  "byte-unit",
  "chrono",
