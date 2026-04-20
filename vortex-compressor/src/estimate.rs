@@ -16,7 +16,9 @@ use crate::sample::SAMPLE_SIZE;
 use crate::sample::sample;
 use crate::sample::sample_count_approx_one_percent;
 use crate::scheme::Scheme;
+use crate::scheme::SchemeExt;
 use crate::stats::ArrayAndStats;
+use crate::trace;
 
 /// Closure type for [`DeferredEstimate::Callback`].
 ///
@@ -84,10 +86,85 @@ pub enum DeferredEstimate {
     Callback(Box<EstimateFn>),
 }
 
-/// Returns `true` if `ratio` is a valid compression ratio (> 1.0, finite, not subnormal) that
-/// beats the current best.
-pub(super) fn is_better_ratio(ratio: f64, best: &Option<(&'static dyn Scheme, f64)>) -> bool {
-    ratio.is_finite() && !ratio.is_subnormal() && ratio > 1.0 && best.is_none_or(|(_, r)| ratio > r)
+/// Ranked estimate used for comparing non-terminal compression candidates.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum EstimateScore {
+    /// A finite compression ratio. Higher means a smaller amount of data, so it is better.
+    FiniteCompression(f64),
+    /// Trial compression produced a 0-byte output.
+    ///
+    /// This has no finite trace ratio and is not eligible for scheme selection.
+    ///
+    /// TODO(connor): A zero-byte sample usually means the sampler happened to hit an all-null
+    /// sample. Improve this logic so we can distinguish real zero-byte wins from sampling artifacts.
+    ZeroBytes,
+}
+
+impl EstimateScore {
+    /// Converts measured sample sizes into a ranked estimate.
+    pub(super) fn from_sample_sizes(before_nbytes: u64, after_nbytes: u64) -> Self {
+        if after_nbytes == 0 {
+            Self::ZeroBytes
+        } else {
+            Self::FiniteCompression(before_nbytes as f64 / after_nbytes as f64)
+        }
+    }
+
+    /// Returns the traceable numeric ratio, omitting the zero-byte special case.
+    pub(super) fn trace_ratio(self) -> Option<f64> {
+        match self {
+            Self::FiniteCompression(ratio) => Some(ratio),
+            Self::ZeroBytes => None,
+        }
+    }
+
+    /// Returns whether this estimate is eligible to compete.
+    fn is_valid(self) -> bool {
+        match self {
+            Self::FiniteCompression(ratio) => {
+                ratio.is_finite() && !ratio.is_subnormal() && ratio > 1.0
+            }
+            Self::ZeroBytes => false,
+        }
+    }
+
+    /// Returns whether this estimate beats another valid estimate.
+    fn beats(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::ZeroBytes, _) => false,
+            (Self::FiniteCompression(_), Self::ZeroBytes) => true,
+            (Self::FiniteCompression(ratio), Self::FiniteCompression(best_ratio)) => {
+                ratio > best_ratio
+            }
+        }
+    }
+}
+
+/// Winner estimate carried from scheme selection into result tracing.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum WinnerEstimate {
+    /// The scheme must be used immediately.
+    AlwaysUse,
+    /// The scheme won by a ranked estimate.
+    Score(EstimateScore),
+}
+
+impl WinnerEstimate {
+    /// Returns the traceable numeric ratio for the winning estimate.
+    pub(super) fn trace_ratio(self) -> Option<f64> {
+        match self {
+            Self::AlwaysUse => None,
+            Self::Score(score) => score.trace_ratio(),
+        }
+    }
+}
+
+/// Returns `true` if `score` beats the current best estimate.
+pub(super) fn is_better_score(
+    score: EstimateScore,
+    best: &Option<(&'static dyn Scheme, EstimateScore)>,
+) -> bool {
+    score.is_valid() && best.is_none_or(|(_, best_score)| score.beats(best_score))
 }
 
 /// Estimates compression ratio by compressing a ~1% sample of the data.
@@ -103,19 +180,11 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     compressor: &CascadingCompressor,
     array: &ArrayRef,
     ctx: CompressorContext,
-) -> VortexResult<f64> {
+) -> VortexResult<EstimateScore> {
     let sample_array = if ctx.is_sample() {
         array.clone()
     } else {
-        let source_len = array.len();
-        let sample_count = sample_count_approx_one_percent(source_len);
-
-        tracing::trace!(
-            "Sampling {} values out of {}",
-            SAMPLE_SIZE as u64 * sample_count as u64,
-            source_len
-        );
-
+        let sample_count = sample_count_approx_one_percent(array.len());
         // `ArrayAndStats` expects a canonical array (so that it can easily compute lazy stats).
         let canonical: Canonical =
             sample(array, SAMPLE_SIZE, sample_count).execute(&mut compressor.execution_ctx())?;
@@ -123,26 +192,27 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     };
 
     let mut sample_data = ArrayAndStats::new(sample_array, scheme.stats_options());
+    let error_ctx = trace::enabled_error_context(&ctx);
     let sample_ctx = ctx.with_sampling();
 
-    let after = scheme
-        .compress(compressor, &mut sample_data, sample_ctx)?
-        .nbytes();
+    let compressed = match scheme.compress(compressor, &mut sample_data, sample_ctx) {
+        Ok(compressed) => compressed,
+        Err(err) => {
+            trace::sample_compress_failed(scheme.id(), error_ctx.as_ref(), &err);
+            return Err(err);
+        }
+    };
+
+    let after = compressed.nbytes();
     let before = sample_data.array().nbytes();
 
-    // TODO(connor): Issue https://github.com/vortex-data/vortex/issues/7268.
-    // if after == 0 {
-    //     tracing::warn!(
-    //         scheme = %scheme.id(),
-    //         "sample compressed to 0 bytes, which should only happen for constant arrays",
-    //     );
-    // }
+    let score = EstimateScore::from_sample_sizes(before, after);
 
-    let ratio = before as f64 / after as f64;
+    // Single DEBUG event per sampled scheme. Downstream tooling can join this with the eventual
+    // `scheme.compress_result` on the same scheme to compute sample-vs-full divergence.
+    trace::sample_result(scheme.id(), before, after, score.trace_ratio());
 
-    tracing::debug!("estimate_compression_ratio_with_sampling(compressor={scheme:#?}) = {ratio}",);
-
-    Ok(ratio)
+    Ok(score)
 }
 
 impl fmt::Debug for DeferredEstimate {

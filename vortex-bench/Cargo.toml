@@ -61,6 +61,7 @@ tracing = { workspace = true }
 tracing-perfetto = { workspace = true }
 tracing-subscriber = { workspace = true, features = [
     "env-filter",
+    "json",
     "tracing-log",
 ] }
 url = { workspace = true }

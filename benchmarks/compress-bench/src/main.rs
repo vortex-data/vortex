@@ -15,6 +15,7 @@ use regex::Regex;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_bench::Engine;
 use vortex_bench::Format;
+use vortex_bench::LogFormat;
 use vortex_bench::Target;
 use vortex_bench::compress::CompressMeasurements;
 use vortex_bench::compress::CompressOp;
@@ -39,7 +40,7 @@ use vortex_bench::public_bi::PBIDataset::CMSprovider;
 use vortex_bench::public_bi::PBIDataset::Euro2016;
 use vortex_bench::public_bi::PBIDataset::Food;
 use vortex_bench::public_bi::PBIDataset::HashTags;
-use vortex_bench::setup_logging_and_tracing;
+use vortex_bench::setup_logging_and_tracing_with_format;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -69,13 +70,17 @@ struct Args {
     output_path: Option<PathBuf>,
     #[arg(long)]
     tracing: bool,
+    /// Format for the primary stderr log sink. `text` is the default human-readable format;
+    /// `json` emits one JSON object per event, suitable for piping into `jq`.
+    #[arg(long, value_enum, default_value_t = LogFormat::Text)]
+    log_format: LogFormat,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    setup_logging_and_tracing(args.verbose, args.tracing)?;
+    setup_logging_and_tracing_with_format(args.verbose, args.tracing, args.log_format)?;
 
     run_compress(
         args.iterations,

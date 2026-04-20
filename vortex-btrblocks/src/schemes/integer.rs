@@ -307,8 +307,6 @@ impl Scheme for ZigZagScheme {
 
         let compressed = compressor.compress_child(&encoded.into_array(), &ctx, self.id(), 0)?;
 
-        tracing::debug!("zigzag output: {}", compressed.encoding_id());
-
         Ok(ZigZag::try_new(compressed)?.into_array())
     }
 }

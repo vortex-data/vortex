@@ -10458,6 +10458,7 @@ dependencies = [
  "rstest",
  "rustc-hash",
  "tracing",
+ "tracing-subscriber",
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
