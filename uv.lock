@@ -1771,27 +1771,37 @@ wheels = [
 
 [[package]]
 name = "substrait"
-version = "0.27.0"
+version = "0.29.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "protobuf" },
+    { name = "substrait-extensions" },
     { name = "substrait-protobuf" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4d/73/0f3d6a1df07c7868533e78467e8b61a1559844a988c2cd0565aafa7773c2/substrait-0.27.0.tar.gz", hash = "sha256:73d6f90465c8138a10fb912c669a840abb95b04060c7d31faf331e38901bfb0a", size = 173217, upload-time = "2026-01-29T22:51:11.743Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ba/a9/16cd7cfa355b688dd91f84fc31514a955115053e2d8cf91ff4812dcb5642/substrait-0.29.0.tar.gz", hash = "sha256:66a352f8b12aa97a732dd686a36fa4e5faa121cff2eae6d3cb2ceab94b544e69", size = 109531, upload-time = "2026-03-20T07:31:55.967Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c6/0b/d048fe689b39f35fac47bd5468b0c1f9deaa265ba5379015b8f1c3e908c3/substrait-0.27.0-py3-none-any.whl", hash = "sha256:09fbb748d61ab9d02149e518c8d282ca4db8caebfbe60c1660b23a28007bbc85", size = 90516, upload-time = "2026-01-29T22:51:10.705Z" },
+    { url = "https://files.pythonhosted.org/packages/1d/af/c6868f201820a705c0961167c8dc3d9b1a54493ea3c7b3c14d80fb57d6b0/substrait-0.29.0-py3-none-any.whl", hash = "sha256:f74a61ce1daecd76dc8b7bdbc6e7cd9be19a4ef86c1d0e0a65bf56891a5386a4", size = 39826, upload-time = "2026-03-20T07:31:54.552Z" },
+]
+
+[[package]]
+name = "substrait-extensions"
+version = "0.85.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d7/b2/eb2a7a8143d11ff25261ab1c8525386e4b2cbdcd9d282323fe97aac13165/substrait_extensions-0.85.0.tar.gz", hash = "sha256:6b5403b5e7d9cf5f9dbe86f276c6485c9155bec78fab080310202c99b177ca8a", size = 50866, upload-time = "2026-03-17T19:19:18.102Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/64/4a/36d734df05faa310b3ef0a492e47b85b6e082471473266bf355852f87bba/substrait_extensions-0.85.0-py3-none-any.whl", hash = "sha256:4ad8b84411020f75c74e987719bbdaa19d1947ffb3c91b3c707418a0a821b424", size = 105287, upload-time = "2026-03-17T19:19:19.042Z" },
 ]
 
 [[package]]
 name = "substrait-protobuf"
-version = "0.79.0"
+version = "0.85.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "protobuf" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/61/8d/0d7ff0e56fdf341182729da4ce5754712ad3b950e0e404ec2fa53f46627b/substrait_protobuf-0.79.0.tar.gz", hash = "sha256:f1bf8641eb3ee785f4affd4f728568958deda2bb1ededa09f02f2118229616d4", size = 74840, upload-time = "2026-01-29T00:08:55.587Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/df/36/de86485ada792ec97ffb6024efbfd701ddcbe93599dfffc895dd8f21f704/substrait_protobuf-0.85.0.tar.gz", hash = "sha256:e7776181dcb18703a6e27b0291de86c8034a02b5d92e1fc2fc919ced62757570", size = 59062, upload-time = "2026-03-17T19:19:14.018Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0a/27/24e16471dc7b5986cd2af0d5aab9b12347fb835840fb2320b1b2375e53a8/substrait_protobuf-0.79.0-py3-none-any.whl", hash = "sha256:6f710459569be0b92661e16a2d180a9f2a03853c3ef0154a0c6c8a9aef365ffa", size = 83741, upload-time = "2026-01-29T00:08:54.03Z" },
+    { url = "https://files.pythonhosted.org/packages/68/db/20eba8a3cc5a78a53d1439d2067930b998bd842debac5b687a2a27a05dcc/substrait_protobuf-0.85.0-py3-none-any.whl", hash = "sha256:aff4cb74a0dbab35be11d373fc381d53957f2e97d17158c2c3ce68cdf57498e8", size = 64453, upload-time = "2026-03-17T19:19:15.084Z" },
 ]
 
 [[package]]
@@ -1926,7 +1936,7 @@ requires-dist = [
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.31.0" },
     { name = "pyarrow", specifier = ">=17.0.0" },
     { name = "ray", marker = "extra == 'ray'", specifier = ">=2.48" },
-    { name = "substrait", specifier = ">=0.23.0,<0.29.0" },
+    { name = "substrait", specifier = ">=0.29.0,<0.30.0" },
     { name = "typing-extensions", specifier = ">=4.5.0" },
 ]
 provides-extras = ["duckdb", "numpy", "pandas", "polars", "ray"]
