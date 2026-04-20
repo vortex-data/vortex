@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::OnceLock;
 
+use lasso::Key;
 use lasso::Spur;
 use lasso::ThreadedRodeo;
 use parking_lot::RwLock;
@@ -48,6 +49,11 @@ impl Id {
         // SAFETY: INTERNER is 'static and its arena is append-only, so resolved string
         // pointers are stable for the lifetime of the program.
         unsafe { &*(s as *const str) }
+    }
+
+    /// Returns this ID's dense index in the global interner.
+    pub fn index(&self) -> usize {
+        self.0.into_usize()
     }
 }
 

@@ -46,6 +46,8 @@ impl vortex_session::registry::Id
 
 pub fn vortex_session::registry::Id::as_str(&self) -> &str
 
+pub fn vortex_session::registry::Id::index(&self) -> usize
+
 pub fn vortex_session::registry::Id::new(s: &str) -> Self
 
 pub fn vortex_session::registry::Id::new_static(s: &'static str) -> Self

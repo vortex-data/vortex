@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayRef;
@@ -23,6 +24,8 @@ use crate::arrays::slice::SliceReduceAdaptor;
 use crate::builtins::ArrayBuiltins;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimizer::rules::ParentRuleDense;
+use crate::optimizer::rules::ParentRuleEntry;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
@@ -31,15 +34,24 @@ use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::validity::Validity;
 
-pub(crate) const PARENT_RULES: ParentRuleSet<Dict> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&FilterReduceAdaptor(Dict)),
-    ParentRuleSet::lift(&CastReduceAdaptor(Dict)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(Dict)),
-    ParentRuleSet::lift(&LikeReduceAdaptor(Dict)),
-    ParentRuleSet::lift(&DictionaryScalarFnValuesPushDownRule),
-    ParentRuleSet::lift(&DictionaryScalarFnCodesPullUpRule),
-    ParentRuleSet::lift(&SliceReduceAdaptor(Dict)),
-]);
+static KEYED_PARENT_RULES: [ParentRuleEntry<Dict>; 5] = [
+    ParentRuleSet::lift_id(CachedId::new("vortex.filter"), &FilterReduceAdaptor(Dict)),
+    ParentRuleSet::lift_id(CachedId::new("vortex.cast"), &CastReduceAdaptor(Dict)),
+    ParentRuleSet::lift_id(CachedId::new("vortex.mask"), &MaskReduceAdaptor(Dict)),
+    ParentRuleSet::lift_id(CachedId::new("vortex.like"), &LikeReduceAdaptor(Dict)),
+    ParentRuleSet::lift_id(CachedId::new("vortex.slice"), &SliceReduceAdaptor(Dict)),
+];
+
+static KEYED_PARENT_RULES_DENSE: ParentRuleDense<Dict> = ParentRuleDense::new();
+
+pub(crate) static PARENT_RULES: ParentRuleSet<Dict> = ParentRuleSet::new_indexed(
+    &KEYED_PARENT_RULES,
+    &KEYED_PARENT_RULES_DENSE,
+    &[
+        ParentRuleSet::lift(&DictionaryScalarFnValuesPushDownRule),
+        ParentRuleSet::lift(&DictionaryScalarFnCodesPullUpRule),
+    ],
+);
 
 /// Push down a scalar function to run only over the values of a dictionary array.
 #[derive(Debug)]

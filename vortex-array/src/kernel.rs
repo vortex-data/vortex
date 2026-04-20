@@ -16,9 +16,12 @@
 use std::any::type_name;
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::sync::OnceLock;
 
 use vortex_error::VortexResult;
+use vortex_session::registry::CachedId;
 
+use crate::ArrayId;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::array::ArrayView;
@@ -31,17 +34,64 @@ use crate::matcher::Matcher;
 /// a kernel whose [`Matcher`] matches the parent array type. The first matching kernel that
 /// returns `Some` wins.
 pub struct ParentKernelSet<V: VTable> {
-    kernels: &'static [&'static dyn DynParentKernel<V>],
+    keyed: &'static [ParentKernelEntry<V>],
+    dense: Option<&'static ParentKernelDense<V>>,
+    dynamic: &'static [&'static dyn DynParentKernel<V>],
 }
 
+/// A parent kernel keyed by exact parent encoding id.
+pub(crate) struct ParentKernelEntry<V: VTable> {
+    parent_id: CachedId,
+    kernel: &'static dyn DynParentKernel<V>,
+}
+
+pub(crate) type ParentKernelDense<V> = OnceLock<Box<[Vec<&'static dyn DynParentKernel<V>>]>>;
+
 impl<V: VTable> ParentKernelSet<V> {
+    fn kernels_for(&self, parent_id: ArrayId) -> &[&'static dyn DynParentKernel<V>] {
+        let Some(dense) = self.dense else {
+            return &[];
+        };
+        let dense = dense.get_or_init(|| {
+            let Some(max_idx) = self.keyed.iter().map(|entry| entry.parent_id.index()).max() else {
+                let empty: Vec<Vec<&'static dyn DynParentKernel<V>>> = Vec::new();
+                return empty.into_boxed_slice();
+            };
+
+            let mut dense = (0..=max_idx).map(|_| Vec::new()).collect::<Vec<_>>();
+            for entry in self.keyed {
+                dense[entry.parent_id.index()].push(entry.kernel);
+            }
+            dense.into_boxed_slice()
+        });
+
+        dense
+            .get(parent_id.index())
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
     /// Create a new parent kernel set with the given kernels.
     ///
     /// Use [`ParentKernelSet::lift`] to lift static rules into dynamic trait objects.
     pub const fn new(kernels: &'static [&'static dyn DynParentKernel<V>]) -> Self {
-        Self { kernels }
+        Self {
+            keyed: &[],
+            dense: None,
+            dynamic: kernels,
+        }
     }
 
+    pub(crate) const fn new_indexed(
+        keyed: &'static [ParentKernelEntry<V>],
+        dense: &'static ParentKernelDense<V>,
+        dynamic: &'static [&'static dyn DynParentKernel<V>],
+    ) -> Self {
+        Self {
+            keyed,
+            dense: Some(dense),
+            dynamic,
+        }
+    }
     /// Lift the given rule into a dynamic trait object.
     pub const fn lift<K: ExecuteParentKernel<V>>(
         kernel: &'static K,
@@ -56,6 +106,16 @@ impl<V: VTable> ParentKernelSet<V> {
         unsafe { &*(kernel as *const K as *const ParentKernelAdapter<V, K>) }
     }
 
+    pub(crate) const fn lift_id<K: ExecuteParentKernel<V>>(
+        parent_id: CachedId,
+        kernel: &'static K,
+    ) -> ParentKernelEntry<V> {
+        ParentKernelEntry {
+            parent_id,
+            kernel: Self::lift(kernel),
+        }
+    }
+
     /// Evaluate the parent kernels on the given child and parent arrays.
     pub fn execute(
         &self,
@@ -64,7 +124,13 @@ impl<V: VTable> ParentKernelSet<V> {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        for kernel in self.kernels.iter() {
+        for kernel in self.kernels_for(parent.encoding_id()) {
+            if let Some(reduced) = kernel.execute_parent(child, parent, child_idx, ctx)? {
+                return Ok(Some(reduced));
+            }
+        }
+
+        for kernel in self.dynamic.iter() {
             if !kernel.matches(parent) {
                 continue;
             }

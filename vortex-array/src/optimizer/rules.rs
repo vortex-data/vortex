@@ -21,9 +21,12 @@
 use std::any::type_name;
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::sync::OnceLock;
 
 use vortex_error::VortexResult;
+use vortex_session::registry::CachedId;
 
+use crate::ArrayId;
 use crate::ArrayRef;
 use crate::array::ArrayView;
 use crate::array::VTable;
@@ -142,17 +145,64 @@ impl<V: VTable> ReduceRuleSet<V> {
 
 /// A set of parent reduction rules for a specific child array encoding.
 pub struct ParentRuleSet<V: VTable> {
-    rules: &'static [&'static dyn DynArrayParentReduceRule<V>],
+    keyed: &'static [ParentRuleEntry<V>],
+    dense: Option<&'static ParentRuleDense<V>>,
+    dynamic: &'static [&'static dyn DynArrayParentReduceRule<V>],
 }
 
+/// A parent reduction rule keyed by exact parent encoding id.
+pub(crate) struct ParentRuleEntry<V: VTable> {
+    parent_id: CachedId,
+    rule: &'static dyn DynArrayParentReduceRule<V>,
+}
+
+pub(crate) type ParentRuleDense<V> = OnceLock<Box<[Vec<&'static dyn DynArrayParentReduceRule<V>>]>>;
+
 impl<V: VTable> ParentRuleSet<V> {
+    fn rules_for(&self, parent_id: ArrayId) -> &[&'static dyn DynArrayParentReduceRule<V>] {
+        let Some(dense) = self.dense else {
+            return &[];
+        };
+        let dense = dense.get_or_init(|| {
+            let Some(max_idx) = self.keyed.iter().map(|entry| entry.parent_id.index()).max() else {
+                let empty: Vec<Vec<&'static dyn DynArrayParentReduceRule<V>>> = Vec::new();
+                return empty.into_boxed_slice();
+            };
+
+            let mut dense = (0..=max_idx).map(|_| Vec::new()).collect::<Vec<_>>();
+            for entry in self.keyed {
+                dense[entry.parent_id.index()].push(entry.rule);
+            }
+            dense.into_boxed_slice()
+        });
+
+        dense
+            .get(parent_id.index())
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
     /// Create a new parent rule set with the given rules.
     ///
     /// Use [`ParentRuleSet::lift`] to lift static rules into dynamic trait objects.
     pub const fn new(rules: &'static [&'static dyn DynArrayParentReduceRule<V>]) -> Self {
-        Self { rules }
+        Self {
+            keyed: &[],
+            dense: None,
+            dynamic: rules,
+        }
     }
 
+    pub(crate) const fn new_indexed(
+        keyed: &'static [ParentRuleEntry<V>],
+        dense: &'static ParentRuleDense<V>,
+        dynamic: &'static [&'static dyn DynArrayParentReduceRule<V>],
+    ) -> Self {
+        Self {
+            keyed,
+            dense: Some(dense),
+            dynamic,
+        }
+    }
     /// Lift the given rule into a dynamic trait object.
     pub const fn lift<R: ArrayParentReduceRule<V>>(
         rule: &'static R,
@@ -167,6 +217,16 @@ impl<V: VTable> ParentRuleSet<V> {
         unsafe { &*(rule as *const R as *const ParentReduceRuleAdapter<V, R>) }
     }
 
+    pub(crate) const fn lift_id<R: ArrayParentReduceRule<V>>(
+        parent_id: CachedId,
+        rule: &'static R,
+    ) -> ParentRuleEntry<V> {
+        ParentRuleEntry {
+            parent_id,
+            rule: Self::lift(rule),
+        }
+    }
+
     /// Evaluate the parent reduction rules on the given child and parent arrays.
     pub fn evaluate(
         &self,
@@ -174,7 +234,32 @@ impl<V: VTable> ParentRuleSet<V> {
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        for rule in self.rules.iter() {
+        for rule in self.rules_for(parent.encoding_id()) {
+            if let Some(reduced) = rule.reduce_parent(child, parent, child_idx)? {
+                // Debug assertions because these checks are already run elsewhere.
+                #[cfg(debug_assertions)]
+                {
+                    vortex_error::vortex_ensure!(
+                        reduced.len() == parent.len(),
+                        "Reduced array length mismatch from {:?}\nFrom:\n{}\nTo:\n{}",
+                        rule,
+                        parent.encoding_id(),
+                        reduced.encoding_id()
+                    );
+                    vortex_error::vortex_ensure!(
+                        reduced.dtype() == parent.dtype(),
+                        "Reduced array dtype mismatch from {:?}\nFrom:\n{}\nTo:\n{}",
+                        rule,
+                        parent.encoding_id(),
+                        reduced.encoding_id()
+                    );
+                }
+
+                return Ok(Some(reduced));
+            }
+        }
+
+        for rule in self.dynamic.iter() {
             if !rule.matches(parent) {
                 continue;
             }

@@ -3,6 +3,7 @@
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -18,16 +19,30 @@ use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimizer::rules::ParentRuleDense;
+use crate::optimizer::rules::ParentRuleEntry;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
 
-pub(crate) const PARENT_RULES: ParentRuleSet<Chunked> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&CastReduceAdaptor(Chunked)),
-    ParentRuleSet::lift(&ChunkedUnaryScalarFnPushDownRule),
-    ParentRuleSet::lift(&ChunkedConstantScalarFnPushDownRule),
-    ParentRuleSet::lift(&FillNullReduceAdaptor(Chunked)),
-]);
+static KEYED_PARENT_RULES: [ParentRuleEntry<Chunked>; 2] = [
+    ParentRuleSet::lift_id(CachedId::new("vortex.cast"), &CastReduceAdaptor(Chunked)),
+    ParentRuleSet::lift_id(
+        CachedId::new("vortex.fill_null"),
+        &FillNullReduceAdaptor(Chunked),
+    ),
+];
+
+static KEYED_PARENT_RULES_DENSE: ParentRuleDense<Chunked> = ParentRuleDense::new();
+
+pub(crate) static PARENT_RULES: ParentRuleSet<Chunked> = ParentRuleSet::new_indexed(
+    &KEYED_PARENT_RULES,
+    &KEYED_PARENT_RULES_DENSE,
+    &[
+        ParentRuleSet::lift(&ChunkedUnaryScalarFnPushDownRule),
+        ParentRuleSet::lift(&ChunkedConstantScalarFnPushDownRule),
+    ],
+);
 
 /// Push down any unary scalar function through chunked arrays.
 #[derive(Debug)]

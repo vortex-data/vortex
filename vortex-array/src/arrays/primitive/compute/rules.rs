@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -11,14 +12,24 @@ use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimizer::rules::ParentRuleDense;
+use crate::optimizer::rules::ParentRuleEntry;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
-pub(crate) const RULES: ParentRuleSet<Primitive> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&PrimitiveMaskedValidityRule),
-    ParentRuleSet::lift(&MaskReduceAdaptor(Primitive)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(Primitive)),
-]);
+static KEYED_PARENT_RULES: [ParentRuleEntry<Primitive>; 3] = [
+    ParentRuleSet::lift_id(CachedId::new("vortex.masked"), &PrimitiveMaskedValidityRule),
+    ParentRuleSet::lift_id(CachedId::new("vortex.mask"), &MaskReduceAdaptor(Primitive)),
+    ParentRuleSet::lift_id(
+        CachedId::new("vortex.slice"),
+        &SliceReduceAdaptor(Primitive),
+    ),
+];
+
+static KEYED_PARENT_RULES_DENSE: ParentRuleDense<Primitive> = ParentRuleDense::new();
+
+pub(crate) static RULES: ParentRuleSet<Primitive> =
+    ParentRuleSet::new_indexed(&KEYED_PARENT_RULES, &KEYED_PARENT_RULES_DENSE, &[]);
 
 /// Rule to push down validity masking from MaskedArray parent into PrimitiveArray child.
 ///
