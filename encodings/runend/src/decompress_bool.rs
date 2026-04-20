@@ -41,7 +41,7 @@ pub fn runend_decode_bools(
     let validity = values
         .as_ref()
         .validity()?
-        .to_mask(values.as_ref().len(), ctx)?;
+        .execute_mask(values.as_ref().len(), ctx)?;
     let values_buf = values.to_bit_buffer();
     let nullability = values.dtype().nullability();
 
@@ -390,7 +390,7 @@ mod tests {
             decoded
                 .as_ref()
                 .validity()?
-                .to_mask(decoded.as_ref().len(), &mut ctx)
+                .execute_mask(decoded.as_ref().len(), &mut ctx)
                 .unwrap()
                 .value(0)
         );
@@ -400,7 +400,7 @@ mod tests {
             !decoded
                 .as_ref()
                 .validity()?
-                .to_mask(decoded.as_ref().len(), &mut ctx)
+                .execute_mask(decoded.as_ref().len(), &mut ctx)
                 .unwrap()
                 .value(2000)
         );
@@ -409,7 +409,7 @@ mod tests {
             decoded
                 .as_ref()
                 .validity()?
-                .to_mask(decoded.as_ref().len(), &mut ctx)
+                .execute_mask(decoded.as_ref().len(), &mut ctx)
                 .unwrap()
                 .value(4000)
         );

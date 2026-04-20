@@ -1266,13 +1266,13 @@ pub fn vortex_array::arrays::bool::BoolMaskedValidityRule::reduce_parent(&self, 
 
 pub trait vortex_array::arrays::bool::BoolArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::Bool>
 
-pub fn vortex_array::arrays::bool::BoolArrayExt::maybe_to_mask(&self, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_mask::Mask>>
+pub fn vortex_array::arrays::bool::BoolArrayExt::execute_mask(&self, ctx: &mut vortex_array::ExecutionCtx) -> vortex_mask::Mask
+
+pub fn vortex_array::arrays::bool::BoolArrayExt::maybe_execute_mask(&self, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_mask::Mask>>
 
 pub fn vortex_array::arrays::bool::BoolArrayExt::nullability(&self) -> vortex_array::dtype::Nullability
 
 pub fn vortex_array::arrays::bool::BoolArrayExt::to_bit_buffer(&self) -> vortex_buffer::bit::buf::BitBuffer
-
-pub fn vortex_array::arrays::bool::BoolArrayExt::to_mask(&self, ctx: &mut vortex_array::ExecutionCtx) -> vortex_mask::Mask
 
 pub fn vortex_array::arrays::bool::BoolArrayExt::to_mask_fill_null_false(&self, ctx: &mut vortex_array::ExecutionCtx) -> vortex_mask::Mask
 
@@ -1280,13 +1280,13 @@ pub fn vortex_array::arrays::bool::BoolArrayExt::validity(&self) -> vortex_array
 
 impl<T: vortex_array::TypedArrayRef<vortex_array::arrays::Bool>> vortex_array::arrays::bool::BoolArrayExt for T
 
-pub fn T::maybe_to_mask(&self, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_mask::Mask>>
+pub fn T::execute_mask(&self, ctx: &mut vortex_array::ExecutionCtx) -> vortex_mask::Mask
+
+pub fn T::maybe_execute_mask(&self, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_mask::Mask>>
 
 pub fn T::nullability(&self) -> vortex_array::dtype::Nullability
 
 pub fn T::to_bit_buffer(&self) -> vortex_buffer::bit::buf::BitBuffer
-
-pub fn T::to_mask(&self, ctx: &mut vortex_array::ExecutionCtx) -> vortex_mask::Mask
 
 pub fn T::to_mask_fill_null_false(&self, ctx: &mut vortex_array::ExecutionCtx) -> vortex_mask::Mask
 
@@ -19029,8 +19029,6 @@ pub fn vortex_array::validity::Validity::and(self, rhs: vortex_array::validity::
 pub fn vortex_array::validity::Validity::as_array(&self) -> core::option::Option<&vortex_array::ArrayRef>
 
 pub fn vortex_array::validity::Validity::cast_nullability(self, nullability: vortex_array::dtype::Nullability, len: usize) -> vortex_error::VortexResult<vortex_array::validity::Validity>
-
-pub fn vortex_array::validity::Validity::copy_from_array(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::validity::Validity::execute_mask(&self, length: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_mask::Mask>
 

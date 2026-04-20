@@ -399,7 +399,7 @@ mod tests {
                 result
                     .validity()
                     .unwrap()
-                    .to_mask(result.len(), &mut ctx_exec)
+                    .execute_mask(result.len(), &mut ctx_exec)
                     .unwrap()
                     .bit_buffer(),
                 AllOr::Some(&validity_boolean_buffer)

@@ -311,7 +311,7 @@ mod tests {
         let validity_mask = sliced_array
             .validity()
             .unwrap()
-            .to_mask(
+            .execute_mask(
                 sliced_array.len(),
                 &mut LEGACY_SESSION.create_execution_ctx(),
             )

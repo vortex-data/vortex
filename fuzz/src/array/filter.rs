@@ -28,7 +28,10 @@ pub fn filter_canonical_array(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
-        let validity_buff = array.validity()?.to_mask(array.len(), ctx)?.to_bit_buffer();
+        let validity_buff = array
+            .validity()?
+            .execute_mask(array.len(), ctx)?
+            .to_bit_buffer();
         Validity::from_iter(
             filter
                 .iter()

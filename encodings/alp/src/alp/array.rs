@@ -812,7 +812,7 @@ mod tests {
                 .as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(result_primitive.as_ref().len(), &mut ctx)
+                .execute_mask(result_primitive.as_ref().len(), &mut ctx)
                 .unwrap()
                 .value(idx);
             assert_eq!(

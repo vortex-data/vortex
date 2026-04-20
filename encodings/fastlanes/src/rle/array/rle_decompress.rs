@@ -5,12 +5,10 @@ use fastlanes::RLE;
 use num_traits::AsPrimitive;
 use num_traits::NumCast;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_native_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -124,6 +122,6 @@ where
         buffer
             .freeze()
             .slice(offset_within_chunk..(offset_within_chunk + array.len())),
-        Validity::copy_from_array(&array.clone().into_array())?,
+        array.validity()?,
     ))
 }

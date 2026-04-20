@@ -37,7 +37,7 @@ impl Executable for Mask {
                 let mask = bool
                     .as_ref()
                     .validity()?
-                    .to_mask(bool.as_ref().len(), ctx)?;
+                    .execute_mask(bool.as_ref().len(), ctx)?;
                 let bits = bool.into_bit_buffer();
                 // To handle nullable boolean arrays, we treat nulls as false in the mask.
                 // TODO(ngates): is this correct? Feels like we should just force the caller to

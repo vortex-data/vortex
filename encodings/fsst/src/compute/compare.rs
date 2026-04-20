@@ -13,7 +13,6 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
@@ -77,7 +76,8 @@ fn compare_fsst_constant(
         return Ok(Some(
             BoolArray::new(
                 buffer,
-                Validity::copy_from_array(left.array())?
+                left.array()
+                    .validity()?
                     .union_nullability(right.dtype().nullability()),
             )
             .into_array(),

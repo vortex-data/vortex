@@ -244,7 +244,7 @@ impl LayoutStrategy for TableStrategy {
                     sequence_pointer.advance(),
                     chunk
                         .validity()?
-                        .to_mask(chunk.len(), &mut ctx)?
+                        .execute_mask(chunk.len(), &mut ctx)?
                         .into_array(),
                 ));
             }

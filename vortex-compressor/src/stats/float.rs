@@ -213,7 +213,7 @@ where
     let validity = array
         .as_ref()
         .validity()?
-        .to_mask(array.as_ref().len(), ctx)?;
+        .execute_mask(array.as_ref().len(), ctx)?;
 
     let mut runs = 1;
     let head_idx = validity

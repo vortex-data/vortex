@@ -372,7 +372,7 @@ fn collect_valid_primitive(
     let mask = parray
         .as_ref()
         .validity()?
-        .to_mask(parray.as_ref().len(), ctx)?;
+        .execute_mask(parray.as_ref().len(), ctx)?;
     let result = parray.filter(mask)?.execute::<PrimitiveArray>(ctx)?;
     Ok(result)
 }
@@ -381,7 +381,10 @@ fn collect_valid_vbv(
     vbv: &VarBinViewArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(ByteBuffer, Vec<usize>)> {
-    let mask = vbv.as_ref().validity()?.to_mask(vbv.as_ref().len(), ctx)?;
+    let mask = vbv
+        .as_ref()
+        .validity()?
+        .execute_mask(vbv.as_ref().len(), ctx)?;
     let buffer_and_value_byte_indices = match mask.bit_buffer() {
         AllOr::None => (Buffer::empty(), Vec::new()),
         _ => {

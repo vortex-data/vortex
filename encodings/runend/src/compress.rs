@@ -189,7 +189,7 @@ pub fn runend_decode_primitive(
     let validity_mask = values
         .as_ref()
         .validity()?
-        .to_mask(values.as_ref().len(), ctx)?;
+        .execute_mask(values.as_ref().len(), ctx)?;
     Ok(match_each_native_ptype!(values.ptype(), |P| {
         match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
             runend_decode_typed_primitive(
@@ -293,7 +293,7 @@ pub fn runend_decode_varbinview(
     let validity_mask = values
         .as_ref()
         .validity()?
-        .to_mask(values.as_ref().len(), ctx)?;
+        .execute_mask(values.as_ref().len(), ctx)?;
     let views = values.views();
 
     let (decoded_views, validity) = match_each_unsigned_integer_ptype!(ends.ptype(), |E| {

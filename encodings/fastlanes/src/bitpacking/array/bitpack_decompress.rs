@@ -58,7 +58,7 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPackedUnpack>(
     // SAFETY: We later initialize the the uninitialized range of values with `copy_from_slice`.
     unsafe {
         // Append a dense null Mask.
-        uninit_range.append_mask(array.validity()?.to_mask(array.as_ref().len(), ctx)?);
+        uninit_range.append_mask(array.validity()?.execute_mask(array.as_ref().len(), ctx)?);
     }
 
     // SAFETY: `decode_into` will initialize all values in this range.

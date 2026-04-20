@@ -28,7 +28,7 @@ where
     let validity = array
         .as_ref()
         .validity()?
-        .to_mask(array.as_ref().len(), ctx)?;
+        .execute_mask(array.as_ref().len(), ctx)?;
     let null_buffer = to_null_buffer(validity);
     let buffer = array.into_buffer::<T::Native>().into_arrow_scalar_buffer();
     Ok(Arc::new(ArrowPrimitiveArray::<T>::new(buffer, null_buffer)))

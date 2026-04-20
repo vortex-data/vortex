@@ -412,7 +412,7 @@ impl SparseData {
                 fill_value.dtype()
             )
         }
-        let mask = array.validity()?.to_mask(array.len(), ctx)?;
+        let mask = array.validity()?.execute_mask(array.len(), ctx)?;
 
         if mask.all_false() {
             // Array is constant NULL
@@ -640,7 +640,7 @@ mod test {
             sliced
                 .validity()
                 .unwrap()
-                .to_mask(sliced.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(sliced.len(), &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Mask::from_iter(vec![true, false, false, true, false])
         );
@@ -666,7 +666,7 @@ mod test {
             sliced
                 .validity()
                 .unwrap()
-                .to_mask(sliced.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(sliced.len(), &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Mask::from_iter(vec![false, true, true, false, true])
         );
@@ -704,7 +704,7 @@ mod test {
             array
                 .validity()
                 .unwrap()
-                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .to_bit_buffer()
                 .iter()
@@ -722,7 +722,7 @@ mod test {
             array
                 .validity()
                 .unwrap()
-                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .all_true()
         );
@@ -760,7 +760,7 @@ mod test {
             sparse
                 .validity()
                 .unwrap()
-                .to_mask(sparse.len(), &mut ctx)
+                .execute_mask(sparse.len(), &mut ctx)
                 .unwrap(),
             Mask::from_iter(vec![
                 true, true, false, true, false, true, false, true, true, false, true, false,
@@ -779,7 +779,7 @@ mod test {
         let actual = array
             .validity()
             .unwrap()
-            .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
         let expected = Mask::from_iter([
             true, false, true, false, false, false, false, false, true, false,
