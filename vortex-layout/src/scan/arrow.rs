@@ -18,7 +18,6 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrow::ArrowArrayExecutor;
 use vortex_error::VortexResult;
 use vortex_io::runtime::BlockingRuntime;
-use vortex_io::session::RuntimeSessionExt;
 
 use crate::scan::scan_builder::ScanBuilder;
 
@@ -53,22 +52,13 @@ impl ScanBuilder {
     ) -> VortexResult<impl Stream<Item = Result<RecordBatch, ArrowError>> + Send + 'static> {
         let data_type = DataType::Struct(schema.fields().clone());
         let session = self.session().clone();
-        let handle = session.handle();
-        let concurrency = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(1);
 
         let stream = self
             .into_stream()?
             .map(move |chunk| {
-                let session = session.clone();
-                let data_type = data_type.clone();
-                handle.spawn_blocking(move || {
-                    let mut ctx = session.create_execution_ctx();
-                    chunk.and_then(|chunk| to_record_batch(chunk, &data_type, &mut ctx))
-                })
+                let mut ctx = session.create_execution_ctx();
+                chunk.and_then(|chunk| to_record_batch(chunk, &data_type, &mut ctx))
             })
-            .buffered(concurrency)
             .map_err(|e| ArrowError::ExternalError(Box::new(e)));
 
         Ok(stream)
