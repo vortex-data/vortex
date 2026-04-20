@@ -106,6 +106,10 @@ impl FileStatsLayoutReader {
 
         Ok(result.as_bool().value() == Some(true))
     }
+
+    pub fn file_stats(&self) -> &FileStatistics {
+        &self.file_stats
+    }
 }
 
 /// Implements [`StatsCatalog`] to provide file-level stats to expressions during pruning evaluation.
@@ -191,6 +195,10 @@ impl LayoutReader for FileStatsLayoutReader {
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         self.child.projection_evaluation(row_range, expr, mask)
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 

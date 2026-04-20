@@ -47,7 +47,6 @@ use kernel::ZigZagExecutor;
 use kernel::ZstdBuffersExecutor;
 use kernel::ZstdExecutor;
 pub use kernel::ZstdKernelPrep;
-pub use kernel::transpose_patches;
 pub use kernel::zstd_kernel_prepare;
 pub use pinned::PinnedByteBufferPool;
 pub use pinned::PinnedPoolStats;

@@ -5,21 +5,28 @@
 template <int BW>
 __device__ void _bit_unpack_32_device(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
     __shared__ uint32_t shared_out[1024];
+
+    // Step 1: Unpack into shared memory
     #pragma unroll
     for (int i = 0; i < 1; i++) {
         _bit_unpack_32_lane<BW>(in, shared_out, reference, thread_idx * 1 + i);
     }
     __syncwarp();
+
+    // Step 2: Apply patches to shared memory in parallel
     PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
     auto patch = cursor.next();
+    while (patch.index != 1024) {
+        shared_out[patch.index] = patch.value;
+        patch = cursor.next();
+    }
+    __syncwarp();
+
+    // Step 3: Copy to global memory
+    #pragma unroll
     for (int i = 0; i < 32; i++) {
         auto idx = i * 32 + thread_idx;
-        if (idx == patch.index) {
-            out[idx] = patch.value;
-            patch = cursor.next();
-        } else {
-            out[idx] = shared_out[idx];
-        }
+        out[idx] = shared_out[idx];
     }
 }
 

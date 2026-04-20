@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ffi::c_int;
 use std::ptr;
 use std::sync::Arc;
 
+use arrow_array::ffi::FFI_ArrowSchema;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
 use vortex::error::VortexExpect;
@@ -14,6 +16,8 @@ use vortex::extension::datetime::Time;
 use vortex::extension::datetime::Timestamp;
 
 use crate::arc_wrapper;
+use crate::error::try_or;
+use crate::error::vx_error;
 use crate::ptype::vx_ptype;
 use crate::string::vx_string;
 use crate::struct_fields::vx_struct_fields;
@@ -321,6 +325,24 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(dtype: *const DType) -> *cons
         Some(zone) => vx_string::new(Arc::clone(zone)),
         None => ptr::null(),
     }
+}
+
+/// Convert a dtype to ArrowSchema.
+/// You can use the dtype after conversion
+/// On success, returns 0. On error, sets err and returns 1.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_dtype_to_arrow_schema(
+    dtype: *const vx_dtype,
+    schema: *mut FFI_ArrowSchema,
+    err: *mut *mut vx_error,
+) -> c_int {
+    try_or(err, 1, || {
+        let dtype = vx_dtype::as_ref(dtype);
+        let arrow_schema = dtype.to_arrow_schema()?;
+        let arrow_schema = FFI_ArrowSchema::try_from(&arrow_schema)?;
+        unsafe { ptr::write(schema, arrow_schema) };
+        Ok(0)
+    })
 }
 
 #[cfg(test)]

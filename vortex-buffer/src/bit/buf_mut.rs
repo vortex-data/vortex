@@ -573,6 +573,13 @@ impl From<&[bool]> for BitBufferMut {
     }
 }
 
+// allow building a buffer from a set of truthy byte values.
+impl From<&[u8]> for BitBufferMut {
+    fn from(value: &[u8]) -> Self {
+        BitBufferMut::collect_bool(value.len(), |i| value[i] > 0)
+    }
+}
+
 impl From<Vec<bool>> for BitBufferMut {
     fn from(value: Vec<bool>) -> Self {
         value.as_slice().into()

@@ -28,6 +28,7 @@ crate::box_wrapper!(StructBuilder, vx_struct_column_builder);
 
 /// Create a new column-wise struct array builder with given validity and a
 /// capacity hint. validity can't be NULL.
+/// Capacity hint is for the number of columns.
 /// If you don't know capacity, pass 0.
 /// if validity is NULL, returns NULL.
 #[unsafe(no_mangle)]

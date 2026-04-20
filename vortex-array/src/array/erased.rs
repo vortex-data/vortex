@@ -444,6 +444,7 @@ impl ArrayRef {
         slot_idx: usize,
     ) -> VortexResult<(ArrayRef, ArrayRef)> {
         let child = if let Some(inner) = Arc::get_mut(&mut self.0) {
+            // # Safety: ensured by the caller.
             unsafe { inner.slots_mut()[slot_idx].take() }
                 .vortex_expect("take_slot_unchecked cannot take an absent slot")
         } else {
@@ -469,6 +470,7 @@ impl ArrayRef {
         replacement: ArrayRef,
     ) -> VortexResult<ArrayRef> {
         if let Some(inner) = Arc::get_mut(&mut self.0) {
+            // # Safety: ensured by the caller.
             unsafe { inner.slots_mut()[slot_idx] = Some(replacement) };
             return Ok(self);
         }
@@ -659,6 +661,7 @@ impl<V: VTable> Matcher for V {
 
     fn try_match<'a>(array: &'a ArrayRef) -> Option<ArrayView<'a, V>> {
         let inner = array.0.as_any().downcast_ref::<ArrayInner<V>>()?;
+        // # Safety checked by `downcast_ref`.
         Some(unsafe { ArrayView::new_unchecked(array, &inner.data) })
     }
 }

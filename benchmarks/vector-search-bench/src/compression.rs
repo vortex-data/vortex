@@ -8,8 +8,6 @@
 //!
 //! The benchmark writes one `.vortex` file per flavor per data file, then scans them all with the
 //! same query so the comparison is apples-to-apples with the Parquet files.
-//!
-//! Note that the handrolled `&[f32]` parquet baseline is **not** a flavor here.
 
 use clap::ValueEnum;
 use vortex::array::ArrayId;
@@ -22,6 +20,7 @@ use vortex::session::VortexSession;
 use vortex::utils::aliases::hash_set::HashSet;
 use vortex_bench::Format;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_tensor::encodings::l2_denorm::L2DenormScheme;
 use vortex_tensor::scalar_fns::l2_denorm::L2Denorm;
 use vortex_tensor::scalar_fns::sorf_transform::SorfTransform;
 
@@ -76,10 +75,18 @@ impl VectorFlavor {
     pub fn create_write_options(&self, session: &VortexSession) -> VortexWriteOptions {
         let strategy = match self {
             VectorFlavor::Uncompressed => {
-                let compressor = BtrBlocksCompressorBuilder::empty().build();
+                // Even though this is uncompressed, we still want to denormalize the data first so
+                // that the results are fair.
+                let compressor = BtrBlocksCompressorBuilder::empty()
+                    .with_new_scheme(&L2DenormScheme)
+                    .build();
+
+                let mut allowed: HashSet<ArrayId> = ALLOWED_ENCODINGS.clone();
+                allowed.insert(L2Denorm.id());
 
                 WriteStrategyBuilder::default()
                     .with_compressor(compressor)
+                    .with_allow_encodings(allowed)
                     .build()
             }
             VectorFlavor::TurboQuant => {

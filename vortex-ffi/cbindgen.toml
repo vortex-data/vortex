@@ -1,6 +1,6 @@
 language = "C"
 braces = "SameLine"
-pragma_once = true
+pragma_once = false
 cpp_compat = true
 usize_is_size_t = true
 style = "type"
@@ -8,10 +8,52 @@ style = "type"
 header = """
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
+#pragma once
+#include <stdint.h>
 
 //
 // THIS FILE IS AUTO-GENERATED, DO NOT MAKE EDITS DIRECTLY
 //
+
+// https://arrow.apache.org/docs/format/CDataInterface.html#structure-definitions
+// We don't want to bundle nanoarrow or similar just for these two definitions.
+// If you use your own Arrow library, define this macro and
+// typedef FFI_ArrowSchema ArrowSchema;
+// typedef FFI_ArrowArrayStream ArrowArrayStream;
+#ifndef USE_OWN_ARROW
+struct ArrowSchema {
+    const char* format;
+    const char* name;
+    const char* metadata;
+    int64_t flags;
+    int64_t n_children;
+    struct ArrowSchema** children;
+    struct ArrowSchema* dictionary;
+    void (*release)(struct ArrowSchema*);
+    void* private_data;
+};
+struct ArrowArray {
+    int64_t length;
+    int64_t null_count;
+    int64_t offset;
+    int64_t n_buffers;
+    int64_t n_children;
+    const void** buffers;
+    struct ArrowArray** children;
+    struct ArrowArray* dictionary;
+    void (*release)(struct ArrowArray*);
+    void* private_data;
+};
+struct ArrowArrayStream {
+    int (*get_schema)(struct ArrowArrayStream*, struct ArrowSchema* out);
+    int (*get_next)(struct ArrowArrayStream*, struct ArrowArray* out);
+    const char* (*get_last_error)(struct ArrowArrayStream*);
+    void (*release)(struct ArrowArrayStream*);
+    void* private_data;
+};
+typedef struct ArrowSchema FFI_ArrowSchema;
+typedef struct ArrowArrayStream FFI_ArrowArrayStream;
+#endif
 """
 
 [export.rename]

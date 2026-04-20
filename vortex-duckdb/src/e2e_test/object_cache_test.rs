@@ -12,6 +12,7 @@ use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::BindInputRef;
 use crate::duckdb::BindResultRef;
 use crate::duckdb::ClientContextRef;
+use crate::duckdb::ColumnStatistics;
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::LogicalType;
 use crate::duckdb::TableFunction;
@@ -111,6 +112,14 @@ impl TableFunction for TestTableFunction {
         _local_init_data: &mut Self::LocalState,
     ) -> VortexResult<u64> {
         Ok(0)
+    }
+
+    fn statistics(
+        _client_context: &ClientContextRef,
+        _bind_data: &Self::BindData,
+        _column_index: usize,
+    ) -> Option<ColumnStatistics> {
+        None
     }
 }
 

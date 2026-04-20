@@ -49,8 +49,8 @@ jobs:
           rm -rf ../target/wheels/
 
           uv venv
-          uv tool run maturin@1.10 build --interpreter python3.11 --zig
-          uv tool run maturin@1.10 build --interpreter python3.11 --zig --sdist
+          uv tool run maturin@1.10.2 build --interpreter python3.11 --zig
+          uv tool run maturin@1.10.2 build --interpreter python3.11 --zig --sdist
 
           file_count=$(ls -1 ../target/wheels/ | wc -l)
 

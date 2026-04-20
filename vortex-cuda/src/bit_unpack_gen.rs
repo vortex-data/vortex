@@ -153,21 +153,28 @@ fn generate_device_kernel_template(
         r#"template <int BW>
 __device__ void _bit_unpack_{bits}_device(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, uint{bits}_t reference, int thread_idx, GPUPatches& patches) {{
     __shared__ uint{bits}_t shared_out[1024];
+
+    // Step 1: Unpack into shared memory
     #pragma unroll
     for (int i = 0; i < {per_thread_loop_count}; i++) {{
         _bit_unpack_{bits}_lane<BW>(in, shared_out, reference, thread_idx * {per_thread_loop_count} + i);
     }}
     __syncwarp();
+
+    // Step 2: Apply patches to shared memory in parallel
     PatchesCursor<uint{bits}_t> cursor(patches, blockIdx.x, thread_idx, {thread_count});
     auto patch = cursor.next();
+    while (patch.index != 1024) {{
+        shared_out[patch.index] = patch.value;
+        patch = cursor.next();
+    }}
+    __syncwarp();
+
+    // Step 3: Copy to global memory
+    #pragma unroll
     for (int i = 0; i < {shared_copy_ncount}; i++) {{
         auto idx = i * {thread_count} + thread_idx;
-        if (idx == patch.index) {{
-            out[idx] = patch.value;
-            patch = cursor.next();
-        }} else {{
-            out[idx] = shared_out[idx];
-        }}
+        out[idx] = shared_out[idx];
     }}
 }}
 "#

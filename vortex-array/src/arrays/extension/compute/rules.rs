@@ -6,6 +6,8 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::arrays::Constant;
+use crate::arrays::ConstantArray;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::Filter;
@@ -13,9 +15,34 @@ use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
+use crate::optimizer::rules::ReduceRuleSet;
+use crate::scalar::Scalar;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+
+pub(crate) const RULES: ReduceRuleSet<Extension> = ReduceRuleSet::new(&[&ExtensionConstantRule]);
+
+/// Normalize `Extension(Constant(storage))` children to `Constant(Extension(storage))`.
+#[derive(Debug)]
+struct ExtensionConstantRule;
+
+impl ArrayReduceRule<Extension> for ExtensionConstantRule {
+    fn reduce(&self, array: ArrayView<'_, Extension>) -> VortexResult<Option<ArrayRef>> {
+        let Some(const_array) = array.storage_array().as_opt::<Constant>() else {
+            return Ok(None);
+        };
+
+        let storage_scalar = const_array.scalar().clone();
+        let ext_scalar = Scalar::extension_ref(array.ext_dtype().clone(), storage_scalar);
+
+        let constant_with_extension_scalar =
+            ConstantArray::new(ext_scalar, array.len()).into_array();
+
+        Ok(Some(constant_with_extension_scalar.into_array()))
+    }
+}
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Extension> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&ExtensionFilterPushDownRule),
@@ -58,11 +85,13 @@ mod tests {
     use crate::IntoArray;
     #[expect(deprecated)]
     use crate::ToCanonical as _;
+    use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::Extension;
     use crate::arrays::ExtensionArray;
     use crate::arrays::FilterArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::ScalarFnVTable;
     use crate::arrays::extension::ExtensionArrayExt;
     use crate::arrays::scalar_fn::ScalarFnArrayExt;
     use crate::arrays::scalar_fn::ScalarFnFactoryExt;
@@ -178,6 +207,31 @@ mod tests {
     }
 
     #[test]
+    fn test_extension_constant_child_normalizes_under_scalar_fn() {
+        let ext_dtype = test_ext_dtype();
+
+        let constant_storage = ConstantArray::new(Scalar::from(10i64), 3).into_array();
+        let constant_ext = ExtensionArray::new(ext_dtype.clone(), constant_storage).into_array();
+
+        let storage = buffer![15i64, 25, 35].into_array();
+        let ext_array = ExtensionArray::new(ext_dtype, storage).into_array();
+
+        let scalar_fn_array = Binary
+            .try_new_array(3, Operator::Lt, [constant_ext, ext_array])
+            .unwrap();
+
+        let optimized = scalar_fn_array.optimize_recursive().unwrap();
+        let scalar_fn = optimized.as_opt::<ScalarFnVTable>().unwrap();
+        let children = scalar_fn.children();
+        let constant = children[0]
+            .as_opt::<Constant>()
+            .expect("constant extension child should be normalized");
+
+        assert!(constant.scalar().as_extension_opt().is_some());
+        assert_eq!(constant.len(), 3);
+    }
+
+    #[test]
     fn test_scalar_fn_no_pushdown_different_ext_types() {
         #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
         struct TestExt2;
@@ -230,7 +284,7 @@ mod tests {
         let optimized = scalar_fn_array.optimize().unwrap();
 
         // The first child should still be an ExtensionArray (no pushdown happened)
-        let scalar_fn = optimized.as_opt::<crate::arrays::ScalarFnVTable>().unwrap();
+        let scalar_fn = optimized.as_opt::<ScalarFnVTable>().unwrap();
         assert!(
             scalar_fn.children()[0].as_opt::<Extension>().is_some(),
             "Expected first child to remain ExtensionArray when ext types differ"
@@ -255,7 +309,7 @@ mod tests {
         let optimized = scalar_fn_array.optimize().unwrap();
 
         // No pushdown should happen because sibling is not a constant
-        let scalar_fn = optimized.as_opt::<crate::arrays::ScalarFnVTable>().unwrap();
+        let scalar_fn = optimized.as_opt::<ScalarFnVTable>().unwrap();
         assert!(
             scalar_fn.children()[0].as_opt::<Extension>().is_some(),
             "Expected first child to remain ExtensionArray when sibling is not constant"
@@ -278,7 +332,7 @@ mod tests {
         let optimized = scalar_fn_array.optimize().unwrap();
 
         // No pushdown should happen because constant is not an extension scalar
-        let scalar_fn = optimized.as_opt::<crate::arrays::ScalarFnVTable>().unwrap();
+        let scalar_fn = optimized.as_opt::<ScalarFnVTable>().unwrap();
         assert!(
             scalar_fn.children()[0].as_opt::<Extension>().is_some(),
             "Expected first child to remain ExtensionArray when constant is not extension"

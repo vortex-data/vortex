@@ -97,6 +97,18 @@ typedef struct {
     bool has_max_cardinality;
 } duckdb_vx_node_statistics;
 
+typedef struct {
+    // Set only for strings and primitive types
+    duckdb_value min;
+    duckdb_value max;
+    // upper bit: "length is set". lower 32 bits: DuckDB's max string length.
+    // set only for strings
+    uint64_t max_string_length;
+    bool has_null;
+} duckdb_column_statistics;
+
+typedef idx_t column_t;
+
 // A transparent DuckDB table function vtable, which can be used to configure a table function.
 // See duckdb/include/function/tfunc.hpp for details on each field.
 typedef struct {
@@ -137,7 +149,12 @@ typedef struct {
 
     // void *in_out_function;
     // void *in_out_function_final;
-    void *statistics;
+
+    // false if statistics are not available
+    bool (*statistics)(duckdb_client_context context,
+                       const void *bind_data,
+                       size_t column_index,
+                       duckdb_column_statistics *stats_out);
 
     // void *dependency;
     void (*cardinality)(void *bind_data, duckdb_vx_node_statistics *node_stats_out);

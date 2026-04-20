@@ -160,9 +160,10 @@ impl VTable for Constant {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(constant_canonicalize(
             array.as_view(),
+            ctx,
         )?))
     }
 
@@ -268,10 +269,11 @@ fn append_value_or_nulls<B: ArrayBuilder + 'static>(
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::ExecutionCtx;
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
     use crate::arrays::constant::vtable::canonical::constant_canonicalize;
     use crate::assert_arrays_eq;
@@ -282,34 +284,29 @@ mod tests {
     use crate::dtype::StructFields;
     use crate::scalar::Scalar;
 
-    fn ctx() -> ExecutionCtx {
-        ExecutionCtx::new(VortexSession::empty())
-    }
-
     /// Appends `array` into a fresh builder and asserts the result matches `constant_canonicalize`.
-    fn assert_append_matches_canonical(array: ConstantArray) -> vortex_error::VortexResult<()> {
-        let expected = constant_canonicalize(array.as_view())?.into_array();
+    fn assert_append_matches_canonical(array: ConstantArray) -> VortexResult<()> {
+        let mut ctx = VortexSession::empty().create_execution_ctx();
+
+        let expected = constant_canonicalize(array.as_view(), &mut ctx)?.into_array();
         let mut builder = builder_with_capacity(array.dtype(), array.len());
         array
             .into_array()
-            .append_to_builder(builder.as_mut(), &mut ctx())?;
+            .append_to_builder(builder.as_mut(), &mut ctx)?;
         let result = builder.finish();
         assert_arrays_eq!(&result, &expected);
         Ok(())
     }
 
     #[test]
-    fn test_null_constant_append() -> vortex_error::VortexResult<()> {
+    fn test_null_constant_append() -> VortexResult<()> {
         assert_append_matches_canonical(ConstantArray::new(Scalar::null(DType::Null), 5))
     }
 
     #[rstest]
     #[case::bool_true(true, 5)]
     #[case::bool_false(false, 3)]
-    fn test_bool_constant_append(
-        #[case] value: bool,
-        #[case] n: usize,
-    ) -> vortex_error::VortexResult<()> {
+    fn test_bool_constant_append(#[case] value: bool, #[case] n: usize) -> VortexResult<()> {
         assert_append_matches_canonical(ConstantArray::new(
             Scalar::bool(value, Nullability::NonNullable),
             n,
@@ -317,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bool_null_constant_append() -> vortex_error::VortexResult<()> {
+    fn test_bool_null_constant_append() -> VortexResult<()> {
         assert_append_matches_canonical(ConstantArray::new(
             Scalar::null(DType::Bool(Nullability::Nullable)),
             4,
@@ -332,7 +329,7 @@ mod tests {
     fn test_primitive_constant_append(
         #[case] scalar: Scalar,
         #[case] n: usize,
-    ) -> vortex_error::VortexResult<()> {
+    ) -> VortexResult<()> {
         assert_append_matches_canonical(ConstantArray::new(scalar, n))
     }
 
@@ -341,10 +338,7 @@ mod tests {
     #[case::utf8_noninline("hello world!!", 5)] // >12 bytes: requires buffer block
     #[case::utf8_empty("", 3)]
     #[case::utf8_n_zero("hello world!!", 0)] // n=0 with non-inline: must not write orphaned bytes
-    fn test_utf8_constant_append(
-        #[case] value: &str,
-        #[case] n: usize,
-    ) -> vortex_error::VortexResult<()> {
+    fn test_utf8_constant_append(#[case] value: &str, #[case] n: usize) -> VortexResult<()> {
         assert_append_matches_canonical(ConstantArray::new(
             Scalar::utf8(value, Nullability::NonNullable),
             n,
@@ -352,7 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn test_utf8_null_constant_append() -> vortex_error::VortexResult<()> {
+    fn test_utf8_null_constant_append() -> VortexResult<()> {
         assert_append_matches_canonical(ConstantArray::new(
             Scalar::null(DType::Utf8(Nullability::Nullable)),
             4,
@@ -362,10 +356,7 @@ mod tests {
     #[rstest]
     #[case::binary_inline(vec![1u8, 2, 3], 5)] // ≤12 bytes: inlined
     #[case::binary_noninline(vec![0u8; 13], 5)] // >12 bytes: buffer block
-    fn test_binary_constant_append(
-        #[case] value: Vec<u8>,
-        #[case] n: usize,
-    ) -> vortex_error::VortexResult<()> {
+    fn test_binary_constant_append(#[case] value: Vec<u8>, #[case] n: usize) -> VortexResult<()> {
         assert_append_matches_canonical(ConstantArray::new(
             Scalar::binary(value, Nullability::NonNullable),
             n,
@@ -373,7 +364,7 @@ mod tests {
     }
 
     #[test]
-    fn test_binary_null_constant_append() -> vortex_error::VortexResult<()> {
+    fn test_binary_null_constant_append() -> VortexResult<()> {
         assert_append_matches_canonical(ConstantArray::new(
             Scalar::null(DType::Binary(Nullability::Nullable)),
             4,
@@ -381,7 +372,7 @@ mod tests {
     }
 
     #[test]
-    fn test_struct_constant_append() -> vortex_error::VortexResult<()> {
+    fn test_struct_constant_append() -> VortexResult<()> {
         let fields = StructFields::new(
             ["x", "y"].into(),
             vec![
@@ -400,7 +391,7 @@ mod tests {
     }
 
     #[test]
-    fn test_null_struct_constant_append() -> vortex_error::VortexResult<()> {
+    fn test_null_struct_constant_append() -> VortexResult<()> {
         let fields = StructFields::new(
             ["x"].into(),
             vec![DType::Primitive(PType::I32, Nullability::Nullable)],

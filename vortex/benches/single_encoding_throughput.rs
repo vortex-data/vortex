@@ -531,7 +531,7 @@ mod turboquant_benches {
     macro_rules! turboquant_bench {
         (compress, $dim:literal, $bits:literal, $name:ident) => {
             paste! {
-                #[divan::bench(name = concat!("turboquant_compress_dim", stringify!($dim), "_", stringify!($bits), "bit"))]
+                #[divan::bench(name = concat!("turboquant_encode_dim", stringify!($dim), "_", stringify!($bits), "bit"))]
                 fn $name(bencher: Bencher) {
                     let normalized_ext = setup_normalized_vector_ext($dim);
                     let config = turboquant_config($bits);

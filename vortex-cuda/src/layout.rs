@@ -3,6 +3,7 @@
 
 //! A CUDA-optimized flat layout that inlines small constant array buffers into layout metadata.
 
+use std::any::Any;
 use std::collections::BTreeSet;
 use std::ops::BitAnd;
 use std::ops::Range;
@@ -380,6 +381,10 @@ impl LayoutReader for CudaFlatReader {
             Ok(array)
         }
         .boxed())
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 

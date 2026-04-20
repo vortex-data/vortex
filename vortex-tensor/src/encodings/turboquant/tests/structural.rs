@@ -24,7 +24,7 @@ fn stored_centroids_match_computed() -> VortexResult<()> {
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext, &config, &mut ctx)?;
 
     let (_codes, centroids, _norms) = unwrap_codes_centroids_norms(&encoded, &mut ctx)?;
     let stored = centroids.as_slice::<f32>();
@@ -52,7 +52,7 @@ fn seed_deterministic_rotation_produces_correct_decode() -> VortexResult<()> {
 
     // Encode twice with the same seed → should produce identical results.
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded1 = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let encoded1 = turboquant_encode(ext.clone(), &config, &mut ctx)?;
     let decoded1 = encoded1.execute::<ExtensionArray>(&mut ctx)?;
     let fsl1 = decoded1
         .storage_array()
@@ -64,7 +64,7 @@ fn seed_deterministic_rotation_produces_correct_decode() -> VortexResult<()> {
         .execute::<PrimitiveArray>(&mut ctx)?;
 
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded2 = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let encoded2 = turboquant_encode(ext, &config, &mut ctx)?;
     let decoded2 = encoded2.execute::<ExtensionArray>(&mut ctx)?;
     let fsl2 = decoded2
         .storage_array()
@@ -94,7 +94,7 @@ fn encoded_dtype_is_vector_extension() -> VortexResult<()> {
         num_rounds: 2,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext, &config, &mut ctx)?;
 
     assert!(
         encoded.dtype().is_extension(),
@@ -119,7 +119,7 @@ fn cosine_similarity_quantized_accuracy() -> VortexResult<()> {
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext, &config, &mut ctx)?;
 
     let input_prim = fsl.elements().clone().execute::<PrimitiveArray>(&mut ctx)?;
     let input_f32 = input_prim.as_slice::<f32>();
@@ -176,7 +176,7 @@ fn dot_product_quantized_accuracy() -> VortexResult<()> {
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext, &config, &mut ctx)?;
 
     let input_prim = fsl.elements().clone().execute::<PrimitiveArray>(&mut ctx)?;
     let input_f32 = input_prim.as_slice::<f32>();
