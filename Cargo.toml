@@ -210,11 +210,11 @@ ratatui = { version = "0.30", default-features = false }
 regex = "1.11.0"
 regex-automata = "0.4"
 reqwest = { version = "0.13.0", features = [
+    "blocking",
     "charset",
     "http2",
-    "macos-system-configuration",
-    "blocking",
     "rustls-tls",
+    "system-proxy",
 ], default-features = false }
 roaring = "0.11.0"
 rstest = "0.26.1"
