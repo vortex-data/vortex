@@ -654,18 +654,14 @@ mod tests {
     // Tests migrated from arrays/decimal/compute/is_sorted.rs
     #[test]
     fn test_decimal_is_sorted() -> VortexResult<()> {
-        use arrow_array::types::Decimal128Type;
-        use arrow_cast::parse::parse_decimal;
-
         use crate::arrays::DecimalArray;
         use crate::dtype::DecimalDType;
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype = DecimalDType::new(19, 2);
-        let i100 =
-            parse_decimal::<Decimal128Type>("100.00", dtype.precision(), dtype.scale()).unwrap();
-        let i200 =
-            parse_decimal::<Decimal128Type>("200.00", dtype.precision(), dtype.scale()).unwrap();
+        // precision 19, scale 2 -> integer representation of "100.00" is 10000 etc.
+        let i100: i128 = 10_000;
+        let i200: i128 = 20_000;
 
         let sorted = buffer![i100, i200, i200];
         let unsorted = buffer![i200, i100, i200];
@@ -681,20 +677,14 @@ mod tests {
 
     #[test]
     fn test_decimal_is_strict_sorted() -> VortexResult<()> {
-        use arrow_array::types::Decimal128Type;
-        use arrow_cast::parse::parse_decimal;
-
         use crate::arrays::DecimalArray;
         use crate::dtype::DecimalDType;
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype = DecimalDType::new(19, 2);
-        let i100 =
-            parse_decimal::<Decimal128Type>("100.00", dtype.precision(), dtype.scale()).unwrap();
-        let i200 =
-            parse_decimal::<Decimal128Type>("200.00", dtype.precision(), dtype.scale()).unwrap();
-        let i300 =
-            parse_decimal::<Decimal128Type>("300.00", dtype.precision(), dtype.scale()).unwrap();
+        let i100: i128 = 10_000;
+        let i200: i128 = 20_000;
+        let i300: i128 = 30_000;
 
         let strict_sorted = buffer![i100, i200, i300];
         let sorted = buffer![i100, i200, i200];

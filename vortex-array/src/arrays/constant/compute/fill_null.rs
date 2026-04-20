@@ -22,13 +22,20 @@ impl FillNullReduce for Constant {
 #[cfg(test)]
 mod test {
     use crate::IntoArray as _;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
-    use crate::arrow::IntoArrowArray as _;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::scalar::Scalar;
+
+    fn scalar_at(array: &crate::ArrayRef, i: usize) -> Scalar {
+        array
+            .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+    }
 
     #[test]
     fn test_null() {
@@ -36,19 +43,10 @@ mod test {
             .into_array()
             .fill_null(Scalar::from(1))
             .unwrap();
-        let expected = ConstantArray::new(Scalar::from(1), 3).into_array();
-
         assert!(!actual.dtype().is_nullable());
-
-        let actual_arrow = actual.clone().into_arrow_preferred().unwrap();
-        let expected_arrow = expected.clone().into_arrow_preferred().unwrap();
-        assert_eq!(
-            &actual_arrow,
-            &expected_arrow,
-            "{}, {}",
-            actual.display_values(),
-            expected.display_values()
-        );
+        for i in 0..actual.len() {
+            assert_eq!(scalar_at(&actual, i).as_primitive().as_::<i32>().unwrap(), Some(1));
+        }
     }
 
     #[test]
@@ -57,19 +55,10 @@ mod test {
             .into_array()
             .fill_null(Scalar::from(1))
             .unwrap();
-        let expected = ConstantArray::new(Scalar::from(1), 3).into_array();
-
         assert!(!actual.dtype().is_nullable());
-
-        let actual_arrow = actual.clone().into_arrow_preferred().unwrap();
-        let expected_arrow = expected.clone().into_arrow_preferred().unwrap();
-        assert_eq!(
-            &actual_arrow,
-            &expected_arrow,
-            "{}, {}",
-            actual.display_values(),
-            expected.display_values()
-        );
+        for i in 0..actual.len() {
+            assert_eq!(scalar_at(&actual, i).as_primitive().as_::<i32>().unwrap(), Some(1));
+        }
     }
 
     #[test]
@@ -81,20 +70,11 @@ mod test {
                 Some(1.into()),
             ))
             .unwrap();
-        let expected = ConstantArray::new(Scalar::from(1), 3).into_array();
 
         assert!(!Scalar::from(1).dtype().is_nullable());
-
         assert!(actual.dtype().is_nullable());
-
-        let actual_arrow = actual.clone().into_arrow_preferred().unwrap();
-        let expected_arrow = expected.clone().into_arrow_preferred().unwrap();
-        assert_eq!(
-            &actual_arrow,
-            &expected_arrow,
-            "{}, {}",
-            actual.display_values(),
-            expected.display_values()
-        );
+        for i in 0..actual.len() {
+            assert_eq!(scalar_at(&actual, i).as_primitive().as_::<i32>().unwrap(), Some(1));
+        }
     }
 }

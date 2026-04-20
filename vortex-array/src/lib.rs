@@ -34,7 +34,6 @@ pub mod aggregate_fn;
 pub mod aliases;
 pub mod array;
 pub mod arrays;
-pub mod arrow;
 pub mod arrow_hooks;
 pub mod buffer;
 pub mod builders;

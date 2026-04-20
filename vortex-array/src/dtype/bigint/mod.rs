@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod arith;
 mod bigcast;
+mod div;
+mod internal;
+
+use internal::I256 as NativeI256;
 
 use std::fmt::Display;
 use std::ops::Add;
@@ -30,40 +35,40 @@ use vortex_error::VortexExpect;
 /// Signed 256-bit integer type.
 ///
 /// This is one of the physical representations of `DecimalScalar` values and can be safely converted
-/// back and forth with Arrow's [`i256`][arrow_buffer::i256].
+/// back and forth with Arrow's [`i256`][NativeI256].
 #[repr(transparent)]
 #[expect(
     non_camel_case_types,
     reason = "i256 matches Rust primitive naming convention"
 )]
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Hash, PartialOrd, Ord)]
-pub struct i256(arrow_buffer::i256);
+pub struct i256(NativeI256);
 
 #[cfg(feature = "cudarc")]
 unsafe impl cudarc::driver::DeviceRepr for i256 {}
 
 #[expect(
     clippy::same_name_method,
-    reason = "inherent methods intentionally shadow arrow_buffer::i256 methods"
+    reason = "inherent methods intentionally shadow NativeI256 methods"
 )]
 impl i256 {
     /// The zero value for `i256`.
-    pub const ZERO: Self = Self(arrow_buffer::i256::ZERO);
+    pub const ZERO: Self = Self(NativeI256::ZERO);
     /// The one value for `i256`.
-    pub const ONE: Self = Self(arrow_buffer::i256::ONE);
+    pub const ONE: Self = Self(NativeI256::ONE);
     /// The maximum value for `i256`.
-    pub const MAX: Self = Self(arrow_buffer::i256::MAX);
+    pub const MAX: Self = Self(NativeI256::MAX);
     /// The minimum value for `i256`.
-    pub const MIN: Self = Self(arrow_buffer::i256::MIN);
+    pub const MIN: Self = Self(NativeI256::MIN);
 
     /// Construct a new `i256` from an unsigned `lower` bits and a signed `upper` bits.
     pub const fn from_parts(lower: u128, upper: i128) -> Self {
-        Self(arrow_buffer::i256::from_parts(lower, upper))
+        Self(NativeI256::from_parts(lower, upper))
     }
 
     /// Create an `i256` value from a signed 128-bit value.
     pub const fn from_i128(i: i128) -> Self {
-        Self(arrow_buffer::i256::from_i128(i))
+        Self(NativeI256::from_i128(i))
     }
 
     /// Attempts to convert this i256 to an i128.
@@ -75,7 +80,7 @@ impl i256 {
 
     /// Create an integer value from its little-endian byte array representation.
     pub const fn from_le_bytes(bytes: [u8; 32]) -> Self {
-        Self(arrow_buffer::i256::from_le_bytes(bytes))
+        Self(NativeI256::from_le_bytes(bytes))
     }
 
     /// Split the 256-bit signed integer value into an unsigned lower bits and a signed upper bits.
@@ -118,14 +123,14 @@ impl i256 {
     }
 }
 
-impl From<i256> for arrow_buffer::i256 {
+impl From<i256> for NativeI256 {
     fn from(i: i256) -> Self {
         i.0
     }
 }
 
-impl From<arrow_buffer::i256> for i256 {
-    fn from(i: arrow_buffer::i256) -> Self {
+impl From<NativeI256> for i256 {
+    fn from(i: NativeI256) -> Self {
         Self(i)
     }
 }
@@ -195,12 +200,12 @@ impl Zero for i256 {
 }
 
 impl ConstZero for i256 {
-    const ZERO: Self = Self(arrow_buffer::i256::ZERO);
+    const ZERO: Self = Self(NativeI256::ZERO);
 }
 
 impl One for i256 {
     fn one() -> Self {
-        Self(arrow_buffer::i256::ONE)
+        Self(NativeI256::ONE)
     }
 }
 
@@ -614,12 +619,12 @@ mod tests {
 
     #[test]
     fn test_i256_arrow_buffer_conversion() {
-        let arrow_value = arrow_buffer::i256::from_i128(42);
+        let arrow_value = NativeI256::from_i128(42);
         let our_value: i256 = arrow_value.into();
         assert_eq!(our_value.maybe_i128(), Some(42));
 
         // Convert back
-        let arrow_again: arrow_buffer::i256 = our_value.into();
+        let arrow_again: NativeI256 = our_value.into();
         assert_eq!(arrow_again, arrow_value);
     }
 

@@ -11,7 +11,6 @@
 
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
-mod arrow;
 
 mod cast;
 mod constructor;
