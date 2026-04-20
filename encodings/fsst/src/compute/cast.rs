@@ -4,6 +4,8 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::VarBin;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -23,6 +25,8 @@ impl CastReduce for FSST {
                 .into_array()
                 .cast(array.codes_dtype().with_nullability(dtype.nullability()))?;
 
+            // TODO(ctx): trait fixes - CastReduce::cast has a fixed signature.
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
             Ok(Some(
                 FSST::try_new(
                     dtype.clone(),
@@ -30,6 +34,7 @@ impl CastReduce for FSST {
                     array.symbol_lengths().clone(),
                     new_codes.as_::<VarBin>().into_owned(),
                     array.uncompressed_lengths().clone(),
+                    &mut ctx,
                 )?
                 .into_array(),
             ))
@@ -43,6 +48,8 @@ impl CastReduce for FSST {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
@@ -54,6 +61,7 @@ mod tests {
 
     #[test]
     fn test_cast_fsst_nullability() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let strings = VarBinArray::from_iter(
             vec![Some("hello"), Some("world"), Some("hello world")],
             DType::Utf8(Nullability::NonNullable),
@@ -62,7 +70,7 @@ mod tests {
         let compressor = fsst_train_compressor(&strings);
         let len = strings.len();
         let dtype = strings.dtype().clone();
-        let fsst = fsst_compress(strings, len, &dtype, &compressor);
+        let fsst = fsst_compress(strings, len, &dtype, &compressor, &mut ctx);
 
         // Cast to nullable
         let casted = fsst
@@ -86,8 +94,9 @@ mod tests {
         DType::Utf8(Nullability::NonNullable)
     ))]
     fn test_cast_fsst_conformance(#[case] array: VarBinArray) {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let compressor = fsst_train_compressor(&array);
-        let fsst = fsst_compress(&array, array.len(), array.dtype(), &compressor);
+        let fsst = fsst_compress(&array, array.len(), array.dtype(), &compressor, &mut ctx);
         test_cast_conformance(&fsst.into_array());
     }
 }

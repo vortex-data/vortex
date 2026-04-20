@@ -59,7 +59,7 @@ pub(crate) fn fsst_decode_views(
         .clone()
         .execute::<PrimitiveArray>(ctx)?;
 
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     let total_size: usize = match_each_integer_ptype!(uncompressed_lens_array.ptype(), |P| {
         uncompressed_lens_array
             .as_slice::<P>()
@@ -95,11 +95,11 @@ mod tests {
     use rand::prelude::StdRng;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::VarBinArray;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::dtype::DType;
@@ -148,13 +148,15 @@ mod tests {
     }
 
     fn make_data_chunked() -> (ChunkedArray, Vec<Option<Vec<u8>>>) {
-        #[allow(clippy::type_complexity)]
+        let mut ctx = SESSION.create_execution_ctx();
+        #[expect(clippy::type_complexity)]
         let (arr_vec, data_vec): (Vec<ArrayRef>, Vec<Vec<Option<Vec<u8>>>>) = (0..10)
             .map(|_| {
                 let (array, data) = make_data();
                 let compressor = fsst_train_compressor(&array);
                 (
-                    fsst_compress(&array, array.len(), array.dtype(), &compressor).into_array(),
+                    fsst_compress(&array, array.len(), array.dtype(), &compressor, &mut ctx)
+                        .into_array(),
                     data,
                 )
             })
@@ -168,6 +170,7 @@ mod tests {
 
     #[test]
     fn test_to_canonical() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let (chunked_arr, data) = make_data_chunked();
 
         let mut builder =
@@ -175,7 +178,7 @@ mod tests {
         chunked_arr
             .clone()
             .into_array()
-            .append_to_builder(&mut builder, &mut SESSION.create_execution_ctx())?;
+            .append_to_builder(&mut builder, &mut ctx)?;
 
         {
             let arr = builder.finish_into_canonical().into_varbinview();
@@ -185,7 +188,10 @@ mod tests {
         };
 
         {
-            let arr2 = chunked_arr.as_array().to_varbinview();
+            let arr2 = chunked_arr
+                .as_array()
+                .clone()
+                .execute::<VarBinViewArray>(&mut ctx)?;
             let res2 =
                 arr2.with_iterator(|iter| iter.map(|b| b.map(|v| v.to_vec())).collect::<Vec<_>>());
             assert_eq!(data, res2)
@@ -203,14 +209,16 @@ mod tests {
             [Some(b"long enough too".to_vec().into_boxed_slice())],
             dtype,
         );
+        let mut ctx = SESSION.create_execution_ctx();
         let fsst_array = fsst_compress(
             &varbin,
             varbin.len(),
             varbin.dtype(),
             &fsst_train_compressor(&varbin),
+            &mut ctx,
         )
         .into_array();
-        fsst_array.append_to_builder(&mut builder, &mut SESSION.create_execution_ctx())?;
+        fsst_array.append_to_builder(&mut builder, &mut ctx)?;
 
         let _result = builder.finish_into_varbinview();
         Ok(())

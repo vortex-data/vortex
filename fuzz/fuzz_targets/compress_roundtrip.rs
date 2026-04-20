@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![no_main]
-#![allow(clippy::unwrap_used, clippy::result_large_err)]
 
 use libfuzzer_sys::Corpus;
 use libfuzzer_sys::fuzz_target;

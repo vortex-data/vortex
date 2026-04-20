@@ -42,7 +42,8 @@ impl TakeExecute for ALP {
 mod test {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_buffer::buffer;
@@ -55,7 +56,9 @@ mod test {
     #[case(PrimitiveArray::from_option_iter([Some(1.1f32), None, Some(2.2), Some(3.3), None]).into_array())]
     #[case(buffer![42.42f64].into_array())]
     fn test_take_alp_conformance(#[case] array: vortex_array::ArrayRef) {
-        let alp = alp_encode(&array.to_primitive(), None).unwrap();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let array_primitive = array.execute::<PrimitiveArray>(&mut ctx).unwrap();
+        let alp = alp_encode(array_primitive.as_view(), None, &mut ctx).unwrap();
         test_take_conformance(&alp.into_array());
     }
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#include "include/duckdb_vx/vector.h"
 #include "duckdb_vx/duckdb_diagnostics.h"
 
 DUCKDB_INCLUDES_BEGIN
@@ -142,5 +143,22 @@ const char *duckdb_vector_to_string(duckdb_vector vector, unsigned long len, duc
         auto s = e.what();
         *err = duckdb_vx_error_create(s, strlen(s));
         return nullptr;
+    }
+}
+
+void duckdb_vx_vector_set_all_valid(duckdb_vector ffi_vector) {
+    using enum VectorType;
+    Vector &vector = *reinterpret_cast<Vector *>(ffi_vector);
+    const VectorType type = vector.GetVectorType();
+    D_ASSERT(type != DICTIONARY_VECTOR && type != SEQUENCE_VECTOR);
+    switch (type) {
+    case CONSTANT_VECTOR:
+        return ConstantVector::Validity(vector).Reset();
+    case FLAT_VECTOR:
+        return FlatVector::Validity(vector).Reset();
+    case FSST_VECTOR:
+        return FSSTVector::Validity(vector).Reset();
+    default:
+        __builtin_unreachable();
     }
 }

@@ -36,6 +36,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::BitPackedArrayExt;
 use crate::BitPackedData;
@@ -91,7 +92,8 @@ impl VTable for BitPacked {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("fastlanes.bitpacked");
+        *ID
     }
 
     fn validate(
@@ -309,8 +311,6 @@ impl VTable for BitPacked {
 pub struct BitPacked;
 
 impl BitPacked {
-    pub const ID: ArrayId = ArrayId::new_ref("fastlanes.bitpacked");
-
     pub fn try_new(
         packed: BufferHandle,
         ptype: PType,
@@ -353,7 +353,11 @@ impl BitPacked {
     }
 
     /// Encode an array into a bitpacked representation with the given bit width.
-    pub fn encode(array: &ArrayRef, bit_width: u8) -> VortexResult<BitPackedArray> {
-        BitPackedData::encode(array, bit_width)
+    pub fn encode(
+        array: &ArrayRef,
+        bit_width: u8,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<BitPackedArray> {
+        BitPackedData::encode(array, bit_width, ctx)
     }
 }

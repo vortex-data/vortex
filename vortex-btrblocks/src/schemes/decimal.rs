@@ -5,12 +5,14 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
+use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::decimal::narrowed_decimal;
 use vortex_array::dtype::DecimalType;
 use vortex_compressor::estimate::CompressionEstimate;
+use vortex_compressor::estimate::EstimateVerdict;
 use vortex_decimal_byte_parts::DecimalByteParts;
 use vortex_error::VortexResult;
 
@@ -44,21 +46,23 @@ impl Scheme for DecimalScheme {
     fn expected_compression_ratio(
         &self,
         _data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         // Decimal compression is almost always beneficial (narrowing + primitive compression).
-        CompressionEstimate::AlwaysUse
+        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
     }
 
     fn compress(
         &self,
         compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
-        ctx: CompressorContext,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         // TODO(joe): add support splitting i128/256 buffers into chunks of primitive values
         // for compression. 2 for i128 and 4 for i256.
-        let decimal = data.array().clone().to_decimal();
+        let decimal = data.array().clone().execute::<DecimalArray>(exec_ctx)?;
         let decimal = narrowed_decimal(decimal);
         let validity = decimal.validity()?;
         let prim = match decimal.values_type() {
@@ -69,7 +73,8 @@ impl Scheme for DecimalScheme {
             _ => return Ok(decimal.into_array()),
         };
 
-        let compressed = compressor.compress_child(&prim.into_array(), &ctx, self.id(), 0)?;
+        let compressed =
+            compressor.compress_child(&prim.into_array(), &compress_ctx, self.id(), 0, exec_ctx)?;
 
         DecimalByteParts::try_new(compressed, decimal.decimal_dtype()).map(|d| d.into_array())
     }

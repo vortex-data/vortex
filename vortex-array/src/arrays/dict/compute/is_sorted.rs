@@ -44,7 +44,7 @@ impl DynAggregateKernel for DictIsSortedKernel {
         };
 
         if result {
-            Ok(Some(IsSorted::make_partial(batch, true, strict)?))
+            Ok(Some(IsSorted::make_partial(batch, true, strict, ctx)?))
         } else {
             // We can't definitively say it's NOT sorted without canonicalizing,
             // so return None to let the accumulator handle it.

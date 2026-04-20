@@ -7,9 +7,12 @@
 //! external compatibility.
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::DictArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
@@ -26,6 +29,8 @@ use crate::builtins::IntDictScheme;
 use crate::builtins::is_float_primitive;
 use crate::ctx::CompressorContext;
 use crate::estimate::CompressionEstimate;
+use crate::estimate::DeferredEstimate;
+use crate::estimate::EstimateVerdict;
 use crate::scheme::ChildSelection;
 use crate::scheme::DescendantExclusion;
 use crate::scheme::Scheme;
@@ -79,12 +84,13 @@ impl Scheme for FloatDictScheme {
     fn expected_compression_ratio(
         &self,
         data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
+        _compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        let stats = data.float_stats();
+        let stats = data.float_stats(exec_ctx);
 
         if stats.value_count() == 0 {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         let distinct_values_count = stats.distinct_count().vortex_expect(
@@ -93,36 +99,39 @@ impl Scheme for FloatDictScheme {
 
         // If > 50% of the values are distinct, skip dictionary scheme.
         if distinct_values_count > stats.value_count() / 2 {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         // Let sampling determine the expected ratio.
-        CompressionEstimate::Sample
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
     fn compress(
         &self,
         compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
-        ctx: CompressorContext,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         // TODO(connor): Fight the borrow checker (needs interior mutability)!
-        let stats = data.float_stats().clone();
+        let stats = data.float_stats(exec_ctx).clone();
         let dict = dictionary_encode(data.array_as_primitive(), &stats)?;
 
         let has_all_values_referenced = dict.has_all_values_referenced();
 
         // Values = child 0.
-        let compressed_values = compressor.compress_child(dict.values(), &ctx, self.id(), 0)?;
+        let compressed_values =
+            compressor.compress_child(dict.values(), &compress_ctx, self.id(), 0, exec_ctx)?;
 
         // Codes = child 1.
         let narrowed_codes = dict
             .codes()
             .clone()
-            .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?
+            .execute::<PrimitiveArray>(exec_ctx)?
             .narrow()?
             .into_array();
-        let compressed_codes = compressor.compress_child(&narrowed_codes, &ctx, self.id(), 1)?;
+        let compressed_codes =
+            compressor.compress_child(&narrowed_codes, &compress_ctx, self.id(), 1, exec_ctx)?;
 
         // SAFETY: compressing codes or values does not alter the invariants.
         unsafe {
@@ -182,7 +191,10 @@ macro_rules! typed_encode {
 /// # Errors
 ///
 /// Returns an error if unable to compute validity.
-pub fn dictionary_encode(array: PrimitiveArray, stats: &FloatStats) -> VortexResult<DictArray> {
+pub fn dictionary_encode(
+    array: ArrayView<'_, Primitive>,
+    stats: &FloatStats,
+) -> VortexResult<DictArray> {
     match stats.erased() {
         FloatErasedStats::F16(typed) => typed_encode!(array, stats, typed, f16),
         FloatErasedStats::F32(typed) => typed_encode!(array, stats, typed, f32),
@@ -205,7 +217,7 @@ macro_rules! impl_encode {
     ($typ:ty, $utyp:ty, $($ityp:ty),+) => {
         $(
         impl Encode<$typ, $ityp> for DictEncoder {
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_possible_truncation)]
             fn encode(distinct: &[$typ], values: &[$typ]) -> Buffer<$ityp> {
                 let mut codes =
                     vortex_utils::aliases::hash_map::HashMap::<$utyp, $ityp>::with_capacity(
@@ -235,20 +247,26 @@ impl_encode!(f64, u64);
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::dict::DictArraySlotsExt;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::dictionary_encode;
     use crate::stats::FloatStats;
     use crate::stats::GenerateStatsOptions;
 
     #[test]
-    fn test_float_dict_encode() {
+    fn test_float_dict_encode() -> VortexResult<()> {
+        let mut ctx = VortexSession::empty()
+            .with::<ArraySession>()
+            .create_execution_ctx();
         let values = buffer![1f32, 2f32, 2f32, 0f32, 1f32];
         let validity =
             Validity::Array(BoolArray::from_iter([true, true, true, false, true]).into_array());
@@ -259,8 +277,9 @@ mod tests {
             GenerateStatsOptions {
                 count_distinct_values: true,
             },
+            &mut ctx,
         );
-        let dict_array = dictionary_encode(array, &stats).unwrap();
+        let dict_array = dictionary_encode(array.as_view(), &stats)?;
         assert_eq!(dict_array.values().len(), 2);
         assert_eq!(dict_array.codes().len(), 5);
 
@@ -269,7 +288,12 @@ mod tests {
             Validity::Array(BoolArray::from_iter([true, true, true, false, true]).into_array()),
         )
         .into_array();
-        let undict = dict_array.as_array().to_primitive().into_array();
+        let undict = dict_array
+            .as_array()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?
+            .into_array();
         assert_arrays_eq!(undict, expected);
+        Ok(())
     }
 }

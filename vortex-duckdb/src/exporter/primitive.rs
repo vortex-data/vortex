@@ -6,11 +6,11 @@ use std::marker::PhantomData;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::match_each_native_ptype;
+use vortex::array::validity::Validity;
 use vortex::dtype::NativePType;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
-use crate::duckdb::LogicalType;
 use crate::duckdb::VectorBuffer;
 use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
@@ -28,15 +28,11 @@ pub fn new_exporter(
     array: PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    let validity = array
-        .validity()?
-        .to_array(array.len())
-        .execute::<Mask>(ctx)?;
-
-    if validity.all_false() {
-        let ltype = LogicalType::try_from(array.ptype())?;
-        return Ok(all_invalid::new_exporter(array.len(), &ltype));
-    }
+    let validity = array.validity()?;
+    if matches!(validity, Validity::AllInvalid) {
+        return Ok(all_invalid::new_exporter());
+    };
+    let validity = validity.to_array(array.len()).execute::<Mask>(ctx)?;
 
     match_each_native_ptype!(array.ptype(), |T| {
         let buffer = array.to_buffer::<T>();

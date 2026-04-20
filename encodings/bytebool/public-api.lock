@@ -4,8 +4,6 @@ pub struct vortex_bytebool::ByteBool
 
 impl vortex_bytebool::ByteBool
 
-pub const vortex_bytebool::ByteBool::ID: vortex_array::array::ArrayId
-
 pub fn vortex_bytebool::ByteBool::from_option_vec(data: alloc::vec::Vec<core::option::Option<bool>>) -> vortex_bytebool::ByteBoolArray
 
 pub fn vortex_bytebool::ByteBool::from_vec<V: core::convert::Into<vortex_array::validity::Validity>>(data: alloc::vec::Vec<bool>, validity: V) -> vortex_bytebool::ByteBoolArray
@@ -78,31 +76,21 @@ pub struct vortex_bytebool::ByteBoolData
 
 impl vortex_bytebool::ByteBoolData
 
-pub fn vortex_bytebool::ByteBoolData::as_slice(&self) -> &[bool]
-
 pub fn vortex_bytebool::ByteBoolData::buffer(&self) -> &vortex_array::buffer::BufferHandle
-
-pub fn vortex_bytebool::ByteBoolData::from_vec<V: core::convert::Into<vortex_array::validity::Validity>>(data: alloc::vec::Vec<bool>, validity: V) -> Self
 
 pub fn vortex_bytebool::ByteBoolData::is_empty(&self) -> bool
 
 pub fn vortex_bytebool::ByteBoolData::len(&self) -> usize
 
-pub fn vortex_bytebool::ByteBoolData::new(buffer: vortex_array::buffer::BufferHandle, validity: vortex_array::validity::Validity) -> Self
+pub fn vortex_bytebool::ByteBoolData::new(buffer: vortex_array::buffer::BufferHandle) -> Self
+
+pub fn vortex_bytebool::ByteBoolData::truthy_bytes(&self) -> &[u8]
 
 pub fn vortex_bytebool::ByteBoolData::validate(buffer: &vortex_array::buffer::BufferHandle, validity: &vortex_array::validity::Validity, dtype: &vortex_array::dtype::DType, len: usize) -> vortex_error::VortexResult<()>
 
 impl core::clone::Clone for vortex_bytebool::ByteBoolData
 
 pub fn vortex_bytebool::ByteBoolData::clone(&self) -> vortex_bytebool::ByteBoolData
-
-impl core::convert::From<alloc::vec::Vec<bool>> for vortex_bytebool::ByteBoolData
-
-pub fn vortex_bytebool::ByteBoolData::from(value: alloc::vec::Vec<bool>) -> Self
-
-impl core::convert::From<alloc::vec::Vec<core::option::Option<bool>>> for vortex_bytebool::ByteBoolData
-
-pub fn vortex_bytebool::ByteBoolData::from(value: alloc::vec::Vec<core::option::Option<bool>>) -> Self
 
 impl core::fmt::Debug for vortex_bytebool::ByteBoolData
 
@@ -124,12 +112,8 @@ pub trait vortex_bytebool::ByteBoolArrayExt: vortex_array::array::typed::TypedAr
 
 pub fn vortex_bytebool::ByteBoolArrayExt::validity(&self) -> vortex_array::validity::Validity
 
-pub fn vortex_bytebool::ByteBoolArrayExt::validity_mask(&self) -> vortex_mask::Mask
-
 impl<T: vortex_array::array::typed::TypedArrayRef<vortex_bytebool::ByteBool>> vortex_bytebool::ByteBoolArrayExt for T
 
 pub fn T::validity(&self) -> vortex_array::validity::Validity
-
-pub fn T::validity_mask(&self) -> vortex_mask::Mask
 
 pub type vortex_bytebool::ByteBoolArray = vortex_array::array::typed::Array<vortex_bytebool::ByteBool>

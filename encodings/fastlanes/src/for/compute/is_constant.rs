@@ -35,6 +35,6 @@ impl DynAggregateKernel for FoRIsConstantKernel {
         };
 
         let result = is_constant(array.encoded(), ctx)?;
-        Ok(Some(IsConstant::make_partial(batch, result)?))
+        Ok(Some(IsConstant::make_partial(batch, result, ctx)?))
     }
 }

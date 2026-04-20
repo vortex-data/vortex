@@ -3,7 +3,10 @@
 
 """CLI for benchmark orchestration."""
 
+import subprocess
+from contextlib import contextmanager
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Annotated
 
 import pandas as pd
@@ -14,12 +17,16 @@ from rich.table import Table
 from .comparison import analyzer
 from .comparison.reporter import pivot_comparison_table
 from .config import (
-    ENGINE_FORMATS,
     Benchmark,
+    BenchmarkTarget,
     BuildConfig,
     Engine,
     Format,
     RunConfig,
+    group_targets_by_backend,
+    parse_formats_json,
+    parse_targets_json,
+    resolve_axis_targets,
 )
 from .runner.builder import BenchmarkBuilder
 from .runner.executor import BenchmarkExecutor
@@ -43,6 +50,21 @@ def parse_formats(value: str) -> list[Format]:
     return [Format(f.strip()) for f in value.split(",")]
 
 
+def parse_options(value: list[str] | None) -> dict[str, str]:
+    """Parse repeated --opt key=value options into a dictionary."""
+    parsed: dict[str, str] = {}
+    if not value:
+        return parsed
+
+    for opt in value:
+        for segment in opt.split(","):
+            key, raw_value, *rest = segment.split("=")
+            if rest:
+                raise ValueError("Options must be key-value pairs separated by =")
+            parsed[key] = raw_value
+    return parsed
+
+
 def parse_queries(value: str | None) -> list[int] | None:
     """Parse comma-separated query numbers."""
     if not value:
@@ -60,6 +82,101 @@ def parse_queries(value: str | None) -> list[int] | None:
 
 def run_ref_auto_complete() -> list[str]:
     return list(map(lambda x: x.run_id, ResultStore().list_runs(limit=None)))
+
+
+def targets_from_axes(engine: str, format: str) -> tuple[list[BenchmarkTarget], list[str]]:
+    """Resolve legacy engine/format axes into explicit benchmark targets."""
+    return resolve_axis_targets(parse_engines(engine), parse_formats(format))
+
+
+def backends_for_engines(engines: list[Engine]) -> list[Engine]:
+    """Resolve legacy engine selections to unique execution engines."""
+    seed_formats = {
+        Engine.DATAFUSION: Format.PARQUET,
+        Engine.DUCKDB: Format.PARQUET,
+        Engine.LANCE: Format.LANCE,
+    }
+    return list(
+        group_targets_by_backend(BenchmarkTarget(engine=engine, format=seed_formats[engine]) for engine in engines)
+    )
+
+
+@contextmanager
+def open_results_output(path: Path | None):
+    """Open an optional compatibility JSONL output file."""
+    if path is None:
+        yield None
+        return
+
+    if path.parent != Path():
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+    with path.open("w", encoding="utf-8") as handle:
+        yield handle
+
+
+def write_result_line(line: str, store_writer, compatibility_file) -> None:
+    """Write a raw result line to the run store and optional compatibility output."""
+    store_writer(line)
+    if compatibility_file is None:
+        return
+
+    line = line.strip()
+    if line.startswith("{"):
+        compatibility_file.write(line + "\n")
+        compatibility_file.flush()
+
+
+@app.command("prepare-data")
+def prepare_data(
+    benchmark: Annotated[Benchmark, typer.Argument(help="Benchmark suite to prepare data for")],
+    format: Annotated[
+        str | None,
+        typer.Option("--format", "-f", help="Formats to generate (comma-separated)"),
+    ] = None,
+    formats_json: Annotated[
+        str | None,
+        typer.Option("--formats-json", help="Exact data formats to generate as a JSON array"),
+    ] = None,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Log underlying commands")] = False,
+    options: Annotated[list[str] | None, typer.Option("--opt", help="Benchmark-specific options")] = None,
+) -> None:
+    """Generate benchmark data for explicitly requested formats."""
+    if format and formats_json:
+        console.print("[red]Specify only one of --format or --formats-json[/red]")
+        raise typer.Exit(1)
+    if not format and not formats_json:
+        console.print("[red]Must specify one of --format or --formats-json[/red]")
+        raise typer.Exit(1)
+
+    try:
+        formats = parse_formats_json(formats_json) if formats_json else parse_formats(format or "")
+        bench_opts = parse_options(options)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    builder = BenchmarkBuilder(verbose=verbose)
+    binary_path = builder.get_data_generator_path()
+    if not binary_path.exists():
+        console.print(f"[red]Binary not found: {binary_path}[/red]")
+        console.print("Build benchmark binaries before running prepare-data")
+        raise typer.Exit(1)
+
+    cmd = [str(binary_path), benchmark.value, "--formats", ",".join(fmt.value for fmt in formats)]
+    if verbose:
+        cmd.append("--verbose")
+    for key, value in bench_opts.items():
+        cmd.extend(["--opt", f"{key}={value}"])
+
+    if verbose:
+        console.print(f"[dim]$ {' '.join(cmd)}[/dim]")
+
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as exc:
+        console.print(f"[red]Data generation failed: {exc}[/red]")
+        raise typer.Exit(1) from exc
 
 
 @app.command()
@@ -81,27 +198,41 @@ def run(
     tracing: Annotated[bool, typer.Option("--tracing", help="Record a trace for use with perfetto")] = False,
     build: Annotated[bool, typer.Option("--build/--no-build", help="Build binaries before running")] = True,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Log underlying commands")] = False,
+    targets_json: Annotated[
+        str | None,
+        typer.Option("--targets-json", help="Exact benchmark targets as a JSON array"),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", help="Optional path for compatibility JSONL output"),
+    ] = None,
     options: Annotated[list[str] | None, typer.Option("--opt", help="Engine or benchmark specific options")] = None,
 ) -> None:
     """Run benchmarks with specified configuration."""
-    engines = parse_engines(engine)
-    formats = parse_formats(format)
     query_list = parse_queries(queries)
     exclude_list = parse_queries(exclude_queries)
-    bench_opts = {}
-    # Build options dict
-    if options:
-        for opt in options:
-            for s in opt.split(","):
-                k, v, *rest = s.split("=")
-                if rest:
-                    raise RuntimeError("Options must be key-value pairs separated by =")
-                bench_opts[k] = v
+    strict_failures = targets_json is not None
+
+    try:
+        bench_opts = parse_options(options)
+        if targets_json:
+            targets = parse_targets_json(targets_json)
+            warnings: list[str] = []
+        else:
+            targets, warnings = targets_from_axes(engine, format)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    for warning in warnings:
+        console.print(f"[yellow]Warning: {warning}[/yellow]")
+    if not targets:
+        console.print("[red]No valid benchmark targets selected[/red]")
+        raise typer.Exit(1)
 
     config = RunConfig(
         benchmark=benchmark,
-        engines=engines,
-        formats=formats,
+        targets=targets,
         queries=query_list,
         exclude_queries=exclude_list,
         iterations=iterations,
@@ -110,73 +241,83 @@ def run(
         track_memory=track_memory,
     )
 
-    # Validate configuration
-    warnings = config.validate()
-    for warning in warnings:
-        console.print(f"[yellow]Warning: {warning}[/yellow]")
+    errors = config.validate()
+    if errors:
+        for error in errors:
+            console.print(f"[red]{error}[/red]")
+        raise typer.Exit(1)
 
     build_config = BuildConfig()
     builder = BenchmarkBuilder(config=build_config, verbose=verbose)
     store = ResultStore()
 
-    # Build binaries if needed
     if build:
-        binary_paths = builder.build(engines)
+        binary_paths = builder.build(config.backends)
     else:
-        binary_paths = {e: builder.get_binary_path(e) for e in engines}
-        # Check binaries exist
-        for eng, path in binary_paths.items():
+        binary_paths = {backend: builder.get_binary_path(backend) for backend in config.backends}
+        for backend, path in binary_paths.items():
             if not path.exists():
                 console.print(f"[red]Binary not found: {path}[/red]")
                 console.print("Run with --build to build binaries first")
                 raise typer.Exit(1)
 
     console.print(f"\n[bold]Running {benchmark.value} benchmark[/bold]")
-    console.print(f"  Engines: {', '.join(e.value for e in engines)}")
-    console.print(f"  Formats: {', '.join(f.value for f in formats)}")
+    console.print(f"  Targets: {', '.join(map(str, config.targets))}")
     console.print(f"  Iterations: {iterations}")
     if label:
         console.print(f"  Label: {label}")
     console.print()
 
-    # Run benchmarks and store results
-    with store.create_run(config, build_config) as ctx:
-        for eng in engines:
-            # Filter formats to those supported by this engine
-            supported_formats = ENGINE_FORMATS.get(eng, [])
-            engine_formats = [f for f in formats if f in supported_formats]
+    backend_groups = group_targets_by_backend(config.targets)
+    soft_failures: list[str] = []
 
-            if not engine_formats:
-                console.print(f"[yellow]Skipping {eng.value}: no supported formats[/yellow]")
-                continue
+    try:
+        with store.create_run(config, build_config) as ctx, open_results_output(output) as compatibility_file:
+            for backend, backend_targets in backend_groups.items():
+                executor = BenchmarkExecutor(binary_paths[backend], backend, verbose=verbose)
+                backend_formats = [target.format for target in backend_targets]
 
-            executor = BenchmarkExecutor(binary_paths[eng], eng, verbose=verbose)
+                try:
+                    results = executor.run(
+                        benchmark=benchmark,
+                        formats=backend_formats,
+                        queries=query_list,
+                        exclude_queries=exclude_list,
+                        iterations=iterations,
+                        options=bench_opts,
+                        track_memory=track_memory,
+                        samply=samply,
+                        sample_rate=sample_rate,
+                        tracing=tracing,
+                        on_result=lambda line, store_writer=ctx.write_raw_json, compatibility=compatibility_file: (
+                            write_result_line(
+                                line,
+                                store_writer,
+                                compatibility,
+                            )
+                        ),
+                    )
+                    console.print(f"[green]{backend.value}: {len(results)} results[/green]")
+                except RuntimeError as exc:
+                    ctx.metadata.partial = True
+                    if strict_failures:
+                        raise
+                    console.print(f"[red]{backend.value} failed: {exc}[/red]")
+                    soft_failures.append(str(exc))
 
-            try:
-                results = executor.run(
-                    benchmark=benchmark,
-                    formats=engine_formats,
-                    queries=query_list,
-                    exclude_queries=exclude_list,
-                    iterations=iterations,
-                    options=bench_opts,
-                    track_memory=track_memory,
-                    samply=samply,
-                    sample_rate=sample_rate,
-                    tracing=tracing,
-                    on_result=ctx.write_raw_json,
-                )
-                console.print(f"[green]{eng.value}: {len(results)} results[/green]")
-            except RuntimeError as e:
-                console.print(f"[red]{eng.value} failed: {e}[/red]")
+            ctx.metadata.binaries = {backend.value: str(path) for backend, path in binary_paths.items()}
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
 
-        # Update metadata with binary paths
-        ctx.metadata.binaries = {e.value: str(p) for e, p in binary_paths.items()}
+    if soft_failures:
+        console.print(f"[yellow]Completed with {len(soft_failures)} backend failure(s)[/yellow]")
 
-    console.print(f"\n[green]Results saved to run: {ctx.metadata.run_id}[/green]")
+    metadata = ctx.metadata
+    console.print(f"\n[green]Results saved to run: {metadata.run_id}[/green]")
 
     # Show comparison table if we have multiple engine:format combinations
-    df = store.load_results(ctx.metadata.run_id)
+    df = store.load_results(metadata.run_id)
     if not df.empty:
         try:
             pivot = analyzer.compare_within_run(df)
@@ -400,6 +541,10 @@ def show(
     console.print(f"  Benchmark: {metadata.benchmark}")
     console.print(f"  Engines: {', '.join(metadata.engines)}")
     console.print(f"  Formats: {', '.join(metadata.formats)}")
+    if metadata.targets:
+        console.print(
+            "  Targets: " + ", ".join(f"{target['engine']}:{target['format']}" for target in metadata.targets)
+        )
     console.print(f"  Iterations: {metadata.iterations}")
     console.print(f"  Git commit: {metadata.git_commit[:8]}")
     console.print(f"  Git branch: {metadata.git_branch}")
@@ -439,6 +584,7 @@ def build(
         engines = parse_engines(engine)
     else:
         engines = list(Engine)
+    backends = backends_for_engines(engines)
 
     console.print(f"[bold]Building: {', '.join(e.value for e in engines)}[/bold]")
     console.print(f"  Profile: {builder.config.profile}")
@@ -446,10 +592,10 @@ def build(
     console.print()
 
     try:
-        paths = builder.build(engines)
+        paths = builder.build(backends)
         console.print("\n[green]Build complete:[/green]")
-        for eng, path in paths.items():
-            console.print(f"  {eng.value}: {path}")
+        for backend, path in paths.items():
+            console.print(f"  {backend.value}: {path}")
     except RuntimeError as e:
         console.print(f"[red]Build failed: {e}[/red]")
         raise typer.Exit(1)

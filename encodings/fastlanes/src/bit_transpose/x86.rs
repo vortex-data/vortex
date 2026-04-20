@@ -45,8 +45,7 @@ pub fn has_vbmi() -> bool {
 /// Requires BMI2 support. Check with `has_bmi2()` before calling.
 #[target_feature(enable = "bmi2")]
 #[inline(never)]
-#[allow(clippy::too_many_lines)]
-#[allow(unsafe_op_in_unsafe_fn)]
+#[expect(clippy::too_many_lines)]
 pub unsafe fn transpose_bits_bmi2(input: &[u8; 128], output: &mut [u8; 128]) {
     // Helper to gather 8 bytes at stride 16 into a u64
     fn gather(input: &[u8; 128], base: usize) -> u64 {
@@ -233,8 +232,7 @@ pub unsafe fn transpose_bits_bmi2(input: &[u8; 128], output: &mut [u8; 128]) {
 /// Requires BMI2 support. Check with `has_bmi2()` before calling.
 #[target_feature(enable = "bmi2")]
 #[inline(never)]
-#[allow(clippy::too_many_lines)]
-#[allow(unsafe_op_in_unsafe_fn)]
+#[expect(clippy::too_many_lines)]
 pub unsafe fn untranspose_bits_bmi2(input: &[u8; 128], output: &mut [u8; 128]) {
     // Helper: scatter a u64 to 8 output bytes at stride 16
     fn scatter(output: &mut [u8; 128], base: usize, val: u64) {
@@ -492,9 +490,9 @@ static SCATTER_8X8: [u8; 64] = [
 /// Requires AVX-512F, AVX-512BW, and AVX-512VBMI support.
 #[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vbmi")]
 #[inline(never)]
-#[allow(clippy::cast_possible_wrap)]
-#[allow(clippy::cast_ptr_alignment)]
-#[allow(unsafe_op_in_unsafe_fn)]
+#[expect(clippy::cast_possible_wrap)]
+#[expect(clippy::cast_ptr_alignment)]
+#[expect(unsafe_op_in_unsafe_fn)]
 pub unsafe fn transpose_bits_vbmi(input: &[u8; 128], output: &mut [u8; 128]) {
     // Load all 128 input bytes into two ZMM registers
     let in_lo = _mm512_loadu_si512(input.as_ptr().cast::<__m512i>());
@@ -547,9 +545,9 @@ pub unsafe fn transpose_bits_vbmi(input: &[u8; 128], output: &mut [u8; 128]) {
 /// Requires AVX-512F, AVX-512BW, and AVX-512VBMI support.
 #[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vbmi")]
 #[inline(never)]
-#[allow(clippy::cast_possible_wrap)]
-#[allow(clippy::cast_ptr_alignment)]
-#[allow(unsafe_op_in_unsafe_fn)]
+#[expect(clippy::cast_possible_wrap)]
+#[expect(clippy::cast_ptr_alignment)]
+#[expect(unsafe_op_in_unsafe_fn)]
 pub unsafe fn untranspose_bits_vbmi(input: &[u8; 128], output: &mut [u8; 128]) {
     // For untranspose, we gather consecutive bytes from transposed layout,
     // then scatter back to stride-16 positions

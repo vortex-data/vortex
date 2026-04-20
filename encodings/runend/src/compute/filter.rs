@@ -42,6 +42,7 @@ impl FilterKernel for RunEnd {
                 array,
                 mask_values.indices(),
                 &Validity::NonNullable,
+                ctx,
             )?))
         } else {
             let primitive_run_ends = array.ends().clone().execute::<PrimitiveArray>(ctx)?;
@@ -64,6 +65,7 @@ impl FilterKernel for RunEnd {
                         values,
                         0,
                         mask_values.true_count(),
+                        ctx,
                     )
                     .into_array(),
                 ))
@@ -115,6 +117,8 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_error::VortexResult;
@@ -124,8 +128,11 @@ mod tests {
     use crate::RunEndArray;
 
     fn ree_array() -> RunEndArray {
-        RunEnd::encode(PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array())
-            .unwrap()
+        RunEnd::encode(
+            PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -133,13 +140,54 @@ mod tests {
         let arr = ree_array().slice(2..7).unwrap();
         let filtered = arr.filter(Mask::from_iter([true, false, false, true, true]))?;
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert_arrays_eq!(
             filtered,
             RunEnd::new(
                 PrimitiveArray::from_iter([1u8, 2, 3]).into_array(),
-                PrimitiveArray::from_iter([1i32, 4, 2]).into_array()
+                PrimitiveArray::from_iter([1i32, 4, 2]).into_array(),
+                &mut ctx,
             )
         );
+        Ok(())
+    }
+
+    /// Regression: Filter(Slice(RunEnd)) must preserve RunEnd after execution.
+    /// Previously Filter.execute() forced its child to canonical, decoding
+    /// Slice(RunEnd) → Primitive and destroying run structure. The fix lets
+    /// Filter unwrap one layer at a time so RunEnd's FilterKernel can fire.
+    #[test]
+    fn filter_sliced_run_end_preserves_encoding() -> VortexResult<()> {
+        // 4 runs of 32 each = 128 rows. Large enough that FilterKernel takes
+        // the run-preserving path (true_count >= 25).
+        let values: Vec<i32> = [10, 20, 30, 40]
+            .iter()
+            .flat_map(|&v| std::iter::repeat_n(v, 32))
+            .collect();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let arr = RunEnd::encode(PrimitiveArray::from_iter(values).into_array(), &mut ctx)?;
+
+        // Slice off the first 16 rows. Slice(RunEnd), 112 rows, 4 runs.
+        let sliced = arr.into_array().slice(16..128)?;
+
+        // Keep every other row = 112/2 = 56 rows.
+        let mask = Mask::from_iter((0..sliced.len()).map(|i| i % 2 == 0));
+        let filtered = sliced.filter(mask)?;
+
+        let executed = filtered.execute_until::<RunEnd>(&mut ctx)?;
+        assert_eq!(
+            executed.encoding_id().as_ref(),
+            "vortex.runend",
+            "Filter(Slice(RunEnd)) should preserve RunEnd encoding"
+        );
+
+        let expected: Vec<i32> = std::iter::repeat_n(10, 8)
+            .chain(std::iter::repeat_n(20, 16))
+            .chain(std::iter::repeat_n(30, 16))
+            .chain(std::iter::repeat_n(40, 16))
+            .collect();
+        assert_arrays_eq!(executed, PrimitiveArray::from_iter(expected));
+
         Ok(())
     }
 }

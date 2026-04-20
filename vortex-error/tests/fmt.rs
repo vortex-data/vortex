@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 // This seems to be a bug in the lint - https://github.com/rust-lang/rust-clippy/issues/11024
-#![allow(clippy::tests_outside_test_module)]
+#![expect(clippy::tests_outside_test_module)]
 
 use serial_test::serial;
 use vortex_error::VortexError;

@@ -2,7 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex::mask::Mask;
+use vortex::mask::MaskValues;
 
+use crate::cpp::duckdb_vx_vector_set_all_valid;
 use crate::duckdb::Value;
 use crate::duckdb::VectorRef;
 use crate::exporter::copy_from_slice;
@@ -19,13 +21,10 @@ impl VectorRef {
     ) -> bool {
         match mask {
             Mask::AllTrue(_) => {
-                // We only need to blank out validity if there is already a slice allocated.
-                // SAFETY: Caller guarantees this.
-                unsafe { self.set_all_true_validity(len) }
+                self.set_all_true_validity();
                 false
             }
             Mask::AllFalse(_) => {
-                // SAFETY: Caller guarantees this.
                 self.set_all_false_validity();
                 true
             }
@@ -63,13 +62,11 @@ impl VectorRef {
         }
     }
 
-    pub(super) unsafe fn set_all_true_validity(&mut self, len: usize) {
-        if let Some(validity) = unsafe { self.validity_bitslice_mut(len) } {
-            validity.fill(true);
-        }
+    pub fn set_all_true_validity(&mut self) {
+        unsafe { duckdb_vx_vector_set_all_valid(self.as_ptr()) };
     }
 
-    pub(super) fn set_all_false_validity(&mut self) {
+    pub fn set_all_false_validity(&mut self) {
         self.reference_value(&Value::null(&self.logical_type()));
     }
 }

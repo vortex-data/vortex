@@ -14,13 +14,11 @@ mod cardinality;
 mod init;
 mod partition;
 mod pushdown_complex_filter;
+mod statistics;
 mod table_scan_progress;
-mod virtual_columns;
 
 pub use bind::*;
 pub use init::*;
-pub use virtual_columns::VirtualColumnsResult;
-pub use virtual_columns::VirtualColumnsResultRef;
 
 use crate::cpp;
 use crate::cpp::duckdb_client_context;
@@ -28,15 +26,24 @@ use crate::duckdb::ClientContext;
 use crate::duckdb::DataChunk;
 use crate::duckdb::DatabaseRef;
 use crate::duckdb::LogicalType;
+use crate::duckdb::Value;
 use crate::duckdb::client_context::ClientContextRef;
 use crate::duckdb::data_chunk::DataChunkRef;
 use crate::duckdb::expr::ExpressionRef;
 use crate::duckdb::table_function::cardinality::cardinality_callback;
 use crate::duckdb::table_function::partition::get_partition_data_callback;
 use crate::duckdb::table_function::pushdown_complex_filter::pushdown_complex_filter_callback;
+use crate::duckdb::table_function::statistics::statistics;
 use crate::duckdb::table_function::table_scan_progress::table_scan_progress_callback;
-use crate::duckdb::table_function::virtual_columns::get_virtual_columns_callback;
 use crate::duckdb_try;
+
+#[derive(Debug, Default)]
+pub struct ColumnStatistics {
+    pub min: Option<Value>,
+    pub max: Option<Value>,
+    pub max_string_length: u64,
+    pub has_null: bool,
+}
 
 /// A trait that defines the supported operations for a table function in DuckDB.
 ///
@@ -83,6 +90,12 @@ pub trait TableFunction: Sized + Debug {
         input: &BindInputRef,
         result: &mut BindResultRef,
     ) -> VortexResult<Self::BindData>;
+
+    fn statistics(
+        client_context: &ClientContextRef,
+        bind_data: &Self::BindData,
+        column_index: usize,
+    ) -> Option<ColumnStatistics>;
 
     /// The function is called during query execution and is responsible for producing the output
     fn scan(
@@ -140,9 +153,6 @@ pub trait TableFunction: Sized + Debug {
         _local_init_data: &mut Self::LocalState,
     ) -> VortexResult<u64>;
 
-    /// Returns the virtual columns of the table function.
-    fn virtual_columns(_bind_data: &Self::BindData, _result: &mut VirtualColumnsResultRef) {}
-
     /// Returns a vector of key-value pairs for EXPLAIN output
     fn to_string(_bind_data: &Self::BindData) -> Option<Vec<(String, String)>> {
         None
@@ -188,11 +198,10 @@ impl DatabaseRef {
             init_global: Some(init_global_callback::<T>),
             init_local: Some(init_local_callback::<T>),
             function: Some(function::<T>),
-            statistics: ptr::null_mut::<c_void>(),
+            statistics: Some(statistics::<T>),
             cardinality: Some(cardinality_callback::<T>),
             pushdown_complex_filter: Some(pushdown_complex_filter_callback::<T>),
             pushdown_expression: ptr::null_mut::<c_void>(),
-            get_virtual_columns: Some(get_virtual_columns_callback::<T>),
             to_string: Some(to_string_callback::<T>),
             table_scan_progress: Some(table_scan_progress_callback::<T>),
             get_partition_data: Some(get_partition_data_callback::<T>),

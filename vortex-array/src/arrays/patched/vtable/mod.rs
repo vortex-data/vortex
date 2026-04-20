@@ -17,6 +17,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -99,7 +100,8 @@ impl VTable for Patched {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.patched")
+        static ID: CachedId = CachedId::new("vortex.patched");
+        *ID
     }
 
     fn validate(
@@ -318,7 +320,6 @@ impl VTable for Patched {
 }
 
 /// Apply patches on top of the existing value types.
-#[allow(clippy::too_many_arguments)]
 fn apply_patches_primitive<V: NativePType>(
     output: &mut [V],
     offset: usize,
@@ -372,6 +373,7 @@ mod tests {
     use crate::patches::Patches;
     use crate::serde::SerializeOptions;
     use crate::serde::SerializedArray;
+    use crate::session::ArraySessionExt;
     use crate::validity::Validity;
 
     #[test]
@@ -587,7 +589,9 @@ mod tests {
         let dtype = array.dtype().clone();
         let len = array.len();
 
-        let ctx = ArrayContext::empty();
+        LEGACY_SESSION.arrays().register(Patched);
+
+        let ctx = ArrayContext::empty().with_registry(LEGACY_SESSION.arrays().registry().clone());
         let serialized = array
             .serialize(&ctx, &LEGACY_SESSION, &SerializeOptions::default())
             .unwrap();

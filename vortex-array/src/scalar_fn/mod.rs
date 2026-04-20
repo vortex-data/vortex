@@ -7,7 +7,7 @@
 //! implementations. Expressions ([`crate::expr::Expression`]) reference scalar functions
 //! at each node.
 
-use arcref::ArcRef;
+use vortex_session::registry::Id;
 
 mod vtable;
 pub use vtable::*;
@@ -34,7 +34,7 @@ pub mod fns;
 pub mod session;
 
 /// A unique identifier for a scalar function.
-pub type ScalarFnId = ArcRef<str>;
+pub type ScalarFnId = Id;
 
 /// Private module to seal [`typed::DynScalarFn`].
 mod sealed {

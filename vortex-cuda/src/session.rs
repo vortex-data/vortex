@@ -85,8 +85,12 @@ impl CudaSession {
     ///
     /// * `array_id` - The encoding ID to register support for
     /// * `executor` - A static reference to the CUDA support implementation
-    pub fn register_kernel(&self, array_id: ArrayId, executor: &'static dyn CudaExecute) {
-        self.kernels.insert(array_id, executor);
+    pub fn register_kernel(
+        &self,
+        array_id: impl Into<ArrayId>,
+        executor: &'static dyn CudaExecute,
+    ) {
+        self.kernels.insert(array_id.into(), executor);
     }
 
     /// Retrieves the CUDA support implementation for an encoding, if registered.

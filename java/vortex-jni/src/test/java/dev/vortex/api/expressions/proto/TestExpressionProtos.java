@@ -30,4 +30,12 @@ public final class TestExpressionProtos {
         Expression deserialized = Expressions.deserialize(proto);
         assertEquals(expression, deserialized);
     }
+
+    @Test
+    public void testIsNotNullRoundTrip() {
+        Expression expression = IsNotNull.of(GetItem.of(Root.INSTANCE, "a.b.c"));
+        ExprProtos.Expr proto = Expressions.serialize(expression);
+        Expression deserialized = Expressions.deserialize(proto);
+        assertEquals(expression, deserialized);
+    }
 }

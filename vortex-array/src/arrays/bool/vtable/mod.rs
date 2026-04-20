@@ -30,6 +30,8 @@ mod kernel;
 mod operations;
 mod validity;
 
+use vortex_session::registry::CachedId;
+
 use crate::Precision;
 use crate::array::ArrayId;
 use crate::arrays::bool::compute::rules::RULES;
@@ -66,7 +68,8 @@ impl VTable for Bool {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.bool");
+        *ID
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -189,10 +192,6 @@ impl VTable for Bool {
 
 #[derive(Clone, Debug)]
 pub struct Bool;
-
-impl Bool {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.bool");
-}
 
 #[cfg(test)]
 mod tests {

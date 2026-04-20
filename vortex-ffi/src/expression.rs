@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-#![allow(non_camel_case_types)]
+#![expect(non_camel_case_types)]
 
 use std::ffi::CStr;
 use std::ffi::c_char;
@@ -65,6 +65,8 @@ pub unsafe extern "C" fn vx_expression_root() -> *mut vx_expression {
 /// Create an expression that selects (includes) specific fields from a child
 /// expression. Child expression must have a DTYPE_STRUCT dtype. Errors in
 /// vx_array_apply if the child expression doesn't have a specified field.
+///
+/// Returns a DTYPE_STRUCT array with selected fields.
 ///
 /// Example:
 ///
@@ -242,7 +244,9 @@ pub unsafe extern "C" fn vx_expression_is_null(child: *const vx_expression) -> *
 /// Errors in vx_array_apply if the root array doesn't have a specified field.
 ///
 /// Accesses the specified field from the result of the child expression.
-/// Equivalent to select(&item, 1, child).
+///
+/// Example: if child is Struct { name=u8, age=u16 } and we do
+/// vx_expression_get_item("name", child), output type will be DTYPE_U8
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_expression_get_item(
     item: *const c_char,
@@ -290,7 +294,8 @@ mod tests {
     use std::sync::Arc;
 
     use vortex::array::IntoArray;
-    use vortex::array::ToCanonical;
+    use vortex::array::LEGACY_SESSION;
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::ListArray;
     use vortex::array::arrays::PrimitiveArray;
@@ -342,6 +347,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_get_item() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let (array, names_array, ages_array) = struct_array();
         unsafe {
             let root = vx_expression_root();
@@ -357,7 +363,11 @@ mod tests {
             {
                 let applied_array = vx_array::as_ref(applied_array);
                 let expected: Buffer<u8> = ages_array.to_buffer();
-                assert_eq!(applied_array.to_primitive().to_buffer(), expected);
+                let prim = applied_array
+                    .clone()
+                    .execute::<PrimitiveArray>(&mut ctx)
+                    .unwrap();
+                assert_eq!(prim.to_buffer(), expected);
             }
             vx_array_free(applied_array);
 
@@ -426,6 +436,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_and_or() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let col1 = BoolArray::from_iter([true, false, true, true]);
         let col2 = BoolArray::from_iter([false, true, true, false]);
         let col3 = BoolArray::from_iter([false, true, true, true]);
@@ -461,7 +472,10 @@ mod tests {
             assert!(error.is_null());
             assert!(!applied_array.is_null());
             {
-                let array = vx_array::as_ref(applied_array).to_bool();
+                let array = vx_array::as_ref(applied_array)
+                    .clone()
+                    .execute::<BoolArray>(&mut ctx)
+                    .unwrap();
                 let expected = BoolArray::from_iter([false, false, true, false]);
                 assert_eq!(array.to_bit_buffer(), expected.to_bit_buffer());
             }
@@ -474,7 +488,10 @@ mod tests {
             assert!(error.is_null());
             assert!(!applied_array.is_null());
             {
-                let array = vx_array::as_ref(applied_array).to_bool();
+                let array = vx_array::as_ref(applied_array)
+                    .clone()
+                    .execute::<BoolArray>(&mut ctx)
+                    .unwrap();
                 let expected = BoolArray::from_iter([true, true, true, false]);
                 assert_eq!(array.to_bit_buffer(), expected.to_bit_buffer());
             }
@@ -511,6 +528,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_list_contains() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let elements = buffer![1i32, 2, 3, 4, 5].into_array();
         let offsets = buffer![0u32, 2, 5, 5].into_array();
         let array = ListArray::try_new(elements, offsets, Validity::NonNullable).unwrap();
@@ -528,7 +546,10 @@ mod tests {
             assert!(error.is_null());
             assert!(!applied.is_null());
             {
-                let applied = vx_array::as_ref(applied).to_bool();
+                let applied = vx_array::as_ref(applied)
+                    .clone()
+                    .execute::<BoolArray>(&mut ctx)
+                    .unwrap();
                 let expected = BoolArray::from_iter([true, false, false]);
                 assert_eq!(applied.to_bit_buffer(), expected.to_bit_buffer());
             }

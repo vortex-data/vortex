@@ -50,7 +50,8 @@ use std::sync::Arc;
 ///
 /// [`I32`]: PType::I32
 /// [`NonNullable`]: Nullability::NonNullable
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Eq, Hash)]
+#[allow(clippy::derived_hash_with_manual_eq)] // manual PartialEq adds Arc::ptr_eq fast path only
 pub enum DType {
     /// A logical null type.
     ///
@@ -104,6 +105,42 @@ pub enum DType {
 
     /// Variant type.
     Variant(Nullability),
+}
+
+impl PartialEq for DType {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Null, Self::Null) => true,
+            (Self::Bool(a), Self::Bool(b)) => a == b,
+            (Self::Primitive(pa, na), Self::Primitive(pb, nb)) => pa == pb && na == nb,
+            (Self::Decimal(da, na), Self::Decimal(db, nb)) => da == db && na == nb,
+            (Self::Utf8(a), Self::Utf8(b)) => a == b,
+            (Self::Binary(a), Self::Binary(b)) => a == b,
+            (Self::List(da, na), Self::List(db, nb)) => {
+                na == nb && (Arc::ptr_eq(da, db) || da == db)
+            }
+            (Self::FixedSizeList(da, sa, na), Self::FixedSizeList(db, sb, nb)) => {
+                sa == sb && na == nb && (Arc::ptr_eq(da, db) || da == db)
+            }
+            // StructFields handles its own Arc::ptr_eq in its PartialEq impl.
+            (Self::Struct(a, na), Self::Struct(b, nb)) => na == nb && a == b,
+            (Self::Extension(a), Self::Extension(b)) => a == b,
+            (Self::Variant(a), Self::Variant(b)) => a == b,
+            // Every variant is listed in the first position so that adding a new
+            // variant produces a non-exhaustive match compile error.
+            (Self::Null, _)
+            | (Self::Bool(_), _)
+            | (Self::Primitive(..), _)
+            | (Self::Decimal(..), _)
+            | (Self::Utf8(_), _)
+            | (Self::Binary(_), _)
+            | (Self::List(..), _)
+            | (Self::FixedSizeList(..), _)
+            | (Self::Struct(..), _)
+            | (Self::Extension(_), _)
+            | (Self::Variant(_), _) => false,
+        }
+    }
 }
 
 pub use bigint::*;

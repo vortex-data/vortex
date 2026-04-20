@@ -53,6 +53,8 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
@@ -66,7 +68,7 @@ mod tests {
     use crate::BitPackedData;
 
     fn bp(array: &ArrayRef, bit_width: u8) -> BitPackedArray {
-        BitPackedData::encode(array, bit_width).unwrap()
+        BitPackedData::encode(array, bit_width, &mut LEGACY_SESSION.create_execution_ctx()).unwrap()
     }
 
     #[test]

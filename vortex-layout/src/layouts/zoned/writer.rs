@@ -8,6 +8,7 @@ use futures::StreamExt as _;
 use parking_lot::Mutex;
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::expr::stats::Stat;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_error::VortexResult;
@@ -81,6 +82,8 @@ impl LayoutStrategy for ZonedStrategy {
         session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
         let stats = Arc::clone(&self.options.stats);
+        let session = session.clone();
+        let compute_session = session.clone();
         let handle = session.handle();
         let handle2 = handle.clone();
 
@@ -96,9 +99,12 @@ impl LayoutStrategy for ZonedStrategy {
             stream
                 .map(move |chunk| {
                     let stats = Arc::clone(&stats);
+                    let session = compute_session.clone();
                     handle2.spawn_cpu(move || {
                         let (sequence_id, chunk) = chunk?;
-                        chunk.statistics().compute_all(&stats)?;
+                        chunk
+                            .statistics()
+                            .compute_all(&stats, &mut session.create_execution_ctx())?;
                         VortexResult::Ok((sequence_id, chunk))
                     })
                 })
@@ -133,7 +139,7 @@ impl LayoutStrategy for ZonedStrategy {
                 Arc::clone(&segment_sink),
                 stream,
                 data_eof,
-                session,
+                &session,
             )
             .await?;
 
@@ -153,7 +159,7 @@ impl LayoutStrategy for ZonedStrategy {
             .sequenced(eof.split_off());
         let zones_layout = self
             .stats
-            .write_stream(ctx, Arc::clone(&segment_sink), stats_stream, eof, session)
+            .write_stream(ctx, Arc::clone(&segment_sink), stats_stream, eof, &session)
             .await?;
 
         Ok(ZonedLayout::new(

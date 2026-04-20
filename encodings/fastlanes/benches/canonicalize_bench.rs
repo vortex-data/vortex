@@ -48,13 +48,25 @@ fn into_canonical_non_nullable(
 
     let chunks = (0..chunk_count)
         .map(|_| {
-            make_array(&mut rng, chunk_len, fraction_patched, 0.0).vortex_expect("make_array works")
+            make_array(
+                &mut rng,
+                chunk_len,
+                fraction_patched,
+                0.0,
+                &mut SESSION.create_execution_ctx(),
+            )
+            .vortex_expect("make_array works")
         })
         .collect::<Vec<_>>();
 
     bencher
-        .with_inputs(|| ChunkedArray::from_iter(chunks.clone()).into_array())
-        .bench_refs(|chunked| chunked.to_canonical());
+        .with_inputs(|| {
+            (
+                ChunkedArray::from_iter(chunks.clone()).into_array(),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(chunked, ctx)| chunked.clone().execute::<Canonical>(ctx));
 }
 
 #[cfg(not(codspeed))]
@@ -67,7 +79,14 @@ fn canonical_into_non_nullable(
 
     let chunks = (0..chunk_count)
         .map(|_| {
-            make_array(&mut rng, chunk_len, fraction_patched, 0.0).vortex_expect("make_array works")
+            make_array(
+                &mut rng,
+                chunk_len,
+                fraction_patched,
+                0.0,
+                &mut SESSION.create_execution_ctx(),
+            )
+            .vortex_expect("make_array works")
         })
         .collect::<Vec<_>>();
 
@@ -78,11 +97,11 @@ fn canonical_into_non_nullable(
                 chunked.dtype().nullability(),
                 chunk_len * chunk_count,
             );
-            (chunked, primitive_builder)
+            (chunked, primitive_builder, SESSION.create_execution_ctx())
         })
-        .bench_refs(|(chunked, primitive_builder)| {
+        .bench_refs(|(chunked, primitive_builder, ctx)| {
             chunked
-                .append_to_builder(primitive_builder, &mut SESSION.create_execution_ctx())
+                .append_to_builder(primitive_builder, ctx)
                 .vortex_expect("append failed");
             primitive_builder.finish()
         });
@@ -108,14 +127,25 @@ fn into_canonical_nullable(
 
     let chunks = (0..chunk_count)
         .map(|_| {
-            make_array(&mut rng, chunk_len, fraction_patched, 0.05)
-                .vortex_expect("make_array works")
+            make_array(
+                &mut rng,
+                chunk_len,
+                fraction_patched,
+                0.05,
+                &mut SESSION.create_execution_ctx(),
+            )
+            .vortex_expect("make_array works")
         })
         .collect::<Vec<_>>();
 
     bencher
-        .with_inputs(|| ChunkedArray::from_iter(chunks.clone()).into_array())
-        .bench_values(|chunked| chunked.execute::<Canonical>(&mut SESSION.create_execution_ctx()));
+        .with_inputs(|| {
+            (
+                ChunkedArray::from_iter(chunks.clone()).into_array(),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_values(|(chunked, mut ctx)| chunked.execute::<Canonical>(&mut ctx));
 }
 
 #[cfg(not(codspeed))]
@@ -128,8 +158,14 @@ fn canonical_into_nullable(
 
     let chunks = (0..chunk_count)
         .map(|_| {
-            make_array(&mut rng, chunk_len, fraction_patched, 0.05)
-                .vortex_expect("make_array works")
+            make_array(
+                &mut rng,
+                chunk_len,
+                fraction_patched,
+                0.05,
+                &mut SESSION.create_execution_ctx(),
+            )
+            .vortex_expect("make_array works")
         })
         .collect::<Vec<_>>();
 
@@ -140,11 +176,11 @@ fn canonical_into_nullable(
                 chunked.dtype().nullability(),
                 chunk_len * chunk_count,
             );
-            (chunked, primitive_builder)
+            (chunked, primitive_builder, SESSION.create_execution_ctx())
         })
-        .bench_refs(|(chunked, primitive_builder)| {
+        .bench_refs(|(chunked, primitive_builder, ctx)| {
             chunked
-                .append_to_builder(primitive_builder, &mut SESSION.create_execution_ctx())
+                .append_to_builder(primitive_builder, ctx)
                 .vortex_expect("append failed");
             primitive_builder.finish()
         });

@@ -23,12 +23,15 @@ use pyo3::types::PyRange;
 use pyo3::types::PyRangeMethods;
 use pyo3_bytes::PyBytes;
 use vortex::array::ArrayRef;
+use vortex::array::Canonical;
 use vortex::array::IntoArray;
-use vortex::array::ToCanonical;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
+use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::Chunked;
 use vortex::array::arrays::bool::BoolArrayExt;
 use vortex::array::arrays::chunked::ChunkedArrayExt;
-use vortex::array::arrow::IntoArrowArray;
+use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::match_each_integer_ptype;
 use vortex::dtype::DType;
@@ -203,7 +206,7 @@ pub struct PyArray;
 impl PyArray {
     #[new]
     #[pyo3(signature = (*args, **kwargs))]
-    #[allow(unused_variables)]
+    #[expect(unused_variables)]
     fn new(args: &Bound<'_, PyAny>, kwargs: Option<&Bound<'_, PyAny>>) -> Self {
         Self
     }
@@ -334,7 +337,12 @@ impl PyArray {
 
             let chunks = chunked_array
                 .iter_chunks()
-                .map(|chunk| -> PyVortexResult<_> { Ok(chunk.clone().into_arrow(&arrow_dtype)?) })
+                .map(|chunk| -> PyVortexResult<_> {
+                    Ok(chunk.clone().execute_arrow(
+                        Some(&arrow_dtype),
+                        &mut LEGACY_SESSION.create_execution_ctx(),
+                    )?)
+                })
                 .collect::<Result<Vec<ArrowArrayRef>, _>>()?;
 
             let pa_data_type = arrow_dtype.clone().to_pyarrow(py)?;
@@ -354,7 +362,7 @@ impl PyArray {
             )?)
         } else {
             Ok(array
-                .into_arrow_preferred()?
+                .execute_arrow(None, &mut LEGACY_SESSION.create_execution_ctx())?
                 .into_data()
                 .to_pyarrow(py)?
                 .into_bound(py))
@@ -524,9 +532,17 @@ impl PyArray {
     /// ]
     /// ```
     fn filter(slf: Bound<Self>, mask: PyArrayRef) -> PyVortexResult<PyArrayRef> {
+        // PyArray/PyArrayRef do not currently carry a VortexSession; threading one
+        // through would change the FromPyObject contract. Use LEGACY_SESSION until
+        // the wrappers are refactored.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let mask = (&*mask as &ArrayRef).to_bool().to_mask_fill_null_false();
-        let inner = slf.filter(mask)?.to_canonical()?.into_array();
+        let mask_bool = (&*mask as &ArrayRef)
+            .clone()
+            .execute::<BoolArray>(&mut ctx)?;
+        let mask = mask_bool.to_mask_fill_null_false(&mut ctx);
+        let canonical = slf.filter(mask)?.execute::<Canonical>(&mut ctx)?;
+        let inner = canonical.into_array();
         Ok(PyArrayRef::from(inner))
     }
 
@@ -601,6 +617,10 @@ impl PyArray {
     /// ```
     // TODO(ngates): return a vortex.Scalar
     fn scalar_at(slf: Bound<Self>, index: usize) -> PyVortexResult<Bound<PyScalar>> {
+        // PyArray/PyArrayRef do not currently carry a VortexSession; threading one
+        // through would change the FromPyObject contract. Use LEGACY_SESSION until
+        // the wrappers are refactored.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let py = slf.py();
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
         if index >= slf.len() {
@@ -610,7 +630,7 @@ impl PyArray {
             ))
             .into());
         }
-        Ok(PyScalar::init(py, slf.scalar_at(index)?)?)
+        Ok(PyScalar::init(py, slf.execute_scalar(index, &mut ctx)?)?)
     }
 
     /// Filter, permute, and/or repeat elements by their index.

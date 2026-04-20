@@ -61,7 +61,7 @@ jobs:
     name: "Run ${{ inputs.fuzz_name || inputs.fuzz_target }}"
     env:
       FUZZ_NAME: ${{ inputs.fuzz_name || inputs.fuzz_target }}
-    timeout-minutes: 230  # almost 4 hours
+    timeout-minutes: 240  # 4 hours
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner={1}/disk=large/tag={2}-fuzz', github.run_id, inputs.runner, inputs.fuzz_name || inputs.fuzz_target)
@@ -102,7 +102,7 @@ jobs:
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
         run: |
           CORPUS_KEY="${FUZZ_NAME}_corpus.tar.zst"
-          CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}-${{ inputs.extra_features }}"
+          CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
 
           # Try to download corpus
           if python3 scripts/s3-download.py "s3://vortex-fuzz-corpus/$CORPUS_KEY" "$CORPUS_KEY"; then
@@ -124,7 +124,7 @@ jobs:
           if [ "${{ inputs.jobs }}" -gt 1 ]; then
             FORK_FLAG="-fork=${{ inputs.jobs }}"
           fi
-          ${{ inputs.extra_env }} RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=1 \
+          ${{ inputs.extra_env }} RUST_BACKTRACE=1 \
             cargo +$NIGHTLY_TOOLCHAIN fuzz run --release --debug-assertions \
             $FEATURES_FLAG \
             ${{ inputs.fuzz_target }} -- \
@@ -163,7 +163,7 @@ jobs:
           if [ -n "${{ inputs.extra_features }}" ]; then
             FEATURES_FLAG="--features ${{ inputs.extra_features }}"
           fi
-          RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=1 \
+          RUST_BACKTRACE=1 \
             cargo +$NIGHTLY_TOOLCHAIN fuzz run --release --debug-assertions \
             $FEATURES_FLAG \
             ${{ inputs.fuzz_target }} \

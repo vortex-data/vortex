@@ -38,7 +38,7 @@ impl FileMetadata for CachedVortexMetadata {
             .unwrap_or(1024 * 64)
     }
 
-    #[allow(clippy::disallowed_types)]
+    #[expect(clippy::disallowed_types)]
     fn extra_info(&self) -> std::collections::HashMap<String, String> {
         Default::default()
     }

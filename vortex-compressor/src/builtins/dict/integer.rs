@@ -7,9 +7,12 @@
 //! for external compatibility.
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::DictArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
@@ -24,6 +27,7 @@ use crate::builtins::IntDictScheme;
 use crate::builtins::is_integer_primitive;
 use crate::ctx::CompressorContext;
 use crate::estimate::CompressionEstimate;
+use crate::estimate::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
 use crate::stats::ArrayAndStats;
@@ -54,13 +58,14 @@ impl Scheme for IntDictScheme {
     fn expected_compression_ratio(
         &self,
         data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
+        _compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         let bit_width = data.array_as_primitive().ptype().bit_width();
-        let stats = data.integer_stats();
+        let stats = data.integer_stats(exec_ctx);
 
         if stats.value_count() == 0 {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         let distinct_values_count = stats.distinct_count().vortex_expect(
@@ -69,7 +74,7 @@ impl Scheme for IntDictScheme {
 
         // If > 50% of the values are distinct, skip dictionary scheme.
         if distinct_values_count > stats.value_count() / 2 {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         // Ignore nulls encoding for the estimate. We only focus on values.
@@ -90,30 +95,35 @@ impl Scheme for IntDictScheme {
 
         let before = stats.value_count() as usize * bit_width;
 
-        CompressionEstimate::Ratio(before as f64 / (values_size + codes_size) as f64)
+        CompressionEstimate::Verdict(EstimateVerdict::Ratio(
+            before as f64 / (values_size + codes_size) as f64,
+        ))
     }
 
     fn compress(
         &self,
         compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
-        ctx: CompressorContext,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         // TODO(connor): Fight the borrow checker (needs interior mutability)!
-        let stats = data.integer_stats().clone();
+        let stats = data.integer_stats(exec_ctx).clone();
         let dict = dictionary_encode(data.array_as_primitive(), &stats)?;
 
         // Values = child 0.
-        let compressed_values = compressor.compress_child(dict.values(), &ctx, self.id(), 0)?;
+        let compressed_values =
+            compressor.compress_child(dict.values(), &compress_ctx, self.id(), 0, exec_ctx)?;
 
         // Codes = child 1.
         let narrowed_codes = dict
             .codes()
             .clone()
-            .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?
+            .execute::<PrimitiveArray>(exec_ctx)?
             .narrow()?
             .into_array();
-        let compressed_codes = compressor.compress_child(&narrowed_codes, &ctx, self.id(), 1)?;
+        let compressed_codes =
+            compressor.compress_child(&narrowed_codes, &compress_ctx, self.id(), 1, exec_ctx)?;
 
         // SAFETY: compressing codes does not change their values.
         unsafe {
@@ -177,7 +187,10 @@ macro_rules! typed_encode {
     clippy::cognitive_complexity,
     reason = "complexity from match on all integer types"
 )]
-pub fn dictionary_encode(array: PrimitiveArray, stats: &IntegerStats) -> VortexResult<DictArray> {
+pub fn dictionary_encode(
+    array: ArrayView<'_, Primitive>,
+    stats: &IntegerStats,
+) -> VortexResult<DictArray> {
     match stats.erased() {
         IntegerErasedStats::U8(typed) => typed_encode!(array, stats, typed, u8),
         IntegerErasedStats::U16(typed) => typed_encode!(array, stats, typed, u16),
@@ -205,7 +218,7 @@ macro_rules! impl_encode {
     ($typ:ty, $($ityp:ty),+) => {
         $(
         impl Encode<$typ, $ityp> for DictEncoder {
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_possible_truncation)]
             fn encode(distinct: &[$typ], values: &[$typ]) -> Buffer<$ityp> {
                 let mut codes =
                     vortex_utils::aliases::hash_map::HashMap::<$typ, $ityp>::with_capacity(
@@ -241,19 +254,25 @@ impl_encode!(i64);
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::dict::DictArraySlotsExt;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::dictionary_encode;
     use crate::stats::IntegerStats;
 
     #[test]
-    fn test_dict_encode_integer_stats() {
+    fn test_dict_encode_integer_stats() -> VortexResult<()> {
+        let mut ctx = VortexSession::empty()
+            .with::<ArraySession>()
+            .create_execution_ctx();
         let data = buffer![100i32, 200, 100, 0, 100];
         let validity =
             Validity::Array(BoolArray::from_iter([true, true, true, false, true]).into_array());
@@ -264,8 +283,9 @@ mod tests {
             crate::stats::GenerateStatsOptions {
                 count_distinct_values: true,
             },
+            &mut ctx,
         );
-        let dict_array = dictionary_encode(array, &stats).unwrap();
+        let dict_array = dictionary_encode(array.as_view(), &stats)?;
         assert_eq!(dict_array.values().len(), 2);
         assert_eq!(dict_array.codes().len(), 5);
 
@@ -274,7 +294,12 @@ mod tests {
             Validity::Array(BoolArray::from_iter([true, true, true, false, true]).into_array()),
         )
         .into_array();
-        let undict = dict_array.as_array().to_primitive().into_array();
+        let undict = dict_array
+            .as_array()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?
+            .into_array();
         assert_arrays_eq!(undict, expected);
+        Ok(())
     }
 }

@@ -279,7 +279,8 @@ __device__ void execute_output_stage(T *__restrict output,
                                      char *__restrict smem,
                                      uint64_t block_start,
                                      uint32_t block_len) {
-    constexpr uint32_t VALUES_PER_TILE = 32 / sizeof(T);
+    // Cap at 4 values per thread per tile to minimise register pressure.
+    constexpr uint32_t VALUES_PER_TILE = (32 / sizeof(T)) < 4 ? (32 / sizeof(T)) : 4;
     const uint32_t tile_size = blockDim.x * VALUES_PER_TILE;
     const auto &src = stage.source;
     const void *raw_input = reinterpret_cast<const void *>(stage.input_ptr);
@@ -472,9 +473,10 @@ dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__rest
 // matters is load_element(), which dispatches on the per-op PTypeTag to
 // sign-extend or zero-extend when widening a narrow source to T.
 #define GENERATE_KERNEL(suffix, Type)                                                                        \
-    extern "C" __global__ void dynamic_dispatch_##suffix(Type *__restrict output,                            \
-                                                         uint64_t array_len,                                 \
-                                                         const uint8_t *__restrict packed_plan) {            \
+    extern "C" __global__ void __launch_bounds__(BLOCK_SIZE, 32)                                             \
+        dynamic_dispatch_##suffix(Type *__restrict output,                                                   \
+                                  uint64_t array_len,                                                        \
+                                  const uint8_t *__restrict packed_plan) {                                   \
         dynamic_dispatch<Type>(output, array_len, packed_plan);                                              \
     }
 

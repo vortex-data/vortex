@@ -3,8 +3,8 @@
 
 //! CUDA benchmarks for bit unpacking.
 
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::cast_possible_truncation)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::cast_possible_truncation)]
 
 mod common;
 
@@ -20,6 +20,8 @@ use criterion::Throughput;
 use cudarc::driver::DeviceRepr;
 use futures::executor::block_on;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::validity::Validity::NonNullable;
 use vortex::buffer::Buffer;
@@ -39,8 +41,7 @@ use crate::common::TimedLaunchStrategy;
 const N_ROWS: usize = 100_000_000;
 
 /// Patch frequencies to benchmark (as fractions)
-const PATCH_FREQUENCIES: &[(f64, &str)] =
-    &[(0.001, "0.1%"), (0.01, "1%"), (0.05, "5%"), (0.10, "10%")];
+const PATCH_FREQUENCIES: &[(f64, &str)] = &[(0.01, "1%"), (0.10, "10%")];
 
 /// Create a bit-packed array with the given bit width
 fn make_bitpacked_array<T>(bit_width: u8, len: usize) -> BitPackedArray
@@ -57,7 +58,8 @@ where
         .collect();
 
     let primitive_array = PrimitiveArray::new(Buffer::from(values), NonNullable);
-    BitPackedData::encode(&primitive_array.into_array(), bit_width)
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    BitPackedData::encode(&primitive_array.into_array(), bit_width, &mut ctx)
         .vortex_expect("failed to create BitPacked array")
 }
 
@@ -97,7 +99,8 @@ where
         .collect();
 
     let primitive_array = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-    BitPackedData::encode(&primitive_array, bit_width)
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    BitPackedData::encode(&primitive_array, bit_width, &mut ctx)
         .vortex_expect("failed to create BitPacked array with patches")
 }
 
@@ -108,7 +111,6 @@ where
     T::Physical: DeviceRepr,
 {
     let mut group = c.benchmark_group(format!("bitunpack_cuda_{}", type_name));
-    group.sample_size(10);
 
     let array = make_bitpacked_array::<T>(bit_width, N_ROWS);
     let nbytes = N_ROWS * size_of::<T>();
@@ -153,7 +155,6 @@ where
     T::Physical: DeviceRepr,
 {
     let mut group = c.benchmark_group(format!("bitunpack_cuda_patched_{}", type_name));
-    group.sample_size(10);
 
     let nbytes = N_ROWS * size_of::<T>();
     group.throughput(Throughput::Bytes(nbytes as u64));
@@ -193,11 +194,15 @@ fn benchmark_bitunpack_with_patches(c: &mut Criterion) {
     benchmark_bitunpack_with_patches_typed::<u64>(c, "u64");
 }
 
-criterion::criterion_group!(
-    benches,
-    benchmark_bitunpack,
-    benchmark_bitunpack_with_patches
-);
+criterion::criterion_group! {
+    name = benches;
+    config = Criterion::default().without_plots()
+        .sample_size(10)
+        .warm_up_time(Duration::from_nanos(1))
+        .measurement_time(Duration::from_nanos(1))
+        .nresamples(10);
+    targets = benchmark_bitunpack, benchmark_bitunpack_with_patches
+}
 
 #[cuda_available]
 criterion::criterion_main!(benches);

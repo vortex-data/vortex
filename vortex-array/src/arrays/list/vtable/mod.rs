@@ -11,6 +11,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -64,9 +65,9 @@ impl VTable for List {
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.list");
+        *ID
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -200,7 +201,3 @@ impl VTable for List {
 
 #[derive(Clone, Debug)]
 pub struct List;
-
-impl List {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.list");
-}

@@ -465,8 +465,9 @@ mod test {
     use futures::task::noop_waker_ref;
     use parking_lot::Mutex;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::MaskFuture;
-    use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldMask;
@@ -553,6 +554,10 @@ mod test {
             Ok(Box::pin(async move {
                 unreachable!("scan should not be polled in this test")
             }))
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
         }
     }
 
@@ -649,10 +654,15 @@ mod test {
             let array = PrimitiveArray::from_iter(values?).into_array();
             Ok(Box::pin(async move { Ok(array) }))
         }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
     }
 
     #[test]
     fn into_stream_executes_after_prepare() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let calls = Arc::new(AtomicUsize::new(0));
         let reader = Arc::new(SplittingLayoutReader::new(Arc::clone(&calls)));
 
@@ -664,7 +674,8 @@ mod test {
 
         let mut values = Vec::new();
         for chunk in &mut iter {
-            values.push(chunk?.to_primitive().into_buffer::<i32>()[0]);
+            let prim = chunk?.execute::<PrimitiveArray>(&mut ctx)?;
+            values.push(prim.into_buffer::<i32>()[0]);
         }
 
         assert_eq!(calls.load(Ordering::Relaxed), 1);
@@ -746,6 +757,10 @@ mod test {
             Ok(Box::pin(async move {
                 unreachable!("scan should not be polled in this test")
             }))
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
         }
     }
 

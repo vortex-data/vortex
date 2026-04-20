@@ -1,7 +1,87 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Connectors to enable [DataFusion](https://docs.rs/datafusion/latest/datafusion/) to read [`Vortex`](https://docs.rs/crate/vortex/latest) data.
+//! Integrations between [`Vortex`] and [DataFusion].
+//!
+//! The crate exposes two main entry points:
+//!
+//! - [`VortexFormatFactory`] for the file-based integration used by SQL,
+//!   `CREATE EXTERNAL TABLE`, and
+//!   [`ListingTable`].
+//! - [`v2`] for direct integration from an existing Vortex
+//!   [`DataSourceRef`].
+//!
+//! # Registering The File Format
+//!
+//! Most applications register [`VortexFormatFactory`] with a DataFusion
+//! [`SessionContext`] and then let DataFusion create [`VortexFormat`] and
+//! [`VortexSource`] instances as queries are planned:
+//!
+//! ```no_run
+//! use std::sync::Arc;
+//!
+//! use datafusion::datasource::provider::DefaultTableFactory;
+//! use datafusion::execution::SessionStateBuilder;
+//! use datafusion::prelude::SessionContext;
+//! use datafusion_common::GetExt;
+//! use vortex_datafusion::VortexFormatFactory;
+//!
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let factory = Arc::new(VortexFormatFactory::new());
+//! let mut state_builder = SessionStateBuilder::new()
+//!     .with_default_features()
+//!     .with_table_factory(
+//!         factory.get_ext().to_uppercase(),
+//!         Arc::new(DefaultTableFactory::new()),
+//!     );
+//!
+//! if let Some(file_formats) = state_builder.file_formats() {
+//!     file_formats.push(factory.clone() as _);
+//! }
+//!
+//! let ctx = SessionContext::new_with_state(state_builder.build()).enable_url_table();
+//! ctx.sql(
+//!     "CREATE EXTERNAL TABLE metrics (service VARCHAR, value BIGINT) \
+//!      STORED AS vortex LOCATION 'file:///tmp/metrics/'",
+//! )
+//! .await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Registering An Existing Vortex Data Source
+//!
+//! If your application already has a Vortex [`DataSourceRef`], use
+//! [`v2::VortexTable`] to register it directly with DataFusion:
+//!
+//! ```no_run
+//! use std::sync::Arc;
+//!
+//! use arrow_schema::Schema;
+//! use datafusion::prelude::SessionContext;
+//! use vortex::VortexSessionDefault;
+//! use vortex::scan::DataSourceRef;
+//! use vortex::session::VortexSession;
+//! use vortex_datafusion::v2::VortexTable;
+//!
+//! # let data_source: DataSourceRef = todo!();
+//! let table = Arc::new(VortexTable::new(
+//!     data_source,
+//!     VortexSession::default(),
+//!     Arc::new(Schema::empty()),
+//! ));
+//!
+//! let ctx = SessionContext::new();
+//! ctx.register_table("vortex_data", table)?;
+//! # Ok::<(), datafusion_common::DataFusionError>(())
+//! ```
+//!
+//! [`Vortex`]: https://docs.rs/crate/vortex/latest
+//! [DataFusion]: https://docs.rs/datafusion/latest/datafusion/
+//! [`ListingTable`]: https://docs.rs/datafusion/latest/datafusion/datasource/listing/struct.ListingTable.html
+//! [`DataSourceRef`]: vortex::scan::DataSourceRef
+//! [`SessionContext`]: https://docs.rs/datafusion/latest/datafusion/prelude/struct.SessionContext.html
 #![deny(missing_docs)]
 use std::fmt::Debug;
 
@@ -18,7 +98,11 @@ mod tests;
 pub use convert::exprs::ExpressionConvertor;
 pub use persistent::*;
 
-/// Extension trait to convert our [`Precision`](vortex::stats::Precision) to Datafusion's [`Precision`](datafusion_common::stats::Precision)
+/// Extension trait to convert our [`Precision`] to DataFusion's
+/// [`DataFusionPrecision`].
+///
+/// [`Precision`]: vortex::expr::stats::Precision
+/// [`DataFusionPrecision`]: datafusion_common::stats::Precision
 trait PrecisionExt<T>
 where
     T: Debug + Clone + PartialEq + Eq + PartialOrd,

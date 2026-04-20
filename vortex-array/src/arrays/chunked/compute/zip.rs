@@ -52,7 +52,8 @@ mod tests {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
@@ -102,6 +103,7 @@ mod tests {
         assert_eq!(zipped.nchunks(), 4);
         let mut values: Vec<i32> = Vec::new();
         for chunk in zipped.chunks() {
+            #[expect(deprecated)]
             let primitive = chunk.to_primitive();
             values.extend_from_slice(primitive.as_slice::<i32>());
         }

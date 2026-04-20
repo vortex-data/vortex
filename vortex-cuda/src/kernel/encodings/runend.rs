@@ -78,7 +78,7 @@ impl CudaExecute for RunEndExecutor {
         if matches!(values.validity()?, Validity::AllInvalid) {
             return ConstantArray::new(Scalar::null(values.dtype().clone()), output_len)
                 .into_array()
-                .to_canonical();
+                .execute::<Canonical>(ctx.execution_ctx());
         }
 
         let ends = ends.execute_cuda(ctx).await?.into_primitive();
@@ -148,7 +148,9 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
             unreachable!("AllInvalid should be handled by RunEndExecutor::execute")
         }
         Validity::Array(_) => {
-            unreachable!("Array validity not yet supported for run-end decoding on GPU");
+            vortex_bail!(
+                "RunEnd GPU decoding does not yet support per-element validity in values; falling back to CPU"
+            );
         }
     };
 
@@ -163,6 +165,7 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
 mod tests {
     use rstest::rstest;
     use vortex::array::IntoArray;
+    use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity;
@@ -175,9 +178,14 @@ mod tests {
 
     use super::*;
     use crate::CanonicalCudaExt;
+    use crate::executor::CudaArrayExt;
     use crate::session::CudaSession;
 
-    fn make_runend_array<V, E>(ends: Vec<E>, values: Vec<V>) -> RunEndArray
+    fn make_runend_array<V, E>(
+        ends: Vec<E>,
+        values: Vec<V>,
+        ctx: &mut vortex::array::ExecutionCtx,
+    ) -> RunEndArray
     where
         V: NativePType,
         E: NativePType,
@@ -186,22 +194,25 @@ mod tests {
             PrimitiveArray::new(Buffer::from(ends), Validity::NonNullable).into_array();
         let values_array =
             PrimitiveArray::new(Buffer::from(values), Validity::NonNullable).into_array();
-        RunEnd::new(ends_array, values_array)
+        RunEnd::new(ends_array, values_array, ctx)
     }
 
+    type RunEndBuilder = fn(&mut vortex::array::ExecutionCtx) -> RunEndArray;
+
     #[rstest]
-    #[case::u32_ends_u8_values(make_runend_array(vec![3u32, 6, 10], vec![10u8, 20, 30]))]
-    #[case::u32_ends_u32_values(make_runend_array(vec![2u32, 5, 10], vec![1u32, 2, 3]))]
-    #[case::u32_ends_f64_values(make_runend_array(vec![2u32, 5, 8], vec![1.5f64, 2.5, 3.5]))]
-    #[case::u8_ends_i32_values(make_runend_array(vec![2u8, 5, 10], vec![1i32, 2, 3]))]
-    #[case::u32_ends_i32_values(make_runend_array(vec![2u32, 5, 10], vec![1i32, 2, 3]))]
-    #[case::u64_ends_i32_values(make_runend_array(vec![2u64, 5, 10], vec![1i32, 2, 3]))]
+    #[case::u32_ends_u8_values(|ctx: &mut vortex::array::ExecutionCtx| make_runend_array(vec![3u32, 6, 10], vec![10u8, 20, 30], ctx))]
+    #[case::u32_ends_u32_values(|ctx: &mut vortex::array::ExecutionCtx| make_runend_array(vec![2u32, 5, 10], vec![1u32, 2, 3], ctx))]
+    #[case::u32_ends_f64_values(|ctx: &mut vortex::array::ExecutionCtx| make_runend_array(vec![2u32, 5, 8], vec![1.5f64, 2.5, 3.5], ctx))]
+    #[case::u8_ends_i32_values(|ctx: &mut vortex::array::ExecutionCtx| make_runend_array(vec![2u8, 5, 10], vec![1i32, 2, 3], ctx))]
+    #[case::u32_ends_i32_values(|ctx: &mut vortex::array::ExecutionCtx| make_runend_array(vec![2u32, 5, 10], vec![1i32, 2, 3], ctx))]
+    #[case::u64_ends_i32_values(|ctx: &mut vortex::array::ExecutionCtx| make_runend_array(vec![2u64, 5, 10], vec![1i32, 2, 3], ctx))]
     #[crate::test]
-    async fn test_cuda_runend_types(#[case] runend_array: RunEndArray) -> VortexResult<()> {
+    async fn test_cuda_runend_types(#[case] build: RunEndBuilder) -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let cpu_result = runend_array.to_canonical()?;
+        let runend_array = build(cuda_ctx.execution_ctx());
+        let cpu_result = crate::canonicalize_cpu(runend_array.clone())?;
 
         let gpu_result = RunEndExecutor
             .execute(runend_array.into_array(), &mut cuda_ctx)
@@ -228,10 +239,10 @@ mod tests {
         let ends: Vec<u64> = (1..=num_runs).map(|i| (i * run_length) as u64).collect();
         let values: Vec<i32> = (0..num_runs).map(|i| i32::try_from(i).unwrap()).collect();
 
-        let runend_array = make_runend_array(ends, values);
+        let runend_array = make_runend_array(ends, values, cuda_ctx.execution_ctx());
         assert_eq!(runend_array.len(), total_len);
 
-        let cpu_result = runend_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(runend_array.clone())?;
 
         let gpu_result = RunEndExecutor
             .execute(runend_array.into_array(), &mut cuda_ctx)
@@ -251,9 +262,9 @@ mod tests {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let runend_array = make_runend_array(vec![100u32], vec![42i32]);
+        let runend_array = make_runend_array(vec![100u32], vec![42i32], cuda_ctx.execution_ctx());
 
-        let cpu_result = runend_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(runend_array.clone())?;
 
         let gpu_result = RunEndExecutor
             .execute(runend_array.into_array(), &mut cuda_ctx)
@@ -278,9 +289,9 @@ mod tests {
         let ends: Vec<u32> = (1..=num_elements).collect();
         let values: Vec<i32> = (0..num_elements as i32).collect();
 
-        let runend_array = make_runend_array(ends, values);
+        let runend_array = make_runend_array(ends, values, cuda_ctx.execution_ctx());
 
-        let cpu_result = runend_array.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(runend_array.clone())?;
 
         let gpu_result = RunEndExecutor
             .execute(runend_array.into_array(), &mut cuda_ctx)
@@ -291,6 +302,38 @@ mod tests {
             .into_array();
 
         assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_cuda_runend_nullable_values_falls_back_to_cpu() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        // Build a RunEnd array whose values have Validity::Array (some nulls).
+        let ends_array =
+            PrimitiveArray::new(Buffer::from(vec![3u32, 6, 10]), Validity::NonNullable)
+                .into_array();
+        let validity =
+            Validity::Array(BoolArray::from_iter([true, false, true].into_iter()).into_array());
+        let values_array =
+            PrimitiveArray::new(Buffer::from(vec![10i32, 0, 30]), validity).into_array();
+        let runend_array = RunEnd::new(ends_array, values_array, cuda_ctx.execution_ctx());
+
+        let cpu_result = crate::canonicalize_cpu(runend_array.clone())?.into_array();
+
+        // execute_cuda should fall back to CPU and still produce the correct result.
+        let gpu_result = runend_array
+            .into_array()
+            .execute_cuda(&mut cuda_ctx)
+            .await
+            .vortex_expect("GPU/CPU fallback should succeed")
+            .into_host()
+            .await?
+            .into_array();
+
+        assert_arrays_eq!(cpu_result, gpu_result);
 
         Ok(())
     }

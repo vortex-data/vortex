@@ -10,6 +10,7 @@ use std::hash::Hasher;
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
@@ -20,10 +21,10 @@ use crate::stats::GenerateStatsOptions;
 
 /// Unique identifier for a compression scheme.
 ///
-/// The only way to obtain a [`SchemeId`] is through [`SchemeExt::id()`], which is
-/// auto-implemented for all [`Scheme`] types. There is no public constructor.
+/// The only way to obtain a [`SchemeId`] is through [`SchemeExt::id()`], which is auto-implemented
+/// for all [`Scheme`] types. There is no public constructor.
 ///
-/// The only exception to this is for `ROOT_SCHEME_ID` in `compressor.rs`.
+/// The only exception to this is for the compressor's synthetic `ROOT_SCHEME_ID`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SchemeId {
     /// Only constructable within `vortex-compressor`.
@@ -129,10 +130,10 @@ pub struct AncestorExclusion {
 ///
 /// # Implementing a scheme
 ///
-/// [`expected_compression_ratio`] should return [`CompressionEstimate::Sample`] when a cheap
-/// heuristic is not available, asking the compressor to estimate via sampling. Implementors should
-/// return a more specific variant when possible (e.g. [`CompressionEstimate::AlwaysUse`] for
-/// constant detection or [`CompressionEstimate::Skip`] for early rejection based on stats).
+/// [`expected_compression_ratio`] should return
+/// `CompressionEstimate::Deferred(DeferredEstimate::Sample)` when a cheap heuristic is not
+/// available, asking the compressor to estimate via sampling. Implementors should return an
+/// immediate [`CompressionEstimate::Verdict`] when possible.
 ///
 /// Schemes that need statistics that may be expensive to compute should override [`stats_options`]
 /// to declare what they require. The compressor merges all eligible schemes' options before
@@ -184,13 +185,20 @@ pub trait Scheme: Debug + Send + Sync {
 
     /// Cheaply estimate the compression ratio for this scheme on the given array.
     ///
-    /// This method should be fast and infallible. Any expensive or fallible work should be deferred
-    /// to the compressor by returning [`CompressionEstimate::Sample`] or
-    /// [`CompressionEstimate::Estimate`].
+    /// This method should be fast and infallible. Any expensive or fallible work should be
+    /// deferred to the compressor by returning
+    /// `CompressionEstimate::Deferred(DeferredEstimate::Sample)` or
+    /// `CompressionEstimate::Deferred(DeferredEstimate::Callback(...))`.
     ///
     /// The compressor will ask all schemes what their expected compression ratio is given the array
     /// and statistics. The scheme with the highest estimated ratio will then be applied to the
     /// entire array.
+    ///
+    /// [`CompressionEstimate::Verdict`] means the scheme already knows the terminal
+    /// [`crate::estimate::EstimateVerdict`]. `CompressionEstimate::Deferred(DeferredEstimate::Sample)`
+    /// asks the compressor to sample. `CompressionEstimate::Deferred(DeferredEstimate::Callback(...))`
+    /// asks the compressor to run custom deferred work. Deferred callbacks must return a
+    /// [`crate::estimate::EstimateVerdict`] directly, never another deferred request.
     ///
     /// Note that the compressor will also use this method when compressing samples, so some
     /// statistics that might hold for the samples may not hold for the entire array (e.g.,
@@ -204,7 +212,8 @@ pub trait Scheme: Debug + Send + Sync {
     fn expected_compression_ratio(
         &self,
         _data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate;
 
     /// Compress the array using this scheme.
@@ -216,7 +225,8 @@ pub trait Scheme: Debug + Send + Sync {
         &self,
         compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
-        ctx: CompressorContext,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef>;
 }
 

@@ -91,14 +91,14 @@ fn generate_indices(dataset: &dyn BenchDataset, pattern: AccessPattern) -> Vec<u
             // ~POISSON_EXPECTED_COUNT indices across the dataset.
             let rate = POISSON_EXPECTED_COUNT as f64 / row_count as f64;
             // SAFETY: rate is always positive (POISSON_EXPECTED_COUNT > 0, row_count > 0).
-            #[allow(clippy::unwrap_used)]
+            #[expect(clippy::unwrap_used)]
             let exp = Exp::new(rate).unwrap();
             let mut indices = Vec::with_capacity(POISSON_EXPECTED_COUNT);
             let mut pos = 0.0_f64;
             loop {
                 let gap: f64 = exp.sample(&mut rng);
                 pos += gap;
-                #[allow(clippy::cast_possible_truncation)]
+                #[expect(clippy::cast_possible_truncation)]
                 let idx = pos as u64;
                 if idx >= row_count {
                     break;

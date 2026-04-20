@@ -39,6 +39,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ALPFloat;
 use crate::alp::Exponents;
@@ -72,7 +73,8 @@ impl VTable for ALP {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.alp");
+        *ID
     }
 
     fn validate(
@@ -236,10 +238,6 @@ impl Display for ALPData {
 
 #[derive(Clone, Debug)]
 pub struct ALP;
-
-impl ALP {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.alp");
-}
 
 #[derive(Clone, prost::Message)]
 pub struct ALPMetadata {
@@ -528,7 +526,6 @@ mod tests {
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -554,11 +551,11 @@ mod tests {
     #[case(2048)]
     #[case(2049)]
     fn test_execute_f32(#[case] size: usize) {
+        let mut ctx = SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_iter((0..size).map(|i| i as f32));
-        let encoded = alp_encode(&values, None).unwrap();
+        let encoded = alp_encode(values.as_view(), None, &mut ctx).unwrap();
 
         let result_canonical = {
-            let mut ctx = SESSION.create_execution_ctx();
             encoded
                 .clone()
                 .into_array()
@@ -584,7 +581,12 @@ mod tests {
     #[case(2049)]
     fn test_execute_f64(#[case] size: usize) {
         let values = PrimitiveArray::from_iter((0..size).map(|i| i as f64));
-        let encoded = alp_encode(&values, None).unwrap();
+        let encoded = alp_encode(
+            values.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
@@ -618,7 +620,12 @@ mod tests {
             .collect();
 
         let array = PrimitiveArray::from_iter(values);
-        let encoded = alp_encode(&array, None).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         assert!(encoded.patches().unwrap().array_len() > 0);
 
         let result_canonical = {
@@ -652,7 +659,12 @@ mod tests {
             .collect();
 
         let array = PrimitiveArray::from_option_iter(values);
-        let encoded = alp_encode(&array, None).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
@@ -687,7 +699,12 @@ mod tests {
             .collect();
 
         let array = PrimitiveArray::from_option_iter(values);
-        let encoded = alp_encode(&array, None).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         assert!(encoded.patches().unwrap().array_len() > 0);
 
         let result_canonical = {
@@ -723,7 +740,12 @@ mod tests {
             .collect();
 
         let array = PrimitiveArray::from_option_iter(values.clone());
-        let encoded = alp_encode(&array, None).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         let slice_end = size - slice_start;
         let slice_len = slice_end - slice_start;
@@ -761,6 +783,7 @@ mod tests {
     #[case(1000, 200)]
     #[case(2048, 512)]
     fn test_sliced_to_primitive(#[case] size: usize, #[case] slice_start: usize) {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values: Vec<Option<f64>> = (0..size)
             .map(|i| {
                 if i % 5 == 0 {
@@ -774,18 +797,24 @@ mod tests {
             .collect();
 
         let array = PrimitiveArray::from_option_iter(values.clone());
-        let encoded = alp_encode(&array, None).unwrap();
+        let encoded = alp_encode(array.as_view(), None, &mut ctx).unwrap();
 
         let slice_end = size - slice_start;
         let slice_len = slice_end - slice_start;
         let sliced_encoded = encoded.slice(slice_start..slice_end).unwrap();
 
-        let result_primitive = sliced_encoded.to_primitive();
+        let result_primitive = sliced_encoded.execute::<PrimitiveArray>(&mut ctx).unwrap();
 
         for idx in 0..slice_len {
             let expected_value = values[slice_start + idx];
 
-            let result_valid = result_primitive.validity_mask().unwrap().value(idx);
+            let result_valid = result_primitive
+                .as_ref()
+                .validity()
+                .unwrap()
+                .execute_mask(result_primitive.as_ref().len(), &mut ctx)
+                .unwrap()
+                .value(idx);
             assert_eq!(
                 result_valid,
                 expected_value.is_some(),
@@ -815,7 +844,12 @@ mod tests {
         let original = PrimitiveArray::from_iter(values);
 
         // First encode normally to get a properly formed ALPArray with patches.
-        let normally_encoded = alp_encode(&original, None).unwrap();
+        let normally_encoded = alp_encode(
+            original.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         assert!(
             normally_encoded.patches().is_some(),
             "Test requires patches to be present"

@@ -33,6 +33,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::compute::ZigZagEncoded;
@@ -50,7 +51,8 @@ impl VTable for ZigZag {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.zigzag");
+        *ID
     }
 
     fn validate(
@@ -195,8 +197,6 @@ impl<T: TypedArrayRef<ZigZag>> ZigZagArrayExt for T {}
 pub struct ZigZag;
 
 impl ZigZag {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.zigzag");
-
     /// Construct a new [`ZigZagArray`] from an encoded unsigned integer array.
     pub fn try_new(encoded: ArrayRef) -> VortexResult<ZigZagArray> {
         let dtype = ZigZagData::dtype_from_encoded_dtype(encoded.dtype())?;
@@ -240,9 +240,9 @@ impl OperationsVTable<ZigZag> for ZigZag {
     fn scalar_at(
         array: ArrayView<'_, ZigZag>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let scalar = array.encoded().scalar_at(index)?;
+        let scalar = array.encoded().execute_scalar(index, ctx)?;
         if scalar.is_null() {
             return scalar.primitive_reinterpret_cast(ZigZagArrayExt::ptype(&array));
         }
@@ -270,7 +270,9 @@ impl ValidityChild<ZigZag> for ZigZag {
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
 
@@ -279,42 +281,46 @@ mod test {
 
     #[test]
     fn test_compute_statistics() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10]
             .into_array()
-            .to_primitive();
-        let zigzag = zigzag_encode(array.clone())?;
+            .execute::<PrimitiveArray>(&mut ctx)?;
+        let zigzag = zigzag_encode(array.as_view())?;
 
         assert_eq!(
-            zigzag.statistics().compute_max::<i32>(),
-            array.statistics().compute_max::<i32>()
+            zigzag.statistics().compute_max::<i32>(&mut ctx),
+            array.statistics().compute_max::<i32>(&mut ctx)
         );
         assert_eq!(
-            zigzag.statistics().compute_null_count(),
-            array.statistics().compute_null_count()
+            zigzag.statistics().compute_null_count(&mut ctx),
+            array.statistics().compute_null_count(&mut ctx)
         );
         assert_eq!(
-            zigzag.statistics().compute_is_constant(),
-            array.statistics().compute_is_constant()
+            zigzag.statistics().compute_is_constant(&mut ctx),
+            array.statistics().compute_is_constant(&mut ctx)
         );
 
         let sliced = zigzag.slice(0..2).unwrap();
         let sliced = sliced.as_::<ZigZag>();
         assert_eq!(
-            sliced.array().scalar_at(sliced.len() - 1).unwrap(),
+            sliced
+                .array()
+                .execute_scalar(sliced.len() - 1, &mut ctx,)
+                .unwrap(),
             Scalar::from(-5i32)
         );
 
         assert_eq!(
-            sliced.statistics().compute_min::<i32>(),
-            array.statistics().compute_min::<i32>()
+            sliced.statistics().compute_min::<i32>(&mut ctx),
+            array.statistics().compute_min::<i32>(&mut ctx)
         );
         assert_eq!(
-            sliced.statistics().compute_null_count(),
-            array.statistics().compute_null_count()
+            sliced.statistics().compute_null_count(&mut ctx),
+            array.statistics().compute_null_count(&mut ctx)
         );
         assert_eq!(
-            sliced.statistics().compute_is_constant(),
-            array.statistics().compute_is_constant()
+            sliced.statistics().compute_is_constant(&mut ctx),
+            array.statistics().compute_is_constant(&mut ctx)
         );
         Ok(())
     }

@@ -6,8 +6,7 @@
 //!
 //! Cases: 100% input only, 100% output only, and 50/50 mixed.
 
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::cast_possible_truncation)]
+#![expect(clippy::unwrap_used)]
 
 use std::time::Duration;
 
@@ -95,8 +94,6 @@ fn transfer_mix_timed(
 
 fn benchmark_transfer_throughput(c: &mut Criterion) {
     let mut group = c.benchmark_group("transfer_throughput_cuda");
-    group.sample_size(10);
-
     for &(input_bytes, output_bytes, label) in MIXES {
         let total_mem_bytes = input_bytes * 2 + output_bytes;
         group.throughput(Throughput::Bytes(total_mem_bytes as u64));
@@ -123,7 +120,15 @@ fn benchmark_transfer_throughput(c: &mut Criterion) {
     group.finish();
 }
 
-criterion::criterion_group!(benches, benchmark_transfer_throughput);
+criterion::criterion_group! {
+    name = benches;
+    config = Criterion::default().without_plots()
+        .sample_size(10)
+        .warm_up_time(Duration::from_nanos(1))
+        .measurement_time(Duration::from_nanos(1))
+        .nresamples(10);
+    targets = benchmark_transfer_throughput
+}
 
 #[cuda_available]
 criterion::criterion_main!(benches);

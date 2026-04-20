@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-#![allow(non_camel_case_types)]
+#![expect(non_camel_case_types)]
 
 //! FFI interface for working with Vortex Arrays.
 use std::ffi::c_void;
@@ -10,9 +10,11 @@ use std::sync::Arc;
 use paste::paste;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
-use vortex::array::ToCanonical;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::NullArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
@@ -193,6 +195,9 @@ pub unsafe extern "C-unwind" fn vx_array_dtype(array: *const vx_array) -> *const
     vx_dtype::new_ref(vx_array::as_ref(array).dtype())
 }
 
+// Return an owned field for array at index.
+// Returns NULL and sets error_out if index is out of bounds or array doesn't
+// have dtype DTYPE_STRUCT.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_get_field(
     array: *const vx_array,
@@ -202,8 +207,10 @@ pub unsafe extern "C-unwind" fn vx_array_get_field(
     try_or_default(error_out, || {
         let array = vx_array::as_ref(array);
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let field_array = array
-            .to_struct()
+            .clone()
+            .execute::<StructArray>(&mut ctx)?
             .unmasked_fields()
             .get(index)
             .ok_or_else(|| vortex_err!("Field index out of bounds"))?
@@ -238,7 +245,7 @@ pub unsafe extern "C-unwind" fn vx_array_element_is_invalid(
 ) -> bool {
     try_or_default(error, || {
         vortex_ensure!(!array.is_null());
-        vx_array::as_ref(array).is_invalid(index)
+        vx_array::as_ref(array).is_invalid(index, &mut LEGACY_SESSION.create_execution_ctx())
     })
 }
 
@@ -251,7 +258,7 @@ pub unsafe extern "C-unwind" fn vx_array_invalid_count(
     try_or_default(error_out, || {
         vortex_ensure!(!array.is_null());
         let array = vx_array::as_ref(array);
-        array.invalid_count()
+        array.invalid_count(&mut LEGACY_SESSION.create_execution_ctx())
     })
 }
 
@@ -326,7 +333,9 @@ macro_rules! ffiarray_get_ptype {
             pub unsafe extern "C-unwind" fn [<vx_array_get_ $ptype>](array: *const vx_array, index: usize) -> $ptype {
                 let array = vx_array::as_ref(array);
                 // TODO(joe): propagate this error up instead of expecting
-                let value = array.scalar_at(index).vortex_expect("scalar_at failed");
+                let value = array
+                    .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+                    .vortex_expect("scalar_at failed");
                 // TODO(joe): propagate this error up instead of expecting
                 value.as_primitive()
                     .as_::<$ptype>()
@@ -337,7 +346,9 @@ macro_rules! ffiarray_get_ptype {
             pub unsafe extern "C-unwind" fn [<vx_array_get_storage_ $ptype>](array: *const vx_array, index: usize) -> $ptype {
                 let array = vx_array::as_ref(array);
                 // TODO(joe): propagate this error up instead of expecting
-                let value = array.scalar_at(index).vortex_expect("scalar_at failed");
+                let value = array
+                    .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+                    .vortex_expect("scalar_at failed");
                 // TODO(joe): propagate this error up instead of expecting
                 value.as_extension()
                     .to_storage_scalar()
@@ -371,7 +382,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_utf8(
     let array = vx_array::as_ref(array);
     // TODO(joe): propagate this error up instead of expecting
     let value = array
-        .scalar_at(index as usize)
+        .execute_scalar(index as usize, &mut LEGACY_SESSION.create_execution_ctx())
         .vortex_expect("scalar_at failed");
     let utf8_scalar = value.as_utf8();
     if let Some(buffer) = utf8_scalar.value() {
@@ -391,7 +402,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_binary(
     let array = vx_array::as_ref(array);
     // TODO(joe): propagate this error up instead of expecting
     let value = array
-        .scalar_at(index as usize)
+        .execute_scalar(index as usize, &mut LEGACY_SESSION.create_execution_ctx())
         .vortex_expect("scalar_at failed");
     let binary_scalar = value.as_binary();
     if let Some(bytes) = binary_scalar.value() {
@@ -424,6 +435,8 @@ mod tests {
     use std::ptr;
 
     use vortex::array::IntoArray;
+    use vortex::array::LEGACY_SESSION;
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
@@ -442,20 +455,9 @@ mod tests {
     use crate::dtype::vx_dtype_get_variant;
     use crate::dtype::vx_dtype_variant;
     use crate::error::vx_error_free;
-    use crate::error::vx_error_get_message;
     use crate::expression::vx_expression_free;
     use crate::string::vx_string_free;
-
-    fn assert_no_error(error: *mut vx_error) {
-        if !error.is_null() {
-            let message;
-            unsafe {
-                message = vx_string::as_str(vx_error_get_message(error)).to_owned();
-                vx_error_free(error);
-            }
-            panic!("{message}");
-        }
-    }
+    use crate::tests::assert_no_error;
 
     #[test]
     // TODO(joe): enable once this is fixed https://github.com/Amanieu/parking_lot/issues/477
@@ -764,7 +766,9 @@ mod tests {
             assert!(!res.is_null());
             {
                 let res = vx_array::as_ref(res);
-                let buffer = res.to_bool().to_bit_buffer();
+                let mut ctx = LEGACY_SESSION.create_execution_ctx();
+                let bool_array = res.clone().execute::<BoolArray>(&mut ctx).unwrap();
+                let buffer = bool_array.to_bit_buffer();
                 let expected = BoolArray::from_iter(vec![false, false, true, true]);
                 assert_eq!(buffer, expected.to_bit_buffer());
             }

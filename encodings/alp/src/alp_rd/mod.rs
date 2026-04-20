@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::cast_possible_truncation)]
+#![expect(clippy::cast_possible_truncation)]
 
 pub use array::*;
 use vortex_array::ExecutionCtx;
@@ -25,6 +25,8 @@ use num_traits::Float;
 use num_traits::One;
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
+use vortex_array::ArrayView;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
@@ -180,11 +182,15 @@ impl RDEncoder {
     ///
     /// Each value will be split into a left and right component, which are compressed individually.
     // TODO(joe): make fallible
-    pub fn encode(&self, array: &PrimitiveArray) -> ALPRDArray {
-        match_each_alp_float_ptype!(array.ptype(), |P| { self.encode_generic::<P>(array) })
+    pub fn encode(&self, array: ArrayView<'_, Primitive>, ctx: &mut ExecutionCtx) -> ALPRDArray {
+        match_each_alp_float_ptype!(array.ptype(), |P| { self.encode_generic::<P>(array, ctx) })
     }
 
-    fn encode_generic<T>(&self, array: &PrimitiveArray) -> ALPRDArray
+    fn encode_generic<T>(
+        &self,
+        array: ArrayView<'_, Primitive>,
+        ctx: &mut ExecutionCtx,
+    ) -> ALPRDArray
     where
         T: ALPRDFloat + NativePType,
         T::UINT: NativePType,
@@ -283,6 +289,7 @@ impl RDEncoder {
             packed_right,
             self.right_bit_width,
             exceptions,
+            ctx,
         )
         .vortex_expect("ALPRDArray construction in encode")
     }

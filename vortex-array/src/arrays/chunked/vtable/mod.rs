@@ -11,6 +11,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -20,7 +21,8 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
-use crate::ToCanonical;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
@@ -48,10 +50,6 @@ pub type ChunkedArray = Array<Chunked>;
 #[derive(Clone, Debug)]
 pub struct Chunked;
 
-impl Chunked {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.chunked");
-}
-
 impl ArrayHash for ChunkedData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {
         // Chunk offsets are cached derived data. Slot 0 already stores the logical offsets array,
@@ -72,9 +70,9 @@ impl VTable for Chunked {
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.chunked");
+        *ID
     }
 
     fn validate(
@@ -189,6 +187,7 @@ impl VTable for Chunked {
             &DType::Primitive(PType::U64, Nullability::NonNullable),
             nchunks + 1,
         )?;
+        #[expect(deprecated)]
         let chunk_offsets_buf = chunk_offsets.to_primitive().to_buffer::<u64>();
         let chunk_offsets_usize = chunk_offsets_buf
             .iter()

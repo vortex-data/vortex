@@ -38,15 +38,6 @@ void duckdb_vx_tfunc_bind_result_add_column(duckdb_vx_tfunc_bind_result ffi_resu
                                             size_t name_len,
                                             duckdb_logical_type ffi_type);
 
-// Opaque type for the result of get_virtual_columns
-typedef struct duckdb_vx_tfunc_virtual_cols_result_ *duckdb_vx_tfunc_virtual_cols_result;
-// Push a column into the get_virtual_columns result.
-void duckdb_vx_tfunc_virtual_columns_push(duckdb_vx_tfunc_virtual_cols_result ffi_result,
-                                          idx_t column_idx,
-                                          const char *name_str,
-                                          size_t name_len,
-                                          duckdb_logical_type ffi_type);
-
 // String map for to_string result
 typedef struct duckdb_vx_string_map_ *duckdb_vx_string_map;
 
@@ -97,6 +88,18 @@ typedef struct {
     bool has_max_cardinality;
 } duckdb_vx_node_statistics;
 
+typedef struct {
+    // Set only for strings and primitive types
+    duckdb_value min;
+    duckdb_value max;
+    // upper bit: "length is set". lower 32 bits: DuckDB's max string length.
+    // set only for strings
+    uint64_t max_string_length;
+    bool has_null;
+} duckdb_column_statistics;
+
+typedef idx_t column_t;
+
 // A transparent DuckDB table function vtable, which can be used to configure a table function.
 // See duckdb/include/function/tfunc.hpp for details on each field.
 typedef struct {
@@ -137,14 +140,17 @@ typedef struct {
 
     // void *in_out_function;
     // void *in_out_function_final;
-    void *statistics;
+
+    // false if statistics are not available
+    bool (*statistics)(duckdb_client_context context,
+                       const void *bind_data,
+                       size_t column_index,
+                       duckdb_column_statistics *stats_out);
 
     // void *dependency;
     void (*cardinality)(void *bind_data, duckdb_vx_node_statistics *node_stats_out);
 
     bool (*pushdown_complex_filter)(void *bind_data, duckdb_vx_expr expr, duckdb_vx_error *error_out);
-
-    void (*get_virtual_columns)(void *bind_data, duckdb_vx_tfunc_virtual_cols_result result_out);
 
     void *pushdown_expression;
     duckdb_vx_string_map (*to_string)(void *bind_data);
@@ -162,7 +168,6 @@ typedef struct {
     // void *supports_pushdown_type;
     // void *get_partition_info;
     // void *get_partition_stats;
-    // void *get_virtual_columns;
     // void *get_row_id_columns;
 
     bool projection_pushdown;

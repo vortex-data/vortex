@@ -54,7 +54,7 @@ pub struct GlobalState {
     // Pool of background workers helping to drive the write task.
     // Note that this is optional and without it, we would only drive the task when DuckDB calls
     // into us, and we call `RUNTIME.block_on`.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     worker_pool: CurrentThreadWorkerPool,
 }
 

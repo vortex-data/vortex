@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Vortex table provider metrics.
+//! Helpers for extracting Vortex scan metrics from DataFusion execution plans.
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -27,13 +27,40 @@ use crate::persistent::source::VortexSource;
 pub(crate) static PARTITION_LABEL: &str = "partition";
 pub(crate) static PATH_LABEL: &str = "file_path";
 
-/// Extracts datafusion metrics from all VortexExec instances in
-/// a given physical plan.
+/// Walks a physical plan and returns one [`MetricsSet`] per
+/// [`DataSourceExec`].
+///
+/// For Vortex-backed scans, the returned metrics include both the metrics
+/// already attached to the `DataSourceExec` and the Vortex metrics accumulated
+/// in [`VortexSource::metrics_registry`].
+///
+/// This helper exists because the Vortex read path records most scan metrics in
+/// a Vortex [`MetricsRegistry`] rather than in DataFusion's native metrics set.
+///
+/// # Example
+///
+/// ```no_run
+/// # use std::sync::Arc;
+/// use datafusion_physical_plan::ExecutionPlan;
+/// use vortex_datafusion::metrics::VortexMetricsFinder;
+///
+/// # let plan: Arc<dyn ExecutionPlan> = todo!();
+/// for metrics in VortexMetricsFinder::find_all(plan.as_ref()) {
+///     for metric in metrics.aggregate_by_name().sorted_for_display().iter() {
+///         println!("{metric}");
+///     }
+/// }
+/// ```
+///
+/// [`DataSourceExec`]: datafusion_datasource::source::DataSourceExec
+/// [`VortexSource::metrics_registry`]: crate::VortexSource::metrics_registry
+/// [`MetricsRegistry`]: vortex::metrics::MetricsRegistry
 #[derive(Default)]
 pub struct VortexMetricsFinder(Vec<MetricsSet>);
 
 impl VortexMetricsFinder {
-    /// find all metrics for VortexExec nodes.
+    /// Collects metrics for each `DataSourceExec` in `plan`, augmenting any
+    /// Vortex-backed scan with the attached Vortex registry snapshot.
     pub fn find_all(plan: &dyn ExecutionPlan) -> Vec<MetricsSet> {
         let mut finder = Self::default();
         match accept(plan, &mut finder) {

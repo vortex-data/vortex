@@ -124,6 +124,8 @@ mod tests {
     use vortex::error::VortexResult;
     use vortex::mask::Mask;
     use vortex::session::VortexSession;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
 
     use crate::CanonicalCudaExt;
     use crate::executor::CudaArrayExt;
@@ -138,11 +140,12 @@ mod tests {
         let bp = BitPacked::encode(
             &PrimitiveArray::new(Buffer::from(values), NonNullable).into_array(),
             7,
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .vortex_expect("bp");
         let arr = FoR::try_new(bp.into_array(), 1000u32.into()).vortex_expect("for");
 
-        let cpu = arr.to_canonical()?.into_array();
+        let cpu = crate::canonicalize_cpu(arr.clone())?.into_array();
         let gpu = arr
             .into_array()
             .execute_cuda(&mut ctx)
@@ -167,6 +170,7 @@ mod tests {
         let bp = BitPacked::encode(
             &PrimitiveArray::new(Buffer::from(encoded), NonNullable).into_array(),
             9,
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .vortex_expect("bp");
         let alp = ALP::try_new(
@@ -177,7 +181,7 @@ mod tests {
             None,
         )?;
 
-        let cpu = alp.to_canonical()?.into_array();
+        let cpu = crate::canonicalize_cpu(alp.clone())?.into_array();
         let gpu = alp
             .into_array()
             .execute_cuda(&mut ctx)
@@ -215,7 +219,7 @@ mod tests {
         .unwrap();
         let arr = ALP::try_new(encoded, Exponents { e: 0, f: 2 }, Some(patches))?;
 
-        let cpu = arr.to_canonical()?.into_array();
+        let cpu = crate::canonicalize_cpu(arr.clone())?.into_array();
         let gpu = arr
             .into_array()
             .execute_cuda(&mut ctx)
@@ -253,12 +257,13 @@ mod tests {
         )
         .into_array();
         let vals = FoR::try_new(
-            BitPacked::encode(&vals, 6).vortex_expect("bp").into_array(),
+            BitPacked::encode(&vals, 6, &mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("bp")
+                .into_array(),
             0u32.into(),
         )
         .vortex_expect("for");
-        let vals = ZstdBuffers::compress(&vals.into_array(), 3, &VortexSession::empty())
-            .vortex_expect("zstd");
+        let vals = ZstdBuffers::compress(&vals.into_array(), 3, &session).vortex_expect("zstd");
 
         // codes = FoR(BitPacked)
         let codes = PrimitiveArray::new(
@@ -267,7 +272,7 @@ mod tests {
         )
         .into_array();
         let codes = FoR::try_new(
-            BitPacked::encode(&codes, 6)
+            BitPacked::encode(&codes, 6, &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("bp")
                 .into_array(),
             0u32.into(),
@@ -303,6 +308,7 @@ mod tests {
         let bp = BitPacked::encode(
             &PrimitiveArray::new(Buffer::from(data.clone()), NonNullable).into_array(),
             7,
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .vortex_expect("bp");
         let for_arr = FoR::try_new(bp.into_array(), 100u32.into()).vortex_expect("for");

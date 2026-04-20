@@ -43,7 +43,6 @@ impl ScalarFnData {
     }
 
     /// Get the scalar function bound to this array.
-    #[allow(clippy::same_name_method)]
     #[inline(always)]
     pub fn scalar_fn(&self) -> &ScalarFnRef {
         &self.scalar_fn
@@ -65,12 +64,10 @@ pub trait ScalarFnArrayExt: TypedArrayRef<ScalarFnVTable> {
         self.as_ref().slots().len()
     }
 
-    #[allow(clippy::same_name_method)]
     fn nchildren(&self) -> usize {
         self.child_count()
     }
 
-    #[allow(clippy::same_name_method)]
     fn get_child(&self, idx: usize) -> &ArrayRef {
         self.child_at(idx)
     }
@@ -95,7 +92,7 @@ impl Array<ScalarFnVTable> {
         let arg_dtypes: Vec<_> = children.iter().map(|c| c.dtype().clone()).collect();
         let dtype = scalar_fn.return_dtype(&arg_dtypes)?;
         let data = ScalarFnData::build(scalar_fn.clone(), children.clone(), len)?;
-        let vtable = ScalarFnVTable { scalar_fn };
+        let vtable = ScalarFnVTable { id: scalar_fn.id() };
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(vtable, dtype, len, data)

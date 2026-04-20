@@ -8,7 +8,8 @@ use vortex_error::VortexResult;
 
 use crate::IntoArray;
 use crate::Precision;
-use crate::ToCanonical;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::datetime::TemporalData;
 use crate::assert_arrays_eq;
@@ -195,11 +196,10 @@ fn test_validity_preservation(#[case] validity: Validity) {
     let temporal_array =
         TemporalData::new_timestamp(milliseconds, TimeUnit::Milliseconds, Some("UTC".into()));
 
+    #[expect(deprecated)]
+    let prim = temporal_array.temporal_values().to_primitive();
     assert!(
-        temporal_array
-            .temporal_values()
-            .to_primitive()
-            .validity()
+        prim.validity()
             .vortex_expect("temporal validity should be derivable")
             .array_eq(&validity, Precision::Ptr)
     );

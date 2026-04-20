@@ -12,6 +12,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use super::DictData;
 use super::DictMetadata;
@@ -52,10 +53,6 @@ pub type DictArray = Array<Dict>;
 #[derive(Clone, Debug)]
 pub struct Dict;
 
-impl Dict {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.dict");
-}
-
 impl ArrayHash for DictData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
 }
@@ -73,7 +70,8 @@ impl VTable for Dict {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.dict");
+        *ID
     }
 
     fn validate(
@@ -182,7 +180,7 @@ impl VTable for Dict {
         // TODO(joe): use stat get instead computing.
         // Also not the check to do here it take value validity using code validity, but this approx
         // is correct.
-        if array.codes().all_invalid()? {
+        if array.codes().all_invalid(ctx)? {
             return Ok(ExecutionResult::done(ConstantArray::new(
                 Scalar::null(array.dtype().as_nullable()),
                 array.codes().len(),
@@ -200,7 +198,7 @@ impl VTable for Dict {
         let values = array.values().clone();
         debug_assert!(values.is_canonical());
         // TODO: add canonical owned cast.
-        let values = values.to_canonical()?;
+        let values = values.execute::<Canonical>(ctx)?;
 
         Ok(ExecutionResult::done(take_canonical(values, &codes, ctx)?))
     }

@@ -13,6 +13,7 @@ use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -47,7 +48,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 /// ```
 /// # fn main() -> vortex_error::VortexResult<()> {
 /// use vortex_array::arrays::BoolArray;
-/// use vortex_array::IntoArray;
+/// use vortex_array::{IntoArray, LEGACY_SESSION, VortexSessionExecute};
 ///
 /// // Create from iterator using FromIterator impl
 /// let array: BoolArray = [true, false, true, false].into_iter().collect();
@@ -57,7 +58,8 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 /// assert_eq!(sliced.len(), 2);
 ///
 /// // Access individual values
-/// let value = array.scalar_at(0).unwrap();
+/// let mut ctx = LEGACY_SESSION.create_execution_ctx();
+/// let value = array.execute_scalar(0, &mut ctx).unwrap();
 /// assert_eq!(value, true.into());
 /// # Ok(())
 /// # }
@@ -92,32 +94,31 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
         child_to_validity(&self.as_ref().slots()[VALIDITY_SLOT], self.nullability())
     }
 
-    fn bool_validity_mask(&self) -> Mask {
-        self.validity().to_mask(self.as_ref().len())
-    }
-
     fn to_bit_buffer(&self) -> BitBuffer {
         let buffer = self.bits.as_host().clone();
         BitBuffer::new_with_offset(buffer, self.as_ref().len(), self.offset)
     }
 
-    fn maybe_to_mask(&self) -> VortexResult<Option<Mask>> {
+    fn maybe_execute_mask(&self, ctx: &mut ExecutionCtx) -> VortexResult<Option<Mask>> {
         let all_valid = match &self.validity() {
             Validity::NonNullable | Validity::AllValid => true,
             Validity::AllInvalid => false,
-            Validity::Array(a) => a.statistics().compute_min::<bool>().unwrap_or(false),
+            Validity::Array(a) => a.statistics().compute_min::<bool>(ctx).unwrap_or(false),
         };
         Ok(all_valid.then(|| Mask::from_buffer(self.to_bit_buffer())))
     }
 
-    fn to_mask(&self) -> Mask {
-        self.maybe_to_mask()
+    fn execute_mask(&self, ctx: &mut ExecutionCtx) -> Mask {
+        self.maybe_execute_mask(ctx)
             .vortex_expect("failed to check validity")
             .vortex_expect("cannot convert nullable boolean array to mask")
     }
 
-    fn to_mask_fill_null_false(&self) -> Mask {
-        let validity_mask = self.bool_validity_mask();
+    fn to_mask_fill_null_false(&self, ctx: &mut ExecutionCtx) -> Mask {
+        let validity_mask = self
+            .validity()
+            .execute_mask(self.as_ref().len(), ctx)
+            .vortex_expect("Failed to compute validity mask");
         let buffer = match validity_mask {
             Mask::AllTrue(_) => self.to_bit_buffer(),
             Mask::AllFalse(_) => return Mask::new_false(self.as_ref().len()),
@@ -369,7 +370,11 @@ mod tests {
     #[test]
     fn bool_array() {
         let arr = BoolArray::from_iter([true, false, true]);
-        let scalar = bool::try_from(&arr.scalar_at(0).unwrap()).unwrap();
+        let scalar = bool::try_from(
+            &arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+        )
+        .unwrap();
         assert!(scalar);
     }
 
@@ -379,9 +384,17 @@ mod tests {
 
         assert!(matches!(arr.validity(), Ok(Validity::AllValid)));
 
-        let scalar = bool::try_from(&arr.scalar_at(0).unwrap()).unwrap();
+        let scalar = bool::try_from(
+            &arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+        )
+        .unwrap();
         assert!(scalar);
-        let scalar = bool::try_from(&arr.scalar_at(1).unwrap()).unwrap();
+        let scalar = bool::try_from(
+            &arr.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+        )
+        .unwrap();
         assert!(!scalar);
     }
 
@@ -389,19 +402,35 @@ mod tests {
     fn test_bool_from_iter() {
         let arr = BoolArray::from_iter([Some(true), Some(true), None, Some(false), None]);
 
-        let scalar = bool::try_from(&arr.scalar_at(0).unwrap()).unwrap();
+        let scalar = bool::try_from(
+            &arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+        )
+        .unwrap();
         assert!(scalar);
 
-        let scalar = bool::try_from(&arr.scalar_at(1).unwrap()).unwrap();
+        let scalar = bool::try_from(
+            &arr.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+        )
+        .unwrap();
         assert!(scalar);
 
-        let scalar = arr.scalar_at(2).unwrap();
+        let scalar = arr
+            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         assert!(scalar.is_null());
 
-        let scalar = bool::try_from(&arr.scalar_at(3).unwrap()).unwrap();
+        let scalar = bool::try_from(
+            &arr.execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+        )
+        .unwrap();
         assert!(!scalar);
 
-        let scalar = arr.scalar_at(4).unwrap();
+        let scalar = arr
+            .execute_scalar(4, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         assert!(scalar.is_null());
     }
 

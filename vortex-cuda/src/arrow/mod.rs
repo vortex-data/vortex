@@ -95,7 +95,6 @@ pub(crate) struct ArrowArray {
 }
 
 impl ArrowArray {
-    #[allow(unused)]
     pub fn empty() -> Self {
         Self {
             length: 0,

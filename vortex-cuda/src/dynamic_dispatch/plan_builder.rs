@@ -9,12 +9,14 @@
 use itertools::zip_eq;
 use tracing::trace;
 use vortex::array::ArrayRef;
+use vortex::array::ArrayVTable;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::Primitive;
 use vortex::array::arrays::Slice;
 use vortex::array::arrays::dict::DictArraySlotsExt;
 use vortex::array::arrays::slice::SliceArrayExt;
 use vortex::array::buffer::BufferHandle;
+use vortex::array::validity::Validity;
 use vortex::dtype::PType;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPArrayExt;
@@ -52,6 +54,8 @@ pub struct MaterializedPlan {
     pub device_buffers: Vec<BufferHandle>,
     /// Dynamic shared memory bytes needed to launch this plan.
     pub shared_mem_bytes: u32,
+    /// Validity of the root array, propagated to the output.
+    pub validity: Validity,
 }
 
 /// Checks whether the encoding of an array can be fused into a dynamic-dispatch plan.
@@ -63,15 +67,20 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
     }
 
     let id = array.encoding_id();
-    if id == ALP::ID {
+    if id == ALP.id() {
         let arr = array.as_::<ALP>();
         return arr.patches().is_none() && arr.dtype().as_ptype() == PType::F32;
     }
-    if id == BitPacked::ID {
+    if id == BitPacked.id() {
         return array.as_::<BitPacked>().patches().is_none();
     }
-    if id == Dict::ID {
+    if id == Dict.id() {
         let arr = array.as_::<Dict>();
+        // Nullable codes could hold garbage values at null positions, causing
+        // out-of-bounds shared memory reads in the DICT gather scalar op.
+        if arr.codes().dtype().is_nullable() {
+            return false;
+        }
         // Dict codes and values may have different byte widths.
         // The kernel handles mixed widths via widening input stages,
         // but only when codes are no wider than values (the output type).
@@ -83,8 +92,14 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
             _ => false,
         };
     }
-    if id == RunEnd::ID {
+    if id == RunEnd.id() {
         let arr = array.as_::<RunEnd>();
+        // Nullable ends could hold garbage values at null positions, causing
+        // unpredictable binary search / forward-scan behavior in the RUNEND
+        // source op.
+        if arr.ends().dtype().is_nullable() {
+            return false;
+        }
         // RunEnd ends and values may have different byte widths.
         // The kernel handles mixed widths via widening input stages,
         // but only when ends are no wider than values (the output type).
@@ -96,11 +111,11 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
             _ => false,
         };
     }
-    id == FoR::ID
-        || id == ZigZag::ID
-        || id == Primitive::ID
-        || id == Slice::ID
-        || id == Sequence::ID
+    id == FoR.id()
+        || id == ZigZag.id()
+        || id == Primitive.id()
+        || id == Slice.id()
+        || id == Sequence.id()
 }
 
 /// An unmaterialized stage: a source op, scalar ops, and optional source buffer reference.
@@ -213,6 +228,8 @@ pub struct FusedPlan {
     output_elem_bytes: u32,
     /// PType of the root (output) array, as a C ABI tag.
     output_ptype: PTypeTag,
+    /// Validity of the root array, propagated to the output.
+    validity: Validity,
 }
 
 impl DispatchPlan {
@@ -220,7 +237,9 @@ impl DispatchPlan {
     ///
     /// # Limitations
     ///
-    /// - Validity bitmaps are ignored; only `NonNullable`/`AllValid` is supported.
+    /// - Validity is propagated from the root array to the output. Nullable
+    ///   arrays are supported, but Dict with nullable codes and RunEnd with
+    ///   nullable ends are rejected to guard against out-of-bounds access.
     /// - `BitPackedArray` and `ALPArray` with patches are not supported.
     /// - Only f32 ALP is supported (kernel stores multipliers as `float`).
     pub fn new(array: &ArrayRef) -> VortexResult<Self> {
@@ -276,6 +295,7 @@ impl FusedPlan {
         }
         let output_elem_bytes = output_ptype_rust.byte_width() as u32;
         let output_ptype = ptype_to_tag(output_ptype_rust);
+        let validity = array.validity()?;
 
         let mut pending_subtrees: Vec<ArrayRef> = Vec::new();
         let mut plan = Self {
@@ -284,6 +304,7 @@ impl FusedPlan {
             source_buffers: Vec::new(),
             output_elem_bytes,
             output_ptype,
+            validity,
         };
 
         let len = array.len() as u32;
@@ -365,6 +386,7 @@ impl FusedPlan {
             dispatch_plan: CudaDispatchPlan::new(stages, self.output_ptype),
             device_buffers,
             shared_mem_bytes,
+            validity: self.validity,
         })
     }
 
@@ -414,23 +436,23 @@ impl FusedPlan {
 
         let id = array.encoding_id();
 
-        if id == BitPacked::ID {
+        if id == BitPacked.id() {
             self.walk_bitpacked(array)
-        } else if id == FoR::ID {
+        } else if id == FoR.id() {
             self.walk_for(array, pending_subtrees)
-        } else if id == ZigZag::ID {
+        } else if id == ZigZag.id() {
             self.walk_zigzag(array, pending_subtrees)
-        } else if id == ALP::ID {
+        } else if id == ALP.id() {
             self.walk_alp(array, pending_subtrees)
-        } else if id == Dict::ID {
+        } else if id == Dict.id() {
             self.walk_dict(array, pending_subtrees)
-        } else if id == RunEnd::ID {
+        } else if id == RunEnd.id() {
             self.walk_runend(array, pending_subtrees)
-        } else if id == Primitive::ID {
+        } else if id == Primitive.id() {
             self.walk_primitive(array)
-        } else if id == Slice::ID {
+        } else if id == Slice.id() {
             self.walk_slice(array, pending_subtrees)
-        } else if id == Sequence::ID {
+        } else if id == Sequence.id() {
             self.walk_sequence(array)
         } else {
             vortex_bail!(
@@ -576,7 +598,7 @@ impl FusedPlan {
         pending_subtrees: &mut Vec<ArrayRef>,
     ) -> VortexResult<Stage> {
         let ptype = PType::try_from(child.dtype())?;
-        if child.encoding_id() == Primitive::ID {
+        if child.encoding_id() == Primitive.id() {
             return self.walk_primitive(child);
         }
         let buf_idx = self.source_buffers.len();

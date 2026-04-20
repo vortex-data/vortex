@@ -246,7 +246,11 @@ mod test {
         let array = PrimitiveArray::new(buffer![42u64; 100_000], Validity::NonNullable);
 
         // You can compress an array in-memory with the BtrBlocks compressor
-        let compressed = BtrBlocksCompressor::default().compress(&array.clone().into_array())?;
+        let session = VortexSession::default();
+        let compressed = BtrBlocksCompressor::default().compress(
+            &array.clone().into_array(),
+            &mut session.create_execution_ctx(),
+        )?;
         println!(
             "BtrBlocks size: {} / {}",
             compressed.nbytes(),

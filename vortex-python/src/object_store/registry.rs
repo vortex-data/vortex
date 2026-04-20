@@ -7,7 +7,7 @@
 //!
 //! See also <https://github.com/apache/arrow-rs-object-store/issues/529>
 
-#![allow(clippy::disallowed_types)]
+#![expect(clippy::disallowed_types)]
 
 use std::collections::HashMap;
 use std::sync::Arc;

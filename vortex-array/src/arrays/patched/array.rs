@@ -15,6 +15,8 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -111,12 +113,14 @@ pub trait PatchedArrayExt: PatchedArraySlotsExt {
         assert!(chunk * 1024 <= self.as_ref().len() + self.offset());
         assert!(lane < self.n_lanes());
 
-        let start = self
-            .lane_offsets()
-            .scalar_at(chunk * self.n_lanes() + lane)?;
-        let stop = self
-            .lane_offsets()
-            .scalar_at(chunk * self.n_lanes() + lane + 1)?;
+        let start = self.lane_offsets().execute_scalar(
+            chunk * self.n_lanes() + lane,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
+        let stop = self.lane_offsets().execute_scalar(
+            chunk * self.n_lanes() + lane + 1,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
 
         let start = start
             .as_primitive()
@@ -186,7 +190,7 @@ impl Patched {
         );
 
         vortex_ensure!(
-            patches.values().all_valid()?,
+            patches.values().all_valid(ctx)?,
             "PatchedArray cannot be built from Patches with nulls"
         );
 
@@ -247,7 +251,6 @@ impl Patched {
 }
 
 /// Transpose a set of patches from the default sorted layout into the data parallel layout.
-#[allow(clippy::cognitive_complexity)]
 fn transpose_patches(patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<TransposedPatches> {
     let array_len = patches.array_len();
     let offset = patches.offset();
@@ -285,7 +288,7 @@ fn transpose_patches(patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<
     })
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn transpose<I: IntegerPType, V: NativePType>(
     indices_in: &[I],
     values_in: &[V],

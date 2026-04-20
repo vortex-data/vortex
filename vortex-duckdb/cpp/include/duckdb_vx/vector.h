@@ -47,6 +47,10 @@ void duckdb_vx_string_vector_add_vector_data_buffer(duckdb_vector ffi_vector, du
 // valid.
 void duckdb_vx_vector_set_vector_data_buffer(duckdb_vector ffi_vector, duckdb_vx_vector_buffer buffer);
 
+// Reset vector's validity mask to nullptr, making all vector's elements valid.
+// vector must not be a DictionaryVector or a SequenceVector
+void duckdb_vx_vector_set_all_valid(duckdb_vector ffi_vector);
+
 // Set the data pointer for the vector. This is the start of the values array in the vector.
 void duckdb_vx_vector_set_data_ptr(duckdb_vector ffi_vector, void *ptr);
 

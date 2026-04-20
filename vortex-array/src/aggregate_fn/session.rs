@@ -22,6 +22,7 @@ use crate::aggregate_fn::fns::sum::Sum;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
 use crate::array::ArrayId;
+use crate::array::VTable;
 use crate::arrays::Chunked;
 use crate::arrays::Dict;
 use crate::arrays::chunked::compute::aggregate::ChunkedArrayAggregate;
@@ -61,10 +62,10 @@ impl Default for AggregateFnSession {
         this.register(Sum);
 
         // Register the built-in aggregate kernels.
-        this.register_aggregate_kernel(Chunked::ID, None, &ChunkedArrayAggregate);
-        this.register_aggregate_kernel(Dict::ID, Some(MinMax.id()), &DictMinMaxKernel);
-        this.register_aggregate_kernel(Dict::ID, Some(IsConstant.id()), &DictIsConstantKernel);
-        this.register_aggregate_kernel(Dict::ID, Some(IsSorted.id()), &DictIsSortedKernel);
+        this.register_aggregate_kernel(Chunked.id(), None::<AggregateFnId>, &ChunkedArrayAggregate);
+        this.register_aggregate_kernel(Dict.id(), Some(MinMax.id()), &DictMinMaxKernel);
+        this.register_aggregate_kernel(Dict.id(), Some(IsConstant.id()), &DictIsConstantKernel);
+        this.register_aggregate_kernel(Dict.id(), Some(IsSorted.id()), &DictIsSortedKernel);
 
         this
     }
@@ -86,11 +87,13 @@ impl AggregateFnSession {
     /// Register an aggregate function kernel for a specific aggregate function and array type.
     pub fn register_aggregate_kernel(
         &self,
-        array_id: ArrayId,
-        agg_fn_id: Option<AggregateFnId>,
+        array_id: impl Into<ArrayId>,
+        agg_fn_id: Option<impl Into<AggregateFnId>>,
         kernel: &'static dyn DynAggregateKernel,
     ) {
-        self.kernels.write().insert((array_id, agg_fn_id), kernel);
+        self.kernels
+            .write()
+            .insert((array_id.into(), agg_fn_id.map(|id| id.into())), kernel);
     }
 }
 

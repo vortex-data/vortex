@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fs::create_dir_all;
+use std::fs;
 use std::future::Future;
 use std::path::Path;
 use std::path::PathBuf;
@@ -25,10 +25,10 @@ pub fn idempotent<T, P: IdempotentPath + ?Sized>(
     if !data_path.exists() {
         // Ensure parent directory exists
         if let Some(parent) = data_path.parent() {
-            create_dir_all(parent).context("Failed to create parent directories")?;
+            fs::create_dir_all(parent).context("Failed to create parent directories")?;
         }
         f(temp_path.as_path())?;
-        std::fs::rename(temp_path, &data_path).context("Failed to rename temp file")?;
+        fs::rename(temp_path, &data_path).context("Failed to rename temp file")?;
     }
     Ok(data_path)
 }
@@ -44,10 +44,10 @@ where
     if !data_path.exists() {
         // Ensure parent directory exists
         if let Some(parent) = data_path.parent() {
-            create_dir_all(parent).context("Failed to create parent directories")?;
+            fs::create_dir_all(parent).context("Failed to create parent directories")?;
         }
         f(temp_path.clone()).await?;
-        std::fs::rename(temp_path, &data_path).context("Failed to rename temp file")?;
+        fs::rename(temp_path, &data_path).context("Failed to rename temp file")?;
     }
     Ok(data_path)
 }
@@ -107,6 +107,48 @@ impl IdempotentPath for Path {
 impl IdempotentPath for &Path {
     fn to_data_path(&self) -> PathBuf {
         self.to_path_buf()
+    }
+}
+
+/// Resolve the `--use-remote-data-dir` CLI option to a `Url` for a named dataset.
+///
+/// When `remote_data_dir` is `None`, returns a `file://` URL pointing at the dataset's local cache
+/// directory (`<data_dir>/<local_subdir>/`).
+///
+/// When `remote_data_dir` is `Some(...)`, parses it as a remote URL (typically `s3://` or `gs://`).
+/// The user must have pre-uploaded the expected data layout; a warning is logged if the URL does
+/// not end in `/`, and an informational message describes the expected layout.
+///
+/// This helper replaces the boilerplate `create_data_url()` that used to be duplicated across every
+/// benchmark that supports remote data directories (ClickBench, Fineweb, GhArchive, ...).
+pub fn resolve_data_url(remote_data_dir: Option<&str>, local_subdir: &str) -> Result<Url> {
+    match remote_data_dir {
+        None => {
+            let data_dir = data_dir().join(local_subdir);
+            Url::from_directory_path(&data_dir).map_err(|_| {
+                anyhow::anyhow!("Failed to create URL from directory path: {:?}", &data_dir)
+            })
+        }
+        Some(remote_data_dir) => {
+            if !remote_data_dir.ends_with('/') {
+                tracing::warn!(
+                    "Supply a --use-remote-data-dir argument which ends in a slash \
+                        e.g. s3://vortex-bench-dev-eu/develop/12345/{}/",
+                    local_subdir,
+                );
+            }
+            tracing::info!(
+                concat!(
+                    "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
+                    "If it does not, you should kill this command, locally generate the files ",
+                    "(by running without\n",
+                    "--use-remote-data-dir) and upload data/{}/ to some remote location.",
+                ),
+                remote_data_dir,
+                local_subdir,
+            );
+            Ok(Url::parse(remote_data_dir)?)
+        }
     }
 }
 

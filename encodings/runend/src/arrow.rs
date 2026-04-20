@@ -5,6 +5,8 @@ use arrow_array::RunArray;
 use arrow_array::types::RunEndIndexType;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrow::FromArrowArray;
@@ -53,7 +55,9 @@ where
         };
 
         // SAFETY: arrow-rs enforces the RunEndArray invariants, we inherit their guarantees.
-        RunEndData::validate_parts(&ends_slice, &values_slice, offset, len)?;
+        // TODO(ctx): trait fixes - FromArrowArray::from_arrow has a fixed signature.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        RunEndData::validate_parts(&ends_slice, &values_slice, offset, len, &mut ctx)?;
         Ok(unsafe { RunEndData::new_unchecked(offset) })
     }
 }
@@ -76,6 +80,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray as _;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute as _;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::primitive::PrimitiveArrayExt;
@@ -90,6 +95,7 @@ mod tests {
     use vortex_array::search_sorted::SearchSorted;
     use vortex_array::search_sorted::SearchSortedSide;
     use vortex_array::session::ArraySession;
+    use vortex_array::session::ArraySessionExt;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
@@ -99,8 +105,11 @@ mod tests {
     use crate::RunEnd;
     use crate::ops::find_slice_end_index;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty().with::<ArraySession>();
+        session.arrays().register(RunEnd);
+        session
+    });
 
     fn decode_run_array<R: RunEndIndexType>(
         array: &RunArray<R>,
@@ -327,7 +336,11 @@ mod tests {
         #[case] expected_ends: &[i32],
         #[case] expected_values: &[i32],
     ) -> VortexResult<()> {
-        let array = RunEnd::encode(PrimitiveArray::from_iter(input.iter().copied()).into_array())?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let array = RunEnd::encode(
+            PrimitiveArray::from_iter(input.iter().copied()).into_array(),
+            &mut ctx,
+        )?;
         let sliced = array.into_array().slice(slice_range.clone())?;
         let target = ree_type(DataType::Int32, DataType::Int32);
         let result = execute(sliced, &target)?;

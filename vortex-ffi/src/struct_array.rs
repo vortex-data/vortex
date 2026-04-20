@@ -28,6 +28,7 @@ crate::box_wrapper!(StructBuilder, vx_struct_column_builder);
 
 /// Create a new column-wise struct array builder with given validity and a
 /// capacity hint. validity can't be NULL.
+/// Capacity hint is for the number of columns.
 /// If you don't know capacity, pass 0.
 /// if validity is NULL, returns NULL.
 #[unsafe(no_mangle)]
@@ -132,7 +133,8 @@ mod tests {
     use std::sync::Arc;
 
     use vortex::array::IntoArray;
-    use vortex::array::ToCanonical;
+    use vortex::array::LEGACY_SESSION;
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
     use vortex::array::arrays::VarBinViewArray;
@@ -169,6 +171,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_many() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let names = ["age", "name"];
         let age_field = PrimitiveArray::new(buffer![30u8, 25u8, 35u8], Validity::NonNullable);
         let name_field = VarBinViewArray::from_iter_str(["Alice", "Bob", "Charlie"]);
@@ -236,7 +239,10 @@ mod tests {
             assert!(!array.is_null());
 
             {
-                let array = vx_array::as_ref(array).to_struct();
+                let array = vx_array::as_ref(array)
+                    .clone()
+                    .execute::<StructArray>(&mut ctx)
+                    .unwrap();
                 assert_arrays_eq!(array, struct_array);
             }
 

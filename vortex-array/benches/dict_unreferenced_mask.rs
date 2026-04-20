@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
+#![expect(clippy::unwrap_used)]
 
 use divan::Bencher;
 use rand::RngExt;
@@ -32,7 +32,7 @@ fn bench_many_codes_few_values(bencher: Bencher, num_values: i32) {
     let values = PrimitiveArray::from_iter(0..num_values).into_array();
 
     // Create codes that randomly reference the values
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let codes = PrimitiveArray::from_iter(
         (0..num_codes).map(|_| rng.random_range(0..num_values as usize) as u32),
     )
@@ -63,7 +63,7 @@ fn bench_many_nulls(bencher: Bencher, fraction_valid: f64) {
     let values = PrimitiveArray::from_iter(0..num_values).into_array();
 
     // Create codes with many nulls based on fraction_valid
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let codes = PrimitiveArray::from_option_iter((0..num_codes).map(|_| {
         rng.random_bool(fraction_valid)
             .then(|| rng.random_range(0..num_values as usize) as u32)
@@ -94,11 +94,11 @@ fn bench_sparse_coverage(bencher: Bencher, fraction_coverage: f64) {
     let values = PrimitiveArray::from_iter(0..num_values).into_array();
 
     // Calculate how many unique values we'll actually reference
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let num_referenced = (num_values as f64 * fraction_coverage).max(1.0) as usize;
 
     // Create codes that only reference a subset of values
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     let codes = PrimitiveArray::from_iter(
         (0..num_codes).map(|_| rng.random_range(0..num_referenced) as u32),
     )

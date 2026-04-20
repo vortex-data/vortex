@@ -35,8 +35,7 @@ public final class IsNull implements Expression {
                     "IsNull expression must have exactly one child, found: " + children.size());
         }
         if (metadata.length > 0) {
-            throw new IllegalArgumentException(
-                    "IsNull expression must not have metadata, found: " + metadata.length);
+            throw new IllegalArgumentException("IsNull expression must not have metadata, found: " + metadata.length);
         }
         return new IsNull(children.get(0));
     }

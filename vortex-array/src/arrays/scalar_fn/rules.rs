@@ -9,7 +9,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
@@ -32,11 +31,8 @@ use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::validity::Validity;
 
-pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> = ReduceRuleSet::new(&[
-    &ScalarFnPackToStructRule,
-    &ScalarFnConstantRule,
-    &ScalarFnAbstractReduceRule,
-]);
+pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> =
+    ReduceRuleSet::new(&[&ScalarFnPackToStructRule, &ScalarFnAbstractReduceRule]);
 
 pub(super) const PARENT_RULES: ParentRuleSet<ScalarFnVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&ScalarFnUnaryFilterPushDownRule),
@@ -66,22 +62,6 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnPackToStructRule {
             )?
             .into_array(),
         ))
-    }
-}
-
-#[derive(Debug)]
-struct ScalarFnConstantRule;
-impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
-    fn reduce(&self, array: ArrayView<'_, ScalarFnVTable>) -> VortexResult<Option<ArrayRef>> {
-        if !array.children().iter().all(|c| c.is::<Constant>()) {
-            return Ok(None);
-        }
-        if array.is_empty() {
-            Ok(Some(Canonical::empty(array.dtype()).into_array()))
-        } else {
-            let result = array.array().scalar_at(0)?;
-            Ok(Some(ConstantArray::new(result, array.len()).into_array()))
-        }
     }
 }
 

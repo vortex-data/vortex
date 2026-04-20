@@ -15,7 +15,9 @@ use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
 use futures::stream::TryStreamExt;
 use vortex::array::ArrayRef;
-use vortex::array::arrow::IntoArrowArray;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
+use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
@@ -163,7 +165,7 @@ pub(crate) fn scan_builder_into_threadsafe_cloneable_reader(
     let stream = builder
         .inner
         .map(move |b| {
-            b.into_arrow(&data_type)
+            b.execute_arrow(Some(&data_type), &mut LEGACY_SESSION.create_execution_ctx())
                 .map(|struct_array| RecordBatch::from(struct_array.as_struct()))
         })
         .into_stream()?

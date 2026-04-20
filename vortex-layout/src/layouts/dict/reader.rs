@@ -251,6 +251,10 @@ impl LayoutReader for DictReader {
         }
         .boxed())
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[cfg(test)]
@@ -259,8 +263,11 @@ mod tests {
 
     use rstest::rstest;
     use vortex_array::ArrayContext;
+    use vortex_array::Canonical;
     use vortex_array::IntoArray as _;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::MaskFuture;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinArray;
@@ -270,9 +277,8 @@ mod tests {
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
     use vortex_array::expr::eq;
-    use vortex_array::expr::is_null;
+    use vortex_array::expr::is_not_null;
     use vortex_array::expr::lit;
-    use vortex_array::expr::not;
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
     use vortex_array::scalar_fn::session::ScalarFnSession;
@@ -361,7 +367,7 @@ mod tests {
                 )],
                 Nullability::NonNullable,
             );
-            assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));
+            assert!(layout.encoding_id() == LayoutId::new("vortex.dict"));
             let actual = layout
                 .new_reader("".into(), segments, &session)
                 .unwrap()
@@ -461,6 +467,7 @@ mod tests {
     #[test]
     fn reading_is_null_works() {
         block_on(|handle| async move {
+            let mut ctx_exec = LEGACY_SESSION.create_execution_ctx();
             let session = session_with_handle(handle);
             let strategy = DictStrategy::new(
                 FlatLayoutStrategy::default(),
@@ -504,8 +511,8 @@ mod tests {
                 .await
                 .unwrap();
 
-            let expression = not(is_null(root())); // easier to test not_is_null b/c that's the validity array
-            assert_eq!(layout.encoding_id(), LayoutId::new_ref("vortex.dict"));
+            let expression = is_not_null(root());
+            assert_eq!(layout.encoding_id(), LayoutId::new("vortex.dict"));
             let actual = layout
                 .new_reader("".into(), segments, &session)
                 .unwrap()
@@ -517,14 +524,17 @@ mod tests {
                 .unwrap()
                 .await
                 .unwrap();
-            let expected = array.validity_mask().unwrap().into_array();
-            assert_arrays_eq!(
-                actual
-                    .to_canonical()
-                    .vortex_expect("to_canonical failed")
-                    .into_array(),
-                expected
-            );
+            let expected = array
+                .validity()
+                .unwrap()
+                .execute_mask(array.len(), &mut ctx_exec)
+                .unwrap()
+                .into_array();
+            let actual_canonical = actual
+                .execute::<Canonical>(&mut ctx_exec)
+                .vortex_expect("to_canonical failed")
+                .into_array();
+            assert_arrays_eq!(actual_canonical, expected);
         })
     }
 }

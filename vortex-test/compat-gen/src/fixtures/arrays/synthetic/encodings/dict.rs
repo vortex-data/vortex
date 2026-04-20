@@ -3,6 +3,7 @@
 
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
+use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::PrimitiveArray;
@@ -28,7 +29,7 @@ impl FlatLayoutFixture for DictFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Dict::ID]
+        vec![Dict.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {

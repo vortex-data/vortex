@@ -15,7 +15,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_session::VortexSession;
 
 use crate::AnyCanonical;
 use crate::Array;
@@ -26,7 +25,6 @@ use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
-use crate::ToCanonical;
 use crate::VTable;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::sum::sum;
@@ -42,7 +40,6 @@ use crate::arrays::Primitive;
 use crate::arrays::SliceArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinView;
-use crate::arrays::bool::BoolArrayExt;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -125,8 +122,6 @@ impl ArrayEq for ArrayRef {
         self.0.dyn_array_eq(other, precision)
     }
 }
-
-#[allow(clippy::same_name_method)]
 impl ArrayRef {
     /// Returns the length of the array.
     #[inline]
@@ -211,24 +206,33 @@ impl ArrayRef {
     }
 
     /// Fetch the scalar at the given index.
+    #[deprecated(
+        note = "Use `execute_scalar` instead, which allows passing an execution context for more \
+        efficient execution when fetching multiple scalars from the same array."
+    )]
     pub fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        self.execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+    }
+
+    /// Execute the array to extract a scalar at the given index.
+    pub fn execute_scalar(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
         vortex_ensure!(index < self.len(), OutOfBounds: index, 0, self.len());
-        if self.is_invalid(index)? {
+        if self.is_invalid(index, ctx)? {
             return Ok(Scalar::null(self.dtype().clone()));
         }
-        let scalar = self.0.scalar_at(self, index)?;
+        let scalar = self.0.execute_scalar(self, index, ctx)?;
         vortex_ensure!(self.dtype() == scalar.dtype(), "Scalar dtype mismatch");
         Ok(scalar)
     }
 
     /// Returns whether the item at `index` is valid.
-    pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
+    pub fn is_valid(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
         vortex_ensure!(index < self.len(), OutOfBounds: index, 0, self.len());
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(true),
             Validity::AllInvalid => Ok(false),
             Validity::Array(a) => a
-                .scalar_at(index)?
+                .execute_scalar(index, ctx)?
                 .as_bool()
                 .value()
                 .ok_or_else(|| vortex_err!("validity value at index {} is null", index)),
@@ -236,30 +240,30 @@ impl ArrayRef {
     }
 
     /// Returns whether the item at `index` is invalid.
-    pub fn is_invalid(&self, index: usize) -> VortexResult<bool> {
-        Ok(!self.is_valid(index)?)
+    pub fn is_invalid(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+        Ok(!self.is_valid(index, ctx)?)
     }
 
     /// Returns whether all items in the array are valid.
-    pub fn all_valid(&self) -> VortexResult<bool> {
+    pub fn all_valid(&self, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(true),
             Validity::AllInvalid => Ok(false),
-            Validity::Array(a) => Ok(a.statistics().compute_min::<bool>().unwrap_or(false)),
+            Validity::Array(a) => Ok(a.statistics().compute_min::<bool>(ctx).unwrap_or(false)),
         }
     }
 
     /// Returns whether the array is all invalid.
-    pub fn all_invalid(&self) -> VortexResult<bool> {
+    pub fn all_invalid(&self, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(false),
             Validity::AllInvalid => Ok(true),
-            Validity::Array(a) => Ok(!a.statistics().compute_max::<bool>().unwrap_or(true)),
+            Validity::Array(a) => Ok(!a.statistics().compute_max::<bool>(ctx).unwrap_or(true)),
         }
     }
 
     /// Returns the number of valid elements in the array.
-    pub fn valid_count(&self) -> VortexResult<usize> {
+    pub fn valid_count(&self, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
         let len = self.len();
         if let Some(Precision::Exact(invalid_count)) =
             self.statistics().get_as::<usize>(Stat::NullCount)
@@ -271,8 +275,7 @@ impl ArrayRef {
             Validity::NonNullable | Validity::AllValid => len,
             Validity::AllInvalid => 0,
             Validity::Array(a) => {
-                let mut ctx = LEGACY_SESSION.create_execution_ctx();
-                let array_sum = sum(&a, &mut ctx)?;
+                let array_sum = sum(&a, ctx)?;
                 array_sum
                     .as_primitive()
                     .as_::<usize>()
@@ -288,8 +291,8 @@ impl ArrayRef {
     }
 
     /// Returns the number of invalid elements in the array.
-    pub fn invalid_count(&self) -> VortexResult<usize> {
-        Ok(self.len() - self.valid_count()?)
+    pub fn invalid_count(&self, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
+        Ok(self.len() - self.valid_count(ctx)?)
     }
 
     /// Returns the [`Validity`] of the array.
@@ -297,23 +300,18 @@ impl ArrayRef {
         self.0.validity(self)
     }
 
-    /// Returns the canonical validity mask for the array.
-    pub fn validity_mask(&self) -> VortexResult<Mask> {
-        match self.validity()? {
-            Validity::NonNullable | Validity::AllValid => Ok(Mask::new_true(self.len())),
-            Validity::AllInvalid => Ok(Mask::new_false(self.len())),
-            Validity::Array(a) => Ok(a.to_bool().to_mask()),
-        }
-    }
-
     /// Returns the canonical representation of the array.
+    #[deprecated(note = "use `array.execute::<Canonical>(ctx)` instead")]
     pub fn into_canonical(self) -> VortexResult<Canonical> {
         self.execute(&mut LEGACY_SESSION.create_execution_ctx())
     }
 
     /// Returns the canonical representation of the array.
+    #[deprecated(note = "use `array.execute::<Canonical>(ctx)` instead")]
     pub fn to_canonical(&self) -> VortexResult<Canonical> {
-        self.clone().into_canonical()
+        #[expect(deprecated)]
+        let result = self.clone().into_canonical();
+        result
     }
 
     /// Writes the array into the canonical builder.
@@ -431,6 +429,56 @@ impl ArrayRef {
         let mut slots = slots;
         slots[slot_idx] = Some(replacement);
         self.with_slots(slots)
+    }
+
+    /// Take a slot for executor-owned physical rewrites. This has the result that the array may
+    /// either be taken or cloned from the parent.
+    ///
+    /// The array can be put back with [`put_slot_unchecked`].
+    ///
+    /// # Safety
+    /// The caller must put back a slot with the same logical dtype and length before exposing the
+    /// parent array, and must only use this for physical rewrites.
+    pub(crate) unsafe fn take_slot_unchecked(
+        mut self,
+        slot_idx: usize,
+    ) -> VortexResult<(ArrayRef, ArrayRef)> {
+        let child = if let Some(inner) = Arc::get_mut(&mut self.0) {
+            // # Safety: ensured by the caller.
+            unsafe { inner.slots_mut()[slot_idx].take() }
+                .vortex_expect("take_slot_unchecked cannot take an absent slot")
+        } else {
+            self.slots()[slot_idx]
+                .as_ref()
+                .vortex_expect("take_slot_unchecked cannot take an absent slot")
+                .clone()
+        };
+
+        Ok((self, child))
+    }
+
+    /// Puts an array into `slot_idx` by either, cloning the inner array if the Arc is not exclusive
+    /// or replacing the slot in this `ArrayRef`.
+    /// This is the mirror of [`take_slot_unchecked`].
+    ///
+    /// # Safety
+    /// The replacement must have the same logical dtype and length as the taken slot, and this
+    /// must only be used for physical rewrites.
+    pub(crate) unsafe fn put_slot_unchecked(
+        mut self,
+        slot_idx: usize,
+        replacement: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
+        if let Some(inner) = Arc::get_mut(&mut self.0) {
+            // # Safety: ensured by the caller.
+            unsafe { inner.slots_mut()[slot_idx] = Some(replacement) };
+            return Ok(self);
+        }
+
+        let mut slots = self.slots().to_vec();
+        slots[slot_idx] = Some(replacement);
+        let inner = Arc::clone(&self.0);
+        inner.with_slots(self, slots)
     }
 
     /// Returns a new array with the provided slots.
@@ -563,11 +611,6 @@ impl ArrayRef {
         self.0.slot_name(self, idx)
     }
 
-    /// Returns the serialized metadata of the array.
-    pub fn metadata(&self, session: &VortexSession) -> VortexResult<Option<Vec<u8>>> {
-        self.0.metadata(self, session)
-    }
-
     /// Formats a human-readable metadata description.
     pub fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.0.metadata_fmt(f)
@@ -618,6 +661,7 @@ impl<V: VTable> Matcher for V {
 
     fn try_match<'a>(array: &'a ArrayRef) -> Option<ArrayView<'a, V>> {
         let inner = array.0.as_any().downcast_ref::<ArrayInner<V>>()?;
+        // # Safety checked by `downcast_ref`.
         Some(unsafe { ArrayView::new_unchecked(array, &inner.data) })
     }
 }

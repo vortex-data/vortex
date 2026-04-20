@@ -108,7 +108,7 @@ fn generate_lane_dispatch(output: &mut impl Write, bits: usize) -> io::Result<()
     write!(
         output,
         r#"/// Runtime dispatch to the optimized lane decoder for the given bit width.
-__device__ inline void bit_unpack_{bits}_lane(
+__device__ __noinline__ void bit_unpack_{bits}_lane(
     const uint{bits}_t *__restrict in,
     uint{bits}_t *__restrict out,
     uint{bits}_t reference,
@@ -153,21 +153,28 @@ fn generate_device_kernel_template(
         r#"template <int BW>
 __device__ void _bit_unpack_{bits}_device(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, uint{bits}_t reference, int thread_idx, GPUPatches& patches) {{
     __shared__ uint{bits}_t shared_out[1024];
+
+    // Step 1: Unpack into shared memory
     #pragma unroll
     for (int i = 0; i < {per_thread_loop_count}; i++) {{
         _bit_unpack_{bits}_lane<BW>(in, shared_out, reference, thread_idx * {per_thread_loop_count} + i);
     }}
     __syncwarp();
+
+    // Step 2: Apply patches to shared memory in parallel
     PatchesCursor<uint{bits}_t> cursor(patches, blockIdx.x, thread_idx, {thread_count});
     auto patch = cursor.next();
+    while (patch.index != 1024) {{
+        shared_out[patch.index] = patch.value;
+        patch = cursor.next();
+    }}
+    __syncwarp();
+
+    // Step 3: Copy to global memory
+    #pragma unroll
     for (int i = 0; i < {shared_copy_ncount}; i++) {{
         auto idx = i * {thread_count} + thread_idx;
-        if (idx == patch.index) {{
-            out[idx] = patch.value;
-            patch = cursor.next();
-        }} else {{
-            out[idx] = shared_out[idx];
-        }}
+        out[idx] = shared_out[idx];
     }}
 }}
 "#
@@ -195,23 +202,25 @@ fn generate_global_kernel(
     )
 }
 
-/// Generate CUDA lane decoders, dispatch function, and kernel wrappers for all bit widths.
-pub fn generate_cuda_unpack<T: FastLanes>(
-    output: &mut impl Write,
-    thread_count: usize,
-) -> io::Result<()> {
+/// Generate the lane-decoder header: template specializations + runtime dispatch.
+///
+/// This produces a `.cuh` file that is included by `bit_unpack.cuh` (and
+/// transitively by `dynamic_dispatch.cu`). It contains only `__device__`
+/// functions — no `__global__` kernels — so that `dynamic_dispatch.cu` does
+/// not pull in the 129 standalone bit-unpack kernel entry points.
+pub fn generate_cuda_unpack_lanes<T: FastLanes>(output: &mut impl Write) -> io::Result<()> {
     let bits = T::T;
     let lanes = T::LANES;
 
-    // File header + forward declaration for the lane-decoder template.
     write!(
         output,
         r#"// AUTO-GENERATED. Do not edit by hand!
+#pragma once
+
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <stdint.h>
 #include "fastlanes_common.cuh"
-#include "patches.cuh"
 
 template <int BW>
 __device__ void _bit_unpack_{bits}_lane(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, uint{bits}_t reference, unsigned int lane);
@@ -228,6 +237,29 @@ __device__ void _bit_unpack_{bits}_lane(const uint{bits}_t *__restrict in, uint{
     // Runtime dispatch function (used by dynamic_dispatch.cu via bit_unpack.cuh).
     generate_lane_dispatch(output, bits)?;
     writeln!(output)?;
+
+    Ok(())
+}
+
+/// Generate the standalone kernel file: `_device` template + `__global__` wrappers.
+///
+/// This produces a `.cu` file that is compiled to PTX on its own. It includes
+/// the corresponding `_lanes.cuh` header for the lane decoders.
+pub fn generate_cuda_unpack_kernels<T: FastLanes>(
+    output: &mut impl Write,
+    thread_count: usize,
+) -> io::Result<()> {
+    let bits = T::T;
+    let lanes = T::LANES;
+
+    write!(
+        output,
+        r#"// AUTO-GENERATED. Do not edit by hand!
+#include "bit_unpack_{bits}_lanes.cuh"
+#include "patches.cuh"
+
+"#
+    )?;
 
     // Device kernel template (written once, instantiated per bit width).
     generate_device_kernel_template(output, bits, lanes, thread_count)?;

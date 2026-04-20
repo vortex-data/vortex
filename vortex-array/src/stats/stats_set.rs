@@ -459,11 +459,28 @@ impl MutTypedStatsSetRef<'_, '_> {
         ) {
             (Some(m1), Some(m2)) => {
                 // If the combine sum is exact, then we can sum them.
-                if let Some(scalar_value) = m1.zip(m2).as_exact().and_then(|(s1, s2)| {
-                    s1.as_primitive()
-                        .checked_add(&s2.as_primitive())
-                        .and_then(|pscalar| pscalar.pvalue().map(ScalarValue::Primitive))
-                }) {
+                if let Some(scalar_value) =
+                    m1.zip(m2).as_exact().and_then(|(s1, s2)| match s1.dtype() {
+                        DType::Primitive(..) => s1
+                            .as_primitive()
+                            .checked_add(&s2.as_primitive())
+                            .and_then(|pscalar| pscalar.pvalue().map(ScalarValue::Primitive)),
+                        DType::Decimal(..) => s1
+                            .as_decimal()
+                            .checked_binary_numeric(
+                                &s2.as_decimal(),
+                                crate::scalar::NumericOperator::Add,
+                            )
+                            .map(|scalar| {
+                                ScalarValue::Decimal(
+                                    scalar
+                                        .decimal_value()
+                                        .vortex_expect("no decimal value in scalar"),
+                                )
+                            }),
+                        _ => None,
+                    })
+                {
                     self.set(Stat::Sum, Precision::Exact(scalar_value));
                 }
             }
@@ -558,6 +575,8 @@ mod test {
     use enum_iterator::all;
     use itertools::Itertools;
 
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -881,7 +900,10 @@ mod test {
             .filter(|s| !matches!(s, Stat::Sum))
             .filter(|s| !matches!(s, Stat::NaNCount))
             .collect_vec();
-        array.statistics().compute_all(&all_stats).unwrap();
+        array
+            .statistics()
+            .compute_all(&all_stats, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
 
         let stats = array.statistics().to_owned();
         for stat in &all_stats {
