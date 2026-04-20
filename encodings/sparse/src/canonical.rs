@@ -576,7 +576,7 @@ mod test {
     use vortex_array::arrays::VarBinArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::listview::ListViewArrayExt;
-    use vortex_array::arrow::IntoArrowArray as _;
+    use vortex_array::arrow::ArrowArrayExecutor;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
@@ -829,7 +829,7 @@ mod test {
             Validity::from_mask(Mask::from_excluded_indices(10, vec![8]), Nullable),
         )
         .into_array()
-        .into_arrow_preferred()
+        .execute_arrow(None, &mut ctx)
         .unwrap();
 
         let actual = sparse_struct
@@ -838,7 +838,7 @@ mod test {
             .execute::<DecimalArray>(&mut ctx)
             .unwrap()
             .into_array()
-            .into_arrow_preferred()
+            .execute_arrow(None, &mut ctx)
             .unwrap();
 
         assert_eq!(expected.data_type(), actual.data_type());
@@ -1555,8 +1555,10 @@ mod test {
 
         // Note that the preferred arrow list representation is `List` (not `ListView`).
         let arrow_dtype = expected.dtype().to_arrow_dtype().unwrap();
-        let actual = actual.into_arrow(&arrow_dtype).unwrap();
-        let expected = expected.into_arrow(&arrow_dtype).unwrap();
+        let actual = actual.execute_arrow(Some(&arrow_dtype), &mut ctx).unwrap();
+        let expected = expected
+            .execute_arrow(Some(&arrow_dtype), &mut ctx)
+            .unwrap();
 
         assert_eq!(actual.data_type(), expected.data_type());
         Ok(())

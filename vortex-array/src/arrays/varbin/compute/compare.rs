@@ -80,10 +80,10 @@ impl CompareKernel for VarBin {
                 ));
             }
 
-            let lhs = Datum::try_new(lhs.array())?;
+            let lhs = Datum::try_new(lhs.array(), ctx)?;
 
             // Use StringViewArray/BinaryViewArray to match the Utf8View/BinaryView types
-            // produced by Datum::try_new (which uses into_arrow_preferred())
+            // produced by Datum::try_new (which uses execute_arrow(None, ctx))
             let arrow_rhs: &dyn arrow_array::Datum = match rhs_const.dtype() {
                 DType::Utf8(_) => &rhs_const
                     .as_utf8()

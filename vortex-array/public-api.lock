@@ -6798,11 +6798,11 @@ impl vortex_array::arrow::Datum
 
 pub fn vortex_array::arrow::Datum::data_type(&self) -> &arrow_schema::datatype::DataType
 
-pub fn vortex_array::arrow::Datum::try_new(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::arrow::Datum::try_new(array: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_array::arrow::Datum::try_new_array(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::arrow::Datum::try_new_array(array: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_array::arrow::Datum::try_new_with_target_datatype(array: &vortex_array::ArrayRef, target_datatype: &arrow_schema::datatype::DataType) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::arrow::Datum::try_new_with_target_datatype(array: &vortex_array::ArrayRef, target_datatype: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
 impl arrow_array::scalar::Datum for vortex_array::arrow::Datum
 
@@ -15608,7 +15608,7 @@ pub fn vortex_array::scalar_fn::fns::binary::Binary::coerce_args(&self, operator
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::binary::Binary::execute(&self, op: &vortex_array::scalar_fn::fns::operators::Operator, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::binary::Binary::execute(&self, op: &vortex_array::scalar_fn::fns::operators::Operator, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::fmt_sql(&self, operator: &vortex_array::scalar_fn::fns::operators::Operator, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -16252,7 +16252,7 @@ pub fn vortex_array::scalar_fn::fns::like::Like::coerce_args(&self, options: &Se
 
 pub fn vortex_array::scalar_fn::fns::like::Like::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::like::Like::execute(&self, options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::like::Like::execute(&self, options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::like::Like::fmt_sql(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -17752,7 +17752,7 @@ pub fn vortex_array::scalar_fn::fns::binary::Binary::coerce_args(&self, operator
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::binary::Binary::execute(&self, op: &vortex_array::scalar_fn::fns::operators::Operator, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::binary::Binary::execute(&self, op: &vortex_array::scalar_fn::fns::operators::Operator, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::fmt_sql(&self, operator: &vortex_array::scalar_fn::fns::operators::Operator, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -18056,7 +18056,7 @@ pub fn vortex_array::scalar_fn::fns::like::Like::coerce_args(&self, options: &Se
 
 pub fn vortex_array::scalar_fn::fns::like::Like::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::like::Like::execute(&self, options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::like::Like::execute(&self, options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::like::Like::fmt_sql(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 

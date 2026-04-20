@@ -31,7 +31,7 @@ use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::Chunked;
 use vortex::array::arrays::bool::BoolArrayExt;
 use vortex::array::arrays::chunked::ChunkedArrayExt;
-use vortex::array::arrow::IntoArrowArray;
+use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::match_each_integer_ptype;
 use vortex::dtype::DType;
@@ -337,7 +337,12 @@ impl PyArray {
 
             let chunks = chunked_array
                 .iter_chunks()
-                .map(|chunk| -> PyVortexResult<_> { Ok(chunk.clone().into_arrow(&arrow_dtype)?) })
+                .map(|chunk| -> PyVortexResult<_> {
+                    Ok(chunk.clone().execute_arrow(
+                        Some(&arrow_dtype),
+                        &mut LEGACY_SESSION.create_execution_ctx(),
+                    )?)
+                })
                 .collect::<Result<Vec<ArrowArrayRef>, _>>()?;
 
             let pa_data_type = arrow_dtype.clone().to_pyarrow(py)?;
@@ -357,7 +362,7 @@ impl PyArray {
             )?)
         } else {
             Ok(array
-                .into_arrow_preferred()?
+                .execute_arrow(None, &mut LEGACY_SESSION.create_execution_ctx())?
                 .into_data()
                 .to_pyarrow(py)?
                 .into_bound(py))

@@ -28,6 +28,7 @@ use jni::sys::jshort;
 use jni::sys::jstring;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayView;
+use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ExtensionArray;
 use vortex::array::arrays::StructArray;
@@ -36,7 +37,7 @@ use vortex::array::arrays::VarBinView;
 use vortex::array::arrays::extension::ExtensionArrayExt;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::array::arrays::varbin::VarBinArrayExt;
-use vortex::array::arrow::IntoArrowArray;
+use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::dtype::DType;
 use vortex::dtype::i256;
 use vortex::error::VortexError;
@@ -117,7 +118,10 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_exportToArrow<'loc
         let preferred_arrow_type = array_ref.inner.dtype().to_arrow_dtype()?;
         let viewless_arrow_type = data_type_no_views(preferred_arrow_type);
 
-        let arrow_array = array_ref.inner.clone().into_arrow(&viewless_arrow_type)?;
+        let arrow_array = array_ref.inner.clone().execute_arrow(
+            Some(&viewless_arrow_type),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         let (ffi_array, ffi_schema) =
             arrow_array::ffi::to_ffi(&arrow_array.to_data()).map_err(VortexError::from)?;
 
