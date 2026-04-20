@@ -47,6 +47,7 @@ impl CastReduce for DecimalByteParts {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builtins::ArrayBuiltins;
@@ -77,6 +78,7 @@ mod tests {
         );
 
         // Verify the values are preserved
+        #[expect(deprecated)]
         let decoded = casted.to_decimal();
         assert_eq!(decoded.len(), 4);
     }
@@ -91,6 +93,7 @@ mod tests {
         .unwrap();
 
         // Cast to non-nullable should fail due to nulls - force evaluation via to_canonical
+        #[expect(deprecated)]
         let result = array
             .into_array()
             .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))

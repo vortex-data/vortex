@@ -7,11 +7,11 @@ use std::any::Any;
 use std::any::TypeId;
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::arrays::Primitive;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinView;
-use vortex_array::arrays::VarBinViewArray;
 use vortex_error::VortexExpect;
 
 use super::BoolStats;
@@ -105,30 +105,26 @@ impl ArrayAndStats {
         &self.array
     }
 
-    // TODO(connor): This should return an `ArrayView<Primitive>` once more vtable changes land.
-    /// Returns the array as a [`PrimitiveArray`].
+    /// Returns the array as an [`ArrayView<Primitive>`].
     ///
     /// # Panics
     ///
     /// Panics if the array is not a primitive array.
-    pub fn array_as_primitive(&self) -> PrimitiveArray {
+    pub fn array_as_primitive(&self) -> ArrayView<'_, Primitive> {
         self.array
             .as_opt::<Primitive>()
             .vortex_expect("the array is guaranteed to already be canonical by construction")
-            .into_owned()
     }
 
-    // TODO(connor): This should return an `ArrayView<VarBinView>` once more vtable changes land.
-    /// Returns the array as a [`VarBinViewArray`].
+    /// Returns the array as an [`ArrayView<VarBinView>`].
     ///
     /// # Panics
     ///
     /// Panics if the array is not a UTF-8 string array.
-    pub fn array_as_utf8(&self) -> VarBinViewArray {
+    pub fn array_as_utf8(&self) -> ArrayView<'_, VarBinView> {
         self.array
             .as_opt::<VarBinView>()
             .vortex_expect("the array is guaranteed to already be canonical by construction")
-            .into_owned()
     }
 
     /// Consumes the bundle and returns the array.
@@ -146,7 +142,9 @@ impl ArrayAndStats {
         let array = self.array.clone();
 
         self.cache.get_or_insert_with::<BoolStats>(|| {
-            BoolStats::generate(&array.to_bool()).vortex_expect("BoolStats shouldn't fail")
+            #[expect(deprecated)]
+            let bool_array = array.to_bool();
+            BoolStats::generate(&bool_array).vortex_expect("BoolStats shouldn't fail")
         })
     }
 
@@ -158,7 +156,9 @@ impl ArrayAndStats {
         let opts = self.opts;
 
         self.cache.get_or_insert_with::<IntegerStats>(|| {
-            IntegerStats::generate_opts(&array.to_primitive(), opts)
+            #[expect(deprecated)]
+            let primitive = array.to_primitive();
+            IntegerStats::generate_opts(&primitive, opts)
         })
     }
 
@@ -168,7 +168,9 @@ impl ArrayAndStats {
         let opts = self.opts;
 
         self.cache.get_or_insert_with::<FloatStats>(|| {
-            FloatStats::generate_opts(&array.to_primitive(), opts)
+            #[expect(deprecated)]
+            let primitive = array.to_primitive();
+            FloatStats::generate_opts(&primitive, opts)
         })
     }
 
@@ -178,7 +180,9 @@ impl ArrayAndStats {
         let opts = self.opts;
 
         self.cache.get_or_insert_with::<StringStats>(|| {
-            StringStats::generate_opts(&array.to_varbinview(), opts)
+            #[expect(deprecated)]
+            let varbinview = array.to_varbinview();
+            StringStats::generate_opts(&varbinview, opts)
         })
     }
 

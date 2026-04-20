@@ -12,10 +12,14 @@ use vortex_error::vortex_ensure;
 use vortex_mask::AllOr;
 
 use crate::ArrayRef;
-use crate::ToCanonical;
+use crate::LEGACY_SESSION;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
+use crate::array_slots;
 use crate::arrays::Dict;
 use crate::dtype::DType;
 use crate::dtype::PType;
@@ -37,12 +41,13 @@ pub struct DictMetadata {
     pub(super) all_values_referenced: Option<bool>,
 }
 
-/// The codes array mapping each element to a dictionary entry.
-pub(super) const CODES_SLOT: usize = 0;
-/// The dictionary values array containing the unique values.
-pub(super) const VALUES_SLOT: usize = 1;
-pub(super) const NUM_SLOTS: usize = 2;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["codes", "values"];
+#[array_slots(Dict)]
+pub struct DictSlots {
+    /// The codes array mapping each element to a dictionary entry.
+    pub codes: ArrayRef,
+    /// The dictionary values array containing the unique values.
+    pub values: ArrayRef,
+}
 
 #[derive(Debug, Clone)]
 pub struct DictData {
@@ -115,19 +120,7 @@ impl DictData {
     }
 }
 
-pub trait DictArrayExt: TypedArrayRef<Dict> {
-    fn codes(&self) -> &ArrayRef {
-        self.as_ref().slots()[CODES_SLOT]
-            .as_ref()
-            .vortex_expect("DictArray codes slot")
-    }
-
-    fn values(&self) -> &ArrayRef {
-        self.as_ref().slots()[VALUES_SLOT]
-            .as_ref()
-            .vortex_expect("DictArray values slot")
-    }
-
+pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
     #[inline]
     fn has_all_values_referenced(&self) -> bool {
         self.all_values_referenced
@@ -148,12 +141,12 @@ pub trait DictArrayExt: TypedArrayRef<Dict> {
         Ok(())
     }
 
-    #[allow(
-        clippy::cognitive_complexity,
-        reason = "branching depends on validity representation and code type"
-    )]
     fn compute_referenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
-        let codes_validity = self.codes().validity_mask()?;
+        let codes = self.codes();
+        let codes_validity = codes
+            .validity()?
+            .to_mask(codes.len(), &mut LEGACY_SESSION.create_execution_ctx())?;
+        #[expect(deprecated)]
         let codes_primitive = self.codes().to_primitive();
         let values_len = self.values().len();
 
@@ -262,7 +255,7 @@ impl Array<Dict> {
 
 #[cfg(test)]
 mod test {
-    #[allow(unused_imports)]
+    #[expect(unused_imports)]
     use itertools::Itertools;
     use rand::RngExt;
     use rand::SeedableRng;
@@ -279,7 +272,8 @@ mod test {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::arrays::ChunkedArray;
     use crate::arrays::DictArray;
@@ -304,7 +298,15 @@ mod test {
             PrimitiveArray::new(buffer![3, 6, 9], Validity::AllValid).into_array(),
         )
         .unwrap();
-        let mask = dict.validity_mask().unwrap();
+        let mask = dict
+            .as_ref()
+            .validity()
+            .unwrap()
+            .to_mask(
+                dict.as_ref().len(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+            .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
         };
@@ -322,7 +324,15 @@ mod test {
             .into_array(),
         )
         .unwrap();
-        let mask = dict.validity_mask().unwrap();
+        let mask = dict
+            .as_ref()
+            .validity()
+            .unwrap()
+            .to_mask(
+                dict.as_ref().len(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+            .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
         };
@@ -344,7 +354,15 @@ mod test {
             .into_array(),
         )
         .unwrap();
-        let mask = dict.validity_mask().unwrap();
+        let mask = dict
+            .as_ref()
+            .validity()
+            .unwrap()
+            .to_mask(
+                dict.as_ref().len(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+            .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
         };
@@ -362,7 +380,15 @@ mod test {
             PrimitiveArray::new(buffer![3, 6, 9], Validity::NonNullable).into_array(),
         )
         .unwrap();
-        let mask = dict.validity_mask().unwrap();
+        let mask = dict
+            .as_ref()
+            .validity()
+            .unwrap()
+            .to_mask(
+                dict.as_ref().len(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+            .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
         };
@@ -410,6 +436,7 @@ mod test {
         );
         array.append_to_builder(builder.as_mut(), &mut LEGACY_SESSION.create_execution_ctx())?;
 
+        #[expect(deprecated)]
         let into_prim = array.to_primitive();
         let prim_into = builder.finish_into_canonical().into_primitive();
 

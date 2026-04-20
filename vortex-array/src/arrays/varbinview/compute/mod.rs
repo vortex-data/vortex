@@ -15,7 +15,8 @@ mod tests {
     use crate::IntoArray;
     use crate::accessor::ArrayAccessor;
     use crate::arrays::VarBinViewArray;
-    use crate::canonical::ToCanonical;
+    #[expect(deprecated)]
+    use crate::canonical::ToCanonical as _;
     #[test]
     fn take_nullable() {
         let arr = VarBinViewArray::from_iter_nullable_str([
@@ -30,12 +31,12 @@ mod tests {
         let taken = arr.take(buffer![0, 3].into_array()).unwrap();
 
         assert!(taken.dtype().is_nullable());
-        assert_eq!(
-            taken.to_varbinview().with_iterator(|it| it
-                .map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
-                .collect::<Vec<_>>()),
-            [Some("one".to_string()), Some("four".to_string())]
-        );
+        #[expect(deprecated)]
+        let result = taken.to_varbinview().with_iterator(|it| {
+            it.map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(result, [Some("one".to_string()), Some("four".to_string())]);
     }
     // Consistency tests
     use rstest::rstest;

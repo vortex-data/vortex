@@ -219,7 +219,10 @@ mod tests {
     use crate::Canonical;
     use crate::ExecutionCtx;
     use crate::IntoArray;
-    use crate::ToCanonical;
+    use crate::LEGACY_SESSION;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
+    use crate::VortexSessionExecute;
     use crate::accessor::ArrayAccessor;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ListArray;
@@ -272,8 +275,11 @@ mod tests {
         )
         .unwrap()
         .into_array();
+        #[expect(deprecated)]
         let canonical_struct = chunked.to_struct();
+        #[expect(deprecated)]
         let canonical_varbin = canonical_struct.unmasked_field(0).to_varbinview();
+        #[expect(deprecated)]
         let original_varbin = struct_array.unmasked_field(0).to_varbinview();
         let orig_values = original_varbin
             .with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>());
@@ -303,10 +309,23 @@ mod tests {
             List(Arc::new(Primitive(I32, NonNullable)), NonNullable),
         );
 
+        #[expect(deprecated)]
         let canon_values = chunked_list.unwrap().as_array().to_listview();
 
-        assert_eq!(l1.scalar_at(0).unwrap(), canon_values.scalar_at(0).unwrap());
-        assert_eq!(l2.scalar_at(0).unwrap(), canon_values.scalar_at(1).unwrap());
+        assert_eq!(
+            l1.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            canon_values
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
+        assert_eq!(
+            l2.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            canon_values
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
     }
 
     #[test]

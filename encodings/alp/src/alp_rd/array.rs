@@ -19,8 +19,10 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
 use vortex_array::TypedArrayRef;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
@@ -44,6 +46,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::alp_rd::kernel::PARENT_KERNELS;
 use crate::alp_rd::rules::RULES;
@@ -92,7 +95,8 @@ impl VTable for ALPRD {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.alprd");
+        *ID
     }
 
     fn validate(
@@ -259,7 +263,10 @@ impl VTable for ALPRD {
 
         // Decode the left_parts using our builtin dictionary.
         let left_parts_dict = left_parts_dictionary;
-        let validity = left_parts.validity_mask()?;
+        let validity = left_parts
+            .as_ref()
+            .validity()?
+            .to_mask(left_parts.as_ref().len(), ctx)?;
 
         let decoded_array = if ptype == PType::F32 {
             PrimitiveArray::new(
@@ -357,8 +364,6 @@ pub struct ALPRDDataParts {
 pub struct ALPRD;
 
 impl ALPRD {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.alprd");
-
     pub fn try_new(
         dtype: DType,
         left_parts: ArrayRef,
@@ -402,7 +407,10 @@ impl ALPRDData {
     ) -> VortexResult<Option<Patches>> {
         left_parts_patches
             .map(|patches| {
-                if !patches.values().all_valid()? {
+                if !patches
+                    .values()
+                    .all_valid(&mut LEGACY_SESSION.create_execution_ctx())?
+                {
                     vortex_bail!("patches must be all valid: {}", patches.values());
                 }
                 // TODO(ngates): assert the DType, don't cast it.
@@ -410,7 +418,9 @@ impl ALPRDData {
                 let mut patches = patches.cast_values(&left_parts.dtype().as_nonnullable())?;
                 // Force execution of the lazy cast so patch values are materialized
                 // before serialization.
-                *patches.values_mut() = patches.values().to_canonical()?.into_array();
+                #[expect(deprecated)]
+                let canonical = patches.values().to_canonical()?.into_array();
+                *patches.values_mut() = canonical;
                 Ok(patches)
             })
             .transpose()
@@ -583,7 +593,9 @@ fn validate_parts(
             left_parts.dtype(),
         );
         vortex_ensure!(
-            patches.values().all_valid()?,
+            patches
+                .values()
+                .all_valid(&mut LEGACY_SESSION.create_execution_ctx())?,
             "patches must be all valid: {}",
             patches.values()
         );
@@ -650,6 +662,7 @@ impl ValidityChild<ALPRD> for ALPRD {
 mod test {
     use prost::Message;
     use rstest::rstest;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -681,8 +694,9 @@ mod test {
         // Pick a seed that we know will trigger lots of patches.
         let encoder: alp_rd::RDEncoder = alp_rd::RDEncoder::new(&[seed.powi(-2)]);
 
-        let rd_array = encoder.encode(&real_array);
+        let rd_array = encoder.encode(real_array.as_view());
 
+        #[expect(deprecated)]
         let decoded = rd_array.as_array().to_primitive();
 
         assert_arrays_eq!(decoded, PrimitiveArray::from_option_iter(reals));

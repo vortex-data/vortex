@@ -14,6 +14,8 @@ use crate::builtins::StringConstantScheme;
 use crate::builtins::constant::compress_constant_array_with_validity;
 use crate::ctx::CompressorContext;
 use crate::estimate::CompressionEstimate;
+use crate::estimate::DeferredEstimate;
+use crate::estimate::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::stats::ArrayAndStats;
 
@@ -34,7 +36,7 @@ impl Scheme for StringConstantScheme {
         // Constant detection on a sample is a false positive, since the sample being constant does
         // not mean the full array is constant.
         if ctx.is_sample() {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         let array_len = data.array().len();
@@ -43,25 +45,27 @@ impl Scheme for StringConstantScheme {
         // We want to use `Constant` if there are only nulls in the array.
         if stats.value_count() == 0 {
             debug_assert_eq!(stats.null_count() as usize, array_len);
-            return CompressionEstimate::AlwaysUse;
+            return CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse);
         }
 
         // Since the estimated distinct count is always going to be less than or equal to the actual
         // distinct count, if this is not equal to 1 the actual is definitely not equal to 1.
         if stats.estimated_distinct_count().is_some_and(|c| c > 1) {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         // Otherwise our best bet is to actually check if the array is constant.
         // This is an expensive check, but the alternative of not compressing a constant array is
         // far less preferable.
-        CompressionEstimate::Estimate(Box::new(|compressor, data, _ctx| {
-            if is_constant(data.array(), &mut compressor.execution_ctx())? {
-                Ok(CompressionEstimate::AlwaysUse)
-            } else {
-                Ok(CompressionEstimate::Skip)
-            }
-        }))
+        CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
+            |compressor, data, _ctx| {
+                if is_constant(data.array(), &mut compressor.execution_ctx())? {
+                    Ok(EstimateVerdict::AlwaysUse)
+                } else {
+                    Ok(EstimateVerdict::Skip)
+                }
+            },
+        )))
     }
 
     fn compress(

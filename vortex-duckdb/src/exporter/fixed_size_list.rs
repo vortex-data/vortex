@@ -11,6 +11,7 @@
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex::array::validity::Validity;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
@@ -18,7 +19,6 @@ use super::ConversionCache;
 use super::all_invalid;
 use super::new_array_exporter_with_flatten;
 use super::validity;
-use crate::duckdb::LogicalType;
 use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 
@@ -42,14 +42,13 @@ pub(crate) fn new_exporter(
     let parts = array.into_data_parts();
     let elements = parts.elements;
     let validity = parts.validity;
-    let dtype = parts.dtype;
+
+    if matches!(validity, Validity::AllInvalid) {
+        return Ok(all_invalid::new_exporter());
+    }
+
     let mask = validity.to_array(len).execute::<Mask>(ctx)?;
     let elements_exporter = new_array_exporter_with_flatten(elements, cache, ctx, true)?;
-
-    if mask.all_false() {
-        let ltype = LogicalType::try_from(dtype)?;
-        return Ok(all_invalid::new_exporter(len, &ltype));
-    }
 
     Ok(validity::new_exporter(
         mask,

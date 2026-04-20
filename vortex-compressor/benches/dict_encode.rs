@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
+#![expect(clippy::unwrap_used)]
 
 use divan::Bencher;
 use vortex_array::IntoArray;
@@ -43,7 +43,7 @@ fn encode_specialized(bencher: Bencher) {
     let stats = IntegerStats::generate(&array);
     bencher
         .with_inputs(|| &stats)
-        .bench_refs(|stats| integer_dictionary_encode(array.clone(), stats));
+        .bench_refs(|stats| integer_dictionary_encode(array.as_view(), stats));
 }
 
 fn main() {

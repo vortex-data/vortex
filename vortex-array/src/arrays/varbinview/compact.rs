@@ -11,6 +11,8 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::Ref;
 use crate::builders::ArrayBuilder;
@@ -63,7 +65,10 @@ impl VarBinViewArray {
     where
         F: FnMut(&Ref),
     {
-        match self.validity_mask()? {
+        match self.as_ref().validity()?.to_mask(
+            self.as_ref().len(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )? {
             Mask::AllTrue(_) => {
                 for &view in self.views().iter() {
                     if !view.is_inlined() {

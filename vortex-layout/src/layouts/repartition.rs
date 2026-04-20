@@ -107,7 +107,9 @@ impl LayoutStrategy for RepartitionStrategy {
                 dtype.clone(),
                 stream.map(|chunk| {
                     let (sequence_id, chunk) = chunk?;
-                    VortexResult::Ok((sequence_id, chunk.to_canonical()?.into_array()))
+                    #[expect(deprecated)]
+                    let canonical = chunk.to_canonical()?.into_array();
+                    VortexResult::Ok((sequence_id, canonical))
                 }),
             )
             .sendable()
@@ -145,9 +147,11 @@ impl LayoutStrategy for RepartitionStrategy {
                         let chunked =
                             ChunkedArray::try_new(output_chunks, dtype_clone.clone())?;
                         if !chunked.is_empty() {
+                            #[expect(deprecated)]
+                            let canonical = chunked.into_array().to_canonical()?.into_array();
                             yield (
                                 sequence_pointer.advance(),
-                                chunked.into_array().to_canonical()?.into_array(),
+                                canonical,
                             )
                         }
                     }
@@ -158,9 +162,11 @@ impl LayoutStrategy for RepartitionStrategy {
                         dtype_clone.clone(),
                     )?;
                     if !to_flush.is_empty() {
+                        #[expect(deprecated)]
+                        let canonical = to_flush.into_array().to_canonical()?.into_array();
                         yield (
                             sequence_pointer.advance(),
-                            to_flush.into_array().to_canonical()?.into_array(),
+                            canonical,
                         )
                     }
                 }
@@ -498,7 +504,8 @@ mod tests {
 
         // Transition SharedState from Source to Cached for ALL slices sharing this Arc.
         use vortex_array::arrays::shared::SharedArrayExt;
-        shared_handle.get_or_compute(|source| source.to_canonical())?;
+        #[expect(deprecated)]
+        let _canonical = shared_handle.get_or_compute(|source| source.to_canonical())?;
 
         // Before the fix this panicked with "attempt to subtract with overflow".
         let _s2 = buf.pop_front().unwrap();

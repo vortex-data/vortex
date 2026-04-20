@@ -94,7 +94,7 @@ impl VTable for ForeignArray {
     type ValidityVTable = ForeignValidityVTable;
 
     fn id(&self) -> ArrayId {
-        self.id.clone()
+        self.id
     }
 
     fn validate(

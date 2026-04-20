@@ -7,6 +7,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
@@ -60,6 +61,7 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
     indices: &[T],
     validity: &Validity,
 ) -> VortexResult<ArrayRef> {
+    #[expect(deprecated)]
     let ends = array.ends().to_primitive();
     let ends_len = ends.len();
 

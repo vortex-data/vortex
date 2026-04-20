@@ -13,6 +13,7 @@ use vortex_array::CanonicalValidity;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
@@ -27,17 +28,19 @@ use vortex_array::arrays::list::ListArrayExt;
 use vortex_array::arrays::listview::ListViewArrayExt;
 use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::arrays::scalar_fn::AnyScalarFn;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_panic;
 
 use crate::builtins::IntDictScheme;
 use crate::ctx::CompressorContext;
 use crate::estimate::CompressionEstimate;
+use crate::estimate::DeferredEstimate;
+use crate::estimate::EstimateVerdict;
 use crate::estimate::estimate_compression_ratio_with_sampling;
 use crate::estimate::is_better_ratio;
 use crate::scheme::ChildSelection;
@@ -63,6 +66,15 @@ mod root_list_children {
     pub const SIZES: usize = 2;
 }
 
+/// The winning estimate for a scheme after all deferred work has been resolved.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum WinnerEstimate {
+    /// The scheme must be used immediately.
+    AlwaysUse,
+    /// The scheme won by numeric compression ratio.
+    Ratio(f64),
+}
+
 /// The main compressor type implementing cascading adaptive compression.
 ///
 /// This compressor applies adaptive compression [`Scheme`]s to arrays based on their data types and
@@ -72,7 +84,7 @@ mod root_list_children {
 /// The compressor works by:
 /// 1. Canonicalizing input arrays to a standard representation.
 /// 2. Pre-filtering schemes by [`Scheme::matches`] and exclusion rules.
-/// 3. Evaluating each matching scheme's compression ratio on a sample.
+/// 3. Evaluating each matching scheme's compression estimate and resolving deferred work.
 /// 4. Compressing with the best scheme and verifying the result is smaller.
 ///
 /// No scheme may appear twice in a cascade chain. The compressor enforces this automatically
@@ -243,6 +255,11 @@ impl CascadingCompressor {
                     return Ok(result);
                 }
 
+                // TODO(connor): HACK TO SUPPORT L2 DENORMALIZATION!!!
+                if result.is::<AnyScalarFn>() {
+                    return Ok(result);
+                }
+
                 // Otherwise, fall back to compressing the underlying storage array.
                 let compressed_storage = self.compress(ext_array.storage_array())?;
 
@@ -294,7 +311,7 @@ impl CascadingCompressor {
         if array.is_empty() {
             return Ok(array);
         }
-        if array.all_invalid()? {
+        if array.all_invalid(&mut LEGACY_SESSION.create_execution_ctx())? {
             return Ok(
                 ConstantArray::new(Scalar::null(array.dtype().clone()), array.len()).into_array(),
             );
@@ -311,16 +328,24 @@ impl CascadingCompressor {
 
         let mut data = ArrayAndStats::new(array, merged_opts);
 
-        if let Some(winner) = self.choose_best_scheme(&eligible_schemes, &mut data, ctx.clone())? {
-            // TODO(connor): Add a tracing warning here if compression with the chosen scheme
-            // failed, since there was likely more we could have done while choosing schemes.
-
+        // TODO(connor): Add tracing support for logging the winner estimate.
+        if let Some((winner, _winner_estimate)) =
+            self.choose_best_scheme(&eligible_schemes, &mut data, ctx.clone())?
+        {
             // Sampling and estimation chose a scheme, so let's compress the whole array with it.
             let compressed = winner.compress(self, &mut data, ctx)?;
+
+            // TODO(connor): Add a tracing warning here if compression with the chosen scheme
+            // failed, since there was likely more we could have done while choosing schemes.
 
             // Only choose the compressed array if it is smaller than the canonical one.
             if compressed.nbytes() < before_nbytes {
                 // TODO(connor): Add a tracing warning here too.
+                return Ok(compressed);
+            }
+
+            // TODO(connor): HACK TO SUPPORT L2 DENORMALIZATION!!!
+            if compressed.is::<AnyScalarFn>() {
                 return Ok(compressed);
             }
         }
@@ -329,9 +354,9 @@ impl CascadingCompressor {
         Ok(data.into_array())
     }
 
-    /// Calls [`expected_compression_ratio`] on each candidate and returns the scheme with the
-    /// highest ratio, or `None` if no scheme exceeds 1.0. Ties are broken by registration order
-    /// (earlier in the list wins).
+    /// Calls [`expected_compression_ratio`] on each candidate and returns the winning scheme and
+    /// resolved winner estimate, or `None` if no scheme exceeds 1.0. Ties are broken by
+    /// registration order (earlier in the list wins).
     ///
     /// [`expected_compression_ratio`]: Scheme::expected_compression_ratio
     fn choose_best_scheme(
@@ -339,7 +364,7 @@ impl CascadingCompressor {
         schemes: &[&'static dyn Scheme],
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
-    ) -> VortexResult<Option<&'static dyn Scheme>> {
+    ) -> VortexResult<Option<(&'static dyn Scheme, WinnerEstimate)>> {
         let mut best: Option<(&'static dyn Scheme, f64)> = None;
 
         // TODO(connor): Might want to use an `im` data structure inside of `ctx` if the clones here
@@ -347,15 +372,17 @@ impl CascadingCompressor {
         for &scheme in schemes {
             let estimate = scheme.expected_compression_ratio(data, ctx.clone());
 
+            // TODO(connor): Rather than computing the deferred estimates eagerly, it would be
+            // better to look at all quick estimates and see if it makes sense to sample at all.
             match estimate {
-                CompressionEstimate::Skip => {}
-                CompressionEstimate::AlwaysUse => return Ok(Some(scheme)),
-                CompressionEstimate::Ratio(ratio) => {
-                    if is_better_ratio(ratio, &best) {
-                        best = Some((scheme, ratio));
+                CompressionEstimate::Verdict(verdict) => {
+                    if let Some(winner_estimate) =
+                        Self::check_and_update_estimate_verdict(&mut best, scheme, verdict)
+                    {
+                        return Ok(Some((scheme, winner_estimate)));
                     }
                 }
-                CompressionEstimate::Sample => {
+                CompressionEstimate::Deferred(DeferredEstimate::Sample) => {
                     let sample_ratio = estimate_compression_ratio_with_sampling(
                         scheme,
                         self,
@@ -367,31 +394,36 @@ impl CascadingCompressor {
                         best = Some((scheme, sample_ratio));
                     }
                 }
-                // TODO(connor): Is there a way to deduplicate some of this code?
-                CompressionEstimate::Estimate(estimate_callback) => {
-                    let estimate = estimate_callback(self, data, ctx.clone())?;
-
-                    match estimate {
-                        CompressionEstimate::Skip => {}
-                        CompressionEstimate::AlwaysUse => return Ok(Some(scheme)),
-                        CompressionEstimate::Ratio(ratio) => {
-                            if is_better_ratio(ratio, &best) {
-                                best = Some((scheme, ratio));
-                            }
-                        }
-                        e @ (CompressionEstimate::Sample | CompressionEstimate::Estimate(_)) => {
-                            vortex_panic!(
-                                "an estimation function returned an invalid variant {e:?}"
-                            )
-                        }
+                CompressionEstimate::Deferred(DeferredEstimate::Callback(estimate_callback)) => {
+                    let verdict = estimate_callback(self, data, ctx.clone())?;
+                    if let Some(winner_estimate) =
+                        Self::check_and_update_estimate_verdict(&mut best, scheme, verdict)
+                    {
+                        return Ok(Some((scheme, winner_estimate)));
                     }
                 }
             }
-
-            // tracing::debug!(scheme = %scheme.id(), estimate, "evaluated compression ratio");
         }
 
-        Ok(best.map(|(s, _)| s))
+        Ok(best.map(|(scheme, ratio)| (scheme, WinnerEstimate::Ratio(ratio))))
+    }
+
+    /// Updates `best` from a terminal estimate verdict.
+    fn check_and_update_estimate_verdict(
+        best: &mut Option<(&'static dyn Scheme, f64)>,
+        scheme: &'static dyn Scheme,
+        verdict: EstimateVerdict,
+    ) -> Option<WinnerEstimate> {
+        match verdict {
+            EstimateVerdict::Skip => None,
+            EstimateVerdict::AlwaysUse => Some(WinnerEstimate::AlwaysUse),
+            EstimateVerdict::Ratio(ratio) => {
+                if is_better_ratio(ratio, &*best) {
+                    *best = Some((scheme, ratio));
+                }
+                None
+            }
+        }
     }
 
     // TODO(connor): Lots of room for optimization here.
@@ -456,10 +488,10 @@ impl CascadingCompressor {
 
         // Record the root scheme with the offsets child index so root exclusion rules apply.
         let offset_ctx = ctx.descend_with_scheme(ROOT_SCHEME_ID, root_list_children::OFFSETS);
-        let compressed_offsets = self.compress_canonical(
-            Canonical::Primitive(list_array.offsets().to_primitive().narrow()?),
-            offset_ctx,
-        )?;
+        #[expect(deprecated)]
+        let list_offsets_primitive = list_array.offsets().to_primitive().narrow()?;
+        let compressed_offsets =
+            self.compress_canonical(Canonical::Primitive(list_offsets_primitive), offset_ctx)?;
 
         Ok(
             ListArray::try_new(compressed_elems, compressed_offsets, list_array.validity()?)?
@@ -479,16 +511,18 @@ impl CascadingCompressor {
         let offset_ctx = ctx
             .clone()
             .descend_with_scheme(ROOT_SCHEME_ID, root_list_children::OFFSETS);
+        #[expect(deprecated)]
+        let list_view_offsets_primitive = list_view.offsets().to_primitive().narrow()?;
         let compressed_offsets = self.compress_canonical(
-            Canonical::Primitive(list_view.offsets().to_primitive().narrow()?),
+            Canonical::Primitive(list_view_offsets_primitive),
             offset_ctx,
         )?;
 
         let sizes_ctx = ctx.descend_with_scheme(ROOT_SCHEME_ID, root_list_children::SIZES);
-        let compressed_sizes = self.compress_canonical(
-            Canonical::Primitive(list_view.sizes().to_primitive().narrow()?),
-            sizes_ctx,
-        )?;
+        #[expect(deprecated)]
+        let list_view_sizes_primitive = list_view.sizes().to_primitive().narrow()?;
+        let compressed_sizes =
+            self.compress_canonical(Canonical::Primitive(list_view_sizes_primitive), sizes_ctx)?;
 
         Ok(ListViewArray::try_new(
             compressed_elems,
@@ -502,6 +536,8 @@ impl CascadingCompressor {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::ArrayRef;
+    use vortex_array::Canonical;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Constant;
     use vortex_array::arrays::PrimitiveArray;
@@ -513,10 +549,178 @@ mod tests {
     use crate::builtins::IntDictScheme;
     use crate::builtins::StringDictScheme;
     use crate::ctx::CompressorContext;
+    use crate::estimate::CompressionEstimate;
+    use crate::estimate::DeferredEstimate;
+    use crate::estimate::EstimateVerdict;
     use crate::scheme::SchemeExt;
 
     fn compressor() -> CascadingCompressor {
         CascadingCompressor::new(vec![&IntDictScheme, &FloatDictScheme, &StringDictScheme])
+    }
+
+    fn estimate_test_data() -> ArrayAndStats {
+        let array = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();
+        ArrayAndStats::new(array, GenerateStatsOptions::default())
+    }
+
+    fn matches_integer_primitive(canonical: &Canonical) -> bool {
+        matches!(canonical, Canonical::Primitive(primitive) if primitive.ptype().is_int())
+    }
+
+    #[derive(Debug)]
+    struct DirectRatioScheme;
+
+    impl Scheme for DirectRatioScheme {
+        fn scheme_name(&self) -> &'static str {
+            "test.direct_ratio"
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            matches_integer_primitive(canonical)
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            _data: &mut ArrayAndStats,
+            _ctx: CompressorContext,
+        ) -> CompressionEstimate {
+            CompressionEstimate::Verdict(EstimateVerdict::Ratio(2.0))
+        }
+
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            _data: &mut ArrayAndStats,
+            _ctx: CompressorContext,
+        ) -> VortexResult<ArrayRef> {
+            unreachable!("test helper should never be selected for compression")
+        }
+    }
+
+    #[derive(Debug)]
+    struct ImmediateAlwaysUseScheme;
+
+    impl Scheme for ImmediateAlwaysUseScheme {
+        fn scheme_name(&self) -> &'static str {
+            "test.immediate_always_use"
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            matches_integer_primitive(canonical)
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            _data: &mut ArrayAndStats,
+            _ctx: CompressorContext,
+        ) -> CompressionEstimate {
+            CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
+        }
+
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            _data: &mut ArrayAndStats,
+            _ctx: CompressorContext,
+        ) -> VortexResult<ArrayRef> {
+            unreachable!("test helper should never be selected for compression")
+        }
+    }
+
+    #[derive(Debug)]
+    struct CallbackAlwaysUseScheme;
+
+    impl Scheme for CallbackAlwaysUseScheme {
+        fn scheme_name(&self) -> &'static str {
+            "test.callback_always_use"
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            matches_integer_primitive(canonical)
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            _data: &mut ArrayAndStats,
+            _ctx: CompressorContext,
+        ) -> CompressionEstimate {
+            CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
+                |_compressor, _data, _ctx| Ok(EstimateVerdict::AlwaysUse),
+            )))
+        }
+
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            _data: &mut ArrayAndStats,
+            _ctx: CompressorContext,
+        ) -> VortexResult<ArrayRef> {
+            unreachable!("test helper should never be selected for compression")
+        }
+    }
+
+    #[derive(Debug)]
+    struct CallbackSkipScheme;
+
+    impl Scheme for CallbackSkipScheme {
+        fn scheme_name(&self) -> &'static str {
+            "test.callback_skip"
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            matches_integer_primitive(canonical)
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            _data: &mut ArrayAndStats,
+            _ctx: CompressorContext,
+        ) -> CompressionEstimate {
+            CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
+                |_compressor, _data, _ctx| Ok(EstimateVerdict::Skip),
+            )))
+        }
+
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            _data: &mut ArrayAndStats,
+            _ctx: CompressorContext,
+        ) -> VortexResult<ArrayRef> {
+            unreachable!("test helper should never be selected for compression")
+        }
+    }
+
+    #[derive(Debug)]
+    struct CallbackRatioScheme;
+
+    impl Scheme for CallbackRatioScheme {
+        fn scheme_name(&self) -> &'static str {
+            "test.callback_ratio"
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            matches_integer_primitive(canonical)
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            _data: &mut ArrayAndStats,
+            _ctx: CompressorContext,
+        ) -> CompressionEstimate {
+            CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
+                |_compressor, _data, _ctx| Ok(EstimateVerdict::Ratio(3.0)),
+            )))
+        }
+
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            _data: &mut ArrayAndStats,
+            _ctx: CompressorContext,
+        ) -> VortexResult<ArrayRef> {
+            unreachable!("test helper should never be selected for compression")
+        }
     }
 
     #[test]
@@ -566,6 +770,76 @@ mod tests {
 
         // No history means no exclusions.
         assert!(!c.is_excluded(&IntDictScheme, &ctx));
+    }
+
+    #[test]
+    fn immediate_always_use_wins_immediately() -> VortexResult<()> {
+        let compressor =
+            CascadingCompressor::new(vec![&DirectRatioScheme, &ImmediateAlwaysUseScheme]);
+        let schemes: [&'static dyn Scheme; 2] = [&DirectRatioScheme, &ImmediateAlwaysUseScheme];
+        let mut data = estimate_test_data();
+
+        let winner =
+            compressor.choose_best_scheme(&schemes, &mut data, CompressorContext::new())?;
+
+        assert!(matches!(
+            winner,
+            Some((scheme, WinnerEstimate::AlwaysUse))
+                if scheme.id() == ImmediateAlwaysUseScheme.id()
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn callback_always_use_wins_immediately() -> VortexResult<()> {
+        let compressor =
+            CascadingCompressor::new(vec![&DirectRatioScheme, &CallbackAlwaysUseScheme]);
+        let schemes: [&'static dyn Scheme; 2] = [&DirectRatioScheme, &CallbackAlwaysUseScheme];
+        let mut data = estimate_test_data();
+
+        let winner =
+            compressor.choose_best_scheme(&schemes, &mut data, CompressorContext::new())?;
+
+        assert!(matches!(
+            winner,
+            Some((scheme, WinnerEstimate::AlwaysUse))
+                if scheme.id() == CallbackAlwaysUseScheme.id()
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn callback_skip_is_ignored() -> VortexResult<()> {
+        let compressor = CascadingCompressor::new(vec![&CallbackSkipScheme, &DirectRatioScheme]);
+        let schemes: [&'static dyn Scheme; 2] = [&CallbackSkipScheme, &DirectRatioScheme];
+        let mut data = estimate_test_data();
+
+        let winner =
+            compressor.choose_best_scheme(&schemes, &mut data, CompressorContext::new())?;
+
+        assert!(matches!(
+            winner,
+            Some((scheme, WinnerEstimate::Ratio(2.0)))
+                if scheme.id() == DirectRatioScheme.id()
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn callback_ratio_competes_numerically() -> VortexResult<()> {
+        let compressor = CascadingCompressor::new(vec![&DirectRatioScheme, &CallbackRatioScheme]);
+        let schemes: [&'static dyn Scheme; 2] = [&DirectRatioScheme, &CallbackRatioScheme];
+        let mut data = estimate_test_data();
+
+        let winner =
+            compressor.choose_best_scheme(&schemes, &mut data, CompressorContext::new())?;
+
+        assert!(matches!(
+            winner,
+            Some((scheme, WinnerEstimate::Ratio(3.0)))
+                if scheme.id() == CallbackRatioScheme.id()
+        ));
+        Ok(())
     }
 
     #[test]

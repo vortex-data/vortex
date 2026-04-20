@@ -7,6 +7,8 @@ use std::hash::Hash;
 
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::IntegerPType;
@@ -330,7 +332,8 @@ where
         });
     }
 
-    if array.all_invalid()? {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    if array.all_invalid(&mut ctx)? {
         return Ok(IntegerStats {
             null_count: u32::try_from(array.len())?,
             value_count: 0,
@@ -338,13 +341,21 @@ where
             erased: TypedStats {
                 min: T::max_value(),
                 max: T::min_value(),
-                distinct: None,
+                distinct: Some(DistinctInfo {
+                    distinct_values: HashMap::with_capacity_and_hasher(0, FxBuildHasher),
+                    distinct_count: 0,
+                    most_frequent_value: T::zero(),
+                    top_frequency: 0,
+                }),
             }
             .into(),
         });
     }
 
-    let validity = array.validity_mask()?;
+    let validity = array.as_ref().validity()?.to_mask(
+        array.as_ref().len(),
+        &mut LEGACY_SESSION.create_execution_ctx(),
+    )?;
     let null_count = validity.false_count();
     let value_count = validity.true_count();
 
@@ -426,12 +437,12 @@ where
     let array_ref = array.as_ref();
     let min = array_ref
         .statistics()
-        .compute_as::<T>(Stat::Min)
+        .compute_as::<T>(Stat::Min, &mut ctx)
         .vortex_expect("min should be computed");
 
     let max = array_ref
         .statistics()
-        .compute_as::<T>(Stat::Max)
+        .compute_as::<T>(Stat::Max, &mut ctx)
         .vortex_expect("max should be computed");
 
     let distinct = count_distinct_values.then(|| {

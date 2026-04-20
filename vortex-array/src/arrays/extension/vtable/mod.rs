@@ -1,9 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-mod canonical;
-mod kernel;
-mod operations;
-mod validity;
 
 use std::hash::Hasher;
 
@@ -14,6 +10,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -30,9 +27,17 @@ use crate::arrays::extension::ExtensionData;
 use crate::arrays::extension::array::SLOT_NAMES;
 use crate::arrays::extension::array::STORAGE_SLOT;
 use crate::arrays::extension::compute::rules::PARENT_RULES;
+use crate::arrays::extension::compute::rules::RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
+
+mod kernel;
+mod operations;
+mod validity;
+
+#[derive(Clone, Debug)]
+pub struct Extension;
 
 /// A [`Extension`]-encoded Vortex array.
 pub type ExtensionArray = Array<Extension>;
@@ -54,30 +59,8 @@ impl VTable for Extension {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        Self::ID
-    }
-
-    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
-        0
-    }
-
-    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("ExtensionArray buffer index {idx} out of bounds")
-    }
-
-    fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
-        None
-    }
-
-    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
+        static ID: CachedId = CachedId::new("vortex.ext");
+        *ID
     }
 
     fn validate(
@@ -107,6 +90,25 @@ impl VTable for Extension {
         );
 
         Ok(())
+    }
+
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
+        0
+    }
+
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
+        vortex_panic!("ExtensionArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn serialize(
+        _array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
     }
 
     fn deserialize(
@@ -141,16 +143,12 @@ impl VTable for Extension {
         .with_slots(vec![Some(storage)]))
     }
 
-    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done(array))
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array))
     }
 
     fn execute_parent(
@@ -161,11 +159,16 @@ impl VTable for Extension {
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
-}
 
-#[derive(Clone, Debug)]
-pub struct Extension;
+    fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array)
+    }
 
-impl Extension {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.ext");
+    fn reduce_parent(
+        array: ArrayView<'_, Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
+    }
 }

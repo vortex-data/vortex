@@ -7,6 +7,7 @@ use std::fmt::Formatter;
 use fastlanes::BitPacking;
 use vortex_array::ArrayRef;
 use vortex_array::TypedArrayRef;
+use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
@@ -27,24 +28,20 @@ pub mod unpack_iter;
 
 use crate::BitPackedArray;
 use crate::bitpack_compress::bitpack_encode;
-use crate::unpack_iter::BitPacked;
+use crate::unpack_iter::BitPacked as BitPackedIter;
 use crate::unpack_iter::BitUnpackedChunks;
 
-/// The indices of exception values that don't fit in the bit-packed representation.
-pub(super) const PATCH_INDICES_SLOT: usize = 0;
-/// The exception values that don't fit in the bit-packed representation.
-pub(super) const PATCH_VALUES_SLOT: usize = 1;
-/// Chunk offsets for the patch indices/values.
-pub(super) const PATCH_CHUNK_OFFSETS_SLOT: usize = 2;
-/// The validity bitmap indicating which elements are non-null.
-pub(super) const VALIDITY_SLOT: usize = 3;
-pub(super) const NUM_SLOTS: usize = 4;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = [
-    "patch_indices",
-    "patch_values",
-    "patch_chunk_offsets",
-    "validity",
-];
+#[array_slots(crate::BitPacked)]
+pub struct BitPackedSlots {
+    /// The indices of exception values that don't fit in the bit-packed representation.
+    pub patch_indices: Option<ArrayRef>,
+    /// The exception values that don't fit in the bit-packed representation.
+    pub patch_values: Option<ArrayRef>,
+    /// Chunk offsets for the patch indices/values.
+    pub patch_chunk_offsets: Option<ArrayRef>,
+    /// The validity bitmap indicating which elements are non-null.
+    pub validity_child: Option<ArrayRef>,
+}
 
 pub struct BitPackedDataParts {
     pub offset: u16,
@@ -222,7 +219,7 @@ impl BitPackedData {
     }
 
     /// Accessor for bit unpacked chunks
-    pub fn unpacked_chunks<T: BitPacked>(
+    pub fn unpacked_chunks<T: BitPackedIter>(
         &self,
         dtype: &DType,
         len: usize,
@@ -274,7 +271,7 @@ impl BitPackedData {
     }
 }
 
-pub trait BitPackedArrayExt: TypedArrayRef<crate::BitPacked> {
+pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
     #[inline]
     fn packed(&self) -> &BufferHandle {
         BitPackedData::packed(self)
@@ -288,26 +285,6 @@ pub trait BitPackedArrayExt: TypedArrayRef<crate::BitPacked> {
     #[inline]
     fn offset(&self) -> u16 {
         BitPackedData::offset(self)
-    }
-
-    #[inline]
-    fn patch_indices(&self) -> Option<&ArrayRef> {
-        self.as_ref().slots()[PATCH_INDICES_SLOT].as_ref()
-    }
-
-    #[inline]
-    fn patch_values(&self) -> Option<&ArrayRef> {
-        self.as_ref().slots()[PATCH_VALUES_SLOT].as_ref()
-    }
-
-    #[inline]
-    fn patch_chunk_offsets(&self) -> Option<&ArrayRef> {
-        self.as_ref().slots()[PATCH_CHUNK_OFFSETS_SLOT].as_ref()
-    }
-
-    #[inline]
-    fn validity_child(&self) -> Option<&ArrayRef> {
-        self.as_ref().slots()[VALIDITY_SLOT].as_ref()
     }
 
     #[inline]
@@ -341,17 +318,12 @@ pub trait BitPackedArrayExt: TypedArrayRef<crate::BitPacked> {
     }
 
     #[inline]
-    fn validity_mask(&self) -> vortex_mask::Mask {
-        self.validity().to_mask(self.as_ref().len())
-    }
-
-    #[inline]
     fn packed_slice<T: NativePType + BitPacking>(&self) -> &[T] {
         BitPackedData::packed_slice::<T>(self)
     }
 
     #[inline]
-    fn unpacked_chunks<T: BitPacked>(&self) -> VortexResult<BitUnpackedChunks<T>> {
+    fn unpacked_chunks<T: BitPackedIter>(&self) -> VortexResult<BitUnpackedChunks<T>> {
         BitPackedData::unpacked_chunks::<T>(self, self.as_ref().dtype(), self.as_ref().len())
     }
 }
@@ -361,6 +333,7 @@ impl<T: TypedArrayRef<crate::BitPacked>> BitPackedArrayExt for T {}
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -383,7 +356,9 @@ mod test {
         let uncompressed = PrimitiveArray::from_option_iter(values);
         let packed = BitPackedData::encode(&uncompressed.into_array(), 1).unwrap();
         let expected = PrimitiveArray::from_option_iter(values);
-        assert_arrays_eq!(packed.as_array().to_primitive(), expected);
+        #[expect(deprecated)]
+        let packed_primitive = packed.as_array().to_primitive();
+        assert_arrays_eq!(packed_primitive, expected);
     }
 
     #[test]
@@ -403,8 +378,10 @@ mod test {
 
         let packed_with_patches = BitPackedData::encode(&parray, 9).unwrap();
         assert!(packed_with_patches.patches().is_some());
+        #[expect(deprecated)]
+        let packed_primitive = packed_with_patches.as_array().to_primitive();
         assert_arrays_eq!(
-            packed_with_patches.as_array().to_primitive(),
+            packed_primitive,
             PrimitiveArray::new(values, vortex_array::validity::Validity::NonNullable)
         );
     }

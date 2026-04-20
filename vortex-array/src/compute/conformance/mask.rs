@@ -6,6 +6,8 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::builtins::ArrayBuiltins;
@@ -52,16 +54,16 @@ fn test_heterogenous_mask(array: &ArrayRef) {
         if masked_out {
             assert!(
                 !masked
-                    .is_valid(i)
+                    .is_valid(i, &mut LEGACY_SESSION.create_execution_ctx())
                     .vortex_expect("is_valid should succeed in conformance test")
             );
         } else {
             assert_eq!(
                 masked
-                    .scalar_at(i)
+                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
                     .vortex_expect("scalar_at should succeed in conformance test"),
                 array
-                    .scalar_at(i)
+                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
                     .vortex_expect("scalar_at should succeed in conformance test")
                     .into_nullable()
             );
@@ -85,10 +87,10 @@ fn test_empty_mask(array: &ArrayRef) {
     for i in 0..len {
         assert_eq!(
             masked
-                .scalar_at(i)
+                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("scalar_at should succeed in conformance test"),
             array
-                .scalar_at(i)
+                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("scalar_at should succeed in conformance test")
                 .into_nullable()
         );
@@ -111,7 +113,7 @@ fn test_full_mask(array: &ArrayRef) {
     for i in 0..len {
         assert!(
             !masked
-                .is_valid(i)
+                .is_valid(i, &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("is_valid should succeed in conformance test")
         );
     }
@@ -133,16 +135,16 @@ fn test_alternating_mask(array: &ArrayRef) {
         if i % 2 == 0 {
             assert!(
                 !masked
-                    .is_valid(i)
+                    .is_valid(i, &mut LEGACY_SESSION.create_execution_ctx())
                     .vortex_expect("is_valid should succeed in conformance test")
             );
         } else {
             assert_eq!(
                 masked
-                    .scalar_at(i)
+                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
                     .vortex_expect("scalar_at should succeed in conformance test"),
                 array
-                    .scalar_at(i)
+                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
                     .vortex_expect("scalar_at should succeed in conformance test")
                     .into_nullable()
             );
@@ -171,7 +173,7 @@ fn test_sparse_mask(array: &ArrayRef) {
     let valid_count = (0..len)
         .filter(|&i| {
             masked
-                .is_valid(i)
+                .is_valid(i, &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("is_valid should succeed in conformance test")
         })
         .count();
@@ -183,7 +185,7 @@ fn test_sparse_mask(array: &ArrayRef) {
         .filter(|&i| {
             pattern[i]
                 || !array
-                    .is_valid(i)
+                    .is_valid(i, &mut LEGACY_SESSION.create_execution_ctx())
                     .vortex_expect("is_valid should succeed in conformance test")
         })
         .count();
@@ -206,17 +208,17 @@ fn test_single_element_mask(array: &ArrayRef) {
         .vortex_expect("mask should succeed in conformance test");
     assert!(
         !masked
-            .is_valid(0)
+            .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
             .vortex_expect("is_valid should succeed in conformance test")
     );
 
     for i in 1..len {
         assert_eq!(
             masked
-                .scalar_at(i)
+                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("scalar_at should succeed in conformance test"),
             array
-                .scalar_at(i)
+                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("scalar_at should succeed in conformance test")
                 .into_nullable()
         );
@@ -247,16 +249,16 @@ fn test_double_mask(array: &ArrayRef) {
         if mask1_pattern[i] || mask2_pattern[i] {
             assert!(
                 !double_masked
-                    .is_valid(i)
+                    .is_valid(i, &mut LEGACY_SESSION.create_execution_ctx())
                     .vortex_expect("is_valid should succeed in conformance test")
             );
         } else {
             assert_eq!(
                 double_masked
-                    .scalar_at(i)
+                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
                     .vortex_expect("scalar_at should succeed in conformance test"),
                 array
-                    .scalar_at(i)
+                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
                     .vortex_expect("scalar_at should succeed in conformance test")
                     .into_nullable()
             );
@@ -279,7 +281,8 @@ fn test_nullable_mask_input(array: &ArrayRef) {
     let validity = crate::validity::Validity::from_iter(validity_values.clone());
     let nullable_mask = BoolArray::new(bool_array.to_bit_buffer(), validity);
 
-    let mask_array = nullable_mask.to_mask_fill_null_false();
+    let mask_array =
+        nullable_mask.to_mask_fill_null_false(&mut LEGACY_SESSION.create_execution_ctx());
     let masked = array
         .clone()
         .mask((!&mask_array).into_array())
@@ -290,16 +293,16 @@ fn test_nullable_mask_input(array: &ArrayRef) {
         if bool_values[i] && validity_values[i] {
             assert!(
                 !masked
-                    .is_valid(i)
+                    .is_valid(i, &mut LEGACY_SESSION.create_execution_ctx())
                     .vortex_expect("is_valid should succeed in conformance test")
             );
         } else {
             assert_eq!(
                 masked
-                    .scalar_at(i)
+                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
                     .vortex_expect("scalar_at should succeed in conformance test"),
                 array
-                    .scalar_at(i)
+                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
                     .vortex_expect("scalar_at should succeed in conformance test")
                     .into_nullable()
             );

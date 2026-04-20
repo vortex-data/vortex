@@ -5,18 +5,23 @@ use std::path::Path;
 use std::path::absolute;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use url::Url;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::file::multi::MultiFileDataSource;
+use vortex::io::filesystem::FileSystemRef;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::scan::DataSourceRef;
+use vortex::layout::scan::multi::MultiLayoutDataSource;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::RUNTIME;
 use crate::SESSION;
 use crate::datasource::DataSourceTableFunction;
 use crate::duckdb::BindInputRef;
 use crate::duckdb::ClientContextRef;
+use crate::duckdb::ExtractedValue;
 use crate::duckdb::LogicalType;
 use crate::filesystem::resolve_filesystem;
 
@@ -60,39 +65,98 @@ fn normalize_path(path: std::path::PathBuf) -> std::path::PathBuf {
 #[derive(Debug)]
 pub struct VortexMultiFileScan;
 
+/// Variant of [`VortexMultiFileScan`] that accepts a list of globs.
+///
+/// This is registered as a separate overload to handle `read_vortex(['a.vortex', 'b.vortex'])`.
+#[derive(Debug)]
+pub struct VortexMultiFileScanList;
+
 impl DataSourceTableFunction for VortexMultiFileScan {
     fn parameters() -> Vec<LogicalType> {
         vec![LogicalType::varchar()]
     }
 
-    fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<DataSourceRef> {
-        let glob_url_parameter = input
-            .get_parameter(0)
-            .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
+    fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<MultiLayoutDataSource> {
+        bind_multi_file_scan(ctx, input)
+    }
+}
 
-        // Parse the URL and separate the base URL (keep scheme, host, etc.) from the path.
-        let glob_url_string = glob_url_parameter.as_string();
-        let glob_url_str = glob_url_string.as_str();
-        let glob_url = parse_glob_url(glob_url_str)?;
+impl DataSourceTableFunction for VortexMultiFileScanList {
+    fn parameters() -> Vec<LogicalType> {
+        vec![
+            LogicalType::list_type(LogicalType::varchar())
+                .unwrap_or_else(|_| unreachable!("creating list<varchar> type should not fail")),
+        ]
+    }
 
+    fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<MultiLayoutDataSource> {
+        bind_multi_file_scan(ctx, input)
+    }
+}
+
+/// Shared bind logic for both single-glob and multi-glob variants.
+fn bind_multi_file_scan(
+    ctx: &ClientContextRef,
+    input: &BindInputRef,
+) -> VortexResult<MultiLayoutDataSource> {
+    let glob_url_parameter = input
+        .get_parameter(0)
+        .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
+
+    // The input to the table function can either be a single glob, or a List of glob patterns.
+    let glob_strings: Vec<String> = match glob_url_parameter.extract() {
+        ExtractedValue::Varchar(glob) => {
+            vec![glob.to_string()]
+        }
+        ExtractedValue::List(globs) => globs
+            .into_iter()
+            .map(|glob| {
+                let ExtractedValue::Varchar(string) = glob.extract() else {
+                    vortex_bail!("list element must be Varchar type")
+                };
+
+                Ok(string.to_string())
+            })
+            .try_collect()?,
+        _ => vortex_bail!("Invalid argument to read_vortex table function"),
+    };
+
+    // Parse each glob URL and resolve its filesystem.
+    let mut glob_urls: Vec<Url> = Vec::with_capacity(glob_strings.len());
+    for glob_str in &glob_strings {
+        glob_urls.push(parse_glob_url(glob_str)?);
+    }
+
+    // Cache filesystems by base URL to avoid resolving the same filesystem multiple times.
+    let mut fs_cache: HashMap<Url, FileSystemRef> = HashMap::new();
+    for glob_url in &glob_urls {
         let mut base_url = glob_url.clone();
         base_url.set_path("");
-
-        let fs = resolve_filesystem(&base_url, ctx)?;
-
-        RUNTIME.block_on(async {
-            let builder = MultiFileDataSource::new(SESSION.clone())
-                .with_filesystem(fs)
-                .with_glob(glob_url.path());
-            let ds = builder.build().await?;
-            VortexResult::Ok(Arc::new(ds) as DataSourceRef)
-        })
+        if !fs_cache.contains_key(&base_url) {
+            let fs = resolve_filesystem(&base_url, ctx)?;
+            fs_cache.insert(base_url, fs);
+        }
     }
+
+    RUNTIME.block_on(async {
+        let mut builder = MultiFileDataSource::new(SESSION.clone());
+
+        for glob_url in &glob_urls {
+            let mut base_url = glob_url.clone();
+            base_url.set_path("");
+            let fs = fs_cache
+                .get(&base_url)
+                .map(Arc::clone)
+                .unwrap_or_else(|| unreachable!("fs should be cached for all base URLs"));
+            builder = builder.with_glob(glob_url.path(), Some(fs));
+        }
+
+        builder.build().await
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    #[allow(clippy::wildcard_imports)]
     use rstest::rstest;
 
     use super::*;

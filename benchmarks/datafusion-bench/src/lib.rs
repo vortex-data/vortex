@@ -30,7 +30,7 @@ use vortex_datafusion::VortexFormat;
 use vortex_datafusion::VortexFormatFactory;
 use vortex_datafusion::VortexTableOptions;
 
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 pub fn get_session_context() -> SessionContext {
     let mut rt_builder = RuntimeEnvBuilder::new();
 

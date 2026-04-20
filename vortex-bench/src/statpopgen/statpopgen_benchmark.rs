@@ -129,7 +129,7 @@ impl Benchmark for StatPopGenBenchmark {
         Ok(())
     }
 
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     fn expected_row_counts(&self) -> Option<Vec<usize>> {
         let n_rows = self.n_rows as usize;
         match self.scale_factor {

@@ -71,6 +71,9 @@ mod array;
 mod compute;
 mod vtable;
 
+use std::env;
+use std::sync::LazyLock;
+
 pub use array::*;
 use vortex_buffer::ByteBuffer;
 pub use vtable::*;
@@ -95,4 +98,18 @@ const fn patch_lanes<V: Sized>() -> usize {
     // This matches up with the number of lanes we use to execute copying results from bit-unpacking
     // from shared to global memory.
     if size_of::<V>() < 8 { 32 } else { 16 }
+}
+
+/// Flag indicating if experimental patched array support is enabled.
+///
+/// This is set using the environment variable `VORTEX_EXPERIMENTAL_PATCHED_ARRAY`.
+///
+/// When this is true, any arrays with interior `Patches` will be read as a `Patched`
+/// array, and eliminate the interior patches.
+///
+/// The builtin compressor will also generate Patched arrays.
+pub fn use_experimental_patches() -> bool {
+    static USE_EXPERIMENTAL_PATCHES: LazyLock<bool> =
+        LazyLock::new(|| env::var("VORTEX_EXPERIMENTAL_PATCHED_ARRAY").is_ok_and(|v| v == "1"));
+    *USE_EXPERIMENTAL_PATCHES
 }

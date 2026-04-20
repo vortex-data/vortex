@@ -27,7 +27,7 @@ pub(crate) struct PinnedByteBuffer {
     logical_len: usize,
 }
 
-#[allow(clippy::same_name_method)]
+#[expect(clippy::same_name_method)]
 impl PinnedByteBuffer {
     /// Allocate a pinned host buffer with a given capacity and logical length.
     ///
@@ -70,7 +70,6 @@ impl PinnedByteBuffer {
     }
 }
 
-#[allow(clippy::same_name_method)]
 impl HostSlice<u8> for PinnedByteBuffer {
     fn len(&self) -> usize {
         self.len()
@@ -277,7 +276,6 @@ pub struct PooledPinnedBuffer {
     pool: Arc<PinnedByteBufferPool>,
 }
 
-#[allow(clippy::same_name_method)]
 impl PooledPinnedBuffer {
     /// Create a new pooled buffer.
     pub(crate) fn new(inner: PinnedByteBuffer, pool: Arc<PinnedByteBufferPool>) -> Self {

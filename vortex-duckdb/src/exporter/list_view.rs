@@ -10,7 +10,7 @@ use vortex::array::arrays::ListViewArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::listview::ListViewDataParts;
 use vortex::array::match_each_integer_ptype;
-use vortex::dtype::DType;
+use vortex::array::validity::Validity;
 use vortex::dtype::IntegerPType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -56,13 +56,11 @@ pub(crate) fn new_exporter(
     } = array.into_data_parts();
     // Cache an `elements` vector up front so that future exports can reference it.
     let num_elements = elements.len();
-    let nullability = validity.nullability();
-    let validity = validity.to_array(len).execute::<Mask>(ctx)?;
 
-    if validity.all_false() {
-        let ltype = LogicalType::try_from(DType::List(elements_dtype, nullability))?;
-        return Ok(all_invalid::new_exporter(len, &ltype));
+    if matches!(validity, Validity::AllInvalid) {
+        return Ok(all_invalid::new_exporter());
     }
+    let validity = validity.to_array(len).execute::<Mask>(ctx)?;
 
     let values_key = elements.addr();
     // Check if we have a cached vector and extract it if we do.

@@ -49,7 +49,7 @@ impl Matcher for AnyVector {
 
         let dimensions = *list_size;
 
-        assert!(element_dtype.is_float(), "element dtype must be primitive");
+        assert!(element_dtype.is_float(), "element dtype must be float");
         assert!(
             !element_dtype.is_nullable(),
             "element dtype must be non-nullable"

@@ -7,7 +7,8 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
+#[expect(deprecated)]
+use vortex_array::ToCanonical as _;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
@@ -45,6 +46,7 @@ fn compact_impl(bencher: Bencher, (output_size, utilization_pct): (usize, usize)
         .into_array()
         .take(indices)
         .vortex_expect("operation should succeed in benchmark");
+    #[expect(deprecated)]
     let array = taken.to_varbinview();
 
     bencher.with_inputs(|| &array).bench_refs(|array| {
@@ -61,6 +63,7 @@ fn compact_sliced_impl(bencher: Bencher, (output_size, utilization_pct): (usize,
         .into_array()
         .slice(0..output_size)
         .vortex_expect("slice should succeed");
+    #[expect(deprecated)]
     let array = sliced.to_varbinview();
 
     bencher.with_inputs(|| &array).bench_refs(|array| {

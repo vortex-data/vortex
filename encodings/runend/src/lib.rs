@@ -26,6 +26,7 @@ pub mod _benchmarking {
     use super::*;
 }
 
+use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
@@ -40,17 +41,17 @@ pub fn initialize(session: &VortexSession) {
 
     // Register the RunEnd-specific aggregate kernels.
     session.aggregate_fns().register_aggregate_kernel(
-        RunEnd::ID,
+        RunEnd.id(),
         Some(MinMax.id()),
         &compute::min_max::RunEndMinMaxKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
-        RunEnd::ID,
+        RunEnd.id(),
         Some(IsConstant.id()),
         &compute::is_constant::RunEndIsConstantKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
-        RunEnd::ID,
+        RunEnd.id(),
         Some(IsSorted.id()),
         &compute::is_sorted::RunEndIsSortedKernel,
     );

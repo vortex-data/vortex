@@ -16,6 +16,7 @@ use futures::future::BoxFuture;
 use tracing::debug;
 use tracing::trace;
 use vortex::array::ArrayRef;
+use vortex::array::ArrayVTable;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
@@ -350,9 +351,9 @@ pub trait CudaArrayExt {
 
 #[async_trait]
 impl CudaArrayExt for ArrayRef {
-    #[allow(clippy::unwrap_in_result, clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     async fn execute_cuda(self, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
-        if self.encoding_id() == Struct::ID {
+        if self.encoding_id() == Struct.id() {
             let len = self.len();
             let StructDataParts {
                 fields,

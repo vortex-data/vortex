@@ -32,7 +32,10 @@ impl TakeExecute for VarBinView {
         let validity = array.validity()?.take(indices)?;
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
 
-        let indices_mask = indices.validity_mask()?;
+        let indices_mask = indices
+            .as_ref()
+            .validity()?
+            .to_mask(indices.as_ref().len(), ctx)?;
         let views_buffer = match_each_integer_ptype!(indices.ptype(), |I| {
             take_views(array.views(), indices.as_slice::<I>(), &indices_mask)
         });
@@ -92,7 +95,8 @@ mod tests {
     use crate::accessor::ArrayAccessor;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::varbinview::compute::take::PrimitiveArray;
-    use crate::canonical::ToCanonical;
+    #[expect(deprecated)]
+    use crate::canonical::ToCanonical as _;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
@@ -112,12 +116,12 @@ mod tests {
         let taken = arr.take(buffer![0, 3].into_array()).unwrap();
 
         assert!(taken.dtype().is_nullable());
-        assert_eq!(
-            taken.to_varbinview().with_iterator(|it| it
-                .map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
-                .collect::<Vec<_>>()),
-            [Some("one".to_string()), Some("four".to_string())]
-        );
+        #[expect(deprecated)]
+        let result = taken.to_varbinview().with_iterator(|it| {
+            it.map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(result, [Some("one".to_string()), Some("four".to_string())]);
     }
 
     #[test]
@@ -133,12 +137,12 @@ mod tests {
         let taken = arr.take(indices.into_array()).unwrap();
 
         assert!(taken.dtype().is_nullable());
-        assert_eq!(
-            taken.to_varbinview().with_iterator(|it| it
-                .map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
-                .collect::<Vec<_>>()),
-            [Some("two".to_string()), None]
-        );
+        #[expect(deprecated)]
+        let result = taken.to_varbinview().with_iterator(|it| {
+            it.map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(result, [Some("two".to_string()), None]);
     }
 
     #[rstest]

@@ -3,8 +3,8 @@
 
 //! CUDA benchmarks for DateTimeParts decoding.
 
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::cast_possible_truncation)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::cast_possible_truncation)]
 
 mod common;
 
@@ -51,13 +51,8 @@ fn make_datetimeparts_array(len: usize, time_unit: TimeUnit) -> DateTimePartsArr
 
 fn benchmark_datetimeparts(c: &mut Criterion) {
     let mut group = c.benchmark_group("datetimeparts_cuda");
-    group.sample_size(10);
 
-    for (len, len_str) in [
-        (1_000_000usize, "1M"),
-        (10_000_000usize, "10M"),
-        (100_000_000usize, "100M"),
-    ] {
+    for (len, len_str) in [(10_000_000usize, "10M"), (100_000_000usize, "100M")] {
         group.throughput(Throughput::Bytes((len * size_of::<i64>()) as u64));
 
         let (time_unit, unit_str) = (TimeUnit::Milliseconds, "ms");
@@ -90,7 +85,15 @@ fn benchmark_datetimeparts(c: &mut Criterion) {
     group.finish();
 }
 
-criterion::criterion_group!(benches, benchmark_datetimeparts);
+criterion::criterion_group! {
+    name = benches;
+    config = Criterion::default().without_plots()
+        .sample_size(10)
+        .warm_up_time(Duration::from_nanos(1))
+        .measurement_time(Duration::from_nanos(1))
+        .nresamples(10);
+    targets = benchmark_datetimeparts
+}
 
 #[cuda_available]
 criterion::criterion_main!(benches);

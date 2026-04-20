@@ -13,12 +13,13 @@ jobs:
   check_changelog_label:
     name: Validate Changelog Label
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       pull-requests: read  # Grant permission to read PR information
     steps:
       - name: Get PR Labels from API
         id: get_labels_api
-        uses: octokit/request-action@v2.4.0  # Use an action to make API requests
+        uses: octokit/request-action@v3.0.0  # Use an action to make API requests
         with:
           route: GET /repos/{owner}/{repo}/issues/{pull_number}/labels
           owner: ${{ github.repository_owner }}
@@ -33,6 +34,7 @@ jobs:
         run: |
           REQUIRED_LABELS=(
             "changelog/break"
+            "changelog/deprecation"
             "changelog/feature"
             "changelog/performance"
             "changelog/fix"

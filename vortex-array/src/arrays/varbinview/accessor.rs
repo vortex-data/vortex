@@ -5,7 +5,8 @@ use std::iter;
 
 use vortex_error::VortexExpect;
 
-use crate::ToCanonical;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::VarBinViewArray;
 use crate::validity::Validity;
@@ -39,6 +40,7 @@ impl ArrayAccessor<[u8]> for VarBinViewArray {
             }
             Validity::AllInvalid => f(&mut iter::repeat_n(None, views.len())),
             Validity::Array(v) => {
+                #[expect(deprecated)]
                 let validity = v.to_bool().into_bit_buffer();
                 let mut iter = views.iter().zip(validity.iter()).map(|(view, valid)| {
                     if valid {

@@ -11,6 +11,7 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
@@ -359,6 +360,7 @@ impl LayoutReader for StructReader {
 
                 // If root expression was a pack, then we apply the validity to each child field
                 if is_pack_merge {
+                    #[expect(deprecated)]
                     let struct_array = array.to_struct();
                     let masked_fields: Vec<ArrayRef> = struct_array
                         .iter_unmasked_fields()
@@ -382,6 +384,10 @@ impl LayoutReader for StructReader {
             }
         }))
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[cfg(test)]
@@ -392,8 +398,11 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::MaskFuture;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
@@ -686,14 +695,18 @@ mod tests {
         assert_eq!(result.len(), 2);
 
         let expected_a = PrimitiveArray::from_iter([7i32, 2]);
+        #[expect(deprecated)]
+        let result_struct_a = result.to_struct();
         assert_arrays_eq!(
-            result.to_struct().unmasked_field_by_name("a").unwrap(),
+            result_struct_a.unmasked_field_by_name("a").unwrap(),
             expected_a
         );
 
         let expected_b = PrimitiveArray::from_iter([4i32, 5]);
+        #[expect(deprecated)]
+        let result_struct_b = result.to_struct();
         assert_arrays_eq!(
-            result.to_struct().unmasked_field_by_name("b").unwrap(),
+            result_struct_b.unmasked_field_by_name("b").unwrap(),
             expected_b
         );
     }
@@ -718,7 +731,9 @@ mod tests {
 
         // ...and the result is masked with the validity of the parent StructArray
         assert_eq!(
-            result.scalar_at(0).unwrap(),
+            result
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::null(result.dtype().clone()),
         );
         assert_nth_scalar!(result, 1, 2);
@@ -760,7 +775,7 @@ mod tests {
         // Row 0: struct is valid, field "c" is 4.
         assert_eq!(
             result
-                .scalar_at(0)
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .as_struct()
                 .field_by_idx(0)
@@ -769,12 +784,18 @@ mod tests {
         );
 
         // Row 1: struct is null (because root.a.b was null at this row).
-        assert!(result.scalar_at(1).unwrap().as_struct().is_null());
+        assert!(
+            result
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .as_struct()
+                .is_null()
+        );
 
         // Row 2: struct is valid, field "c" is 6.
         assert_eq!(
             result
-                .scalar_at(2)
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .as_struct()
                 .field_by_idx(0)

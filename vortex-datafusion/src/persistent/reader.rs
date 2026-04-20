@@ -16,7 +16,16 @@ use vortex::io::object_store::ObjectStoreReadAt;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 
-/// Factory to create [`VortexReadAt`] instances to read the target file.
+/// Factory to create [`VortexReadAt`] instances for a `PartitionedFile`.
+///
+/// Plug a custom implementation into [`VortexSource::with_vortex_reader_factory`]
+/// when the default object-store reader is not sufficient, for example to:
+///
+/// - reuse an application-level metadata cache,
+/// - wrap reads with custom authentication or routing,
+/// - coalesce I/O in a remote storage layer.
+///
+/// [`VortexSource::with_vortex_reader_factory`]: crate::VortexSource::with_vortex_reader_factory
 pub trait VortexReaderFactory: Debug + Send + Sync + 'static {
     /// Create a reader for a target object.
     fn create_reader(
@@ -26,15 +35,30 @@ pub trait VortexReaderFactory: Debug + Send + Sync + 'static {
     ) -> DFResult<Arc<dyn VortexReadAt>>;
 }
 
-/// Default factory, creates [`ObjectStore`] backed readers for files,
-/// works with multiple cloud providers.
+/// Default [`VortexReaderFactory`] backed by DataFusion's [`ObjectStore`].
+///
+/// This is the reader used by [`crate::VortexSource`] and
+/// [`crate::VortexFormat`] unless a
+/// custom factory is supplied. It works with any object store that DataFusion
+/// has registered for the scan.
 #[derive(Debug)]
 pub struct DefaultVortexReaderFactory {
     object_store: Arc<dyn ObjectStore>,
 }
 
 impl DefaultVortexReaderFactory {
-    /// Creates new instance
+    /// Creates a new factory from an [`ObjectStore`].
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use std::sync::Arc;
+    /// # use object_store::memory::InMemory;
+    /// use vortex_datafusion::reader::DefaultVortexReaderFactory;
+    ///
+    /// let factory = DefaultVortexReaderFactory::new(Arc::new(InMemory::new()));
+    /// # let _ = factory;
+    /// ```
     pub fn new(object_store: Arc<dyn ObjectStore>) -> Self {
         Self { object_store }
     }

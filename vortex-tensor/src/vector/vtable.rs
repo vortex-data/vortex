@@ -20,7 +20,7 @@ impl ExtVTable for Vector {
     type NativeValue<'a> = &'a ScalarValue;
 
     fn id(&self) -> ExtId {
-        ExtId::new_ref("vortex.tensor.vector")
+        ExtId::new("vortex.tensor.vector")
     }
 
     fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {

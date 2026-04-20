@@ -22,7 +22,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
-use crate::arrays::dict::DictArrayExt;
+use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::filter::FilterReduce;
 
 impl TakeExecute for Dict {
@@ -54,13 +54,14 @@ impl FilterReduce for Dict {
 
 #[cfg(test)]
 mod test {
-    #[allow(unused_imports)]
+    #[expect(unused_imports)]
     use itertools::Itertools;
     use vortex_buffer::buffer;
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::accessor::ArrayAccessor;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
@@ -89,6 +90,7 @@ mod test {
 
         let dict =
             dict_encode(&PrimitiveArray::from_option_iter(values.clone()).into_array()).unwrap();
+        #[expect(deprecated)]
         let actual = dict.as_array().to_primitive();
 
         let expected = PrimitiveArray::from_option_iter(values);
@@ -102,6 +104,7 @@ mod test {
         let expected = PrimitiveArray::from_iter((0..1000).map(|i| unique_values[i % 32]));
 
         let dict = dict_encode(&expected.clone().into_array()).unwrap();
+        #[expect(deprecated)]
         let actual = dict.as_array().to_primitive();
 
         assert_arrays_eq!(actual, expected);
@@ -113,6 +116,7 @@ mod test {
         let expected = PrimitiveArray::from_iter((0..1000).map(|i| unique_values[i % 100]));
 
         let dict = dict_encode(&expected.clone().into_array()).unwrap();
+        #[expect(deprecated)]
         let actual = dict.as_array().to_primitive();
 
         assert_arrays_eq!(actual, expected);
@@ -126,6 +130,7 @@ mod test {
         );
         assert_eq!(reference.len(), 6);
         let dict = dict_encode(&reference.clone().into_array()).unwrap();
+        #[expect(deprecated)]
         let flattened_dict = dict.as_array().to_varbinview();
         assert_eq!(
             flattened_dict.with_iterator(|iter| iter

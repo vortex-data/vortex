@@ -34,6 +34,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ZstdBuffersMetadata;
 
@@ -44,8 +45,6 @@ pub type ZstdBuffersArray = Array<ZstdBuffers>;
 pub struct ZstdBuffers;
 
 impl ZstdBuffers {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.zstd_buffers");
-
     pub fn try_new(
         dtype: DType,
         len: usize,
@@ -60,9 +59,9 @@ impl ZstdBuffers {
         session: &VortexSession,
     ) -> VortexResult<ZstdBuffersArray> {
         let encoding_id = array.encoding_id();
-        let metadata = array
-            .metadata(session)?
-            .ok_or_else(|| vortex_err!("Array does not support serialization"))?;
+        let metadata = session
+            .array_serialize(array)?
+            .ok_or_else(|| vortex_err!("[ZstdBuffers]: Array does not support serialization"))?;
         let buffer_handles = array.buffer_handles();
         let children = array.children();
 
@@ -333,7 +332,7 @@ fn compute_output_layout(
 }
 
 fn array_id_from_string(s: &str) -> ArrayId {
-    ArrayId::new_arc(Arc::from(s))
+    ArrayId::new(s)
 }
 
 impl ArrayHash for ZstdBuffersData {
@@ -369,7 +368,8 @@ impl VTable for ZstdBuffers {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.zstd_buffers");
+        *ID
     }
 
     fn validate(
@@ -456,7 +456,7 @@ impl OperationsVTable<ZstdBuffers> for ZstdBuffers {
     fn scalar_at(
         array: ArrayView<'_, ZstdBuffers>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         // TODO(os): maybe we should not support scalar_at, it is really slow, and adding a cache
         // layer here is weird. Valid use of zstd buffers array would be by executing it first into
@@ -465,7 +465,7 @@ impl OperationsVTable<ZstdBuffers> for ZstdBuffers {
             &array.into_owned(),
             &vortex_array::LEGACY_SESSION,
         )?;
-        inner_array.scalar_at(index)
+        inner_array.execute_scalar(index, ctx)
     }
 }
 
@@ -570,11 +570,18 @@ mod tests {
         let input = make_nullable_primitive_array();
         let compressed = ZstdBuffers::compress(&input, 3, &LEGACY_SESSION)?.into_array();
 
-        assert_eq!(compressed.all_valid()?, input.all_valid()?);
-        assert_eq!(compressed.all_invalid()?, input.all_invalid()?);
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        assert_eq!(compressed.all_valid(&mut ctx)?, input.all_valid(&mut ctx)?);
+        assert_eq!(
+            compressed.all_invalid(&mut ctx)?,
+            input.all_invalid(&mut ctx)?
+        );
 
         for i in 0..input.len() {
-            assert_eq!(compressed.is_valid(i)?, input.is_valid(i)?);
+            assert_eq!(
+                compressed.is_valid(i, &mut ctx)?,
+                input.is_valid(i, &mut ctx)?
+            );
         }
 
         Ok(())

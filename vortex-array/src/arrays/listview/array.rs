@@ -13,7 +13,10 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
-use crate::ToCanonical;
+use crate::LEGACY_SESSION;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -247,7 +250,9 @@ impl ListViewData {
 
         // Skip host-only validation when offsets/sizes are not host-resident.
         if offsets.is_host() && sizes.is_host() {
+            #[expect(deprecated)]
             let offsets_primitive = offsets.to_primitive();
+            #[expect(deprecated)]
             let sizes_primitive = sizes.to_primitive();
 
             // Validate the `offsets` and `sizes` arrays.
@@ -334,10 +339,6 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
         child_to_validity(&self.as_ref().slots()[VALIDITY_SLOT], self.nullability())
     }
 
-    fn listview_validity_mask(&self) -> vortex_mask::Mask {
-        self.listview_validity().to_mask(self.as_ref().len())
-    }
-
     fn offset_at(&self, index: usize) -> usize {
         assert!(
             index < self.as_ref().len(),
@@ -349,8 +350,8 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
             .map(|p| match_each_integer_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
             .unwrap_or_else(|| {
                 self.offsets()
-                    .scalar_at(index)
-                    .vortex_expect("offsets must support scalar_at")
+                    .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+                    .vortex_expect("offsets must support execute_scalar")
                     .as_primitive()
                     .as_::<usize>()
                     .vortex_expect("offset must fit in usize")
@@ -369,8 +370,8 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
             .map(|p| match_each_integer_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
             .unwrap_or_else(|| {
                 self.sizes()
-                    .scalar_at(index)
-                    .vortex_expect("sizes must support scalar_at")
+                    .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+                    .vortex_expect("sizes must support execute_scalar")
                     .as_primitive()
                     .as_::<usize>()
                     .vortex_expect("size must fit in usize")
@@ -384,12 +385,11 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
     }
 
     fn verify_is_zero_copy_to_list(&self) -> bool {
-        validate_zctl(
-            self.elements(),
-            self.offsets().to_primitive(),
-            self.sizes().to_primitive(),
-        )
-        .is_ok()
+        #[expect(deprecated)]
+        let offsets_primitive = self.offsets().to_primitive();
+        #[expect(deprecated)]
+        let sizes_primitive = self.sizes().to_primitive();
+        validate_zctl(self.elements(), offsets_primitive, sizes_primitive).is_ok()
     }
 }
 impl<T: TypedArrayRef<ListView>> ListViewArrayExt for T {}
@@ -458,12 +458,12 @@ impl Array<ListView> {
     /// See [`ListViewData::with_zero_copy_to_list`].
     pub unsafe fn with_zero_copy_to_list(self, is_zctl: bool) -> Self {
         if cfg!(debug_assertions) && is_zctl {
-            validate_zctl(
-                self.elements(),
-                self.offsets().to_primitive(),
-                self.sizes().to_primitive(),
-            )
-            .vortex_expect("Failed to validate zero-copy to list flag");
+            #[expect(deprecated)]
+            let offsets_primitive = self.offsets().to_primitive();
+            #[expect(deprecated)]
+            let sizes_primitive = self.sizes().to_primitive();
+            validate_zctl(self.elements(), offsets_primitive, sizes_primitive)
+                .vortex_expect("Failed to validate zero-copy to list flag");
         }
         let dtype = self.dtype().clone();
         let len = self.len();
@@ -557,7 +557,8 @@ fn validate_zctl(
 ) -> VortexResult<()> {
     // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed), even
     // if there are null views.
-    if let Some(is_sorted) = offsets_primitive.statistics().compute_is_sorted() {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    if let Some(is_sorted) = offsets_primitive.statistics().compute_is_sorted(&mut ctx) {
         vortex_ensure!(is_sorted, "offsets must be sorted");
     } else {
         vortex_bail!("offsets must report is_sorted statistic");

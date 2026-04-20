@@ -3,6 +3,7 @@
 
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
+use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
@@ -26,7 +27,7 @@ impl FlatLayoutFixture for PcoFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Pco::ID]
+        vec![Pco.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
@@ -69,14 +70,14 @@ impl FlatLayoutFixture for PcoFixture {
                 "narrow_i16",
             ]),
             vec![
-                Pco::from_primitive(&irregular_i64, 8, 0)?.into_array(),
-                Pco::from_primitive(&smooth_f64, 8, 0)?.into_array(),
-                Pco::from_primitive(&pattern_u32, 8, 0)?.into_array(),
-                Pco::from_primitive(&nullable_f32, 8, 0)?.into_array(),
-                Pco::from_primitive(&negative_i32, 8, 0)?.into_array(),
-                Pco::from_primitive(&constant_u16, 8, 0)?.into_array(),
-                Pco::from_primitive(&spike_outliers, 8, 0)?.into_array(),
-                Pco::from_primitive(&narrow_i16, 8, 0)?.into_array(),
+                Pco::from_primitive(irregular_i64.as_view(), 8, 0)?.into_array(),
+                Pco::from_primitive(smooth_f64.as_view(), 8, 0)?.into_array(),
+                Pco::from_primitive(pattern_u32.as_view(), 8, 0)?.into_array(),
+                Pco::from_primitive(nullable_f32.as_view(), 8, 0)?.into_array(),
+                Pco::from_primitive(negative_i32.as_view(), 8, 0)?.into_array(),
+                Pco::from_primitive(constant_u16.as_view(), 8, 0)?.into_array(),
+                Pco::from_primitive(spike_outliers.as_view(), 8, 0)?.into_array(),
+                Pco::from_primitive(narrow_i16.as_view(), 8, 0)?.into_array(),
             ],
             N,
             Validity::NonNullable,

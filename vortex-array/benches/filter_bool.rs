@@ -6,10 +6,10 @@
 //! Tests multiple mask patterns (mostly-true, mostly-false, random, correlated runs)
 //! with both uniform-random and power-law distributions, across array sizes from 1K to 250K.
 
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::cast_possible_truncation)]
-#![allow(clippy::cast_sign_loss)]
-#![allow(clippy::cast_precision_loss)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::cast_possible_truncation)]
+#![expect(clippy::cast_sign_loss)]
+#![expect(clippy::cast_precision_loss)]
 
 use divan::Bencher;
 use rand::prelude::*;

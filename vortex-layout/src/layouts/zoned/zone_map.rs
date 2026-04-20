@@ -7,6 +7,7 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::StructArray;
@@ -129,7 +130,7 @@ impl ZoneMap {
             match stat {
                 // For stats that are associative, we can just compute them over the stat column
                 Stat::Min | Stat::Max | Stat::Sum => {
-                    if let Some(s) = array.statistics().compute_stat(stat)?
+                    if let Some(s) = array.statistics().compute_stat(stat, ctx)?
                         && let Some(v) = s.into_value()
                     {
                         stats_set.set(stat, Precision::exact(v))
@@ -220,7 +221,10 @@ impl StatsAccumulator {
 
     pub fn push_chunk(&mut self, array: &ArrayRef) -> VortexResult<()> {
         for builder in self.builders.iter_mut() {
-            if let Some(v) = array.statistics().compute_stat(builder.stat())? {
+            if let Some(v) = array
+                .statistics()
+                .compute_stat(builder.stat(), &mut LEGACY_SESSION.create_execution_ctx())?
+            {
                 builder.append_scalar(v.cast(&v.dtype().as_nullable())?)?;
             } else {
                 builder.append_null();
@@ -275,6 +279,7 @@ mod tests {
 
     use rstest::rstest;
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -336,20 +341,16 @@ mod tests {
                 MIN_IS_TRUNCATED,
             ]
         );
+        #[expect(deprecated)]
+        let field1_bool = stats_table.array.unmasked_field(1).to_bool();
         assert_eq!(
-            stats_table
-                .array
-                .unmasked_field(1)
-                .to_bool()
-                .to_bit_buffer(),
+            field1_bool.to_bit_buffer(),
             BitBuffer::from(vec![false, true])
         );
+        #[expect(deprecated)]
+        let field3_bool = stats_table.array.unmasked_field(3).to_bool();
         assert_eq!(
-            stats_table
-                .array
-                .unmasked_field(3)
-                .to_bool()
-                .to_bit_buffer(),
+            field3_bool.to_bit_buffer(),
             BitBuffer::from(vec![true, false])
         );
     }
@@ -374,22 +375,12 @@ mod tests {
                 Stat::Sum.name(),
             ]
         );
-        assert_eq!(
-            stats_table
-                .array
-                .unmasked_field(1)
-                .to_bool()
-                .to_bit_buffer(),
-            BitBuffer::from(vec![false])
-        );
-        assert_eq!(
-            stats_table
-                .array
-                .unmasked_field(3)
-                .to_bool()
-                .to_bit_buffer(),
-            BitBuffer::from(vec![false])
-        );
+        #[expect(deprecated)]
+        let field1_bool = stats_table.array.unmasked_field(1).to_bool();
+        assert_eq!(field1_bool.to_bit_buffer(), BitBuffer::from(vec![false]));
+        #[expect(deprecated)]
+        let field3_bool = stats_table.array.unmasked_field(3).to_bool();
+        assert_eq!(field3_bool.to_bit_buffer(), BitBuffer::from(vec![false]));
     }
 
     #[rstest]

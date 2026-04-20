@@ -46,7 +46,7 @@ impl ScalarFnVTable for Zip {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.zip")
+        ScalarFnId::new("vortex.zip")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -118,7 +118,7 @@ impl ScalarFnVTable for Zip {
 
         let mask = mask_array
             .execute::<BoolArray>(ctx)?
-            .to_mask_fill_null_false();
+            .to_mask_fill_null_false(ctx);
 
         let return_dtype = if_true
             .dtype()

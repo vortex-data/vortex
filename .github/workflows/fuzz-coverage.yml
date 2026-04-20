@@ -11,11 +11,16 @@ env:
 jobs:
   coverage:
     name: "Coverage: ${{ matrix.fuzz_target }}"
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+      AWS_REGION: "us-east-1"
+      AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
     strategy:
       fail-fast: false
       matrix:
         fuzz_target: [array_ops, file_io, compress_roundtrip]
-    timeout-minutes: 60
+    timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=arm64-medium/disk=large', github.run_id)
@@ -56,11 +61,6 @@ jobs:
 
       - name: Download corpus from R2
         shell: bash
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
-          AWS_REGION: "us-east-1"
-          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
         run: |
           CORPUS_KEY="${{ matrix.fuzz_target }}_corpus.tar.zst"
           CORPUS_DIR="fuzz/corpus/${{ matrix.fuzz_target }}"
@@ -75,8 +75,7 @@ jobs:
 
       - name: Generate coverage data
         run: |
-          RUSTFLAGS="--cfg vortex_nightly" \
-            cargo +$NIGHTLY_TOOLCHAIN fuzz coverage --release --debug-assertions \
+          cargo +$NIGHTLY_TOOLCHAIN fuzz coverage --release --debug-assertions \
             ${{ matrix.fuzz_target }} \
             -- -rss_limit_mb=4096
 

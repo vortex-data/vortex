@@ -8,9 +8,9 @@ use vortex::array::ExecutionCtx;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::decimal::DecimalDataParts;
 use vortex::array::match_each_decimal_value_type;
+use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::dtype::BigCast;
-use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
 use vortex::dtype::DecimalType;
 use vortex::dtype::NativeDecimalType;
@@ -19,7 +19,6 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::mask::Mask;
 
-use crate::duckdb::LogicalType;
 use crate::duckdb::VectorBuffer;
 use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
@@ -49,13 +48,11 @@ pub(crate) fn new_exporter(
         values,
     } = array.into_data_parts();
     let dest_values_type = precision_to_duckdb_storage_size(&decimal_dtype)?;
-    let nullability = validity.nullability();
-    let validity = validity.to_array(len).execute::<Mask>(ctx)?;
 
-    if validity.all_false() {
-        let ltype = LogicalType::try_from(DType::Decimal(decimal_dtype, nullability))?;
-        return Ok(all_invalid::new_exporter(len, &ltype));
+    if matches!(validity, Validity::AllInvalid) {
+        return Ok(all_invalid::new_exporter());
     }
+    let validity = validity.to_array(len).execute::<Mask>(ctx)?;
 
     let exporter = if values_type == dest_values_type {
         match_each_decimal_value_type!(values_type, |D| {
@@ -138,6 +135,7 @@ pub fn precision_to_duckdb_storage_size(decimal_dtype: &DecimalDType) -> VortexR
 
 #[cfg(test)]
 mod tests {
+    use vortex::array::LEGACY_SESSION;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::DecimalArray;
     use vortex::dtype::DecimalDType;
@@ -151,7 +149,10 @@ mod tests {
     pub(crate) fn new_zero_copy_exporter(
         array: &DecimalArray,
     ) -> VortexResult<Box<dyn ColumnExporter>> {
-        let validity = array.validity_mask()?;
+        let validity = array.as_ref().validity()?.to_mask(
+            array.as_ref().len(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         let dest_values_type = precision_to_duckdb_storage_size(&array.decimal_dtype())?;
 
         assert_eq!(array.values_type(), dest_values_type);

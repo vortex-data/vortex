@@ -9,15 +9,20 @@ use vortex_mask::AllOr;
 
 use super::SumState;
 use super::checked_add_u64;
+use crate::ExecutionCtx;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 
-pub(super) fn accumulate_bool(inner: &mut SumState, b: &BoolArray) -> VortexResult<bool> {
+pub(super) fn accumulate_bool(
+    inner: &mut SumState,
+    b: &BoolArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<bool> {
     let SumState::Unsigned(acc) = inner else {
         vortex_panic!("expected unsigned sum state for bool input");
     };
 
-    let mask = b.validity_mask()?;
+    let mask = b.as_ref().validity()?.to_mask(b.as_ref().len(), ctx)?;
     let true_count = match mask.bit_buffer() {
         AllOr::None => return Ok(false),
         AllOr::All => b.to_bit_buffer().true_count() as u64,

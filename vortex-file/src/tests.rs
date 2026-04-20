@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::cast_possible_truncation)]
+#![expect(clippy::cast_possible_truncation)]
 use std::iter;
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -12,7 +12,9 @@ use futures::TryStreamExt;
 use futures::pin_mut;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
@@ -24,7 +26,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::arrays::dict::DictArrayExt;
+use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
@@ -306,6 +308,7 @@ async fn test_read_projection() {
         )
     );
 
+    #[expect(deprecated)]
     let actual = array.to_struct().unmasked_field(0).clone();
     let expected = VarBinArray::from(strings_expected.to_vec()).into_array();
     assert_arrays_eq!(actual, expected);
@@ -328,6 +331,7 @@ async fn test_read_projection() {
         )
     );
 
+    #[expect(deprecated)]
     let actual = array.to_struct().unmasked_field(0).clone();
     let expected = Buffer::copy_from(numbers_expected).into_array();
     assert_arrays_eq!(actual, expected);
@@ -372,6 +376,7 @@ async fn unequal_batches() {
         let array = array.unwrap();
         item_count += array.len();
 
+        #[expect(deprecated)]
         let numbers = array
             .to_struct()
             .unmasked_field_by_name("numbers")
@@ -541,12 +546,14 @@ async fn filter_string() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
+    #[expect(deprecated)]
     let names_actual = result[0].to_struct().unmasked_field(0).clone();
     let names_expected =
         VarBinArray::from_iter(vec![Some("Joseph")], DType::Utf8(Nullability::Nullable))
             .into_array();
     assert_arrays_eq!(names_actual, names_expected);
 
+    #[expect(deprecated)]
     let ages_actual = result[0].to_struct().unmasked_field(1).clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32)]).into_array();
     assert_arrays_eq!(ages_actual, ages_expected);
@@ -596,6 +603,7 @@ async fn filter_or() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
+    #[expect(deprecated)]
     let names_actual = result[0].to_struct().unmasked_field(0).clone();
     let names_expected = VarBinArray::from_iter(
         vec![Some("Joseph"), Some("Angela")],
@@ -604,6 +612,7 @@ async fn filter_or() {
     .into_array();
     assert_arrays_eq!(names_actual, names_expected);
 
+    #[expect(deprecated)]
     let ages_actual = result[0].to_struct().unmasked_field(1).clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32), None]).into_array();
     assert_arrays_eq!(ages_actual, ages_expected);
@@ -650,6 +659,7 @@ async fn filter_and() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
+    #[expect(deprecated)]
     let names_actual = result[0].to_struct().unmasked_field(0).clone();
     let names_expected = VarBinArray::from_iter(
         vec![Some("Joseph"), None],
@@ -658,6 +668,7 @@ async fn filter_and() {
     .into_array();
     assert_arrays_eq!(names_actual, names_expected);
 
+    #[expect(deprecated)]
     let ages_actual = result[0].to_struct().unmasked_field(1).clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32), Some(31i32)]).into_array();
     assert_arrays_eq!(ages_actual, ages_expected);
@@ -690,6 +701,7 @@ async fn test_with_indices_simple() {
     let file = SESSION.open_options().open_buffer(buf).unwrap();
 
     // test no indices
+    #[expect(deprecated)]
     let actual_kept_array = file
         .scan()
         .unwrap()
@@ -706,6 +718,7 @@ async fn test_with_indices_simple() {
     // test a few indices
     let kept_indices = [0_u64, 3, 99, 100, 101, 399, 400, 401, 499];
 
+    #[expect(deprecated)]
     let actual_kept_array = file
         .scan()
         .unwrap()
@@ -716,6 +729,7 @@ async fn test_with_indices_simple() {
         .await
         .unwrap()
         .to_struct();
+    #[expect(deprecated)]
     let actual_kept_numbers_array = actual_kept_array.unmasked_field(0).to_primitive();
 
     let expected_kept_numbers: Vec<i16> = kept_indices
@@ -726,6 +740,7 @@ async fn test_with_indices_simple() {
     assert_arrays_eq!(actual_kept_numbers_array, expected_array);
 
     // test all indices
+    #[expect(deprecated)]
     let actual_array = file
         .scan()
         .unwrap()
@@ -769,6 +784,7 @@ async fn test_with_indices_on_two_columns() {
     let file = SESSION.open_options().open_buffer(buf).unwrap();
 
     let kept_indices = [0_u64, 3, 7];
+    #[expect(deprecated)]
     let array = file
         .scan()
         .unwrap()
@@ -823,6 +839,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
 
     let file = SESSION.open_options().open_buffer(buf).unwrap();
 
+    #[expect(deprecated)]
     let actual_kept_array = file
         .scan()
         .unwrap()
@@ -840,6 +857,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     // test a few indices
     let kept_indices = [0u64, 3, 99, 100, 101, 399, 400, 401, 499];
 
+    #[expect(deprecated)]
     let actual_kept_array = file
         .scan()
         .unwrap()
@@ -852,6 +870,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .unwrap()
         .to_struct();
 
+    #[expect(deprecated)]
     let actual_kept_numbers_array = actual_kept_array.unmasked_field(0).to_primitive();
 
     let expected_kept_numbers: Buffer<i16> = kept_indices
@@ -863,6 +882,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     assert_arrays_eq!(actual_kept_numbers_array, expected_array);
 
     // test all indices
+    #[expect(deprecated)]
     let actual_array = file
         .scan()
         .unwrap()
@@ -923,6 +943,7 @@ async fn filter_string_chunked() {
 
     let file = SESSION.open_options().open_buffer(buf).unwrap();
 
+    #[expect(deprecated)]
     let actual_array = file
         .scan()
         .unwrap()
@@ -1011,6 +1032,7 @@ async fn test_pruning_with_or() {
 
     let file = SESSION.open_options().open_buffer(buf).unwrap();
 
+    #[expect(deprecated)]
     let actual_array = file
         .scan()
         .unwrap()
@@ -1084,6 +1106,7 @@ async fn test_repeated_projection() {
 
     let file = SESSION.open_options().open_buffer(buf).unwrap();
 
+    #[expect(deprecated)]
     let actual = file
         .scan()
         .unwrap()
@@ -1240,16 +1263,19 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
     )?
     .into_array();
 
+    #[expect(deprecated)]
     let result = round_trip(&array, Ok).await?.to_struct();
 
     assert_eq!(result.len(), 3);
     assert_eq!(result.struct_fields().nfields(), 1);
-    assert!(result.all_valid()?);
+    let mut ctx = SESSION.create_execution_ctx();
+    assert!(result.all_valid(&mut ctx)?);
 
+    #[expect(deprecated)]
     let nested_struct = result.unmasked_field_by_name("struct")?.to_struct();
     assert_eq!(nested_struct.dtype(), &nested_dtype);
     assert_eq!(nested_struct.len(), 3);
-    assert!(nested_struct.all_invalid()?);
+    assert!(nested_struct.all_invalid(&mut ctx)?);
 
     Ok(())
 }
@@ -1379,6 +1405,7 @@ async fn test_writer_multiple_pushes() -> VortexResult<()> {
     let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 9);
+    #[expect(deprecated)]
     let numbers = result
         .to_struct()
         .unmasked_field_by_name("numbers")?
@@ -1413,6 +1440,7 @@ async fn test_writer_push_stream() -> VortexResult<()> {
     let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 6);
+    #[expect(deprecated)]
     let numbers = result
         .to_struct()
         .unmasked_field_by_name("numbers")?
@@ -1477,6 +1505,7 @@ async fn test_writer_empty_chunks() -> VortexResult<()> {
     let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 2);
+    #[expect(deprecated)]
     let numbers = result
         .to_struct()
         .unmasked_field_by_name("numbers")?
@@ -1515,6 +1544,7 @@ async fn test_writer_mixed_push_and_stream() -> VortexResult<()> {
     let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 6);
+    #[expect(deprecated)]
     let numbers = result
         .to_struct()
         .unmasked_field_by_name("numbers")?
@@ -1557,10 +1587,12 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
     assert_eq!(result.len(), 3);
     assert_eq!(result.dtype(), &dtype);
 
+    #[expect(deprecated)]
     let strings_field = result
         .to_struct()
         .unmasked_field_by_name("strings")
         .cloned()?;
+    #[expect(deprecated)]
     let strings = strings_field.to_varbinview().with_iterator(|iter| {
         iter.map(|s| s.map(|st| unsafe { String::from_utf8_unchecked(st.to_vec()) }))
             .collect::<Vec<_>>()

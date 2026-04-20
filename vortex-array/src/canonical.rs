@@ -425,94 +425,105 @@ impl IntoArray for Canonical {
 /// # Canonicalization
 ///
 /// This trait has a blanket implementation for all types implementing [ToCanonical].
+#[deprecated(note = "use `array.execute::<T>(ctx)` instead")]
 pub trait ToCanonical {
     /// Canonicalize into a [`NullArray`] if the target is [`Null`](DType::Null) typed.
+    #[deprecated(note = "use `array.execute::<NullArray>(ctx)` instead")]
     fn to_null(&self) -> NullArray;
 
     /// Canonicalize into a [`BoolArray`] if the target is [`Bool`](DType::Bool) typed.
+    #[deprecated(note = "use `array.execute::<BoolArray>(ctx)` instead")]
     fn to_bool(&self) -> BoolArray;
 
     /// Canonicalize into a [`PrimitiveArray`] if the target is [`Primitive`](DType::Primitive)
     /// typed.
+    #[deprecated(note = "use `array.execute::<PrimitiveArray>(ctx)` instead")]
     fn to_primitive(&self) -> PrimitiveArray;
 
     /// Canonicalize into a [`DecimalArray`] if the target is [`Decimal`](DType::Decimal)
     /// typed.
+    #[deprecated(note = "use `array.execute::<DecimalArray>(ctx)` instead")]
     fn to_decimal(&self) -> DecimalArray;
 
     /// Canonicalize into a [`StructArray`] if the target is [`Struct`](DType::Struct) typed.
+    #[deprecated(note = "use `array.execute::<StructArray>(ctx)` instead")]
     fn to_struct(&self) -> StructArray;
 
     /// Canonicalize into a [`ListViewArray`] if the target is [`List`](DType::List) typed.
+    #[deprecated(note = "use `array.execute::<ListViewArray>(ctx)` instead")]
     fn to_listview(&self) -> ListViewArray;
 
     /// Canonicalize into a [`FixedSizeListArray`] if the target is [`List`](DType::FixedSizeList)
     /// typed.
+    #[deprecated(note = "use `array.execute::<FixedSizeListArray>(ctx)` instead")]
     fn to_fixed_size_list(&self) -> FixedSizeListArray;
 
     /// Canonicalize into a [`VarBinViewArray`] if the target is [`Utf8`](DType::Utf8)
     /// or [`Binary`](DType::Binary) typed.
+    #[deprecated(note = "use `array.execute::<VarBinViewArray>(ctx)` instead")]
     fn to_varbinview(&self) -> VarBinViewArray;
 
     /// Canonicalize into an [`ExtensionArray`] if the array is [`Extension`](DType::Extension)
     /// typed.
+    #[deprecated(note = "use `array.execute::<ExtensionArray>(ctx)` instead")]
     fn to_extension(&self) -> ExtensionArray;
 }
 
 // Blanket impl for all Array encodings.
+#[expect(deprecated)]
 impl ToCanonical for ArrayRef {
     fn to_null(&self) -> NullArray {
-        self.to_canonical()
-            .vortex_expect("to_canonical failed")
-            .into_null()
+        #[expect(deprecated)]
+        let result = self.to_canonical().vortex_expect("to_canonical failed");
+        result.into_null()
     }
 
     fn to_bool(&self) -> BoolArray {
-        self.to_canonical()
-            .vortex_expect("to_canonical failed")
-            .into_bool()
+        #[expect(deprecated)]
+        let result = self.to_canonical().vortex_expect("to_canonical failed");
+        result.into_bool()
     }
 
     fn to_primitive(&self) -> PrimitiveArray {
-        self.to_canonical()
-            .vortex_expect("to_canonical failed")
-            .into_primitive()
+        #[expect(deprecated)]
+        let result = self.to_canonical().vortex_expect("to_canonical failed");
+        result.into_primitive()
     }
 
     fn to_decimal(&self) -> DecimalArray {
-        self.to_canonical()
-            .vortex_expect("to_canonical failed")
-            .into_decimal()
+        #[expect(deprecated)]
+        let result = self.to_canonical().vortex_expect("to_canonical failed");
+        result.into_decimal()
     }
 
     fn to_struct(&self) -> StructArray {
-        self.to_canonical()
-            .vortex_expect("to_canonical failed")
-            .into_struct()
+        #[expect(deprecated)]
+        let result = self.to_canonical().vortex_expect("to_canonical failed");
+        result.into_struct()
     }
 
     fn to_listview(&self) -> ListViewArray {
-        self.to_canonical()
-            .vortex_expect("to_canonical failed")
-            .into_listview()
+        #[expect(deprecated)]
+        let result = self.to_canonical().vortex_expect("to_canonical failed");
+        result.into_listview()
     }
 
     fn to_fixed_size_list(&self) -> FixedSizeListArray {
-        self.to_canonical()
-            .vortex_expect("to_canonical failed")
-            .into_fixed_size_list()
+        #[expect(deprecated)]
+        let result = self.to_canonical().vortex_expect("to_canonical failed");
+        result.into_fixed_size_list()
     }
 
     fn to_varbinview(&self) -> VarBinViewArray {
-        self.to_canonical()
-            .vortex_expect("to_canonical failed")
-            .into_varbinview()
+        #[expect(deprecated)]
+        let result = self.to_canonical().vortex_expect("to_canonical failed");
+        result.into_varbinview()
     }
 
     fn to_extension(&self) -> ExtensionArray {
-        self.to_canonical()
-            .vortex_expect("to_canonical failed")
-            .into_extension()
+        #[expect(deprecated)]
+        let result = self.to_canonical().vortex_expect("to_canonical failed");
+        result.into_extension()
     }
 }
 

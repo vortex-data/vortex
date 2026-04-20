@@ -25,6 +25,7 @@ impl OperationsVTable<Sparse> for Sparse {
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -42,6 +43,7 @@ mod tests {
         let mut expected = vec![999u64; 1000];
         expected[0] = 0;
 
+        #[expect(deprecated)]
         let values = sliced.to_primitive();
         assert_arrays_eq!(values, PrimitiveArray::from_iter(expected));
     }

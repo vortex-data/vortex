@@ -6,11 +6,14 @@
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::varbin::VarBinArrayExt;
 use vortex_compressor::estimate::CompressionEstimate;
+use vortex_compressor::estimate::DeferredEstimate;
+use vortex_compressor::estimate::EstimateVerdict;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::DescendantExclusion;
 use vortex_error::VortexResult;
@@ -73,7 +76,7 @@ impl Scheme for FSSTScheme {
         _data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> CompressionEstimate {
-        CompressionEstimate::Sample
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
     fn compress(
@@ -82,27 +85,23 @@ impl Scheme for FSSTScheme {
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let utf8 = data.array_as_utf8();
+        let utf8 = data.array_as_utf8().into_owned();
         let compressor_fsst = fsst_train_compressor(&utf8);
         let fsst = fsst_compress(&utf8, utf8.len(), utf8.dtype(), &compressor_fsst);
 
+        #[expect(deprecated)]
+        let uncompressed_lengths_primitive = fsst.uncompressed_lengths().to_primitive().narrow()?;
         let compressed_original_lengths = compressor.compress_child(
-            &fsst
-                .uncompressed_lengths()
-                .to_primitive()
-                .narrow()?
-                .into_array(),
+            &uncompressed_lengths_primitive.into_array(),
             &ctx,
             self.id(),
             0,
         )?;
 
-        let compressed_codes_offsets = compressor.compress_child(
-            &fsst.codes().offsets().to_primitive().narrow()?.into_array(),
-            &ctx,
-            self.id(),
-            1,
-        )?;
+        #[expect(deprecated)]
+        let codes_offsets_primitive = fsst.codes().offsets().to_primitive().narrow()?;
+        let compressed_codes_offsets =
+            compressor.compress_child(&codes_offsets_primitive.into_array(), &ctx, self.id(), 1)?;
         let compressed_codes = VarBinArray::try_new(
             compressed_codes_offsets,
             fsst.codes().bytes().clone(),
@@ -161,16 +160,16 @@ impl Scheme for NullDominatedSparseScheme {
 
         // All-null arrays should be compressed as constant instead anyways.
         if value_count == 0 {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         // If the majority (90%) of values is null, this will compress well.
         if stats.null_count() as f64 / len > 0.9 {
-            return CompressionEstimate::Ratio(len / value_count as f64);
+            return CompressionEstimate::Verdict(EstimateVerdict::Ratio(len / value_count as f64));
         }
 
         // Otherwise we don't go this route.
-        CompressionEstimate::Skip
+        CompressionEstimate::Verdict(EstimateVerdict::Skip)
     }
 
     fn compress(
@@ -184,6 +183,7 @@ impl Scheme for NullDominatedSparseScheme {
 
         if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
             // Compress the indices only (not the values for strings).
+            #[expect(deprecated)]
             let indices = sparse.patches().indices().to_primitive().narrow()?;
             let compressed_indices =
                 compressor.compress_child(&indices.into_array(), &ctx, self.id(), 0)?;
@@ -216,7 +216,7 @@ impl Scheme for ZstdScheme {
         _data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> CompressionEstimate {
-        CompressionEstimate::Sample
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
     fn compress(
@@ -225,7 +225,7 @@ impl Scheme for ZstdScheme {
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let compacted = data.array_as_utf8().compact_buffers()?;
+        let compacted = data.array_as_utf8().into_owned().compact_buffers()?;
         Ok(vortex_zstd::Zstd::from_var_bin_view_without_dict(&compacted, 3, 8192)?.into_array())
     }
 }
@@ -245,7 +245,7 @@ impl Scheme for ZstdBuffersScheme {
         _data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> CompressionEstimate {
-        CompressionEstimate::Sample
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
     fn compress(

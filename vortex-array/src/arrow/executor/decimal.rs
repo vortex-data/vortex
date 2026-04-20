@@ -32,16 +32,21 @@ pub(super) fn to_arrow_decimal(
     let decimal_array = array.execute::<DecimalArray>(ctx)?;
 
     match data_type {
-        DataType::Decimal32(..) => to_arrow_decimal32(decimal_array),
-        DataType::Decimal64(..) => to_arrow_decimal64(decimal_array),
-        DataType::Decimal128(..) => to_arrow_decimal128(decimal_array),
-        DataType::Decimal256(..) => to_arrow_decimal256(decimal_array),
+        DataType::Decimal32(..) => to_arrow_decimal32(decimal_array, ctx),
+        DataType::Decimal64(..) => to_arrow_decimal64(decimal_array, ctx),
+        DataType::Decimal128(..) => to_arrow_decimal128(decimal_array, ctx),
+        DataType::Decimal256(..) => to_arrow_decimal256(decimal_array, ctx),
         _ => unreachable!("to_arrow_decimal called with non-decimal type"),
     }
 }
 
-fn to_arrow_decimal32(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
-    let null_buffer = to_null_buffer(array.validity_mask()?);
+fn to_arrow_decimal32(array: DecimalArray, ctx: &mut ExecutionCtx) -> VortexResult<ArrowArrayRef> {
+    let null_buffer = to_null_buffer(
+        array
+            .as_ref()
+            .validity()?
+            .to_mask(array.as_ref().len(), ctx)?,
+    );
     let buffer: Buffer<i32> = match array.values_type() {
         DecimalType::I8 => {
             Buffer::from_trusted_len_iter(array.buffer::<i8>().into_iter().map(|x| x.as_()))
@@ -84,8 +89,13 @@ fn to_arrow_decimal32(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
     ))
 }
 
-fn to_arrow_decimal64(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
-    let null_buffer = to_null_buffer(array.validity_mask()?);
+fn to_arrow_decimal64(array: DecimalArray, ctx: &mut ExecutionCtx) -> VortexResult<ArrowArrayRef> {
+    let null_buffer = to_null_buffer(
+        array
+            .as_ref()
+            .validity()?
+            .to_mask(array.as_ref().len(), ctx)?,
+    );
     let buffer: Buffer<i64> = match array.values_type() {
         DecimalType::I8 => {
             Buffer::from_trusted_len_iter(array.buffer::<i8>().into_iter().map(|x| x.as_()))
@@ -123,8 +133,13 @@ fn to_arrow_decimal64(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
     ))
 }
 
-fn to_arrow_decimal128(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
-    let null_buffer = to_null_buffer(array.validity_mask()?);
+fn to_arrow_decimal128(array: DecimalArray, ctx: &mut ExecutionCtx) -> VortexResult<ArrowArrayRef> {
+    let null_buffer = to_null_buffer(
+        array
+            .as_ref()
+            .validity()?
+            .to_mask(array.as_ref().len(), ctx)?,
+    );
     let buffer: Buffer<i128> = match array.values_type() {
         DecimalType::I8 => {
             Buffer::from_trusted_len_iter(array.buffer::<i8>().into_iter().map(|x| x.as_()))
@@ -157,8 +172,13 @@ fn to_arrow_decimal128(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
     ))
 }
 
-fn to_arrow_decimal256(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
-    let null_buffer = to_null_buffer(array.validity_mask()?);
+fn to_arrow_decimal256(array: DecimalArray, ctx: &mut ExecutionCtx) -> VortexResult<ArrowArrayRef> {
+    let null_buffer = to_null_buffer(
+        array
+            .as_ref()
+            .validity()?
+            .to_mask(array.as_ref().len(), ctx)?,
+    );
     let buffer: Buffer<i256> = match array.values_type() {
         DecimalType::I8 => {
             Buffer::from_trusted_len_iter(array.buffer::<i8>().into_iter().map(|x| x.as_()))

@@ -259,8 +259,8 @@ mod tests {
         );
 
         let layout_ctx = ReadContext::new([
-            LayoutEncodingId::new_ref("vortex.test.foreign_layout"),
-            LayoutEncodingId::new_ref("vortex.test.foreign_child_layout"),
+            LayoutEncodingId::new("vortex.test.foreign_layout"),
+            LayoutEncodingId::new("vortex.test.foreign_child_layout"),
         ]);
         let array_ctx = ReadContext::new([]);
         let layouts = LayoutSession::default().registry().clone();

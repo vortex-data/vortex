@@ -5,8 +5,6 @@ use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::arrays::ConstantArray;
@@ -20,25 +18,24 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
     fn scalar_at(
         array: ArrayView<'_, ScalarFnVTable>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let inputs: Vec<_> = array
             .children()
             .iter()
-            .map(|child| Ok(ConstantArray::new(child.scalar_at(index)?, 1).into_array()))
+            .map(|child| Ok(ConstantArray::new(child.execute_scalar(index, ctx)?, 1).into_array()))
             .collect::<VortexResult<_>>()?;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let args = VecExecutionArgs::new(inputs, 1);
-        let result = array.scalar_fn().execute(&args, &mut ctx)?;
+        let result = array.scalar_fn().execute(&args, ctx)?;
 
-        let scalar = match result.execute::<Columnar>(&mut ctx)? {
+        let scalar = match result.execute::<Columnar>(ctx)? {
             Columnar::Canonical(arr) => {
                 tracing::info!(
                     "Scalar function {} returned non-constant array from execution over all scalar inputs",
                     array.scalar_fn(),
                 );
-                arr.into_array().scalar_at(0)?
+                arr.into_array().execute_scalar(0, ctx)?
             }
             Columnar::Constant(constant) => constant.scalar().clone(),
         };
@@ -61,7 +58,10 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
+    use crate::Canonical;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::ScalarFnArray;
@@ -79,7 +79,10 @@ mod tests {
         let scalar_fn = ScalarFn::new(Binary, Operator::Add).erased();
         let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
 
-        let result = scalar_fn_array.to_canonical()?.into_array();
+        let result = scalar_fn_array
+            .into_array()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
         let expected = buffer![11i32, 22, 33].into_array();
         assert_arrays_eq!(result, expected);
 
@@ -94,7 +97,10 @@ mod tests {
         let scalar_fn = ScalarFn::new(Binary, Operator::Mul).erased();
         let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
 
-        let result = scalar_fn_array.to_canonical()?.into_array();
+        let result = scalar_fn_array
+            .into_array()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
         let expected = buffer![10i32, 18, 28].into_array();
         assert_arrays_eq!(result, expected);
 
@@ -113,7 +119,10 @@ mod tests {
         let scalar_fn = ScalarFn::new(Binary, Operator::Add).erased();
         let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
 
-        let result = scalar_fn_array.to_canonical()?.into_array();
+        let result = scalar_fn_array
+            .into_array()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
         let expected = PrimitiveArray::new(
             buffer![11i32, 0, 33],
             Validity::from_iter([true, false, true]),
@@ -132,7 +141,10 @@ mod tests {
         let scalar_fn = ScalarFn::new(Binary, Operator::Eq).erased();
         let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
 
-        let result = scalar_fn_array.to_canonical()?.into_array();
+        let result = scalar_fn_array
+            .into_array()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
         let expected = BoolArray::from_iter([false, true, false]).into_array();
         assert_arrays_eq!(result, expected);
 

@@ -30,6 +30,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::FoRData;
 use crate::r#for::array::FoRArrayExt;
@@ -66,7 +67,8 @@ impl VTable for FoR {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("fastlanes.for");
+        *ID
     }
 
     fn validate(
@@ -162,8 +164,6 @@ impl VTable for FoR {
 pub struct FoR;
 
 impl FoR {
-    pub const ID: ArrayId = ArrayId::new_ref("fastlanes.for");
-
     /// Construct a new FoR array from an encoded array and a reference scalar.
     pub fn try_new(encoded: ArrayRef, reference: Scalar) -> VortexResult<FoRArray> {
         vortex_ensure!(!reference.is_null(), "Reference value cannot be null");

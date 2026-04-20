@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::panic)]
-#![allow(clippy::many_single_char_names)]
-
 use rstest::rstest;
 use vortex_buffer::BitBuffer;
 

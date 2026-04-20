@@ -16,7 +16,7 @@ impl OperationsVTable<ALPRD> for ALPRD {
     fn scalar_at(
         array: ArrayView<'_, ALPRD>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         // The left value can either be a direct value, or an exception.
         // The exceptions array represents exception positions with non-null values.
@@ -32,7 +32,7 @@ impl OperationsVTable<ALPRD> for ALPRD {
             _ => {
                 let left_code: u16 = array
                     .left_parts()
-                    .scalar_at(index)?
+                    .execute_scalar(index, ctx)?
                     .as_primitive()
                     .as_::<u16>()
                     .vortex_expect("left_code must be non-null");
@@ -44,7 +44,7 @@ impl OperationsVTable<ALPRD> for ALPRD {
         Ok(if array.dtype().as_ptype() == PType::F32 {
             let right: u32 = array
                 .right_parts()
-                .scalar_at(index)?
+                .execute_scalar(index, ctx)?
                 .as_primitive()
                 .as_::<u32>()
                 .vortex_expect("non-null");
@@ -53,7 +53,7 @@ impl OperationsVTable<ALPRD> for ALPRD {
         } else {
             let right: u64 = array
                 .right_parts()
-                .scalar_at(index)?
+                .execute_scalar(index, ctx)?
                 .as_primitive()
                 .as_::<u64>()
                 .vortex_expect("non-null");
@@ -79,7 +79,7 @@ mod test {
     #[case(0.1f64, 0.2f64, 3e100f64)]
     fn test_slice<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
         let array = PrimitiveArray::from_iter([a, b, outlier]);
-        let encoded = RDEncoder::new(&[a, b]).encode(&array);
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
 
         assert!(encoded.left_parts_patches().is_some());
         assert_arrays_eq!(encoded, array);
@@ -94,7 +94,7 @@ mod test {
         #[case] outlier: T,
     ) {
         let array = PrimitiveArray::from_iter([a, b, outlier]);
-        let encoded = RDEncoder::new(&[a, b]).encode(&array);
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
         assert!(encoded.left_parts_patches().is_some());
         assert_arrays_eq!(encoded, array);
     }
@@ -105,7 +105,7 @@ mod test {
         let b = 0.2f64;
         let outlier = 3e100f64;
         let array = PrimitiveArray::from_option_iter([Some(a), Some(b), Some(outlier)]);
-        let encoded = RDEncoder::new(&[a, b]).encode(&array);
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
         assert!(encoded.left_parts_patches().is_some());
         assert_arrays_eq!(
             encoded,

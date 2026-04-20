@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::cast_possible_truncation)]
-
-use std::env;
-use std::sync::LazyLock;
+#![expect(clippy::cast_possible_truncation)]
 
 pub use bitpacking::*;
 pub use delta::*;
 pub use r#for::*;
 pub use rle::*;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::validity::Validity;
@@ -27,28 +25,20 @@ pub(crate) const FL_CHUNK_SIZE: usize = 1024;
 use bitpacking::compute::is_constant::BitPackedIsConstantKernel;
 use r#for::compute::is_constant::FoRIsConstantKernel;
 use r#for::compute::is_sorted::FoRIsSortedKernel;
+use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
-
-/// Flag indicating if experimental patched array support is enabled.
-///
-/// This is set using the environment variable `VORTEX_EXPERIMENTAL_PATCHED_ARRAY`.
-///
-/// When this is true, any BitPacked array with interior patches will be read as a `Patched`
-/// array, and the builtin compressor will use Patched array with BitPacked instead of
-/// BitPacked array with interior patches.
-pub static USE_EXPERIMENTAL_PATCHES: LazyLock<bool> =
-    LazyLock::new(|| env::var("VORTEX_EXPERIMENTAL_PATCHED_ARRAY").is_ok());
 
 /// Initialize fastlanes encodings in the given session.
 pub fn initialize(session: &VortexSession) {
     // If we're using the experimental Patched encoding, register a shim
     // for BitPacked with interior patches decode as Patched array.
-    if *USE_EXPERIMENTAL_PATCHES {
+    if use_experimental_patches() {
         session.arrays().register(BitPackedPatchedPlugin);
     } else {
         session.arrays().register(BitPacked);
@@ -59,17 +49,17 @@ pub fn initialize(session: &VortexSession) {
 
     // Register the encoding-specific aggregate kernels.
     session.aggregate_fns().register_aggregate_kernel(
-        BitPacked::ID,
+        BitPacked.id(),
         Some(IsConstant.id()),
         &BitPackedIsConstantKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
-        FoR::ID,
+        FoR.id(),
         Some(IsConstant.id()),
         &FoRIsConstantKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
-        FoR::ID,
+        FoR.id(),
         Some(IsSorted.id()),
         &FoRIsSortedKernel,
     );
@@ -93,6 +83,7 @@ pub(crate) fn fill_forward_nulls<T: Copy + Default>(
         Validity::NonNullable | Validity::AllValid => values,
         Validity::AllInvalid => Buffer::zeroed(values.len()),
         Validity::Array(validity_array) => {
+            #[expect(deprecated)]
             let bit_buffer = validity_array.to_bool().to_bit_buffer();
             let mut last_valid = T::default();
             match values.try_into_mut() {

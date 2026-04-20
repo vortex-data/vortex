@@ -6,6 +6,8 @@ use vortex_mask::AllOr;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
@@ -18,7 +20,12 @@ use crate::validity::Validity;
 
 impl TakeReduce for Constant {
     fn take(array: ArrayView<'_, Constant>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        let result = match indices.validity_mask()?.bit_buffer() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let result = match indices
+            .validity()?
+            .to_mask(indices.len(), &mut ctx)?
+            .bit_buffer()
+        {
             AllOr::All => {
                 let scalar = Scalar::try_new(
                     array
@@ -64,7 +71,10 @@ mod tests {
     use vortex_mask::AllOr;
 
     use crate::IntoArray;
-    use crate::ToCanonical;
+    use crate::LEGACY_SESSION;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
+    use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -91,6 +101,7 @@ mod tests {
             taken.dtype()
         );
         assert_arrays_eq!(
+            #[expect(deprecated)]
             taken.to_primitive(),
             PrimitiveArray::new(
                 buffer![42i32, 42, 42],
@@ -98,7 +109,12 @@ mod tests {
             )
         );
         assert_eq!(
-            taken.validity_mask().unwrap().indices(),
+            taken
+                .validity()
+                .unwrap()
+                .to_mask(taken.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .indices(),
             AllOr::Some(valid_indices)
         );
     }
@@ -114,10 +130,19 @@ mod tests {
             taken.dtype()
         );
         assert_arrays_eq!(
+            #[expect(deprecated)]
             taken.to_primitive(),
             PrimitiveArray::new(buffer![42i32, 42, 42], Validity::AllValid)
         );
-        assert_eq!(taken.validity_mask().unwrap().indices(), AllOr::All);
+        assert_eq!(
+            taken
+                .validity()
+                .unwrap()
+                .to_mask(taken.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .indices(),
+            AllOr::All
+        );
     }
 
     #[rstest]

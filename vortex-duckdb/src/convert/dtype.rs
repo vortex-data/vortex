@@ -171,6 +171,7 @@ impl FromLogicalType for DType {
             DUCKDB_TYPE::DUCKDB_TYPE_BIGNUM => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_STRING_LITERAL => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_INTEGER_LITERAL => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_GEOMETRY => todo!(),
         })
     }
 }
@@ -583,7 +584,7 @@ mod tests {
             type NativeValue<'a> = &'a str;
 
             fn id(&self) -> ExtId {
-                ExtId::new_ref("unknown.extension")
+                ExtId::new("unknown.extension")
             }
 
             fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {

@@ -12,6 +12,7 @@ use crate::aggregate_fn::fns::is_constant::is_constant;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::arrays::Dict;
 use crate::arrays::dict::DictArrayExt;
+use crate::arrays::dict::DictArraySlotsExt;
 use crate::scalar::Scalar;
 
 /// Dict-specific is_constant kernel.
@@ -39,7 +40,7 @@ impl DynAggregateKernel for DictIsConstantKernel {
 
         // If codes are constant, only one dictionary value is referenced → constant.
         if is_constant(dict.codes(), ctx)? {
-            return Ok(Some(IsConstant::make_partial(batch, true)?));
+            return Ok(Some(IsConstant::make_partial(batch, true, ctx)?));
         }
 
         // Otherwise, check the values array. Filter to only referenced values if needed.
@@ -52,6 +53,6 @@ impl DynAggregateKernel for DictIsConstantKernel {
             is_constant(&filtered_values, ctx)?
         };
 
-        Ok(Some(IsConstant::make_partial(batch, result)?))
+        Ok(Some(IsConstant::make_partial(batch, result, ctx)?))
     }
 }

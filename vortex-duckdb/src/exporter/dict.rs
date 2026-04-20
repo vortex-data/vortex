@@ -11,13 +11,12 @@ use vortex::array::arrays::Constant;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
-use vortex::array::arrays::dict::DictArrayExt;
+use vortex::array::arrays::dict::DictArraySlotsExt;
 use vortex::array::match_each_integer_ptype;
 use vortex::dtype::IntegerPType;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
-use crate::duckdb::LogicalType;
 use crate::duckdb::ReusableDict;
 use crate::duckdb::SelectionVector;
 use crate::duckdb::VectorRef;
@@ -43,21 +42,23 @@ pub(crate) fn new_exporter_with_flatten(
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     // Grab the cache dictionary values.
     let values = array.values();
-    let values_type: LogicalType = values.dtype().try_into()?;
+    let codes = array.codes();
+    let codes_len = codes.len();
+
     if let Some(constant) = values.as_opt::<Constant>() {
         return constant::new_exporter_with_mask(
-            ConstantArray::new(constant.scalar().clone(), array.codes().len()),
-            array.codes().validity_mask()?,
+            ConstantArray::new(constant.scalar().clone(), codes_len),
+            codes.validity()?.to_mask(codes_len, ctx)?,
             cache,
             ctx,
         );
     }
 
-    let codes_mask = array.codes().validity_mask()?;
+    let codes_mask = codes.validity()?.to_mask(codes_len, ctx)?;
 
     match codes_mask {
         Mask::AllTrue(_) => {}
-        Mask::AllFalse(len) => return Ok(all_invalid::new_exporter(len, &values_type)),
+        Mask::AllFalse(_) => return Ok(all_invalid::new_exporter()),
         Mask::Values(_) => {
             // duckdb cannot have a dictionary with validity in the codes, so flatten the array and
             // apply the validity mask there.
@@ -76,6 +77,7 @@ pub(crate) fn new_exporter_with_flatten(
         let canonical = match canonical {
             Some(c) => c,
             None => {
+                #[expect(deprecated)]
                 let canonical = values.to_canonical()?;
                 cache
                     .canonical_cache

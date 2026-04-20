@@ -102,9 +102,13 @@ impl FileStatsLayoutReader {
             .execute::<Canonical>(&mut ctx)?
             .into_bool()
             .into_array()
-            .scalar_at(0)?;
+            .execute_scalar(0, &mut ctx)?;
 
         Ok(result.as_bool().value() == Some(true))
+    }
+
+    pub fn file_stats(&self) -> &FileStatistics {
+        &self.file_stats
     }
 }
 
@@ -191,6 +195,10 @@ impl LayoutReader for FileStatsLayoutReader {
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         self.child.projection_evaluation(row_range, expr, mask)
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 

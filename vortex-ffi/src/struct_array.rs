@@ -28,6 +28,7 @@ crate::box_wrapper!(StructBuilder, vx_struct_column_builder);
 
 /// Create a new column-wise struct array builder with given validity and a
 /// capacity hint. validity can't be NULL.
+/// Capacity hint is for the number of columns.
 /// If you don't know capacity, pass 0.
 /// if validity is NULL, returns NULL.
 #[unsafe(no_mangle)]
@@ -132,6 +133,7 @@ mod tests {
     use std::sync::Arc;
 
     use vortex::array::IntoArray;
+    #[expect(deprecated)]
     use vortex::array::ToCanonical;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
@@ -236,6 +238,7 @@ mod tests {
             assert!(!array.is_null());
 
             {
+                #[expect(deprecated)]
                 let array = vx_array::as_ref(array).to_struct();
                 assert_arrays_eq!(array, struct_array);
             }

@@ -6,21 +6,34 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use super::IsSortedIteratorExt;
+use crate::ExecutionCtx;
 use crate::arrays::DecimalArray;
 use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
 
-pub(super) fn check_decimal_sorted(array: &DecimalArray, strict: bool) -> VortexResult<bool> {
+pub(super) fn check_decimal_sorted(
+    array: &DecimalArray,
+    strict: bool,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<bool> {
     match_each_decimal_value_type!(array.values_type(), |S| {
-        compute_is_sorted::<S>(array, strict)
+        compute_is_sorted::<S>(array, strict, ctx)
     })
 }
 
-fn compute_is_sorted<T: NativeDecimalType>(array: &DecimalArray, strict: bool) -> VortexResult<bool>
+fn compute_is_sorted<T: NativeDecimalType>(
+    array: &DecimalArray,
+    strict: bool,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<bool>
 where
     dyn Iterator<Item = T>: IsSortedIteratorExt,
 {
-    match array.validity_mask()? {
+    match array
+        .as_ref()
+        .validity()?
+        .to_mask(array.as_ref().len(), ctx)?
+    {
         Mask::AllFalse(_) => Ok(!strict),
         Mask::AllTrue(_) => {
             let buf = array.buffer::<T>();

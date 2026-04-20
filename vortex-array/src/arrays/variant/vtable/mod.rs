@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -29,10 +30,6 @@ pub type VariantArray = Array<Variant>;
 #[derive(Clone, Debug)]
 pub struct Variant;
 
-impl Variant {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.variant");
-}
-
 impl VTable for Variant {
     type ArrayData = EmptyArrayData;
 
@@ -41,7 +38,8 @@ impl VTable for Variant {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.variant");
+        *ID
     }
 
     fn validate(

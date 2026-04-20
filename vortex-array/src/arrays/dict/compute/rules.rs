@@ -8,13 +8,14 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::Precision;
 use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::DictArray;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::ScalarFnVTable;
-use crate::arrays::dict::DictArrayExt;
+use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
@@ -28,6 +29,7 @@ use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::like::LikeReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::scalar_fn::fns::pack::Pack;
+use crate::validity::Validity;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Dict> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&FilterReduceAdaptor(Dict)),
@@ -80,7 +82,7 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
             tracing::trace!(
                 "Not pushing down fallible scalar function {} over dictionary with sparse codes {}",
                 parent.scalar_fn(),
-                Dict::ID,
+                Dict.id(),
             );
             return Ok(None);
         }
@@ -98,13 +100,16 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
         // If the scalar function is null-sensitive, then we cannot push it down to values if
         // we have any nulls in the codes.
         if array.codes().dtype().is_nullable()
-            && !array.codes().all_valid()?
+            && !matches!(
+                array.codes().validity()?,
+                Validity::NonNullable | Validity::AllValid
+            )
             && sig.is_null_sensitive()
         {
             tracing::trace!(
                 "Not pushing down null-sensitive scalar function {} over dictionary with null codes {}",
                 parent.scalar_fn(),
-                Dict::ID,
+                Dict.id(),
             );
             return Ok(None);
         }

@@ -16,7 +16,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -28,6 +28,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::RLEData;
 use crate::rle::array::INDICES_SLOT;
@@ -80,7 +81,8 @@ impl VTable for RLE {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("fastlanes.rle");
+        *ID
     }
 
     fn validate(
@@ -209,8 +211,6 @@ impl VTable for RLE {
 pub struct RLE;
 
 impl RLE {
-    pub const ID: ArrayId = ArrayId::new_ref("fastlanes.rle");
-
     pub fn try_new(
         values: ArrayRef,
         indices: ArrayRef,
@@ -244,7 +244,7 @@ impl RLE {
     }
 
     /// Encode a primitive array using FastLanes RLE.
-    pub fn encode(array: &PrimitiveArray) -> VortexResult<RLEArray> {
+    pub fn encode(array: ArrayView<'_, Primitive>) -> VortexResult<RLEArray> {
         RLEData::encode(array)
     }
 }

@@ -4,8 +4,11 @@
 use std::mem;
 
 use fastlanes::RLE as FastLanesRLE;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::primitive::NativeValue;
@@ -25,8 +28,9 @@ use crate::fill_forward_nulls;
 
 impl RLEData {
     /// Encodes a primitive array of unsigned integers using FastLanes RLE.
-    pub fn encode(array: &PrimitiveArray) -> VortexResult<RLEArray> {
-        match_each_native_ptype!(array.ptype(), |T| { rle_encode_typed::<T>(array) })
+    pub fn encode(array: ArrayView<'_, Primitive>) -> VortexResult<RLEArray> {
+        let array = array.into_owned();
+        match_each_native_ptype!(array.ptype(), |T| { rle_encode_typed::<T>(&array) })
     }
 }
 
@@ -135,6 +139,7 @@ fn padded_validity(array: &PrimitiveArray) -> Validity {
 
             let mut builder = BitBufferMut::with_capacity(padded_len);
 
+            #[expect(deprecated)]
             let bool_array = validity_array.to_bool();
             builder.append_buffer(&bool_array.to_bit_buffer());
             builder.append_n(false, padded_len - len);
@@ -148,6 +153,7 @@ fn padded_validity(array: &PrimitiveArray) -> Validity {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::MaskedArray;
@@ -166,7 +172,9 @@ mod tests {
         // u8
         let array_u8: Buffer<u8> = buffer![1, 1, 2, 2, 3, 3];
         let encoded_u8 =
-            RLEData::encode(&PrimitiveArray::new(array_u8, Validity::NonNullable)).unwrap();
+            RLEData::encode(PrimitiveArray::new(array_u8, Validity::NonNullable).as_view())
+                .unwrap();
+        #[expect(deprecated)]
         let decoded_u8 = encoded_u8.as_array().to_primitive();
         let expected_u8 = PrimitiveArray::from_iter(vec![1u8, 1, 2, 2, 3, 3]);
         assert_arrays_eq!(decoded_u8, expected_u8);
@@ -174,7 +182,9 @@ mod tests {
         // u16
         let array_u16: Buffer<u16> = buffer![100, 100, 200, 200];
         let encoded_u16 =
-            RLEData::encode(&PrimitiveArray::new(array_u16, Validity::NonNullable)).unwrap();
+            RLEData::encode(PrimitiveArray::new(array_u16, Validity::NonNullable).as_view())
+                .unwrap();
+        #[expect(deprecated)]
         let decoded_u16 = encoded_u16.as_array().to_primitive();
         let expected_u16 = PrimitiveArray::from_iter(vec![100u16, 100, 200, 200]);
         assert_arrays_eq!(decoded_u16, expected_u16);
@@ -182,7 +192,9 @@ mod tests {
         // u64
         let array_u64: Buffer<u64> = buffer![1000, 1000, 2000];
         let encoded_u64 =
-            RLEData::encode(&PrimitiveArray::new(array_u64, Validity::NonNullable)).unwrap();
+            RLEData::encode(PrimitiveArray::new(array_u64, Validity::NonNullable).as_view())
+                .unwrap();
+        #[expect(deprecated)]
         let decoded_u64 = encoded_u64.as_array().to_primitive();
         let expected_u64 = PrimitiveArray::from_iter(vec![1000u64, 1000, 2000]);
         assert_arrays_eq!(decoded_u64, expected_u64);
@@ -191,14 +203,16 @@ mod tests {
     #[test]
     fn test_length() {
         let values: Buffer<u32> = buffer![1, 1, 2, 2, 2, 3];
-        let encoded = RLEData::encode(&PrimitiveArray::new(values, Validity::NonNullable)).unwrap();
+        let encoded =
+            RLEData::encode(PrimitiveArray::new(values, Validity::NonNullable).as_view()).unwrap();
         assert_eq!(encoded.len(), 6);
     }
 
     #[test]
     fn test_empty_length() {
         let values: Buffer<u32> = Buffer::empty();
-        let encoded = RLEData::encode(&PrimitiveArray::new(values, Validity::NonNullable)).unwrap();
+        let encoded =
+            RLEData::encode(PrimitiveArray::new(values, Validity::NonNullable).as_view()).unwrap();
 
         assert_eq!(encoded.len(), 0);
         assert_eq!(encoded.values().len(), 0);
@@ -208,9 +222,11 @@ mod tests {
     fn test_single_value() {
         let values: Buffer<u16> = vec![42; 2000].into_iter().collect();
 
-        let encoded = RLEData::encode(&PrimitiveArray::new(values, Validity::NonNullable)).unwrap();
+        let encoded =
+            RLEData::encode(PrimitiveArray::new(values, Validity::NonNullable).as_view()).unwrap();
         assert_eq!(encoded.values().len(), 2); // 2 chunks, each storing value 42
 
+        #[expect(deprecated)]
         let decoded = encoded.as_array().to_primitive(); // Verify round-trip
         let expected = PrimitiveArray::from_iter(vec![42u16; 2000]);
         assert_arrays_eq!(decoded, expected);
@@ -220,9 +236,11 @@ mod tests {
     fn test_all_different() {
         let values: Buffer<u8> = (0u8..=255).collect();
 
-        let encoded = RLEData::encode(&PrimitiveArray::new(values, Validity::NonNullable)).unwrap();
+        let encoded =
+            RLEData::encode(PrimitiveArray::new(values, Validity::NonNullable).as_view()).unwrap();
         assert_eq!(encoded.values().len(), 256);
 
+        #[expect(deprecated)]
         let decoded = encoded.as_array().to_primitive(); // Verify round-trip
         let expected = PrimitiveArray::from_iter((0u8..=255).collect::<Vec<_>>());
         assert_arrays_eq!(decoded, expected);
@@ -234,7 +252,7 @@ mod tests {
         let values: Buffer<u32> = (0..1500).map(|i| (i / 100) as u32).collect();
         let array = PrimitiveArray::new(values, Validity::NonNullable);
 
-        let encoded = RLEData::encode(&array).unwrap();
+        let encoded = RLEData::encode(array.as_view()).unwrap();
 
         assert_eq!(encoded.len(), 1500);
         assert_arrays_eq!(encoded, array);
@@ -248,7 +266,7 @@ mod tests {
         let values: Buffer<u32> = (0..2048).map(|i| (i / 100) as u32).collect();
         let array = PrimitiveArray::new(values, Validity::NonNullable);
 
-        let encoded = RLEData::encode(&array).unwrap();
+        let encoded = RLEData::encode(array.as_view()).unwrap();
 
         assert_eq!(encoded.len(), 2048);
         assert_arrays_eq!(encoded, array);
@@ -268,8 +286,10 @@ mod tests {
     #[case::f32((-2000..2000).map(|i| i as f32).collect::<Buffer<f32>>())]
     #[case::f64((-2000..2000).map(|i| i as f64).collect::<Buffer<f64>>())]
     fn test_roundtrip_primitive_types<T: NativePType>(#[case] values: Buffer<T>) {
+        #[expect(deprecated)]
         let primitive = values.clone().into_array().to_primitive();
-        let result = RLEData::encode(&primitive).unwrap();
+        let result = RLEData::encode(primitive.as_view()).unwrap();
+        #[expect(deprecated)]
         let decoded = result.as_array().to_primitive();
         let expected = PrimitiveArray::new(
             values,
@@ -287,6 +307,7 @@ mod tests {
     /// fill-forward default at index 0 and the actual value at index 1), which
     /// holds whenever the first position of each chunk is null.
     fn with_masked_constant_indices(rle: &RLEArray) -> VortexResult<RLEArray> {
+        #[expect(deprecated)]
         let indices_prim = rle.indices().to_primitive();
         let masked_indices = MaskedArray::try_new(
             ConstantArray::new(1u16, indices_prim.len()).into_array(),
@@ -306,7 +327,7 @@ mod tests {
     fn test_encode_all_null_chunk() -> VortexResult<()> {
         let values: Vec<Option<u32>> = vec![None; FL_CHUNK_SIZE];
         let original = PrimitiveArray::from_option_iter(values);
-        let rle = RLEData::encode(&original)?;
+        let rle = RLEData::encode(original.as_view())?;
         let decoded = with_masked_constant_indices(&rle)?;
         assert_arrays_eq!(decoded, original);
         Ok(())
@@ -318,7 +339,7 @@ mod tests {
         let mut values: Vec<Option<u32>> = vec![None; 2 * FL_CHUNK_SIZE];
         values[FL_CHUNK_SIZE + 100] = Some(42);
         let original = PrimitiveArray::from_option_iter(values);
-        let rle = RLEData::encode(&original)?;
+        let rle = RLEData::encode(original.as_view())?;
         let decoded = with_masked_constant_indices(&rle)?;
         assert_arrays_eq!(decoded, original);
         Ok(())
@@ -330,7 +351,7 @@ mod tests {
         let mut values: Vec<Option<u32>> = vec![None; FL_CHUNK_SIZE];
         values[1000] = Some(42);
         let original = PrimitiveArray::from_option_iter(values);
-        let rle = RLEData::encode(&original)?;
+        let rle = RLEData::encode(original.as_view())?;
         let decoded = with_masked_constant_indices(&rle)?;
         assert_arrays_eq!(decoded, original);
         Ok(())
@@ -352,7 +373,7 @@ mod tests {
             values[pos] = Some(-1);
         }
         let original = PrimitiveArray::from_option_iter(values);
-        let rle = RLEData::encode(&original)?;
+        let rle = RLEData::encode(original.as_view())?;
         let decoded = with_masked_constant_indices(&rle)?;
         assert_arrays_eq!(decoded, original);
         Ok(())
@@ -364,6 +385,7 @@ mod tests {
     /// positions, which can happen when indices are further compressed and the
     /// compressor clobbers invalid entries with arbitrary data.
     fn with_random_invalid_indices(rle: &RLEArray) -> VortexResult<RLEArray> {
+        #[expect(deprecated)]
         let indices_prim = rle.indices().to_primitive();
         let mut indices_data: Vec<u16> = indices_prim.as_slice::<u16>().to_vec();
 
@@ -396,7 +418,7 @@ mod tests {
     fn test_random_invalid_indices_all_null_chunk() -> VortexResult<()> {
         let values: Vec<Option<u32>> = vec![None; FL_CHUNK_SIZE];
         let original = PrimitiveArray::from_option_iter(values);
-        let rle = RLEData::encode(&original)?;
+        let rle = RLEData::encode(original.as_view())?;
         let clobbered = with_random_invalid_indices(&rle)?;
         assert_arrays_eq!(clobbered, original);
         Ok(())
@@ -409,7 +431,7 @@ mod tests {
         values[500] = Some(20);
         values[1000] = Some(30);
         let original = PrimitiveArray::from_option_iter(values);
-        let rle = RLEData::encode(&original)?;
+        let rle = RLEData::encode(original.as_view())?;
         let clobbered = with_random_invalid_indices(&rle)?;
         assert_arrays_eq!(clobbered, original);
         Ok(())
@@ -423,7 +445,7 @@ mod tests {
         values[500] = Some(20);
         values[FL_CHUNK_SIZE + 100] = Some(42);
         let original = PrimitiveArray::from_option_iter(values);
-        let rle = RLEData::encode(&original)?;
+        let rle = RLEData::encode(original.as_view())?;
         let clobbered = with_random_invalid_indices(&rle)?;
         assert_arrays_eq!(clobbered, original);
         Ok(())
@@ -438,7 +460,7 @@ mod tests {
             values[i] = Some(i as u32);
         }
         let original = PrimitiveArray::from_option_iter(values);
-        let rle = RLEData::encode(&original)?;
+        let rle = RLEData::encode(original.as_view())?;
         let clobbered = with_random_invalid_indices(&rle)?;
         assert_arrays_eq!(clobbered, original);
         Ok(())
@@ -454,7 +476,7 @@ mod tests {
             values[i] = None;
         }
         let original = PrimitiveArray::from_option_iter(values);
-        let rle = RLEData::encode(&original)?;
+        let rle = RLEData::encode(original.as_view())?;
         let clobbered = with_random_invalid_indices(&rle)?;
         assert_arrays_eq!(clobbered, original);
         Ok(())
@@ -468,7 +490,8 @@ mod tests {
     #[case(vec![0f64, -0f64])]
     fn test_float_zeros<T: NativePType + fastlanes::RLE>(#[case] values: Vec<T>) {
         let primitive = PrimitiveArray::from_iter(values);
-        let rle = RLEData::encode(&primitive).unwrap();
+        let rle = RLEData::encode(primitive.as_view()).unwrap();
+        #[expect(deprecated)]
         let decoded = rle.as_array().to_primitive();
         assert_arrays_eq!(primitive, decoded);
     }

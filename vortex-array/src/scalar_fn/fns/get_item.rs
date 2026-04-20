@@ -44,7 +44,7 @@ impl ScalarFnVTable for GetItem {
     type Options = FieldName;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.get_item")
+        ScalarFnId::new("vortex.get_item")
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

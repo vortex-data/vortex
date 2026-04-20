@@ -56,7 +56,6 @@ fn navigate_layout_down(app: &mut AppState, amount: usize) {
 /// Handle a key event in normal input mode.
 ///
 /// Returns [`HandleResult::Exit`] if the user pressed the quit key.
-#[allow(clippy::cognitive_complexity)]
 pub(crate) fn handle_normal_mode(app: &mut AppState, event: InputEvent) -> HandleResult {
     // Check if we're in Query tab with SQL input focus - handle text input first
     #[cfg(feature = "native")]

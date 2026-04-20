@@ -14,6 +14,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::dict::DictArrayExt;
+use crate::arrays::dict::DictArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
@@ -93,7 +94,10 @@ mod tests {
     use vortex_error::VortexExpect;
 
     use crate::IntoArray;
-    use crate::ToCanonical;
+    use crate::LEGACY_SESSION;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
+    use crate::VortexSessionExecute;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -118,8 +122,13 @@ mod tests {
             .into_array()
             .fill_null(Scalar::primitive(20, Nullability::NonNullable))
             .vortex_expect("operation should succeed in test");
+        #[expect(deprecated)]
         let filled_primitive = filled.to_primitive();
         assert_arrays_eq!(filled_primitive, PrimitiveArray::from_iter([10, 20, 20]));
-        assert!(filled_primitive.all_valid().unwrap());
+        assert!(
+            filled_primitive
+                .all_valid(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
     }
 }

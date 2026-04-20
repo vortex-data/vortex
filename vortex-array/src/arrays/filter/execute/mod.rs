@@ -54,7 +54,7 @@ fn filter_validity(validity: Validity, mask: &Arc<MaskValues>) -> Validity {
 /// Check for some fast-path execution conditions before calling [`execute_filter`].
 pub(super) fn execute_filter_fast_paths(
     array: ArrayView<'_, Filter>,
-    _ctx: &mut ExecutionCtx,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     let true_count = array.mask.true_count();
 
@@ -70,7 +70,13 @@ pub(super) fn execute_filter_fast_paths(
 
     // Also check if the array itself is completely null, in which case we only care about the total
     // number of nulls, not the values.
-    if array.array().validity_mask()?.true_count() == 0 {
+    let child_arr = array.array();
+    if child_arr
+        .validity()?
+        .to_mask(child_arr.len(), ctx)?
+        .true_count()
+        == 0
+    {
         return Ok(Some(
             ConstantArray::new(Scalar::null(array.dtype().clone()), true_count).into_array(),
         ));

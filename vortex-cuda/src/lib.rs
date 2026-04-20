@@ -47,7 +47,6 @@ use kernel::ZigZagExecutor;
 use kernel::ZstdBuffersExecutor;
 use kernel::ZstdExecutor;
 pub use kernel::ZstdKernelPrep;
-pub use kernel::transpose_patches;
 pub use kernel::zstd_kernel_prepare;
 pub use pinned::PinnedByteBufferPool;
 pub use pinned::PinnedPoolStats;
@@ -59,6 +58,7 @@ pub use session::CudaSession;
 pub use session::CudaSessionExt;
 pub use stream::VortexCudaStream;
 pub use stream_pool::VortexCudaStreamPool;
+use vortex::array::ArrayVTable;
 use vortex::array::arrays::Constant;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::Filter;
@@ -82,6 +82,18 @@ pub use vortex_nvcomp as nvcomp;
 use crate::kernel::SequenceExecutor;
 use crate::kernel::SliceExecutor;
 
+#[cfg(test)]
+pub(crate) fn canonicalize_cpu(
+    array: impl vortex::array::IntoArray,
+) -> vortex::error::VortexResult<vortex::array::Canonical> {
+    use vortex::array::LEGACY_SESSION;
+    use vortex::array::VortexSessionExecute;
+
+    array
+        .into_array()
+        .execute::<vortex::array::Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+}
+
 /// Checks if CUDA is available on the system by looking for nvcc.
 pub fn cuda_available() -> bool {
     Command::new("nvcc")
@@ -93,22 +105,22 @@ pub fn cuda_available() -> bool {
 /// Registers CUDA kernels.
 pub fn initialize_cuda(session: &CudaSession) {
     info!("Registering CUDA kernels");
-    session.register_kernel(ALP::ID, &ALPExecutor);
-    session.register_kernel(BitPacked::ID, &BitPackedExecutor);
-    session.register_kernel(Constant::ID, &ConstantNumericExecutor);
-    session.register_kernel(DateTimeParts::ID, &DateTimePartsExecutor);
-    session.register_kernel(DecimalByteParts::ID, &DecimalBytePartsExecutor);
-    session.register_kernel(Dict::ID, &DictExecutor);
-    session.register_kernel(Shared::ID, &SharedExecutor);
-    session.register_kernel(FoR::ID, &FoRExecutor);
-    session.register_kernel(RunEnd::ID, &RunEndExecutor);
-    session.register_kernel(Sequence::ID, &SequenceExecutor);
-    session.register_kernel(ZigZag::ID, &ZigZagExecutor);
-    session.register_kernel(Zstd::ID, &ZstdExecutor);
+    session.register_kernel(ALP.id(), &ALPExecutor);
+    session.register_kernel(BitPacked.id(), &BitPackedExecutor);
+    session.register_kernel(Constant.id(), &ConstantNumericExecutor);
+    session.register_kernel(DateTimeParts.id(), &DateTimePartsExecutor);
+    session.register_kernel(DecimalByteParts.id(), &DecimalBytePartsExecutor);
+    session.register_kernel(Dict.id(), &DictExecutor);
+    session.register_kernel(Shared.id(), &SharedExecutor);
+    session.register_kernel(FoR.id(), &FoRExecutor);
+    session.register_kernel(RunEnd.id(), &RunEndExecutor);
+    session.register_kernel(Sequence.id(), &SequenceExecutor);
+    session.register_kernel(ZigZag.id(), &ZigZagExecutor);
+    session.register_kernel(Zstd.id(), &ZstdExecutor);
     #[cfg(feature = "unstable_encodings")]
-    session.register_kernel(ZstdBuffers::ID, &ZstdBuffersExecutor);
+    session.register_kernel(ZstdBuffers.id(), &ZstdBuffersExecutor);
 
     // Operation kernels
-    session.register_kernel(Filter::ID, &FilterExecutor);
-    session.register_kernel(Slice::ID, &SliceExecutor);
+    session.register_kernel(Filter.id(), &FilterExecutor);
+    session.register_kernel(Slice.id(), &SliceExecutor);
 }

@@ -10,6 +10,8 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Patched;
 use crate::arrays::patched::PatchedArrayExt;
+use crate::arrays::patched::PatchedArraySlotsExt;
+use crate::arrays::patched::PatchedSlots;
 use crate::arrays::slice::SliceReduce;
 
 impl SliceReduce for Patched {
@@ -26,19 +28,23 @@ impl SliceReduce for Patched {
         // Unlike the patches, we slice the inner to the exact range. This is handled
         // at execution time by making sure to skip patch indices that are < offset
         // or >= len.
-        let inner = array.base_array().slice(range.start..range.end)?;
+        let inner = array.inner().slice(range.start..range.end)?;
+        let len = inner.len();
+
+        let slots = PatchedSlots {
+            inner,
+            lane_offsets: sliced_lane_offsets,
+            patch_indices: array.patch_indices().clone(),
+            patch_values: array.patch_values().clone(),
+        }
+        .into_slots();
 
         Ok(Some(
             unsafe {
                 Patched::new_unchecked(
                     array.dtype().clone(),
-                    inner.len(),
-                    vec![
-                        Some(inner),
-                        Some(sliced_lane_offsets),
-                        Some(array.patch_indices().clone()),
-                        Some(array.patch_values().clone()),
-                    ],
+                    len,
+                    slots,
                     array.n_lanes(),
                     new_offset,
                 )

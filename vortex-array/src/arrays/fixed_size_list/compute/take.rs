@@ -6,17 +6,19 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
+use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::arrays::BoolArray;
 use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
-use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::dtype::IntegerPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
@@ -82,7 +84,7 @@ fn take_with_indices<I: IntegerPType, E: IntegerPType>(
         // The result's nullability is the union of the input nullabilities.
         if array.dtype().is_nullable() || indices_array.dtype().is_nullable() {
             let indices_array = indices_array.as_view();
-            take_nullable_fsl::<I, E>(array, indices_array)
+            take_nullable_fsl::<I, E>(array, indices_array, ctx)
         } else {
             let indices_array = indices_array.as_view();
             take_non_nullable_fsl::<I, E>(array, indices_array)
@@ -143,13 +145,25 @@ fn take_non_nullable_fsl<I: IntegerPType, E: IntegerPType>(
 fn take_nullable_fsl<I: IntegerPType, E: IntegerPType>(
     array: ArrayView<'_, FixedSizeList>,
     indices_array: ArrayView<'_, Primitive>,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let list_size = array.list_size() as usize;
     let indices: &[I] = indices_array.as_slice::<I>();
     let new_len = indices.len();
 
-    let array_validity = array.fixed_size_list_validity_mask();
-    let indices_validity = indices_array.validity_mask();
+    let array_validity = array
+        .fixed_size_list_validity()
+        .to_mask(array.as_ref().len(), ctx)
+        .vortex_expect("Failed to compute validity mask");
+    let indices_len = indices_array.as_ref().len();
+    let indices_validity = match indices_array
+        .validity()
+        .vortex_expect("Failed to compute validity mask")
+    {
+        Validity::NonNullable | Validity::AllValid => Mask::new_true(indices_len),
+        Validity::AllInvalid => Mask::new_false(indices_len),
+        Validity::Array(a) => a.execute::<BoolArray>(ctx)?.to_mask(ctx),
+    };
 
     // We must use placeholder zeros for null lists to maintain the array length without
     // propagating nullability to the element array's take operation.

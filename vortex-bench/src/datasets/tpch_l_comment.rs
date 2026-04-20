@@ -9,6 +9,7 @@ use futures::TryStreamExt;
 use glob::glob;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
+#[expect(deprecated)]
 use vortex::array::ToCanonical;
 use vortex::array::arrays::ChunkedArray;
 use vortex::dtype::Nullability::NonNullable;
@@ -76,7 +77,11 @@ impl Dataset for TPCHLCommentChunked {
             let file_chunks: Vec<_> = file
                 .scan()?
                 .with_projection(pack(vec![("l_comment", col("l_comment"))], NonNullable))
-                .map(|a| Ok(a.to_canonical()?.into_array()))
+                .map(|a| {
+                    #[expect(deprecated)]
+                    let canonical = a.to_canonical()?;
+                    Ok(canonical.into_array())
+                })
                 .into_array_stream()?
                 .try_collect()
                 .await?;
@@ -100,11 +105,9 @@ impl Dataset for TPCHLCommentCanonical {
     }
 
     async fn to_vortex_array(&self) -> Result<ArrayRef> {
-        let comments_canonical = TPCHLCommentChunked
-            .to_vortex_array()
-            .await?
-            .to_struct()
-            .into_array();
+        let comments_chunked = TPCHLCommentChunked.to_vortex_array().await?;
+        #[expect(deprecated)]
+        let comments_canonical = comments_chunked.to_struct().into_array();
         Ok(ChunkedArray::from_iter([comments_canonical]).into_array())
     }
 

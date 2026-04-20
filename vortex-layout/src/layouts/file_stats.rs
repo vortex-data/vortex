@@ -9,6 +9,7 @@ use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::LEGACY_SESSION;
+#[expect(deprecated)]
 use vortex_array::ToCanonical as _;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::struct_::StructArrayExt;
@@ -95,6 +96,7 @@ impl FileStatsAccumulator {
     ) -> VortexResult<(SequenceId, ArrayRef)> {
         let (sequence_id, chunk) = chunk?;
         if chunk.dtype().is_struct() {
+            #[expect(deprecated)]
             let chunk = chunk.to_struct();
             for (acc, field) in self
                 .accumulators

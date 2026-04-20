@@ -114,7 +114,7 @@ impl ExtVTable for Timestamp {
     type NativeValue<'a> = TimestampValue<'a>;
 
     fn id(&self) -> ExtId {
-        ExtId::new_ref("vortex.timestamp")
+        ExtId::new("vortex.timestamp")
     }
 
     // NOTE(ngates): unfortunately we're stuck with this hand-rolled serialization format for

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::expect_used)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::expect_used)]
 
 use std::clone::Clone;
 use std::fmt::Display;
@@ -53,6 +53,7 @@ pub mod statpopgen;
 pub mod tpcds;
 pub mod tpch;
 pub mod utils;
+pub mod vector_dataset;
 
 pub use benchmark::Benchmark;
 pub use benchmark::TableSpec;

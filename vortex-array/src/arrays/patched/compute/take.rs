@@ -13,6 +13,7 @@ use crate::arrays::Patched;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::patched::PatchedArrayExt;
+use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::arrays::primitive::PrimitiveDataParts;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
@@ -32,7 +33,7 @@ impl TakeExecute for Patched {
 
         // Perform take on the inner array, including the placeholders.
         let inner = array
-            .base_array()
+            .inner()
             .take(indices.clone())?
             .execute::<PrimitiveArray>(ctx)?;
 
@@ -86,7 +87,7 @@ impl TakeExecute for Patched {
 ///
 /// First, builds a hashmap from index to patch value, then uses the hashmap in a loop to collect
 /// the values.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn take_map<I: IntegerPType, V: NativePType>(
     output: &mut [V],
     indices: &[I],
@@ -172,6 +173,7 @@ mod tests {
 
         // Take indices [0, 1, 2, 3, 4] - should get [0, 10, 0, 30, 0]
         let indices = buffer![0u32, 1, 2, 3, 4].into_array();
+        #[expect(deprecated)]
         let result = array.take(indices)?.to_canonical()?.into_array();
 
         let expected = PrimitiveArray::from_iter([0u16, 10, 0, 30, 0]).into_array();
@@ -185,6 +187,7 @@ mod tests {
         let array = make_patched_array(&[0; 10], &[1, 3], &[100, 200], 2..10)?;
 
         let indices = buffer![0u32, 1, 2, 3, 7].into_array();
+        #[expect(deprecated)]
         let result = array.take(indices)?.to_canonical()?.into_array();
 
         let expected = PrimitiveArray::from_iter([0u16, 200, 0, 0, 0]).into_array();
@@ -200,6 +203,7 @@ mod tests {
 
         // Take indices in reverse order
         let indices = buffer![4u32, 3, 2, 1, 0].into_array();
+        #[expect(deprecated)]
         let result = array.take(indices)?.to_canonical()?.into_array();
 
         let expected = PrimitiveArray::from_iter([0u16, 30, 0, 10, 0]).into_array();
@@ -215,9 +219,11 @@ mod tests {
 
         // Take the same patched index multiple times
         let indices = buffer![2u32, 2, 0, 2].into_array();
+        #[expect(deprecated)]
         let result = array.take(indices)?.to_canonical()?.into_array();
 
         // execute the array.
+        #[expect(deprecated)]
         let _canonical = result.to_canonical()?.into_primitive();
 
         let expected = PrimitiveArray::from_iter([99u16, 99, 0, 99]).into_array();
@@ -249,6 +255,7 @@ mod tests {
                 .into_array(),
             ),
         );
+        #[expect(deprecated)]
         let result = array
             .take(indices.into_array())?
             .to_canonical()?

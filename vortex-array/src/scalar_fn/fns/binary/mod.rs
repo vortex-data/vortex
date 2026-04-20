@@ -52,7 +52,7 @@ impl ScalarFnVTable for Binary {
     type Options = Operator;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.binary")
+        ScalarFnId::new("vortex.binary")
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -314,6 +314,8 @@ mod tests {
     use vortex_error::VortexExpect;
 
     use super::*;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
@@ -494,7 +496,9 @@ mod tests {
         // Test using binary method directly
         let result_equal = lhs_struct.binary(rhs_struct_equal, Operator::Eq).unwrap();
         assert_eq!(
-            result_equal.scalar_at(0).vortex_expect("value"),
+            result_equal
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("value"),
             Scalar::bool(true, Nullability::NonNullable),
             "Equal structs should be equal"
         );
@@ -503,7 +507,9 @@ mod tests {
             .binary(rhs_struct_different, Operator::Eq)
             .unwrap();
         assert_eq!(
-            result_different.scalar_at(0).vortex_expect("value"),
+            result_different
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("value"),
             Scalar::bool(false, Nullability::NonNullable),
             "Different structs should not be equal"
         );

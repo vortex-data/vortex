@@ -6,7 +6,7 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Dict;
-use vortex_array::arrays::dict::DictArrayExt;
+use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::dtype::DType;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_error::VortexResult;
@@ -91,7 +91,9 @@ mod tests {
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([2i32, 2, 2, 3, 3, 2, 2]);
-        assert_arrays_eq!(result.to_canonical()?.into_array(), expected);
+        #[expect(deprecated)]
+        let canonical = result.to_canonical()?.into_array();
+        assert_arrays_eq!(canonical, expected);
         Ok(())
     }
 
@@ -114,7 +116,9 @@ mod tests {
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([2i32, 3, 3]);
-        assert_arrays_eq!(result.to_canonical()?.into_array(), expected);
+        #[expect(deprecated)]
+        let canonical = result.to_canonical()?.into_array();
+        assert_arrays_eq!(canonical, expected);
         Ok(())
     }
 
@@ -137,7 +141,9 @@ mod tests {
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([3i32, 3, 2, 2]);
-        assert_arrays_eq!(result.to_canonical()?.into_array(), expected);
+        #[expect(deprecated)]
+        let canonical = result.to_canonical()?.into_array();
+        assert_arrays_eq!(canonical, expected);
         Ok(())
     }
 
@@ -160,7 +166,9 @@ mod tests {
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([3i32]);
-        assert_arrays_eq!(result.to_canonical()?.into_array(), expected);
+        #[expect(deprecated)]
+        let canonical = result.to_canonical()?.into_array();
+        assert_arrays_eq!(canonical, expected);
         Ok(())
     }
 

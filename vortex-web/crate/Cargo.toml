@@ -2,7 +2,7 @@
 name = "vortex-web-wasm"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.90"
+rust-version = "1.90.0"
 license = "Apache-2.0"
 description = "WASM bindings for the Vortex web explorer"
 publish = false

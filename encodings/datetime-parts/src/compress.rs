@@ -3,6 +3,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+#[expect(deprecated)]
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TemporalArray;
@@ -26,9 +27,11 @@ pub struct TemporalParts {
 /// Splitting the components by granularity creates more small values, which enables better
 /// cascading compression.
 pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
+    #[expect(deprecated)]
     let temporal_values = array.temporal_values().to_primitive();
 
     // After this operation, timestamps will be a PrimitiveArray<i64>
+    #[expect(deprecated)]
     let timestamps = temporal_values
         .clone()
         .into_array()
@@ -83,6 +86,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
@@ -119,23 +123,27 @@ mod tests {
         } = split_temporal(temporal_array).unwrap();
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        #[expect(deprecated)]
+        let days_prim = days.to_primitive();
         assert!(
-            days.to_primitive()
+            days_prim
                 .validity()
                 .vortex_expect("days validity should be derivable")
                 .mask_eq(&validity, &mut ctx)
                 .unwrap()
         );
+        #[expect(deprecated)]
+        let seconds_prim = seconds.to_primitive();
         assert!(matches!(
-            seconds
-                .to_primitive()
+            seconds_prim
                 .validity()
                 .vortex_expect("seconds validity should be derivable"),
             Validity::NonNullable
         ));
+        #[expect(deprecated)]
+        let subseconds_prim = subseconds.to_primitive();
         assert!(matches!(
-            subseconds
-                .to_primitive()
+            subseconds_prim
                 .validity()
                 .vortex_expect("subseconds validity should be derivable"),
             Validity::NonNullable

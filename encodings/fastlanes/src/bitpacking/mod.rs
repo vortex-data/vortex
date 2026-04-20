@@ -3,8 +3,10 @@
 
 mod array;
 pub use array::BitPackedArrayExt;
+pub use array::BitPackedArraySlotsExt;
 pub use array::BitPackedData;
 pub use array::BitPackedDataParts;
+pub use array::BitPackedSlots;
 pub use array::bitpack_compress;
 pub use array::bitpack_decompress;
 pub use array::unpack_iter;

@@ -111,6 +111,6 @@ cmake -Bbuild -DWITH_ASAN=1 -DTARGET_TRIPLE=<target triple>
 
 3. Run the tests (ctest doesn't output failures in detail):
 
-```
+```sh
 ./build/test/vortex_ffi_test 2>& 1 | rustfilt -i-
 ```

@@ -30,6 +30,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::DeltaData;
 use crate::delta::array::BASES_SLOT;
@@ -75,7 +76,8 @@ impl VTable for Delta {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("fastlanes.delta");
+        *ID
     }
 
     fn validate(
@@ -180,8 +182,6 @@ impl VTable for Delta {
 pub struct Delta;
 
 impl Delta {
-    pub const ID: ArrayId = ArrayId::new_ref("fastlanes.delta");
-
     pub fn try_new(
         bases: ArrayRef,
         deltas: ArrayRef,

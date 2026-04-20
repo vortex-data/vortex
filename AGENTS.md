@@ -1,74 +1,166 @@
-# Vortex
+# AGENTS.md
 
-## Development Guidelines
+Guidance for Claude, Codex and other coding agents working in the Vortex repository.
 
-* project is a monorepo Rust workspace, java bindings in `/java`, python bindings in `/vortex-python`
-* run `cargo build -p` to build a specific crate
-* use `cargo clippy --all-targets --all-features` to make sure a project is free of lint issues. Please do this every
-  time you reach a stopping point or think you've finished work.
-* run `cargo +nightly fmt --all` to format Rust source files. Please do this every time you reach a stopping point or
-  think you've finished work.
-* run `cargo xtask public-api` to re-generate the public API lock files. Please do this every time you reach a stopping
-  point or think you've finished work.
-* you can try running
-  `cargo fix --lib --allow-dirty --allow-staged && cargo clippy --fix --lib --allow-dirty --allow-staged` to
-  automatically many fix minor errors.
-* when iterating on CI failures, fetch only failed job logs first (`gh run view <run-id> --job <job-id> --log-failed`)
-  and run narrow local repro commands for the affected crate/tests before running workspace-wide checks.
-* if `gh` commands fail with `error connecting to api.github.com` in sandbox, immediately rerun with escalated network
-  permissions instead of retrying in sandbox.
-* if cargo fails with `sccache: error: Operation not permitted`, rerun the command with `RUSTC_WRAPPER=` so rustc runs
-  directly.
-* run docs doctests from the docs directory (`make -C docs doctest`) so the correct Sphinx Makefile target is used.
+## Task Routing
 
-## Architecture
+- When asked to review a PR, especially via `/pr-review`, use the
+  `.agents/skills/pr-review` skill.
+- When asked a question about the PR or codebase, especially via `/query`, use the
+  `.agents/skills/query` skill.
+- When asked to investigate a CI failure, especially via `/ci-failure-analysis`, use the
+  `.agents/skills/ci-failure-analysis` skill.
 
-* `vortex-buffer` defines zero-copy aligned `Buffer<T>` and `BufferMut<T>` that are guaranteed
-  to be aligned to `T` (or whatever requested runtime alignment).
-* `vortex-array/src/dtype` contains the basic `DType` logical type enum that is the basis of the Vortex
-  type system
-* `vortex-array` contains the basic `Array` trait, as well as several encodings which impl
-  that trait for each encoding. It includes all of most of the Apache Arrow encodings.
-* More exotic compressed encodings live in the crates inside of `/encodings/*`
-* File IO is defined in `vortex-file`. It uses the concept of a `LayoutReader` defined
-  in `vortex-layout` crate.
-* `/vortex-python` contains the python bindings. rst flavored docs for the project are in `/docs`
+## Overview
 
-## Code Style
+Vortex is a Rust monorepo for columnar array processing, compression encodings, and file IO.
+The workspace also contains Java bindings in `java/`, Python bindings in `vortex-python/`,
+documentation in `docs/`, and benchmark tooling in `vortex-bench/` and `benchmarks/`.
 
-* Prefer `impl AsRef<T>` to `&T` for public interfaces where possible, e.g. `impl AsRef<Path>`
-* Avoid usage of unsafe where not necessary, use zero-cost safe abstractions wherever possible,
-  or cheap non-zero-cost abstractions.
-* Every new public API definition must have a doc comment. Examples are nice to have but not
-  strictly required.
-* Use `vortex_err!` to create a `VortexError` with a format string and `vortex_bail!` to do the same but immediately
-  return it as a `VortexResult<T>` to the surrounding context.
-* When writing tests, strongly consider using `rstest` cases to parameterize repetitive test logic.
-* If you want to create a large number of tests to an existing file module called `foo.rs`, and if you think doing so
-  would
-  be too many to inline in a `tests` submodule within `foo.rs`, then first promote `foo` to a directory module. You can
-  do
-  this by running `mkdir foo && mv foo.rs foo/mod.rs`. Then, you can create a test file `foo/tests.rs` that you include
-  in `foo/mod.rs` with the appropriate test config flag.
-* If you encounter clippy errors in tests that should only pertain to production code (e.g., prohibiting panic/unwrap,
-  possible numerical truncation, etc.), then consider allowing those lints at the test module level.
-* Prefer naming test modules `tests`, not `test`.
-* Prefer having test return VortexResult<()> and use ? over unwrap.
-* All imports must be at the top of the module, never inside functions. The only exception is `#[cfg(test)]` blocks,
-  where imports should be at the top of the test module. Function-scoped imports are only acceptable when (a) required,
-  or (b) it would be exceptionally verbose otherwise, such as a match statement where left and right sides have similar
-  names.
-* Imports should be preferred over qualified identifiers.
-* Only write comments that explain non-obvious logic or important context. Avoid commenting simple or self-explanatory
-  code.
-* Use `assert_arrays_eq!` macro for comparing arrays in tests instead of element-by-element comparison.
-* Keep tests concise and to the point - avoid unnecessary setup or verbose assertions.
-* Run tests for a specific crate with `cargo test -p <crate-name>` (e.g., `cargo test -p vortex-array`).
+## Repository Layout
 
-## Other
+- `vortex-buffer` defines zero-copy aligned `Buffer<T>` and `BufferMut<T>`, guaranteed to
+  be aligned to `T` or to a requested runtime alignment.
+- `vortex-array/src/dtype` contains the `DType` logical type system used throughout Vortex.
+- `vortex-array` contains the core `Array` trait and the base encodings, including most
+  Apache Arrow-style encodings.
+- `encodings/*` contains more specialized compressed encodings.
+- `vortex-file` implements file IO. It uses `LayoutReader` from `vortex-layout`.
+- `vortex-scan`, `vortex-session`, `vortex-datafusion`, and `vortex-duckdb` contain scan
+  and execution integrations.
+- `vortex-python` contains Python bindings. RST-flavored project docs live in `docs/`.
 
-* When summarizing your work, please produce summaries in valid Markdown that can be easily copied/pasted to Github.
+## Build
+
+Prefer narrow crate builds while iterating:
+
+```bash
+cargo build -p <crate-name>
+```
+
+Use workspace-wide builds only when the change spans crate boundaries or before handing off a
+broad refactor:
+
+```bash
+cargo build --workspace
+```
+
+## Testing
+
+Run tests for the crate or binding you touched before broader checks:
+
+```bash
+cargo test -p <crate-name>
+```
+
+Examples:
+
+```bash
+cargo test -p vortex-array
+make -C docs doctest
+uv run --all-packages pytest vortex-python/test
+```
+
+Run docs doctests from the docs directory with `make -C docs doctest` so the correct Sphinx
+Makefile target is used.
+
+## Linting, Formatting, and Generated Files
+
+Run verification that matches the files changed. Do not run expensive Rust checks for changes that
+only touch Markdown, agent configuration, comments outside Rust code, symlinks, or other metadata
+with no Rust/API behavior impact. For docs/config-only changes, validate formatting by inspection
+or with a targeted doc/config command, and verify symlink or path changes with `ls`, `find`, and
+`git status`.
+
+For Rust code, public API, feature flag, or generated-file changes, run these before stopping:
+
+```bash
+cargo +nightly fmt --all
+./scripts/public-api.sh
+cargo clippy --all-targets --all-features
+```
+
+Notes:
+
+- `./scripts/public-api.sh` regenerates all `public-api.lock` files through the `xtask`
+  wrapper. Run it when public Rust APIs may have changed, not for docs-only or agent-only edits.
+- For `.github/` changes, follow `.github/AGENTS.md` and run
+  `yamllint --strict -c .yamllint.yaml` on changed workflow files.
+- You can try
+  `cargo fix --lib --allow-dirty --allow-staged && cargo clippy --fix --lib --allow-dirty --allow-staged`
+  to fix minor Rust diagnostics automatically when working on Rust code.
+- If cargo fails with exactly `sccache: error: Operation not permitted`, rerun that command
+  with `RUSTC_WRAPPER=` so rustc runs directly. Only do this for that exact error.
+
+## CI Investigation
+
+- When iterating on CI failures, fetch only failed job logs first:
+  `gh run view <run-id> --job <job-id> --log-failed`.
+- Run narrow local repro commands for the affected crate, test, docs target, or binding before
+  running workspace-wide checks.
+- If a `gh` command fails with `error connecting to api.github.com` in the sandbox, immediately
+  rerun it with escalated network permissions instead of retrying in the sandbox.
+- Verify causation from logs, diffs, and local repros before attributing a failure to a PR.
+
+## Rust Code Style
+
+- Prefer `impl AsRef<T>` to `&T` for public interfaces where practical, for example
+  `impl AsRef<Path>`.
+- Avoid `unsafe` unless it is necessary. Prefer zero-cost safe abstractions, or cheap
+  non-zero-cost safe abstractions, over hand-written unsafe code.
+- Every new public API definition must have a doc comment. Examples are useful but not required.
+- Use `vortex_err!` to create a `VortexError` with a format string.
+- Use `vortex_bail!` to create and immediately return a `VortexError` as a `VortexResult<T>`.
+- Keep imports at the top of the module. The only exception is a `#[cfg(test)]` test module,
+  where imports should be at the top of that module.
+- Prefer imports over qualified identifiers when the name is used repeatedly.
+- Avoid function-scoped imports unless required or unless fully qualifying both sides would be
+  exceptionally verbose.
+- Only write comments that explain non-obvious logic or important context. Do not comment
+  self-explanatory code.
+- Keep public APIs small and consistent with neighboring crates.
+
+## Tests
+
+- Strongly consider `rstest` cases when parameterizing repetitive test logic.
+- Prefer test functions that return `VortexResult<()>` and use `?` instead of `unwrap`.
+- Prefer test module names `tests`, not `test`.
+- Use `assert_arrays_eq!` for array comparisons instead of element-by-element assertions.
+- Keep tests concise and focused on behavior, edge cases, and regressions.
+- If a bug fix is requested, add or identify a failing test first when practical. A test that
+  passes before and after the fix does not prove the fix.
+- If clippy lints in tests prohibit patterns that are acceptable only in test code, consider
+  allowing the lint at the test module level.
+- If an existing `foo.rs` module needs many tests, promote it to a directory module:
+  `foo/mod.rs` plus `foo/tests.rs`, included from `foo/mod.rs` behind the appropriate test
+  configuration.
+
+## Common Mistakes
+
+Check new and modified lines against this list before finishing:
+
+- Public API changes without doc comments or refreshed `public-api.lock` files.
+- Running `cargo fmt`, `./scripts/public-api.sh`, or workspace clippy for docs-only, agent-only,
+  symlink-only, or other metadata-only changes.
+- Running broad CI-style commands before trying a narrow local repro.
+- Using `unwrap`, `expect`, or panic-oriented assertions in tests where `VortexResult<()>` and
+  `?` would be clearer.
+- Comparing arrays element by element instead of using `assert_arrays_eq!`.
+- Adding imports inside functions when module-level imports would work.
+- Introducing `unsafe` without proving that safe Rust cannot express the same operation.
+- Updating expected test output to match buggy behavior without independently verifying the
+  intended semantics.
+- Silently reducing the scope of an approved plan when implementation is harder than expected.
+
+## Summaries
+
+When summarizing work, write valid Markdown that can be copied into GitHub. Include the checks
+you ran and call out any checks you could not run.
 
 ## Commits
 
-* All commits must be signed of by the committers in the form `Signed-off-by: "COMMITTER" <COMMITTER_EMAIL>`.
+All commits must be signed off by the committers in this form:
+
+```text
+Signed-off-by: "COMMITTER" <COMMITTER_EMAIL>
+```

@@ -4,7 +4,7 @@
 pub mod types;
 
 #[rustfmt::skip]
-#[allow(warnings, clippy::all, clippy::pedantic, clippy::nursery)]
+#[expect(warnings, clippy::all, clippy::pedantic, clippy::nursery)]
 pub mod gpu {
     include!(concat!(env!("OUT_DIR"), "/patches.rs"));
 }
@@ -102,6 +102,8 @@ mod tests {
 
     use cudarc::driver::DeviceRepr;
     use vortex::array::IntoArray;
+    use vortex::array::LEGACY_SESSION;
+    #[expect(deprecated)]
     use vortex::array::ToCanonical;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::PrimitiveArray;
@@ -161,10 +163,7 @@ mod tests {
 
         let cpu_result = values
             .clone()
-            .patch(
-                &patches,
-                &mut vortex::array::LEGACY_SESSION.create_execution_ctx(),
-            )
+            .patch(&patches, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
 
         let PrimitiveDataParts {
@@ -189,7 +188,8 @@ mod tests {
             Values::PTYPE,
             Validity::NonNullable,
         )
-        .to_canonical()
+        .into_array()
+        .execute::<vortex::array::Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
         .unwrap()
         .into_host()
         .await
@@ -200,10 +200,12 @@ mod tests {
     }
 
     fn force_cast<T: NativePType>(array: PrimitiveArray) -> PrimitiveArray {
-        array
+        #[expect(deprecated)]
+        let result = array
             .into_array()
             .cast(DType::Primitive(T::PTYPE, Nullability::NonNullable))
             .unwrap()
-            .to_primitive()
+            .to_primitive();
+        result
     }
 }

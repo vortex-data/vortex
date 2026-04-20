@@ -26,6 +26,7 @@ use vortex_array::arrays::Primitive;
 use vortex_array::arrays::Struct;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinView;
+use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::dtype::FieldPath;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
@@ -55,8 +56,6 @@ use vortex_pco::Pco;
 use vortex_runend::RunEnd;
 use vortex_sequence::Sequence;
 use vortex_sparse::Sparse;
-#[cfg(feature = "unstable_encodings")]
-use vortex_tensor::encodings::turboquant::TurboQuant;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 use vortex_zigzag::ZigZag;
@@ -91,7 +90,7 @@ pub static ALLOWED_ENCODINGS: LazyLock<HashSet<ArrayId>> = LazyLock::new(|| {
     allowed.insert(Masked.id());
     allowed.insert(Dict.id());
 
-    if *vortex_fastlanes::USE_EXPERIMENTAL_PATCHES {
+    if use_experimental_patches() {
         allowed.insert(Patched.id());
     }
 
@@ -110,8 +109,6 @@ pub static ALLOWED_ENCODINGS: LazyLock<HashSet<ArrayId>> = LazyLock::new(|| {
     allowed.insert(RunEnd.id());
     allowed.insert(Sequence.id());
     allowed.insert(Sparse.id());
-    #[cfg(feature = "unstable_encodings")]
-    allowed.insert(TurboQuant.id());
     allowed.insert(ZigZag.id());
 
     #[cfg(feature = "zstd")]

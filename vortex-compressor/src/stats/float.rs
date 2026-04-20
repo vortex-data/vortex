@@ -8,6 +8,8 @@ use std::hash::Hash;
 use itertools::Itertools;
 use num_traits::Float;
 use rustc_hash::FxBuildHasher;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::NativePType;
@@ -174,18 +176,25 @@ where
         });
     }
 
-    if array.all_invalid()? {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    if array.all_invalid(&mut ctx)? {
         return Ok(FloatStats {
             null_count: u32::try_from(array.len())?,
             value_count: 0,
             average_run_length: 0,
-            erased: TypedStats { distinct: None }.into(),
+            erased: TypedStats {
+                distinct: Some(DistinctInfo {
+                    distinct_values: HashSet::with_capacity_and_hasher(0, FxBuildHasher),
+                    distinct_count: 0,
+                }),
+            }
+            .into(),
         });
     }
 
     let null_count = array
         .statistics()
-        .compute_null_count()
+        .compute_null_count(&mut ctx)
         .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
     let value_count = array.len() - null_count;
 
@@ -197,7 +206,10 @@ where
         HashSet::with_hasher(FxBuildHasher)
     };
 
-    let validity = array.validity_mask()?;
+    let validity = array.as_ref().validity()?.to_mask(
+        array.as_ref().len(),
+        &mut LEGACY_SESSION.create_execution_ctx(),
+    )?;
 
     let mut runs = 1;
     let head_idx = validity
@@ -260,6 +272,7 @@ where
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
@@ -270,6 +283,7 @@ mod tests {
     #[test]
     fn test_float_stats() {
         let floats = buffer![0.0f32, 1.0f32, 2.0f32].into_array();
+        #[expect(deprecated)]
         let floats = floats.to_primitive();
 
         let stats = FloatStats::generate_opts(

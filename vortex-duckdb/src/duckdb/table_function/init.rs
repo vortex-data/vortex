@@ -39,7 +39,6 @@ pub(crate) unsafe extern "C-unwind" fn init_global_callback<T: TableFunction>(
 }
 
 /// Native callback for the local initialization of a table function.
-#[allow(deref_nullptr)]
 pub(crate) unsafe extern "C-unwind" fn init_local_callback<T: TableFunction>(
     init_input: *const cpp::duckdb_vx_tfunc_init_input,
     global_init_data: *mut c_void,

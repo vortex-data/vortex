@@ -41,7 +41,6 @@ use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
-use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::serde::ArrayChildren;
@@ -51,7 +50,7 @@ pub type ScalarFnArray = Array<ScalarFnVTable>;
 
 #[derive(Clone, Debug)]
 pub struct ScalarFnVTable {
-    pub(super) scalar_fn: ScalarFnRef,
+    pub(super) id: ScalarFnId,
 }
 
 impl ArrayHash for ScalarFnData {
@@ -72,7 +71,7 @@ impl VTable for ScalarFnVTable {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        self.scalar_fn.id()
+        self.id
     }
 
     fn validate(
@@ -83,7 +82,7 @@ impl VTable for ScalarFnVTable {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         vortex_ensure!(
-            data.scalar_fn == self.scalar_fn,
+            data.scalar_fn.id() == self.id,
             "ScalarFnArray data scalar_fn does not match vtable"
         );
         vortex_ensure!(
@@ -97,7 +96,7 @@ impl VTable for ScalarFnVTable {
             .map(|c| c.dtype().clone())
             .collect_vec();
         vortex_ensure!(
-            self.scalar_fn.return_dtype(&child_dtypes)? == *dtype,
+            data.scalar_fn.return_dtype(&child_dtypes)? == *dtype,
             "ScalarFnArray dtype does not match scalar function return dtype"
         );
         Ok(())
@@ -128,7 +127,6 @@ impl VTable for ScalarFnVTable {
         _dtype: &DType,
         _len: usize,
         _metadata: &[u8],
-
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
         _session: &VortexSession,
@@ -189,7 +187,7 @@ pub trait ScalarFnFactoryExt: scalar_fn::ScalarFnVTable {
         let data = ScalarFnData {
             scalar_fn: scalar_fn.clone(),
         };
-        let vtable = ScalarFnVTable { scalar_fn };
+        let vtable = ScalarFnVTable { id: scalar_fn.id() };
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(vtable, dtype, len, data)
@@ -286,7 +284,7 @@ impl scalar_fn::ScalarFnVTable for ArrayExpr {
     type Options = FakeEq<ArrayRef>;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.array")
+        ScalarFnId::new("vortex.array")
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {

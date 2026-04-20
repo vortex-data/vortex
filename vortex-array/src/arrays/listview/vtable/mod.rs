@@ -12,6 +12,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -42,10 +43,6 @@ pub type ListViewArray = Array<ListView>;
 #[derive(Clone, Debug)]
 pub struct ListView;
 
-impl ListView {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.listview");
-}
-
 #[derive(Clone, prost::Message)]
 pub struct ListViewMetadata {
     #[prost(uint64, tag = "1")]
@@ -73,9 +70,9 @@ impl VTable for ListView {
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.listview");
+        *ID
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

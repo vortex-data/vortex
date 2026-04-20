@@ -11,11 +11,16 @@ use vortex_mask::AllOr;
 use super::SumState;
 use super::checked_add_i64;
 use super::checked_add_u64;
+use crate::ExecutionCtx;
 use crate::arrays::PrimitiveArray;
 use crate::match_each_native_ptype;
 
-pub(super) fn accumulate_primitive(inner: &mut SumState, p: &PrimitiveArray) -> VortexResult<bool> {
-    let mask = p.validity_mask()?;
+pub(super) fn accumulate_primitive(
+    inner: &mut SumState,
+    p: &PrimitiveArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<bool> {
+    let mask = p.as_ref().validity()?.to_mask(p.as_ref().len(), ctx)?;
     match mask.bit_buffer() {
         AllOr::None => Ok(false),
         AllOr::All => accumulate_primitive_all(inner, p),

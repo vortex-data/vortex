@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
+#![expect(clippy::unwrap_used)]
 
 use divan::Bencher;
 use itertools::repeat_n;
@@ -77,7 +77,7 @@ fn decompress<T: IntegerPType>(bencher: Bencher, (length, run_step): (usize, usi
 }
 
 #[divan::bench(args = BENCH_ARGS)]
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
     let values = PrimitiveArray::new(
         (0..length)

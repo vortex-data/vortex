@@ -12,6 +12,7 @@ use crate::builtins::BoolConstantScheme;
 use crate::builtins::constant::compress_constant_array_with_validity;
 use crate::ctx::CompressorContext;
 use crate::estimate::CompressionEstimate;
+use crate::estimate::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::stats::ArrayAndStats;
 
@@ -32,7 +33,7 @@ impl Scheme for BoolConstantScheme {
         // Constant detection on a sample is a false positive, since the sample being constant does
         // not mean the full array is constant.
         if ctx.is_sample() {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         let array_len = data.array().len();
@@ -41,14 +42,14 @@ impl Scheme for BoolConstantScheme {
         // We want to use `Constant` if there are only nulls in the array.
         if stats.value_count() == 0 {
             debug_assert_eq!(stats.null_count() as usize, array_len);
-            return CompressionEstimate::AlwaysUse;
+            return CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse);
         }
 
         if stats.is_constant() {
-            return CompressionEstimate::AlwaysUse;
+            return CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse);
         }
 
-        CompressionEstimate::Skip
+        CompressionEstimate::Verdict(EstimateVerdict::Skip)
     }
 
     fn compress(

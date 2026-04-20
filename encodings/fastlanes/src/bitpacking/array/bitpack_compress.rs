@@ -4,7 +4,11 @@
 use fastlanes::BitPacking;
 use itertools::Itertools;
 use num_traits::PrimInt;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::buffer::BufferHandle;
@@ -29,12 +33,12 @@ use crate::BitPackedArray;
 use crate::bitpack_decompress;
 
 pub fn bitpack_to_best_bit_width(array: &PrimitiveArray) -> VortexResult<BitPackedArray> {
-    let bit_width_freq = bit_width_histogram(array)?;
+    let bit_width_freq = bit_width_histogram(array.as_view())?;
     let best_bit_width = find_best_bit_width(array.ptype(), &bit_width_freq)?;
     bitpack_encode(array, best_bit_width, Some(&bit_width_freq))
 }
 
-#[allow(unused_comparisons, clippy::absurd_extreme_comparisons)]
+#[expect(unused_comparisons, clippy::absurd_extreme_comparisons)]
 pub fn bitpack_encode(
     array: &PrimitiveArray,
     bit_width: u8,
@@ -42,13 +46,17 @@ pub fn bitpack_encode(
 ) -> VortexResult<BitPackedArray> {
     let bit_width_freq = match bit_width_freq {
         Some(freq) => freq,
-        None => &bit_width_histogram(array)?,
+        None => &bit_width_histogram(array.as_view())?,
     };
 
     // Check array contains no negative values.
     if array.ptype().is_signed_int() {
         let has_negative_values = match_each_integer_ptype!(array.ptype(), |P| {
-            array.statistics().compute_min::<P>().unwrap_or_default() < 0
+            array
+                .statistics()
+                .compute_min::<P>(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap_or_default()
+                < 0
         });
         if has_negative_values {
             vortex_bail!(InvalidArgument: "cannot bitpack_encode array containing negative integers")
@@ -198,7 +206,10 @@ pub fn gather_patches(
     };
 
     let array_len = parray.len();
-    let validity_mask = parray.validity_mask()?;
+    let validity_mask = parray
+        .as_ref()
+        .validity()?
+        .to_mask(parray.len(), &mut LEGACY_SESSION.create_execution_ctx())?;
 
     let patches = if array_len < u8::MAX as usize {
         match_each_integer_ptype!(parray.ptype(), |T| {
@@ -289,18 +300,25 @@ where
     }
 }
 
-pub fn bit_width_histogram(array: &PrimitiveArray) -> VortexResult<Vec<usize>> {
+pub fn bit_width_histogram(array: ArrayView<'_, Primitive>) -> VortexResult<Vec<usize>> {
     match_each_integer_ptype!(array.ptype(), |P| { bit_width_histogram_typed::<P>(array) })
 }
 
 fn bit_width_histogram_typed<T: NativePType + PrimInt>(
-    array: &PrimitiveArray,
+    array: ArrayView<'_, Primitive>,
 ) -> VortexResult<Vec<usize>> {
     let bit_width: fn(T) -> usize =
         |v: T| (8 * size_of::<T>()) - (PrimInt::leading_zeros(v) as usize);
 
     let mut bit_widths = vec![0usize; size_of::<T>() * 8 + 1];
-    match array.validity_mask()?.bit_buffer() {
+    match array
+        .validity()?
+        .to_mask(
+            array.as_ref().len(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?
+        .bit_buffer()
+    {
         AllOr::All => {
             // All values are valid.
             for v in array.as_slice::<T>() {
@@ -371,6 +389,7 @@ pub mod test_harness {
     use rand::rngs::StdRng;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
@@ -395,6 +414,7 @@ pub mod test_harness {
             })
             .collect::<BufferMut<i32>>();
 
+        #[expect(deprecated)]
         let values = if fraction_null == 0.0 {
             values.into_array().to_primitive()
         } else {
@@ -412,6 +432,7 @@ mod test {
 
     use rand::SeedableRng;
     use rand::rngs::StdRng;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ChunkedArray;
@@ -455,7 +476,13 @@ mod test {
         assert_eq!(
             (0..(1 << 4)).collect::<Vec<_>>(),
             compressed
-                .validity_mask()
+                .as_ref()
+                .validity()
+                .unwrap()
+                .to_mask(
+                    compressed.as_ref().len(),
+                    &mut SESSION.create_execution_ctx()
+                )
                 .unwrap()
                 .to_bit_buffer()
                 .set_indices()
@@ -482,6 +509,7 @@ mod test {
             .collect::<Vec<_>>();
         let chunked = ChunkedArray::from_iter(chunks).into_array();
 
+        #[expect(deprecated)]
         let into_ca = chunked.to_primitive();
         let mut primitive_builder =
             PrimitiveBuilder::<i32>::with_capacity(chunked.dtype().nullability(), 10 * 100);
@@ -514,6 +542,7 @@ mod test {
         let bitpacked = bitpack_encode(&array, 4, None).unwrap();
 
         let patches = bitpacked.patches().unwrap();
+        #[expect(deprecated)]
         let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
 
         // chunk 0 (0-1023): patches at 100, 200 -> starts at patch index 0
@@ -537,6 +566,7 @@ mod test {
         let bitpacked = bitpack_encode(&array, 4, None).unwrap();
 
         let patches = bitpacked.patches().unwrap();
+        #[expect(deprecated)]
         let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
 
         assert_arrays_eq!(chunk_offsets, PrimitiveArray::from_iter([0u64, 2, 2]));
@@ -556,6 +586,7 @@ mod test {
         let bitpacked = bitpack_encode(&array, 4, None).unwrap();
 
         let patches = bitpacked.patches().unwrap();
+        #[expect(deprecated)]
         let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
 
         // chunk 0 (0-1023): patches at 100, 200 -> starts at patch index 0
@@ -580,6 +611,7 @@ mod test {
         let bitpacked = bitpack_encode(&array, 4, None).unwrap();
 
         let patches = bitpacked.patches().unwrap();
+        #[expect(deprecated)]
         let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
 
         // Single chunk starting at patch index 0.

@@ -6,7 +6,11 @@ use std::ops::Add;
 use num_traits::CheckedAdd;
 use num_traits::CheckedSub;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
@@ -84,13 +88,18 @@ pub fn sequence_decompress(array: &SequenceArray) -> VortexResult<ArrayRef> {
 /// 3. The array is representable as a sequence `A[i] = base + i * multiplier` for multiplier != 0.
 /// 4. The sequence has no deviations from the equation, this could be fixed with patches. However,
 ///    we might want a different array for that since sequence provide fast access.
-pub fn sequence_encode(primitive_array: &PrimitiveArray) -> VortexResult<Option<ArrayRef>> {
+pub fn sequence_encode(
+    primitive_array: ArrayView<'_, Primitive>,
+) -> VortexResult<Option<ArrayRef>> {
     if primitive_array.is_empty() {
         // we cannot encode an empty array
         return Ok(None);
     }
 
-    if !primitive_array.all_valid()? {
+    if !primitive_array
+        .array()
+        .all_valid(&mut LEGACY_SESSION.create_execution_ctx())?
+    {
         return Ok(None);
     }
 
@@ -142,8 +151,9 @@ fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSu
 
 #[cfg(test)]
 mod tests {
-    #[allow(unused_imports)]
+    #[expect(unused_imports)]
     use itertools::Itertools;
+    #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -153,8 +163,9 @@ mod tests {
     #[test]
     fn test_encode_array_success() {
         let primitive_array = PrimitiveArray::from_iter([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
-        let encoded = sequence_encode(&primitive_array).unwrap();
+        let encoded = sequence_encode(primitive_array.as_view()).unwrap();
         assert!(encoded.is_some());
+        #[expect(deprecated)]
         let decoded = encoded.unwrap().to_primitive();
         assert_arrays_eq!(decoded, primitive_array);
     }
@@ -162,8 +173,9 @@ mod tests {
     #[test]
     fn test_encode_array_1_success() {
         let primitive_array = PrimitiveArray::from_iter([0]);
-        let encoded = sequence_encode(&primitive_array).unwrap();
+        let encoded = sequence_encode(primitive_array.as_view()).unwrap();
         assert!(encoded.is_some());
+        #[expect(deprecated)]
         let decoded = encoded.unwrap().to_primitive();
         assert_arrays_eq!(decoded, primitive_array);
     }
@@ -172,7 +184,7 @@ mod tests {
     fn test_encode_array_fail() {
         let primitive_array = PrimitiveArray::from_iter([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0]);
 
-        let encoded = sequence_encode(&primitive_array).unwrap();
+        let encoded = sequence_encode(primitive_array.as_view()).unwrap();
         assert!(encoded.is_none());
     }
 
@@ -180,15 +192,16 @@ mod tests {
     fn test_encode_array_fail_oob() {
         let primitive_array = PrimitiveArray::from_iter(vec![100i8; 1000]);
 
-        let encoded = sequence_encode(&primitive_array).unwrap();
+        let encoded = sequence_encode(primitive_array.as_view()).unwrap();
         assert!(encoded.is_none());
     }
 
     #[test]
     fn test_encode_all_u8_values() {
         let primitive_array = PrimitiveArray::from_iter(0u8..=255);
-        let encoded = sequence_encode(&primitive_array).unwrap();
+        let encoded = sequence_encode(primitive_array.as_view()).unwrap();
         assert!(encoded.is_some());
+        #[expect(deprecated)]
         let decoded = encoded.unwrap().to_primitive();
         assert_arrays_eq!(decoded, primitive_array);
     }

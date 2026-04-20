@@ -12,12 +12,12 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use super::DictData;
 use super::DictMetadata;
-use super::array::CODES_SLOT;
-use super::array::SLOT_NAMES;
-use super::array::VALUES_SLOT;
+use super::array::DictSlots;
+use super::array::DictSlotsView;
 use super::take_canonical;
 use crate::AnyCanonical;
 use crate::ArrayEq;
@@ -32,6 +32,7 @@ use crate::array::VTable;
 use crate::arrays::ConstantArray;
 use crate::arrays::Primitive;
 use crate::arrays::dict::DictArrayExt;
+use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -52,10 +53,6 @@ pub type DictArray = Array<Dict>;
 #[derive(Clone, Debug)]
 pub struct Dict;
 
-impl Dict {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.dict");
-}
-
 impl ArrayHash for DictData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
 }
@@ -73,23 +70,20 @@ impl VTable for Dict {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.dict");
+        *ID
     }
 
     fn validate(
         &self,
-        data: &DictData,
+        _data: &DictData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        _ = data;
-        let codes = slots[CODES_SLOT]
-            .as_ref()
-            .vortex_expect("DictArray codes slot");
-        let values = slots[VALUES_SLOT]
-            .as_ref()
-            .vortex_expect("DictArray values slot");
+        let view = DictSlotsView::from_slots(slots);
+        let codes = view.codes;
+        let values = view.values;
         vortex_ensure!(codes.len() == len, "DictArray codes length mismatch");
         vortex_ensure!(
             values
@@ -170,7 +164,7 @@ impl VTable for Dict {
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        DictSlots::NAMES[idx].to_string()
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -181,19 +175,19 @@ impl VTable for Dict {
             return Ok(ExecutionResult::done(Canonical::empty(&result_dtype)));
         }
 
-        let array = require_child!(array, array.codes(), 0 => Primitive);
+        let array = require_child!(array, array.codes(), DictSlots::CODES => Primitive);
 
         // TODO(joe): use stat get instead computing.
         // Also not the check to do here it take value validity using code validity, but this approx
         // is correct.
-        if array.codes().all_invalid()? {
+        if array.codes().all_invalid(ctx)? {
             return Ok(ExecutionResult::done(ConstantArray::new(
                 Scalar::null(array.dtype().as_nullable()),
                 array.codes().len(),
             )));
         }
 
-        let array = require_child!(array, array.values(), 1 => AnyCanonical);
+        let array = require_child!(array, array.values(), DictSlots::VALUES => AnyCanonical);
 
         let codes = array
             .codes()
@@ -204,7 +198,7 @@ impl VTable for Dict {
         let values = array.values().clone();
         debug_assert!(values.is_canonical());
         // TODO: add canonical owned cast.
-        let values = values.to_canonical()?;
+        let values = values.execute::<Canonical>(ctx)?;
 
         Ok(ExecutionResult::done(take_canonical(values, &codes, ctx)?))
     }

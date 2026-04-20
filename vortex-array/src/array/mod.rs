@@ -7,18 +7,15 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use arcref::ArcRef;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
+use vortex_session::registry::Id;
 
 use crate::ExecutionCtx;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -71,13 +68,15 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns the slots of the array.
     fn slots(&self) -> &[Option<ArrayRef>];
 
+    /// Returns mutable slots of the array.
+    ///
+    /// # Safety: any slot (Some(child)) that replaces an existing slot must have a compatible
+    /// DType and length. Currently compatible means equal, but there is no reason why that must
+    /// be the case.
+    unsafe fn slots_mut(&mut self) -> &mut [Option<ArrayRef>];
+
     /// Returns the encoding ID of the array.
     fn encoding_id(&self) -> ArrayId;
-
-    /// Fetch the scalar at the given index.
-    ///
-    /// This method panics if the index is out of bounds for the array.
-    fn scalar_at(&self, this: &ArrayRef, index: usize) -> VortexResult<Scalar>;
 
     /// Returns the [`Validity`] of the array.
     fn validity(&self, this: &ArrayRef) -> VortexResult<Validity>;
@@ -132,10 +131,6 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns the name of the slot at the given index.
     fn slot_name(&self, this: &ArrayRef, idx: usize) -> String;
 
-    /// Returns the serialized metadata of the array, or `None` if the array does not
-    /// support serialization.
-    fn metadata(&self, this: &ArrayRef, session: &VortexSession) -> VortexResult<Option<Vec<u8>>>;
-
     /// Formats a human-readable metadata description.
     fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
 
@@ -170,6 +165,16 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
+
+    /// Execute the scalar at the given index.
+    ///
+    /// This method panics if the index is out of bounds for the array.
+    fn execute_scalar(
+        &self,
+        this: &ArrayRef,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar>;
 }
 
 /// Trait for converting a type into a Vortex [`ArrayRef`].
@@ -214,17 +219,12 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         &self.slots
     }
 
-    fn encoding_id(&self) -> ArrayId {
-        self.vtable.id()
+    unsafe fn slots_mut(&mut self) -> &mut [Option<ArrayRef>] {
+        &mut self.slots
     }
 
-    fn scalar_at(&self, this: &ArrayRef, index: usize) -> VortexResult<Scalar> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        <V::OperationsVTable as OperationsVTable<V>>::scalar_at(
-            view,
-            index,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
+    fn encoding_id(&self) -> ArrayId {
+        self.vtable.id()
     }
 
     fn validity(&self, this: &ArrayRef) -> VortexResult<Validity> {
@@ -339,11 +339,6 @@ impl<V: VTable> DynArray for ArrayInner<V> {
     fn slot_name(&self, this: &ArrayRef, idx: usize) -> String {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         V::slot_name(view, idx)
-    }
-
-    fn metadata(&self, this: &ArrayRef, session: &VortexSession) -> VortexResult<Option<Vec<u8>>> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        V::serialize(view, session)
     }
 
     fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -494,6 +489,16 @@ impl<V: VTable> DynArray for ArrayInner<V> {
 
         Ok(Some(result))
     }
+
+    fn execute_scalar(
+        &self,
+        this: &ArrayRef,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        <V::OperationsVTable as OperationsVTable<V>>::scalar_at(view, index, ctx)
+    }
 }
 
 /// Wrapper around `&mut dyn Hasher` that implements `Hasher` (and is `Sized`).
@@ -510,4 +515,4 @@ impl Hasher for HasherWrapper<'_> {
 }
 
 /// ArrayId is a globally unique name for the array's vtable.
-pub type ArrayId = ArcRef<str>;
+pub type ArrayId = Id;

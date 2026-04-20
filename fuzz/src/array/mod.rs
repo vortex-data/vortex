@@ -250,7 +250,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
 
                     let scalar = if u.arbitrary()? {
                         current_array
-                            .scalar_at(u.choose_index(current_array.len())?)
+                            .execute_scalar(u.choose_index(current_array.len())?, &mut ctx)
                             .vortex_expect("scalar_at")
                     } else {
                         random_scalar(u, current_array.dtype())?
@@ -291,7 +291,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                 ActionType::Compare => {
                     let scalar = if u.arbitrary()? {
                         current_array
-                            .scalar_at(u.choose_index(current_array.len())?)
+                            .execute_scalar(u.choose_index(current_array.len())?, &mut ctx)
                             .vortex_expect("scalar_at")
                     } else {
                         // We can compare arrays with different nullability
@@ -327,24 +327,22 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     }
 
                     // Sum - returns a scalar, does NOT update current_array (terminal operation)
-                    let sum_result = sum_canonical_array(
-                        current_array
-                            .to_canonical()
-                            .vortex_expect("to_canonical should succeed in fuzz test"),
-                        &mut ctx,
-                    )
-                    .vortex_expect("sum_canonical_array should succeed in fuzz test");
+                    #[expect(deprecated)]
+                    let current_array_canonical = current_array
+                        .to_canonical()
+                        .vortex_expect("to_canonical should succeed in fuzz test");
+                    let sum_result = sum_canonical_array(current_array_canonical, &mut ctx)
+                        .vortex_expect("sum_canonical_array should succeed in fuzz test");
                     (Action::Sum, ExpectedValue::Scalar(sum_result))
                 }
                 ActionType::MinMax => {
                     // MinMax - returns a scalar, does NOT update current_array (terminal operation)
-                    let min_max_result = min_max_canonical_array(
-                        current_array
-                            .to_canonical()
-                            .vortex_expect("to_canonical should succeed in fuzz test"),
-                        &mut ctx,
-                    )
-                    .vortex_expect("min_max_canonical_array should succeed in fuzz test");
+                    #[expect(deprecated)]
+                    let current_array_canonical = current_array
+                        .to_canonical()
+                        .vortex_expect("to_canonical should succeed in fuzz test");
+                    let min_max_result = min_max_canonical_array(current_array_canonical, &mut ctx)
+                        .vortex_expect("min_max_canonical_array should succeed in fuzz test");
                     (Action::MinMax, ExpectedValue::MinMax(min_max_result))
                 }
                 ActionType::FillNull => {
@@ -354,7 +352,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     }
                     let fill_value = if u.arbitrary()? && !current_array.is_empty() {
                         current_array
-                            .scalar_at(u.choose_index(current_array.len())?)
+                            .execute_scalar(u.choose_index(current_array.len())?, &mut ctx)
                             .vortex_expect("scalar_at")
                     } else {
                         random_scalar(
@@ -370,13 +368,13 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     }
 
                     // Compute expected result on canonical form
-                    let expected_result = fill_null_canonical_array(
-                        current_array
-                            .to_canonical()
-                            .vortex_expect("to_canonical should succeed in fuzz test"),
-                        &fill_value,
-                    )
-                    .vortex_expect("fill_null_canonical_array should succeed in fuzz test");
+                    #[expect(deprecated)]
+                    let current_array_canonical = current_array
+                        .to_canonical()
+                        .vortex_expect("to_canonical should succeed in fuzz test");
+                    let expected_result =
+                        fill_null_canonical_array(current_array_canonical, &fill_value)
+                            .vortex_expect("fill_null_canonical_array should succeed in fuzz test");
                     // Update current_array to the result for chaining
                     current_array = expected_result.clone();
                     (
@@ -391,10 +389,12 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         .collect::<arbitrary::Result<Vec<_>>>()?;
 
                     // Compute expected result on canonical form
+                    #[expect(deprecated)]
+                    let current_array_canonical = current_array
+                        .to_canonical()
+                        .vortex_expect("to_canonical should succeed in fuzz test");
                     let expected_result = mask_canonical_array(
-                        current_array
-                            .to_canonical()
-                            .vortex_expect("to_canonical should succeed in fuzz test"),
+                        current_array_canonical,
                         &Mask::from_iter(mask.clone()),
                     )
                     .vortex_expect("mask_canonical_array should succeed in fuzz test");
@@ -424,13 +424,13 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     let expected_scalars: Vec<Scalar> = indices_vec
                         .iter()
                         .map(|&idx| {
-                            scalar_at_canonical_array(
-                                current_array
-                                    .to_canonical()
-                                    .vortex_expect("to_canonical should succeed in fuzz test"),
-                                idx,
+                            #[expect(deprecated)]
+                            let canonical = current_array
+                                .to_canonical()
+                                .vortex_expect("to_canonical should succeed in fuzz test");
+                            scalar_at_canonical_array(canonical, idx).vortex_expect(
+                                "scalar_at_canonical_array should succeed in fuzz test",
                             )
-                            .vortex_expect("scalar_at_canonical_array should succeed in fuzz test")
                         })
                         .collect();
 
@@ -564,7 +564,7 @@ pub fn compress_array(array: &ArrayRef, _strategy: CompressorStrategy) -> ArrayR
 /// - `Ok(true)` - keep in corpus
 /// - `Ok(false)` - reject from corpus
 /// - `Err(_)` - a bug was found
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err)]
 pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
     let FuzzArrayAction { array, actions } = fuzz_action;
     let mut current_array = array;
@@ -581,6 +581,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
         debug!(id = i, action = ?action);
         match action {
             Action::Compress(strategy) => {
+                #[expect(deprecated)]
                 let canonical = current_array
                     .to_canonical()
                     .vortex_expect("to_canonical should succeed in fuzz test");
@@ -669,7 +670,9 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
             Action::ScalarAt(indices) => {
                 let expected_scalars = expected.scalar_vec();
                 for (j, &idx) in indices.iter().enumerate() {
-                    let scalar = current_array.scalar_at(idx).vortex_expect("scalar_at");
+                    let scalar = current_array
+                        .execute_scalar(idx, &mut ctx)
+                        .vortex_expect("scalar_at");
                     assert_scalar_eq(&expected_scalars[j], &scalar, i)?;
                 }
             }
@@ -678,7 +681,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
     Ok(true) // Keep in corpus
 }
 
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err)]
 fn assert_search_sorted(
     array: ArrayRef,
     s: Scalar,
@@ -705,7 +708,7 @@ fn assert_search_sorted(
 }
 
 /// Assert two arrays are equal.
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err)]
 pub fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuzzResult<()> {
     if lhs.dtype() != rhs.dtype() {
         return Err(VortexFuzzError::DTypeMismatch(
@@ -726,9 +729,10 @@ pub fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuz
             Backtrace::capture(),
         ));
     }
+    let mut ctx = SESSION.create_execution_ctx();
     for idx in 0..lhs.len() {
-        let l = lhs.scalar_at(idx).vortex_expect("scalar_at");
-        let r = rhs.scalar_at(idx).vortex_expect("scalar_at");
+        let l = lhs.execute_scalar(idx, &mut ctx).vortex_expect("scalar_at");
+        let r = rhs.execute_scalar(idx, &mut ctx).vortex_expect("scalar_at");
 
         if l != r {
             return Err(VortexFuzzError::ArrayNotEqual(
@@ -746,7 +750,7 @@ pub fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuz
 }
 
 /// Assert two scalars are equal.
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err)]
 pub fn assert_scalar_eq(lhs: &Scalar, rhs: &Scalar, step: usize) -> VortexFuzzResult<()> {
     if lhs != rhs {
         return Err(VortexFuzzError::ScalarMismatch(
@@ -760,7 +764,7 @@ pub fn assert_scalar_eq(lhs: &Scalar, rhs: &Scalar, step: usize) -> VortexFuzzRe
 }
 
 /// Assert two min/max results are equal.
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err)]
 pub fn assert_min_max_eq(
     lhs: &Option<MinMaxResult>,
     rhs: &Option<MinMaxResult>,

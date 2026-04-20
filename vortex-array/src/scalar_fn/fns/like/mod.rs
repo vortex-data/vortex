@@ -62,7 +62,7 @@ impl ScalarFnVTable for Like {
     type Options = LikeOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.like")
+        ScalarFnId::new("vortex.like")
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

@@ -10,6 +10,8 @@ use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::NativeValue;
 use crate::dtype::NativePType;
@@ -29,7 +31,13 @@ impl PrimitiveArray {
         }
 
         match_each_native_ptype!(self.ptype(), |P| {
-            let (top, count) = typed_top_value(self.as_slice::<P>(), self.validity_mask()?);
+            let (top, count) = typed_top_value(
+                self.as_slice::<P>(),
+                self.as_ref().validity()?.to_mask(
+                    self.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )?,
+            );
             Ok(Some((top.into(), count)))
         })
     }

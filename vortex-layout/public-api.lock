@@ -172,6 +172,8 @@ pub fn vortex_layout::layouts::compressed::CompressingStrategy::new<S: vortex_la
 
 pub fn vortex_layout::layouts::compressed::CompressingStrategy::with_concurrency(self, concurrency: usize) -> Self
 
+pub fn vortex_layout::layouts::compressed::CompressingStrategy::with_stats(self, stats: &[vortex_array::expr::stats::Stat]) -> Self
+
 impl core::clone::Clone for vortex_layout::layouts::compressed::CompressingStrategy
 
 pub fn vortex_layout::layouts::compressed::CompressingStrategy::clone(&self) -> vortex_layout::layouts::compressed::CompressingStrategy
@@ -622,6 +624,8 @@ pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::new(row_offset: u64,
 
 impl vortex_layout::LayoutReader for vortex_layout::layouts::row_idx::RowIdxLayoutReader
 
+pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::as_any(&self) -> &dyn core::any::Any
+
 pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::filter_evaluation(&self, row_range: &core::ops::range::Range<u64>, expr: &vortex_array::expr::expression::Expression, mask: vortex_array::mask_future::MaskFuture) -> vortex_error::VortexResult<vortex_array::mask_future::MaskFuture>
@@ -1002,9 +1006,17 @@ pub fn vortex_layout::scan::layout::LayoutReaderDataSource::scan<'life0, 'async_
 
 pub mod vortex_layout::scan::multi
 
+pub enum vortex_layout::scan::multi::MultiLayoutChild
+
+pub vortex_layout::scan::multi::MultiLayoutChild::Deferred(alloc::sync::Arc<dyn vortex_layout::scan::multi::LayoutReaderFactory>)
+
+pub vortex_layout::scan::multi::MultiLayoutChild::Opened(vortex_layout::LayoutReaderRef)
+
 pub struct vortex_layout::scan::multi::MultiLayoutDataSource
 
 impl vortex_layout::scan::multi::MultiLayoutDataSource
+
+pub fn vortex_layout::scan::multi::MultiLayoutDataSource::children(&self) -> &alloc::vec::Vec<vortex_layout::scan::multi::MultiLayoutChild>
 
 pub fn vortex_layout::scan::multi::MultiLayoutDataSource::new_deferred(dtype: vortex_array::dtype::DType, factories: alloc::vec::Vec<alloc::sync::Arc<dyn vortex_layout::scan::multi::LayoutReaderFactory>>, session: &vortex_session::VortexSession) -> Self
 
@@ -1834,6 +1846,8 @@ pub fn vortex_layout::LayoutEncodingAdapter<V>::id(&self) -> vortex_layout::Layo
 
 pub trait vortex_layout::LayoutReader: 'static + core::marker::Send + core::marker::Sync
 
+pub fn vortex_layout::LayoutReader::as_any(&self) -> &dyn core::any::Any
+
 pub fn vortex_layout::LayoutReader::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_layout::LayoutReader::filter_evaluation(&self, row_range: &core::ops::range::Range<u64>, expr: &vortex_array::expr::expression::Expression, mask: vortex_array::mask_future::MaskFuture) -> vortex_error::VortexResult<vortex_array::mask_future::MaskFuture>
@@ -1849,6 +1863,8 @@ pub fn vortex_layout::LayoutReader::register_splits(&self, field_mask: &[vortex_
 pub fn vortex_layout::LayoutReader::row_count(&self) -> u64
 
 impl vortex_layout::LayoutReader for vortex_layout::layouts::row_idx::RowIdxLayoutReader
+
+pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::as_any(&self) -> &dyn core::any::Any
 
 pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::dtype(&self) -> &vortex_array::dtype::DType
 
@@ -2130,11 +2146,11 @@ pub type vortex_layout::ArrayFuture = futures_core::future::BoxFuture<'static, v
 
 pub type vortex_layout::LayoutContext = vortex_session::registry::Context<vortex_layout::LayoutEncodingRef>
 
-pub type vortex_layout::LayoutEncodingId = arcref::ArcRef<str>
+pub type vortex_layout::LayoutEncodingId = vortex_session::registry::Id
 
 pub type vortex_layout::LayoutEncodingRef = arcref::ArcRef<dyn vortex_layout::LayoutEncoding>
 
-pub type vortex_layout::LayoutId = arcref::ArcRef<str>
+pub type vortex_layout::LayoutId = vortex_session::registry::Id
 
 pub type vortex_layout::LayoutReaderRef = alloc::sync::Arc<dyn vortex_layout::LayoutReader>
 
