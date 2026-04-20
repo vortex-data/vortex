@@ -38,15 +38,6 @@ void duckdb_vx_tfunc_bind_result_add_column(duckdb_vx_tfunc_bind_result ffi_resu
                                             size_t name_len,
                                             duckdb_logical_type ffi_type);
 
-// Opaque type for the result of get_virtual_columns
-typedef struct duckdb_vx_tfunc_virtual_cols_result_ *duckdb_vx_tfunc_virtual_cols_result;
-// Push a column into the get_virtual_columns result.
-void duckdb_vx_tfunc_virtual_columns_push(duckdb_vx_tfunc_virtual_cols_result ffi_result,
-                                          idx_t column_idx,
-                                          const char *name_str,
-                                          size_t name_len,
-                                          duckdb_logical_type ffi_type);
-
 // String map for to_string result
 typedef struct duckdb_vx_string_map_ *duckdb_vx_string_map;
 
@@ -144,8 +135,6 @@ typedef struct {
 
     bool (*pushdown_complex_filter)(void *bind_data, duckdb_vx_expr expr, duckdb_vx_error *error_out);
 
-    void (*get_virtual_columns)(void *bind_data, duckdb_vx_tfunc_virtual_cols_result result_out);
-
     void *pushdown_expression;
     duckdb_vx_string_map (*to_string)(void *bind_data);
     // void *dynamic_to_string;
@@ -162,7 +151,6 @@ typedef struct {
     // void *supports_pushdown_type;
     // void *get_partition_info;
     // void *get_partition_stats;
-    // void *get_virtual_columns;
     // void *get_row_id_columns;
 
     bool projection_pushdown;
