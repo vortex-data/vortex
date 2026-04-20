@@ -32,10 +32,8 @@ use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::validity::Validity;
 
-pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> = ReduceRuleSet::new(&[
-    &ScalarFnPackToStructRule,
-    &ScalarFnAbstractReduceRule,
-]);
+pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> =
+    ReduceRuleSet::new(&[&ScalarFnPackToStructRule, &ScalarFnAbstractReduceRule]);
 
 pub(super) const PARENT_RULES: ParentRuleSet<ScalarFnVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&ScalarFnUnaryFilterPushDownRule),
