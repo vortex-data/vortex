@@ -65,8 +65,7 @@ public:
 // Same hack for ValidityMask: access protected fields via inheritance.
 class ExternalValidityMask : public ValidityMask {
 public:
-    inline void SetExternal(idx_t u64_offset, idx_t cap,
-                            buffer_ptr<ValidityBuffer> keeper) {
+    inline void SetExternal(idx_t u64_offset, idx_t cap, buffer_ptr<ValidityBuffer> keeper) {
         validity_data = std::move(keeper);
         // Derive validity_mask from validity_data so the two stay consistent.
         validity_mask = reinterpret_cast<validity_t *>(validity_data.get()) + u64_offset;
@@ -98,9 +97,9 @@ extern "C" void duckdb_vx_vector_set_data_ptr(duckdb_vector ffi_vector, void *pt
 }
 
 extern "C" void duckdb_vx_vector_set_validity_data(duckdb_vector ffi_vector,
-                                                    idx_t u64_offset,
-                                                    idx_t capacity,
-                                                    duckdb_vx_vector_buffer buffer) {
+                                                   idx_t u64_offset,
+                                                   idx_t capacity,
+                                                   duckdb_vx_vector_buffer buffer) {
     auto dvector = reinterpret_cast<vortex::DataVector *>(ffi_vector);
     auto &validity = dvector->GetValidity();
     // ExternalValidityMask adds no members, so this reinterpret_cast is a safe
