@@ -10,8 +10,16 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
+use crate::normalized_vector::NormalizedVector;
 use crate::vector::Vector;
 
+/// Matcher that accepts both the plain [`Vector`] extension type and the
+/// [`NormalizedVector`](crate::normalized_vector::NormalizedVector) refinement.
+///
+/// Callers that care only about the vector-shaped storage (element dtype and dimension) should
+/// use this matcher. Callers that must distinguish the refinement can check
+/// [`VectorMatcherMetadata::is_normalized`] or use
+/// [`AnyNormalizedVector`](crate::normalized_vector::AnyNormalizedVector).
 pub struct AnyVector;
 
 /// Convenience metadata for vectors.
@@ -33,15 +41,24 @@ pub struct VectorMatcherMetadata {
 
     /// The number of dimensions of the vector. This is always fixed.
     dimensions: u32,
+
+    /// Whether this vector is known to be L2-normalized (rows are unit-norm or zero).
+    ///
+    /// Set to `true` for `NormalizedVector` matches and `false` for plain `Vector` matches.
+    is_normalized: bool,
 }
 
 impl Matcher for AnyVector {
     type Match<'a> = VectorMatcherMetadata;
 
     fn try_match<'a>(ext_dtype: &'a ExtDTypeRef) -> Option<Self::Match<'a>> {
-        if !ext_dtype.is::<Vector>() {
+        let is_normalized = if ext_dtype.is::<Vector>() {
+            false
+        } else if ext_dtype.is::<NormalizedVector>() {
+            true
+        } else {
             return None;
-        }
+        };
 
         let DType::FixedSizeList(element_dtype, list_size, _) = ext_dtype.storage_dtype() else {
             vortex_panic!("`Vector` type somehow did not have a `FixedSizeList` storage type")
@@ -56,8 +73,9 @@ impl Matcher for AnyVector {
         );
         let element_ptype = element_dtype.as_ptype();
 
-        let vector_metadata = VectorMatcherMetadata::try_new(element_ptype, dimensions)
-            .vortex_expect("`Vector` type somehow did not have float elements");
+        let vector_metadata =
+            VectorMatcherMetadata::try_new(element_ptype, dimensions, is_normalized)
+                .vortex_expect("`Vector` type somehow did not have float elements");
 
         Some(vector_metadata)
     }
@@ -69,12 +87,17 @@ impl VectorMatcherMetadata {
     /// # Errors
     ///
     /// Returns an error if the element type is not a float.
-    pub fn try_new(element_ptype: PType, dimensions: u32) -> VortexResult<Self> {
+    pub fn try_new(
+        element_ptype: PType,
+        dimensions: u32,
+        is_normalized: bool,
+    ) -> VortexResult<Self> {
         vortex_ensure!(element_ptype.is_float());
 
         Ok(Self {
             element_ptype,
             dimensions,
+            is_normalized,
         })
     }
 
@@ -86,6 +109,12 @@ impl VectorMatcherMetadata {
     /// Returns the number of dimensions of the vector.
     pub fn dimensions(&self) -> u32 {
         self.dimensions
+    }
+
+    /// Returns `true` when the matched dtype is a
+    /// [`NormalizedVector`](crate::normalized_vector::NormalizedVector).
+    pub fn is_normalized(&self) -> bool {
+        self.is_normalized
     }
 }
 
@@ -121,6 +150,22 @@ mod tests {
         let metadata = ext_dtype.metadata::<AnyVector>();
         assert_eq!(metadata.element_ptype(), PType::F32);
         assert_eq!(metadata.dimensions(), 256);
+        assert!(!metadata.is_normalized());
+        Ok(())
+    }
+
+    #[test]
+    fn matches_normalized_vector_dtype_metadata() -> VortexResult<()> {
+        let ext_dtype = ExtDType::<NormalizedVector>::try_new(
+            EmptyMetadata,
+            vector_storage_dtype(PType::F32, 256),
+        )?
+        .erased();
+
+        let metadata = ext_dtype.metadata::<AnyVector>();
+        assert_eq!(metadata.element_ptype(), PType::F32);
+        assert_eq!(metadata.dimensions(), 256);
+        assert!(metadata.is_normalized());
         Ok(())
     }
 

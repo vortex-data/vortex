@@ -34,6 +34,7 @@ use crate::encodings::turboquant::MIN_DIMENSION;
 use crate::encodings::turboquant::centroids::compute_centroid_boundaries;
 use crate::encodings::turboquant::centroids::find_nearest_centroid;
 use crate::encodings::turboquant::centroids::get_centroids;
+use crate::normalized_vector::NormalizedVector;
 use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 use crate::scalar_fns::sorf_transform::SorfMatrix;
@@ -41,7 +42,6 @@ use crate::scalar_fns::sorf_transform::SorfOptions;
 use crate::scalar_fns::sorf_transform::SorfTransform;
 use crate::utils::cast_to_f32;
 use crate::vector::AnyVector;
-use crate::vector::Vector;
 
 /// Configuration for TurboQuant encoding.
 #[derive(Clone, Debug)]
@@ -100,9 +100,11 @@ pub fn turboquant_encode(
     // SAFETY: `normalize_as_l2_denorm` guarantees every row is unit-norm (or zero for null rows).
     let tq = unsafe { turboquant_encode_unchecked(normalized_ext, config, ctx) }?;
 
-    // SAFETY: TurboQuant is a lossy approximation of the normalized child, so we intentionally
-    // bypass the strict normalized-row validation when reattaching the stored norms.
-    Ok(unsafe { L2Denorm::new_array_unchecked(tq, norms, num_rows) }?.into_array())
+    // The quantized SORF output already carries a `NormalizedVector` dtype because we marked
+    // the dict-wrapped child as normalized inside `turboquant_encode_unchecked` and SORF
+    // propagates the marker. Lossy quantization may move some originally-zero rows away from
+    // exact zero, so we use `new_array` (no zero-norm cross-check) instead of `try_new_array`.
+    Ok(L2Denorm::new_array(tq, norms, num_rows)?.into_array())
 }
 
 /// Encode a non-nullable, L2-normalized [`Vector`](crate::vector::Vector) extension array into a
@@ -156,7 +158,9 @@ pub unsafe fn turboquant_encode_unchecked(
             Validity::NonNullable,
             0,
         )?;
-        let empty_padded_vector = Vector::try_new_vector_array(empty_fsl.into_array())?;
+        // SAFETY: Empty input vacuously satisfies the unit-norm claim.
+        let empty_padded_vector =
+            unsafe { NormalizedVector::new_unchecked(empty_fsl.into_array()) }?;
 
         let sorf_options = SorfOptions {
             seed,
@@ -172,7 +176,10 @@ pub unsafe fn turboquant_encode_unchecked(
     let core = turboquant_quantize_core(&fsl, seed, config.bit_width, config.num_rounds, ctx)?;
     let quantized_fsl =
         build_quantized_fsl(num_rows, core.all_indices, core.centroids, core.padded_dim)?;
-    let padded_vector = Vector::try_new_vector_array(quantized_fsl)?;
+    // SAFETY: TurboQuant centroids are MSE-optimal over the unit sphere, so each quantized row
+    // is approximately unit-norm. The downstream `L2Denorm` wrapper takes the stored norms as
+    // authoritative anyway.
+    let padded_vector = unsafe { NormalizedVector::new_unchecked(quantized_fsl) }?;
 
     let sorf_options = SorfOptions {
         seed,

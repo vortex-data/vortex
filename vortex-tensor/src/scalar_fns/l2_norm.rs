@@ -6,6 +6,7 @@
 use std::fmt::Formatter;
 
 use num_traits::Float;
+use num_traits::One;
 use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -17,7 +18,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::ScalarFnVTable as ScalarFnArrayEncoding;
 use vortex_array::arrays::extension::ExtensionArrayExt;
-use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts;
@@ -45,9 +45,8 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::matcher::AnyTensor;
-use crate::scalar_fns::l2_denorm::L2Denorm;
+use crate::scalar_fns::l2_denorm::NormalForm;
 use crate::utils::extract_flat_elements;
-use crate::utils::extract_l2_denorm_children;
 use crate::utils::validate_tensor_float_input;
 
 /// L2 norm (Euclidean norm) of a tensor or vector column.
@@ -57,7 +56,7 @@ use crate::utils::validate_tensor_float_input;
 /// The input must be a tensor-like extension array with a float element type. The output is a float
 /// column of the same float type.
 ///
-/// When the input is wrapped in [`L2Denorm`], this operator treats the stored norms as
+/// When the input is wrapped in [`L2Denorm`](crate::scalar_fns::l2_denorm::L2Denorm), this operator treats the stored norms as
 /// authoritative. For lossy encodings such as TurboQuant, that means `L2Norm` may intentionally
 /// read the stored norms instead of re-deriving them from fully decoded coordinates. That behavior
 /// is part of the lossy storage contract, not a separate lossy-compute mode.
@@ -137,13 +136,24 @@ impl ScalarFnVTable for L2Norm {
 
         let norm_dtype = DType::Primitive(element_ptype, ext.nullability());
 
-        // L2Norm(L2Denorm(normalized, norms)) is defined to read back the authoritative stored
-        // norms. Exact callers of lossy encodings like TurboQuant opt into that storage semantics
-        // instead of forcing a decode-and-recompute path here.
-        if input_ref.is::<ExactScalarFn<L2Denorm>>() {
-            let (_, norms) = extract_l2_denorm_children(&input_ref);
-            vortex_ensure_eq!(norms.dtype(), &norm_dtype);
-            return Ok(norms);
+        // Short-circuit when the input carries a unit-norm representation.
+        match NormalForm::classify(&input_ref) {
+            NormalForm::Denormalized { norms, .. } => {
+                // `L2Denorm(normalized, norms)` is defined to read back the authoritative stored
+                // norms. Exact callers of lossy encodings like TurboQuant opt into that storage
+                // semantics instead of forcing a decode-and-recompute path here.
+                vortex_ensure_eq!(norms.dtype(), &norm_dtype);
+                return Ok(norms);
+            }
+            NormalForm::Normalized { .. } => {
+                // A naked `NormalizedVector` has unit norm by type. Return a constant `1.0` of
+                // the appropriate ptype and nullability.
+                let one_scalar = match_each_float_ptype!(element_ptype, |T| {
+                    Scalar::primitive(T::one(), norm_dtype.nullability())
+                });
+                return Ok(ConstantArray::new(one_scalar, row_count).into_array());
+            }
+            NormalForm::Plain { .. } => {}
         }
 
         // Optimize for the constant array case.
@@ -288,6 +298,7 @@ mod tests {
     use crate::tests::SESSION;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::literal_vector_array;
+    use crate::utils::test_helpers::normalized_vector_array;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
     use crate::vector::Vector;
@@ -441,6 +452,16 @@ mod tests {
         assert_eq!(recovered.dtype(), original.dtype());
         assert_eq!(recovered.len(), original.len());
         assert_eq!(recovered.encoding_id(), original.encoding_id());
+        Ok(())
+    }
+
+    /// A naked [`NormalizedVector`](crate::normalized_vector::NormalizedVector) input must
+    /// short-circuit to a constant `1.0` row-wise norm without recomputing.
+    #[test]
+    fn naked_normalized_vector_returns_unit_norms() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = normalized_vector_array(2, &[1.0, 0.0, 0.6, 0.8], &mut ctx)?;
+        assert_close(&eval_l2_norm(input, 2)?, &[1.0, 1.0]);
         Ok(())
     }
 }
