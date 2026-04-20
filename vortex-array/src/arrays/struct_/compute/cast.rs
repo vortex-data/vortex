@@ -103,12 +103,14 @@ impl CastKernel for Struct {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinArray;
@@ -120,7 +122,11 @@ mod tests {
     use crate::dtype::FieldNames;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::session::ArraySession;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[rstest]
     #[case(create_test_struct(false))]
@@ -227,7 +233,8 @@ mod tests {
             .into_array()
             .cast_opts(target_dtype.clone(), CastOptions::by_position())
             .unwrap()
-            .to_struct();
+            .execute::<StructArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(result.dtype(), &target_dtype);
         assert_eq!(result.len(), 3);
         assert_eq!(result.struct_fields().nfields(), 2);
@@ -318,8 +325,11 @@ mod tests {
             .unwrap();
         assert_eq!(result.dtype(), &target_dtype);
         assert_eq!(result.len(), 3);
-        #[expect(deprecated)]
-        let nfields = result.to_struct().struct_fields().nfields();
+        let nfields = result
+            .execute::<StructArray>(&mut SESSION.create_execution_ctx())
+            .unwrap()
+            .struct_fields()
+            .nfields();
         assert_eq!(nfields, 3);
     }
 
@@ -352,7 +362,8 @@ mod tests {
             .into_array()
             .cast_opts(target.clone(), CastOptions::by_position())
             .unwrap()
-            .to_struct();
+            .execute::<StructArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
 
         assert_eq!(result.dtype(), &target);
         assert_arrays_eq!(

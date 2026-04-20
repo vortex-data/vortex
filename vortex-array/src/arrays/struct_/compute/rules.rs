@@ -179,24 +179,30 @@ impl ArrayParentReduceRule<Struct> for StructGetItemRule {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::struct_::StructArrayExt;
     use crate::arrays::struct_::compute::rules::ConstantArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
-    #[expect(deprecated)]
-    use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
     use crate::dtype::FieldNames;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
     use crate::scalar::Scalar;
+    use crate::session::ArraySession;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn test_struct_cast_field_reorder() {
@@ -223,8 +229,12 @@ mod tests {
 
         // Use `ArrayBuiltins::cast` which goes through the optimizer and applies
         // `StructCastPushDownRule`.
-        #[expect(deprecated)]
-        let result = source.into_array().cast(target).unwrap().to_struct();
+        let result = source
+            .into_array()
+            .cast(target)
+            .unwrap()
+            .execute::<StructArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
         assert_arrays_eq!(
             result.unmasked_field_by_name("a").unwrap(),
             VarBinViewArray::from_iter_nullable_str([Some("A")])
@@ -292,8 +302,12 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        #[expect(deprecated)]
-        let result = source.into_array().cast(target).unwrap().to_struct();
+        let result = source
+            .into_array()
+            .cast(target)
+            .unwrap()
+            .execute::<StructArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(result.unmasked_fields().len(), 2);
         assert_arrays_eq!(
             result.unmasked_field_by_name("a").unwrap(),
@@ -324,8 +338,13 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        #[expect(deprecated)]
-        let result = source.into_array().cast(target).unwrap().to_struct();
+        let result = source
+            .into_array()
+            .cast(target)
+            .unwrap()
+            .execute::<StructArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
+
         assert_eq!(
             result.unmasked_field_by_name("val").unwrap().dtype(),
             &DType::Primitive(PType::I64, Nullability::NonNullable)
@@ -392,7 +411,9 @@ mod tests {
             .into_array()
             .cast_opts(target.clone(), CastOptions::by_position())
             .unwrap()
-            .to_struct();
+            .execute::<StructArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
+
         assert_eq!(result.dtype(), &target);
         assert_arrays_eq!(
             result.unmasked_field_by_name("x").unwrap(),
@@ -455,7 +476,8 @@ mod tests {
             .into_array()
             .cast_opts(target.clone(), CastOptions::by_position())
             .unwrap()
-            .to_struct();
+            .execute::<StructArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(result.dtype(), &target);
         assert_arrays_eq!(result.unmasked_field(0), buffer![1i32, 2, 3].into_array());
         assert_arrays_eq!(

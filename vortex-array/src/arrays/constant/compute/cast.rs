@@ -25,11 +25,15 @@ impl CastReduce for Constant {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
-    use crate::ToCanonical;
+    use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
+    use crate::arrays::StructArray;
     use crate::arrays::struct_::StructArrayExt;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
@@ -38,6 +42,10 @@ mod tests {
     use crate::dtype::PType;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::cast::CastOptions;
+    use crate::session::ArraySession;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[rstest]
     #[case(ConstantArray::new(Scalar::from(42u32), 5).into_array())]
@@ -83,13 +91,21 @@ mod tests {
             .unwrap();
         assert_eq!(result.dtype(), &target);
         assert_eq!(result.len(), 3);
-        let s = result.to_struct();
+        let s = result
+            .execute::<StructArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(
-            s.unmasked_field_by_name("x").unwrap().scalar_at(0).unwrap(),
+            s.unmasked_field_by_name("x")
+                .unwrap()
+                .execute_scalar(0, &mut SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::from(1i32)
         );
         assert_eq!(
-            s.unmasked_field_by_name("y").unwrap().scalar_at(0).unwrap(),
+            s.unmasked_field_by_name("y")
+                .unwrap()
+                .execute_scalar(0, &mut SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::from(10i64)
         );
     }
@@ -110,19 +126,27 @@ mod tests {
             .cast_opts(target.clone(), CastOptions::by_name())
             .unwrap();
         assert_eq!(result.dtype(), &target);
-        let s = result.to_struct();
+        let s = result
+            .execute::<StructArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(
-            s.unmasked_field_by_name("a").unwrap().scalar_at(0).unwrap(),
+            s.unmasked_field_by_name("a")
+                .unwrap()
+                .execute_scalar(0, &mut SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::from(1i32)
         );
         assert_eq!(
-            s.unmasked_field_by_name("b").unwrap().scalar_at(0).unwrap(),
+            s.unmasked_field_by_name("b")
+                .unwrap()
+                .execute_scalar(0, &mut SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::from(10i64)
         );
         assert!(
             s.unmasked_field_by_name("c")
                 .unwrap()
-                .scalar_at(0)
+                .execute_scalar(0, &mut SESSION.create_execution_ctx())
                 .unwrap()
                 .is_null()
         );
@@ -143,13 +167,21 @@ mod tests {
             .cast_opts(target.clone(), CastOptions::by_name())
             .unwrap();
         assert_eq!(result.dtype(), &target);
-        let s = result.to_struct();
+        let s = result
+            .execute::<StructArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(
-            s.unmasked_field_by_name("a").unwrap().scalar_at(0).unwrap(),
+            s.unmasked_field_by_name("a")
+                .unwrap()
+                .execute_scalar(0, &mut SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::from(1i32)
         );
         assert_eq!(
-            s.unmasked_field_by_name("b").unwrap().scalar_at(0).unwrap(),
+            s.unmasked_field_by_name("b")
+                .unwrap()
+                .execute_scalar(0, &mut SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::from(10i64)
         );
     }
