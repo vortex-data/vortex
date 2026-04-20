@@ -20,7 +20,7 @@ pub fn filter_struct(array: &StructArray, mask: &Arc<MaskValues>) -> StructArray
         mask,
     );
 
-    let mask_for_filter = Mask::Values(mask.clone());
+    let mask_for_filter = Mask::Values(Arc::clone(mask));
     let fields: Vec<ArrayRef> = array
         .iter_unmasked_fields()
         .map(|field| {

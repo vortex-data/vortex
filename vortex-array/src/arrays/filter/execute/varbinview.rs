@@ -17,7 +17,7 @@ use crate::arrow::IntoArrowArray;
 
 pub fn filter_varbinview(array: &VarBinViewArray, mask: &Arc<MaskValues>) -> VarBinViewArray {
     // Delegate to the Arrow implementation of filter over `VarBinView`.
-    arrow_filter_fn(&array.clone().into_array(), &Mask::Values(mask.clone()))
+    arrow_filter_fn(&array.clone().into_array(), &Mask::Values(Arc::clone(mask)))
         .vortex_expect("VarBinViewArray is Arrow-compatible and supports arrow_filter_fn")
         .as_::<VarBinView>()
         .into_owned()

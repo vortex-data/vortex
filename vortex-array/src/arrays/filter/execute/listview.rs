@@ -43,7 +43,7 @@ pub fn filter_listview(array: &ListViewArray, selection_mask: &Arc<MaskValues>) 
     );
 
     // Simply filter the offsets and sizes arrays.
-    let mask_for_filter = Mask::Values(selection_mask.clone());
+    let mask_for_filter = Mask::Values(Arc::clone(selection_mask));
     let new_offsets = offsets
         .filter(mask_for_filter.clone())
         .vortex_expect("ListViewArray offsets are guaranteed to support filter");
