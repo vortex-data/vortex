@@ -37,6 +37,7 @@ use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::error::VortexError;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::metrics::Label;
@@ -362,6 +363,7 @@ impl FileOpener for VortexOpener {
             }
 
             let stream_schema = Arc::new(stream_schema);
+            let handle = session.handle();
 
             let stream = scan_builder
                 .with_metrics_registry(metrics_registry)
@@ -370,10 +372,15 @@ impl FileOpener for VortexOpener {
                 .with_ordered(has_output_ordering)
                 .into_stream()
                 .map_err(|e| exec_datafusion_err!("Failed to create Vortex stream: {e}"))?
-                .map(move |chunk| {
-                    let mut ctx = session.create_execution_ctx();
-                    chunk.and_then(|chunk| {
-                        chunk.execute_record_batch(stream_schema.as_ref(), &mut ctx)
+                .then(move |chunk| {
+                    let session = session.clone();
+                    let stream_schema = Arc::clone(&stream_schema);
+                    let handle = handle.clone();
+                    handle.spawn_blocking(move || {
+                        let mut ctx = session.create_execution_ctx();
+                        chunk.and_then(|chunk| {
+                            chunk.execute_record_batch(stream_schema.as_ref(), &mut ctx)
+                        })
                     })
                 })
                 .map_ok(move |rb| {

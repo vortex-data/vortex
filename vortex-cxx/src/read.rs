@@ -4,18 +4,11 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use arrow_array::RecordBatch;
 use arrow_array::RecordBatchReader;
-use arrow_array::cast::AsArray;
 use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
-use arrow_schema::ArrowError;
-use arrow_schema::DataType;
 use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
-use futures::StreamExt;
-use futures::stream::TryStreamExt;
-use vortex::array::arrow::IntoArrowArray;
 use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
@@ -158,19 +151,9 @@ pub(crate) fn scan_builder_into_threadsafe_cloneable_reader(
             Arc::new(arrow_schema)
         }
     };
-    let data_type = DataType::Struct(schema.fields().clone());
-
     let stream = builder
         .inner
-        .into_stream()?
-        .map(move |result| {
-            result.and_then(|chunk| {
-                chunk
-                    .into_arrow(&data_type)
-                    .map(|struct_array| RecordBatch::from(struct_array.as_struct()))
-            })
-        })
-        .map_err(|e| ArrowError::ExternalError(Box::new(e)));
+        .into_record_batch_stream(Arc::clone(&schema))?;
 
     let iter = RUNTIME.block_on_stream_thread_safe(|_h| stream);
     let rbr = RecordBatchIteratorAdapter::new(iter, schema);
