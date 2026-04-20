@@ -5,6 +5,7 @@
 
 mod session;
 
+use std::any::Any;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -241,9 +242,9 @@ fn layout_reader_with_stats(file: &crate::VortexFile) -> VortexResult<LayoutRead
 }
 
 /// A [`LayoutReaderFactory`] that lazily opens a single Vortex file and returns its layout reader.
-struct VortexFileReaderFactory {
+pub struct VortexFileReaderFactory {
     fs: FileSystemRef,
-    file: FileListing,
+    pub file: FileListing,
     session: VortexSession,
     open_options_fn: Arc<dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync>,
 }
@@ -259,5 +260,9 @@ impl LayoutReaderFactory for VortexFileReaderFactory {
         )
         .await?;
         Ok(Some(layout_reader_with_stats(&file)?))
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }

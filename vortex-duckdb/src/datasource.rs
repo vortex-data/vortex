@@ -31,6 +31,7 @@ use vortex::dtype::FieldNames;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex::error::vortex_panic;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::col;
@@ -38,6 +39,7 @@ use vortex::expr::root;
 use vortex::expr::select;
 use vortex::expr::stats::Precision;
 use vortex::expr::stats::Stat;
+use vortex::file::multi::VortexFileReaderFactory;
 use vortex::file::v2::FileStatsLayoutReader;
 use vortex::io::kanal_ext::KanalExt;
 use vortex::io::runtime::BlockingRuntime;
@@ -46,7 +48,6 @@ use vortex::layout::scan::multi::MultiLayoutChild;
 use vortex::layout::scan::multi::MultiLayoutDataSource;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::scalar::Scalar;
-use vortex::scalar::ScalarValue;
 use vortex::scalar_fn::fns::pack::Pack;
 use vortex::scan::DataSource;
 use vortex::scan::ScanRequest;
@@ -140,12 +141,19 @@ impl Debug for DataSourceBindData {
     }
 }
 
-type DataSourceIterator = ThreadSafeIterator<VortexResult<(ArrayRef, Arc<ConversionCache>)>>;
+type BatchId = usize;
+struct DataSourceBatch {
+    /// Monotonic non-decreasing id used for Duckdb data partitioning and
+    /// partition stats. Currently each id corresponds to a file.
+    id: BatchId,
+    array: ArrayRef,
+    cache: Arc<ConversionCache>,
+}
+type DataSourceIterator = ThreadSafeIterator<VortexResult<DataSourceBatch>>;
 
 /// Global scan state for driving a `DataSource` scan through DuckDB.
 pub struct DataSourceGlobal {
     iterator: DataSourceIterator,
-    batch_id: AtomicU64,
     bytes_total: Arc<AtomicU64>,
     bytes_read: AtomicU64,
 }
@@ -154,8 +162,9 @@ pub struct DataSourceGlobal {
 pub struct DataSourceLocal {
     iterator: DataSourceIterator,
     exporter: Option<ArrayExporter>,
-    /// The unique batch id of the last chunk exported via scan().
-    batch_id: Option<u64>,
+    /// Monotonic non-decreasing id used for Duckdb data partitioning and
+    /// partition stats. Currently each id corresponds to a file.
+    batch_id: BatchId,
 }
 
 /// Returns scan progress as a percentage (0.0–100.0).
@@ -167,65 +176,48 @@ fn progress(bytes_read: &AtomicU64, bytes_total: &AtomicU64) -> f64 {
 }
 
 impl ColumnStatistics {
-    fn from(stats: &ColumnStatisticsAggregate, dtype: DType) -> Self {
-        let min = stats.min.as_ref().map(|value| {
-            let value = value.clone();
+    pub fn new(stats: &StatsSet, dtype: DType) -> Self {
+        let (min, min_exact) = match stats.get(Stat::Min) {
+            Some(Precision::Exact(min)) => (Some(min), true),
+            Some(Precision::Inexact(min)) => (Some(min), false),
+            _ => (None, false),
+        };
+        let (max, max_exact) = match stats.get(Stat::Max) {
+            Some(Precision::Exact(max)) => (Some(max), true),
+            Some(Precision::Inexact(max)) => (Some(max), false),
+            _ => (None, false),
+        };
+
+        let min = min.map(|value| {
             Scalar::try_new(dtype.clone(), Some(value))
                 .vortex_expect("scalar dtype and value are incompatible")
                 .try_to_duckdb_scalar()
                 .vortex_expect("can't convert Scalar to duckdb Value")
         });
-        let max = stats.max.as_ref().map(|value| {
+        let max = max.map(|value| {
             Scalar::try_new(dtype.clone(), Some(value.clone()))
                 .vortex_expect("scalar dtype and value are incompatible")
                 .try_to_duckdb_scalar()
                 .vortex_expect("can't convert Scalar to duckdb Value")
         });
 
-        let max_string_length = stats
-            .max_string_length
-            .map_or(0, |len| (1u64 << 63) | (len as u64));
-
-        // Useful estimate if we didn't get null count stats
-        let has_null = stats.has_null && dtype.is_nullable();
-
-        Self {
-            min,
-            max,
-            max_string_length,
-            has_null,
-        }
-    }
-}
-
-#[derive(Default)]
-pub struct ColumnStatisticsAggregate {
-    pub min: Option<ScalarValue>,
-    pub max: Option<ScalarValue>,
-    pub max_string_length: Option<u32>,
-    /// May be true if null count stat isn't present
-    pub has_null: bool,
-}
-
-impl ColumnStatisticsAggregate {
-    pub fn new(stats: &StatsSet) -> Self {
-        let min = match stats.get(Stat::Min) {
-            Some(Precision::Exact(min)) => Some(min),
-            _ => None,
-        };
-        let max = match stats.get(Stat::Max) {
-            Some(Precision::Exact(max)) => Some(max),
-            _ => None,
-        };
-
-        let max_string_length =
+        let (max_string_length, has_max_string_length) =
             if let Some(Precision::Exact(value)) = stats.get(Stat::UncompressedSizeInBytes) {
                 // DuckDB's string length is u32
                 #[allow(clippy::cast_possible_truncation)]
-                Some(value.as_primitive().as_u64().vortex_expect("not a u64") as u32)
+                (
+                    value.as_primitive().as_u64().vortex_expect("not a u64") as u32,
+                    true,
+                )
             } else {
-                None
+                (0, false)
             };
+
+        let mut flags = 0u32;
+
+        if has_max_string_length {
+            flags |= 1;
+        }
 
         let has_null = match stats.get(Stat::NullCount) {
             Some(Precision::Exact(cnt)) => {
@@ -233,19 +225,22 @@ impl ColumnStatisticsAggregate {
             }
             _ => true,
         };
+        if has_null && dtype.is_nullable() {
+            flags |= 2;
+        }
+
+        if min.is_some() && max.is_some() && min_exact && max_exact {
+            flags |= 4;
+        }
 
         Self {
             min,
             max,
             max_string_length,
-            has_null,
+            flags,
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Blanket TableFunction implementation for any DataSourceTableFunction
-// ---------------------------------------------------------------------------
 
 impl<T: DataSourceTableFunction> TableFunction for T {
     type BindData = DataSourceBindData;
@@ -318,7 +313,8 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         // first available array chunk.
         let stream = scan
             .partitions()
-            .map(move |partition| {
+            .enumerate()
+            .map(move |(id, partition)| {
                 // We create a new conversion cache scoped to the partition, since there's no point
                 // caching anything across partitions.
                 let cache = Arc::new(ConversionCache::default());
@@ -334,7 +330,11 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                     };
                     while let Some(item) = stream.next().await {
                         if tx
-                            .send(item.map(|a| (a, Arc::clone(&cache))))
+                            .send(item.map(|array| DataSourceBatch {
+                                id,
+                                array,
+                                cache: Arc::clone(&cache),
+                            }))
                             .await
                             .is_err()
                         {
@@ -345,7 +345,9 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                     }
                 })
             })
-            .buffer_unordered(num_workers);
+            // We need ordering guarantees as produced batch id for each item
+            // must be non-decreasing
+            .buffered(num_workers);
 
         // Spawn a task to drive the partition stream and push array chunks into the channel.
         RUNTIME.handle().spawn(stream.collect::<()>()).detach();
@@ -354,7 +356,6 @@ impl<T: DataSourceTableFunction> TableFunction for T {
 
         Ok(DataSourceGlobal {
             iterator,
-            batch_id: AtomicU64::new(0),
             bytes_total: Arc::new(AtomicU64::new(0)),
             bytes_read: AtomicU64::new(0),
         })
@@ -382,7 +383,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         Ok(DataSourceLocal {
             iterator: global.iterator.clone(),
             exporter: None,
-            batch_id: None,
+            batch_id: 0,
         })
     }
 
@@ -399,13 +400,12 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                 let Some(result) = local_state.iterator.next() else {
                     return Ok(());
                 };
-                let (array_result, conversion_cache) = result?;
-                let array_result = array_result.optimize_recursive()?;
+                let DataSourceBatch { id, array, cache } = result?;
+                let array = array.optimize_recursive()?;
 
-                let array_result: StructArray = if let Some(array) = array_result.as_opt::<Struct>()
-                {
+                let array: StructArray = if let Some(array) = array.as_opt::<Struct>() {
                     array.into_owned()
-                } else if let Some(array) = array_result.as_opt::<ScalarFn>()
+                } else if let Some(array) = array.as_opt::<ScalarFn>()
                     && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
                 {
                     StructArray::new(
@@ -415,16 +415,11 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                         pack_options.nullability.into(),
                     )
                 } else {
-                    array_result.execute::<Canonical>(&mut ctx)?.into_struct()
+                    array.execute::<Canonical>(&mut ctx)?.into_struct()
                 };
 
-                local_state.exporter = Some(ArrayExporter::try_new(
-                    &array_result,
-                    &conversion_cache,
-                    ctx,
-                )?);
-                // Relaxed since there is no intra-instruction ordering required.
-                local_state.batch_id = Some(global_state.batch_id.fetch_add(1, Ordering::Relaxed));
+                local_state.exporter = Some(ArrayExporter::try_new(&array, &cache, ctx)?);
+                local_state.batch_id = id;
             }
 
             let exporter = local_state
@@ -440,7 +435,6 @@ impl<T: DataSourceTableFunction> TableFunction for T {
             if !has_more_data {
                 // This exporter is fully consumed.
                 local_state.exporter = None;
-                local_state.batch_id = None;
             } else {
                 break;
             }
@@ -480,31 +474,78 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         Ok(false)
     }
 
-    /// Get column-wise statistics. Available only if we're reading a single
-    /// file.
-    fn statistics(
-        _client_context: &ClientContextRef,
+    fn column_stats(
         bind_data: &Self::BindData,
+        file_index: usize,
         column_index: usize,
     ) -> Option<ColumnStatistics> {
         let children = bind_data.data_source.children();
+
+        // Requesting general statistics. Output only if there is 1 file.
         // Otherwise we'd have to open all files eagerly which is a performance
         // regression. Duckdb's Parquet reader only gets metadata for multiple
         // files with a UNION BY NAME and we don't support it (yet)
         // See duckdb/common/multi_file/multi_file_function.hpp#L691
-        if children.len() != 1 {
+        if file_index == usize::MAX && children.len() != 1 {
             return None;
         }
-        let MultiLayoutChild::Opened(ref reader) = children[0] else {
-            return None;
+        if file_index == usize::MAX {
+            let MultiLayoutChild::Opened(reader) = &children[0] else {
+                vortex_panic!("Single file should be eagerly opened");
+            };
+            let stats_sets = match reader.as_any().downcast_ref::<FileStatsLayoutReader>() {
+                Some(inner) => inner.file_stats().stats_sets(),
+                None => {
+                    vortex_panic!("Single file without metadata");
+                }
+            };
+            let stats_set = &stats_sets[column_index];
+            let dtype = bind_data.column_fields[column_index].dtype.clone();
+            return Some(ColumnStatistics::new(stats_set, dtype));
+        }
+        assert!(file_index < children.len());
+        let child = &children[file_index];
+
+        let MultiLayoutChild::Opened(reader) = child else {
+            panic!("File metadata not found");
         };
         let stats_sets = match reader.as_any().downcast_ref::<FileStatsLayoutReader>() {
             Some(inner) => inner.file_stats().stats_sets(),
             None => return None,
         };
-        let stats_aggregate = ColumnStatisticsAggregate::new(&stats_sets[column_index]);
+        let stats_set = &stats_sets[column_index];
         let dtype = bind_data.column_fields[column_index].dtype.clone();
-        Some(ColumnStatistics::from(&stats_aggregate, dtype))
+        Some(ColumnStatistics::new(stats_set, dtype))
+    }
+
+    fn partition_data(local_init_data: &Self::LocalState) -> u64 {
+        local_init_data.batch_id as u64
+    }
+
+    fn partition_count(bind_data: &Self::BindData) -> usize {
+        bind_data.data_source.children().len()
+    }
+
+    fn partition_row_counts(bind_data: &Self::BindData, row_counts: &mut [u64]) -> bool {
+        let files = bind_data.data_source.children();
+        assert!(files.len() == row_counts.len());
+        for (rc, file) in row_counts.iter_mut().zip(files) {
+            match file {
+                MultiLayoutChild::Opened(reader) => {
+                    println!("partition_row_counts opened reader, returning row count");
+                    *rc = reader.row_count();
+                }
+                MultiLayoutChild::Deferred(reader) => {
+                    let path = match reader.as_any().downcast_ref::<VortexFileReaderFactory>() {
+                        Some(factory) => factory.file.path.clone(),
+                        None => {
+                            vortex_panic!("Deferred reader should be a VortexFileReaderFactory");
+                        }
+                    };
+                }
+            }
+        }
+        true
     }
 
     fn cardinality(bind_data: &Self::BindData) -> Cardinality {
@@ -513,16 +554,6 @@ impl<T: DataSourceTableFunction> TableFunction for T {
             Some(Precision::Inexact(v)) => Cardinality::Estimate(v),
             None => Cardinality::Unknown,
         }
-    }
-
-    fn partition_data(
-        _bind_data: &Self::BindData,
-        _global_init_data: &Self::GlobalState,
-        local_init_data: &mut Self::LocalState,
-    ) -> VortexResult<u64> {
-        local_init_data
-            .batch_id
-            .ok_or_else(|| vortex_err!("batch id missing, no batches exported"))
     }
 
     fn to_string(bind_data: &Self::BindData, map: &mut DuckdbStringMapRef) {

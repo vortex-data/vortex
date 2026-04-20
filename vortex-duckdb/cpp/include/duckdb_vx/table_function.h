@@ -73,15 +73,20 @@ typedef struct {
     bool has_max_cardinality;
 } duckdb_vx_node_statistics;
 
+typedef enum {
+    HasMaxStringLength = 1 << 0,
+    HasNull = 1 << 1,
+    // Set only when both min and max are set and both of them are exact
+    // boundaries
+    MinMaxIsExact = 1 << 2
+} ColumnStatisticsFlags;
+
 typedef struct {
-    // Set only for strings and primitive types
     duckdb_value min;
     duckdb_value max;
-    // upper bit: "length is set". lower 32 bits: DuckDB's max string length.
-    // set only for strings
-    uint64_t max_string_length;
-    bool has_null;
-} duckdb_column_statistics;
+    uint32_t max_string_length;
+    ColumnStatisticsFlags flags;
+} duckdb_vx_column_statistics;
 
 // vtable mimicking subset of TableFunction.
 // See duckdb/include/function/tfunc.hpp
@@ -110,11 +115,6 @@ typedef struct {
                      duckdb_data_chunk data_chunk_out,
                      duckdb_vx_error *error_out);
 
-    bool (*statistics)(duckdb_client_context context,
-                       const void *bind_data,
-                       size_t column_index,
-                       duckdb_column_statistics *stats_out);
-
     void (*cardinality)(void *bind_data, duckdb_vx_node_statistics *node_stats_out);
 
     bool (*pushdown_complex_filter)(void *bind_data, duckdb_vx_expr expr, duckdb_vx_error *error_out);
@@ -123,10 +123,18 @@ typedef struct {
 
     double (*table_scan_progress)(duckdb_client_context ctx, void *bind_data, void *global_state);
 
-    idx_t (*get_partition_data)(const void *bind_data,
-                                void *init_global_data,
-                                void *init_local_data,
-                                duckdb_vx_error *error_out);
+    // What file index are we currently exporting?
+    idx_t (*get_partition_data)(const void *init_local_data);
+
+    size_t (*get_partition_count)(const void *bind_data);
+    // false if any file metadata (=row counts) is missing
+    bool (*get_partition_row_counts)(const void *bind_data, uint64_t *data, size_t len);
+
+    // pass -1 to file_idx to get statistics for all files
+    bool (*get_column_stats)(const void *bind_data,
+                             idx_t file_idx,
+                             idx_t column_idx,
+                             duckdb_vx_column_statistics *stats_out);
 } duckdb_vx_tfunc_vtab_t;
 
 // A single function for configuring the DuckDB table function vtable.

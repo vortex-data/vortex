@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use core::slice;
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::ffi::c_void;
 use std::fmt::Debug;
+use std::ptr;
 
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 mod bind;
 mod cardinality;
 mod init;
-mod partition;
 mod pushdown_complex_filter;
-mod statistics;
 mod table_scan_progress;
 
 pub use bind::*;
@@ -21,6 +21,7 @@ pub use init::*;
 
 use crate::cpp;
 use crate::cpp::duckdb_client_context;
+use crate::cpp::idx_t;
 use crate::duckdb::ClientContext;
 use crate::duckdb::DataChunk;
 use crate::duckdb::DatabaseRef;
@@ -30,9 +31,7 @@ use crate::duckdb::client_context::ClientContextRef;
 use crate::duckdb::data_chunk::DataChunkRef;
 use crate::duckdb::expr::ExpressionRef;
 use crate::duckdb::table_function::cardinality::cardinality_callback;
-use crate::duckdb::table_function::partition::get_partition_data_callback;
 use crate::duckdb::table_function::pushdown_complex_filter::pushdown_complex_filter_callback;
-use crate::duckdb::table_function::statistics::statistics;
 use crate::duckdb::table_function::table_scan_progress::table_scan_progress_callback;
 use crate::duckdb_try;
 
@@ -40,8 +39,11 @@ use crate::duckdb_try;
 pub struct ColumnStatistics {
     pub min: Option<Value>,
     pub max: Option<Value>,
-    pub max_string_length: u64,
-    pub has_null: bool,
+    pub max_string_length: u32,
+    // has string length: 1
+    // has null: 2
+    // min max is exact: 4
+    pub flags: u32,
 }
 
 // String map lifetime is managed by C++ code
@@ -78,12 +80,10 @@ pub trait TableFunction: Sized + Debug {
         result: &mut BindResultRef,
     ) -> VortexResult<Self::BindData>;
 
-    /// Report column statistics for a file or collections of files e.g.
-    /// registered as a VIEW.
-    fn statistics(
-        client_context: &ClientContextRef,
+    fn column_stats(
         bind_data: &Self::BindData,
-        column_index: usize,
+        file_idx: usize,
+        column_idx: usize,
     ) -> Option<ColumnStatistics>;
 
     /// The function is called during query execution and is responsible for producing the output
@@ -134,13 +134,10 @@ pub trait TableFunction: Sized + Debug {
         Cardinality::Unknown
     }
 
-    /// Returns the idx of the current partition being processed by a local threa.
-    /// This *must* be globally unique.
-    fn partition_data(
-        _bind_data: &Self::BindData,
-        _global_init_data: &Self::GlobalState,
-        _local_init_data: &mut Self::LocalState,
-    ) -> VortexResult<u64>;
+    // What file are we currently exporting?
+    fn partition_data(local_init_data: &Self::LocalState) -> u64;
+    fn partition_count(local_init_data: &Self::BindData) -> usize;
+    fn partition_row_counts(bind_data: &Self::BindData, row_counts: &mut [u64]) -> bool;
 
     /// Returns a vector of key-value pairs for EXPLAIN output
     fn to_string(bind_data: &Self::BindData, map: &mut DuckdbStringMapRef);
@@ -174,12 +171,14 @@ impl DatabaseRef {
             init_global: Some(init_global_callback::<T>),
             init_local: Some(init_local_callback::<T>),
             function: Some(function::<T>),
-            statistics: Some(statistics::<T>),
+            get_column_stats: Some(get_column_stats::<T>),
             cardinality: Some(cardinality_callback::<T>),
             pushdown_complex_filter: Some(pushdown_complex_filter_callback::<T>),
             to_string: Some(to_string_callback::<T>),
             table_scan_progress: Some(table_scan_progress_callback::<T>),
-            get_partition_data: Some(get_partition_data_callback::<T>),
+            get_partition_data: Some(get_partition_data::<T>),
+            get_partition_count: Some(get_partition_count::<T>),
+            get_partition_row_counts: Some(get_partition_row_counts::<T>),
         };
 
         duckdb_try!(
@@ -236,4 +235,50 @@ unsafe extern "C-unwind" fn function<T: TableFunction>(
             ));
         },
     }
+}
+
+unsafe extern "C-unwind" fn get_column_stats<T: TableFunction>(
+    bind_data: *const c_void,
+    file_idx: u64,
+    column_idx: u64,
+    stats_out: *mut cpp::duckdb_vx_column_statistics,
+) -> bool {
+    let stats_out = unsafe { &mut *stats_out };
+    let bind_data =
+        unsafe { bind_data.cast::<T::BindData>().as_ref() }.vortex_expect("bind_data null pointer");
+    let Some(stats) = T::column_stats(bind_data, file_idx as usize, column_idx as usize) else {
+        return false;
+    };
+    stats_out.min = stats.min.map_or(ptr::null_mut(), |v| v.into_ptr());
+    stats_out.max = stats.max.map_or(ptr::null_mut(), |v| v.into_ptr());
+    stats_out.max_string_length = stats.max_string_length;
+    stats_out.flags = stats.flags;
+    true
+}
+
+unsafe extern "C-unwind" fn get_partition_data<T: TableFunction>(
+    local_init_data: *const c_void,
+) -> idx_t {
+    let local_init_data = unsafe { local_init_data.cast::<T::LocalState>().as_ref() }
+        .vortex_expect("local_init_data null pointer");
+    T::partition_data(local_init_data)
+}
+
+unsafe extern "C-unwind" fn get_partition_count<T: TableFunction>(
+    bind_data: *const c_void,
+) -> usize {
+    let bind_data =
+        unsafe { bind_data.cast::<T::BindData>().as_ref() }.vortex_expect("bind_data null pointer");
+    T::partition_count(bind_data)
+}
+
+unsafe extern "C-unwind" fn get_partition_row_counts<T: TableFunction>(
+    bind_data: *const c_void,
+    data: *mut u64,
+    len: usize,
+) -> bool {
+    let bind_data =
+        unsafe { bind_data.cast::<T::BindData>().as_ref() }.vortex_expect("bind_data null pointer");
+    let row_counts = unsafe { slice::from_raw_parts_mut(data, len) };
+    T::partition_row_counts(bind_data, row_counts)
 }
