@@ -93,9 +93,10 @@ pub(super) enum EstimateScore {
     FiniteCompression(f64),
     /// Trial compression produced a 0-byte output.
     ///
-    /// This is treated as an unbounded score for scheme selection, but has no finite trace ratio.
-    /// Final full-array compression still has to pass the normal before/after acceptance check, so
-    /// a zero-byte sample can choose a scheme but cannot force a larger output to be returned.
+    /// This has no finite trace ratio and is not eligible for scheme selection.
+    ///
+    /// TODO(connor): A zero-byte sample usually means the sampler happened to hit an all-null
+    /// sample. Improve this logic so we can distinguish real zero-byte wins from sampling artifacts.
     ZeroBytes,
 }
 
@@ -123,16 +124,15 @@ impl EstimateScore {
             Self::FiniteCompression(ratio) => {
                 ratio.is_finite() && !ratio.is_subnormal() && ratio > 1.0
             }
-            Self::ZeroBytes => true,
+            Self::ZeroBytes => false,
         }
     }
 
     /// Returns whether this estimate beats another valid estimate.
     fn beats(self, other: Self) -> bool {
         match (self, other) {
-            (Self::ZeroBytes, Self::FiniteCompression(_)) => true,
-            (Self::ZeroBytes, Self::ZeroBytes) => false,
-            (Self::FiniteCompression(_), Self::ZeroBytes) => false,
+            (Self::ZeroBytes, _) => false,
+            (Self::FiniteCompression(_), Self::ZeroBytes) => true,
             (Self::FiniteCompression(ratio), Self::FiniteCompression(best_ratio)) => {
                 ratio > best_ratio
             }

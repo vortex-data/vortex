@@ -1093,7 +1093,7 @@ mod tests {
     }
 
     #[test]
-    fn zero_byte_sample_beats_any_finite_ratio() -> VortexResult<()> {
+    fn zero_byte_sample_loses_to_finite_ratio() -> VortexResult<()> {
         let compressor = CascadingCompressor::new(vec![&HugeRatioScheme, &ZeroBytesSamplingScheme]);
         let schemes: [&'static dyn Scheme; 2] = [&HugeRatioScheme, &ZeroBytesSamplingScheme];
         let mut data = estimate_test_data();
@@ -1103,14 +1103,14 @@ mod tests {
 
         assert!(matches!(
             winner,
-            Some((scheme, WinnerEstimate::Score(EstimateScore::ZeroBytes)))
-                if scheme.id() == ZeroBytesSamplingScheme.id()
+            Some((scheme, WinnerEstimate::Score(EstimateScore::FiniteCompression(100.0))))
+                if scheme.id() == HugeRatioScheme.id()
         ));
         Ok(())
     }
 
     #[test]
-    fn finite_ratio_does_not_displace_zero_byte_sample() -> VortexResult<()> {
+    fn finite_ratio_displaces_zero_byte_sample() -> VortexResult<()> {
         let compressor = CascadingCompressor::new(vec![&ZeroBytesSamplingScheme, &HugeRatioScheme]);
         let schemes: [&'static dyn Scheme; 2] = [&ZeroBytesSamplingScheme, &HugeRatioScheme];
         let mut data = estimate_test_data();
@@ -1120,9 +1120,22 @@ mod tests {
 
         assert!(matches!(
             winner,
-            Some((scheme, WinnerEstimate::Score(EstimateScore::ZeroBytes)))
-                if scheme.id() == ZeroBytesSamplingScheme.id()
+            Some((scheme, WinnerEstimate::Score(EstimateScore::FiniteCompression(100.0))))
+                if scheme.id() == HugeRatioScheme.id()
         ));
+        Ok(())
+    }
+
+    #[test]
+    fn zero_byte_sample_alone_selects_no_scheme() -> VortexResult<()> {
+        let compressor = CascadingCompressor::new(vec![&ZeroBytesSamplingScheme]);
+        let schemes: [&'static dyn Scheme; 1] = [&ZeroBytesSamplingScheme];
+        let mut data = estimate_test_data();
+
+        let winner =
+            compressor.choose_best_scheme(&schemes, &mut data, CompressorContext::new())?;
+
+        assert!(winner.is_none());
         Ok(())
     }
 
@@ -1220,7 +1233,7 @@ mod tests {
     }
 
     #[test]
-    fn zero_byte_results_omit_ratio_fields() {
+    fn zero_byte_sample_result_omits_ratio_fields_and_selects_no_scheme() {
         let compressor = CascadingCompressor::new(vec![&ZeroBytesSamplingScheme]);
         let array = test_integer_array();
 
@@ -1235,12 +1248,12 @@ mod tests {
         );
         assert!(!sample_event.fields.contains_key("sampled_ratio"));
 
-        let result_event = find_event(&events, TARGET_TRACE, "scheme.compress_result");
-        assert_eq!(
-            result_event.fields.get("after_nbytes").map(String::as_str),
-            Some("0")
-        );
-        assert!(!result_event.fields.contains_key("estimated_ratio"));
-        assert!(!result_event.fields.contains_key("actual_ratio"));
+        assert!(!events.iter().any(|event| {
+            event.target == TARGET_TRACE
+                && event
+                    .fields
+                    .get("message")
+                    .is_some_and(|value| value == "scheme.compress_result")
+        }));
     }
 }
