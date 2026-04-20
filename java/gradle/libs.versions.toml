@@ -15,7 +15,7 @@ slf4j = "2.0.17"
 spark3 = "3.5.8"
 spark4 = "4.1.1"
 s3mock = "4.12.4"
-testcontainers-jupiter = "1.20.4"
+testcontainers-jupiter = "1.21.4"
 
 [libraries]
 arrow-c-data = { module = "org.apache.arrow:arrow-c-data", version.ref = "arrow" }
