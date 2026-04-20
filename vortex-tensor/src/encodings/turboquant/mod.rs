@@ -154,8 +154,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
-use crate::vector::AnyVector;
-use crate::vector::VectorMatcherMetadata;
+use crate::types::vector::AnyVector;
+use crate::types::vector::VectorMatcherMetadata;
 
 /// Validates that `dtype` is a [`Vector`](crate::vector::Vector) extension type with
 /// dimension >= [`MIN_DIMENSION`].

@@ -39,9 +39,9 @@ use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 use crate::scalar_fns::sorf_transform::SorfMatrix;
 use crate::scalar_fns::sorf_transform::SorfOptions;
 use crate::scalar_fns::sorf_transform::SorfTransform;
+use crate::types::vector::AnyVector;
+use crate::types::vector::Vector;
 use crate::utils::cast_to_f32;
-use crate::vector::AnyVector;
-use crate::vector::Vector;
 
 /// Configuration for TurboQuant encoding.
 #[derive(Clone, Debug)]

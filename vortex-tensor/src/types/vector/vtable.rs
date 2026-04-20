@@ -11,7 +11,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
-use crate::vector::Vector;
+use crate::types::vector::Vector;
 
 impl ExtVTable for Vector {
     type Metadata = EmptyMetadata;
@@ -70,7 +70,7 @@ mod tests {
     use vortex_array::extension::EmptyMetadata;
     use vortex_error::VortexResult;
 
-    use crate::vector::Vector;
+    use crate::types::vector::Vector;
 
     /// Constructs a `FixedSizeList` storage dtype with the given float [`PType`], list size, and
     /// [`Nullability`].

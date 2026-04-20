@@ -8,8 +8,8 @@ use vortex_array::dtype::extension::Matcher;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
-use crate::fixed_shape::FixedShapeTensor;
-use crate::fixed_shape::FixedShapeTensorMetadata;
+use crate::types::fixed_shape::FixedShapeTensor;
+use crate::types::fixed_shape::FixedShapeTensorMetadata;
 
 pub struct AnyFixedShapeTensor;
 
@@ -98,7 +98,7 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::*;
-    use crate::vector::Vector;
+    use crate::types::vector::Vector;
 
     fn tensor_storage_dtype(element_ptype: PType, list_size: u32) -> DType {
         DType::FixedSizeList(
