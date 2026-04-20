@@ -81,6 +81,8 @@ pub trait BinaryCombined: 'static + Send + Sync + Clone {
     /// Combine the finalized left and right results into the final aggregate.
     fn finalize(&self, left: ArrayRef, right: ArrayRef) -> VortexResult<ArrayRef>;
 
+    fn finalize_scalar(&self, left_scalar: Scalar, right_scalar: Scalar) -> VortexResult<Scalar>;
+
     /// Serialize the options for this combined aggregate. Default: not serializable.
     fn serialize(&self, options: &CombinedOptions<Self>) -> VortexResult<Option<Vec<u8>>> {
         let _ = options;
@@ -242,6 +244,12 @@ impl<T: BinaryCombined> AggregateFnVTable for Combined<T> {
         let l_finalized = self.0.left().finalize(l_field)?;
         let r_finalized = self.0.right().finalize(r_field)?;
         BinaryCombined::finalize(&self.0, l_finalized, r_finalized)
+    }
+
+    fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
+        let l_scalar = self.0.left().finalize_scalar(&partial.0)?;
+        let r_scalar = self.0.right().finalize_scalar(&partial.1)?;
+        BinaryCombined::finalize_scalar(&self.0, l_scalar, r_scalar)
     }
 }
 

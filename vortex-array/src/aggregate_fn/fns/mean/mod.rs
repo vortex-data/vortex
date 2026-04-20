@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexResult;
+use vortex_error::{vortex_bail, VortexResult};
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -63,7 +63,7 @@ impl BinaryCombined for Mean {
     type Right = Count;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new_ref("vortex.mean")
+        AggregateFnId::new("vortex.mean")
     }
 
     fn left(&self) -> Sum {
@@ -95,6 +95,25 @@ impl BinaryCombined for Mean {
         let count_cast = count.cast(target)?;
         sum_cast.binary(count_cast, Operator::Div)
     }
+
+    fn finalize_scalar(&self, left_scalar: Scalar, right_scalar: Scalar) -> VortexResult<Scalar> {
+        if let DType::Decimal(..) = left_scalar.dtype() {
+            vortex_bail!("Mean::finalize_scalar not yet implemented for decimal inputs");
+        }
+
+        let target = DType::Primitive(PType::F64, Nullability::Nullable);
+        let sum_cast = left_scalar.cast(&target)?;
+        let count_cast = right_scalar.cast(&target)?;
+
+        let sum = sum_cast.as_primitive().typed_value::<f64>();
+        let count = count_cast.as_primitive().typed_value::<f64>();
+        let value = match (sum, count) {
+            (None, _) | (_, None) | (_, Some(0.0)) => return Ok(Scalar::null(target)), // Sum overflowed
+            (Some(s), Some(c)) => s / c,
+        };
+        Ok(Scalar::primitive(value, Nullability::Nullable))
+    }
+
 
     fn serialize(&self, _options: &CombinedOptions<Self>) -> VortexResult<Option<Vec<u8>>> {
         unimplemented!("Mean is not yet serializable");
