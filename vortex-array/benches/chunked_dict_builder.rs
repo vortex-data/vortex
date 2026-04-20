@@ -60,6 +60,11 @@ fn chunked_dict_primitive_into_canonical<T: NativePType>(
 {
     let chunk = gen_dict_primitive_chunks::<T, u16>(len, unique_values, chunk_count);
 
+    chunk
+        .clone()
+        .execute::<Canonical>(&mut SESSION.create_execution_ctx())
+        .unwrap();
+
     bencher
         .with_inputs(|| (chunk.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(chunk, mut ctx)| chunk.execute::<Canonical>(&mut ctx))
