@@ -400,7 +400,7 @@ impl CascadingCompressor {
                 EstimateVerdict::Skip => {}
                 EstimateVerdict::AlwaysUse => return Ok(Some((scheme, WinnerEstimate::AlwaysUse))),
                 EstimateVerdict::Ratio(ratio) => {
-                    let score = EstimateScore::Finite(ratio);
+                    let score = EstimateScore::FiniteCompression(ratio);
                     if is_better_score(score, &best) {
                         best = Some((scheme, score));
                     }
@@ -1069,7 +1069,7 @@ mod tests {
 
         assert!(matches!(
             winner,
-            Some((scheme, WinnerEstimate::Score(EstimateScore::Finite(2.0))))
+            Some((scheme, WinnerEstimate::Score(EstimateScore::FiniteCompression(2.0))))
                 if scheme.id() == DirectRatioScheme.id()
         ));
         Ok(())
@@ -1086,7 +1086,7 @@ mod tests {
 
         assert!(matches!(
             winner,
-            Some((scheme, WinnerEstimate::Score(EstimateScore::Finite(3.0))))
+            Some((scheme, WinnerEstimate::Score(EstimateScore::FiniteCompression(3.0))))
                 if scheme.id() == CallbackRatioScheme.id()
         ));
         Ok(())
@@ -1096,6 +1096,23 @@ mod tests {
     fn zero_byte_sample_beats_any_finite_ratio() -> VortexResult<()> {
         let compressor = CascadingCompressor::new(vec![&HugeRatioScheme, &ZeroBytesSamplingScheme]);
         let schemes: [&'static dyn Scheme; 2] = [&HugeRatioScheme, &ZeroBytesSamplingScheme];
+        let mut data = estimate_test_data();
+
+        let winner =
+            compressor.choose_best_scheme(&schemes, &mut data, CompressorContext::new())?;
+
+        assert!(matches!(
+            winner,
+            Some((scheme, WinnerEstimate::Score(EstimateScore::ZeroBytes)))
+                if scheme.id() == ZeroBytesSamplingScheme.id()
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn finite_ratio_does_not_displace_zero_byte_sample() -> VortexResult<()> {
+        let compressor = CascadingCompressor::new(vec![&ZeroBytesSamplingScheme, &HugeRatioScheme]);
+        let schemes: [&'static dyn Scheme; 2] = [&ZeroBytesSamplingScheme, &HugeRatioScheme];
         let mut data = estimate_test_data();
 
         let winner =
@@ -1151,7 +1168,7 @@ mod tests {
         //   "this must be present since `DictScheme` declared that we need distinct values"
         let score =
             estimate_compression_ratio_with_sampling(&FloatDictScheme, &compressor, &array, ctx)?;
-        assert!(matches!(score, EstimateScore::Finite(ratio) if ratio.is_finite()));
+        assert!(matches!(score, EstimateScore::FiniteCompression(ratio) if ratio.is_finite()));
         Ok(())
     }
 

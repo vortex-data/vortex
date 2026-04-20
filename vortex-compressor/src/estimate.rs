@@ -89,9 +89,13 @@ pub enum DeferredEstimate {
 /// Ranked estimate used for comparing non-terminal compression candidates.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum EstimateScore {
-    /// A finite compression ratio.
-    Finite(f64),
+    /// A finite compression ratio. Higher means a smaller amount of data, so it is better.
+    FiniteCompression(f64),
     /// Trial compression produced a 0-byte output.
+    ///
+    /// This is treated as an unbounded score for scheme selection, but has no finite trace ratio.
+    /// Final full-array compression still has to pass the normal before/after acceptance check, so
+    /// a zero-byte sample can choose a scheme but cannot force a larger output to be returned.
     ZeroBytes,
 }
 
@@ -101,15 +105,37 @@ impl EstimateScore {
         if after_nbytes == 0 {
             Self::ZeroBytes
         } else {
-            Self::Finite(before_nbytes as f64 / after_nbytes as f64)
+            Self::FiniteCompression(before_nbytes as f64 / after_nbytes as f64)
         }
     }
 
     /// Returns the traceable numeric ratio, omitting the zero-byte special case.
     pub(super) fn trace_ratio(self) -> Option<f64> {
         match self {
-            Self::Finite(ratio) => Some(ratio),
+            Self::FiniteCompression(ratio) => Some(ratio),
             Self::ZeroBytes => None,
+        }
+    }
+
+    /// Returns whether this estimate is eligible to compete.
+    fn is_valid(self) -> bool {
+        match self {
+            Self::FiniteCompression(ratio) => {
+                ratio.is_finite() && !ratio.is_subnormal() && ratio > 1.0
+            }
+            Self::ZeroBytes => true,
+        }
+    }
+
+    /// Returns whether this estimate beats another valid estimate.
+    fn beats(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::ZeroBytes, Self::FiniteCompression(_)) => true,
+            (Self::ZeroBytes, Self::ZeroBytes) => false,
+            (Self::FiniteCompression(_), Self::ZeroBytes) => false,
+            (Self::FiniteCompression(ratio), Self::FiniteCompression(best_ratio)) => {
+                ratio > best_ratio
+            }
         }
     }
 }
@@ -138,20 +164,7 @@ pub(super) fn is_better_score(
     score: EstimateScore,
     best: &Option<(&'static dyn Scheme, EstimateScore)>,
 ) -> bool {
-    match score {
-        EstimateScore::ZeroBytes => {
-            best.is_none_or(|(_, best_score)| !matches!(best_score, EstimateScore::ZeroBytes))
-        }
-        EstimateScore::Finite(ratio) => {
-            ratio.is_finite()
-                && !ratio.is_subnormal()
-                && ratio > 1.0
-                && best.is_none_or(|(_, best_score)| match best_score {
-                    EstimateScore::Finite(best_ratio) => ratio > best_ratio,
-                    EstimateScore::ZeroBytes => false,
-                })
-        }
-    }
+    score.is_valid() && best.is_none_or(|(_, best_score)| score.beats(best_score))
 }
 
 /// Estimates compression ratio by compressing a ~1% sample of the data.
