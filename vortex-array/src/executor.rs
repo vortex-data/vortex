@@ -46,7 +46,7 @@ pub(crate) fn max_iterations() -> usize {
             Ok(val) => val.parse::<usize>().unwrap_or_else(|e| {
                 vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid usize: {e}")
             }),
-            Err(VarError::NotPresent) => 1024,
+            Err(VarError::NotPresent) => 1025,
             Err(VarError::NotUnicode(_)) => {
                 vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid unicode string")
             }
