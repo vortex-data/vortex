@@ -515,9 +515,8 @@ impl FusedPlan {
             return self.walk(reduced, pending_subtrees);
         }
 
-        // ALP doesn't implement reduce_parent. Manually slice its encoded
-        // child and carry patches — Patches::slice adjusts offset,
-        // chunk_offsets, and offset_within_chunk to match the sliced range.
+        // ALP doesn't implement reduce_parent — slice encoded child and
+        // patches manually (Patches::slice adjusts offsets for the range).
         if child.encoding_id() == ALP.id() {
             let alp = child.as_::<ALP>();
             let offset = slice_arr.data().slice_range().start;
