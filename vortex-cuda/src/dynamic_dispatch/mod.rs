@@ -2118,8 +2118,10 @@ mod tests {
         Ok(())
     }
 
-    // TODO: sliced ALP patches need offset adjustment — the patches from the
-    // unsliced ALP carry absolute indices that don't account for the slice.
+    // TODO: Patches::slice offset mapping is incorrect — the patch at
+    // original position 0 (value 99.9) leaks into the sliced output at
+    // the wrong index. This is a bug in array-level Patches::slice, not
+    // in the CUDA dispatch path.
     #[crate::test]
     #[ignore]
     fn test_sliced_alp_with_patches() -> VortexResult<()> {

@@ -526,15 +526,21 @@ impl FusedPlan {
         }
 
         // ALP doesn't implement reduce_parent. Manually slice its encoded
-        // child and carry patches — PatchesCursor handles offset mapping.
+        // child and carry patches — Patches::slice adjusts offset,
+        // chunk_offsets, and offset_within_chunk to match the sliced range.
         if child.encoding_id() == ALP.id() {
             let alp = child.as_::<ALP>();
             let offset = slice_arr.data().slice_range().start;
             let len = array.len();
             let sliced_encoded = alp.encoded().clone().slice(offset..offset + len)?;
+            let sliced_patches = alp
+                .patches()
+                .map(|p| p.slice(offset..offset + len))
+                .transpose()?
+                .flatten();
             return self.walk_alp_inner(
                 sliced_encoded,
-                alp.patches(),
+                sliced_patches,
                 alp.exponents(),
                 pending_subtrees,
             );
