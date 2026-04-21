@@ -255,7 +255,7 @@ impl BinaryTensorOpMetadata {
     }
 
     /// Decodes `metadata` and fetches both children from `children` using the decoded dtypes,
-    /// validating that `lhs` and `rhs` agree modulo nullability.
+    /// validating that `lhs` and `rhs` are compatible tensor operands.
     pub(crate) fn decode_children(
         metadata: &[u8],
         len: usize,

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use half::f16;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -73,7 +74,7 @@ pub fn validate_binary_tensor_float_inputs<'a>(
 pub fn cast_to_f32(prim: PrimitiveArray) -> VortexResult<Buffer<f32>> {
     match prim.ptype() {
         PType::F16 => Ok(prim
-            .as_slice::<half::f16>()
+            .as_slice::<f16>()
             .iter()
             .map(|&v| f32::from(v))
             .collect()),

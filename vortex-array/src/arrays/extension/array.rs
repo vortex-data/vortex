@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::array::Array;
@@ -90,10 +91,18 @@ impl ExtensionData {
     pub fn try_new(ext_dtype: ExtDTypeRef, storage_dtype: &DType) -> VortexResult<Self> {
         // TODO(connor): Replace these statements once we add `validate_storage_array`.
         // ext_dtype.validate_storage_array(&storage_array)?;
-        assert_eq!(
+        //
+        // The storage array's outer nullability is allowed to differ from the extension's declared
+        // storage outer nullability. Nested storage nullability must still match exactly.
+        vortex_ensure!(
+            storage_dtypes_match_ignoring_outer_nullability(
+                ext_dtype.storage_dtype(),
+                storage_dtype
+            ),
+            "ExtensionArray: storage_dtype must match storage array DType (ignoring outer \
+             nullability only), got extension storage {} and array storage {}",
             ext_dtype.storage_dtype(),
             storage_dtype,
-            "ExtensionArray: storage_dtype must match storage array DType",
         );
 
         // SAFETY: we validate that the inputs are valid above.
@@ -113,10 +122,18 @@ impl ExtensionData {
         // ext_dtype
         //     .validate_storage_array(&storage_array)
         //     .vortex_expect("[Debug Assertion]: Invalid storage array for `ExtensionArray`");
-        debug_assert_eq!(
+        //
+        // Match the contract of [`Self::try_new`]: the storage dtype must match the extension's
+        // declared storage dtype ignoring only outer nullability.
+        debug_assert!(
+            storage_dtypes_match_ignoring_outer_nullability(
+                ext_dtype.storage_dtype(),
+                storage_dtype
+            ),
+            "ExtensionArray: storage_dtype must match storage array DType (ignoring outer \
+             nullability only), got extension storage {} and array storage {}",
             ext_dtype.storage_dtype(),
             storage_dtype,
-            "ExtensionArray: storage_dtype must match storage array DType",
         );
 
         Self { ext_dtype }
@@ -126,6 +143,13 @@ impl ExtensionData {
     pub fn ext_dtype(&self) -> &ExtDTypeRef {
         &self.ext_dtype
     }
+}
+
+fn storage_dtypes_match_ignoring_outer_nullability(
+    ext_storage_dtype: &DType,
+    storage_dtype: &DType,
+) -> bool {
+    ext_storage_dtype.with_nullability(storage_dtype.nullability()) == *storage_dtype
 }
 
 pub trait ExtensionArrayExt: TypedArrayRef<Extension> {
@@ -177,5 +201,95 @@ impl Array<Extension> {
             ExtDType::<V>::try_with_vtable(vtable, metadata, storage_array.dtype().clone())?
                 .erased();
         Self::try_new(ext_dtype, storage_array)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_buffer::Buffer;
+
+    use super::*;
+    use crate::IntoArray;
+    use crate::arrays::ExtensionArray;
+    use crate::arrays::FixedSizeListArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::extension::ExtId;
+    use crate::extension::EmptyMetadata;
+    use crate::scalar::ScalarValue;
+    use crate::validity::Validity;
+
+    #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+    struct TestExt;
+
+    impl ExtVTable for TestExt {
+        type Metadata = EmptyMetadata;
+        type NativeValue<'a> = &'a ScalarValue;
+
+        fn id(&self) -> ExtId {
+            ExtId::new("vortex.test.extension")
+        }
+
+        fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+            Ok(Vec::new())
+        }
+
+        fn deserialize_metadata(&self, _metadata: &[u8]) -> VortexResult<Self::Metadata> {
+            Ok(EmptyMetadata)
+        }
+
+        fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+            Ok(())
+        }
+
+        fn unpack_native<'a>(
+            _ext_dtype: &'a ExtDType<Self>,
+            storage_value: &'a ScalarValue,
+        ) -> VortexResult<Self::NativeValue<'a>> {
+            Ok(storage_value)
+        }
+    }
+
+    fn fsl_dtype(element_nullability: Nullability, list_nullability: Nullability) -> DType {
+        DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F32, element_nullability)),
+            2,
+            list_nullability,
+        )
+    }
+
+    #[test]
+    fn extension_storage_allows_outer_nullability_mismatch() -> VortexResult<()> {
+        let ext_dtype = ExtDType::<TestExt>::try_new(
+            EmptyMetadata,
+            fsl_dtype(Nullability::NonNullable, Nullability::NonNullable),
+        )?
+        .erased();
+
+        let elements = PrimitiveArray::from_iter([1.0f32, 0.0]).into_array();
+        let storage = FixedSizeListArray::try_new(elements, 2, Validity::AllValid, 1)?.into_array();
+
+        ExtensionArray::try_new(ext_dtype, storage)?;
+        Ok(())
+    }
+
+    #[test]
+    fn extension_storage_rejects_nested_nullability_mismatch() -> VortexResult<()> {
+        let ext_dtype = ExtDType::<TestExt>::try_new(
+            EmptyMetadata,
+            fsl_dtype(Nullability::NonNullable, Nullability::NonNullable),
+        )?
+        .erased();
+
+        let elements =
+            PrimitiveArray::new(Buffer::copy_from([1.0f32, 0.0]), Validity::AllValid).into_array();
+        let storage =
+            FixedSizeListArray::try_new(elements, 2, Validity::NonNullable, 1)?.into_array();
+
+        assert!(ExtensionArray::try_new(ext_dtype, storage).is_err());
+        Ok(())
     }
 }

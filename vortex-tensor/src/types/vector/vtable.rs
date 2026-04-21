@@ -1,17 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::dtype::DType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::extension::EmptyMetadata;
 use vortex_array::scalar::ScalarValue;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 
 use crate::types::vector::Vector;
+use crate::types::vector::validate_vector_storage_dtype;
 
 impl ExtVTable for Vector {
     type Metadata = EmptyMetadata;
@@ -32,21 +30,7 @@ impl ExtVTable for Vector {
     }
 
     fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        let storage_dtype = ext_dtype.storage_dtype();
-        let DType::FixedSizeList(element_dtype, _list_size, _nullability) = storage_dtype else {
-            vortex_bail!("Vector storage dtype must be a FixedSizeList, got {storage_dtype}");
-        };
-
-        vortex_ensure!(
-            element_dtype.is_float(),
-            "Vector element dtype must be a float, got {element_dtype}"
-        );
-        vortex_ensure!(
-            !element_dtype.is_nullable(),
-            "Vector element dtype must be non-nullable"
-        );
-
-        Ok(())
+        validate_vector_storage_dtype(ext_dtype.storage_dtype())
     }
 
     fn unpack_native<'a>(

@@ -80,8 +80,8 @@ impl Default for TurboQuantConfig {
 ///
 /// # Errors
 ///
-/// Returns an error if `input` is not a tensor-like extension array, if normalization fails, or
-/// if [`turboquant_encode_unchecked`] rejects the input shape.
+/// Returns an error if `input` is not a tensor-like extension array, if normalization fails, or if
+/// [`turboquant_encode_unchecked`] rejects the input shape.
 pub fn turboquant_encode(
     input: ArrayRef,
     config: &TurboQuantConfig,

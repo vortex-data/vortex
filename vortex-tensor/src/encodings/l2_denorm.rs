@@ -37,6 +37,7 @@ impl Scheme for L2DenormScheme {
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
+        // We almost always want to pre-normalize our data if the vector is not already normalized.
         CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
     }
 
