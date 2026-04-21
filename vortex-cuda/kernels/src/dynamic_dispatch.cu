@@ -168,6 +168,30 @@ __device__ __forceinline__ void scatter_patches_chunk(
     }
 }
 
+/// Scatter patches directly into a global output buffer for chunks
+/// overlapping `[block_start, block_start + block_len)`.
+/// Unlike `scatter_patches_chunk`, this converts within-chunk indices
+/// to absolute positions and bounds-checks against the block range.
+template <typename T>
+__device__ __forceinline__ void scatter_patches_to_output(
+    const GPUPatches &patches, T *__restrict output,
+    uint64_t block_start, uint32_t block_len) {
+    const uint32_t first_chunk = static_cast<uint32_t>(block_start / 1024);
+    const uint32_t last_chunk = static_cast<uint32_t>(
+        (block_start + block_len - 1) / 1024);
+    for (uint32_t c = first_chunk; c <= last_chunk; ++c) {
+        PatchesCursor<T> cursor(patches, c, threadIdx.x, blockDim.x);
+        auto patch = cursor.next();
+        while (patch.index != 1024) {
+            uint64_t abs_pos = static_cast<uint64_t>(c) * 1024 + patch.index;
+            if (abs_pos >= block_start && abs_pos < block_start + block_len) {
+                output[abs_pos] = patch.value;
+            }
+            patch = cursor.next();
+        }
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Source ops
 // ═══════════════════════════════════════════════════════════════════════════
@@ -396,20 +420,7 @@ __device__ void execute_output_stage(T *__restrict output,
     if (stage.alp_patches_ptr != 0) {
         const auto &alp_patches = *reinterpret_cast<const GPUPatches *>(
             stage.alp_patches_ptr);
-        const uint32_t first_chunk = static_cast<uint32_t>(block_start / 1024);
-        const uint32_t last_chunk = static_cast<uint32_t>(
-            (block_start + block_len - 1) / 1024);
-        for (uint32_t c = first_chunk; c <= last_chunk; ++c) {
-            PatchesCursor<T> cursor(alp_patches, c, threadIdx.x, blockDim.x);
-            auto patch = cursor.next();
-            while (patch.index != 1024) {
-                uint64_t abs_pos = static_cast<uint64_t>(c) * 1024 + patch.index;
-                if (abs_pos >= block_start && abs_pos < block_start + block_len) {
-                    output[abs_pos] = patch.value;
-                }
-                patch = cursor.next();
-            }
-        }
+        scatter_patches_to_output<T>(alp_patches, output, block_start, block_len);
     }
 }
 
