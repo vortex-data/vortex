@@ -9,17 +9,6 @@
 extern "C" {
 #endif
 
-/// Header at the start of a packed patches buffer.
-///
-/// Layout: [PackedPatchesHeader | chunk_offsets (u32, n_chunks+1 sentinel) | indices (u16) | padding | values (V)]
-///
-/// A `patches_ptr` of 0 signals no patches.
-struct PackedPatchesHeader {
-    uint32_t n_chunks;            // number of FL chunks covered
-    uint32_t indices_byte_offset; // absolute byte offset from buffer start to indices
-    uint32_t values_byte_offset;  // absolute byte offset from buffer start to values
-};
-
 /// Type tag for chunk_offsets pointer.
 typedef enum { CO_U8 = 0, CO_U16 = 1, CO_U32 = 2, CO_U64 = 3 } ChunkOffsetType;
 

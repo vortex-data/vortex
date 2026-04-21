@@ -46,7 +46,9 @@ use super::ptype_to_tag;
 use super::tag_to_ptype;
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
-use crate::kernel::pack_patches_for_fused_dispatch;
+use crate::kernel::DevicePatches;
+use crate::kernel::load_patches_sync;
+use crate::kernel::upload_gpu_patches;
 
 /// A plan whose source buffers have been copied to the device, ready for kernel launch.
 pub struct MaterializedPlan {
@@ -379,27 +381,34 @@ impl FusedPlan {
         for (stage, smem_byte_offset, len) in &self.stages {
             let mut source = stage.source;
 
-            // Pack BitPacked patches if present.
+            // Upload BitPacked patches as a GPUPatches struct if present.
             if let Some(patches) = &stage.bitunpack_patches {
-                let element_offset = unsafe { source.params.bitunpack.element_offset } as u16;
-                let ptype = tag_to_ptype(stage.source_ptype);
-                let packed =
-                    pack_patches_for_fused_dispatch(patches, element_offset, *len as usize, ptype)?;
-                let device_buf = ctx.ensure_on_device_sync(packed)?;
-                let ptr = device_buf.cuda_device_ptr()?;
+                let device_patches = load_patches_sync(patches, ctx)?;
+                let (gpu_buf, ptr) = upload_gpu_patches(&device_patches, ctx)?;
                 source.params.bitunpack.patches_ptr = ptr;
-                device_buffers.push(device_buf);
+                // Keep the underlying data buffers and the GPUPatches struct alive.
+                let DevicePatches {
+                    chunk_offsets,
+                    indices,
+                    values,
+                    ..
+                } = device_patches;
+                device_buffers.extend([chunk_offsets, indices, values, gpu_buf]);
             }
 
-            // Pack ALP patches — stored on PackedStage, applied post-scalar-ops.
+            // Upload ALP patches as a GPUPatches struct, applied post-scalar-ops.
             let mut alp_patches_ptr: u64 = 0;
             if let Some(patches) = &stage.alp_patches {
-                // ALP patches are float values — use f32 (the only ALP output supported).
-                let alp_ptype = PType::F32;
-                let packed = pack_patches_for_fused_dispatch(patches, 0, *len as usize, alp_ptype)?;
-                let device_buf = ctx.ensure_on_device_sync(packed)?;
-                alp_patches_ptr = device_buf.cuda_device_ptr()?;
-                device_buffers.push(device_buf);
+                let device_patches = load_patches_sync(patches, ctx)?;
+                let (gpu_buf, ptr) = upload_gpu_patches(&device_patches, ctx)?;
+                alp_patches_ptr = ptr;
+                let DevicePatches {
+                    chunk_offsets,
+                    indices,
+                    values,
+                    ..
+                } = device_patches;
+                device_buffers.extend([chunk_offsets, indices, values, gpu_buf]);
             }
 
             let mut mat = MaterializedStage::new(

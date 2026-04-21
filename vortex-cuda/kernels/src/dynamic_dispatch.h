@@ -30,7 +30,6 @@
 #pragma once
 
 #include <stdint.h>
-#include "patches.h"
 
 /// Compact tag identifying a Vortex PType for GPU dispatch.
 ///
