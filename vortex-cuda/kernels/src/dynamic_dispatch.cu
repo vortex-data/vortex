@@ -110,6 +110,8 @@ __shared__ uint64_t runend_cursors[BLOCK_SIZE];
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Apply one scalar operation to N values in registers.
+/// `abs_pos` is the absolute output position of the first value (used by
+/// ops that carry per-position patches, e.g. ALP).
 template <typename T, uint32_t N>
 __device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem,
                                   uint64_t abs_pos = 0) {
@@ -138,25 +140,27 @@ __device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__r
         }
         // Apply ALP patches: override positions whose float value couldn't
         // be reconstructed through the ALP encode/decode cycle.
-        // Linear scan over all patches — simple and correct for sliced
-        // arrays. Patches are sparse (<1%), so this is cheap.
+        // Compare within-chunk positions directly — avoids coordinate
+        // conversion between output and original address spaces.
         if (op.params.alp.patches_ptr != 0) {
-            const auto &p = *reinterpret_cast<const GPUPatches *>(
+            const auto &patches = *reinterpret_cast<const GPUPatches *>(
                 op.params.alp.patches_ptr);
-            const uint32_t *patch_indices = p.indices;
-            const T *patch_values = reinterpret_cast<const T *>(p.values);
-            for (uint32_t pi = 0; pi < p.num_patches; ++pi) {
-                // patch_indices are absolute positions in the original array.
-                // Subtract p.offset to get the output position.
-                uint64_t patch_output_pos = patch_indices[pi] - p.offset;
 #pragma unroll
-                for (uint32_t i = 0; i < N; ++i) {
-                    uint64_t my_pos = (N > 1)
-                        ? abs_pos + i * blockDim.x + threadIdx.x
-                        : abs_pos;
-                    if (my_pos == patch_output_pos) {
-                        values[i] = patch_values[pi];
+            for (uint32_t i = 0; i < N; ++i) {
+                uint64_t my_pos = (N > 1)
+                    ? abs_pos + i * blockDim.x + threadIdx.x
+                    : abs_pos;
+                uint64_t orig = my_pos + patches.offset;
+                uint32_t chunk = static_cast<uint32_t>(orig / 1024);
+                uint32_t within = static_cast<uint32_t>(orig % 1024);
+                PatchesCursor<T> cursor(patches, chunk, 0, 1);
+                auto patch = cursor.next();
+                while (patch.index != 1024) {
+                    if (patch.index == within) {
+                        values[i] = patch.value;
+                        break;
                     }
+                    patch = cursor.next();
                 }
             }
         }
@@ -192,7 +196,6 @@ __device__ __forceinline__ void scatter_patches_chunk(
         patch = cursor.next();
     }
 }
-
 
 
 // ═══════════════════════════════════════════════════════════════════════════
