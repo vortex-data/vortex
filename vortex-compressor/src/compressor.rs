@@ -349,7 +349,17 @@ impl CascadingCompressor {
 
     /// Calls [`expected_compression_ratio`] on each candidate and returns the winning scheme along
     /// with its resolved winner estimate, or `None` if no scheme beats the canonical encoding.
-    /// Ties are broken by registration order (earlier in the list wins).
+    ///
+    /// Selection runs in two passes. Pass 1 evaluates every immediate
+    /// [`CompressionEstimate::Verdict`] and tracks the running best. [`Scheme`]s returning
+    /// [`CompressionEstimate::Deferred`] are stashed for pass 2 so that we do not make any
+    /// expensive computations if we don't have to.
+    ///
+    /// Pass 2 evaluates the deferred work and, for each [`DeferredEstimate::Callback`], passes the
+    /// current best [`EstimateScore`] as an early-exit hint so the callback can return
+    /// [`EstimateVerdict::Skip`] without doing expensive work when it cannot beat the threshold.
+    ///
+    /// Ties are broken by registration order within each pass.
     ///
     /// [`expected_compression_ratio`]: Scheme::expected_compression_ratio
     fn choose_best_scheme(
@@ -360,38 +370,59 @@ impl CascadingCompressor {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<(&'static dyn Scheme, WinnerEstimate)>> {
         let mut best: Option<(&'static dyn Scheme, EstimateScore)> = None;
+        let mut deferred: Vec<(&'static dyn Scheme, DeferredEstimate)> = Vec::new();
 
-        // TODO(connor): Rather than computing the deferred estimates eagerly, it would be better to
-        // look at all quick estimates and see if it makes sense to sample at all.
+        // Pass 1: evaluate every immediate verdict. Stash deferred work for pass 2.
         for &scheme in schemes {
-            let verdict =
-                match scheme.expected_compression_ratio(data, compress_ctx.clone(), exec_ctx) {
-                    CompressionEstimate::Verdict(verdict) => verdict,
-                    CompressionEstimate::Deferred(DeferredEstimate::Sample) => {
-                        let score = estimate_compression_ratio_with_sampling(
-                            scheme,
-                            self,
-                            data.array(),
-                            compress_ctx.clone(),
-                            exec_ctx,
-                        )?;
-                        if is_better_score(score, &best) {
-                            best = Some((scheme, score));
-                        }
-                        continue;
-                    }
-                    CompressionEstimate::Deferred(DeferredEstimate::Callback(callback)) => {
-                        callback(self, data, compress_ctx.clone(), exec_ctx)?
-                    }
-                };
-
-            match verdict {
-                EstimateVerdict::Skip => {}
-                EstimateVerdict::AlwaysUse => return Ok(Some((scheme, WinnerEstimate::AlwaysUse))),
-                EstimateVerdict::Ratio(ratio) => {
+            match scheme.expected_compression_ratio(data, compress_ctx.clone(), exec_ctx) {
+                CompressionEstimate::Verdict(EstimateVerdict::Skip) => {}
+                CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse) => {
+                    return Ok(Some((scheme, WinnerEstimate::AlwaysUse)));
+                }
+                CompressionEstimate::Verdict(EstimateVerdict::Ratio(ratio)) => {
                     let score = EstimateScore::FiniteCompression(ratio);
+
                     if is_better_score(score, &best) {
                         best = Some((scheme, score));
+                    }
+                }
+                CompressionEstimate::Deferred(deferred_estimate) => {
+                    deferred.push((scheme, deferred_estimate));
+                }
+            }
+        }
+
+        // Pass 2: run deferred work. Callbacks receive the current best as a threshold so they can
+        // short-circuit with `Skip` when they cannot beat it.
+        for (scheme, deferred_estimate) in deferred {
+            let threshold: Option<EstimateScore> = best.map(|(_, score)| score);
+            match deferred_estimate {
+                DeferredEstimate::Sample => {
+                    let score = estimate_compression_ratio_with_sampling(
+                        self,
+                        scheme,
+                        data.array(),
+                        compress_ctx.clone(),
+                        exec_ctx,
+                    )?;
+
+                    if is_better_score(score, &best) {
+                        best = Some((scheme, score));
+                    }
+                }
+                DeferredEstimate::Callback(callback) => {
+                    match callback(self, data, threshold, compress_ctx.clone(), exec_ctx)? {
+                        EstimateVerdict::Skip => {}
+                        EstimateVerdict::AlwaysUse => {
+                            return Ok(Some((scheme, WinnerEstimate::AlwaysUse)));
+                        }
+                        EstimateVerdict::Ratio(ratio) => {
+                            let score = EstimateScore::FiniteCompression(ratio);
+
+                            if is_better_score(score, &best) {
+                                best = Some((scheme, score));
+                            }
+                        }
                     }
                 }
             }
@@ -757,7 +788,7 @@ mod tests {
             _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
             CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-                |_compressor, _data, _ctx, _exec_ctx| Ok(EstimateVerdict::AlwaysUse),
+                |_compressor, _data, _ctx, _exec_ctx, _best_so_far| Ok(EstimateVerdict::AlwaysUse),
             )))
         }
 
@@ -791,7 +822,7 @@ mod tests {
             _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
             CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-                |_compressor, _data, _ctx, _exec_ctx| Ok(EstimateVerdict::Skip),
+                |_compressor, _data, _ctx, _exec_ctx, _best_so_far| Ok(EstimateVerdict::Skip),
             )))
         }
 
@@ -825,7 +856,7 @@ mod tests {
             _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
             CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-                |_compressor, _data, _ctx, _exec_ctx| Ok(EstimateVerdict::Ratio(3.0)),
+                |_compressor, _data, _ctx, _exec_ctx, _best_so_far| Ok(EstimateVerdict::Ratio(3.0)),
             )))
         }
 
@@ -1201,6 +1232,216 @@ mod tests {
         Ok(())
     }
 
+    // Observer helper used by threshold-related tests. Captures the `best_so_far` value the
+    // compressor passes to its deferred callback. `OBSERVER_LOCK` serializes tests that share
+    // `OBSERVED_THRESHOLD` so they do not race.
+    static OBSERVER_LOCK: Mutex<()> = Mutex::new(());
+    static OBSERVED_THRESHOLD: Mutex<Option<Option<EstimateScore>>> = Mutex::new(None);
+
+    #[derive(Debug)]
+    struct ThresholdObservingScheme;
+
+    impl Scheme for ThresholdObservingScheme {
+        fn scheme_name(&self) -> &'static str {
+            "test.threshold_observing"
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            matches_integer_primitive(canonical)
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            _data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> CompressionEstimate {
+            CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
+                |_compressor, _data, best_so_far, _ctx, _exec_ctx| {
+                    *OBSERVED_THRESHOLD.lock() = Some(best_so_far);
+                    Ok(EstimateVerdict::Skip)
+                },
+            )))
+        }
+
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            _data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef> {
+            unreachable!("test helper should never be selected for compression")
+        }
+    }
+
+    #[derive(Debug)]
+    struct CallbackMatchingRatioScheme;
+
+    impl Scheme for CallbackMatchingRatioScheme {
+        fn scheme_name(&self) -> &'static str {
+            "test.callback_matching_ratio"
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            matches_integer_primitive(canonical)
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            _data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> CompressionEstimate {
+            CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
+                |_compressor, _data, _ctx, _exec_ctx, _best_so_far| Ok(EstimateVerdict::Ratio(2.0)),
+            )))
+        }
+
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            _data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef> {
+            unreachable!("test helper should never be selected for compression")
+        }
+    }
+
+    #[test]
+    fn callback_always_use_overrides_pass_one_best() -> VortexResult<()> {
+        // `HugeRatioScheme` returns an immediate `Ratio(100.0)` in pass 1;
+        // `CallbackAlwaysUseScheme` returns `AlwaysUse` from its deferred callback in pass 2.
+        // The deferred `AlwaysUse` must still win.
+        let compressor = CascadingCompressor::new(vec![&HugeRatioScheme, &CallbackAlwaysUseScheme]);
+        let schemes: [&'static dyn Scheme; 2] = [&HugeRatioScheme, &CallbackAlwaysUseScheme];
+        let data = estimate_test_data();
+        let mut exec_ctx = SESSION.create_execution_ctx();
+
+        let winner = compressor.choose_best_scheme(
+            &schemes,
+            &data,
+            CompressorContext::new(),
+            &mut exec_ctx,
+        )?;
+
+        assert!(matches!(
+            winner,
+            Some((scheme, WinnerEstimate::AlwaysUse))
+                if scheme.id() == CallbackAlwaysUseScheme.id()
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn threshold_reflects_pass_one_best() -> VortexResult<()> {
+        let _guard = OBSERVER_LOCK.lock();
+        *OBSERVED_THRESHOLD.lock() = None;
+
+        let compressor =
+            CascadingCompressor::new(vec![&DirectRatioScheme, &ThresholdObservingScheme]);
+        let schemes: [&'static dyn Scheme; 2] = [&DirectRatioScheme, &ThresholdObservingScheme];
+        let data = estimate_test_data();
+        let mut exec_ctx = SESSION.create_execution_ctx();
+
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+
+        let observed = *OBSERVED_THRESHOLD.lock();
+        assert!(matches!(
+            observed,
+            Some(Some(EstimateScore::FiniteCompression(r))) if r == 2.0
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn threshold_is_none_when_only_prior_is_zero_bytes() -> VortexResult<()> {
+        let _guard = OBSERVER_LOCK.lock();
+        *OBSERVED_THRESHOLD.lock() = None;
+
+        let compressor =
+            CascadingCompressor::new(vec![&ZeroBytesSamplingScheme, &ThresholdObservingScheme]);
+        let schemes: [&'static dyn Scheme; 2] =
+            [&ZeroBytesSamplingScheme, &ThresholdObservingScheme];
+        let data = estimate_test_data();
+        let mut exec_ctx = SESSION.create_execution_ctx();
+
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+
+        // The observing callback was invoked (outer `Some`) and `best_so_far` was `None` (inner
+        // `None`) because the zero-byte sample is never stored as the best.
+        let observed = *OBSERVED_THRESHOLD.lock();
+        assert_eq!(observed, Some(None));
+        Ok(())
+    }
+
+    #[test]
+    fn threshold_is_none_when_no_prior_scheme() -> VortexResult<()> {
+        let _guard = OBSERVER_LOCK.lock();
+        *OBSERVED_THRESHOLD.lock() = None;
+
+        let compressor = CascadingCompressor::new(vec![&ThresholdObservingScheme]);
+        let schemes: [&'static dyn Scheme; 1] = [&ThresholdObservingScheme];
+        let data = estimate_test_data();
+        let mut exec_ctx = SESSION.create_execution_ctx();
+
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+
+        let observed = *OBSERVED_THRESHOLD.lock();
+        assert_eq!(observed, Some(None));
+        Ok(())
+    }
+
+    #[test]
+    fn threshold_updates_from_earlier_deferred_callback() -> VortexResult<()> {
+        let _guard = OBSERVER_LOCK.lock();
+        *OBSERVED_THRESHOLD.lock() = None;
+
+        // Both schemes are deferred. The first callback registers `Ratio(3.0)`; the second
+        // callback must observe it as its threshold.
+        let compressor =
+            CascadingCompressor::new(vec![&CallbackRatioScheme, &ThresholdObservingScheme]);
+        let schemes: [&'static dyn Scheme; 2] = [&CallbackRatioScheme, &ThresholdObservingScheme];
+        let data = estimate_test_data();
+        let mut exec_ctx = SESSION.create_execution_ctx();
+
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+
+        let observed = *OBSERVED_THRESHOLD.lock();
+        assert!(matches!(
+            observed,
+            Some(Some(EstimateScore::FiniteCompression(r))) if r == 3.0
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn ratio_tie_between_immediate_and_deferred_favors_immediate() -> VortexResult<()> {
+        // Both schemes produce the same `Ratio(2.0)`, one from pass 1 (immediate) and one from
+        // pass 2 (deferred callback). Pass 1 locks in first, and strict `>` tie-breaking means
+        // the deferred callback's equal ratio cannot displace it.
+        let compressor =
+            CascadingCompressor::new(vec![&CallbackMatchingRatioScheme, &DirectRatioScheme]);
+        let schemes: [&'static dyn Scheme; 2] = [&CallbackMatchingRatioScheme, &DirectRatioScheme];
+        let data = estimate_test_data();
+        let mut exec_ctx = SESSION.create_execution_ctx();
+
+        let winner = compressor.choose_best_scheme(
+            &schemes,
+            &data,
+            CompressorContext::new(),
+            &mut exec_ctx,
+        )?;
+
+        assert!(matches!(
+            winner,
+            Some((scheme, WinnerEstimate::Score(EstimateScore::FiniteCompression(r))))
+                if scheme.id() == DirectRatioScheme.id() && r == 2.0
+        ));
+        Ok(())
+    }
+
     #[test]
     fn all_null_array_compresses_to_constant() -> VortexResult<()> {
         let array = PrimitiveArray::new(
@@ -1244,8 +1485,8 @@ mod tests {
         //   "this must be present since `DictScheme` declared that we need distinct values"
         let mut exec_ctx = SESSION.create_execution_ctx();
         let score = estimate_compression_ratio_with_sampling(
-            &FloatDictScheme,
             &compressor,
+            &FloatDictScheme,
             &array,
             ctx,
             &mut exec_ctx,

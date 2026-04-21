@@ -23,12 +23,21 @@ use crate::trace;
 
 /// Closure type for [`DeferredEstimate::Callback`].
 ///
-/// The compressor calls this with the same arguments it would pass to sampling. The closure must
-/// resolve directly to a terminal [`EstimateVerdict`].
+/// The compressor calls this with the same arguments it would pass to sampling, plus the best
+/// [`EstimateScore`] observed so far (if any). The closure must resolve directly to a terminal
+/// [`EstimateVerdict`].
+///
+/// The `best_so_far` threshold is an early-exit hint. If your scheme's maximum achievable
+/// compression ratio is not strictly greater than
+/// `best_so_far.and_then(EstimateScore::finite_ratio)`, you should return
+/// [`EstimateVerdict::Skip`]. Returning a ratio equal to the threshold is permitted but will
+/// lose to the prior best due to strict `>` tie-breaking in the selector. Use the threshold
+/// only as an early-exit hint, never to perform additional work.
 #[rustfmt::skip]
 pub type EstimateFn = dyn FnOnce(
         &CascadingCompressor,
         &ArrayAndStats,
+        Option<EstimateScore>,
         CompressorContext,
         &mut ExecutionCtx,
     ) -> VortexResult<EstimateVerdict>
@@ -85,17 +94,23 @@ pub enum DeferredEstimate {
     /// Use this only when the scheme needs to perform trial encoding or other costly checks to
     /// determine its compression ratio. The callback returns an [`EstimateVerdict`] directly, so
     /// it cannot request more sampling or another deferred callback.
+    ///
+    /// The compressor evaluates all immediate [`CompressionEstimate::Verdict`] results before
+    /// invoking any deferred callback, and passes the best [`EstimateScore`] observed so far to
+    /// the callback. This lets the callback return [`EstimateVerdict::Skip`] without performing
+    /// expensive work when its maximum achievable ratio cannot beat the current best. See
+    /// [`EstimateFn`] for the full contract.
     Callback(Box<EstimateFn>),
 }
 
 /// Ranked estimate used for comparing non-terminal compression candidates.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) enum EstimateScore {
+pub enum EstimateScore {
     /// A finite compression ratio. Higher means a smaller amount of data, so it is better.
     FiniteCompression(f64),
     /// Trial compression produced a 0-byte output.
     ///
-    /// This has no finite trace ratio and is not eligible for scheme selection.
+    /// This has no finite ratio and is not eligible for scheme selection.
     ///
     /// TODO(connor): A zero-byte sample usually means the sampler happened to hit an all-null
     /// sample. Improve this logic so we can distinguish real zero-byte wins from sampling artifacts.
@@ -112,8 +127,11 @@ impl EstimateScore {
         }
     }
 
-    /// Returns the traceable numeric ratio, omitting the zero-byte special case.
-    pub(super) fn trace_ratio(self) -> Option<f64> {
+    /// Returns the finite compression ratio, or [`None`] for the zero-byte special case.
+    ///
+    /// Callers comparing a scheme's maximum achievable ratio against a "best so far" threshold
+    /// should use this to extract a numeric value from an [`EstimateScore`].
+    pub fn finite_ratio(self) -> Option<f64> {
         match self {
             Self::FiniteCompression(ratio) => Some(ratio),
             Self::ZeroBytes => None,
@@ -156,7 +174,7 @@ impl WinnerEstimate {
     pub(super) fn trace_ratio(self) -> Option<f64> {
         match self {
             Self::AlwaysUse => None,
-            Self::Score(score) => score.trace_ratio(),
+            Self::Score(score) => score.finite_ratio(),
         }
     }
 }
@@ -178,8 +196,8 @@ pub(super) fn is_better_score(
 ///
 /// Returns an error if sample compression fails.
 pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
-    scheme: &S,
     compressor: &CascadingCompressor,
+    scheme: &S,
     array: &ArrayRef,
     compress_ctx: CompressorContext,
     exec_ctx: &mut ExecutionCtx,
@@ -212,7 +230,7 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
 
     // Single DEBUG event per sampled scheme. Downstream tooling can join this with the eventual
     // `scheme.compress_result` on the same scheme to compute sample-vs-full divergence.
-    trace::sample_result(scheme.id(), before, after, score.trace_ratio());
+    trace::sample_result(scheme.id(), before, after, score.finite_ratio());
 
     Ok(score)
 }

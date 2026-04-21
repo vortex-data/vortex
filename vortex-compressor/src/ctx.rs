@@ -30,6 +30,7 @@ pub struct CompressorContext {
     /// Merged stats options from all eligible schemes at this compression site.
     merged_stats_options: GenerateStatsOptions,
 
+    // TODO(connor): Replace this with an `im::Vector`
     /// The cascade chain: `(scheme_id, child_index)` pairs from root to current depth.
     /// Used for self-exclusion, push rules ([`descendant_exclusions`]), and pull rules
     /// ([`ancestor_exclusions`]).
