@@ -3,15 +3,28 @@
 
 //! Flat `u8` transition table DFA for prefix matching (`LIKE 'prefix%'`).
 //!
-//! Supports prefixes up to 253 bytes (states: 0..N progress + accept + fail +
-//! sentinel ≤ 256).
+//! ## Escape-folded state machine
 //!
-//! TODO(joe): for short prefixes (≤13 bytes), a shift-packed `[u64; 256]`
-//! representation would be simpler and easier to read — all state transitions
-//! for one input byte fit in a single `u64`. Benchmarks showed no meaningful
-//! perf difference, so we use flat-only for
-//! now to keep the code simple and support long prefixes.
+//! For prefixes ≤ 126 bytes we use an escape-folded DFA. The state space is:
+//!
+//! - Progress states `0..=N` (N+1 states). State `N` is accept (sticky).
+//! - Fail state `N+1` (sticky).
+//! - "In-escape" states `N+2..=2N+1` (N states), one per progress state that
+//!   can enter an escape.
+//!
+//! Total states: `2N+2 ≤ 255`, so max prefix = 126 bytes when folded.
+//!
+//! The scanner is a uniform single-lookup loop with an early-exit on fail:
+//!
+//! ```text
+//! state = transitions[state * 256 + code];
+//! if state == accept { return true; }
+//! if state == fail   { return false; }
+//! ```
+//!
+//! For prefixes 127..253 bytes we fall back to the two-table sentinel scan.
 
+use fsst::ESCAPE_CODE;
 use fsst::Symbol;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -21,38 +34,30 @@ use super::build_fused_table;
 use super::build_symbol_transitions;
 
 /// Flat `u8` transition table DFA for prefix matching on FSST codes.
-///
-/// States 0..prefix_len track match progress, plus ACCEPT, FAIL, and an
-/// escape SENTINEL. Transitions are stored in a flat `Vec<u8>` indexed as
-/// `[state * 256 + byte]`.
-///
-/// ```text
-/// Prefix: "http"  (4 progress states + accept + fail)
-///
-///          Input byte
-/// State    'h'    't'    'p'    other
-/// ─────    ────   ────   ────   ─────
-///   0       1      F      F      F     ← want 'h'
-///   1       F      2      F      F     ← want 't'
-///   2       F      3      F      F     ← want 't'
-///   3       F      F      4✓     F     ← want 'p'
-///   4✓      4✓     4✓     4✓     4✓    ← accept (sticky)
-///   F       F      F      F      F     ← fail (sticky)
-///
-/// Escape handling: code 255 → sentinel → read next literal byte → byte table
-/// ```
 pub(crate) struct FlatPrefixDfa {
-    /// `transitions[state * 256 + byte]` -> next state.
-    transitions: Vec<u8>,
-    /// `escape_transitions[state * 256 + byte]` -> next state for escaped bytes.
-    escape_transitions: Vec<u8>,
-    accept_state: u8,
-    fail_state: u8,
-    sentinel: u8,
+    inner: PrefixInner,
+}
+
+enum PrefixInner {
+    /// Escape-folded DFA (2N+2 states, N ≤ 126).
+    Folded {
+        transitions: Vec<u8>,
+        accept_state: u8,
+        fail_state: u8,
+    },
+    /// Sentinel-based DFA for longer prefixes (up to 253 bytes).
+    Sentinel {
+        transitions: Vec<u8>,
+        escape_transitions: Vec<u8>,
+        accept_state: u8,
+        fail_state: u8,
+        sentinel: u8,
+    },
 }
 
 impl FlatPrefixDfa {
     pub(crate) const MAX_PREFIX_LEN: usize = (u8::MAX - 2) as usize;
+    const MAX_FOLDED_PREFIX_LEN: usize = 126;
 
     pub(crate) fn new(
         symbols: &[Symbol],
@@ -67,6 +72,86 @@ impl FlatPrefixDfa {
             );
         }
 
+        if prefix.len() <= Self::MAX_FOLDED_PREFIX_LEN {
+            Self::new_folded(symbols, symbol_lengths, prefix)
+        } else {
+            Self::new_sentinel(symbols, symbol_lengths, prefix)
+        }
+    }
+
+    fn new_folded(
+        symbols: &[Symbol],
+        symbol_lengths: &[u8],
+        prefix: &[u8],
+    ) -> VortexResult<Self> {
+        let n = prefix.len();
+        let accept_state =
+            u8::try_from(n).vortex_expect("folded prefix: accept fits in u8");
+        let fail_state = accept_state + 1;
+        let n_progress = fail_state as usize + 1; // progress states 0..=fail
+
+        let byte_table = build_prefix_byte_table(prefix, accept_state, fail_state);
+        let sym_trans = build_symbol_transitions(
+            symbols,
+            symbol_lengths,
+            &byte_table,
+            n_progress as u8,
+            accept_state,
+        );
+
+        // In-escape states for progress states 0..N-1 (not accept, not fail).
+        let n_in_escape = accept_state as usize;
+        let n_total = n_progress + n_in_escape;
+
+        let mut transitions = vec![fail_state; n_total * 256];
+        let n_symbols = symbols.len();
+
+        // Progress & accept & fail rows.
+        for state in 0..n_progress {
+            let row = state * 256;
+            // Default is already fail_state.
+            for code in 0..n_symbols {
+                transitions[row + code] = sym_trans[state * n_symbols + code];
+            }
+            if state == accept_state as usize {
+                // Accept sticky on all bytes.
+                for b in 0..256 {
+                    transitions[row + b] = accept_state;
+                }
+            } else if state == fail_state as usize {
+                // Fail sticky on all bytes.
+                for b in 0..256 {
+                    transitions[row + b] = fail_state;
+                }
+            } else {
+                // Progress state: ESCAPE_CODE → in-escape.
+                let in_escape = (n_progress + state) as u8;
+                transitions[row + ESCAPE_CODE as usize] = in_escape;
+            }
+        }
+
+        // In-escape states for progress 0..N-1.
+        for s in 0..n_in_escape {
+            let in_esc_row = (n_progress + s) * 256;
+            let byte_row = s * 256;
+            transitions[in_esc_row..in_esc_row + 256]
+                .copy_from_slice(&byte_table[byte_row..byte_row + 256]);
+        }
+
+        Ok(Self {
+            inner: PrefixInner::Folded {
+                transitions,
+                accept_state,
+                fail_state,
+            },
+        })
+    }
+
+    fn new_sentinel(
+        symbols: &[Symbol],
+        symbol_lengths: &[u8],
+        prefix: &[u8],
+    ) -> VortexResult<Self> {
         let accept_state = u8::try_from(prefix.len()).vortex_expect("prefix fits in u8");
         let fail_state = accept_state + 1;
         let n_states = fail_state + 1;
@@ -86,40 +171,102 @@ impl FlatPrefixDfa {
         );
 
         Ok(Self {
-            transitions,
-            escape_transitions: byte_table,
-            accept_state,
-            fail_state,
-            sentinel,
+            inner: PrefixInner::Sentinel {
+                transitions,
+                escape_transitions: byte_table,
+                accept_state,
+                fail_state,
+                sentinel,
+            },
         })
     }
 
+    #[inline]
     pub(crate) fn matches(&self, codes: &[u8]) -> bool {
-        let mut state = 0u8;
-        let mut pos = 0;
-        while pos < codes.len() {
-            let code = codes[pos];
-            pos += 1;
-            let next = self.transitions[usize::from(state) * 256 + usize::from(code)];
-            if next == self.sentinel {
-                if pos >= codes.len() {
-                    return false;
-                }
-                let b = codes[pos];
-                pos += 1;
-                state = self.escape_transitions[usize::from(state) * 256 + usize::from(b)];
-            } else {
-                state = next;
-            }
-            if state == self.accept_state {
-                return true;
-            }
-            if state == self.fail_state {
+        match &self.inner {
+            PrefixInner::Folded {
+                transitions,
+                accept_state,
+                fail_state,
+            } => matches_folded(transitions, *accept_state, *fail_state, codes),
+            PrefixInner::Sentinel {
+                transitions,
+                escape_transitions,
+                accept_state,
+                fail_state,
+                sentinel,
+            } => matches_sentinel(
+                transitions,
+                escape_transitions,
+                *accept_state,
+                *fail_state,
+                *sentinel,
+                codes,
+            ),
+        }
+    }
+}
+
+#[inline(always)]
+fn matches_folded(
+    transitions: &[u8],
+    accept_state: u8,
+    fail_state: u8,
+    codes: &[u8],
+) -> bool {
+    let mut state = 0u8;
+    let len = codes.len();
+    let mut pos = 0;
+    while pos < len {
+        // SAFETY: pos < len; state < n_total = 2N+2, transitions has n_total*256 entries.
+        let code = unsafe { *codes.get_unchecked(pos) };
+        pos += 1;
+        state = unsafe {
+            *transitions.get_unchecked(usize::from(state) * 256 + usize::from(code))
+        };
+        if state == accept_state {
+            return true;
+        }
+        if state == fail_state {
+            return false;
+        }
+    }
+    state == accept_state
+}
+
+#[inline(always)]
+fn matches_sentinel(
+    transitions: &[u8],
+    escape_transitions: &[u8],
+    accept_state: u8,
+    fail_state: u8,
+    sentinel: u8,
+    codes: &[u8],
+) -> bool {
+    let mut state = 0u8;
+    let mut pos = 0;
+    while pos < codes.len() {
+        let code = codes[pos];
+        pos += 1;
+        let next = transitions[usize::from(state) * 256 + usize::from(code)];
+        if next == sentinel {
+            if pos >= codes.len() {
                 return false;
             }
+            let b = codes[pos];
+            pos += 1;
+            state = escape_transitions[usize::from(state) * 256 + usize::from(b)];
+        } else {
+            state = next;
         }
-        state == self.accept_state
+        if state == accept_state {
+            return true;
+        }
+        if state == fail_state {
+            return false;
+        }
     }
+    state == accept_state
 }
 
 /// Build a byte-level transition table for prefix matching.

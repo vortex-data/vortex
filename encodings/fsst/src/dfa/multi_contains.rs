@@ -28,8 +28,11 @@
 //! The `%` between segments is implicit: once phase k accepts, phase k+1
 //! searches for its needle anywhere in the remaining input.
 //!
-//! Uses the same escape-sentinel strategy as [`super::flat_contains::FlatContainsDfa`].
+//! Uses the same escape-folded strategy as [`super::flat_contains::FlatContainsDfa`]:
+//! 2N+1 states for a total-length-N pattern when N ≤ 127, single-lookup scan;
+//! otherwise falls back to the sentinel-based DFA.
 
+use fsst::ESCAPE_CODE;
 use fsst::Symbol;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -40,23 +43,30 @@ use super::build_symbol_transitions;
 use super::kmp_failure_table;
 
 /// Flat `u8` transition table DFA for multi-wildcard contains matching.
-///
-/// Supports patterns like `%abc%def%ghi%` by chaining per-segment KMP
-/// automata into one linear state space. The scanner is identical to
-/// [`super::flat_contains::FlatContainsDfa`]: a single forward pass with
-/// escape-sentinel handling.
 pub(crate) struct MultiContainsDfa {
-    /// `transitions[state * 256 + code_byte]` -> next state.
-    transitions: Vec<u8>,
-    /// `escape_transitions[state * 256 + literal_byte]` -> next state for escaped bytes.
-    escape_transitions: Vec<u8>,
-    accept_state: u8,
-    sentinel: u8,
+    inner: MultiInner,
+}
+
+enum MultiInner {
+    /// Escape-folded DFA (2N+1 states, total_len ≤ 127). Single-lookup scan.
+    Folded {
+        transitions: Vec<u8>,
+        accept_state: u8,
+    },
+    /// Sentinel-based DFA for longer total lengths (≤ 254).
+    Sentinel {
+        transitions: Vec<u8>,
+        escape_transitions: Vec<u8>,
+        accept_state: u8,
+        sentinel: u8,
+    },
 }
 
 impl MultiContainsDfa {
     /// Maximum total needle length (sum of all segments): need accept + sentinel in u8.
     pub(crate) const MAX_TOTAL_LEN: usize = u8::MAX as usize - 1;
+    /// Maximum total length that can use the escape-folded DFA.
+    const MAX_FOLDED_TOTAL_LEN: usize = 127;
 
     pub(crate) fn new(
         symbols: &[Symbol],
@@ -72,6 +82,67 @@ impl MultiContainsDfa {
             );
         }
 
+        if total_len <= Self::MAX_FOLDED_TOTAL_LEN {
+            Self::new_folded(symbols, symbol_lengths, segments, total_len)
+        } else {
+            Self::new_sentinel(symbols, symbol_lengths, segments, total_len)
+        }
+    }
+
+    fn new_folded(
+        symbols: &[Symbol],
+        symbol_lengths: &[u8],
+        segments: &[&[u8]],
+        total_len: usize,
+    ) -> VortexResult<Self> {
+        let accept_state = u8::try_from(total_len)
+            .vortex_expect("folded multi-contains: accept fits in u8");
+        let n_progress = accept_state as usize + 1; // states 0..=accept
+
+        let byte_table = chained_kmp_byte_transitions(segments, accept_state);
+        let sym_trans =
+            build_symbol_transitions(symbols, symbol_lengths, &byte_table, n_progress as u8, accept_state);
+
+        let n_in_escape = accept_state as usize; // one per non-accept progress state
+        let n_total = n_progress + n_in_escape;
+
+        let mut transitions = vec![0u8; n_total * 256];
+        let n_symbols = symbols.len();
+
+        for state in 0..n_progress {
+            let row = state * 256;
+            for code in 0..n_symbols {
+                transitions[row + code] = sym_trans[state * n_symbols + code];
+            }
+            if state == accept_state as usize {
+                transitions[row + ESCAPE_CODE as usize] = accept_state;
+            } else {
+                let in_escape = (n_progress + state) as u8;
+                transitions[row + ESCAPE_CODE as usize] = in_escape;
+            }
+        }
+
+        for s in 0..n_in_escape {
+            let in_esc_row = (n_progress + s) * 256;
+            let byte_row = s * 256;
+            transitions[in_esc_row..in_esc_row + 256]
+                .copy_from_slice(&byte_table[byte_row..byte_row + 256]);
+        }
+
+        Ok(Self {
+            inner: MultiInner::Folded {
+                transitions,
+                accept_state,
+            },
+        })
+    }
+
+    fn new_sentinel(
+        symbols: &[Symbol],
+        symbol_lengths: &[u8],
+        segments: &[&[u8]],
+        total_len: usize,
+    ) -> VortexResult<Self> {
         let accept_state = u8::try_from(total_len)
             .vortex_expect("MultiContainsDfa: accept state must fit into u8");
         let n_states = accept_state + 1;
@@ -83,36 +154,86 @@ impl MultiContainsDfa {
         let transitions = build_fused_table(&sym_trans, symbols.len(), n_states, |_| sentinel, 0);
 
         Ok(Self {
-            transitions,
-            escape_transitions: byte_table,
-            accept_state,
-            sentinel,
+            inner: MultiInner::Sentinel {
+                transitions,
+                escape_transitions: byte_table,
+                accept_state,
+                sentinel,
+            },
         })
     }
 
+    #[inline]
     pub(crate) fn matches(&self, codes: &[u8]) -> bool {
-        let mut state = 0u8;
-        let mut pos = 0;
-        while pos < codes.len() {
-            let code = codes[pos];
-            pos += 1;
-            let next = self.transitions[usize::from(state) * 256 + usize::from(code)];
-            if next == self.sentinel {
-                if pos >= codes.len() {
-                    return false;
-                }
-                let b = codes[pos];
-                pos += 1;
-                state = self.escape_transitions[usize::from(state) * 256 + usize::from(b)];
-            } else {
-                state = next;
-            }
-            if state == self.accept_state {
-                return true;
-            }
+        match &self.inner {
+            MultiInner::Folded {
+                transitions,
+                accept_state,
+            } => matches_folded(transitions, *accept_state, codes),
+            MultiInner::Sentinel {
+                transitions,
+                escape_transitions,
+                accept_state,
+                sentinel,
+            } => matches_sentinel(
+                transitions,
+                escape_transitions,
+                *accept_state,
+                *sentinel,
+                codes,
+            ),
         }
-        false
     }
+}
+
+#[inline(always)]
+fn matches_folded(transitions: &[u8], accept_state: u8, codes: &[u8]) -> bool {
+    let mut state = 0u8;
+    let mut pos = 0;
+    let len = codes.len();
+    while pos < len {
+        // SAFETY: pos < len; state < 2N+1 (≤255); transitions has (2N+1)*256 entries.
+        let code = unsafe { *codes.get_unchecked(pos) };
+        pos += 1;
+        state = unsafe {
+            *transitions.get_unchecked(usize::from(state) * 256 + usize::from(code))
+        };
+        if state == accept_state {
+            return true;
+        }
+    }
+    false
+}
+
+#[inline(always)]
+fn matches_sentinel(
+    transitions: &[u8],
+    escape_transitions: &[u8],
+    accept_state: u8,
+    sentinel: u8,
+    codes: &[u8],
+) -> bool {
+    let mut state = 0u8;
+    let mut pos = 0;
+    while pos < codes.len() {
+        let code = codes[pos];
+        pos += 1;
+        let next = transitions[usize::from(state) * 256 + usize::from(code)];
+        if next == sentinel {
+            if pos >= codes.len() {
+                return false;
+            }
+            let b = codes[pos];
+            pos += 1;
+            state = escape_transitions[usize::from(state) * 256 + usize::from(b)];
+        } else {
+            state = next;
+        }
+        if state == accept_state {
+            return true;
+        }
+    }
+    false
 }
 
 /// Build a chained KMP byte-level transition table for multiple segments.

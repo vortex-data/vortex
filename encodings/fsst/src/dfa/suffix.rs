@@ -20,9 +20,11 @@
 //!
 //! ## Escape handling
 //!
-//! Uses the same sentinel strategy as prefix/contains: ESCAPE_CODE in the
-//! transition table maps to a sentinel, triggering a byte-level lookup.
-//! Since we scan backward, we detect escapes by checking `codes[pos-2] == 255`.
+//! For suffixes ≤ 126 bytes, escapes are detected directly by checking
+//! `codes[pos-2] == 255` during the backward scan, and dispatched through a
+//! small byte-level table. (Folding an "in-escape" state into the symbol table
+//! would not save work here because the scanner already needs a separate
+//! per-byte lookup to consume the literal, not a symbol lookup.)
 
 use fsst::ESCAPE_CODE;
 use fsst::Symbol;
@@ -66,22 +68,6 @@ impl SuffixMatcher {
         let n_states = fail_state + 1;
         let sentinel = fail_state + 1;
 
-        // Build byte-level backward transition table.
-        // State `s` means "we have confirmed suffix[suf_len-s..suf_len]".
-        // Processing a byte from the right: if it matches suffix[suf_len-s-1], advance.
-        // Otherwise, fail (no KMP fallback needed for suffix — a mismatch from the
-        // end means the string doesn't end with the suffix).
-        //
-        // Wait — this is wrong for multi-byte symbols. A symbol might partially match.
-        // For example, suffix "bar", symbol "foobar". Scanning backward, the symbol
-        // decodes to "foobar". From state 0, we process bytes right-to-left: 'r' matches
-        // suffix[2], 'a' matches suffix[1], 'b' matches suffix[0] → accept.
-        // That's correct. But what about partial symbols that span the suffix boundary?
-        //
-        // Actually for the byte-level table, we process ONE byte at a time from the right.
-        // State s means s bytes confirmed. For byte b at the next position from the right:
-        // - If s < suf_len and b == suffix[suf_len - 1 - s] → advance to s+1
-        // - Otherwise → FAIL (the string doesn't end with our suffix)
         let byte_table = build_suffix_byte_table(suffix, accept_state, fail_state);
 
         // Build symbol-level transitions: for each (state, symbol), simulate feeding
@@ -137,36 +123,51 @@ impl SuffixMatcher {
     /// Scans codes from the END toward the beginning.
     #[inline]
     pub(crate) fn matches(&self, codes: &[u8]) -> bool {
+        let accept = self.accept_state;
+        let fail = self.fail_state;
+        let transitions = self.transitions.as_slice();
+        let esc = self.escape_transitions.as_slice();
+        let _ = self.sentinel; // reserved for future use
+
         let mut state = 0u8;
         let mut pos = codes.len();
 
         while pos > 0 {
             // Detect escape: if codes[pos-2] == ESCAPE_CODE, then codes[pos-1] is a literal
-            if pos >= 2 && codes[pos - 2] == ESCAPE_CODE {
-                let b = codes[pos - 1];
-                state = self.escape_transitions[usize::from(state) * 256 + usize::from(b)];
-                pos -= 2;
-            } else {
-                let code = codes[pos - 1];
-                let next = self.transitions[usize::from(state) * 256 + usize::from(code)];
-                if next == self.sentinel {
-                    // This shouldn't happen in backward scan (escapes detected above),
-                    // but handle gracefully.
-                    return false;
+            if pos >= 2 {
+                // SAFETY: pos >= 2 guarantees the indices are in bounds.
+                let prev = unsafe { *codes.get_unchecked(pos - 2) };
+                if prev == ESCAPE_CODE {
+                    let b = unsafe { *codes.get_unchecked(pos - 1) };
+                    // SAFETY: state < n_states, escape_transitions has n_states*256 entries.
+                    state = unsafe {
+                        *esc.get_unchecked(usize::from(state) * 256 + usize::from(b))
+                    };
+                    pos -= 2;
+                    if state == accept {
+                        return true;
+                    }
+                    if state == fail {
+                        return false;
+                    }
+                    continue;
                 }
-                state = next;
-                pos -= 1;
             }
-
-            if state == self.accept_state {
+            // SAFETY: pos > 0; state < n_states, transitions has n_states*256 entries.
+            let code = unsafe { *codes.get_unchecked(pos - 1) };
+            state = unsafe {
+                *transitions.get_unchecked(usize::from(state) * 256 + usize::from(code))
+            };
+            pos -= 1;
+            if state == accept {
                 return true;
             }
-            if state == self.fail_state {
+            if state == fail {
                 return false;
             }
         }
 
-        state == self.accept_state
+        state == accept
     }
 }
 
