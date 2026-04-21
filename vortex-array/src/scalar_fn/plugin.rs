@@ -10,7 +10,7 @@ use vortex_session::VortexSession;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::TypedScalarFn;
+use crate::scalar_fn::TypedScalarFnInstance;
 
 /// Reference-counted pointer to a scalar function plugin.
 pub type ScalarFnPluginRef = Arc<dyn ScalarFnPlugin>;
@@ -43,6 +43,6 @@ impl<V: ScalarFnVTable> ScalarFnPlugin for V {
 
     fn deserialize(&self, metadata: &[u8], session: &VortexSession) -> VortexResult<ScalarFnRef> {
         let options = ScalarFnVTable::deserialize(self, metadata, session)?;
-        Ok(TypedScalarFn::new(self.clone(), options).erased())
+        Ok(TypedScalarFnInstance::new(self.clone(), options).erased())
     }
 }

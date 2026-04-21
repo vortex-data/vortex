@@ -17488,9 +17488,9 @@ pub fn vortex_array::scalar_fn::ScalarFnRef::as_opt<V: vortex_array::scalar_fn::
 
 pub fn vortex_array::scalar_fn::ScalarFnRef::coerce_args(&self, arg_types: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
-pub fn vortex_array::scalar_fn::ScalarFnRef::downcast<V: vortex_array::scalar_fn::ScalarFnVTable>(self) -> alloc::sync::Arc<vortex_array::scalar_fn::TypedScalarFn<V>>
+pub fn vortex_array::scalar_fn::ScalarFnRef::downcast<V: vortex_array::scalar_fn::ScalarFnVTable>(self) -> alloc::sync::Arc<vortex_array::scalar_fn::TypedScalarFnInstance<V>>
 
-pub fn vortex_array::scalar_fn::ScalarFnRef::downcast_ref<V: vortex_array::scalar_fn::ScalarFnVTable>(&self) -> core::option::Option<&vortex_array::scalar_fn::TypedScalarFn<V>>
+pub fn vortex_array::scalar_fn::ScalarFnRef::downcast_ref<V: vortex_array::scalar_fn::ScalarFnVTable>(&self) -> core::option::Option<&vortex_array::scalar_fn::TypedScalarFnInstance<V>>
 
 pub fn vortex_array::scalar_fn::ScalarFnRef::execute(&self, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -17506,7 +17506,7 @@ pub fn vortex_array::scalar_fn::ScalarFnRef::return_dtype(&self, arg_types: &[vo
 
 pub fn vortex_array::scalar_fn::ScalarFnRef::signature(&self) -> vortex_array::scalar_fn::ScalarFnSignature<'_>
 
-pub fn vortex_array::scalar_fn::ScalarFnRef::try_downcast<V: vortex_array::scalar_fn::ScalarFnVTable>(self) -> core::result::Result<alloc::sync::Arc<vortex_array::scalar_fn::TypedScalarFn<V>>, vortex_array::scalar_fn::ScalarFnRef>
+pub fn vortex_array::scalar_fn::ScalarFnRef::try_downcast<V: vortex_array::scalar_fn::ScalarFnVTable>(self) -> core::result::Result<alloc::sync::Arc<vortex_array::scalar_fn::TypedScalarFnInstance<V>>, vortex_array::scalar_fn::ScalarFnRef>
 
 pub fn vortex_array::scalar_fn::ScalarFnRef::validity(&self, expr: &vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
@@ -17544,17 +17544,17 @@ pub fn vortex_array::scalar_fn::ScalarFnSignature<'_>::is_fallible(&self) -> boo
 
 pub fn vortex_array::scalar_fn::ScalarFnSignature<'_>::is_null_sensitive(&self) -> bool
 
-pub struct vortex_array::scalar_fn::TypedScalarFn<V: vortex_array::scalar_fn::ScalarFnVTable>
+pub struct vortex_array::scalar_fn::TypedScalarFnInstance<V: vortex_array::scalar_fn::ScalarFnVTable>
 
-impl<V: vortex_array::scalar_fn::ScalarFnVTable> vortex_array::scalar_fn::TypedScalarFn<V>
+impl<V: vortex_array::scalar_fn::ScalarFnVTable> vortex_array::scalar_fn::TypedScalarFnInstance<V>
 
-pub fn vortex_array::scalar_fn::TypedScalarFn<V>::erased(self) -> vortex_array::scalar_fn::ScalarFnRef
+pub fn vortex_array::scalar_fn::TypedScalarFnInstance<V>::erased(self) -> vortex_array::scalar_fn::ScalarFnRef
 
-pub fn vortex_array::scalar_fn::TypedScalarFn<V>::new(vtable: V, options: <V as vortex_array::scalar_fn::ScalarFnVTable>::Options) -> Self
+pub fn vortex_array::scalar_fn::TypedScalarFnInstance<V>::new(vtable: V, options: <V as vortex_array::scalar_fn::ScalarFnVTable>::Options) -> Self
 
-pub fn vortex_array::scalar_fn::TypedScalarFn<V>::options(&self) -> &<V as vortex_array::scalar_fn::ScalarFnVTable>::Options
+pub fn vortex_array::scalar_fn::TypedScalarFnInstance<V>::options(&self) -> &<V as vortex_array::scalar_fn::ScalarFnVTable>::Options
 
-pub fn vortex_array::scalar_fn::TypedScalarFn<V>::vtable(&self) -> &V
+pub fn vortex_array::scalar_fn::TypedScalarFnInstance<V>::vtable(&self) -> &V
 
 pub struct vortex_array::scalar_fn::VecExecutionArgs
 

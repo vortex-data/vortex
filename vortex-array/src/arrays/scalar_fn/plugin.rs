@@ -14,7 +14,7 @@ use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::TypedScalarFn;
+use crate::scalar_fn::TypedScalarFnInstance;
 use crate::serde::ArrayChildren;
 
 /// An adapter for enabling a scalar function to be serialized as an array.
@@ -83,7 +83,7 @@ impl<V: ScalarFnVTable + ScalarFnArrayVTable> ArrayPlugin for ScalarFnArrayPlugi
             &self.0, dtype, len, metadata, children, session,
         )?;
         Ok(ScalarFnArray::try_new(
-            TypedScalarFn::new(self.0.clone(), parts.options).erased(),
+            TypedScalarFnInstance::new(self.0.clone(), parts.options).erased(),
             parts.children,
             len,
         )?

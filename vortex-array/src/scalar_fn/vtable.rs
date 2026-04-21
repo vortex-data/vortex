@@ -24,7 +24,7 @@ use crate::expr::StatsCatalog;
 use crate::expr::stats::Stat;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
-use crate::scalar_fn::TypedScalarFn;
+use crate::scalar_fn::TypedScalarFnInstance;
 
 /// This trait defines the interface for scalar function vtables, including methods for
 /// serialization, deserialization, validation, child naming, return type computation,
@@ -388,7 +388,7 @@ impl Display for EmptyOptions {
 pub trait ScalarFnVTableExt: ScalarFnVTable {
     /// Bind this vtable with the given options into a [`ScalarFnRef`].
     fn bind(&self, options: Self::Options) -> ScalarFnRef {
-        TypedScalarFn::new(self.clone(), options).erased()
+        TypedScalarFnInstance::new(self.clone(), options).erased()
     }
 
     /// Create a new expression with this vtable and the given options and children.

@@ -15,7 +15,7 @@ use crate::arrays::scalar_fn::vtable::FakeEq;
 use crate::arrays::scalar_fn::vtable::ScalarFn;
 use crate::expr::Expression;
 use crate::expr::lit;
-use crate::scalar_fn::TypedScalarFn;
+use crate::scalar_fn::TypedScalarFnInstance;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::root::Root;
@@ -59,7 +59,7 @@ impl ValidityVTable<ScalarFn> for ScalarFn {
                     return Ok(lit(scalar));
                 }
                 Expression::try_new(
-                    TypedScalarFn::new(ArrayExpr, FakeEq(child.clone())).erased(),
+                    TypedScalarFnInstance::new(ArrayExpr, FakeEq(child.clone())).erased(),
                     [],
                 )
             })

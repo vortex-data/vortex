@@ -41,7 +41,7 @@ use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::TypedScalarFn;
+use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_array::serde::ArrayChildren;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -76,9 +76,9 @@ use crate::utils::validate_binary_tensor_float_inputs;
 pub struct InnerProduct;
 
 impl InnerProduct {
-    /// Creates a new [`TypedScalarFn`] wrapping the inner product operation.
-    pub fn new() -> TypedScalarFn<InnerProduct> {
-        TypedScalarFn::new(InnerProduct, EmptyOptions)
+    /// Creates a new [`TypedScalarFnInstance`] wrapping the inner product operation.
+    pub fn new() -> TypedScalarFnInstance<InnerProduct> {
+        TypedScalarFnInstance::new(InnerProduct, EmptyOptions)
     }
 
     /// Constructs a [`ScalarFnArray`] that lazily computes the inner product between `lhs` and

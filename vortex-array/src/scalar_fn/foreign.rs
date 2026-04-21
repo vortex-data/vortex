@@ -20,7 +20,7 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::TypedScalarFn;
+use crate::scalar_fn::TypedScalarFnInstance;
 
 /// Options payload for a foreign scalar function.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -58,7 +58,8 @@ impl ForeignScalarFnVTable {
     }
 
     pub fn make_scalar_fn(id: ScalarFnId, metadata: Vec<u8>, arity: usize) -> ScalarFnRef {
-        TypedScalarFn::new(Self::new(id), ForeignScalarFnOptions::new(metadata, arity)).erased()
+        TypedScalarFnInstance::new(Self::new(id), ForeignScalarFnOptions::new(metadata, arity))
+            .erased()
     }
 }
 

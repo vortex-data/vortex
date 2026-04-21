@@ -44,7 +44,7 @@ use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::TypedScalarFn;
+use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
@@ -89,12 +89,12 @@ use crate::utils::validate_tensor_float_input;
 pub struct L2Denorm;
 
 impl L2Denorm {
-    /// Creates a new [`TypedScalarFn`] wrapping the L2 denormalization operation.
+    /// Creates a new [`TypedScalarFnInstance`] wrapping the L2 denormalization operation.
     ///
     /// This is a low-level scalar-function descriptor constructor. To build a semantically valid
     /// [`L2Denorm`] array, prefer [`try_new_array`](Self::try_new_array).
-    pub fn new() -> TypedScalarFn<L2Denorm> {
-        TypedScalarFn::new(L2Denorm, EmptyOptions)
+    pub fn new() -> TypedScalarFnInstance<L2Denorm> {
+        TypedScalarFnInstance::new(L2Denorm, EmptyOptions)
     }
 
     /// Constructs a validated [`ScalarFnArray`] that lazily re-applies `norms` to `normalized`.

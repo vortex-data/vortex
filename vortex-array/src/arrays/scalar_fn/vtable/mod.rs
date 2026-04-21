@@ -173,7 +173,7 @@ pub trait ScalarFnFactoryExt: scalar_fn::ScalarFnVTable {
         options: Self::Options,
         children: impl Into<Vec<ArrayRef>>,
     ) -> VortexResult<ArrayRef> {
-        let scalar_fn = scalar_fn::TypedScalarFn::new(self.clone(), options).erased();
+        let scalar_fn = scalar_fn::TypedScalarFnInstance::new(self.clone(), options).erased();
 
         let children = children.into();
         vortex_ensure!(

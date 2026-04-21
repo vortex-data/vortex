@@ -26,7 +26,7 @@ use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::TypedScalarFn;
+use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
@@ -62,9 +62,9 @@ use crate::utils::validate_binary_tensor_float_inputs;
 pub struct CosineSimilarity;
 
 impl CosineSimilarity {
-    /// Creates a new [`TypedScalarFn`] wrapping the cosine similarity operation.
-    pub fn new() -> TypedScalarFn<CosineSimilarity> {
-        TypedScalarFn::new(CosineSimilarity, EmptyOptions)
+    /// Creates a new [`TypedScalarFnInstance`] wrapping the cosine similarity operation.
+    pub fn new() -> TypedScalarFnInstance<CosineSimilarity> {
+        TypedScalarFnInstance::new(CosineSimilarity, EmptyOptions)
     }
 
     /// Constructs a [`ScalarFnArray`] that lazily computes the cosine similarity between `lhs` and
