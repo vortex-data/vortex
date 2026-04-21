@@ -143,7 +143,7 @@ fn generate_device_kernel_template(
         output,
         r#"template <int BW>
 __device__ void _bit_unpack_{bits}_device(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, uint{bits}_t reference, int thread_idx, GPUPatches& patches) {{
-    __shared__ uint{bits}_t shared_out[1024];
+    __shared__ uint{bits}_t shared_out[FL_CHUNK];
 
     // Step 1: Unpack into shared memory
     #pragma unroll
@@ -155,7 +155,7 @@ __device__ void _bit_unpack_{bits}_device(const uint{bits}_t *__restrict in, uin
     // Step 2: Apply patches to shared memory in parallel
     PatchesCursor<uint{bits}_t> cursor(patches, blockIdx.x, thread_idx, {thread_count});
     auto patch = cursor.next();
-    while (patch.index != 1024) {{
+    while (patch.index != FL_CHUNK) {{
         shared_out[patch.index] = patch.value;
         patch = cursor.next();
     }}

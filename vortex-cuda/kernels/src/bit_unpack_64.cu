@@ -4,7 +4,7 @@
 
 template <int BW>
 __device__ void _bit_unpack_64_device(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint64_t shared_out[1024];
+    __shared__ uint64_t shared_out[FL_CHUNK];
 
     // Step 1: Unpack into shared memory
     #pragma unroll
@@ -16,7 +16,7 @@ __device__ void _bit_unpack_64_device(const uint64_t *__restrict in, uint64_t *_
     // Step 2: Apply patches to shared memory in parallel
     PatchesCursor<uint64_t> cursor(patches, blockIdx.x, thread_idx, 16);
     auto patch = cursor.next();
-    while (patch.index != 1024) {
+    while (patch.index != FL_CHUNK) {
         shared_out[patch.index] = patch.value;
         patch = cursor.next();
     }

@@ -147,16 +147,16 @@ scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem, uint64_t 
             // chunk_start is the first original chunk covered by the sliced
             // chunk_offsets array. PatchesCursor indexes from 0 into that
             // array, so we subtract chunk_start from the absolute chunk.
-            const uint32_t chunk_start = patches.offset / 1024;
+            const uint32_t chunk_start = patches.offset / FL_CHUNK;
 #pragma unroll
             for (uint32_t i = 0; i < N; ++i) {
                 uint64_t my_pos = (N > 1) ? abs_pos + i * blockDim.x + threadIdx.x : abs_pos;
                 uint64_t orig = my_pos + patches.offset;
-                uint32_t chunk = static_cast<uint32_t>(orig / 1024) - chunk_start;
-                uint32_t within = static_cast<uint32_t>(orig % 1024);
+                uint32_t chunk = static_cast<uint32_t>(orig / FL_CHUNK) - chunk_start;
+                uint32_t within = static_cast<uint32_t>(orig % FL_CHUNK);
                 PatchesCursor<T> cursor(patches, chunk, 0, 1);
                 auto patch = cursor.next();
-                while (patch.index != 1024) {
+                while (patch.index != FL_CHUNK) {
                     if (patch.index == within) {
                         values[i] = patch.value;
                         break;
@@ -192,7 +192,7 @@ __device__ __forceinline__ void
 scatter_patches_chunk(const GPUPatches &patches, T *__restrict out, uint32_t chunk) {
     PatchesCursor<T> cursor(patches, chunk, threadIdx.x, blockDim.x);
     auto patch = cursor.next();
-    while (patch.index != 1024) {
+    while (patch.index != FL_CHUNK) {
         out[patch.index] = patch.value;
         patch = cursor.next();
     }

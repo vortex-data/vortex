@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "fastlanes_common.cuh"
 #include "patches.h"
 
 /// Load a chunk offset value, dispatching on the runtime type.
@@ -21,8 +22,8 @@ __device__ inline uint32_t load_chunk_offset(const GPUPatches &patches, uint32_t
 }
 
 /// A single patch: a within-chunk index and its replacement value.
-/// A sentinel patch has index == 1024, which can never match a valid
-/// within-chunk position (0–1023).
+/// A sentinel patch has index == FL_CHUNK, which can never match a valid
+/// within-chunk position (0–FL_CHUNK-1).
 template <typename T>
 struct Patch {
     uint16_t index;
@@ -38,7 +39,7 @@ struct Patch {
 ///
 ///     PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
 ///     auto patch = cursor.next();
-///     while (patch.index != 1024) {
+///     while (patch.index != FL_CHUNK) {
 ///         shared_out[patch.index] = patch.value;
 ///         patch = cursor.next();
 ///     }
@@ -89,15 +90,15 @@ public:
         // The iterator returns indices relative to the start of the chunk.
         // `chunk_base` is the index of the first element within a chunk, accounting
         // for the slice offset.
-        chunk_base = chunk * 1024 + patches.offset;
-        chunk_base -= min(chunk_base, patches.offset % 1024);
+        chunk_base = chunk * FL_CHUNK + patches.offset;
+        chunk_base -= min(chunk_base, patches.offset % FL_CHUNK);
     }
 
     /// Return the current patch (with within-chunk index) and advance,
     /// or a sentinel {1024, 0} if exhausted.
     __device__ Patch<T> next() {
         if (remaining == 0) {
-            return {1024, T {}};
+            return {FL_CHUNK, T {}};
         }
         uint16_t within_chunk = static_cast<uint16_t>(*indices - chunk_base);
         Patch<T> patch = {within_chunk, *values};
