@@ -10,7 +10,6 @@ pub use vtable::FilterArray;
 mod execute;
 
 mod kernel;
-mod parent_kernels;
 pub use kernel::FilterExecuteAdaptor;
 pub use kernel::FilterKernel;
 pub use kernel::FilterReduce;

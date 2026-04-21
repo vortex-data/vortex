@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod kernel;
 mod operations;
 mod rules;
 mod validity;
@@ -28,7 +27,6 @@ use crate::arrays::variant::SHREDDED_SLOT;
 use crate::arrays::variant::SLOT_NAMES;
 use crate::arrays::variant::VariantMetadata;
 use crate::arrays::variant::try_derived_shredded_from_core_storage;
-use crate::arrays::variant::vtable::kernel::PARENT_KERNELS;
 use crate::arrays::variant::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -253,15 +251,6 @@ impl VTable for Variant {
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn reduce_parent(

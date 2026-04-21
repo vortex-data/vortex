@@ -12,6 +12,9 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::arrays::Variant;
+use crate::arrays::scalar_fn::ScalarFnFactoryExt;
+use crate::arrays::variant::VariantArrayExt;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::expr::Expression;
@@ -28,7 +31,8 @@ pub use path::VariantPathElement;
 
 /// Extracts a nested path from a variant value, returning a new nullable variant.
 ///
-/// Execution is provided by variant encodings via `execute_parent`.
+/// Execution prefers encoding-specific parent kernels and otherwise falls back through the
+/// canonical [`Variant`] boundary.
 #[derive(Clone)]
 pub struct VariantGet;
 
@@ -118,11 +122,35 @@ impl ScalarFnVTable for VariantGet {
 
     fn execute(
         &self,
-        _path: &Self::Options,
-        _args: &dyn ExecutionArgs,
-        _ctx: &mut ExecutionCtx,
+        path: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        vortex_bail!("variant_get cannot be executed directly")
+        let input = args.get(0)?;
+
+        if let Some(variant) = input.as_opt::<Variant>() {
+            // Canonical Variant is the stable boundary: keep delegating through core_storage until
+            // an encoding-specific parent kernel or a lower-level execute path can handle it.
+            return self
+                .try_new_array(
+                    args.row_count(),
+                    path.clone(),
+                    [variant.core_storage().clone()],
+                )?
+                .execute::<ArrayRef>(ctx);
+        }
+
+        let executed_input = input.clone().execute::<ArrayRef>(ctx)?;
+        if ArrayRef::ptr_eq(&input, &executed_input) {
+            vortex_bail!(
+                "variant_get could not make progress on {} input {}",
+                input.dtype(),
+                input.encoding_id()
+            );
+        }
+
+        self.try_new_array(args.row_count(), path.clone(), [executed_input])?
+            .execute::<ArrayRef>(ctx)
     }
 
     fn is_null_sensitive(&self, _path: &Self::Options) -> bool {
