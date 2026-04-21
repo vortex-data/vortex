@@ -2137,7 +2137,7 @@ mod tests {
             .collect();
 
         let prim = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
-        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        let bp = BitPacked::encode(&prim.into_array(), bit_width, &mut LEGACY_SESSION.create_execution_ctx())?;
         assert!(bp.patches().is_some(), "expected patches");
 
         // Slice crossing chunk boundaries.
@@ -2174,7 +2174,7 @@ mod tests {
         let all_values: Vec<u32> = residuals.iter().map(|&v| v + reference).collect();
 
         let prim = PrimitiveArray::new(Buffer::from(residuals), NonNullable);
-        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        let bp = BitPacked::encode(&prim.into_array(), bit_width, &mut LEGACY_SESSION.create_execution_ctx())?;
         assert!(bp.patches().is_some(), "expected patches");
         let for_arr = FoR::try_new(bp.into_array(), Scalar::from(reference))?;
 
@@ -2319,7 +2319,7 @@ mod tests {
             .collect();
 
         let prim = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
-        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        let bp = BitPacked::encode(&prim.into_array(), bit_width, &mut LEGACY_SESSION.create_execution_ctx())?;
         assert!(bp.patches().is_some(), "expected patches");
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
@@ -2348,7 +2348,7 @@ mod tests {
         let expected: Vec<u32> = residuals.iter().map(|&v| v + reference).collect();
 
         let prim = PrimitiveArray::new(Buffer::from(residuals), NonNullable);
-        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        let bp = BitPacked::encode(&prim.into_array(), bit_width, &mut LEGACY_SESSION.create_execution_ctx())?;
         assert!(bp.patches().is_some(), "expected patches");
         let for_arr = FoR::try_new(bp.into_array(), Scalar::from(reference))?;
 
@@ -2406,7 +2406,7 @@ mod tests {
             .collect();
 
         let prim = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
-        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        let bp = BitPacked::encode(&prim.into_array(), bit_width, &mut LEGACY_SESSION.create_execution_ctx())?;
         assert!(bp.patches().is_some(), "expected patches");
 
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
@@ -2435,7 +2435,7 @@ mod tests {
             .collect();
 
         let prim = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
-        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        let bp = BitPacked::encode(&prim.into_array(), bit_width, &mut LEGACY_SESSION.create_execution_ctx())?;
         assert!(bp.patches().is_some(), "expected patches");
 
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
@@ -2464,7 +2464,7 @@ mod tests {
             .collect();
 
         let prim = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
-        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        let bp = BitPacked::encode(&prim.into_array(), bit_width, &mut LEGACY_SESSION.create_execution_ctx())?;
         assert!(bp.patches().is_some(), "expected patches");
 
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
@@ -2496,7 +2496,7 @@ mod tests {
         let expected: Vec<u32> = codes.iter().map(|&c| dict_values[c as usize]).collect();
 
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPacked::encode(&codes_prim.into_array(), bit_width)?;
+        let codes_bp = BitPacked::encode(&codes_prim.into_array(), bit_width, &mut LEGACY_SESSION.create_execution_ctx())?;
         assert!(codes_bp.patches().is_some(), "expected patches on codes");
 
         let values_prim = PrimitiveArray::new(Buffer::from(dict_values), NonNullable);
@@ -2524,7 +2524,7 @@ mod tests {
         values[2048] = 4000; // start of chunk 2
 
         let prim = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
-        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        let bp = BitPacked::encode(&prim.into_array(), bit_width, &mut LEGACY_SESSION.create_execution_ctx())?;
         assert!(bp.patches().is_some(), "expected patches");
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
@@ -2552,7 +2552,7 @@ mod tests {
             .collect();
 
         let prim = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
-        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        let bp = BitPacked::encode(&prim.into_array(), bit_width, &mut LEGACY_SESSION.create_execution_ctx())?;
         assert!(bp.patches().is_some(), "expected patches");
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
@@ -2589,7 +2589,7 @@ mod tests {
         let prim = PrimitiveArray::from_option_iter(values.iter().copied());
         let cpu = crate::canonicalize_cpu(prim.clone())?.into_array();
 
-        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        let bp = BitPacked::encode(&prim.into_array(), bit_width, &mut LEGACY_SESSION.create_execution_ctx())?;
         assert!(bp.patches().is_some(), "expected patches");
 
         let gpu = try_gpu_dispatch(&bp.into_array(), &mut cuda_ctx)
@@ -2612,7 +2612,7 @@ mod tests {
         let values: Vec<u32> = (0..len).map(|i| (i as u32) + 2).collect();
 
         let prim = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
-        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        let bp = BitPacked::encode(&prim.into_array(), bit_width, &mut LEGACY_SESSION.create_execution_ctx())?;
         assert!(bp.patches().is_some(), "expected patches");
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
