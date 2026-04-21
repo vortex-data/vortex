@@ -4,6 +4,8 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
@@ -28,6 +30,8 @@ impl CastReduce for ALPRD {
                     .with_nullability(dtype.nullability()),
             )?;
 
+            // NOTE: `CastReduce::cast` has a fixed trait signature without `ExecutionCtx`, so we
+            // construct a legacy ctx locally at this trait boundary.
             return Ok(Some(
                 ALPRD::try_new(
                     dtype.clone(),
@@ -36,6 +40,7 @@ impl CastReduce for ALPRD {
                     array.right_parts().clone(),
                     array.right_bit_width(),
                     array.left_parts_patches(),
+                    &mut LEGACY_SESSION.create_execution_ctx(),
                 )?
                 .into_array(),
             ));
@@ -50,8 +55,8 @@ impl CastReduce for ALPRD {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
@@ -63,10 +68,11 @@ mod tests {
 
     #[test]
     fn test_cast_alprd_f32_to_f64() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = vec![1.0f32, 1.1, 1.2, 1.3, 1.4];
         let arr = PrimitiveArray::from_iter(values.clone());
         let encoder = RDEncoder::new(&values);
-        let alprd = encoder.encode(arr.as_view());
+        let alprd = encoder.encode(arr.as_view(), &mut ctx);
 
         let casted = alprd
             .into_array()
@@ -77,8 +83,7 @@ mod tests {
             &DType::Primitive(PType::F64, Nullability::NonNullable)
         );
 
-        #[expect(deprecated)]
-        let decoded = casted.to_primitive();
+        let decoded = casted.execute::<PrimitiveArray>(&mut ctx).unwrap();
         let f64_values = decoded.as_slice::<f64>();
         assert_eq!(f64_values.len(), 5);
         assert!((f64_values[0] - 1.0).abs() < f64::EPSILON);
@@ -87,11 +92,12 @@ mod tests {
 
     #[test]
     fn test_cast_alprd_nullable() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr =
             PrimitiveArray::from_option_iter([Some(10.0f64), None, Some(10.1), Some(10.2), None]);
         let values = vec![10.0f64, 10.1, 10.2];
         let encoder = RDEncoder::new(&values);
-        let alprd = encoder.encode(arr.as_view());
+        let alprd = encoder.encode(arr.as_view(), &mut ctx);
 
         // Cast to NonNullable should fail since we have nulls
         let result = alprd
@@ -116,31 +122,31 @@ mod tests {
         let values = vec![1.23f32, 4.56, 7.89, 10.11, 12.13];
         let arr = PrimitiveArray::from_iter(values.clone());
         let encoder = RDEncoder::new(&values);
-        encoder.encode(arr.as_view())
+        encoder.encode(arr.as_view(), &mut LEGACY_SESSION.create_execution_ctx())
     })]
     #[case::f64({
         let values = vec![100.1f64, 200.2, 300.3, 400.4, 500.5];
         let arr = PrimitiveArray::from_iter(values.clone());
         let encoder = RDEncoder::new(&values);
-        encoder.encode(arr.as_view())
+        encoder.encode(arr.as_view(), &mut LEGACY_SESSION.create_execution_ctx())
     })]
     #[case::single({
         let values = vec![42.42f64];
         let arr = PrimitiveArray::from_iter(values.clone());
         let encoder = RDEncoder::new(&values);
-        encoder.encode(arr.as_view())
+        encoder.encode(arr.as_view(), &mut LEGACY_SESSION.create_execution_ctx())
     })]
     #[case::negative({
         let values = vec![0.0f32, -1.5, 2.5, -3.5, 4.5];
         let arr = PrimitiveArray::from_iter(values.clone());
         let encoder = RDEncoder::new(&values);
-        encoder.encode(arr.as_view())
+        encoder.encode(arr.as_view(), &mut LEGACY_SESSION.create_execution_ctx())
     })]
     #[case::nullable({
         let arr = PrimitiveArray::from_option_iter([Some(1.1f32), None, Some(2.2), Some(3.3), None]);
         let values = vec![1.1f32, 2.2, 3.3];
         let encoder = RDEncoder::new(&values);
-        encoder.encode(arr.as_view())
+        encoder.encode(arr.as_view(), &mut LEGACY_SESSION.create_execution_ctx())
     })]
     fn test_cast_alprd_conformance(#[case] alprd: crate::alp_rd::ALPRDArray) {
         test_cast_conformance(&alprd.into_array());

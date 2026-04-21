@@ -4,9 +4,8 @@
 use std::sync::Arc;
 
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
@@ -24,9 +23,13 @@ use vortex_error::VortexResult;
 /// Baseline implementation of scalar_at that works on canonical arrays.
 /// This implementation manually extracts the scalar value from each canonical type
 /// without using the scalar_at method, to serve as an independent baseline for testing.
-pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexResult<Scalar> {
+pub fn scalar_at_canonical_array(
+    canonical: Canonical,
+    index: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Scalar> {
     let canonical_ref = canonical.clone().into_array();
-    if canonical_ref.is_invalid(index, &mut LEGACY_SESSION.create_execution_ctx())? {
+    if canonical_ref.is_invalid(index, ctx)? {
         return Ok(Scalar::null(canonical_ref.dtype().clone()));
     }
     Ok(match canonical {
@@ -54,11 +57,11 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
             let list = array.list_elements_at(index)?;
             let children: Vec<Scalar> = (0..list.len())
                 .map(|i| {
-                    #[expect(deprecated)]
                     let canonical = list
-                        .to_canonical()
+                        .clone()
+                        .execute::<Canonical>(ctx)
                         .vortex_expect("to_canonical should succeed in fuzz test");
-                    scalar_at_canonical_array(canonical, i)
+                    scalar_at_canonical_array(canonical, i, ctx)
                         .vortex_expect("scalar_at_canonical_array should succeed in fuzz test")
                 })
                 .collect();
@@ -72,11 +75,11 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
             let list = array.fixed_size_list_elements_at(index)?;
             let children: Vec<Scalar> = (0..list.len())
                 .map(|i| {
-                    #[expect(deprecated)]
                     let canonical = list
-                        .to_canonical()
+                        .clone()
+                        .execute::<Canonical>(ctx)
                         .vortex_expect("to_canonical should succeed in fuzz test");
-                    scalar_at_canonical_array(canonical, i)
+                    scalar_at_canonical_array(canonical, i, ctx)
                         .vortex_expect("scalar_at_canonical_array should succeed in fuzz test")
                 })
                 .collect();
@@ -86,20 +89,19 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
             let field_scalars: Vec<Scalar> = array
                 .iter_unmasked_fields()
                 .map(|field| {
-                    #[expect(deprecated)]
                     let canonical = field
-                        .to_canonical()
+                        .clone()
+                        .execute::<Canonical>(ctx)
                         .vortex_expect("to_canonical should succeed in fuzz test");
-                    scalar_at_canonical_array(canonical, index)
+                    scalar_at_canonical_array(canonical, index, ctx)
                         .vortex_expect("scalar_at_canonical_array should succeed in fuzz test")
                 })
                 .collect();
             Scalar::struct_(array.dtype().clone(), field_scalars)
         }
         Canonical::Extension(array) => {
-            #[expect(deprecated)]
-            let storage_canonical = array.storage_array().to_canonical()?;
-            let storage_scalar = scalar_at_canonical_array(storage_canonical, index)?;
+            let storage_canonical = array.storage_array().clone().execute::<Canonical>(ctx)?;
+            let storage_scalar = scalar_at_canonical_array(storage_canonical, index, ctx)?;
             Scalar::extension_ref(array.ext_dtype().clone(), storage_scalar)
         }
         Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),

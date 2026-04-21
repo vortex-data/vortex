@@ -39,7 +39,7 @@ where
         match array
             .as_ref()
             .validity()?
-            .to_mask(array.as_ref().len(), ctx)?
+            .execute_mask(array.as_ref().len(), ctx)?
         {
             Mask::AllTrue(_) => compute_min_max(array.as_slice::<T>().iter()),
             Mask::AllFalse(_) => None,

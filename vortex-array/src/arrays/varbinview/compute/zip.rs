@@ -54,8 +54,8 @@ impl ZipKernel for VarBinView {
         let mut views_builder = BufferMut::<BinaryView>::with_capacity(len);
         let mut validity_builder = LazyBitBufferBuilder::new(len);
 
-        let true_validity = if_true.varbinview_validity().to_mask(len, ctx)?;
-        let false_validity = if_false.varbinview_validity().to_mask(len, ctx)?;
+        let true_validity = if_true.varbinview_validity().execute_mask(len, ctx)?;
+        let false_validity = if_false.varbinview_validity().execute_mask(len, ctx)?;
 
         let mask = mask.try_to_mask_fill_null_false(ctx)?;
         let if_false_view = if_false;

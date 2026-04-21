@@ -160,7 +160,7 @@ where
     let validity = primitive
         .as_ref()
         .validity()?
-        .to_mask(primitive.as_ref().len(), ctx)?;
+        .execute_mask(primitive.as_ref().len(), ctx)?;
     let buffer = primitive.to_buffer::<T::Native>();
 
     let values = buffer.into_arrow_scalar_buffer();

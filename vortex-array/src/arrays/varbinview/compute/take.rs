@@ -35,7 +35,7 @@ impl TakeExecute for VarBinView {
         let indices_mask = indices
             .as_ref()
             .validity()?
-            .to_mask(indices.as_ref().len(), ctx)?;
+            .execute_mask(indices.as_ref().len(), ctx)?;
         let views_buffer = match_each_integer_ptype!(indices.ptype(), |I| {
             take_views(array.views(), indices.as_slice::<I>(), &indices_mask)
         });

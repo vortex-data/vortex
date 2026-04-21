@@ -288,12 +288,12 @@ fn test_cast_to_primitive(array: &ArrayRef, target_ptype: PType, test_round_trip
         array
             .validity()
             .vortex_expect("validity_mask should succeed in conformance test")
-            .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
             .vortex_expect("Failed to compute validity mask"),
         casted
             .validity()
             .vortex_expect("validity_mask should succeed in conformance test")
-            .to_mask(casted.len(), &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_mask(casted.len(), &mut LEGACY_SESSION.create_execution_ctx())
             .vortex_expect("Failed to compute validity mask")
     );
     for i in 0..array.len().min(10) {

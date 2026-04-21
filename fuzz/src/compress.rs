@@ -9,10 +9,14 @@
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::constant::ArbitraryConstantArray;
 use vortex_array::arrays::dict::ArbitraryDictArray;
 use vortex_runend::ArbitraryRunEndArray;
+
+use crate::SESSION;
 
 /// Which compressed encoding to generate.
 #[derive(Debug, Clone, Copy)]
@@ -70,9 +74,10 @@ pub fn run_compress_roundtrip(fuzz: FuzzCompressRoundtrip) -> crate::error::Vort
     let original_len = array.len();
     let original_dtype = array.dtype().clone();
 
+    let mut ctx = SESSION.create_execution_ctx();
+
     // Try to canonicalize - this is the main thing we're testing
-    #[expect(deprecated)]
-    let canonical = match array.to_canonical() {
+    let canonical = match array.clone().execute::<Canonical>(&mut ctx) {
         Ok(c) => c,
         Err(e) => {
             // Canonicalization failed - this is a bug

@@ -10,7 +10,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
-use crate::vector::Vector;
+use crate::types::vector::Vector;
 
 pub struct AnyVector;
 
@@ -49,7 +49,7 @@ impl Matcher for AnyVector {
 
         let dimensions = *list_size;
 
-        assert!(element_dtype.is_float(), "element dtype must be primitive");
+        assert!(element_dtype.is_float(), "element dtype must be float");
         assert!(
             !element_dtype.is_nullable(),
             "element dtype must be non-nullable"
@@ -101,8 +101,8 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::*;
-    use crate::fixed_shape::FixedShapeTensor;
-    use crate::fixed_shape::FixedShapeTensorMetadata;
+    use crate::types::fixed_shape::FixedShapeTensor;
+    use crate::types::fixed_shape::FixedShapeTensorMetadata;
 
     fn vector_storage_dtype(element_ptype: PType, dimensions: u32) -> DType {
         DType::FixedSizeList(

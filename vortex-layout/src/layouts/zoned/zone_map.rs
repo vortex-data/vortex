@@ -7,7 +7,6 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::StructArray;
@@ -219,12 +218,9 @@ impl StatsAccumulator {
         Ok(())
     }
 
-    pub fn push_chunk(&mut self, array: &ArrayRef) -> VortexResult<()> {
+    pub fn push_chunk(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
         for builder in self.builders.iter_mut() {
-            if let Some(v) = array
-                .statistics()
-                .compute_stat(builder.stat(), &mut LEGACY_SESSION.create_execution_ctx())?
-            {
+            if let Some(v) = array.statistics().compute_stat(builder.stat(), ctx)? {
                 builder.append_scalar(v.cast(&v.dtype().as_nullable())?)?;
             } else {
                 builder.append_null();
@@ -279,8 +275,8 @@ mod tests {
 
     use rstest::rstest;
     use vortex_array::IntoArray;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
@@ -316,6 +312,7 @@ mod tests {
     #[case(DType::Utf8(Nullability::NonNullable))]
     #[case(DType::Binary(Nullability::NonNullable))]
     fn truncates_accumulated_stats(#[case] dtype: DType) {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut builder = VarBinViewBuilder::with_capacity(dtype.clone(), 2);
         builder.append_value("Value to be truncated");
         builder.append_value("untruncated");
@@ -324,9 +321,9 @@ mod tests {
         builder2.append_value("wait a minute");
         let mut acc =
             StatsAccumulator::new(builder.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
-        acc.push_chunk(&builder.finish())
+        acc.push_chunk(&builder.finish(), &mut ctx)
             .vortex_expect("push_chunk should succeed for test data");
-        acc.push_chunk(&builder2.finish())
+        acc.push_chunk(&builder2.finish(), &mut ctx)
             .vortex_expect("push_chunk should succeed for test data");
         let stats_table = acc
             .as_stats_table()
@@ -341,14 +338,22 @@ mod tests {
                 MIN_IS_TRUNCATED,
             ]
         );
-        #[expect(deprecated)]
-        let field1_bool = stats_table.array.unmasked_field(1).to_bool();
+        let field1_bool = stats_table
+            .array
+            .unmasked_field(1)
+            .clone()
+            .execute::<BoolArray>(&mut ctx)
+            .unwrap();
         assert_eq!(
             field1_bool.to_bit_buffer(),
             BitBuffer::from(vec![false, true])
         );
-        #[expect(deprecated)]
-        let field3_bool = stats_table.array.unmasked_field(3).to_bool();
+        let field3_bool = stats_table
+            .array
+            .unmasked_field(3)
+            .clone()
+            .execute::<BoolArray>(&mut ctx)
+            .unwrap();
         assert_eq!(
             field3_bool.to_bit_buffer(),
             BitBuffer::from(vec![true, false])
@@ -357,9 +362,10 @@ mod tests {
 
     #[test]
     fn always_adds_is_truncated_column() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = buffer![0, 1, 2].into_array();
         let mut acc = StatsAccumulator::new(array.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
-        acc.push_chunk(&array)
+        acc.push_chunk(&array, &mut ctx)
             .vortex_expect("push_chunk should succeed for test array");
         let stats_table = acc
             .as_stats_table()
@@ -375,11 +381,19 @@ mod tests {
                 Stat::Sum.name(),
             ]
         );
-        #[expect(deprecated)]
-        let field1_bool = stats_table.array.unmasked_field(1).to_bool();
+        let field1_bool = stats_table
+            .array
+            .unmasked_field(1)
+            .clone()
+            .execute::<BoolArray>(&mut ctx)
+            .unwrap();
         assert_eq!(field1_bool.to_bit_buffer(), BitBuffer::from(vec![false]));
-        #[expect(deprecated)]
-        let field3_bool = stats_table.array.unmasked_field(3).to_bool();
+        let field3_bool = stats_table
+            .array
+            .unmasked_field(3)
+            .clone()
+            .execute::<BoolArray>(&mut ctx)
+            .unwrap();
         assert_eq!(field3_bool.to_bit_buffer(), BitBuffer::from(vec![false]));
     }
 

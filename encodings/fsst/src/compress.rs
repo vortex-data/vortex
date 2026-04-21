@@ -5,6 +5,7 @@
 
 use fsst::Compressor;
 use fsst::Symbol;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::varbin::builder::VarBinBuilder;
@@ -21,8 +22,9 @@ pub fn fsst_compress<A: ArrayAccessor<[u8]>>(
     len: usize,
     dtype: &DType,
     compressor: &Compressor,
+    ctx: &mut ExecutionCtx,
 ) -> FSSTArray {
-    strings.with_iterator(|iter| fsst_compress_iter(iter, len, dtype.clone(), compressor))
+    strings.with_iterator(|iter| fsst_compress_iter(iter, len, dtype.clone(), compressor, ctx))
 }
 
 /// Train a compressor from an array.
@@ -61,6 +63,7 @@ pub fn fsst_compress_iter<'a, I>(
     len: usize,
     dtype: DType,
     compressor: &Compressor,
+    ctx: &mut ExecutionCtx,
 ) -> FSSTArray
 where
     I: Iterator<Item = Option<&'a [u8]>>,
@@ -102,8 +105,15 @@ where
 
     let uncompressed_lengths = uncompressed_lengths.into_array();
 
-    FSST::try_new(dtype, symbols, symbol_lengths, codes, uncompressed_lengths)
-        .vortex_expect("FSST parts must be valid")
+    FSST::try_new(
+        dtype,
+        symbols,
+        symbol_lengths,
+        codes,
+        uncompressed_lengths,
+        ctx,
+    )
+    .vortex_expect("FSST parts must be valid")
 }
 
 #[cfg(test)]
@@ -128,16 +138,16 @@ mod tests {
 
         let compressor = CompressorBuilder::default().build();
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let compressed = fsst_compress_iter(
             [Some(big_string.as_bytes())].into_iter(),
             1,
             DType::Utf8(Nullability::NonNullable),
             &compressor,
+            &mut ctx,
         );
 
-        let decoded = compressed
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap();
+        let decoded = compressed.execute_scalar(0, &mut ctx).unwrap();
 
         let expected = Scalar::utf8(big_string, Nullability::NonNullable);
 

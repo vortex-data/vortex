@@ -56,7 +56,7 @@ pub(crate) fn new_exporter(
         })
         .collect::<VortexResult<Vec<_>>>()?;
     Ok(validity::new_exporter(
-        validity.to_mask(ctx),
+        validity.execute_mask(ctx),
         Box::new(StructExporter { children }),
     ))
 }

@@ -70,7 +70,7 @@ fn filter_select_var_bin_by_slice(
             mask_slices,
             values
                 .varbin_validity()
-                .to_mask(values.as_ref().len(), ctx)
+                .execute_mask(values.as_ref().len(), ctx)
                 .vortex_expect("Failed to compute validity mask"),
             selection_count,
         )

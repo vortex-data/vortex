@@ -183,7 +183,7 @@ impl ArrayBuilder for StructBuilder {
             array
                 .validity()
                 .vortex_expect("validity_mask")
-                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("Failed to compute validity mask"),
         );
     }

@@ -61,10 +61,6 @@ jobs:
     name: "Run ${{ inputs.fuzz_name || inputs.fuzz_target }}"
     env:
       FUZZ_NAME: ${{ inputs.fuzz_name || inputs.fuzz_target }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
-      AWS_REGION: "us-east-1"
-      AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
     timeout-minutes: 240  # 4 hours
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -99,6 +95,11 @@ jobs:
 
       - name: Restore corpus
         shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
         run: |
           CORPUS_KEY="${FUZZ_NAME}_corpus.tar.zst"
           CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
@@ -188,6 +189,11 @@ jobs:
 
       - name: Persist corpus
         shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
         run: |
           CORPUS_KEY="${FUZZ_NAME}_corpus.tar.zst"
           CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"

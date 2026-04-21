@@ -13,7 +13,9 @@ use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
 use crate::arrays::Extension;
 use crate::dtype::DType;
+use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtDTypeRef;
+use crate::dtype::extension::ExtVTable;
 
 /// The backing storage array for this extension array.
 pub(super) const STORAGE_SLOT: usize = 0;
@@ -162,5 +164,18 @@ impl Array<Extension> {
                 ArrayParts::new(Extension, dtype, len, data).with_slots(vec![Some(storage_array)]),
             )
         })
+    }
+
+    /// Creates a new [`ExtensionArray`](crate::arrays::ExtensionArray) from a vtable, metadata, and
+    /// a storage array.
+    pub fn try_new_from_vtable<V: ExtVTable>(
+        vtable: V,
+        metadata: V::Metadata,
+        storage_array: ArrayRef,
+    ) -> VortexResult<Self> {
+        let ext_dtype =
+            ExtDType::<V>::try_with_vtable(vtable, metadata, storage_array.dtype().clone())?
+                .erased();
+        Self::try_new(ext_dtype, storage_array)
     }
 }

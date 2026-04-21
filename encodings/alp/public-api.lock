@@ -146,7 +146,7 @@ impl vortex_alp::ALPRD
 
 pub unsafe fn vortex_alp::ALPRD::new_unchecked(dtype: vortex_array::dtype::DType, left_parts: vortex_array::array::erased::ArrayRef, left_parts_dictionary: vortex_buffer::buffer::Buffer<u16>, right_parts: vortex_array::array::erased::ArrayRef, right_bit_width: u8, left_parts_patches: core::option::Option<vortex_array::patches::Patches>) -> vortex_alp::ALPRDArray
 
-pub fn vortex_alp::ALPRD::try_new(dtype: vortex_array::dtype::DType, left_parts: vortex_array::array::erased::ArrayRef, left_parts_dictionary: vortex_buffer::buffer::Buffer<u16>, right_parts: vortex_array::array::erased::ArrayRef, right_bit_width: u8, left_parts_patches: core::option::Option<vortex_array::patches::Patches>) -> vortex_error::VortexResult<vortex_alp::ALPRDArray>
+pub fn vortex_alp::ALPRD::try_new(dtype: vortex_array::dtype::DType, left_parts: vortex_array::array::erased::ArrayRef, left_parts_dictionary: vortex_buffer::buffer::Buffer<u16>, right_parts: vortex_array::array::erased::ArrayRef, right_bit_width: u8, left_parts_patches: core::option::Option<vortex_array::patches::Patches>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_alp::ALPRDArray>
 
 impl core::clone::Clone for vortex_alp::ALPRD
 
@@ -380,7 +380,7 @@ pub struct vortex_alp::RDEncoder
 
 impl vortex_alp::RDEncoder
 
-pub fn vortex_alp::RDEncoder::encode(&self, array: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>) -> vortex_alp::ALPRDArray
+pub fn vortex_alp::RDEncoder::encode(&self, array: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_alp::ALPRDArray
 
 pub fn vortex_alp::RDEncoder::from_parts(right_bit_width: u8, codes: alloc::vec::Vec<u16>) -> Self
 

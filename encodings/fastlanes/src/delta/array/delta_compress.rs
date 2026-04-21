@@ -27,7 +27,7 @@ pub fn delta_compress(
         // Fill-forward null values so that transposed deltas at null positions remain
         // small. Without this, bitpacking may skip patches for null positions, and the
         // corrupted delta values propagate through the cumulative sum during decompression.
-        let filled = fill_forward_nulls(array.to_buffer::<T>(), &validity);
+        let filled = fill_forward_nulls(array.to_buffer::<T>(), &validity, ctx)?;
         let (bases, deltas) = compress_primitive::<T, { T::LANES }>(&filled);
         // TODO(robert): This can be avoided if we add TransposedBoolArray that performs index translation when necessary.
         let validity = transpose_validity(&validity, ctx)?;
@@ -96,8 +96,6 @@ mod tests {
 
     use rstest::rstest;
     use vortex_array::IntoArray;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -132,12 +130,13 @@ mod tests {
     /// where null positions contain arbitrary values. Without fill-forward, the delta cumulative
     /// sum propagates corrupted values from null positions.
     #[test]
-    fn delta_bitpacked_trailing_nulls() {
+    fn delta_bitpacked_trailing_nulls() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_option_iter(
             (0u8..200).map(|i| (!(50..100).contains(&i)).then_some(i)),
         );
-        let (bases, deltas) = delta_compress(&array, &mut SESSION.create_execution_ctx()).unwrap();
-        let bitpacked_deltas = bitpack_encode(&deltas, 1, None).unwrap();
+        let (bases, deltas) = delta_compress(&array, &mut ctx).unwrap();
+        let bitpacked_deltas = bitpack_encode(&deltas, 1, None, &mut ctx).unwrap();
         let packed_delta = Delta::try_new(
             bases.into_array(),
             bitpacked_deltas.into_array(),
@@ -145,8 +144,11 @@ mod tests {
             array.len(),
         )
         .vortex_expect("Delta array construction should succeed");
-        #[expect(deprecated)]
-        let packed_delta_prim = packed_delta.as_array().to_primitive();
+        let packed_delta_prim = packed_delta
+            .as_array()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         assert_arrays_eq!(packed_delta_prim, array);
+        Ok(())
     }
 }

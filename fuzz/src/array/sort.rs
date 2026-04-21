@@ -4,11 +4,8 @@
 use std::cmp::Ordering;
 
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
-use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
@@ -24,11 +21,10 @@ use vortex_error::VortexResult;
 
 use crate::array::take_canonical_array_non_nullable_indices;
 
-pub fn sort_canonical_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
+pub fn sort_canonical_array(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
     match array.dtype() {
         DType::Bool(_) => {
-            #[expect(deprecated)]
-            let bool_array = array.to_bool();
+            let bool_array = array.clone().execute::<BoolArray>(ctx)?;
             let mut opt_values = bool_array
                 .to_bit_buffer()
                 .iter()
@@ -36,10 +32,7 @@ pub fn sort_canonical_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
                     bool_array
                         .as_ref()
                         .validity()?
-                        .to_mask(
-                            bool_array.as_ref().len(),
-                            &mut LEGACY_SESSION.create_execution_ctx(),
-                        )?
+                        .execute_mask(bool_array.as_ref().len(), ctx)?
                         .to_bit_buffer()
                         .iter(),
                 )
@@ -49,8 +42,7 @@ pub fn sort_canonical_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
             Ok(BoolArray::from_iter(opt_values).into_array())
         }
         DType::Primitive(p, _) => {
-            #[expect(deprecated)]
-            let primitive_array = array.to_primitive();
+            let primitive_array = array.clone().execute::<PrimitiveArray>(ctx)?;
             match_each_native_ptype!(p, |P| {
                 let mut opt_values = primitive_array
                     .as_slice::<P>()
@@ -60,10 +52,7 @@ pub fn sort_canonical_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
                         primitive_array
                             .as_ref()
                             .validity()?
-                            .to_mask(
-                                primitive_array.as_ref().len(),
-                                &mut LEGACY_SESSION.create_execution_ctx(),
-                            )?
+                            .execute_mask(primitive_array.as_ref().len(), ctx)?
                             .to_bit_buffer()
                             .iter(),
                     )
@@ -74,8 +63,7 @@ pub fn sort_canonical_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
             })
         }
         DType::Decimal(d, _) => {
-            #[expect(deprecated)]
-            let decimal_array = array.to_decimal();
+            let decimal_array = array.clone().execute::<DecimalArray>(ctx)?;
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 let buf = decimal_array.buffer::<D>();
                 let mut opt_values = buf
@@ -86,10 +74,7 @@ pub fn sort_canonical_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
                         decimal_array
                             .as_ref()
                             .validity()?
-                            .to_mask(
-                                decimal_array.as_ref().len(),
-                                &mut LEGACY_SESSION.create_execution_ctx(),
-                            )?
+                            .execute_mask(decimal_array.as_ref().len(), ctx)?
                             .to_bit_buffer()
                             .iter(),
                     )
@@ -100,8 +85,7 @@ pub fn sort_canonical_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            #[expect(deprecated)]
-            let utf8 = array.to_varbinview();
+            let utf8 = array.clone().execute::<VarBinViewArray>(ctx)?;
             let mut opt_values =
                 utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>());
             opt_values.sort();
@@ -109,18 +93,13 @@ pub fn sort_canonical_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
         }
         DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => {
             let mut sort_indices = (0..array.len()).collect::<Vec<_>>();
-            let mut ctx = LEGACY_SESSION.create_execution_ctx();
             sort_indices.sort_by(|a, b| {
-                let lhs = array
-                    .execute_scalar(*a, &mut ctx)
-                    .vortex_expect("scalar_at");
-                let rhs = array
-                    .execute_scalar(*b, &mut ctx)
-                    .vortex_expect("scalar_at");
+                let lhs = array.execute_scalar(*a, ctx).vortex_expect("scalar_at");
+                let rhs = array.execute_scalar(*b, ctx).vortex_expect("scalar_at");
                 lhs.partial_cmp(&rhs)
                     .vortex_expect("must be a valid comparison")
             });
-            take_canonical_array_non_nullable_indices(array, &sort_indices)
+            take_canonical_array_non_nullable_indices(array, &sort_indices, ctx)
         }
         d @ (DType::Null | DType::Extension(_) | DType::Variant(_)) => {
             unreachable!("DType {d} not supported for fuzzing")

@@ -19,8 +19,6 @@ use cudarc::driver::PushKernelArg;
 use cudarc::driver::sys::CUevent_flags;
 use vortex::array::IntoArray;
 use vortex::array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex::array::ToCanonical;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -189,7 +187,9 @@ fn bench_for_bitpacked(c: &mut Criterion) {
             .map(|i| (i as u64 % (max_val + 1)) as u32)
             .collect();
         let prim = PrimitiveArray::new(Buffer::from(residuals), NonNullable);
-        let bp = BitPackedData::encode(&prim.into_array(), bit_width).vortex_expect("bitpack");
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let bp =
+            BitPackedData::encode(&prim.into_array(), bit_width, &mut ctx).vortex_expect("bitpack");
         let array = FoR::try_new(bp.into_array(), Scalar::from(reference))
             .vortex_expect("for")
             .into_array();
@@ -232,7 +232,8 @@ fn bench_dict_bp_codes(c: &mut Criterion) {
 
         let codes: Vec<u32> = (0..*len).map(|i| (i % dict_size) as u32).collect();
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedData::encode(&codes_prim.into_array(), dict_bit_width)
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let codes_bp = BitPackedData::encode(&codes_prim.into_array(), dict_bit_width, &mut ctx)
             .vortex_expect("bitpack codes");
         let values_prim = PrimitiveArray::new(Buffer::from(dict_values.clone()), NonNullable);
         let dict = DictArray::new(codes_bp.into_array(), values_prim.into_array());
@@ -276,9 +277,10 @@ fn bench_runend(c: &mut Criterion) {
         let ends: Vec<u32> = (1..=num_runs).map(|i| (i * run_len) as u32).collect();
         let values: Vec<u32> = (0..num_runs).map(|i| (i * 7 + 42) as u32).collect();
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let ends_arr = PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array();
         let values_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-        let re = RunEnd::new(ends_arr, values_arr);
+        let re = RunEnd::new(ends_arr, values_arr, &mut ctx);
         let array = re.into_array();
 
         group.bench_with_input(
@@ -318,7 +320,8 @@ fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
     // Dict values: residuals 0..63 bitpacked, FoR adds 1_000_000
     let dict_residuals: Vec<u32> = (0..dict_size as u32).collect();
     let dict_prim = PrimitiveArray::new(Buffer::from(dict_residuals), NonNullable);
-    let dict_bp = BitPackedData::encode(&dict_prim.into_array(), dict_bit_width)
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let dict_bp = BitPackedData::encode(&dict_prim.into_array(), dict_bit_width, &mut ctx)
         .vortex_expect("bitpack dict");
     let dict_for =
         FoR::try_new(dict_bp.into_array(), Scalar::from(dict_reference)).vortex_expect("for dict");
@@ -328,7 +331,7 @@ fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
 
         let codes: Vec<u32> = (0..*len).map(|i| (i % dict_size) as u32).collect();
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedData::encode(&codes_prim.into_array(), codes_bit_width)
+        let codes_bp = BitPackedData::encode(&codes_prim.into_array(), codes_bit_width, &mut ctx)
             .vortex_expect("bitpack codes");
 
         let dict = DictArray::new(codes_bp.into_array(), dict_for.clone().into_array());
@@ -361,6 +364,7 @@ fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
 // Benchmark: ALP(FoR(BitPacked)) for f32
 // ---------------------------------------------------------------------------
 fn bench_alp_for_bitpacked(c: &mut Criterion) {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let mut group = c.benchmark_group("alp_for_bp_6bw_f32");
 
     let exponents = Exponents { e: 2, f: 0 };
@@ -376,17 +380,18 @@ fn bench_alp_for_bitpacked(c: &mut Criterion) {
         let float_prim = PrimitiveArray::new(Buffer::from(floats), NonNullable);
 
         // Encode: ALP → FoR → BitPacked
-        let alp = alp_encode(
-            float_prim.as_view(),
-            Some(exponents),
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .vortex_expect("alp_encode");
+        let alp =
+            alp_encode(float_prim.as_view(), Some(exponents), &mut ctx).vortex_expect("alp_encode");
         assert!(alp.patches().is_none());
-        #[expect(deprecated)]
-        let for_arr = FoRData::encode(alp.encoded().to_primitive()).vortex_expect("for encode");
-        let bp =
-            BitPackedData::encode(for_arr.encoded(), bit_width).vortex_expect("bitpack encode");
+        let for_arr = FoRData::encode(
+            alp.encoded()
+                .clone()
+                .execute::<PrimitiveArray>(&mut ctx)
+                .vortex_expect("to primitive"),
+        )
+        .vortex_expect("for encode");
+        let bp = BitPackedData::encode(for_arr.encoded(), bit_width, &mut ctx)
+            .vortex_expect("bitpack encode");
 
         let tree = ALP::new(
             FoR::try_new(bp.into_array(), for_arr.reference_scalar().clone())

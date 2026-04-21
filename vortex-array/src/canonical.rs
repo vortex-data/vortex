@@ -1067,13 +1067,16 @@ mod test {
 
     use crate::ArrayRef;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
+    use crate::arrow::ArrowArrayExecutor;
     use crate::arrow::FromArrowArray;
-    use crate::arrow::IntoArrowArray;
     use crate::canonical::StructArray;
 
     #[test]
     fn test_canonicalize_nested_struct() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create a struct array with multiple internal components.
         let nested_struct_array = StructArray::from_fields(&[
             ("a", buffer![1u64].into_array()),
@@ -1095,7 +1098,7 @@ mod test {
 
         let arrow_struct = nested_struct_array
             .into_array()
-            .into_arrow_preferred()
+            .execute_arrow(None, &mut ctx)
             .unwrap()
             .as_any()
             .downcast_ref::<ArrowStructArray>()
@@ -1130,6 +1133,7 @@ mod test {
 
     #[test]
     fn roundtrip_struct() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut nulls = NullBufferBuilder::new(6);
         nulls.append_n_non_nulls(4);
         nulls.append_null();
@@ -1165,12 +1169,16 @@ mod test {
 
         assert_eq!(
             &arrow_struct,
-            vortex_struct.into_arrow_preferred().unwrap().as_struct()
+            vortex_struct
+                .execute_arrow(None, &mut ctx)
+                .unwrap()
+                .as_struct()
         );
     }
 
     #[test]
     fn roundtrip_list() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let names = Arc::new(StringArray::from_iter(vec![
             Some("Joseph"),
             Some("Angela"),
@@ -1187,7 +1195,9 @@ mod test {
 
         let vortex_list = ArrayRef::from_arrow(&arrow_list, true).unwrap();
 
-        let rt_arrow_list = vortex_list.into_arrow(list_data_type).unwrap();
+        let rt_arrow_list = vortex_list
+            .execute_arrow(Some(list_data_type), &mut ctx)
+            .unwrap();
 
         assert_eq!(
             (Arc::new(arrow_list.clone()) as ArrowArrayRef).as_ref(),

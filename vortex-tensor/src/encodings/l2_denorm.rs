@@ -3,6 +3,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_compressor::CascadingCompressor;
 use vortex_compressor::ctx::CompressorContext;
@@ -19,9 +20,8 @@ use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 pub struct L2DenormScheme;
 
 impl Scheme for L2DenormScheme {
-    // TODO(connor): FIX THIS!!!
     fn scheme_name(&self) -> &'static str {
-        "vortex.tensor.UNSTABLE.l2_denorm"
+        "vortex.tensor.l2_denorm"
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
@@ -34,19 +34,20 @@ impl Scheme for L2DenormScheme {
     fn expected_compression_ratio(
         &self,
         _data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
     }
 
     fn compress(
         &self,
-        compressor: &CascadingCompressor,
+        _compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
+        _compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let l2_denorm =
-            normalize_as_l2_denorm(data.array().clone(), &mut compressor.execution_ctx())?;
+        let l2_denorm = normalize_as_l2_denorm(data.array().clone(), exec_ctx)?;
         Ok(l2_denorm.into_array())
     }
 }

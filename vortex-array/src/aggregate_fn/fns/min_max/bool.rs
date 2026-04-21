@@ -26,7 +26,7 @@ pub(super) fn accumulate_bool(
     let mask = array
         .as_ref()
         .validity()?
-        .to_mask(array.as_ref().len(), ctx)?;
+        .execute_mask(array.as_ref().len(), ctx)?;
     let true_non_null = match &mask {
         Mask::AllTrue(_) => array.to_bit_buffer(),
         Mask::AllFalse(_) => return Ok(()),

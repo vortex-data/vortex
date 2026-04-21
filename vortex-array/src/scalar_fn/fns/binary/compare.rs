@@ -23,8 +23,8 @@ use crate::arrays::ScalarFnVTable;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
+use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::Datum;
-use crate::arrow::IntoArrowArray;
 use crate::arrow::from_arrow_array_with_len;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -114,6 +114,7 @@ pub(crate) fn execute_compare(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
     op: CompareOperator,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
 
@@ -136,7 +137,7 @@ pub(crate) fn execute_compare(
         return Ok(ConstantArray::new(result, lhs.len()).into_array());
     }
 
-    arrow_compare_arrays(lhs, rhs, op)
+    arrow_compare_arrays(lhs, rhs, op, ctx)
 }
 
 /// Fall back to Arrow for comparison.
@@ -144,6 +145,7 @@ fn arrow_compare_arrays(
     left: &ArrayRef,
     right: &ArrayRef,
     operator: CompareOperator,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     assert_eq!(left.len(), right.len());
 
@@ -152,8 +154,8 @@ fn arrow_compare_arrays(
     // Arrow's vectorized comparison kernels don't support nested types.
     // For nested types, fall back to `make_comparator` which does element-wise comparison.
     let arrow_array: BooleanArray = if left.dtype().is_nested() || right.dtype().is_nested() {
-        let rhs = right.clone().into_arrow_preferred()?;
-        let lhs = left.clone().into_arrow(rhs.data_type())?;
+        let rhs = right.clone().execute_arrow(None, ctx)?;
+        let lhs = left.clone().execute_arrow(Some(rhs.data_type()), ctx)?;
 
         assert!(
             lhs.data_type().equals_datatype(rhs.data_type()),
@@ -165,8 +167,8 @@ fn arrow_compare_arrays(
         compare_nested_arrow_arrays(lhs.as_ref(), rhs.as_ref(), operator)?
     } else {
         // Fast path: use vectorized kernels for primitive types.
-        let lhs = Datum::try_new(left)?;
-        let rhs = Datum::try_new_with_target_datatype(right, lhs.data_type())?;
+        let lhs = Datum::try_new(left, ctx)?;
+        let rhs = Datum::try_new_with_target_datatype(right, lhs.data_type(), ctx)?;
 
         match operator {
             CompareOperator::Eq => cmp::eq(&lhs, &rhs)?,

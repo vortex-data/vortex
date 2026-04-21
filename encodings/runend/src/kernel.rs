@@ -7,8 +7,6 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Slice;
 use vortex_array::arrays::dict::TakeExecuteAdaptor;
@@ -45,13 +43,17 @@ impl ExecuteParentKernel<RunEnd> for RunEndSliceKernel {
         array: ArrayView<'_, RunEnd>,
         parent: ArrayView<'_, Slice>,
         _child_idx: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        slice(array, parent.slice_range().clone()).map(Some)
+        slice(array, parent.slice_range().clone(), ctx).map(Some)
     }
 }
 
-fn slice(array: ArrayView<'_, RunEnd>, range: Range<usize>) -> VortexResult<ArrayRef> {
+fn slice(
+    array: ArrayView<'_, RunEnd>,
+    range: Range<usize>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
     let new_length = range.len();
 
     let slice_begin = array.find_physical_index(range.start)?;
@@ -59,9 +61,7 @@ fn slice(array: ArrayView<'_, RunEnd>, range: Range<usize>) -> VortexResult<Arra
 
     // If the sliced range contains only a single run, opt to return a ConstantArray.
     if slice_begin + 1 == slice_end {
-        let value = array
-            .values()
-            .execute_scalar(slice_begin, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let value = array.values().execute_scalar(slice_begin, ctx)?;
         return Ok(ConstantArray::new(value, new_length).into_array());
     }
 
@@ -72,6 +72,7 @@ fn slice(array: ArrayView<'_, RunEnd>, range: Range<usize>) -> VortexResult<Arra
             array.values().slice(slice_begin..slice_end)?,
             range.start + array.offset(),
             new_length,
+            ctx,
         )
         .into_array()
     })

@@ -11,9 +11,9 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
-use crate::fixed_shape::FixedShapeTensor;
-use crate::fixed_shape::FixedShapeTensorMetadata;
-use crate::fixed_shape::proto;
+use crate::types::fixed_shape::FixedShapeTensor;
+use crate::types::fixed_shape::FixedShapeTensorMetadata;
+use crate::types::fixed_shape::proto;
 
 impl ExtVTable for FixedShapeTensor {
     type Metadata = FixedShapeTensorMetadata;
@@ -80,8 +80,8 @@ mod tests {
     use vortex_array::dtype::extension::ExtVTable;
     use vortex_error::VortexResult;
 
-    use crate::fixed_shape::FixedShapeTensor;
-    use crate::fixed_shape::FixedShapeTensorMetadata;
+    use crate::types::fixed_shape::FixedShapeTensor;
+    use crate::types::fixed_shape::FixedShapeTensorMetadata;
 
     /// Serializes and deserializes the given metadata through protobuf, asserting equality.
     fn assert_roundtrip(metadata: &FixedShapeTensorMetadata) -> VortexResult<()> {

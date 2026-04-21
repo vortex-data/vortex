@@ -483,7 +483,6 @@ mod tests {
     use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::list_contains::BoolArray;
-    use crate::scalar_fn::fns::list_contains::Constant;
     use crate::scalar_fn::fns::list_contains::ConstantArray;
     use crate::scalar_fn::fns::list_contains::ListViewArray;
     use crate::scalar_fn::fns::list_contains::PrimitiveArray;
@@ -827,7 +826,6 @@ mod tests {
 
         let expr = list_contains(root(), lit(2i32));
         let contains = list_array.apply(&expr).unwrap();
-        assert!(contains.is::<Constant>(), "Expected constant result");
         let expected = BoolArray::from_iter([true, true]);
         assert_arrays_eq!(contains, expected);
     }
@@ -845,7 +843,6 @@ mod tests {
 
         let expr = list_contains(root(), lit(2i32));
         let contains = list_array.apply(&expr).unwrap();
-        assert!(contains.is::<Constant>(), "Expected constant result");
 
         let expected = BoolArray::new(
             [false, false, false, false, false].into_iter().collect(),

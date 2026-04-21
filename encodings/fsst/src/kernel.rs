@@ -58,7 +58,8 @@ mod tests {
         let compressor = fsst_train_compressor(&input);
         let len = input.len();
         let dtype = input.dtype().clone();
-        fsst_compress(input, len, &dtype, &compressor).into_array()
+        let mut ctx = SESSION.create_execution_ctx();
+        fsst_compress(input, len, &dtype, &compressor, &mut ctx).into_array()
     }
 
     #[test]
@@ -131,8 +132,15 @@ mod tests {
         let input = builder.finish(DType::Utf8(Nullability::Nullable));
 
         let compressor = fsst_train_compressor(&input);
-        let fsst_array: ArrayRef =
-            fsst_compress(input.clone(), input.len(), input.dtype(), &compressor).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let fsst_array: ArrayRef = fsst_compress(
+            input.clone(),
+            input.len(),
+            input.dtype(),
+            &compressor,
+            &mut ctx,
+        )
+        .into_array();
 
         // Filter: only select the last element (index 22)
         let mut mask = vec![false; 22];
@@ -140,7 +148,6 @@ mod tests {
         let mask = Mask::from_iter(mask);
 
         let filter_array = FilterArray::new(fsst_array, mask.clone()).into_array();
-        let mut ctx = SESSION.create_execution_ctx();
         let result = filter_array.execute::<Canonical>(&mut ctx)?;
 
         let expected = input.filter(mask)?;
@@ -160,13 +167,19 @@ mod tests {
         let input = builder.finish(DType::Utf8(Nullability::Nullable));
 
         let compressor = fsst_train_compressor(&input);
-        let fsst_array: ArrayRef =
-            fsst_compress(input.clone(), input.len(), input.dtype(), &compressor).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let fsst_array: ArrayRef = fsst_compress(
+            input.clone(),
+            input.len(),
+            input.dtype(),
+            &compressor,
+            &mut ctx,
+        )
+        .into_array();
 
         let mask = Mask::from_iter([true, false, true]);
 
         let filter_array = FilterArray::new(fsst_array, mask.clone()).into_array();
-        let mut ctx = SESSION.create_execution_ctx();
         let result = filter_array.execute::<Canonical>(&mut ctx)?;
 
         let expected = input.filter(mask)?;

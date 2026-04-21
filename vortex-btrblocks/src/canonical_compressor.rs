@@ -6,6 +6,7 @@
 use std::ops::Deref;
 
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
 
 use crate::BtrBlocksCompressorBuilder;
@@ -38,8 +39,8 @@ pub struct BtrBlocksCompressor(
 
 impl BtrBlocksCompressor {
     /// Compresses an array using BtrBlocks-inspired compression.
-    pub fn compress(&self, array: &ArrayRef) -> VortexResult<ArrayRef> {
-        self.0.compress(array)
+    pub fn compress(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        self.0.compress(array, ctx)
     }
 }
 
@@ -59,20 +60,28 @@ impl Default for BtrBlocksCompressor {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Constant;
     use vortex_array::arrays::List;
     use vortex_array::arrays::ListView;
     use vortex_array::arrays::ListViewArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::BtrBlocksCompressor;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[rstest]
     #[case::zctl(
@@ -100,7 +109,8 @@ mod tests {
         #[case] expect_list: bool,
     ) -> VortexResult<()> {
         let array_ref = input.clone().into_array();
-        let result = BtrBlocksCompressor::default().compress(&array_ref)?;
+        let result = BtrBlocksCompressor::default()
+            .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
         if expect_list {
             assert!(result.as_opt::<List>().is_some());
         } else {
@@ -114,7 +124,10 @@ mod tests {
     fn test_constant_all_true() -> VortexResult<()> {
         let array = BoolArray::new(BitBuffer::from(vec![true; 100]), Validity::NonNullable);
         let btr = BtrBlocksCompressor::default();
-        let compressed = btr.compress(&array.clone().into_array())?;
+        let compressed = btr.compress(
+            &array.clone().into_array(),
+            &mut SESSION.create_execution_ctx(),
+        )?;
         assert!(compressed.is::<Constant>());
         assert_arrays_eq!(compressed, array);
         Ok(())
@@ -124,7 +137,10 @@ mod tests {
     fn test_constant_all_false() -> VortexResult<()> {
         let array = BoolArray::new(BitBuffer::from(vec![false; 100]), Validity::NonNullable);
         let btr = BtrBlocksCompressor::default();
-        let compressed = btr.compress(&array.clone().into_array())?;
+        let compressed = btr.compress(
+            &array.clone().into_array(),
+            &mut SESSION.create_execution_ctx(),
+        )?;
         assert!(compressed.is::<Constant>());
         assert_arrays_eq!(compressed, array);
         Ok(())
@@ -137,7 +153,10 @@ mod tests {
             Validity::from(BitBuffer::from(vec![true; 100])),
         );
         let btr = BtrBlocksCompressor::default();
-        let compressed = btr.compress(&array.clone().into_array())?;
+        let compressed = btr.compress(
+            &array.clone().into_array(),
+            &mut SESSION.create_execution_ctx(),
+        )?;
         assert!(compressed.is::<Constant>());
         assert_arrays_eq!(compressed, array);
         Ok(())
@@ -148,7 +167,10 @@ mod tests {
         let validity = Validity::from(BitBuffer::from_iter((0..100).map(|i| i % 3 != 0)));
         let array = BoolArray::new(BitBuffer::from(vec![true; 100]), validity);
         let btr = BtrBlocksCompressor::default();
-        let compressed = btr.compress(&array.clone().into_array())?;
+        let compressed = btr.compress(
+            &array.clone().into_array(),
+            &mut SESSION.create_execution_ctx(),
+        )?;
         assert!(!compressed.is::<Constant>());
         assert_arrays_eq!(compressed, array);
         Ok(())
@@ -161,7 +183,10 @@ mod tests {
             Validity::NonNullable,
         );
         let btr = BtrBlocksCompressor::default();
-        let compressed = btr.compress(&array.clone().into_array())?;
+        let compressed = btr.compress(
+            &array.clone().into_array(),
+            &mut SESSION.create_execution_ctx(),
+        )?;
         assert!(!compressed.is::<Constant>());
         assert_arrays_eq!(compressed, array);
         Ok(())
