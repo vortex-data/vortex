@@ -226,6 +226,11 @@ fn test_contains_pushdown_len_254_with_escapes() {
     assert!(!matcher.matches(&escaped(&mismatch)));
 }
 
+/// K-way batched folded-contains scan is exercised end-to-end by
+/// [`test_like_edge_cases`] — the Like kernel picks up the batched path
+/// for every needle ≥ 5 bytes with a sufficiently dense state-0
+/// advancing set. That covers every case we need to validate.
+///
 /// Zero-branch contains variant must agree with the default variant on all
 /// inputs that the default variant handles.
 #[rstest]

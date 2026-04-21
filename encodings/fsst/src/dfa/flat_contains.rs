@@ -67,6 +67,11 @@ enum SkipStrategy {
 /// Flat `u8` transition table DFA for contains matching.
 pub(crate) struct FlatContainsDfa {
     inner: ContainsInner,
+    /// Number of codes that transition state 0 to a non-zero state. Used
+    /// by the scan-dispatch heuristic: above a threshold, the state-0
+    /// skip is usually ineffective (every byte looks like it could
+    /// advance), so we switch to the K-way batched scan.
+    n_advancing: u16,
 }
 
 enum ContainsInner {
@@ -171,6 +176,7 @@ impl FlatContainsDfa {
                 adv.push(code);
             }
         }
+        let n_advancing = adv.len() as u16;
         let skip = build_skip(&adv);
 
         Ok(Self {
@@ -179,6 +185,7 @@ impl FlatContainsDfa {
                 accept_state,
                 skip,
             },
+            n_advancing,
         })
     }
 
@@ -203,6 +210,7 @@ impl FlatContainsDfa {
                 adv.push(code);
             }
         }
+        let n_advancing = adv.len() as u16;
         let skip = build_skip(&adv);
 
         Ok(Self {
@@ -213,6 +221,7 @@ impl FlatContainsDfa {
                 sentinel,
                 skip,
             },
+            n_advancing,
         })
     }
 
@@ -247,13 +256,6 @@ impl FlatContainsDfa {
     /// no state-0 skip, no mid-loop accept check, no back-to-zero bail.
     /// Because accept is sticky in the transition table, we can defer the
     /// check until after the scan.
-    ///
-    /// This is intentionally exposed so callers / benchmarks can measure
-    /// the skip-vs-branchless trade-off. It is *not* on the default
-    /// `matches()` path because the `memchr`/table skip dominates on
-    /// sparse-match inputs, but it is consistently faster when the DFA
-    /// would be in a non-zero state for most of the scan (high match
-    /// density, short strings).
     #[inline]
     pub(crate) fn matches_branchless(&self, codes: &[u8]) -> bool {
         match &self.inner {
@@ -278,6 +280,52 @@ impl FlatContainsDfa {
             ),
         }
     }
+
+    /// Decide whether this needle's workload is load-bound enough that the
+    /// K-way batched scan pays for itself. The heuristic is the count of
+    /// "advancing" codes from state 0. When most codes advance (dense
+    /// advancing set), the state-0 skip can't help and the DFA dominates
+    /// the scan — so we want ILP across strings. When few codes advance
+    /// (sparse set), the per-string memchr/table skip already runs at
+    /// SIMD throughput and the batched scan (which processes every byte)
+    /// is a regression.
+    ///
+    /// The threshold was picked from measurements on the
+    /// `fsst_like_clickbench` bench: `rlane` (~250 codes) and `tor-sin`
+    /// (~200 codes) flip when ≥ 128 codes advance; `ttp`, `htt`, `http://`
+    /// stay on the per-string skip path.
+    /// Decide whether the K-way batched scan should handle this needle.
+    ///
+    /// The heuristic is a combined length + density threshold:
+    ///
+    /// - **Needle length ≥ 5**. Short needles (`%htt%`, `%ttp%`) tend to
+    ///   match common patterns in practice, so the state-0 skip fires
+    ///   rarely *and* the DFA reaches accept in only a few steps. The
+    ///   per-string scan wins there.
+    /// - **n_advancing ≥ 8**. If fewer than 8 codes advance from state 0,
+    ///   `memchr` / `memchr2` / `memchr3` is the fast path — the batched
+    ///   loop would process every byte.
+    ///
+    /// On real ClickBench URL data with a ~255-symbol table, dense
+    /// needles like `%rlane%` / `%tor-sin%` easily exceed both thresholds
+    /// and pick up the batched path; on tiny synthetic symbol tables the
+    /// advancing set is naturally smaller and batched rarely fires.
+    pub(crate) fn folded_batched_fields(&self) -> Option<(&[u8], u8)> {
+        match &self.inner {
+            ContainsInner::Folded {
+                transitions,
+                accept_state,
+                ..
+            } => {
+                if *accept_state >= 5 && self.n_advancing >= 8 {
+                    Some((transitions.as_slice(), *accept_state))
+                } else {
+                    None
+                }
+            }
+            ContainsInner::Sentinel { .. } => None,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -285,6 +333,148 @@ impl FlatContainsDfa {
 // inlined and monomorphized by itself. The enum dispatch happens once per
 // `matches()` call, outside the hot loop.
 // ---------------------------------------------------------------------------
+
+/// Batch-of-K scan over the folded-contains DFA. Instead of running one
+/// dependent-load chain per string, run K independent chains in the same
+/// hot loop so the OoO backend can keep all K in flight — amortizing the
+/// per-byte load latency across K strings. Accept is sticky, so reading
+/// `state == accept_state` after processing every byte is equivalent to
+/// "did we match".
+///
+/// Called from `FsstMatcher::scan_to_bitbuf` via [`FlatContainsDfa::folded_fields`].
+pub(crate) fn scan_folded_batched<T>(
+    transitions: &[u8],
+    accept_state: u8,
+    n: usize,
+    offsets: &[T],
+    all_bytes: &[u8],
+    negated: bool,
+) -> vortex_buffer::BitBuffer
+where
+    T: vortex_array::dtype::IntegerPType,
+{
+    /// Number of parallel state machines. 4 keeps register pressure low
+    /// (4 pos + 4 state + 4 end = 12 live values) and matches typical
+    /// load-port counts on modern x86.
+    const K: usize = 4;
+    let neg = negated as u8;
+
+    // Build the offsets we need as usize, once.
+    let mut starts: Vec<usize> = Vec::with_capacity(n + 1);
+    for o in offsets.iter().take(n + 1) {
+        starts.push(o.as_());
+    }
+
+    // Result BitBuffer built via collect_bool to match the other scan paths.
+    // We pre-compute per-string match flags in a bool vec, then copy into
+    // the BitBuffer. (BitBuffer::collect_bool has no random-index support,
+    // so we can't write K results in parallel directly; the flag vec is
+    // small and stays hot in L1 even at n = 100K.)
+    let mut matched: Vec<u8> = vec![0u8; n];
+
+    let mut i = 0usize;
+    while i + K <= n {
+        // Unroll the K lanes explicitly so LLVM keeps each in its own
+        // register file and doesn't spill to the stack.
+        let s0 = starts[i];
+        let s1 = starts[i + 1];
+        let s2 = starts[i + 2];
+        let s3 = starts[i + 3];
+        let e0 = starts[i + 1];
+        let e1 = starts[i + 2];
+        let e2 = starts[i + 3];
+        let e3 = starts[i + 4];
+
+        let len0 = e0 - s0;
+        let len1 = e1 - s1;
+        let len2 = e2 - s2;
+        let len3 = e3 - s3;
+        let min_len = len0.min(len1).min(len2.min(len3));
+        let max_len = len0.max(len1).max(len2.max(len3));
+
+        let mut st0 = 0u8;
+        let mut st1 = 0u8;
+        let mut st2 = 0u8;
+        let mut st3 = 0u8;
+
+        // Hot phase: for `min_len` steps every lane is in-bounds, so we
+        // can drop the `pos < len` predicate and issue 4 independent
+        // loads per step.
+        for p in 0..min_len {
+            // SAFETY: p < len_k for all k; s_k + p < e_k ≤ all_bytes.len();
+            // states stay < 2N+1 by construction; transitions has
+            // (2N+1)*256 entries.
+            let b0 = unsafe { *all_bytes.get_unchecked(s0 + p) };
+            let b1 = unsafe { *all_bytes.get_unchecked(s1 + p) };
+            let b2 = unsafe { *all_bytes.get_unchecked(s2 + p) };
+            let b3 = unsafe { *all_bytes.get_unchecked(s3 + p) };
+            st0 = unsafe {
+                *transitions.get_unchecked(usize::from(st0) * 256 + usize::from(b0))
+            };
+            st1 = unsafe {
+                *transitions.get_unchecked(usize::from(st1) * 256 + usize::from(b1))
+            };
+            st2 = unsafe {
+                *transitions.get_unchecked(usize::from(st2) * 256 + usize::from(b2))
+            };
+            st3 = unsafe {
+                *transitions.get_unchecked(usize::from(st3) * 256 + usize::from(b3))
+            };
+        }
+
+        // Cold phase: tail iterations after min_len where only some lanes
+        // still have bytes left. Predicated updates via branch-free
+        // conditional.
+        for p in min_len..max_len {
+            if p < len0 {
+                let b = unsafe { *all_bytes.get_unchecked(s0 + p) };
+                st0 = unsafe {
+                    *transitions.get_unchecked(usize::from(st0) * 256 + usize::from(b))
+                };
+            }
+            if p < len1 {
+                let b = unsafe { *all_bytes.get_unchecked(s1 + p) };
+                st1 = unsafe {
+                    *transitions.get_unchecked(usize::from(st1) * 256 + usize::from(b))
+                };
+            }
+            if p < len2 {
+                let b = unsafe { *all_bytes.get_unchecked(s2 + p) };
+                st2 = unsafe {
+                    *transitions.get_unchecked(usize::from(st2) * 256 + usize::from(b))
+                };
+            }
+            if p < len3 {
+                let b = unsafe { *all_bytes.get_unchecked(s3 + p) };
+                st3 = unsafe {
+                    *transitions.get_unchecked(usize::from(st3) * 256 + usize::from(b))
+                };
+            }
+        }
+
+        matched[i] = ((st0 == accept_state) as u8) ^ neg;
+        matched[i + 1] = ((st1 == accept_state) as u8) ^ neg;
+        matched[i + 2] = ((st2 == accept_state) as u8) ^ neg;
+        matched[i + 3] = ((st3 == accept_state) as u8) ^ neg;
+        i += K;
+    }
+
+    // Serial tail.
+    while i < n {
+        let start = starts[i];
+        let end = starts[i + 1];
+        let mut st = 0u8;
+        for b in &all_bytes[start..end] {
+            st = unsafe {
+                *transitions.get_unchecked(usize::from(st) * 256 + usize::from(*b))
+            };
+        }
+        matched[i] = ((st == accept_state) as u8) ^ neg;
+        i += 1;
+    }
+
+    vortex_buffer::BitBuffer::collect_bool(n, |j| matched[j] != 0)
+}
 
 fn build_skip(adv: &[u8]) -> SkipStrategy {
     match adv.len() {

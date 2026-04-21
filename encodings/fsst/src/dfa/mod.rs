@@ -218,7 +218,28 @@ impl FsstMatcher {
                 dfa_scan_to_bitbuf(n, offsets, all_bytes, negated, |c| dfa.matches(c))
             }
             MatcherInner::Contains(dfa) => {
-                dfa_scan_to_bitbuf(n, offsets, all_bytes, negated, |c| dfa.matches(c))
+                // For dense-advancing-set needles (the `%rlane%` / `%tor-sin%`
+                // shape) the memchr-style state-0 skip can't help — every
+                // code could advance, so we're load-bound in the DFA inner
+                // loop. Fall into the K-way batched scan, which keeps K
+                // independent dependent-load chains in flight.
+                //
+                // For sparse needles where `Memchr1`/`2`/`3` is viable, the
+                // per-string scan wins — the batched scan processes every
+                // byte regardless, which loses to a `memchr` that can skip
+                // 32+ bytes per cycle.
+                if let Some((transitions, accept)) = dfa.folded_batched_fields() {
+                    flat_contains::scan_folded_batched(
+                        transitions,
+                        accept,
+                        n,
+                        offsets,
+                        all_bytes,
+                        negated,
+                    )
+                } else {
+                    dfa_scan_to_bitbuf(n, offsets, all_bytes, negated, |c| dfa.matches(c))
+                }
             }
             MatcherInner::MultiContains(dfa) => {
                 dfa_scan_to_bitbuf(n, offsets, all_bytes, negated, |c| dfa.matches(c))
