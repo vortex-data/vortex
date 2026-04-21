@@ -18,8 +18,8 @@ use vortex_array::arrays::Extension;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::ScalarFn as ScalarFnArrayEncoding;
 use vortex_array::arrays::ScalarFnArray;
-use vortex_array::arrays::ScalarFnVTable as ScalarFnArrayEncoding;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::scalar_fn::ExactScalarFn;
@@ -42,9 +42,9 @@ use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
-use vortex_array::scalar_fn::ScalarFn;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
@@ -89,12 +89,12 @@ use crate::utils::validate_tensor_float_input;
 pub struct L2Denorm;
 
 impl L2Denorm {
-    /// Creates a new [`ScalarFn`] wrapping the L2 denormalization operation.
+    /// Creates a new [`TypedScalarFnInstance`] wrapping the L2 denormalization operation.
     ///
     /// This is a low-level scalar-function descriptor constructor. To build a semantically valid
     /// [`L2Denorm`] array, prefer [`try_new_array`](Self::try_new_array).
-    pub fn new() -> ScalarFn<L2Denorm> {
-        ScalarFn::new(L2Denorm, EmptyOptions)
+    pub fn new() -> TypedScalarFnInstance<L2Denorm> {
+        TypedScalarFnInstance::new(L2Denorm, EmptyOptions)
     }
 
     /// Constructs a validated [`ScalarFnArray`] that lazily re-applies `norms` to `normalized`.
@@ -1119,7 +1119,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let original = normalize_as_l2_denorm(input, &mut ctx)?.into_array();
 
-        let scalar_fn_array = original.as_::<vortex_array::arrays::ScalarFnVTable>();
+        let scalar_fn_array = original.as_::<vortex_array::arrays::ScalarFn>();
         let children = scalar_fn_array.children();
 
         let plugin = ScalarFnArrayPlugin::new(L2Denorm);

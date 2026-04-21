@@ -226,7 +226,6 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::array::IntoArray;
     use crate::arrow::ArrowArrayExecutor;
-    use crate::arrow::IntoArrowArray;
     use crate::arrow::executor::decimal::DecimalArray;
     use crate::builders::ArrayBuilder;
     use crate::builders::DecimalBuilder;
@@ -236,16 +235,16 @@ mod tests {
 
     #[test]
     fn decimal_to_arrow() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Make a very simple i128 and i256 array.
         let decimal_vortex = DecimalArray::new(
             buffer![1i128, 2i128, 3i128, 4i128, 5i128],
             DecimalDType::new(19, 2),
             Validity::NonNullable,
         );
-        let arrow = decimal_vortex.into_array().execute_arrow(
-            Some(&DataType::Decimal128(19, 2)),
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )?;
+        let arrow = decimal_vortex
+            .into_array()
+            .execute_arrow(Some(&DataType::Decimal128(19, 2)), &mut ctx)?;
         assert_eq!(arrow.data_type(), &DataType::Decimal128(19, 2));
         let decimal_array = arrow.as_any().downcast_ref::<Decimal128Array>().unwrap();
         assert_eq!(
@@ -265,13 +264,14 @@ mod tests {
     fn test_to_arrow_decimal128<T: NativeDecimalType>(
         #[case] _decimal_type: T,
     ) -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut decimal = DecimalBuilder::new::<T>(DecimalDType::new(2, 1), false.into());
         decimal.append_value(10);
         decimal.append_value(11);
         decimal.append_value(12);
         let decimal = decimal.finish();
 
-        let arrow_array = decimal.into_arrow(&DataType::Decimal128(2, 1))?;
+        let arrow_array = decimal.execute_arrow(Some(&DataType::Decimal128(2, 1)), &mut ctx)?;
         let arrow_decimal = arrow_array
             .as_any()
             .downcast_ref::<Decimal128Array>()
@@ -292,13 +292,14 @@ mod tests {
     fn test_to_arrow_decimal32<T: NativeDecimalType>(#[case] _decimal_type: T) -> VortexResult<()> {
         use arrow_array::Decimal32Array;
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut decimal = DecimalBuilder::new::<T>(DecimalDType::new(2, 1), false.into());
         decimal.append_value(10);
         decimal.append_value(11);
         decimal.append_value(12);
         let decimal = decimal.finish();
 
-        let arrow_array = decimal.into_arrow(&DataType::Decimal32(2, 1))?;
+        let arrow_array = decimal.execute_arrow(Some(&DataType::Decimal32(2, 1)), &mut ctx)?;
         let arrow_decimal = arrow_array
             .as_any()
             .downcast_ref::<Decimal32Array>()
@@ -319,13 +320,14 @@ mod tests {
     fn test_to_arrow_decimal64<T: NativeDecimalType>(#[case] _decimal_type: T) -> VortexResult<()> {
         use arrow_array::Decimal64Array;
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut decimal = DecimalBuilder::new::<T>(DecimalDType::new(2, 1), false.into());
         decimal.append_value(10);
         decimal.append_value(11);
         decimal.append_value(12);
         let decimal = decimal.finish();
 
-        let arrow_array = decimal.into_arrow(&DataType::Decimal64(2, 1))?;
+        let arrow_array = decimal.execute_arrow(Some(&DataType::Decimal64(2, 1)), &mut ctx)?;
         let arrow_decimal = arrow_array
             .as_any()
             .downcast_ref::<Decimal64Array>()
@@ -346,13 +348,14 @@ mod tests {
     fn test_to_arrow_decimal256<T: NativeDecimalType>(
         #[case] _decimal_type: T,
     ) -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut decimal = DecimalBuilder::new::<T>(DecimalDType::new(2, 1), false.into());
         decimal.append_value(10);
         decimal.append_value(11);
         decimal.append_value(12);
         let decimal = decimal.finish();
 
-        let arrow_array = decimal.into_arrow(&DataType::Decimal256(2, 1))?;
+        let arrow_array = decimal.execute_arrow(Some(&DataType::Decimal256(2, 1)), &mut ctx)?;
         let arrow_decimal = arrow_array
             .as_any()
             .downcast_ref::<Decimal256Array>()

@@ -155,7 +155,7 @@ fn between_canonical(
         upper.clone(),
         Operator::from(options.upper_strict.to_compare_operator()),
     )?;
-    execute_boolean(&lower_cmp, &upper_cmp, Operator::And)
+    execute_boolean(&lower_cmp, &upper_cmp, Operator::And, ctx)
 }
 
 /// An optimized scalar expression to compute whether values fall between two bounds.

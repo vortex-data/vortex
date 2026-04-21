@@ -10382,6 +10382,7 @@ dependencies = [
  "vortex-pco",
  "vortex-runend",
  "vortex-sequence",
+ "vortex-session",
  "vortex-sparse",
  "vortex-tensor",
  "vortex-utils",
@@ -10458,10 +10459,12 @@ dependencies = [
  "rstest",
  "rustc-hash",
  "tracing",
+ "tracing-subscriber",
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
  "vortex-mask",
+ "vortex-session",
  "vortex-utils",
 ]
 

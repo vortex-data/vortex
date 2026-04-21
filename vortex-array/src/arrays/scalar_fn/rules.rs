@@ -15,8 +15,8 @@ use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Filter;
+use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
-use crate::arrays::ScalarFnVTable;
 use crate::arrays::Slice;
 use crate::arrays::StructArray;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
@@ -34,10 +34,10 @@ use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::validity::Validity;
 
-pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> =
+pub(super) const RULES: ReduceRuleSet<ScalarFn> =
     ReduceRuleSet::new(&[&ScalarFnPackToStructRule, &ScalarFnAbstractReduceRule]);
 
-static KEYED_PARENT_RULES: [ParentRuleEntry<ScalarFnVTable>; 2] = [
+static KEYED_PARENT_RULES: [ParentRuleEntry<ScalarFn>; 2] = [
     ParentRuleSet::lift_id(
         CachedId::new("vortex.filter"),
         &ScalarFnUnaryFilterPushDownRule,
@@ -45,16 +45,16 @@ static KEYED_PARENT_RULES: [ParentRuleEntry<ScalarFnVTable>; 2] = [
     ParentRuleSet::lift_id(CachedId::new("vortex.slice"), &ScalarFnSliceReduceRule),
 ];
 
-static KEYED_PARENT_RULES_DENSE: ParentRuleDense<ScalarFnVTable> = ParentRuleDense::new();
+static KEYED_PARENT_RULES_DENSE: ParentRuleDense<ScalarFn> = ParentRuleDense::new();
 
-pub(super) static PARENT_RULES: ParentRuleSet<ScalarFnVTable> =
+pub(super) static PARENT_RULES: ParentRuleSet<ScalarFn> =
     ParentRuleSet::new_indexed(&KEYED_PARENT_RULES, &KEYED_PARENT_RULES_DENSE, &[]);
 
 /// Converts a ScalarFnArray with Pack into a StructArray directly.
 #[derive(Debug)]
 struct ScalarFnPackToStructRule;
-impl ArrayReduceRule<ScalarFnVTable> for ScalarFnPackToStructRule {
-    fn reduce(&self, array: ArrayView<'_, ScalarFnVTable>) -> VortexResult<Option<ArrayRef>> {
+impl ArrayReduceRule<ScalarFn> for ScalarFnPackToStructRule {
+    fn reduce(&self, array: ArrayView<'_, ScalarFn>) -> VortexResult<Option<ArrayRef>> {
         let Some(pack_options) = array.scalar_fn().as_opt::<Pack>() else {
             return Ok(None);
         };
@@ -78,12 +78,12 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnPackToStructRule {
 
 #[derive(Debug)]
 struct ScalarFnSliceReduceRule;
-impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnSliceReduceRule {
+impl ArrayParentReduceRule<ScalarFn> for ScalarFnSliceReduceRule {
     type Parent = Slice;
 
     fn reduce_parent(
         &self,
-        array: ArrayView<'_, ScalarFnVTable>,
+        array: ArrayView<'_, ScalarFn>,
         parent: ArrayView<'_, Slice>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -102,8 +102,8 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnSliceReduceRule {
 
 #[derive(Debug)]
 struct ScalarFnAbstractReduceRule;
-impl ArrayReduceRule<ScalarFnVTable> for ScalarFnAbstractReduceRule {
-    fn reduce(&self, array: ArrayView<'_, ScalarFnVTable>) -> VortexResult<Option<ArrayRef>> {
+impl ArrayReduceRule<ScalarFn> for ScalarFnAbstractReduceRule {
+    fn reduce(&self, array: ArrayView<'_, ScalarFn>) -> VortexResult<Option<ArrayRef>> {
         if let Some(reduced) = array
             .scalar_fn()
             .reduce(array.as_ref(), &ArrayReduceCtx { len: array.len() })?
@@ -130,8 +130,7 @@ impl ReduceNode for ArrayRef {
     }
 
     fn scalar_fn(&self) -> Option<&ScalarFnRef> {
-        self.as_opt::<ScalarFnVTable>()
-            .map(|a| a.data().scalar_fn())
+        self.as_opt::<ScalarFn>().map(|a| a.data().scalar_fn())
     }
 
     fn child(&self, idx: usize) -> ReduceNodeRef {
@@ -175,12 +174,12 @@ impl ReduceCtx for ArrayReduceCtx {
 #[derive(Debug)]
 struct ScalarFnUnaryFilterPushDownRule;
 
-impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnUnaryFilterPushDownRule {
+impl ArrayParentReduceRule<ScalarFn> for ScalarFnUnaryFilterPushDownRule {
     type Parent = Filter;
 
     fn reduce_parent(
         &self,
-        child: ArrayView<'_, ScalarFnVTable>,
+        child: ArrayView<'_, ScalarFn>,
         parent: ArrayView<'_, Filter>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {

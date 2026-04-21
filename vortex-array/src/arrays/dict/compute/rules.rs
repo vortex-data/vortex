@@ -14,8 +14,8 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::DictArray;
+use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
-use crate::arrays::ScalarFnVTable;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::scalar_fn::AnyScalarFn;
@@ -63,7 +63,7 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, Dict>,
-        parent: ArrayView<'_, ScalarFnVTable>,
+        parent: ArrayView<'_, ScalarFn>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // Check that the scalar function can actually be pushed down.
@@ -168,7 +168,7 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnCodesPullUpRule {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, Dict>,
-        parent: ArrayView<'_, ScalarFnVTable>,
+        parent: ArrayView<'_, ScalarFn>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // Don't attempt to pull up if there are less than 2 siblings.

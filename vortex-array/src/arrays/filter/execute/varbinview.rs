@@ -10,10 +10,12 @@ use vortex_mask::MaskValues;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
+use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::FromArrowArray;
-use crate::arrow::IntoArrowArray;
 
 pub fn filter_varbinview(array: &VarBinViewArray, mask: &Arc<MaskValues>) -> VarBinViewArray {
     // Delegate to the Arrow implementation of filter over `VarBinView`.
@@ -29,7 +31,9 @@ fn arrow_filter_fn(array: &ArrayRef, mask: &Mask) -> vortex_error::VortexResult<
         Mask::AllTrue(_) | Mask::AllFalse(_) => unreachable!("check in filter invoke"),
     };
 
-    let array_ref = array.clone().into_arrow_preferred()?;
+    let array_ref = array
+        .clone()
+        .execute_arrow(None, &mut LEGACY_SESSION.create_execution_ctx())?;
     let mask_array = BooleanArray::new(values.bit_buffer().clone().into(), None);
     let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
 

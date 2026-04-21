@@ -10,8 +10,8 @@ use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::scalar_fn::AnyScalarFn;
+use vortex_array::arrays::scalar_fn::ScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
-use vortex_array::arrays::scalar_fn::ScalarFnVTable;
 use vortex_array::dtype::DType;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleDense;
@@ -56,7 +56,7 @@ impl ArrayParentReduceRule<RunEnd> for RunEndScalarFnRule {
     fn reduce_parent(
         &self,
         run_end: ArrayView<'_, RunEnd>,
-        parent: ArrayView<'_, ScalarFnVTable>,
+        parent: ArrayView<'_, ScalarFn>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         for (idx, child) in parent.iter_children().enumerate() {

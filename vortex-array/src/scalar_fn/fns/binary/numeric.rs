@@ -9,6 +9,7 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrow::Datum;
 use crate::arrow::from_arrow_array_with_len;
+use crate::executor::ExecutionCtx;
 use crate::scalar::NumericOperator;
 
 /// Execute a numeric operation between two arrays.
@@ -19,11 +20,12 @@ pub(crate) fn execute_numeric(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
     op: NumericOperator,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     if let Some(result) = constant_numeric(lhs, rhs, op)? {
         return Ok(result);
     }
-    arrow_numeric(lhs, rhs, op)
+    arrow_numeric(lhs, rhs, op, ctx)
 }
 
 /// Implementation of numeric operations using the Arrow crate.
@@ -31,12 +33,13 @@ pub(crate) fn arrow_numeric(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
     operator: NumericOperator,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
     let len = lhs.len();
 
-    let left = Datum::try_new(lhs)?;
-    let right = Datum::try_new_with_target_datatype(rhs, left.data_type())?;
+    let left = Datum::try_new(lhs, ctx)?;
+    let right = Datum::try_new_with_target_datatype(rhs, left.data_type(), ctx)?;
 
     let array = match operator {
         NumericOperator::Add => arrow_arith::numeric::add(&left, &right)?,

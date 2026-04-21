@@ -12,9 +12,9 @@ pub fn vortex_tensor::encodings::l2_denorm::L2DenormScheme::fmt(&self, f: &mut c
 
 impl vortex_compressor::scheme::Scheme for vortex_tensor::encodings::l2_denorm::L2DenormScheme
 
-pub fn vortex_tensor::encodings::l2_denorm::L2DenormScheme::compress(&self, compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+pub fn vortex_tensor::encodings::l2_denorm::L2DenormScheme::compress(&self, _compressor: &vortex_compressor::compressor::CascadingCompressor, data: &vortex_compressor::stats::cache::ArrayAndStats, _compress_ctx: vortex_compressor::ctx::CompressorContext, exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_tensor::encodings::l2_denorm::L2DenormScheme::expected_compression_ratio(&self, _data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_compressor::estimate::CompressionEstimate
+pub fn vortex_tensor::encodings::l2_denorm::L2DenormScheme::expected_compression_ratio(&self, _data: &vortex_compressor::stats::cache::ArrayAndStats, _compress_ctx: vortex_compressor::ctx::CompressorContext, _exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_tensor::encodings::l2_denorm::L2DenormScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 
@@ -64,9 +64,9 @@ impl core::marker::StructuralPartialEq for vortex_tensor::encodings::turboquant:
 
 impl vortex_compressor::scheme::Scheme for vortex_tensor::encodings::turboquant::TurboQuantScheme
 
-pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::compress(&self, compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::compress(&self, _compressor: &vortex_compressor::compressor::CascadingCompressor, data: &vortex_compressor::stats::cache::ArrayAndStats, _compress_ctx: vortex_compressor::ctx::CompressorContext, exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_compressor::estimate::CompressionEstimate
+pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::expected_compression_ratio(&self, data: &vortex_compressor::stats::cache::ArrayAndStats, _compress_ctx: vortex_compressor::ctx::CompressorContext, _exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 
@@ -258,7 +258,7 @@ pub struct vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity
 
 impl vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity
 
-pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::new() -> vortex_array::scalar_fn::typed::ScalarFn<vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity>
+pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::new() -> vortex_array::scalar_fn::typed::TypedScalarFnInstance<vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity>
 
 pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::try_new_array(lhs: vortex_array::array::erased::ArrayRef, rhs: vortex_array::array::erased::ArrayRef, len: usize) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
 
@@ -300,7 +300,7 @@ pub struct vortex_tensor::scalar_fns::inner_product::InnerProduct
 
 impl vortex_tensor::scalar_fns::inner_product::InnerProduct
 
-pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::new() -> vortex_array::scalar_fn::typed::ScalarFn<vortex_tensor::scalar_fns::inner_product::InnerProduct>
+pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::new() -> vortex_array::scalar_fn::typed::TypedScalarFnInstance<vortex_tensor::scalar_fns::inner_product::InnerProduct>
 
 pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::try_new_array(lhs: vortex_array::array::erased::ArrayRef, rhs: vortex_array::array::erased::ArrayRef, len: usize) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
 
@@ -342,7 +342,7 @@ pub struct vortex_tensor::scalar_fns::l2_denorm::L2Denorm
 
 impl vortex_tensor::scalar_fns::l2_denorm::L2Denorm
 
-pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::new() -> vortex_array::scalar_fn::typed::ScalarFn<vortex_tensor::scalar_fns::l2_denorm::L2Denorm>
+pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::new() -> vortex_array::scalar_fn::typed::TypedScalarFnInstance<vortex_tensor::scalar_fns::l2_denorm::L2Denorm>
 
 pub unsafe fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::new_array_unchecked(normalized: vortex_array::array::erased::ArrayRef, norms: vortex_array::array::erased::ArrayRef, len: usize) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
 
@@ -390,7 +390,7 @@ pub struct vortex_tensor::scalar_fns::l2_norm::L2Norm
 
 impl vortex_tensor::scalar_fns::l2_norm::L2Norm
 
-pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::new() -> vortex_array::scalar_fn::typed::ScalarFn<vortex_tensor::scalar_fns::l2_norm::L2Norm>
+pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::new() -> vortex_array::scalar_fn::typed::TypedScalarFnInstance<vortex_tensor::scalar_fns::l2_norm::L2Norm>
 
 pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::try_new_array(child: vortex_array::array::erased::ArrayRef, len: usize) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
 
@@ -478,7 +478,7 @@ pub struct vortex_tensor::scalar_fns::sorf_transform::SorfTransform
 
 impl vortex_tensor::scalar_fns::sorf_transform::SorfTransform
 
-pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::new(options: &vortex_tensor::scalar_fns::sorf_transform::SorfOptions) -> vortex_array::scalar_fn::typed::ScalarFn<vortex_tensor::scalar_fns::sorf_transform::SorfTransform>
+pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::new(options: &vortex_tensor::scalar_fns::sorf_transform::SorfOptions) -> vortex_array::scalar_fn::typed::TypedScalarFnInstance<vortex_tensor::scalar_fns::sorf_transform::SorfTransform>
 
 pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::try_new_array(options: &vortex_tensor::scalar_fns::sorf_transform::SorfOptions, child: vortex_array::array::erased::ArrayRef, len: usize) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
 

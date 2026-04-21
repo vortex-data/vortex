@@ -30,12 +30,16 @@ pub trait FromArrowArray<A> {
         Self: Sized;
 }
 
+#[deprecated(note = "Use `execute_arrow(None, ctx)` or `execute_arrow(Some(dt), ctx)` instead")]
 pub trait IntoArrowArray {
+    #[deprecated(note = "Use `execute_arrow(None, ctx)` instead")]
     fn into_arrow_preferred(self) -> VortexResult<ArrowArrayRef>;
 
+    #[deprecated(note = "Use `execute_arrow(Some(data_type), ctx)` instead")]
     fn into_arrow(self, data_type: &DataType) -> VortexResult<ArrowArrayRef>;
 }
 
+#[allow(deprecated)]
 impl IntoArrowArray for ArrayRef {
     /// Convert this [`crate::ArrayRef`] into an Arrow [`crate::ArrayRef`] by using the array's
     /// preferred (cheapest) Arrow [`DataType`].

@@ -206,8 +206,10 @@ mod tests {
 
     use crate::Canonical;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
-    use crate::arrow::IntoArrowArray;
+    use crate::arrow::ArrowArrayExecutor;
     use crate::arrow::executor::list::ListViewArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
@@ -215,6 +217,7 @@ mod tests {
 
     #[test]
     fn test_to_arrow_list_i32() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create a ListViewArray with i32 elements: [[1, 2, 3], [4, 5]]
         let elements = PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5], Validity::NonNullable);
         let offsets = PrimitiveArray::new(buffer![0i32, 3], Validity::NonNullable);
@@ -233,7 +236,9 @@ mod tests {
         // Convert to Arrow List with i32 offsets.
         let field = Field::new("item", DataType::Int32, false);
         let arrow_dt = DataType::List(field.into());
-        let arrow_array = list_array.into_array().into_arrow(&arrow_dt)?;
+        let arrow_array = list_array
+            .into_array()
+            .execute_arrow(Some(&arrow_dt), &mut ctx)?;
 
         // Verify the type is correct.
         assert_eq!(arrow_array.data_type(), &arrow_dt);
@@ -267,6 +272,7 @@ mod tests {
 
     #[test]
     fn test_to_arrow_list_i64() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create a ListViewArray with i64 offsets: [[10, 20], [30]]
         let elements = PrimitiveArray::new(buffer![10i64, 20, 30], Validity::NonNullable);
         let offsets = PrimitiveArray::new(buffer![0i64, 2], Validity::NonNullable);
@@ -285,7 +291,9 @@ mod tests {
         // Convert to Arrow LargeList with i64 offsets.
         let field = Field::new("item", DataType::Int64, false);
         let arrow_dt = DataType::LargeList(field.into());
-        let arrow_array = list_array.into_array().into_arrow(&arrow_dt)?;
+        let arrow_array = list_array
+            .into_array()
+            .execute_arrow(Some(&arrow_dt), &mut ctx)?;
 
         // Verify the type is correct.
         assert_eq!(arrow_array.data_type(), &arrow_dt);
@@ -304,6 +312,7 @@ mod tests {
 
     #[test]
     fn test_to_arrow_list_non_zctl() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Overlapping lists are NOT zero-copy-to-list, so this exercises the rebuild path.
         // Elements: [1, 2, 3, 4], List 0: [1,2,3], List 1: [2,3,4] (overlap at indices 1-2)
         let elements = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable);
@@ -320,7 +329,9 @@ mod tests {
 
         let field = Field::new("item", DataType::Int32, false);
         let arrow_dt = DataType::List(field.into());
-        let arrow_array = list_array.into_array().into_arrow(&arrow_dt)?;
+        let arrow_array = list_array
+            .into_array()
+            .execute_arrow(Some(&arrow_dt), &mut ctx)?;
 
         let list = arrow_array
             .as_any()
@@ -343,6 +354,7 @@ mod tests {
 
     #[test]
     fn test_to_arrow_list_empty_zctl() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype = DType::List(
             Arc::new(DType::Primitive(crate::dtype::PType::I32, NonNullable)),
             NonNullable,
@@ -354,7 +366,9 @@ mod tests {
         };
 
         let arrow_dt = DataType::List(Field::new("item", DataType::Int32, false).into());
-        let arrow_array = list_array.into_array().into_arrow(&arrow_dt)?;
+        let arrow_array = list_array
+            .into_array()
+            .execute_arrow(Some(&arrow_dt), &mut ctx)?;
         assert_eq!(arrow_array.len(), 0);
         Ok(())
     }

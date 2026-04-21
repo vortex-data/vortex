@@ -8,7 +8,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::arrays::ScalarFnVTable;
+use crate::arrays::ScalarFn;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
@@ -67,7 +67,7 @@ where
             return Ok(None);
         }
         let scalar_fn_array = parent
-            .as_opt::<ScalarFnVTable>()
+            .as_opt::<ScalarFn>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
         let list = scalar_fn_array.get_child(0);
         <V as ListContainsElementReduce>::list_contains(list, array)
@@ -96,7 +96,7 @@ where
             return Ok(None);
         }
         let scalar_fn_array = parent
-            .as_opt::<ScalarFnVTable>()
+            .as_opt::<ScalarFn>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
         let list = scalar_fn_array.get_child(0);
         <V as ListContainsElementKernel>::list_contains(list, array, ctx)

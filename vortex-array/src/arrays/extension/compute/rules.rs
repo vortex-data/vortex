@@ -105,7 +105,7 @@ mod tests {
     use crate::arrays::ExtensionArray;
     use crate::arrays::FilterArray;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::ScalarFnVTable;
+    use crate::arrays::ScalarFn;
     use crate::arrays::extension::ExtensionArrayExt;
     use crate::arrays::scalar_fn::ScalarFnArrayExt;
     use crate::arrays::scalar_fn::ScalarFnFactoryExt;
@@ -235,7 +235,7 @@ mod tests {
             .unwrap();
 
         let optimized = scalar_fn_array.optimize_recursive().unwrap();
-        let scalar_fn = optimized.as_opt::<ScalarFnVTable>().unwrap();
+        let scalar_fn = optimized.as_opt::<ScalarFn>().unwrap();
         let children = scalar_fn.children();
         let constant = children[0]
             .as_opt::<Constant>()
@@ -298,7 +298,7 @@ mod tests {
         let optimized = scalar_fn_array.optimize().unwrap();
 
         // The first child should still be an ExtensionArray (no pushdown happened)
-        let scalar_fn = optimized.as_opt::<ScalarFnVTable>().unwrap();
+        let scalar_fn = optimized.as_opt::<ScalarFn>().unwrap();
         assert!(
             scalar_fn.children()[0].as_opt::<Extension>().is_some(),
             "Expected first child to remain ExtensionArray when ext types differ"
@@ -323,7 +323,7 @@ mod tests {
         let optimized = scalar_fn_array.optimize().unwrap();
 
         // No pushdown should happen because sibling is not a constant
-        let scalar_fn = optimized.as_opt::<ScalarFnVTable>().unwrap();
+        let scalar_fn = optimized.as_opt::<ScalarFn>().unwrap();
         assert!(
             scalar_fn.children()[0].as_opt::<Extension>().is_some(),
             "Expected first child to remain ExtensionArray when sibling is not constant"
@@ -346,7 +346,7 @@ mod tests {
         let optimized = scalar_fn_array.optimize().unwrap();
 
         // No pushdown should happen because constant is not an extension scalar
-        let scalar_fn = optimized.as_opt::<ScalarFnVTable>().unwrap();
+        let scalar_fn = optimized.as_opt::<ScalarFn>().unwrap();
         assert!(
             scalar_fn.children()[0].as_opt::<Extension>().is_some(),
             "Expected first child to remain ExtensionArray when constant is not extension"

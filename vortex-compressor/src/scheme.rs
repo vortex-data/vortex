@@ -10,6 +10,7 @@ use std::hash::Hasher;
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
@@ -20,10 +21,10 @@ use crate::stats::GenerateStatsOptions;
 
 /// Unique identifier for a compression scheme.
 ///
-/// The only way to obtain a [`SchemeId`] is through [`SchemeExt::id()`], which is
-/// auto-implemented for all [`Scheme`] types. There is no public constructor.
+/// The only way to obtain a [`SchemeId`] is through [`SchemeExt::id()`], which is auto-implemented
+/// for all [`Scheme`] types. There is no public constructor.
 ///
-/// The only exception to this is for `ROOT_SCHEME_ID` in `compressor.rs`.
+/// The only exception to this is for the compressor's synthetic `ROOT_SCHEME_ID`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SchemeId {
     /// Only constructable within `vortex-compressor`.
@@ -210,8 +211,9 @@ pub trait Scheme: Debug + Send + Sync {
     /// that are not all-null.
     fn expected_compression_ratio(
         &self,
-        _data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate;
 
     /// Compress the array using this scheme.
@@ -222,8 +224,9 @@ pub trait Scheme: Debug + Send + Sync {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
-        ctx: CompressorContext,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef>;
 }
 

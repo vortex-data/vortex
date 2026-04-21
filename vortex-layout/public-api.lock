@@ -186,19 +186,19 @@ pub fn vortex_layout::layouts::compressed::CompressingStrategy::write_stream<'li
 
 pub trait vortex_layout::layouts::compressed::CompressorPlugin: core::marker::Send + core::marker::Sync + 'static
 
-pub fn vortex_layout::layouts::compressed::CompressorPlugin::compress_chunk(&self, chunk: &vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+pub fn vortex_layout::layouts::compressed::CompressorPlugin::compress_chunk(&self, chunk: &vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 impl vortex_layout::layouts::compressed::CompressorPlugin for alloc::sync::Arc<dyn vortex_layout::layouts::compressed::CompressorPlugin>
 
-pub fn alloc::sync::Arc<dyn vortex_layout::layouts::compressed::CompressorPlugin>::compress_chunk(&self, chunk: &vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+pub fn alloc::sync::Arc<dyn vortex_layout::layouts::compressed::CompressorPlugin>::compress_chunk(&self, chunk: &vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 impl vortex_layout::layouts::compressed::CompressorPlugin for vortex_btrblocks::canonical_compressor::BtrBlocksCompressor
 
-pub fn vortex_btrblocks::canonical_compressor::BtrBlocksCompressor::compress_chunk(&self, chunk: &vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+pub fn vortex_btrblocks::canonical_compressor::BtrBlocksCompressor::compress_chunk(&self, chunk: &vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-impl<F> vortex_layout::layouts::compressed::CompressorPlugin for F where F: core::ops::function::Fn(&vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef> + core::marker::Send + core::marker::Sync + 'static
+impl<F> vortex_layout::layouts::compressed::CompressorPlugin for F where F: core::ops::function::Fn(&vortex_array::array::erased::ArrayRef, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef> + core::marker::Send + core::marker::Sync + 'static
 
-pub fn F::compress_chunk(&self, chunk: &vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+pub fn F::compress_chunk(&self, chunk: &vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub mod vortex_layout::layouts::dict
 

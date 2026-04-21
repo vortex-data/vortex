@@ -17,8 +17,8 @@ use vortex_array::arrays::Extension;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeList;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::ScalarFn as ScalarFnArrayEncoding;
 use vortex_array::arrays::ScalarFnArray;
-use vortex_array::arrays::ScalarFnVTable as ScalarFnArrayEncoding;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
@@ -39,9 +39,9 @@ use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
-use vortex_array::scalar_fn::ScalarFn;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_array::serde::ArrayChildren;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -76,9 +76,9 @@ use crate::utils::validate_binary_tensor_float_inputs;
 pub struct InnerProduct;
 
 impl InnerProduct {
-    /// Creates a new [`ScalarFn`] wrapping the inner product operation.
-    pub fn new() -> ScalarFn<InnerProduct> {
-        ScalarFn::new(InnerProduct, EmptyOptions)
+    /// Creates a new [`TypedScalarFnInstance`] wrapping the inner product operation.
+    pub fn new() -> TypedScalarFnInstance<InnerProduct> {
+        TypedScalarFnInstance::new(InnerProduct, EmptyOptions)
     }
 
     /// Constructs a [`ScalarFnArray`] that lazily computes the inner product between `lhs` and
