@@ -130,34 +130,14 @@ impl ArrayRef {
                 }
             }
 
-            // Step 2: if this child has run_execute_parent, try execute_parent
-            // on the reconstructed parent before executing the child further.
-            // This lets fused kernels fire (e.g. Filter(RunEnd) → RunEnd)
-            // before the child decodes to canonical.
-            let current = if entry.run_execute_parent {
-                if let Some(ref link) = entry.parent {
-                    let parent = stack[link.parent_idx].array.take().unwrap();
-                    let parent =
-                        unsafe { parent.put_slot_unchecked(link.slot_idx, current)? };
-                    match try_execute_parent_on(&parent, ctx)? {
-                        Some(rewritten) => {
-                            // Fused kernel fired — discard child, keep rewritten parent.
-                            stack[link.parent_idx].array = Some(rewritten);
-                            continue;
-                        }
-                        None => {
-                            // No rewrite — take child back out, fall through to execute.
-                            let (parent, child) =
-                                unsafe { parent.take_slot_unchecked(link.slot_idx)? };
-                            stack[link.parent_idx].array = Some(parent);
-                            child
-                        }
-                    }
-                } else {
-                    current
-                }
-            } else {
-                current
+            // Step 2: for ExecuteSlot children, temporarily put the child back
+            // into its parent and try execute_parent. This lets fused kernels
+            // fire (e.g. Filter(RunEnd) → RunEnd) before the child decodes
+            // further. If a kernel fires, the parent is rewritten and the child
+            // is discarded.
+            let current = match try_fuse_with_parent(current, &entry, &mut stack, ctx)? {
+                FuseResult::Fused => continue,
+                FuseResult::Continue(child) => child,
             };
 
             // Step 3: execute_parent on the child's own children, then execute encoding's own step.
@@ -316,6 +296,44 @@ fn try_execute_parent_on(
         }
     }
     Ok(None)
+}
+
+enum FuseResult {
+    /// A fused kernel fired — the parent was rewritten and the child discarded.
+    Fused,
+    /// No fusion — the child is returned for normal execution.
+    Continue(ArrayRef),
+}
+
+/// For `ExecuteSlot` children (`run_execute_parent = true`), temporarily put the
+/// child back into its parent and try `execute_parent`. If a fused kernel fires,
+/// the parent entry is updated and the child is discarded. Otherwise the child is
+/// taken back out and returned for normal execution.
+fn try_fuse_with_parent(
+    child: ArrayRef,
+    entry: &Entry,
+    stack: &mut Vec<Entry>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<FuseResult> {
+    let Some(ref link) = entry.parent else {
+        return Ok(FuseResult::Continue(child));
+    };
+    if !entry.run_execute_parent {
+        return Ok(FuseResult::Continue(child));
+    }
+
+    let parent = stack[link.parent_idx].array.take().unwrap();
+    let parent = unsafe { parent.put_slot_unchecked(link.slot_idx, child)? };
+
+    if let Some(rewritten) = try_execute_parent_on(&parent, ctx)? {
+        stack[link.parent_idx].array = Some(rewritten);
+        return Ok(FuseResult::Fused);
+    }
+
+    // No rewrite — take child back out.
+    let (parent, child) = unsafe { parent.take_slot_unchecked(link.slot_idx)? };
+    stack[link.parent_idx].array = Some(parent);
+    Ok(FuseResult::Continue(child))
 }
 
 /// After putting an ExecuteSlot child back, try `execute_parent` on each child
