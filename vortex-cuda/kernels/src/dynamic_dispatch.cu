@@ -114,8 +114,8 @@ __shared__ uint64_t runend_cursors[BLOCK_SIZE];
 /// `abs_pos` is the absolute output position of the first value to process.
 /// It is used by scalar operations that apply patches, e.g. ALP.
 template <typename T, uint32_t N>
-__device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem,
-                                  uint64_t abs_pos = 0) {
+__device__ inline void
+scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem, uint64_t abs_pos = 0) {
     switch (op.op_code) {
     case ScalarOp::FOR: {
         const T ref = static_cast<T>(op.params.frame_of_ref.reference);
@@ -143,13 +143,10 @@ __device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__r
         // be reconstructed through the ALP encode/decode cycle.
         // Per-value cursor — tiles can span chunk boundaries for sliced arrays.
         if (op.params.alp.patches_ptr != 0) {
-            const auto &patches = *reinterpret_cast<const GPUPatches *>(
-                op.params.alp.patches_ptr);
+            const auto &patches = *reinterpret_cast<const GPUPatches *>(op.params.alp.patches_ptr);
 #pragma unroll
             for (uint32_t i = 0; i < N; ++i) {
-                uint64_t my_pos = (N > 1)
-                    ? abs_pos + i * blockDim.x + threadIdx.x
-                    : abs_pos;
+                uint64_t my_pos = (N > 1) ? abs_pos + i * blockDim.x + threadIdx.x : abs_pos;
                 uint64_t orig = my_pos + patches.offset;
                 uint32_t chunk = static_cast<uint32_t>(orig / 1024);
                 uint32_t within = static_cast<uint32_t>(orig % 1024);
@@ -187,8 +184,8 @@ __device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__r
 /// All threads in the block cooperate. Caller must issue __syncthreads()
 /// afterward if other threads read from `out`.
 template <typename T>
-__device__ __forceinline__ void scatter_patches_chunk(
-    const GPUPatches &patches, T *__restrict out, uint32_t chunk) {
+__device__ __forceinline__ void
+scatter_patches_chunk(const GPUPatches &patches, T *__restrict out, uint32_t chunk) {
     PatchesCursor<T> cursor(patches, chunk, threadIdx.x, blockDim.x);
     auto patch = cursor.next();
     while (patch.index != 1024) {
@@ -196,7 +193,6 @@ __device__ __forceinline__ void scatter_patches_chunk(
         patch = cursor.next();
     }
 }
-
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Source ops
@@ -229,8 +225,7 @@ __device__ inline void bitunpack(const T *__restrict packed,
         // Apply BitPacked patches inline, matching the standalone kernel pattern.
         if (src.params.bitunpack.patches_ptr != 0) {
             __syncthreads();
-            const auto &patches = *reinterpret_cast<const GPUPatches *>(
-                src.params.bitunpack.patches_ptr);
+            const auto &patches = *reinterpret_cast<const GPUPatches *>(src.params.bitunpack.patches_ptr);
             scatter_patches_chunk<T>(patches, chunk_dst, first_block + c);
         }
     }
@@ -461,7 +456,6 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
             // now fully populated for subsequent stages to read.
             __syncthreads();
         }
-
 
     } else {
         if (src.op_code == SourceOp::RUNEND) {

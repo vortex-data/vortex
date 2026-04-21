@@ -12,7 +12,6 @@ use vortex::buffer::Buffer;
 use vortex::buffer::BufferMut;
 use vortex::buffer::ByteBufferMut;
 use vortex::dtype::PType;
-
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
@@ -55,8 +54,6 @@ pub(crate) async fn load_patches(
 ) -> VortexResult<DevicePatches> {
     let offset = patches.offset();
     let offset_within_chunk = patches.offset_within_chunk().unwrap_or_default();
-    let array_len = patches.array_len();
-
     // Get or compute chunk_offsets
     let Some(co) = patches.chunk_offsets() else {
         vortex_bail!("cannot execute_cuda for patched BitPacked array without chunk_offsets")
@@ -151,7 +148,6 @@ pub(crate) fn load_patches_sync(
 ) -> VortexResult<DevicePatches> {
     let offset = patches.offset();
     let offset_within_chunk = patches.offset_within_chunk().unwrap_or_default();
-    let array_len = patches.array_len();
 
     // Get chunk_offsets
     let Some(co) = patches.chunk_offsets() else {
@@ -240,7 +236,7 @@ pub(crate) fn upload_gpu_patches(
     // Serialize the repr(C) struct to bytes and upload to the device.
     let bytes = unsafe {
         std::slice::from_raw_parts(
-            &gpu_patches as *const GPUPatches as *const u8,
+            std::ptr::from_ref(&gpu_patches).cast::<u8>(),
             size_of::<GPUPatches>(),
         )
     };

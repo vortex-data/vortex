@@ -223,11 +223,11 @@ struct __attribute__((aligned(8))) PlanHeader {
 /// change the type; the final output PType is given by the last scalar op's
 /// `output_ptype` (or `source_ptype` if there are no scalar ops).
 struct Stage {
-    uint64_t input_ptr;                // encoded input in global memory
-    uint32_t smem_byte_offset;         // byte offset within dynamic shared memory
-    uint32_t len;                      // elements produced
-    enum PTypeTag source_ptype;        // PType produced by the source op
-    struct SourceOp source;            // source decode op
+    uint64_t input_ptr;         // encoded input in global memory
+    uint32_t smem_byte_offset;  // byte offset within dynamic shared memory
+    uint32_t len;               // elements produced
+    enum PTypeTag source_ptype; // PType produced by the source op
+    struct SourceOp source;     // source decode op
 
     uint8_t num_scalar_ops;            // number of scalar ops
     const struct ScalarOp *scalar_ops; // scalar decode ops
