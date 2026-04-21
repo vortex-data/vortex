@@ -113,17 +113,24 @@ fn prepare(arr: &FSSTArray) -> PreparedCodes {
     PreparedCodes { bytes, offsets: out }
 }
 
-fn run(bencher: Bencher, prep: &PreparedCodes, dfa: ContainsBench, branchless: bool) {
+#[derive(Clone, Copy)]
+enum Variant {
+    Default,
+    Branchless,
+    Compound2,
+}
+
+fn run(bencher: Bencher, prep: &PreparedCodes, dfa: ContainsBench, variant: Variant) {
     bencher.bench_local(|| {
         let mut count = 0usize;
         let mut start = prep.offsets[0] as usize;
         for i in 0..(prep.offsets.len() - 1) {
             let end = prep.offsets[i + 1] as usize;
             let codes = &prep.bytes[start..end];
-            let hit = if branchless {
-                dfa.matches_branchless(codes)
-            } else {
-                dfa.matches(codes)
+            let hit = match variant {
+                Variant::Default => dfa.matches(codes),
+                Variant::Branchless => dfa.matches_branchless(codes),
+                Variant::Compound2 => dfa.matches_compound2(codes),
             };
             if hit {
                 count += 1;
@@ -152,7 +159,7 @@ fn make_dfa(ds: &Dataset) -> (ContainsBench, PreparedCodes) {
 ])]
 fn default_scan(bencher: Bencher, dataset: &Dataset) {
     let (dfa, prep) = make_dfa(dataset);
-    run(bencher, &prep, dfa, false);
+    run(bencher, &prep, dfa, Variant::Default);
 }
 
 #[divan::bench(args = [
@@ -161,5 +168,14 @@ fn default_scan(bencher: Bencher, dataset: &Dataset) {
 ])]
 fn branchless_scan(bencher: Bencher, dataset: &Dataset) {
     let (dfa, prep) = make_dfa(dataset);
-    run(bencher, &prep, dfa, true);
+    run(bencher, &prep, dfa, Variant::Branchless);
+}
+
+#[divan::bench(args = [
+    Dataset::Urls, Dataset::Cb, Dataset::Log, Dataset::Json,
+    Dataset::Path, Dataset::Email, Dataset::Rare,
+])]
+fn compound2_scan(bencher: Bencher, dataset: &Dataset) {
+    let (dfa, prep) = make_dfa(dataset);
+    run(bencher, &prep, dfa, Variant::Compound2);
 }

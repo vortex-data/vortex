@@ -127,21 +127,33 @@ mod multi_contains;
 mod prefix;
 mod suffix;
 
-/// Bench-only wrapper around `FlatContainsDfa` exposing both the default
-/// and zero-branch `matches` variants. Only compiled with the
-/// `_test-harness` feature.
+/// Bench-only wrapper around `FlatContainsDfa` exposing the default,
+/// zero-branch, and 2-byte compound `matches` variants. Only compiled
+/// with the `_test-harness` feature.
 #[cfg(feature = "_test-harness")]
 pub struct ContainsBench {
     inner: FlatContainsDfa,
+    /// Precomputed 2-byte compound transition table (see `build_compound2_table`),
+    /// and a cached copy of the 1-byte table for tail handling.
+    /// Built eagerly so the benchmark doesn't include build time.
+    /// Only present when the folded DFA exists.
+    compound2: Option<(Vec<u8>, Vec<u8>)>,
 }
 
 #[cfg(feature = "_test-harness")]
 impl ContainsBench {
-    /// Build a contains DFA for the given needle.
+    /// Build a contains DFA for the given needle. Also precomputes the
+    /// 2-byte compound transition table for the `matches_compound2`
+    /// variant.
     pub fn new(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> VortexResult<Self> {
-        Ok(Self {
-            inner: FlatContainsDfa::new(symbols, symbol_lengths, needle)?,
-        })
+        let inner = FlatContainsDfa::new(symbols, symbol_lengths, needle)?;
+        let compound2 = inner.folded_1byte_table().map(|(t, _)| {
+            (
+                flat_contains::build_compound2_table(t),
+                t.to_vec(),
+            )
+        });
+        Ok(Self { inner, compound2 })
     }
 
     /// Default scan: state-0 skip + 2× unrolled stateful loop + early accept exit.
@@ -155,6 +167,21 @@ impl ContainsBench {
     #[inline]
     pub fn matches_branchless(&self, codes: &[u8]) -> bool {
         self.inner.matches_branchless(codes)
+    }
+
+    /// 2-byte compound table scan: one L2-sized table lookup per two
+    /// input bytes. Returns `false` (degenerate no-match) if the inner
+    /// DFA is on the sentinel path — compound2 is only implemented for
+    /// the folded variant. Whether this is faster than `matches()`
+    /// depends on whether the compound table fits in L1 (rare) vs L2
+    /// (usual for short needles).
+    #[inline]
+    pub fn matches_compound2(&self, codes: &[u8]) -> bool {
+        if let Some((compound, one_byte)) = &self.compound2 {
+            self.inner.matches_compound2_scan(compound, one_byte, codes)
+        } else {
+            false
+        }
     }
 }
 #[cfg(test)]

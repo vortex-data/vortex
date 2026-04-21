@@ -294,6 +294,36 @@ impl FlatContainsDfa {
     /// `fsst_like_clickbench` bench: `rlane` (~250 codes) and `tor-sin`
     /// (~200 codes) flip when ≥ 128 codes advance; `ttp`, `htt`, `http://`
     /// stay on the per-string skip path.
+
+    /// Return the raw 1-byte folded transition table + accept state, so
+    /// callers can build an experimental 2-byte compound table. Used
+    /// only by `ContainsBench::matches_compound2` under `_test-harness`.
+    pub(crate) fn folded_1byte_table(&self) -> Option<(&[u8], u8)> {
+        match &self.inner {
+            ContainsInner::Folded {
+                transitions,
+                accept_state,
+                ..
+            } => Some((transitions.as_slice(), *accept_state)),
+            ContainsInner::Sentinel { .. } => None,
+        }
+    }
+
+    /// Run the compound-2 scan against the given precomputed compound
+    /// table. Exposed for experimental benchmarks only.
+    pub(crate) fn matches_compound2_scan(
+        &self,
+        compound: &[u8],
+        transitions_1byte: &[u8],
+        codes: &[u8],
+    ) -> bool {
+        let accept = match &self.inner {
+            ContainsInner::Folded { accept_state, .. } => *accept_state,
+            ContainsInner::Sentinel { accept_state, .. } => *accept_state,
+        };
+        matches_compound2(compound, transitions_1byte, accept, codes)
+    }
+
     /// Decide whether the K-way batched scan should handle this needle.
     ///
     /// The heuristic is a combined length + density threshold:
@@ -333,6 +363,68 @@ impl FlatContainsDfa {
 // inlined and monomorphized by itself. The enum dispatch happens once per
 // `matches()` call, outside the hot loop.
 // ---------------------------------------------------------------------------
+
+/// Build a 2-byte compound transition table: for each (state, c1, c2)
+/// triple, the state after processing `c1` followed by `c2` from
+/// `state`. Table shape is `n_states × 256 × 256` bytes, so
+/// `n_states * 65536`. For the folded contains DFA with up to 255 states
+/// this is 16 MB — only usable for short needles where the table fits
+/// in L2 (roughly N ≤ 4 produces ≤ 9 states × 64 KiB = 576 KiB).
+///
+/// Experimental: exposed via `ContainsBench` behind `_test-harness`
+/// so the tradeoff can be measured. The default scan path does *not*
+/// use this; see the commit comment for why 2-byte compound is expected
+/// to lose to K-way batched 1-byte dispatch on modern x86.
+pub(crate) fn build_compound2_table(transitions: &[u8]) -> Vec<u8> {
+    let n_states = transitions.len() / 256;
+    let mut out = vec![0u8; n_states * 65536];
+    for s in 0..n_states {
+        for c1 in 0..256 {
+            let s1 = transitions[s * 256 + c1] as usize;
+            for c2 in 0..256 {
+                out[s * 65536 + c1 * 256 + c2] = transitions[s1 * 256 + c2];
+            }
+        }
+    }
+    out
+}
+
+/// Zero-branch compound2 scan: process two bytes per table lookup, no
+/// mid-loop branches, no state-0 skip. Accept is sticky in the source
+/// transition table, so it stays sticky in the compound table too.
+///
+/// Needs both the compound 2-byte table and the original 1-byte
+/// transitions (for the tail byte on odd-length inputs). Callers that
+/// guarantee even-length inputs can pass the same compound table
+/// both arguments and skip the tail branch.
+#[inline(always)]
+fn matches_compound2(
+    compound: &[u8],
+    transitions_1byte: &[u8],
+    accept_state: u8,
+    codes: &[u8],
+) -> bool {
+    let len = codes.len();
+    let mut state = 0u8;
+    let mut pos = 0;
+    while pos + 2 <= len {
+        // SAFETY: pos + 1 < len; state < n_states, compound has
+        // n_states * 65536 entries.
+        let c1 = unsafe { *codes.get_unchecked(pos) };
+        let c2 = unsafe { *codes.get_unchecked(pos + 1) };
+        let idx = usize::from(state) * 65536 + usize::from(c1) * 256 + usize::from(c2);
+        state = unsafe { *compound.get_unchecked(idx) };
+        pos += 2;
+    }
+    if pos < len {
+        // SAFETY: pos < len; transitions_1byte has n_states * 256 entries.
+        let c = unsafe { *codes.get_unchecked(pos) };
+        state = unsafe {
+            *transitions_1byte.get_unchecked(usize::from(state) * 256 + usize::from(c))
+        };
+    }
+    state == accept_state
+}
 
 /// Batch-of-K scan over the folded-contains DFA. Instead of running one
 /// dependent-load chain per string, run K independent chains in the same
