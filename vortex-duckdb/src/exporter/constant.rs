@@ -65,7 +65,7 @@ impl ColumnExporter for ConstantExporter {
     fn export(
         &self,
         _offset: usize,
-        _len: usize,
+        len: usize,
         vector: &mut VectorRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex::mask::Mask;
-use vortex::mask::MaskValues;
 
 use crate::cpp::duckdb_vx_vector_set_all_valid;
 use crate::duckdb::Value;
@@ -31,7 +30,7 @@ impl VectorRef {
             Mask::Values(arr) => {
                 let true_count = arr.bit_buffer().slice(offset..(offset + len)).true_count();
                 if true_count == len {
-                    unsafe { self.set_all_true_validity(len) }
+                    self.set_all_true_validity()
                 } else if true_count == 0 {
                     self.set_all_false_validity()
                 } else if let Some(zc) = zero_copy.filter(|_| offset.is_multiple_of(64)) {
