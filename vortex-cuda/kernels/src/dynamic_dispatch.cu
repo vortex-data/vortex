@@ -141,12 +141,13 @@ scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem, uint64_t 
         }
         // Apply ALP patches: override positions whose float value couldn't
         // be reconstructed through the ALP encode/decode cycle.
-        // Per-value cursor — tiles can span chunk boundaries for sliced arrays.
+        // Per-value cursor — with a slice offset, a tile's N values can
+        // straddle two FL chunks, so each value needs its own lookup.
         if (op.params.alp.patches_ptr != 0) {
             const auto &patches = *reinterpret_cast<const GPUPatches *>(op.params.alp.patches_ptr);
-            // chunk_start is the first original chunk covered by the sliced
-            // chunk_offsets array. PatchesCursor indexes from 0 into that
-            // array, so we subtract chunk_start from the absolute chunk.
+            // The sliced chunk_offsets array starts at original chunk
+            // (offset / FL_CHUNK). PatchesCursor indexes from 0, so
+            // subtract that base to get the index into chunk_offsets.
             const uint32_t chunk_start = patches.offset / FL_CHUNK;
 #pragma unroll
             for (uint32_t i = 0; i < N; ++i) {
@@ -448,12 +449,12 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
         smem_out += src.params.bitunpack.element_offset % SMEM_TILE_SIZE;
 
         if (stage.num_scalar_ops > 0) {
-            for (uint32_t i = threadIdx.x; i < stage.len; i += blockDim.x) {
-                T val = smem_out[i];
+            for (uint32_t elem_idx = threadIdx.x; elem_idx < stage.len; elem_idx += blockDim.x) {
+                T val = smem_out[elem_idx];
                 for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
-                    scalar_op<T, 1>(&val, stage.scalar_ops[op], smem, i);
+                    scalar_op<T, 1>(&val, stage.scalar_ops[op], smem, elem_idx);
                 }
-                smem_out[i] = val;
+                smem_out[elem_idx] = val;
             }
             // Write barrier: scalar ops applied in-place, smem region is
             // now fully populated for subsequent stages to read.
@@ -471,13 +472,13 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
                 upper_bound(ends, src.params.runend.num_runs, threadIdx.x + src.params.runend.offset);
         }
         const void *raw_input = reinterpret_cast<const void *>(stage.input_ptr);
-        for (uint32_t i = threadIdx.x; i < stage.len; i += blockDim.x) {
+        for (uint32_t elem_idx = threadIdx.x; elem_idx < stage.len; elem_idx += blockDim.x) {
             T val;
-            source_op<T, 1>(&val, src, raw_input, stage.source_ptype, nullptr, 0, i, smem);
+            source_op<T, 1>(&val, src, raw_input, stage.source_ptype, nullptr, 0, elem_idx, smem);
             for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
-                scalar_op<T, 1>(&val, stage.scalar_ops[op], smem, i);
+                scalar_op<T, 1>(&val, stage.scalar_ops[op], smem, elem_idx);
             }
-            smem_out[i] = val;
+            smem_out[elem_idx] = val;
         }
         // Write barrier: smem region is fully populated for subsequent
         // stages to read.
