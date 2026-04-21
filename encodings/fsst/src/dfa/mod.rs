@@ -4,22 +4,18 @@
 //! # FSST LIKE Pushdown via DFA Construction
 //!
 //! This module implements DFA-based pattern matching directly on FSST-compressed
-//! strings, without decompressing them. It handles two pattern shapes:
+//! strings, without decompressing them. It handles three pattern shapes:
 //!
 //! - **Prefix**: `'prefix%'`  — matches strings starting with a literal prefix.
+//! - **Suffix**: `'%suffix'`  — matches strings ending with a literal suffix.
 //! - **Contains**: `'%needle%'` — matches strings containing a literal substring.
+//! - **Multi-Contains**: `'%seg1%seg2%...%segN%'` — matches strings containing
+//!   multiple literal substrings in order (see [`multi_contains`]).
 //!
 //! Pushdown is intentionally conservative. If the pattern shape is unsupported,
 //! or if the pattern exceeds the DFA's representable state space, construction
 //! returns `None` and the caller must fall back to ordinary decompression-based
 //! LIKE evaluation.
-//!
-//! TODO(joe): suffix (`'%suffix'`) pushdown. Two approaches:
-//! - **Forward DFA**: use a non-sticky accept state with KMP fallback transitions,
-//!   check `state == accept` after processing all codes. Branchless and vectorizable.
-//! - **Backward scan**: walk the compressed code stream in reverse, comparing symbol
-//!   bytes from the end. Simpler, no DFA construction, but requires reverse parsing
-//!   of the FSST escape mechanism.
 //!
 //! ## Background: FSST Encoding
 //!
@@ -114,22 +110,31 @@
 //! - `prefix%` pushdown is limited to **253 bytes**. The flat prefix DFA uses
 //!   `u8` state ids and needs room for progress states, an accept state, a
 //!   fail state, and one escape sentinel (N+3 ≤ 256).
+//! - `%suffix` pushdown is limited to **254 bytes**. The suffix DFA stores
+//!   states in `u8`, needing room for progress states, the accept state, and
+//!   one escape sentinel (N+2 ≤ 256).
 //! - `%needle%` pushdown is limited to **254 bytes**. The contains DFA stores
 //!   states in `u8`, so it needs room for every match-progress state plus both
 //!   the accept state and the escape sentinel.
+//! - `%seg1%seg2%...%segN%` pushdown is limited to **254 bytes total** across
+//!   all segments. The multi-contains DFA chains segment states linearly.
 //!
 //! Patterns beyond those limits are still valid LIKE patterns; they simply do
 //! not use FSST pushdown and must be evaluated through the fallback path.
 
 mod flat_contains;
+mod multi_contains;
 mod prefix;
+mod suffix;
 #[cfg(test)]
 mod tests;
 
 use flat_contains::FlatContainsDfa;
 use fsst::ESCAPE_CODE;
 use fsst::Symbol;
+use multi_contains::MultiContainsDfa;
 use prefix::FlatPrefixDfa;
+use suffix::SuffixMatcher;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -151,7 +156,9 @@ pub(crate) struct FsstMatcher {
 enum MatcherInner {
     MatchAll,
     Prefix(FlatPrefixDfa),
+    Suffix(SuffixMatcher),
     Contains(FlatContainsDfa),
+    MultiContains(MultiContainsDfa),
 }
 
 impl FsstMatcher {
@@ -170,18 +177,37 @@ impl FsstMatcher {
         };
 
         let inner = match like_kind {
-            LikeKind::Prefix(b"") | LikeKind::Contains(b"") => MatcherInner::MatchAll,
+            LikeKind::Prefix(b"") | LikeKind::Contains(b"") | LikeKind::Suffix(b"") => {
+                MatcherInner::MatchAll
+            }
             LikeKind::Prefix(prefix) => {
                 if prefix.len() > FlatPrefixDfa::MAX_PREFIX_LEN {
                     return Ok(None);
                 }
                 MatcherInner::Prefix(FlatPrefixDfa::new(symbols, symbol_lengths, prefix)?)
             }
+            LikeKind::Suffix(suffix) => {
+                if suffix.len() > SuffixMatcher::MAX_SUFFIX_LEN {
+                    return Ok(None);
+                }
+                MatcherInner::Suffix(SuffixMatcher::new(symbols, symbol_lengths, suffix)?)
+            }
             LikeKind::Contains(needle) => {
                 if needle.len() > FlatContainsDfa::MAX_NEEDLE_LEN {
                     return Ok(None);
                 }
                 MatcherInner::Contains(FlatContainsDfa::new(symbols, symbol_lengths, needle)?)
+            }
+            LikeKind::MultiContains(segments) => {
+                let total_len: usize = segments.iter().map(|s| s.len()).sum();
+                if total_len > MultiContainsDfa::MAX_TOTAL_LEN {
+                    return Ok(None);
+                }
+                MatcherInner::MultiContains(MultiContainsDfa::new(
+                    symbols,
+                    symbol_lengths,
+                    &segments,
+                )?)
             }
         };
 
@@ -193,7 +219,9 @@ impl FsstMatcher {
         match &self.inner {
             MatcherInner::MatchAll => true,
             MatcherInner::Prefix(dfa) => dfa.matches(codes),
+            MatcherInner::Suffix(dfa) => dfa.matches(codes),
             MatcherInner::Contains(dfa) => dfa.matches(codes),
+            MatcherInner::MultiContains(dfa) => dfa.matches(codes),
         }
     }
 }
@@ -202,8 +230,12 @@ impl FsstMatcher {
 enum LikeKind<'a> {
     /// `prefix%`
     Prefix(&'a [u8]),
+    /// `%suffix`
+    Suffix(&'a [u8]),
     /// `%needle%`
     Contains(&'a [u8]),
+    /// `%seg1%seg2%...%segN%`
+    MultiContains(Vec<&'a [u8]>),
 }
 
 impl<'a> LikeKind<'a> {
@@ -216,10 +248,27 @@ impl<'a> LikeKind<'a> {
             return Some(LikeKind::Prefix(prefix));
         }
 
+        // `%suffix` (no trailing %)
+        if let Some(suffix) = pattern.strip_prefix(b"%")
+            && !suffix.contains(&b'%')
+            && !suffix.contains(&b'_')
+        {
+            return Some(LikeKind::Suffix(suffix));
+        }
+
         // `%needle%`
         let inner = pattern.strip_prefix(b"%")?.strip_suffix(b"%")?;
         if !inner.contains(&b'%') && !inner.contains(&b'_') {
             return Some(LikeKind::Contains(inner));
+        }
+
+        // `%seg1%seg2%...%segN%`
+        let segments: Vec<&[u8]> = inner
+            .split(|&b| b == b'%')
+            .filter(|s| !s.is_empty())
+            .collect();
+        if segments.len() >= 2 && segments.iter().all(|s| !s.contains(&b'_')) {
+            return Some(LikeKind::MultiContains(segments));
         }
 
         None

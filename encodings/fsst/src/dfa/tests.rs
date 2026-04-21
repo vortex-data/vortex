@@ -26,6 +26,7 @@ use vortex_session::VortexSession;
 use super::FsstMatcher;
 use super::LikeKind;
 use super::flat_contains::FlatContainsDfa;
+use super::multi_contains::MultiContainsDfa;
 use super::prefix::FlatPrefixDfa;
 use crate::FSSTArray;
 use crate::fsst_compress;
@@ -61,8 +62,27 @@ fn test_like_kind_parse() {
         Some(LikeKind::Contains(b"needle"))
     ));
     assert!(matches!(LikeKind::parse(b"%"), Some(LikeKind::Prefix(b""))));
-    // Suffix and underscore patterns are not supported.
-    assert!(LikeKind::parse(b"%suffix").is_none());
+    assert!(matches!(
+        LikeKind::parse(b"%suffix"),
+        Some(LikeKind::Suffix(b"suffix"))
+    ));
+    // Multi-contains
+    assert!(matches!(
+        LikeKind::parse(b"%abc%def%"),
+        Some(LikeKind::MultiContains(_))
+    ));
+    assert!(matches!(
+        LikeKind::parse(b"%a%b%c%"),
+        Some(LikeKind::MultiContains(_))
+    ));
+    // Consecutive %% in multi-contains is fine (empty segments filtered out)
+    assert!(matches!(
+        LikeKind::parse(b"%abc%%def%"),
+        Some(LikeKind::MultiContains(_))
+    ));
+    // Underscore in any segment rejects
+    assert!(LikeKind::parse(b"%abc%d_f%").is_none());
+    // Underscore patterns are not supported.
     assert!(LikeKind::parse(b"a_c").is_none());
 }
 
@@ -218,6 +238,129 @@ fn test_contains_pushdown_rejects_len_255() {
 }
 
 // ---------------------------------------------------------------------------
+// MultiContainsDfa unit tests
+// ---------------------------------------------------------------------------
+
+/// No symbols — all bytes escaped. Two segments.
+#[test]
+fn test_multi_contains_dfa_no_symbols() -> VortexResult<()> {
+    let dfa = MultiContainsDfa::new(&[], &[], &[b"ab", b"cd"])?;
+
+    assert!(dfa.matches(&escaped(b"abcd")));
+    assert!(dfa.matches(&escaped(b"xxabxxcdxx")));
+    assert!(dfa.matches(&escaped(b"abxcd")));
+    assert!(!dfa.matches(&escaped(b"cdab"))); // wrong order
+    assert!(!dfa.matches(&escaped(b"ab"))); // missing cd
+    assert!(!dfa.matches(&escaped(b"cd"))); // missing ab
+    assert!(!dfa.matches(&[]));
+
+    Ok(())
+}
+
+/// Three segments, all escaped.
+#[test]
+fn test_multi_contains_dfa_three_segments() -> VortexResult<()> {
+    let dfa = MultiContainsDfa::new(&[], &[], &[b"a", b"b", b"c"])?;
+
+    assert!(dfa.matches(&escaped(b"abc")));
+    assert!(dfa.matches(&escaped(b"xaxbxcx")));
+    assert!(dfa.matches(&escaped(b"abc")));
+    assert!(!dfa.matches(&escaped(b"cba"))); // wrong order
+    assert!(!dfa.matches(&escaped(b"ab"))); // missing c
+    assert!(!dfa.matches(&escaped(b"ac"))); // missing b between a and c
+
+    Ok(())
+}
+
+/// With symbols — multi-byte symbols can straddle segment boundaries.
+#[test]
+fn test_multi_contains_dfa_with_symbols() -> VortexResult<()> {
+    // code 0 = "ab", code 1 = "cd"
+    let symbols = [sym(b"ab"), sym(b"cd")];
+    let lengths = [2u8, 2];
+    let dfa = MultiContainsDfa::new(&symbols, &lengths, &[b"ab", b"cd"])?;
+
+    // "abcd" via symbols: code 0 ("ab") + code 1 ("cd")
+    assert!(dfa.matches(&[0, 1]));
+    // "abcd" all escaped
+    assert!(dfa.matches(&escaped(b"abcd")));
+    // "ab...cd" with gap via escape
+    assert!(dfa.matches(&[0, ESCAPE_CODE, b'x', 1]));
+    // Only first segment
+    assert!(!dfa.matches(&[0]));
+    // Wrong order
+    assert!(!dfa.matches(&[1, 0]));
+
+    Ok(())
+}
+
+/// KMP overlap within a segment: "abab" has failure [0,0,1,2].
+#[test]
+fn test_multi_contains_dfa_kmp_within_segment() -> VortexResult<()> {
+    let dfa = MultiContainsDfa::new(&[], &[], &[b"abab", b"xy"])?;
+
+    assert!(dfa.matches(&escaped(b"ababxy")));
+    assert!(dfa.matches(&escaped(b"xababxyx")));
+    // "abababxy" — KMP for "abab" matches at position 0-3, then "xy" at 6-7
+    assert!(dfa.matches(&escaped(b"abababxy")));
+    assert!(!dfa.matches(&escaped(b"xyabab"))); // wrong order
+    assert!(!dfa.matches(&escaped(b"abab"))); // missing xy
+
+    Ok(())
+}
+
+/// Greedy-first-match correctness: %ab%ab% on "abab".
+/// Find "ab" at 0, then "ab" from position 2 onward — found at 2.
+#[test]
+fn test_multi_contains_dfa_greedy_correctness() -> VortexResult<()> {
+    let dfa = MultiContainsDfa::new(&[], &[], &[b"ab", b"ab"])?;
+
+    assert!(dfa.matches(&escaped(b"abab")));
+    assert!(dfa.matches(&escaped(b"xababx")));
+    assert!(!dfa.matches(&escaped(b"ab"))); // only one "ab"
+    assert!(!dfa.matches(&escaped(b"xabx"))); // only one "ab"
+
+    Ok(())
+}
+
+/// State-space limit: total 254 bytes across segments.
+#[test]
+fn test_multi_contains_dfa_max_total_len() -> VortexResult<()> {
+    let seg1 = "a".repeat(127);
+    let seg2 = "b".repeat(127);
+    let dfa = MultiContainsDfa::new(&[], &[], &[seg1.as_bytes(), seg2.as_bytes()])?;
+
+    let matching = format!("{seg1}{seg2}");
+    assert!(dfa.matches(&escaped(matching.as_bytes())));
+
+    let non_matching = format!("{seg2}{seg1}"); // wrong order
+    assert!(!dfa.matches(&escaped(non_matching.as_bytes())));
+
+    Ok(())
+}
+
+#[test]
+fn test_multi_contains_dfa_rejects_over_max() {
+    let seg1 = "a".repeat(128);
+    let seg2 = "b".repeat(127);
+    // total = 255 > MAX_TOTAL_LEN = 254
+    assert!(MultiContainsDfa::new(&[], &[], &[seg1.as_bytes(), seg2.as_bytes()]).is_err());
+}
+
+/// FsstMatcher integration: %abc%def% should be handled.
+#[test]
+fn test_multi_contains_matcher_handles() {
+    let matcher = FsstMatcher::try_new(&[], &[], b"%abc%def%")
+        .unwrap()
+        .unwrap();
+
+    assert!(matcher.matches(&escaped(b"abcdef")));
+    assert!(matcher.matches(&escaped(b"xxabcxxdefxx")));
+    assert!(!matcher.matches(&escaped(b"defabc")));
+    assert!(!matcher.matches(&escaped(b"abc")));
+}
+
+// ---------------------------------------------------------------------------
 // End-to-end edge cases: FSST compress → LIKE → compare booleans
 // ---------------------------------------------------------------------------
 
@@ -302,6 +445,33 @@ fn run_like(array: FSSTArray, pattern_arr: ArrayRef) -> VortexResult<BoolArray> 
     "%abcabcabc%",
     &[true, true, false, false]
 )]
+// Suffix patterns (`%suffix`)
+#[case(&["hello", "world", "jello"], "%ello", &[true, false, true])]
+#[case(&["foobar", "bazbar", "bar", "ba"], "%bar", &[true, true, true, false])]
+#[case(&["abc", "xabc", "abcd", ""], "%abc", &[true, true, false, false])]
+#[case(&["BRASS", "xBRASS", "BRASSx", "brass"], "%BRASS", &[true, true, false, false])]
+#[case(&["aa", "aaa", "aaaa", "ba"], "%aa", &[true, true, true, false])]
+// Suffix with KMP overlap: "abab" — "xababab" ends with "abab"
+#[case(&["ababab", "abab", "aba", "xabab"], "%abab", &[true, true, false, true])]
+// Empty suffix matches everything
+#[case(&["abc", "", "xyz"], "%", &[true, true, true])]
+// Multi-contains: two segments
+#[case(&["abcdef", "abxdef", "defabc", "abc"], "%abc%def%", &[true, false, false, false])]
+#[case(&["xxabcxxdefxx", "abcdef", "defabc"], "%abc%def%", &[true, true, false])]
+// Multi-contains: three segments (single-char each)
+#[case(&["axbxc", "abc", "cba", "ab"], "%a%b%c%", &[true, true, false, false])]
+// Multi-contains: greedy first match
+#[case(&["abab", "ab", "aba", "xababx"], "%ab%ab%", &[true, false, false, true])]
+// Multi-contains: segments don't overlap ("abcdef" has no "cd" after "abc")
+#[case(&["abccd", "abcd", "abcdef"], "%abc%cd%", &[true, false, false])]
+// Multi-contains: KMP overlap within segment
+#[case(&["xxabcabcabcxxdefxx", "abcabcabcdef", "defabcabcabc"], "%abcabcabc%def%", &[true, true, false])]
+// Multi-contains with longer segments
+#[case(&["hello world goodbye", "hello goodbye", "world hello goodbye"], "%hello%goodbye%", &[true, true, true])]
+// Multi-contains: segment appears but not in order
+#[case(&["barfoo", "foobar", "fooxbar"], "%foo%bar%", &[false, true, true])]
+// Multi-contains: same segment repeated three times ("xaxax" has only 2 'a's)
+#[case(&["aaa", "aa", "axaxa", "xaxax"], "%a%a%a%", &[true, false, true, false])]
 fn test_like_edge_cases(
     #[case] strings: &[&str],
     #[case] pattern: &str,

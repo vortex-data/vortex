@@ -8886,6 +8886,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e51f1e89f093f99e7432c491c382b88a6860a5adbe6bf02574bf0a08efff1978"
 
 [[package]]
+name = "string-filter-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow-array 58.0.0",
+ "clap",
+ "fsst-rs",
+ "futures",
+ "humansize",
+ "indicatif",
+ "itertools 0.14.0",
+ "parquet 58.0.0",
+ "rand 0.10.1",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tabled",
+ "tokio",
+ "tpchgen",
+ "tpchgen-arrow",
+ "tracing",
+ "tracing-subscriber",
+ "vortex",
+ "vortex-bench",
+]
+
+[[package]]
 name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10643,6 +10671,7 @@ version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
  "fsst-rs",
+ "memchr",
  "prost 0.14.3",
  "rand 0.10.1",
  "rstest",

@@ -116,7 +116,6 @@ impl VTable for Extension {
         dtype: &DType,
         len: usize,
         metadata: &[u8],
-
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,

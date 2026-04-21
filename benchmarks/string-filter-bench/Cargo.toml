@@ -1,0 +1,42 @@
+[package]
+name = "string-filter-bench"
+description = "Benchmark toolkit comparing string filtering on raw vs FSST-compressed strings"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+include.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+arrow-array = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+fsst-rs = { workspace = true }
+futures = { workspace = true }
+parquet = { workspace = true, features = ["async"] }
+humansize = { workspace = true }
+indicatif = { workspace = true }
+itertools = { workspace = true }
+rand = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true, features = ["stream"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tabled = { workspace = true, features = ["std"] }
+tokio = { workspace = true, features = ["full"] }
+tpchgen = { workspace = true }
+tpchgen-arrow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+vortex = { workspace = true }
+vortex-bench = { workspace = true }
+
+[lints]
+workspace = true

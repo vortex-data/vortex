@@ -60,6 +60,7 @@ members = [
     "benchmarks/duckdb-bench",
     "benchmarks/random-access-bench",
     "benchmarks/vector-search-bench",
+    "benchmarks/string-filter-bench",
 ]
 exclude = ["java/testfiles", "wasm-test"]
 resolver = "2"

@@ -261,6 +261,23 @@ mod tests {
         Ok(())
     }
 
+    /// Direct-call check for the suffix pattern `%suffix`.
+    #[test]
+    fn test_like_suffix_kernel_handles() -> VortexResult<()> {
+        let fsst = make_fsst(
+            &[Some("hello world"), Some("goodbye"), Some("new world")],
+            Nullability::NonNullable,
+        );
+        let pattern = ConstantArray::new("%world", fsst.len()).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let fsst = fsst.as_view();
+        let result = <FSST as LikeKernel>::like(fsst, &pattern, LikeOptions::default(), &mut ctx)?;
+        assert!(result.is_some(), "FSST LikeKernel should handle %suffix");
+        assert_arrays_eq!(result.unwrap(), BoolArray::from_iter([true, false, true]));
+        Ok(())
+    }
+
     /// Patterns we can't handle should return `None` (fall back).
     #[test]
     fn test_like_kernel_falls_back_for_complex_pattern() -> VortexResult<()> {
