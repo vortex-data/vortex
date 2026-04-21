@@ -42,8 +42,8 @@ use crate::scalar_fn::typed::TypedScalarFn;
 /// This stores a [`ScalarFnVTable`] and its options behind an `Arc<dyn DynScalarFn>`, allowing
 /// heterogeneous storage inside [`Expression`] and [`crate::arrays::ScalarFnArray`].
 ///
-/// Use [`super::ScalarFn::new()`] to construct, and [`super::ScalarFn::erased()`] to obtain a
-/// [`ScalarFnRef`].
+/// Use [`super::TypedScalarFn::new()`] to construct, and [`super::TypedScalarFn::erased()`] to
+/// obtain a [`ScalarFnRef`].
 #[derive(Clone)]
 pub struct ScalarFnRef(pub(super) Arc<dyn DynScalarFn>);
 
@@ -76,7 +76,7 @@ impl ScalarFnRef {
             .vortex_expect("Expression options type mismatch")
     }
 
-    /// Downcast to the concrete [`ScalarFn`].
+    /// Downcast to the concrete [`TypedScalarFn`].
     ///
     /// Returns `Err(self)` if the downcast fails.
     pub fn try_downcast<V: ScalarFnVTable>(self) -> Result<Arc<TypedScalarFn<V>>, ScalarFnRef> {
@@ -88,7 +88,7 @@ impl ScalarFnRef {
         }
     }
 
-    /// Downcast to the concrete [`ScalarFn`].
+    /// Downcast to the concrete [`TypedScalarFn`].
     ///
     /// # Panics
     ///
@@ -105,7 +105,7 @@ impl ScalarFnRef {
             .vortex_expect("Failed to downcast ScalarFnRef")
     }
 
-    /// Try to downcast into a typed [`ScalarFn`].
+    /// Try to downcast into a typed [`TypedScalarFn`].
     pub fn downcast_ref<V: ScalarFnVTable>(&self) -> Option<&TypedScalarFn<V>> {
         self.0.as_any().downcast_ref::<TypedScalarFn<V>>()
     }

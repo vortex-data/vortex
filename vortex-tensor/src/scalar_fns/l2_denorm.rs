@@ -89,7 +89,7 @@ use crate::utils::validate_tensor_float_input;
 pub struct L2Denorm;
 
 impl L2Denorm {
-    /// Creates a new [`ScalarFn`] wrapping the L2 denormalization operation.
+    /// Creates a new [`TypedScalarFn`] wrapping the L2 denormalization operation.
     ///
     /// This is a low-level scalar-function descriptor constructor. To build a semantically valid
     /// [`L2Denorm`] array, prefer [`try_new_array`](Self::try_new_array).

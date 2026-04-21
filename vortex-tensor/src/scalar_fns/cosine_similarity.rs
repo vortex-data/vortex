@@ -62,7 +62,7 @@ use crate::utils::validate_binary_tensor_float_inputs;
 pub struct CosineSimilarity;
 
 impl CosineSimilarity {
-    /// Creates a new [`ScalarFn`] wrapping the cosine similarity operation.
+    /// Creates a new [`TypedScalarFn`] wrapping the cosine similarity operation.
     pub fn new() -> TypedScalarFn<CosineSimilarity> {
         TypedScalarFn::new(CosineSimilarity, EmptyOptions)
     }

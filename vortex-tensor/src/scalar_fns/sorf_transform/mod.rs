@@ -89,7 +89,7 @@ pub struct SorfOptions {
 }
 
 impl SorfTransform {
-    /// Creates a new [`ScalarFn`] wrapping the SORF inverse transform with the given options.
+    /// Creates a new [`TypedScalarFn`] wrapping the SORF inverse transform with the given options.
     pub fn new(options: &SorfOptions) -> TypedScalarFn<SorfTransform> {
         TypedScalarFn::new(SorfTransform, options.clone())
     }

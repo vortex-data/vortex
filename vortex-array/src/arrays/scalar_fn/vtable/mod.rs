@@ -45,7 +45,7 @@ use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::serde::ArrayChildren;
 
-/// A [`ScalarFnVTable`]-encoded Vortex array.
+/// A [`ScalarFn`]-encoded Vortex array.
 pub type ScalarFnArray = Array<ScalarFn>;
 
 #[derive(Clone, Debug)]

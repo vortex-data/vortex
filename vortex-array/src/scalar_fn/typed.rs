@@ -40,8 +40,8 @@ use crate::scalar_fn::SimplifyCtx;
 /// You can construct one via [`new()`], and erase the type with [`erased()`] to obtain a
 /// [`ScalarFnRef`].
 ///
-/// [`new()`]: ScalarFn::new
-/// [`erased()`]: ScalarFn::erased
+/// [`new()`]: TypedScalarFn::new
+/// [`erased()`]: TypedScalarFn::erased
 pub struct TypedScalarFn<V: ScalarFnVTable> {
     vtable: V,
     options: V::Options,

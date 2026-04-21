@@ -76,7 +76,7 @@ use crate::utils::validate_binary_tensor_float_inputs;
 pub struct InnerProduct;
 
 impl InnerProduct {
-    /// Creates a new [`ScalarFn`] wrapping the inner product operation.
+    /// Creates a new [`TypedScalarFn`] wrapping the inner product operation.
     pub fn new() -> TypedScalarFn<InnerProduct> {
         TypedScalarFn::new(InnerProduct, EmptyOptions)
     }

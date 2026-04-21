@@ -65,7 +65,7 @@ use crate::utils::validate_tensor_float_input;
 pub struct L2Norm;
 
 impl L2Norm {
-    /// Creates a new [`ScalarFn`] wrapping the L2 norm operation.
+    /// Creates a new [`TypedScalarFn`] wrapping the L2 norm operation.
     pub fn new() -> TypedScalarFn<L2Norm> {
         TypedScalarFn::new(L2Norm, EmptyOptions)
     }
