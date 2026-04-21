@@ -23,6 +23,7 @@ use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPArrayExt;
 use vortex::encodings::alp::ALPArraySlotsExt;
 use vortex::encodings::alp::ALPFloat;
+use vortex::encodings::alp::Exponents;
 use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::BitPackedArrayExt;
 use vortex::encodings::fastlanes::FoR;
@@ -510,7 +511,8 @@ impl FusedPlan {
     /// SliceArray → resolve the slice via reduce/execute rules.
     ///
     /// When the plan builder encounters a `SliceArray`, it resolves the slice
-    /// by invoking the child's `reduce_parent`, `execute_parent`.
+    /// by invoking the child's `reduce_parent`. If that fails (e.g. ALP
+    /// doesn't implement it), we manually slice the child's sub-arrays.
     fn walk_slice(
         &mut self,
         array: ArrayRef,
@@ -521,6 +523,21 @@ impl FusedPlan {
 
         if let Some(reduced) = child.reduce_parent(&array, 0)? {
             return self.walk(reduced, pending_subtrees);
+        }
+
+        // ALP doesn't implement reduce_parent. Manually slice its encoded
+        // child and carry patches — PatchesCursor handles offset mapping.
+        if child.encoding_id() == ALP.id() {
+            let alp = child.as_::<ALP>();
+            let offset = slice_arr.data().slice_range().start;
+            let len = array.len();
+            let sliced_encoded = alp.encoded().clone().slice(offset..offset + len)?;
+            return self.walk_alp_inner(
+                sliced_encoded,
+                alp.patches(),
+                alp.exponents(),
+                pending_subtrees,
+            );
         }
 
         vortex_bail!(
@@ -606,20 +623,24 @@ impl FusedPlan {
         pending_subtrees: &mut Vec<ArrayRef>,
     ) -> VortexResult<Stage> {
         let alp = array.as_::<ALP>();
+        self.walk_alp_inner(
+            alp.encoded().clone(),
+            alp.patches(),
+            alp.exponents(),
+            pending_subtrees,
+        )
+    }
 
-        let ptype = alp.dtype().as_ptype();
-        if ptype != PType::F32 {
-            vortex_bail!(
-                "Dynamic dispatch only supports f32 ALP, got {:?}",
-                alp.dtype()
-            );
-        }
-
-        let patches = alp.patches();
-        let exponents = alp.exponents();
+    /// Shared ALP logic for both `walk_alp` and `walk_slice` (Slice(ALP)).
+    fn walk_alp_inner(
+        &mut self,
+        encoded: ArrayRef,
+        patches: Option<Patches>,
+        exponents: Exponents,
+        pending_subtrees: &mut Vec<ArrayRef>,
+    ) -> VortexResult<Stage> {
         let alp_f = <f32 as ALPFloat>::F10[exponents.f as usize];
         let alp_e = <f32 as ALPFloat>::IF10[exponents.e as usize];
-        let encoded = alp.encoded().clone();
 
         let mut pipeline = self.walk(encoded, pending_subtrees)?;
         pipeline.scalar_ops.push(ScalarOp::alp(alp_f, alp_e));

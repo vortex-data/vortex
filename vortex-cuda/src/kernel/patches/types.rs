@@ -62,10 +62,11 @@ pub(crate) async fn load_patches(
         vortex_bail!("cannot execute_cuda for patched BitPacked array without chunk_offsets")
     };
 
-    let (chunk_offsets, chunk_offset_ptype) = {
+    let (chunk_offsets, chunk_offset_ptype, n_chunks) = {
         let co_canonical = co.clone().execute_cuda(ctx).await?.into_primitive();
         let ptype = co_canonical.ptype();
-        (co_canonical.buffer_handle().clone(), ptype)
+        let len = co_canonical.len();
+        (co_canonical.buffer_handle().clone(), ptype, len)
     };
 
     // Load indices - must be converted to u32 for GPU use
@@ -108,7 +109,6 @@ pub(crate) async fn load_patches(
     let values = ctx.ensure_on_device(values.buffer_handle().clone()).await?;
 
     let num_patches = patches.num_patches();
-    let n_chunks = array_len.div_ceil(1024);
 
     Ok(DevicePatches {
         chunk_offsets,
@@ -197,7 +197,11 @@ pub(crate) fn load_patches_sync(
     let values = ctx.ensure_on_device_sync(values)?;
 
     let num_patches = patches.num_patches();
-    let n_chunks = array_len.div_ceil(1024);
+    // n_chunks must match the chunk_offsets array length, not array_len / 1024.
+    // When patches are sliced, chunk_offsets is sliced to only include chunks
+    // overlapping the slice range — matching the CPU's patch_chunk which uses
+    // chunk_offsets_slice.len().
+    let n_chunks = co_canonical.len();
 
     Ok(DevicePatches {
         chunk_offsets,

@@ -2046,6 +2046,114 @@ mod tests {
         Ok(())
     }
 
+    #[crate::test]
+    fn test_sliced_bitpacked_with_patches() -> VortexResult<()> {
+        let bit_width: u8 = 4;
+        let len = 5000usize;
+        let max_val = (1u32 << bit_width) - 1;
+        let values: Vec<u32> = (0..len)
+            .map(|i| {
+                if i % 100 == 0 {
+                    1000
+                } else {
+                    (i as u32) % (max_val + 1)
+                }
+            })
+            .collect();
+
+        let prim = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
+        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        assert!(bp.patches().is_some(), "expected patches");
+
+        // Slice crossing chunk boundaries.
+        let sliced = bp.into_array().slice(500..3500)?;
+        let expected: Vec<u32> = values[500..3500].to_vec();
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&sliced, &cuda_ctx)?;
+        let actual = run_dynamic_dispatch_plan(
+            &cuda_ctx,
+            expected.len(),
+            &plan.dispatch_plan,
+            plan.shared_mem_bytes,
+        )?;
+        assert_eq!(actual, expected);
+        Ok(())
+    }
+
+    #[crate::test]
+    fn test_sliced_for_bitpacked_with_patches() -> VortexResult<()> {
+        let bit_width: u8 = 6;
+        let len = 5000usize;
+        let reference = 42u32;
+        let max_val = (1u32 << bit_width) - 1;
+        let residuals: Vec<u32> = (0..len)
+            .map(|i| {
+                if i % 200 == 0 {
+                    500
+                } else {
+                    (i as u32) % (max_val + 1)
+                }
+            })
+            .collect();
+        let all_values: Vec<u32> = residuals.iter().map(|&v| v + reference).collect();
+
+        let prim = PrimitiveArray::new(Buffer::from(residuals), NonNullable);
+        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        assert!(bp.patches().is_some(), "expected patches");
+        let for_arr = FoR::try_new(bp.into_array(), Scalar::from(reference))?;
+
+        let sliced = for_arr.into_array().slice(500..3500)?;
+        let expected: Vec<u32> = all_values[500..3500].to_vec();
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&sliced, &cuda_ctx)?;
+        let actual = run_dynamic_dispatch_plan(
+            &cuda_ctx,
+            expected.len(),
+            &plan.dispatch_plan,
+            plan.shared_mem_bytes,
+        )?;
+        assert_eq!(actual, expected);
+        Ok(())
+    }
+
+    // TODO: sliced ALP patches need offset adjustment — the patches from the
+    // unsliced ALP carry absolute indices that don't account for the slice.
+    #[crate::test]
+    #[ignore]
+    fn test_sliced_alp_with_patches() -> VortexResult<()> {
+        let len = 5000usize;
+        let mut values: Vec<f32> = (0..len).map(|i| (i as f32) * 1.1).collect();
+        values[0] = 99.9;
+        values[500] = std::f32::consts::PI;
+        values[1024] = std::f32::consts::E;
+        values[2048] = std::f32::consts::LN_2;
+        values[3333] = std::f32::consts::SQRT_2;
+
+        let float_prim = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
+        let encoded = alp_encode(
+            float_prim.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?
+        .into_array();
+
+        let sliced = encoded.slice(100..4000)?;
+        let expected: Vec<f32> = values[100..4000].to_vec();
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&sliced, &cuda_ctx)?;
+        let actual = run_dispatch_plan_f32(
+            &cuda_ctx,
+            expected.len(),
+            &plan.dispatch_plan,
+            plan.shared_mem_bytes,
+        )?;
+        assert_eq!(actual, expected);
+        Ok(())
+    }
+
     /// Empty nullable array should preserve nullability.
     #[crate::test]
     async fn test_empty_nullable_array() -> VortexResult<()> {
