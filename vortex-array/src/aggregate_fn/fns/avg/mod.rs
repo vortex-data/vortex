@@ -149,7 +149,7 @@ fn avg_output_dtype(input_dtype: &DType) -> Option<DType> {
         DType::Bool(_) | DType::Primitive(..) => {
             Some(DType::Primitive(PType::F64, Nullability::Nullable))
         }
-        DType::Decimal(d, _) => {
+        DType::Decimal(_, _) => {
             unimplemented!("Avg for decimals is not yet implemented");
         }
         _ => None,

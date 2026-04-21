@@ -136,33 +136,33 @@ pub fn vortex_array::aggregate_fn::combined::BinaryCombined::right_name(&self) -
 
 pub fn vortex_array::aggregate_fn::combined::BinaryCombined::serialize(&self, options: &vortex_array::aggregate_fn::combined::CombinedOptions<Self>) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-impl vortex_array::aggregate_fn::combined::BinaryCombined for vortex_array::aggregate_fn::fns::mean::Mean
+impl vortex_array::aggregate_fn::combined::BinaryCombined for vortex_array::aggregate_fn::fns::mean::Avg
 
-pub type vortex_array::aggregate_fn::fns::mean::Mean::Left = vortex_array::aggregate_fn::fns::sum::Sum
+pub type vortex_array::aggregate_fn::fns::mean::Avg::Left = vortex_array::aggregate_fn::fns::sum::Sum
 
-pub type vortex_array::aggregate_fn::fns::mean::Mean::Right = vortex_array::aggregate_fn::fns::count::Count
+pub type vortex_array::aggregate_fn::fns::mean::Avg::Right = vortex_array::aggregate_fn::fns::count::Count
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::coerce_args(&self, _options: &vortex_array::aggregate_fn::combined::PairOptions<<vortex_array::aggregate_fn::fns::sum::Sum as vortex_array::aggregate_fn::AggregateFnVTable>::Options, <vortex_array::aggregate_fn::fns::count::Count as vortex_array::aggregate_fn::AggregateFnVTable>::Options>, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::coerce_args(&self, _options: &vortex_array::aggregate_fn::combined::PairOptions<<vortex_array::aggregate_fn::fns::sum::Sum as vortex_array::aggregate_fn::AggregateFnVTable>::Options, <vortex_array::aggregate_fn::fns::count::Count as vortex_array::aggregate_fn::AggregateFnVTable>::Options>, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::aggregate_fn::combined::CombinedOptions<Self>>
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::aggregate_fn::combined::CombinedOptions<Self>>
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::finalize(&self, sum: vortex_array::ArrayRef, count: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::finalize(&self, sum: vortex_array::ArrayRef, count: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::finalize_scalar(&self, left_scalar: vortex_array::scalar::Scalar, right_scalar: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::finalize_scalar(&self, left_scalar: vortex_array::scalar::Scalar, right_scalar: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::left(&self) -> vortex_array::aggregate_fn::fns::sum::Sum
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::left(&self) -> vortex_array::aggregate_fn::fns::sum::Sum
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::left_name(&self) -> &'static str
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::left_name(&self) -> &'static str
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::return_dtype(&self, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::return_dtype(&self, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::right(&self) -> vortex_array::aggregate_fn::fns::count::Count
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::right(&self) -> vortex_array::aggregate_fn::fns::count::Count
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::right_name(&self) -> &'static str
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::right_name(&self) -> &'static str
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::serialize(&self, _options: &vortex_array::aggregate_fn::combined::CombinedOptions<Self>) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::serialize(&self, _options: &vortex_array::aggregate_fn::combined::CombinedOptions<Self>) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub type vortex_array::aggregate_fn::combined::CombinedOptions<T> = vortex_array::aggregate_fn::combined::PairOptions<<<T as vortex_array::aggregate_fn::combined::BinaryCombined>::Left as vortex_array::aggregate_fn::AggregateFnVTable>::Options, <<T as vortex_array::aggregate_fn::combined::BinaryCombined>::Right as vortex_array::aggregate_fn::AggregateFnVTable>::Options>
 
@@ -482,49 +482,49 @@ pub fn vortex_array::aggregate_fn::fns::last::last(array: &vortex_array::ArrayRe
 
 pub mod vortex_array::aggregate_fn::fns::mean
 
-pub struct vortex_array::aggregate_fn::fns::mean::Mean
+pub struct vortex_array::aggregate_fn::fns::mean::Avg
 
-impl vortex_array::aggregate_fn::fns::mean::Mean
+impl vortex_array::aggregate_fn::fns::mean::Avg
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::combined() -> vortex_array::aggregate_fn::combined::Combined<Self>
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::combined() -> vortex_array::aggregate_fn::combined::Combined<Self>
 
-impl core::clone::Clone for vortex_array::aggregate_fn::fns::mean::Mean
+impl core::clone::Clone for vortex_array::aggregate_fn::fns::mean::Avg
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::clone(&self) -> vortex_array::aggregate_fn::fns::mean::Mean
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::clone(&self) -> vortex_array::aggregate_fn::fns::mean::Avg
 
-impl core::fmt::Debug for vortex_array::aggregate_fn::fns::mean::Mean
+impl core::fmt::Debug for vortex_array::aggregate_fn::fns::mean::Avg
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl vortex_array::aggregate_fn::combined::BinaryCombined for vortex_array::aggregate_fn::fns::mean::Mean
+impl vortex_array::aggregate_fn::combined::BinaryCombined for vortex_array::aggregate_fn::fns::mean::Avg
 
-pub type vortex_array::aggregate_fn::fns::mean::Mean::Left = vortex_array::aggregate_fn::fns::sum::Sum
+pub type vortex_array::aggregate_fn::fns::mean::Avg::Left = vortex_array::aggregate_fn::fns::sum::Sum
 
-pub type vortex_array::aggregate_fn::fns::mean::Mean::Right = vortex_array::aggregate_fn::fns::count::Count
+pub type vortex_array::aggregate_fn::fns::mean::Avg::Right = vortex_array::aggregate_fn::fns::count::Count
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::coerce_args(&self, _options: &vortex_array::aggregate_fn::combined::PairOptions<<vortex_array::aggregate_fn::fns::sum::Sum as vortex_array::aggregate_fn::AggregateFnVTable>::Options, <vortex_array::aggregate_fn::fns::count::Count as vortex_array::aggregate_fn::AggregateFnVTable>::Options>, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::coerce_args(&self, _options: &vortex_array::aggregate_fn::combined::PairOptions<<vortex_array::aggregate_fn::fns::sum::Sum as vortex_array::aggregate_fn::AggregateFnVTable>::Options, <vortex_array::aggregate_fn::fns::count::Count as vortex_array::aggregate_fn::AggregateFnVTable>::Options>, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::aggregate_fn::combined::CombinedOptions<Self>>
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::aggregate_fn::combined::CombinedOptions<Self>>
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::finalize(&self, sum: vortex_array::ArrayRef, count: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::finalize(&self, sum: vortex_array::ArrayRef, count: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::finalize_scalar(&self, left_scalar: vortex_array::scalar::Scalar, right_scalar: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::finalize_scalar(&self, left_scalar: vortex_array::scalar::Scalar, right_scalar: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::left(&self) -> vortex_array::aggregate_fn::fns::sum::Sum
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::left(&self) -> vortex_array::aggregate_fn::fns::sum::Sum
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::left_name(&self) -> &'static str
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::left_name(&self) -> &'static str
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::return_dtype(&self, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::return_dtype(&self, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::right(&self) -> vortex_array::aggregate_fn::fns::count::Count
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::right(&self) -> vortex_array::aggregate_fn::fns::count::Count
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::right_name(&self) -> &'static str
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::right_name(&self) -> &'static str
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::serialize(&self, _options: &vortex_array::aggregate_fn::combined::CombinedOptions<Self>) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::aggregate_fn::fns::mean::Avg::serialize(&self, _options: &vortex_array::aggregate_fn::combined::CombinedOptions<Self>) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_array::aggregate_fn::fns::mean::mean(array: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_array::aggregate_fn::fns::mean::avg(array: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub mod vortex_array::aggregate_fn::fns::min_max
 
