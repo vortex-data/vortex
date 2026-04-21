@@ -283,7 +283,18 @@ fn skip_state0(rest: &[u8], skip: &SkipStrategy) -> Option<usize> {
 
 /// Uniform single-lookup scan for the escape-folded DFA.
 ///
-/// Uses `get_unchecked` to remove bounds checks from the hot load:
+/// Uses a two-phase loop:
+///
+/// - **Phase 1 (state 0):** SIMD-skip to the next advancing code, then do
+///   one mandatory transition through it. This guarantees we always advance
+///   `pos` by at least one byte per outer iteration, which is required for
+///   termination even when the skip lands on the last byte of the input.
+///
+/// - **Phase 2 (state ≠ 0):** 2× unrolled stateful inner loop. Two dependent
+///   table loads per iteration; the accept check is deferred until after
+///   both loads so the loads can overlap in the load pipeline.
+///
+/// Uses `get_unchecked` to remove bounds checks from the hot loads:
 /// - `state` is always < 2N+1 ≤ 255, and `transitions.len() == (2N+1) * 256`,
 ///   so `state * 256 + code` is always < `transitions.len()` for any u8 code.
 /// - `pos` is checked before each access to `codes`.
@@ -294,19 +305,62 @@ fn matches_folded(transitions: &[u8], accept_state: u8, skip: &SkipStrategy, cod
     let len = codes.len();
     while pos < len {
         if state == 0 {
+            // Phase 1: skip to next advancing code.
             // SAFETY: pos < len.
             let rest = unsafe { codes.get_unchecked(pos..) };
             match skip_state0(rest, skip) {
                 Some(offset) => pos += offset,
                 None => return false,
             }
+            // Mandatory first transition — after skip, the byte at pos is an
+            // advancing code, so this moves us out of state 0 (unless the
+            // symbol wraps back through KMP, which is rare). Importantly, it
+            // unconditionally advances `pos`, so the outer loop cannot spin
+            // forever when the skip lands on the final byte.
+            // SAFETY: pos < len.
+            let code = unsafe { *codes.get_unchecked(pos) };
+            pos += 1;
+            state = unsafe { *transitions.get_unchecked(usize::from(code)) };
+            if state == accept_state {
+                return true;
+            }
+            if state == 0 {
+                continue;
+            }
         }
-        // SAFETY: pos < len; state < 2N+1; transitions has (2N+1)*256 entries.
-        let code = unsafe { *codes.get_unchecked(pos) };
-        pos += 1;
-        state = unsafe { *transitions.get_unchecked(usize::from(state) * 256 + usize::from(code)) };
-        if state == accept_state {
-            return true;
+
+        // Phase 2: 2× unrolled stateful scan. Stays here until we drop back
+        // to state 0, match, or run out of input.
+        while pos + 2 <= len {
+            // SAFETY: pos + 1 < len; state < 2N+1.
+            let c1 = unsafe { *codes.get_unchecked(pos) };
+            let c2 = unsafe { *codes.get_unchecked(pos + 1) };
+            let s1 = unsafe {
+                *transitions.get_unchecked(usize::from(state) * 256 + usize::from(c1))
+            };
+            let s2 = unsafe {
+                *transitions.get_unchecked(usize::from(s1) * 256 + usize::from(c2))
+            };
+            pos += 2;
+            if s1 == accept_state || s2 == accept_state {
+                return true;
+            }
+            state = s2;
+            if state == 0 {
+                break;
+            }
+        }
+        // Tail: one byte may remain when pos + 2 > len.
+        if pos < len && state != 0 {
+            // SAFETY: pos < len; state < 2N+1.
+            let code = unsafe { *codes.get_unchecked(pos) };
+            pos += 1;
+            state = unsafe {
+                *transitions.get_unchecked(usize::from(state) * 256 + usize::from(code))
+            };
+            if state == accept_state {
+                return true;
+            }
         }
     }
     false
