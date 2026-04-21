@@ -387,10 +387,7 @@ impl FusedPlan {
             // Upload source patches (e.g. BitPacked exceptions).
             if let Some(patches) = &stage.source_patches {
                 let (ptr, bufs) = upload_patches(patches, ctx)?;
-                match source.op_code {
-                    SourceOp_SourceOpCode_BITUNPACK => source.params.bitunpack.patches_ptr = ptr,
-                    _ => unreachable!("patches on unsupported source op"),
-                }
+                source.params.bitunpack.patches_ptr = ptr;
                 device_buffers.extend(bufs);
             }
 
@@ -399,10 +396,7 @@ impl FusedPlan {
             for (mut op, patches) in stage.scalar_ops.clone() {
                 if let Some(patches) = &patches {
                     let (ptr, bufs) = upload_patches(&patches, ctx)?;
-                    match op.op_code {
-                        ScalarOp_ScalarOpCode_ALP => op.params.alp.patches_ptr = ptr,
-                        _ => unreachable!("patches on unsupported scalar op"),
-                    }
+                    op.params.alp.patches_ptr = ptr;
                     device_buffers.extend(bufs);
                 }
                 scalar_ops.push(op);
