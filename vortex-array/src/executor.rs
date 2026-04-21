@@ -37,7 +37,6 @@ use crate::dtype::DType;
 use crate::matcher::Matcher;
 use crate::memory::HostAllocatorRef;
 use crate::memory::MemorySessionExt;
-use crate::optimizer::ArrayOptimizer;
 
 /// Returns the maximum number of iterations to attempt when executing an array before giving up and returning
 /// an error, can be by the `VORTEX_MAX_ITERATIONS` env variables, otherwise defaults to 128.
@@ -132,16 +131,8 @@ impl ArrayRef {
             let result = execute_one_step(current, ctx)?;
             match result {
                 OneStepResult::Rewritten(rewritten) => {
-                    let rewritten = rewritten.optimize()?;
-                    match entry.parent {
-                        None => {
-                            entry.array = Some(rewritten);
-                            stack.push(entry);
-                        }
-                        Some(link) => {
-                            put_back_rewritten(&mut stack, link, rewritten)?;
-                        }
-                    }
+                    entry.array = Some(rewritten);
+                    stack.push(entry);
                 }
                 OneStepResult::Execute(result) => {
                     let (array, step) = result.into_parts();
@@ -260,61 +251,49 @@ fn put_back_child(
     Ok(())
 }
 
-/// Put a rewritten child back into its parent. Siblings remain on the stack
-/// and will put themselves back when they complete.
-fn put_back_rewritten(stack: &mut [Entry], link: ParentLink, child: ArrayRef) -> VortexResult<()> {
-    let parent = stack[link.parent_idx]
-        .array
-        .take()
-        .expect("parent must have array");
-    let updated = unsafe { parent.put_slot_unchecked(link.slot_idx, child)? };
-    stack[link.parent_idx].array = Some(updated);
-    Ok(())
-}
-
 /// Extract all undone children from the parent and push them onto the stack in
 /// reverse order (first-to-process on top). Each child puts itself back into the
 /// parent via [`put_back_child`] when done.
 fn push_children(
-    mut parent: ArrayRef,
+    child: ArrayRef,
     mut slots: Vec<(usize, DonePredicate)>,
-    parent_parent: Option<ParentLink>,
-    parent_done: DonePredicate,
+    parent: Option<ParentLink>,
+    done: DonePredicate,
     stack: &mut Vec<Entry>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
     let parent_idx = stack.len();
 
     // Push parent entry up front; children will reference it by index.
-    let mut parent_entry = Entry::root(parent, parent_done);
-    parent_entry.parent = parent_parent;
+    let mut parent_entry = Entry::root(child, done);
+    parent_entry.parent = parent;
     stack.push(parent_entry);
 
     // Iterate in reverse so first-to-process ends up on top of the stack.
     // Extract each undone child from the parent as we go.
-    let mut parent = stack[parent_idx].array.take().unwrap();
+    let mut array = stack[parent_idx].array.take().unwrap();
     slots.reverse();
-    for (slot_idx, done) in slots {
-        let Some(child) = parent.slots().get(slot_idx).and_then(Option::as_ref) else {
+    for (slot_idx, slot_done) in slots {
+        let Some(slot_child) = array.slots().get(slot_idx).and_then(Option::as_ref) else {
             vortex_bail!(
                 "Execution requested slot {} but array {} has no occupied slot there",
                 slot_idx,
-                parent
+                array
             );
         };
-        if done(child) || AnyCanonical::matches(child) {
+        if slot_done(slot_child) || AnyCanonical::matches(slot_child) {
             continue;
         }
-        let (new_parent, child) = unsafe { parent.take_slot_unchecked(slot_idx) }?;
-        parent = new_parent;
+        let (new_array, slot_child) = unsafe { array.take_slot_unchecked(slot_idx) }?;
+        array = new_array;
         ctx.log(format_args!(
-            "ExecuteSlot({slot_idx}): pushing, focusing on {child}"
+            "ExecuteSlot({slot_idx}): pushing, focusing on {slot_child}"
         ));
-        stack.push(Entry::child(child, parent_idx, slot_idx, done));
+        stack.push(Entry::child(slot_child, parent_idx, slot_idx, slot_done));
     }
 
     // Store parent back (with extracted slots emptied).
-    stack[parent_idx].array = Some(parent);
+    stack[parent_idx].array = Some(array);
 
     Ok(())
 }

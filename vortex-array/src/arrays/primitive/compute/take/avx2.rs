@@ -121,6 +121,7 @@ where
 /// The caller must ensure the `avx2` feature is enabled.
 #[target_feature(enable = "avx2")]
 #[doc(hidden)]
+#[inline]
 unsafe fn take_avx2<V: NativePType, I: UnsignedPType>(buffer: &[V], indices: &[I]) -> Buffer<V> {
     macro_rules! dispatch_avx2 {
         ($indices:ty, $values:ty) => {
