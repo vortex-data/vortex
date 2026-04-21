@@ -110,19 +110,19 @@ impl FlatContainsDfa {
         }
     }
 
-    fn new_folded(
-        symbols: &[Symbol],
-        symbol_lengths: &[u8],
-        needle: &[u8],
-    ) -> VortexResult<Self> {
+    fn new_folded(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> VortexResult<Self> {
         let n = needle.len();
-        let accept_state =
-            u8::try_from(n).vortex_expect("folded contains: accept fits in u8");
+        let accept_state = u8::try_from(n).vortex_expect("folded contains: accept fits in u8");
         let n_progress = accept_state as usize + 1; // states 0..=accept
 
         let byte_table = kmp_byte_transitions(needle);
-        let sym_trans =
-            build_symbol_transitions(symbols, symbol_lengths, &byte_table, n_progress as u8, accept_state);
+        let sym_trans = build_symbol_transitions(
+            symbols,
+            symbol_lengths,
+            &byte_table,
+            n_progress as u8,
+            accept_state,
+        );
 
         let n_in_escape = accept_state as usize; // one per non-accept progress state
         let n_total = n_progress + n_in_escape; // 2N+1
@@ -240,7 +240,6 @@ impl FlatContainsDfa {
 // `matches()` call, outside the hot loop.
 // ---------------------------------------------------------------------------
 
-
 fn build_skip(adv: &[u8]) -> SkipStrategy {
     match adv.len() {
         0 => SkipStrategy::Bitmap([0u64; 4]),
@@ -284,12 +283,7 @@ fn skip_state0(rest: &[u8], skip: &SkipStrategy) -> Option<usize> {
 ///   so `state * 256 + code` is always < `transitions.len()` for any u8 code.
 /// - `pos` is checked before each access to `codes`.
 #[inline(always)]
-fn matches_folded(
-    transitions: &[u8],
-    accept_state: u8,
-    skip: &SkipStrategy,
-    codes: &[u8],
-) -> bool {
+fn matches_folded(transitions: &[u8], accept_state: u8, skip: &SkipStrategy, codes: &[u8]) -> bool {
     let mut state = 0u8;
     let mut pos = 0;
     let len = codes.len();
@@ -305,9 +299,7 @@ fn matches_folded(
         // SAFETY: pos < len; state < 2N+1; transitions has (2N+1)*256 entries.
         let code = unsafe { *codes.get_unchecked(pos) };
         pos += 1;
-        state = unsafe {
-            *transitions.get_unchecked(usize::from(state) * 256 + usize::from(code))
-        };
+        state = unsafe { *transitions.get_unchecked(usize::from(state) * 256 + usize::from(code)) };
         if state == accept_state {
             return true;
         }

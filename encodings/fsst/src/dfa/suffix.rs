@@ -140,9 +140,8 @@ impl SuffixMatcher {
                 if prev == ESCAPE_CODE {
                     let b = unsafe { *codes.get_unchecked(pos - 1) };
                     // SAFETY: state < n_states, escape_transitions has n_states*256 entries.
-                    state = unsafe {
-                        *esc.get_unchecked(usize::from(state) * 256 + usize::from(b))
-                    };
+                    state =
+                        unsafe { *esc.get_unchecked(usize::from(state) * 256 + usize::from(b)) };
                     pos -= 2;
                     if state == accept {
                         return true;
@@ -155,9 +154,8 @@ impl SuffixMatcher {
             }
             // SAFETY: pos > 0; state < n_states, transitions has n_states*256 entries.
             let code = unsafe { *codes.get_unchecked(pos - 1) };
-            state = unsafe {
-                *transitions.get_unchecked(usize::from(state) * 256 + usize::from(code))
-            };
+            state =
+                unsafe { *transitions.get_unchecked(usize::from(state) * 256 + usize::from(code)) };
             pos -= 1;
             if state == accept {
                 return true;

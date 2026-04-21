@@ -79,14 +79,9 @@ impl FlatPrefixDfa {
         }
     }
 
-    fn new_folded(
-        symbols: &[Symbol],
-        symbol_lengths: &[u8],
-        prefix: &[u8],
-    ) -> VortexResult<Self> {
+    fn new_folded(symbols: &[Symbol], symbol_lengths: &[u8], prefix: &[u8]) -> VortexResult<Self> {
         let n = prefix.len();
-        let accept_state =
-            u8::try_from(n).vortex_expect("folded prefix: accept fits in u8");
+        let accept_state = u8::try_from(n).vortex_expect("folded prefix: accept fits in u8");
         let fail_state = accept_state + 1;
         let n_progress = fail_state as usize + 1; // progress states 0..=fail
 
@@ -208,12 +203,7 @@ impl FlatPrefixDfa {
 }
 
 #[inline(always)]
-fn matches_folded(
-    transitions: &[u8],
-    accept_state: u8,
-    fail_state: u8,
-    codes: &[u8],
-) -> bool {
+fn matches_folded(transitions: &[u8], accept_state: u8, fail_state: u8, codes: &[u8]) -> bool {
     let mut state = 0u8;
     let len = codes.len();
     let mut pos = 0;
@@ -221,9 +211,7 @@ fn matches_folded(
         // SAFETY: pos < len; state < n_total = 2N+2, transitions has n_total*256 entries.
         let code = unsafe { *codes.get_unchecked(pos) };
         pos += 1;
-        state = unsafe {
-            *transitions.get_unchecked(usize::from(state) * 256 + usize::from(code))
-        };
+        state = unsafe { *transitions.get_unchecked(usize::from(state) * 256 + usize::from(code)) };
         if state == accept_state {
             return true;
         }

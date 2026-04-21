@@ -95,13 +95,18 @@ impl MultiContainsDfa {
         segments: &[&[u8]],
         total_len: usize,
     ) -> VortexResult<Self> {
-        let accept_state = u8::try_from(total_len)
-            .vortex_expect("folded multi-contains: accept fits in u8");
+        let accept_state =
+            u8::try_from(total_len).vortex_expect("folded multi-contains: accept fits in u8");
         let n_progress = accept_state as usize + 1; // states 0..=accept
 
         let byte_table = chained_kmp_byte_transitions(segments, accept_state);
-        let sym_trans =
-            build_symbol_transitions(symbols, symbol_lengths, &byte_table, n_progress as u8, accept_state);
+        let sym_trans = build_symbol_transitions(
+            symbols,
+            symbol_lengths,
+            &byte_table,
+            n_progress as u8,
+            accept_state,
+        );
 
         let n_in_escape = accept_state as usize; // one per non-accept progress state
         let n_total = n_progress + n_in_escape;
@@ -195,9 +200,7 @@ fn matches_folded(transitions: &[u8], accept_state: u8, codes: &[u8]) -> bool {
         // SAFETY: pos < len; state < 2N+1 (≤255); transitions has (2N+1)*256 entries.
         let code = unsafe { *codes.get_unchecked(pos) };
         pos += 1;
-        state = unsafe {
-            *transitions.get_unchecked(usize::from(state) * 256 + usize::from(code))
-        };
+        state = unsafe { *transitions.get_unchecked(usize::from(state) * 256 + usize::from(code)) };
         if state == accept_state {
             return true;
         }
