@@ -299,9 +299,6 @@ __device__ void execute_output_stage(T *__restrict output,
     constexpr uint32_t VALUES_PER_TILE = (32 / sizeof(T)) < 4 ? (32 / sizeof(T)) : 4;
     const uint32_t tile_size = blockDim.x * VALUES_PER_TILE;
 
-    // stage lives in shared memory. Hoist the hot inner-loop fields into
-    // registers; patches_ptr is only read from shared memory in the cold
-    // patches path, keeping register pressure low.
     const auto &src = stage.source;
     const void *raw_input = reinterpret_cast<const void *>(stage.input_ptr);
     const PTypeTag ptype = stage.source_ptype;
@@ -332,11 +329,9 @@ __device__ void execute_output_stage(T *__restrict output,
             __syncthreads();
 
             // Overwrite patched positions in the decoded scratch buffer.
-            // Read patches_ptr from shared-memory stage to avoid keeping
-            // it in a register across the tile loop.
-            if (stage.source.params.bitunpack.patches_ptr != 0) {
+            if (src.params.bitunpack.patches_ptr != 0) {
                 const auto &patches = *reinterpret_cast<const GPUPatches *>(
-                    stage.source.params.bitunpack.patches_ptr);
+                    src.params.bitunpack.patches_ptr);
                 const uint32_t chunk = static_cast<uint32_t>(
                     (block_start + elem_idx + src.params.bitunpack.element_offset) / 1024);
                 scatter_patches_chunk<T>(patches, scratch, chunk);
@@ -514,11 +509,6 @@ __device__ void
 dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__restrict packed_plan) {
     extern __shared__ char smem[];
 
-    // Store the output stage in shared memory so its fields don't consume
-    // per-thread registers. The stage is uniform across all threads in the
-    // block (everyone reads the same plan), so one shared copy suffices.
-    __shared__ Stage shared_output_stage;
-
     const auto *hdr = reinterpret_cast<const struct PlanHeader *>(packed_plan);
     const uint8_t *cursor = packed_plan + sizeof(struct PlanHeader);
     const uint8_t last = hdr->num_stages - 1;
@@ -528,15 +518,11 @@ dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__rest
         execute_input_stage<T>(input_stage, smem);
     }
 
-    if (threadIdx.x == 0) {
-        shared_output_stage = parse_stage(cursor);
-    }
-    __syncthreads();
-
+    Stage output_stage = parse_stage(cursor);
     const uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * ELEMENTS_PER_BLOCK;
     const uint64_t block_end = min(block_start + ELEMENTS_PER_BLOCK, array_len);
     execute_output_stage<T>(output,
-                            shared_output_stage,
+                            output_stage,
                             smem,
                             block_start,
                             static_cast<uint32_t>(block_end - block_start));
