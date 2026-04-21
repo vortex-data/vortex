@@ -17,6 +17,7 @@ use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
 use vortex_compressor::estimate::CompressionEstimate;
 use vortex_compressor::estimate::DeferredEstimate;
+use vortex_compressor::estimate::EstimateScore;
 use vortex_compressor::estimate::EstimateVerdict;
 use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::ChildSelection;
@@ -737,20 +738,29 @@ impl Scheme for SequenceScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        // TODO(connor): Why do we sequence encode the whole thing and then throw it away? And then
-        // why do we divide the ratio by 2???
-
+        // TODO(connor): `sequence_encode` allocates the encoded array just to confirm feasibility.
+        // A cheaper `is_sequence` probe would let us skip the allocation entirely.
         CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-            |_compressor, data, _ctx, exec_ctx| {
-                let Some(encoded) = sequence_encode(data.array_as_primitive(), exec_ctx)? else {
-                    // If we are unable to sequence encode this array, make sure we skip.
-                    return Ok(EstimateVerdict::Skip);
-                };
+            |_compressor, data, best_so_far, _ctx, exec_ctx| {
+                // `SequenceArray` stores exactly two scalars (base and multiplier), so the best
+                // achievable compression ratio is `array_len / 2`.
+                let compressed_size = 2usize;
+                let max_ratio = data.array_len() as f64 / compressed_size as f64;
 
-                // TODO(connor): This doesn't really make sense?
-                // Since two values are required to store base and multiplier the compression ratio is
-                // divided by 2.
-                Ok(EstimateVerdict::Ratio(encoded.len() as f64 / 2.0))
+                // If we cannot beat the best so far, then we do not want to even try sequence
+                // encoding the data.
+                let threshold = best_so_far.and_then(EstimateScore::finite_ratio);
+                if threshold.is_some_and(|t| max_ratio <= t) {
+                    return Ok(EstimateVerdict::Skip);
+                }
+
+                // TODO(connor): We should pass this array back to the compressor in the case that
+                // we do want to sequence encode this so that we do not need to recompress.
+                if sequence_encode(data.array_as_primitive(), exec_ctx)?.is_none() {
+                    return Ok(EstimateVerdict::Skip);
+                }
+                // TODO(connor): Should we get the actual ratio here?
+                Ok(EstimateVerdict::Ratio(max_ratio))
             },
         )))
     }

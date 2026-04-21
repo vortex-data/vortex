@@ -60,7 +60,7 @@ impl Scheme for StringConstantScheme {
         // This is an expensive check, but the alternative of not compressing a constant array is
         // far less preferable.
         CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-            |_compressor, data, _ctx, exec_ctx| {
+            |_compressor, data, _best_so_far, _ctx, exec_ctx| {
                 if is_constant(data.array(), exec_ctx)? {
                     Ok(EstimateVerdict::AlwaysUse)
                 } else {
