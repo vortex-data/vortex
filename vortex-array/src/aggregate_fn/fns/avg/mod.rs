@@ -1,28 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::vortex_bail;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
+use crate::ArrayRef;
+use crate::ExecutionCtx;
+use crate::aggregate_fn::Accumulator;
+use crate::aggregate_fn::AggregateFnId;
+use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::DynAccumulator;
+use crate::aggregate_fn::EmptyOptions;
 use crate::aggregate_fn::combined::BinaryCombined;
 use crate::aggregate_fn::combined::Combined;
 use crate::aggregate_fn::combined::CombinedOptions;
 use crate::aggregate_fn::combined::PairOptions;
 use crate::aggregate_fn::fns::count::Count;
 use crate::aggregate_fn::fns::sum::Sum;
-use crate::aggregate_fn::Accumulator;
-use crate::aggregate_fn::AggregateFnId;
-use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::DynAccumulator;
-use crate::aggregate_fn::EmptyOptions;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
-use crate::ArrayRef;
-use crate::ExecutionCtx;
 
 /// Compute the arithmetic avg of an array.
 ///
@@ -137,7 +137,7 @@ fn coerced_input_dtype(input_dtype: &DType) -> Option<DType> {
     match input_dtype {
         DType::Bool(_) => Some(input_dtype.clone()),
         DType::Primitive(_, n) => Some(DType::Primitive(PType::F64, *n)),
-        DType::Decimal(_, _) => {
+        DType::Decimal(..) => {
             unimplemented!("Avg is not implemented for decimals yet")
         }
         _ => None,
@@ -149,7 +149,7 @@ fn avg_output_dtype(input_dtype: &DType) -> Option<DType> {
         DType::Bool(_) | DType::Primitive(..) => {
             Some(DType::Primitive(PType::F64, Nullability::Nullable))
         }
-        DType::Decimal(_, _) => {
+        DType::Decimal(..) => {
             unimplemented!("Avg for decimals is not yet implemented");
         }
         _ => None,
@@ -162,14 +162,14 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::*;
+    use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::validity::Validity;
-    use crate::IntoArray;
-    use crate::VortexSessionExecute;
-    use crate::LEGACY_SESSION;
 
     #[test]
     fn avg_all_valid() -> VortexResult<()> {
@@ -229,6 +229,14 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn avg_all_null_returns_null() -> VortexResult<()> {
+        let array = PrimitiveArray::from_option_iter::<f64, _>([None, None, None]).into_array();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let result = avg(&array, &mut ctx)?;
+        assert_eq!(result.as_primitive().as_::<f64>(), None);
+        Ok(())
+    }
 
     #[test]
     fn avg_multi_batch() -> VortexResult<()> {
