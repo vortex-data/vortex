@@ -162,6 +162,39 @@ enum MatcherInner {
 }
 
 impl FsstMatcher {
+    /// Scan all strings and produce a `BitBuffer` of match results.
+    ///
+    /// Dispatches on the matcher variant once up front so the inner scan
+    /// loop can be monomorphized for the specific DFA layout. This avoids
+    /// paying an enum-dispatch branch on every call to `matches()` when the
+    /// caller is a tight per-string loop.
+    pub(crate) fn scan_to_bitbuf<T>(
+        &self,
+        n: usize,
+        offsets: &[T],
+        all_bytes: &[u8],
+        negated: bool,
+    ) -> BitBuffer
+    where
+        T: vortex_array::dtype::IntegerPType,
+    {
+        match &self.inner {
+            MatcherInner::MatchAll => BitBuffer::full(!negated, n),
+            MatcherInner::Prefix(dfa) => {
+                dfa_scan_to_bitbuf(n, offsets, all_bytes, negated, |c| dfa.matches(c))
+            }
+            MatcherInner::Suffix(dfa) => {
+                dfa_scan_to_bitbuf(n, offsets, all_bytes, negated, |c| dfa.matches(c))
+            }
+            MatcherInner::Contains(dfa) => {
+                dfa_scan_to_bitbuf(n, offsets, all_bytes, negated, |c| dfa.matches(c))
+            }
+            MatcherInner::MultiContains(dfa) => {
+                dfa_scan_to_bitbuf(n, offsets, all_bytes, negated, |c| dfa.matches(c))
+            }
+        }
+    }
+
     /// Try to build a matcher for the given LIKE pattern.
     ///
     /// Returns `Ok(None)` if the pattern shape is not supported for pushdown
@@ -215,6 +248,10 @@ impl FsstMatcher {
     }
 
     /// Run the matcher on a single FSST-compressed code sequence.
+    ///
+    /// Only used by unit tests; the scan path goes through [`Self::scan_to_bitbuf`]
+    /// so the enum dispatch happens once per batch rather than once per string.
+    #[cfg(test)]
     pub(crate) fn matches(&self, codes: &[u8]) -> bool {
         match &self.inner {
             MatcherInner::MatchAll => true,
@@ -280,6 +317,7 @@ impl<'a> LikeKind<'a> {
 // ---------------------------------------------------------------------------
 
 // TODO: add N-way ILP overrun scan for higher throughput on short strings.
+#[inline]
 pub(crate) fn dfa_scan_to_bitbuf<T, F>(
     n: usize,
     offsets: &[T],

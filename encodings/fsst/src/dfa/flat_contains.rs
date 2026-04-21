@@ -295,16 +295,14 @@ fn matches_folded(
     let len = codes.len();
     while pos < len {
         if state == 0 {
-            // SAFETY: pos < len = codes.len().
+            // SAFETY: pos < len.
             let rest = unsafe { codes.get_unchecked(pos..) };
             match skip_state0(rest, skip) {
                 Some(offset) => pos += offset,
                 None => return false,
             }
         }
-        // SAFETY: pos < len; state * 256 + code < transitions.len() because
-        // `state` is bounded by the DFA construction (< n_total = 2N+1),
-        // and `transitions.len() == n_total * 256`.
+        // SAFETY: pos < len; state < 2N+1; transitions has (2N+1)*256 entries.
         let code = unsafe { *codes.get_unchecked(pos) };
         pos += 1;
         state = unsafe {
