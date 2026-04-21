@@ -1458,10 +1458,6 @@ pub mod vortex_array::arrays::constant
 
 pub struct vortex_array::arrays::constant::Constant
 
-impl vortex_array::arrays::Constant
-
-pub const vortex_array::arrays::Constant::TAKE_RULES: vortex_array::optimizer::rules::ParentRuleSet<Self>
-
 impl core::clone::Clone for vortex_array::arrays::Constant
 
 pub fn vortex_array::arrays::Constant::clone(&self) -> vortex_array::arrays::Constant
@@ -3215,10 +3211,6 @@ pub type vortex_array::arrays::masked::MaskedArray = vortex_array::Array<vortex_
 pub mod vortex_array::arrays::null
 
 pub struct vortex_array::arrays::null::Null
-
-impl vortex_array::arrays::null::Null
-
-pub const vortex_array::arrays::null::Null::TAKE_RULES: vortex_array::optimizer::rules::ParentRuleSet<Self>
 
 impl core::clone::Clone for vortex_array::arrays::null::Null
 
@@ -5276,10 +5268,6 @@ pub fn vortex_array::arrays::Chunked::zip(if_true: vortex_array::ArrayView<'_, v
 
 pub struct vortex_array::arrays::Constant
 
-impl vortex_array::arrays::Constant
-
-pub const vortex_array::arrays::Constant::TAKE_RULES: vortex_array::optimizer::rules::ParentRuleSet<Self>
-
 impl core::clone::Clone for vortex_array::arrays::Constant
 
 pub fn vortex_array::arrays::Constant::clone(&self) -> vortex_array::arrays::Constant
@@ -5987,10 +5975,6 @@ impl vortex_array::scalar_fn::fns::mask::MaskReduce for vortex_array::arrays::Ma
 pub fn vortex_array::arrays::Masked::mask(array: vortex_array::ArrayView<'_, vortex_array::arrays::Masked>, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub struct vortex_array::arrays::Null
-
-impl vortex_array::arrays::null::Null
-
-pub const vortex_array::arrays::null::Null::TAKE_RULES: vortex_array::optimizer::rules::ParentRuleSet<Self>
 
 impl core::clone::Clone for vortex_array::arrays::null::Null
 
@@ -12956,6 +12940,8 @@ pub fn vortex_array::kernel::ParentKernelAdapter<V, K>::execute_parent(&self, ch
 
 pub fn vortex_array::kernel::ParentKernelAdapter<V, K>::matches(&self, parent: &vortex_array::ArrayRef) -> bool
 
+pub struct vortex_array::kernel::ParentKernelEntry<V: vortex_array::VTable>
+
 pub struct vortex_array::kernel::ParentKernelSet<V: vortex_array::VTable>
 
 impl<V: vortex_array::VTable> vortex_array::kernel::ParentKernelSet<V>
@@ -12964,7 +12950,11 @@ pub fn vortex_array::kernel::ParentKernelSet<V>::execute(&self, child: vortex_ar
 
 pub const fn vortex_array::kernel::ParentKernelSet<V>::lift<K: vortex_array::kernel::ExecuteParentKernel<V>>(kernel: &'static K) -> &'static dyn vortex_array::kernel::DynParentKernel<V>
 
+pub const fn vortex_array::kernel::ParentKernelSet<V>::lift_id<K: vortex_array::kernel::ExecuteParentKernel<V>>(parent_id: vortex_session::registry::CachedId, kernel: &'static K) -> vortex_array::kernel::ParentKernelEntry<V>
+
 pub const fn vortex_array::kernel::ParentKernelSet<V>::new(kernels: &'static [&'static dyn vortex_array::kernel::DynParentKernel<V>]) -> Self
+
+pub const fn vortex_array::kernel::ParentKernelSet<V>::new_indexed(keyed: &'static [vortex_array::kernel::ParentKernelEntry<V>], dense: &'static vortex_array::kernel::ParentKernelDense<V>, dynamic: &'static [&'static dyn vortex_array::kernel::DynParentKernel<V>]) -> Self
 
 pub trait vortex_array::kernel::DynParentKernel<V: vortex_array::VTable>: core::marker::Send + core::marker::Sync
 
@@ -13055,6 +13045,8 @@ impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::scalar_fn
 pub type vortex_array::scalar_fn::fns::zip::ZipExecuteAdaptor<V>::Parent = vortex_array::arrays::scalar_fn::ExactScalarFn<vortex_array::scalar_fn::fns::zip::Zip>
 
 pub fn vortex_array::scalar_fn::fns::zip::ZipExecuteAdaptor<V>::execute_parent(&self, array: vortex_array::ArrayView<'_, V>, parent: vortex_array::arrays::scalar_fn::ScalarFnArrayView<'_, vortex_array::scalar_fn::fns::zip::Zip>, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub type vortex_array::kernel::ParentKernelDense<V> = std::sync::once_lock::OnceLock<alloc::boxed::Box<[alloc::vec::Vec<&'static dyn vortex_array::kernel::DynParentKernel<V>>]>>
 
 pub mod vortex_array::mask
 
@@ -13264,6 +13256,8 @@ impl<V: vortex_array::VTable, R: vortex_array::optimizer::rules::ArrayParentRedu
 
 pub fn vortex_array::optimizer::rules::ParentReduceRuleAdapter<V, R>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+pub struct vortex_array::optimizer::rules::ParentRuleEntry<V: vortex_array::VTable>
+
 pub struct vortex_array::optimizer::rules::ParentRuleSet<V: vortex_array::VTable>
 
 impl<V: vortex_array::VTable> vortex_array::optimizer::rules::ParentRuleSet<V>
@@ -13272,7 +13266,11 @@ pub fn vortex_array::optimizer::rules::ParentRuleSet<V>::evaluate(&self, child: 
 
 pub const fn vortex_array::optimizer::rules::ParentRuleSet<V>::lift<R: vortex_array::optimizer::rules::ArrayParentReduceRule<V>>(rule: &'static R) -> &'static dyn vortex_array::optimizer::rules::DynArrayParentReduceRule<V>
 
+pub const fn vortex_array::optimizer::rules::ParentRuleSet<V>::lift_id<R: vortex_array::optimizer::rules::ArrayParentReduceRule<V>>(parent_id: vortex_session::registry::CachedId, rule: &'static R) -> vortex_array::optimizer::rules::ParentRuleEntry<V>
+
 pub const fn vortex_array::optimizer::rules::ParentRuleSet<V>::new(rules: &'static [&'static dyn vortex_array::optimizer::rules::DynArrayParentReduceRule<V>]) -> Self
+
+pub const fn vortex_array::optimizer::rules::ParentRuleSet<V>::new_indexed(keyed: &'static [vortex_array::optimizer::rules::ParentRuleEntry<V>], dense: &'static vortex_array::optimizer::rules::ParentRuleDense<V>, dynamic: &'static [&'static dyn vortex_array::optimizer::rules::DynArrayParentReduceRule<V>]) -> Self
 
 pub struct vortex_array::optimizer::rules::ReduceRuleSet<V: vortex_array::VTable>
 
@@ -13387,6 +13385,8 @@ impl<V: vortex_array::VTable, K: vortex_array::optimizer::rules::ArrayParentRedu
 pub fn vortex_array::optimizer::rules::ParentReduceRuleAdapter<V, K>::matches(&self, parent: &vortex_array::ArrayRef) -> bool
 
 pub fn vortex_array::optimizer::rules::ParentReduceRuleAdapter<V, K>::reduce_parent(&self, child: vortex_array::ArrayView<'_, V>, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub type vortex_array::optimizer::rules::ParentRuleDense<V> = std::sync::once_lock::OnceLock<alloc::boxed::Box<[alloc::vec::Vec<&'static dyn vortex_array::optimizer::rules::DynArrayParentReduceRule<V>>]>>
 
 pub trait vortex_array::optimizer::ArrayOptimizer
 
@@ -21438,6 +21438,8 @@ pub vortex_array::ExecutionStep::Done
 
 pub vortex_array::ExecutionStep::ExecuteSlot(usize, vortex_array::DonePredicate)
 
+pub vortex_array::ExecutionStep::ExecuteSlots(alloc::vec::Vec<(usize, vortex_array::DonePredicate)>)
+
 impl core::fmt::Debug for vortex_array::ExecutionStep
 
 pub fn vortex_array::ExecutionStep::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -22552,7 +22554,11 @@ pub fn vortex_array::ExecutionResult::array(&self) -> &vortex_array::ArrayRef
 
 pub fn vortex_array::ExecutionResult::done(result: impl vortex_array::IntoArray) -> Self
 
+pub fn vortex_array::ExecutionResult::execute_range<M: vortex_array::matcher::Matcher>(array: impl vortex_array::IntoArray, slots: core::ops::range::Range<usize>) -> Self
+
 pub fn vortex_array::ExecutionResult::execute_slot<M: vortex_array::matcher::Matcher>(array: impl vortex_array::IntoArray, slot_idx: usize) -> Self
+
+pub fn vortex_array::ExecutionResult::execute_slots<M: vortex_array::matcher::Matcher>(array: impl vortex_array::IntoArray, slots: impl core::iter::traits::collect::IntoIterator<Item = usize>) -> Self
 
 pub fn vortex_array::ExecutionResult::into_parts(self) -> (vortex_array::ArrayRef, vortex_array::ExecutionStep)
 

@@ -240,16 +240,14 @@ impl VTable for Chunked {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        // Iteratively request execution of each chunk until it reaches canonical form.
-        // This gives the scheduler visibility into child execution and enables
-        // cross-step optimizations between chunk decoding steps.
-        for i in 0..array.nchunks() {
-            if !array.chunk(i).is::<AnyCanonical>() {
-                return Ok(ExecutionResult::execute_slot::<AnyCanonical>(
-                    array,
-                    i + CHUNKS_OFFSET,
-                ));
-            }
+        // Request all chunks together so the scheduler can keep this parent frame on the stack
+        // while it walks the homogeneous chunk slots.
+        if (0..array.nchunks()).any(|i| !array.chunk(i).is::<AnyCanonical>()) {
+            let chunk_slots = CHUNKS_OFFSET..CHUNKS_OFFSET + array.nchunks();
+            return Ok(ExecutionResult::execute_range::<AnyCanonical>(
+                array,
+                chunk_slots,
+            ));
         }
 
         // All chunks are now canonical — combine them.
