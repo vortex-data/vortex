@@ -8,7 +8,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::arrays::ScalarFnVTable;
+use crate::arrays::ScalarFn;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
@@ -69,7 +69,7 @@ where
             return Ok(None);
         }
         let scalar_fn_array = parent
-            .as_opt::<ScalarFnVTable>()
+            .as_opt::<ScalarFn>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
         let pattern = scalar_fn_array.get_child(1);
         let options = *parent.options;
@@ -98,7 +98,7 @@ where
             return Ok(None);
         }
         let scalar_fn_array = parent
-            .as_opt::<ScalarFnVTable>()
+            .as_opt::<ScalarFn>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
         let pattern = scalar_fn_array.get_child(1);
         let options = *parent.options;

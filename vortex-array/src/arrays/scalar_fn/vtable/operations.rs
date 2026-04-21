@@ -9,14 +9,14 @@ use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::arrays::ConstantArray;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
-use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
+use crate::arrays::scalar_fn::vtable::ScalarFn;
 use crate::columnar::Columnar;
 use crate::scalar::Scalar;
 use crate::scalar_fn::VecExecutionArgs;
 
-impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
+impl OperationsVTable<ScalarFn> for ScalarFn {
     fn scalar_at(
-        array: ArrayView<'_, ScalarFnVTable>,
+        array: ArrayView<'_, ScalarFn>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -66,7 +66,7 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::ScalarFnArray;
     use crate::assert_arrays_eq;
-    use crate::scalar_fn::ScalarFn;
+    use crate::scalar_fn::TypedScalarFnInstance;
     use crate::scalar_fn::fns::binary::Binary;
     use crate::scalar_fn::fns::operators::Operator;
     use crate::validity::Validity;
@@ -76,7 +76,7 @@ mod tests {
         let lhs = buffer![1i32, 2, 3].into_array();
         let rhs = buffer![10i32, 20, 30].into_array();
 
-        let scalar_fn = ScalarFn::new(Binary, Operator::Add).erased();
+        let scalar_fn = TypedScalarFnInstance::new(Binary, Operator::Add).erased();
         let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
 
         let result = scalar_fn_array
@@ -94,7 +94,7 @@ mod tests {
         let lhs = buffer![2i32, 3, 4].into_array();
         let rhs = buffer![5i32, 6, 7].into_array();
 
-        let scalar_fn = ScalarFn::new(Binary, Operator::Mul).erased();
+        let scalar_fn = TypedScalarFnInstance::new(Binary, Operator::Mul).erased();
         let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
 
         let result = scalar_fn_array
@@ -116,7 +116,7 @@ mod tests {
         )
         .into_array();
 
-        let scalar_fn = ScalarFn::new(Binary, Operator::Add).erased();
+        let scalar_fn = TypedScalarFnInstance::new(Binary, Operator::Add).erased();
         let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
 
         let result = scalar_fn_array
@@ -138,7 +138,7 @@ mod tests {
         let lhs = buffer![1i32, 5, 3].into_array();
         let rhs = buffer![2i32, 5, 1].into_array();
 
-        let scalar_fn = ScalarFn::new(Binary, Operator::Eq).erased();
+        let scalar_fn = TypedScalarFnInstance::new(Binary, Operator::Eq).erased();
         let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
 
         let result = scalar_fn_array

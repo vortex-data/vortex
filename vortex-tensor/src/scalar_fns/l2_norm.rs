@@ -14,8 +14,8 @@ use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::ScalarFn as ScalarFnArrayEncoding;
 use vortex_array::arrays::ScalarFnArray;
-use vortex_array::arrays::ScalarFnVTable as ScalarFnArrayEncoding;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
@@ -33,9 +33,9 @@ use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
-use vortex_array::scalar_fn::ScalarFn;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_array::serde::ArrayChildren;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
@@ -65,9 +65,9 @@ use crate::utils::validate_tensor_float_input;
 pub struct L2Norm;
 
 impl L2Norm {
-    /// Creates a new [`ScalarFn`] wrapping the L2 norm operation.
-    pub fn new() -> ScalarFn<L2Norm> {
-        ScalarFn::new(L2Norm, EmptyOptions)
+    /// Creates a new [`TypedScalarFnInstance`] wrapping the L2 norm operation.
+    pub fn new() -> TypedScalarFnInstance<L2Norm> {
+        TypedScalarFnInstance::new(L2Norm, EmptyOptions)
     }
 
     /// Constructs a [`ScalarFnArray`] that lazily computes the L2 norm over `child`.
