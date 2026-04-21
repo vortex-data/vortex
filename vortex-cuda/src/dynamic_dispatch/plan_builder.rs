@@ -125,29 +125,32 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
 }
 
 /// An unmaterialized stage: a source op, scalar ops, and optional source buffer reference.
+///
+/// Patches are tied to their owning ops, mirroring the CUDA side where
+/// `patches_ptr` lives on `BitunpackParams` / `AlpParams`:
+/// - `source_patches` for the source op (BitPacked exceptions)
+/// - Each scalar op carries its own `Option<Patches>` (ALP exceptions)
 struct Stage {
     source: SourceOp,
-    scalar_ops: Vec<ScalarOp>,
+    /// Patches from the source op (e.g. BitPacked overflow exceptions).
+    source_patches: Option<Patches>,
+    /// Scalar ops with optional per-op patches (e.g. ALP float exceptions).
+    scalar_ops: Vec<(ScalarOp, Option<Patches>)>,
     /// Index into `FusedPlan::source_buffers`, or `None`
     /// for sources that don't read from a device buffer.
     source_buffer_index: Option<usize>,
     /// PType tag for the source op's output type.
     source_ptype: PTypeTag,
-    /// Patches from a BitPacked source, to be packed and uploaded at materialize time.
-    bitunpack_patches: Option<Patches>,
-    /// Patches from an ALP source, to be packed and uploaded at materialize time.
-    alp_patches: Option<Patches>,
 }
 
 impl Stage {
     fn new(source: SourceOp, source_buffer_index: Option<usize>, source_ptype: PTypeTag) -> Self {
         Self {
             source,
+            source_patches: None,
             scalar_ops: vec![],
             source_buffer_index,
             source_ptype,
-            bitunpack_patches: None,
-            alp_patches: None,
         }
     }
 }
@@ -384,7 +387,7 @@ impl FusedPlan {
             let mut source = stage.source;
 
             // Upload BitPacked patches as a GPUPatches struct if present.
-            if let Some(patches) = &stage.bitunpack_patches {
+            if let Some(patches) = &stage.source_patches {
                 let device_patches = load_patches_sync(patches, ctx)?;
                 let (gpu_buf, ptr) = upload_gpu_patches(&device_patches, ctx)?;
                 source.params.bitunpack.patches_ptr = ptr;
@@ -398,24 +401,24 @@ impl FusedPlan {
                 device_buffers.extend([chunk_offsets, indices, values, gpu_buf]);
             }
 
-            // Set ALP patches_ptr on the ALP ScalarOp itself.
-            let mut scalar_ops = stage.scalar_ops.clone();
-            if let Some(patches) = &stage.alp_patches {
-                let device_patches = load_patches_sync(patches, ctx)?;
-                let (gpu_buf, ptr) = upload_gpu_patches(&device_patches, ctx)?;
-                // Find the ALP scalar op and set its patches_ptr.
-                for op in &mut scalar_ops {
+            // Upload patches for each scalar op that carries them.
+            let mut scalar_ops: Vec<ScalarOp> = Vec::with_capacity(stage.scalar_ops.len());
+            for (mut op, patches) in stage.scalar_ops.clone() {
+                if let Some(patches) = &patches {
+                    let device_patches = load_patches_sync(patches, ctx)?;
+                    let (gpu_buf, ptr) = upload_gpu_patches(&device_patches, ctx)?;
                     if op.op_code == ScalarOp_ScalarOpCode_ALP {
                         op.params.alp.patches_ptr = ptr;
                     }
+                    let DevicePatches {
+                        chunk_offsets,
+                        indices,
+                        values,
+                        ..
+                    } = device_patches;
+                    device_buffers.extend([chunk_offsets, indices, values, gpu_buf]);
                 }
-                let DevicePatches {
-                    chunk_offsets,
-                    indices,
-                    values,
-                    ..
-                } = device_patches;
-                device_buffers.extend([chunk_offsets, indices, values, gpu_buf]);
+                scalar_ops.push(op);
             }
 
             stages.push(MaterializedStage::new(
@@ -576,7 +579,7 @@ impl FusedPlan {
             Some(buf_index),
             source_ptype,
         );
-        stage.bitunpack_patches = bp.patches();
+        stage.source_patches = bp.patches();
         Ok(stage)
     }
 
@@ -603,7 +606,7 @@ impl FusedPlan {
             .cast::<u64>()?;
         pipeline
             .scalar_ops
-            .push(ScalarOp::frame_of_ref(ref_u64, output_ptype));
+            .push((ScalarOp::frame_of_ref(ref_u64, output_ptype), None));
         Ok(pipeline)
     }
 
@@ -619,7 +622,9 @@ impl FusedPlan {
         })?);
 
         let mut pipeline = self.walk(encoded, pending_subtrees)?;
-        pipeline.scalar_ops.push(ScalarOp::zigzag(output_ptype));
+        pipeline
+            .scalar_ops
+            .push((ScalarOp::zigzag(output_ptype), None));
         Ok(pipeline)
     }
 
@@ -649,8 +654,9 @@ impl FusedPlan {
         let alp_e = <f32 as ALPFloat>::IF10[exponents.e as usize];
 
         let mut pipeline = self.walk(encoded, pending_subtrees)?;
-        pipeline.scalar_ops.push(ScalarOp::alp(alp_f, alp_e));
-        pipeline.alp_patches = patches;
+        pipeline
+            .scalar_ops
+            .push((ScalarOp::alp(alp_f, alp_e), patches));
         Ok(pipeline)
     }
 
@@ -713,9 +719,9 @@ impl FusedPlan {
         };
         // DICT scalar op: pass byte offset directly (C ABI uses byte offsets).
         // output_ptype is the values' ptype — DICT transforms codes → values.
-        pipeline.scalar_ops.push(ScalarOp::dict(
-            values_smem_byte_offset,
-            ptype_to_tag(values_ptype),
+        pipeline.scalar_ops.push((
+            ScalarOp::dict(values_smem_byte_offset, ptype_to_tag(values_ptype)),
+            None,
         ));
         Ok(pipeline)
     }
@@ -795,7 +801,7 @@ impl FusedPlan {
         let final_ptype = spec
             .scalar_ops
             .last()
-            .map(|op| op.output_ptype)
+            .map(|(op, _)| op.output_ptype)
             .unwrap_or(spec.source_ptype);
         let final_elem_bytes = tag_to_ptype(final_ptype).byte_width() as u32;
         let elem_bytes = final_elem_bytes.max(self.output_elem_bytes);
