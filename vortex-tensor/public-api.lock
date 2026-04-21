@@ -12,9 +12,9 @@ pub fn vortex_tensor::encodings::l2_denorm::L2DenormScheme::fmt(&self, f: &mut c
 
 impl vortex_compressor::scheme::Scheme for vortex_tensor::encodings::l2_denorm::L2DenormScheme
 
-pub fn vortex_tensor::encodings::l2_denorm::L2DenormScheme::compress(&self, _compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _compress_ctx: vortex_compressor::ctx::CompressorContext, exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+pub fn vortex_tensor::encodings::l2_denorm::L2DenormScheme::compress(&self, _compressor: &vortex_compressor::compressor::CascadingCompressor, data: &vortex_compressor::stats::cache::ArrayAndStats, _compress_ctx: vortex_compressor::ctx::CompressorContext, exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_tensor::encodings::l2_denorm::L2DenormScheme::expected_compression_ratio(&self, _data: &mut vortex_compressor::stats::cache::ArrayAndStats, _compress_ctx: vortex_compressor::ctx::CompressorContext, _exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
+pub fn vortex_tensor::encodings::l2_denorm::L2DenormScheme::expected_compression_ratio(&self, _data: &vortex_compressor::stats::cache::ArrayAndStats, _compress_ctx: vortex_compressor::ctx::CompressorContext, _exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_tensor::encodings::l2_denorm::L2DenormScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 
@@ -64,9 +64,9 @@ impl core::marker::StructuralPartialEq for vortex_tensor::encodings::turboquant:
 
 impl vortex_compressor::scheme::Scheme for vortex_tensor::encodings::turboquant::TurboQuantScheme
 
-pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::compress(&self, _compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _compress_ctx: vortex_compressor::ctx::CompressorContext, exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::compress(&self, _compressor: &vortex_compressor::compressor::CascadingCompressor, data: &vortex_compressor::stats::cache::ArrayAndStats, _compress_ctx: vortex_compressor::ctx::CompressorContext, exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _compress_ctx: vortex_compressor::ctx::CompressorContext, _exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
+pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::expected_compression_ratio(&self, data: &vortex_compressor::stats::cache::ArrayAndStats, _compress_ctx: vortex_compressor::ctx::CompressorContext, _exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 

@@ -68,7 +68,7 @@ impl Scheme for StringDictScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -94,7 +94,7 @@ impl Scheme for StringDictScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
