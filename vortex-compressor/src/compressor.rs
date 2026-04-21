@@ -303,10 +303,10 @@ impl CascadingCompressor {
             });
         let compress_ctx = compress_ctx.with_merged_stats_options(merged_opts);
 
-        let mut data = ArrayAndStats::new(array, merged_opts);
+        let data = ArrayAndStats::new(array, merged_opts);
 
         let Some((winner, winner_estimate)) =
-            self.choose_best_scheme(&eligible_schemes, &mut data, compress_ctx.clone(), exec_ctx)?
+            self.choose_best_scheme(&eligible_schemes, &data, compress_ctx.clone(), exec_ctx)?
         else {
             return Ok(data.into_array());
         };
@@ -314,7 +314,7 @@ impl CascadingCompressor {
         // Run the winning scheme's `compress`. On failure, emit an ERROR event carrying the
         // scheme name and cascade history before propagating.
         let error_ctx = trace::enabled_error_context(&compress_ctx);
-        let compressed = match winner.compress(self, &mut data, compress_ctx, exec_ctx) {
+        let compressed = match winner.compress(self, &data, compress_ctx, exec_ctx) {
             Ok(compressed) => compressed,
             Err(err) => {
                 // NB: this is the only way we can tell which scheme panicked / bailed on their
@@ -355,7 +355,7 @@ impl CascadingCompressor {
     fn choose_best_scheme(
         &self,
         schemes: &[&'static dyn Scheme],
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<(&'static dyn Scheme, WinnerEstimate)>> {
@@ -688,7 +688,7 @@ mod tests {
 
         fn expected_compression_ratio(
             &self,
-            _data: &mut ArrayAndStats,
+            _data: &ArrayAndStats,
             _compress_ctx: CompressorContext,
             _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
@@ -698,7 +698,7 @@ mod tests {
         fn compress(
             &self,
             _compressor: &CascadingCompressor,
-            _data: &mut ArrayAndStats,
+            _data: &ArrayAndStats,
             _compress_ctx: CompressorContext,
             _exec_ctx: &mut ExecutionCtx,
         ) -> VortexResult<ArrayRef> {
@@ -720,7 +720,7 @@ mod tests {
 
         fn expected_compression_ratio(
             &self,
-            _data: &mut ArrayAndStats,
+            _data: &ArrayAndStats,
             _compress_ctx: CompressorContext,
             _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
@@ -730,7 +730,7 @@ mod tests {
         fn compress(
             &self,
             _compressor: &CascadingCompressor,
-            _data: &mut ArrayAndStats,
+            _data: &ArrayAndStats,
             _compress_ctx: CompressorContext,
             _exec_ctx: &mut ExecutionCtx,
         ) -> VortexResult<ArrayRef> {
@@ -752,7 +752,7 @@ mod tests {
 
         fn expected_compression_ratio(
             &self,
-            _data: &mut ArrayAndStats,
+            _data: &ArrayAndStats,
             _compress_ctx: CompressorContext,
             _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
@@ -764,7 +764,7 @@ mod tests {
         fn compress(
             &self,
             _compressor: &CascadingCompressor,
-            _data: &mut ArrayAndStats,
+            _data: &ArrayAndStats,
             _compress_ctx: CompressorContext,
             _exec_ctx: &mut ExecutionCtx,
         ) -> VortexResult<ArrayRef> {
@@ -786,7 +786,7 @@ mod tests {
 
         fn expected_compression_ratio(
             &self,
-            _data: &mut ArrayAndStats,
+            _data: &ArrayAndStats,
             _compress_ctx: CompressorContext,
             _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
@@ -798,7 +798,7 @@ mod tests {
         fn compress(
             &self,
             _compressor: &CascadingCompressor,
-            _data: &mut ArrayAndStats,
+            _data: &ArrayAndStats,
             _compress_ctx: CompressorContext,
             _exec_ctx: &mut ExecutionCtx,
         ) -> VortexResult<ArrayRef> {
@@ -820,7 +820,7 @@ mod tests {
 
         fn expected_compression_ratio(
             &self,
-            _data: &mut ArrayAndStats,
+            _data: &ArrayAndStats,
             _compress_ctx: CompressorContext,
             _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
@@ -832,7 +832,7 @@ mod tests {
         fn compress(
             &self,
             _compressor: &CascadingCompressor,
-            _data: &mut ArrayAndStats,
+            _data: &ArrayAndStats,
             _compress_ctx: CompressorContext,
             _exec_ctx: &mut ExecutionCtx,
         ) -> VortexResult<ArrayRef> {
@@ -854,7 +854,7 @@ mod tests {
 
         fn expected_compression_ratio(
             &self,
-            _data: &mut ArrayAndStats,
+            _data: &ArrayAndStats,
             _compress_ctx: CompressorContext,
             _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
@@ -864,7 +864,7 @@ mod tests {
         fn compress(
             &self,
             _compressor: &CascadingCompressor,
-            _data: &mut ArrayAndStats,
+            _data: &ArrayAndStats,
             _compress_ctx: CompressorContext,
             _exec_ctx: &mut ExecutionCtx,
         ) -> VortexResult<ArrayRef> {
@@ -886,7 +886,7 @@ mod tests {
 
         fn expected_compression_ratio(
             &self,
-            _data: &mut ArrayAndStats,
+            _data: &ArrayAndStats,
             _compress_ctx: CompressorContext,
             _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
@@ -896,7 +896,7 @@ mod tests {
         fn compress(
             &self,
             _compressor: &CascadingCompressor,
-            data: &mut ArrayAndStats,
+            data: &ArrayAndStats,
             _compress_ctx: CompressorContext,
             _exec_ctx: &mut ExecutionCtx,
         ) -> VortexResult<ArrayRef> {
@@ -918,7 +918,7 @@ mod tests {
 
         fn expected_compression_ratio(
             &self,
-            _data: &mut ArrayAndStats,
+            _data: &ArrayAndStats,
             _compress_ctx: CompressorContext,
             _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
@@ -928,7 +928,7 @@ mod tests {
         fn compress(
             &self,
             compressor: &CascadingCompressor,
-            data: &mut ArrayAndStats,
+            data: &ArrayAndStats,
             compress_ctx: CompressorContext,
             exec_ctx: &mut ExecutionCtx,
         ) -> VortexResult<ArrayRef> {
@@ -950,7 +950,7 @@ mod tests {
 
         fn expected_compression_ratio(
             &self,
-            _data: &mut ArrayAndStats,
+            _data: &ArrayAndStats,
             _compress_ctx: CompressorContext,
             _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
@@ -960,7 +960,7 @@ mod tests {
         fn compress(
             &self,
             _compressor: &CascadingCompressor,
-            _data: &mut ArrayAndStats,
+            _data: &ArrayAndStats,
             _compress_ctx: CompressorContext,
             _exec_ctx: &mut ExecutionCtx,
         ) -> VortexResult<ArrayRef> {
@@ -982,7 +982,7 @@ mod tests {
 
         fn expected_compression_ratio(
             &self,
-            _data: &mut ArrayAndStats,
+            _data: &ArrayAndStats,
             _compress_ctx: CompressorContext,
             _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
@@ -992,7 +992,7 @@ mod tests {
         fn compress(
             &self,
             _compressor: &CascadingCompressor,
-            _data: &mut ArrayAndStats,
+            _data: &ArrayAndStats,
             _compress_ctx: CompressorContext,
             _exec_ctx: &mut ExecutionCtx,
         ) -> VortexResult<ArrayRef> {
@@ -1054,12 +1054,12 @@ mod tests {
         let compressor =
             CascadingCompressor::new(vec![&DirectRatioScheme, &ImmediateAlwaysUseScheme]);
         let schemes: [&'static dyn Scheme; 2] = [&DirectRatioScheme, &ImmediateAlwaysUseScheme];
-        let mut data = estimate_test_data();
+        let data = estimate_test_data();
         let mut exec_ctx = SESSION.create_execution_ctx();
 
         let winner = compressor.choose_best_scheme(
             &schemes,
-            &mut data,
+            &data,
             CompressorContext::new(),
             &mut exec_ctx,
         )?;
@@ -1077,12 +1077,12 @@ mod tests {
         let compressor =
             CascadingCompressor::new(vec![&DirectRatioScheme, &CallbackAlwaysUseScheme]);
         let schemes: [&'static dyn Scheme; 2] = [&DirectRatioScheme, &CallbackAlwaysUseScheme];
-        let mut data = estimate_test_data();
+        let data = estimate_test_data();
         let mut exec_ctx = SESSION.create_execution_ctx();
 
         let winner = compressor.choose_best_scheme(
             &schemes,
-            &mut data,
+            &data,
             CompressorContext::new(),
             &mut exec_ctx,
         )?;
@@ -1099,12 +1099,12 @@ mod tests {
     fn callback_skip_is_ignored() -> VortexResult<()> {
         let compressor = CascadingCompressor::new(vec![&CallbackSkipScheme, &DirectRatioScheme]);
         let schemes: [&'static dyn Scheme; 2] = [&CallbackSkipScheme, &DirectRatioScheme];
-        let mut data = estimate_test_data();
+        let data = estimate_test_data();
         let mut exec_ctx = SESSION.create_execution_ctx();
 
         let winner = compressor.choose_best_scheme(
             &schemes,
-            &mut data,
+            &data,
             CompressorContext::new(),
             &mut exec_ctx,
         )?;
@@ -1121,12 +1121,12 @@ mod tests {
     fn callback_ratio_competes_numerically() -> VortexResult<()> {
         let compressor = CascadingCompressor::new(vec![&DirectRatioScheme, &CallbackRatioScheme]);
         let schemes: [&'static dyn Scheme; 2] = [&DirectRatioScheme, &CallbackRatioScheme];
-        let mut data = estimate_test_data();
+        let data = estimate_test_data();
         let mut exec_ctx = SESSION.create_execution_ctx();
 
         let winner = compressor.choose_best_scheme(
             &schemes,
-            &mut data,
+            &data,
             CompressorContext::new(),
             &mut exec_ctx,
         )?;
@@ -1143,12 +1143,12 @@ mod tests {
     fn zero_byte_sample_loses_to_finite_ratio() -> VortexResult<()> {
         let compressor = CascadingCompressor::new(vec![&HugeRatioScheme, &ZeroBytesSamplingScheme]);
         let schemes: [&'static dyn Scheme; 2] = [&HugeRatioScheme, &ZeroBytesSamplingScheme];
-        let mut data = estimate_test_data();
+        let data = estimate_test_data();
         let mut exec_ctx = SESSION.create_execution_ctx();
 
         let winner = compressor.choose_best_scheme(
             &schemes,
-            &mut data,
+            &data,
             CompressorContext::new(),
             &mut exec_ctx,
         )?;
@@ -1165,12 +1165,12 @@ mod tests {
     fn finite_ratio_displaces_zero_byte_sample() -> VortexResult<()> {
         let compressor = CascadingCompressor::new(vec![&ZeroBytesSamplingScheme, &HugeRatioScheme]);
         let schemes: [&'static dyn Scheme; 2] = [&ZeroBytesSamplingScheme, &HugeRatioScheme];
-        let mut data = estimate_test_data();
+        let data = estimate_test_data();
         let mut exec_ctx = SESSION.create_execution_ctx();
 
         let winner = compressor.choose_best_scheme(
             &schemes,
-            &mut data,
+            &data,
             CompressorContext::new(),
             &mut exec_ctx,
         )?;
@@ -1187,12 +1187,12 @@ mod tests {
     fn zero_byte_sample_alone_selects_no_scheme() -> VortexResult<()> {
         let compressor = CascadingCompressor::new(vec![&ZeroBytesSamplingScheme]);
         let schemes: [&'static dyn Scheme; 1] = [&ZeroBytesSamplingScheme];
-        let mut data = estimate_test_data();
+        let data = estimate_test_data();
         let mut exec_ctx = SESSION.create_execution_ctx();
 
         let winner = compressor.choose_best_scheme(
             &schemes,
-            &mut data,
+            &data,
             CompressorContext::new(),
             &mut exec_ctx,
         )?;

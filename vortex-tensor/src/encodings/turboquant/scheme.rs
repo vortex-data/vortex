@@ -71,7 +71,7 @@ impl Scheme for TurboQuantScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -97,7 +97,7 @@ impl Scheme for TurboQuantScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {

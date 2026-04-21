@@ -83,7 +83,7 @@ impl Scheme for ALPScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -104,7 +104,7 @@ impl Scheme for ALPScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -156,7 +156,7 @@ impl Scheme for ALPRDScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -171,7 +171,7 @@ impl Scheme for ALPRDScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -229,7 +229,7 @@ impl Scheme for NullDominatedSparseScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -254,7 +254,7 @@ impl Scheme for NullDominatedSparseScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -301,7 +301,7 @@ impl Scheme for PcoScheme {
 
     fn expected_compression_ratio(
         &self,
-        _data: &mut ArrayAndStats,
+        _data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -311,7 +311,7 @@ impl Scheme for PcoScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -349,7 +349,7 @@ impl Scheme for FloatRLEScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -368,7 +368,7 @@ impl Scheme for FloatRLEScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {

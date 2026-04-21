@@ -129,7 +129,7 @@ impl Scheme for FoRScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -182,7 +182,7 @@ impl Scheme for FoRScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -198,10 +198,9 @@ impl Scheme for FoRScheme {
         // NOTE: we could delegate in the future if we had another downstream codec that performs
         //  as well.
         let leaf_ctx = compress_ctx.clone().as_leaf();
-        let mut biased_data =
+        let biased_data =
             ArrayAndStats::new(biased.into_array(), compress_ctx.merged_stats_options());
-        let compressed =
-            BitPackingScheme.compress(compressor, &mut biased_data, leaf_ctx, exec_ctx)?;
+        let compressed = BitPackingScheme.compress(compressor, &biased_data, leaf_ctx, exec_ctx)?;
 
         // TODO(connor): This should really be `new_unchecked`.
         let for_compressed = FoR::try_new(compressed, for_array.reference_scalar().clone())?;
@@ -268,7 +267,7 @@ impl Scheme for ZigZagScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -290,7 +289,7 @@ impl Scheme for ZigZagScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -321,7 +320,7 @@ impl Scheme for BitPackingScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -338,7 +337,7 @@ impl Scheme for BitPackingScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -450,7 +449,7 @@ impl Scheme for SparseScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -496,13 +495,12 @@ impl Scheme for SparseScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let len = data.array_len();
-        // TODO(connor): Fight the borrow checker (needs interior mutability)!
-        let stats = data.integer_stats(exec_ctx).clone();
+        let stats = data.integer_stats(exec_ctx);
         let array = data.array();
 
         let (most_frequent_value, most_frequent_count) = stats
@@ -635,7 +633,7 @@ impl Scheme for RunEndScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -650,7 +648,7 @@ impl Scheme for RunEndScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -714,7 +712,7 @@ impl Scheme for SequenceScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -760,7 +758,7 @@ impl Scheme for SequenceScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -786,7 +784,7 @@ impl Scheme for PcoScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -803,7 +801,7 @@ impl Scheme for PcoScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -821,7 +819,7 @@ impl Scheme for PcoScheme {
 pub(crate) fn rle_compress(
     scheme: &dyn Scheme,
     compressor: &CascadingCompressor,
-    data: &mut ArrayAndStats,
+    data: &ArrayAndStats,
     compress_ctx: CompressorContext,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
@@ -953,7 +951,7 @@ impl Scheme for IntRLEScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -971,7 +969,7 @@ impl Scheme for IntRLEScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {

@@ -33,7 +33,7 @@ impl Scheme for L2DenormScheme {
 
     fn expected_compression_ratio(
         &self,
-        _data: &mut ArrayAndStats,
+        _data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -43,7 +43,7 @@ impl Scheme for L2DenormScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {

@@ -28,7 +28,7 @@ use crate::trace;
 #[rustfmt::skip]
 pub type EstimateFn = dyn FnOnce(
         &CascadingCompressor,
-        &mut ArrayAndStats,
+        &ArrayAndStats,
         CompressorContext,
         &mut ExecutionCtx,
     ) -> VortexResult<EstimateVerdict>
@@ -193,11 +193,11 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
         canonical.into_array()
     };
 
-    let mut sample_data = ArrayAndStats::new(sample_array, scheme.stats_options());
+    let sample_data = ArrayAndStats::new(sample_array, scheme.stats_options());
     let error_ctx = trace::enabled_error_context(&compress_ctx);
     let sample_ctx = compress_ctx.with_sampling();
 
-    let compressed = match scheme.compress(compressor, &mut sample_data, sample_ctx, exec_ctx) {
+    let compressed = match scheme.compress(compressor, &sample_data, sample_ctx, exec_ctx) {
         Ok(compressed) => compressed,
         Err(err) => {
             trace::sample_compress_failed(scheme.id(), error_ctx.as_ref(), &err);
