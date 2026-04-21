@@ -144,11 +144,15 @@ scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem, uint64_t 
         // Per-value cursor — tiles can span chunk boundaries for sliced arrays.
         if (op.params.alp.patches_ptr != 0) {
             const auto &patches = *reinterpret_cast<const GPUPatches *>(op.params.alp.patches_ptr);
+            // chunk_start is the first original chunk covered by the sliced
+            // chunk_offsets array. PatchesCursor indexes from 0 into that
+            // array, so we subtract chunk_start from the absolute chunk.
+            const uint32_t chunk_start = patches.offset / 1024;
 #pragma unroll
             for (uint32_t i = 0; i < N; ++i) {
                 uint64_t my_pos = (N > 1) ? abs_pos + i * blockDim.x + threadIdx.x : abs_pos;
                 uint64_t orig = my_pos + patches.offset;
-                uint32_t chunk = static_cast<uint32_t>(orig / 1024);
+                uint32_t chunk = static_cast<uint32_t>(orig / 1024) - chunk_start;
                 uint32_t within = static_cast<uint32_t>(orig % 1024);
                 PatchesCursor<T> cursor(patches, chunk, 0, 1);
                 auto patch = cursor.next();
@@ -354,7 +358,6 @@ __device__ void execute_output_stage(T *__restrict output,
                          block_start + elem_idx,
                          chunk_len,
                          src);
-            constexpr uint32_t FL_CHUNK = 1024; // FastLanes chunk size
             const uint32_t align = (block_start + elem_idx + src.params.bitunpack.element_offset) % FL_CHUNK;
             smem_src = scratch + align;
             // Write barrier: all threads finished bitunpack (and any

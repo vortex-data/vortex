@@ -2164,6 +2164,53 @@ mod tests {
         Ok(())
     }
 
+    #[crate::test]
+    fn test_sliced_alp_with_patches_large_offset() -> VortexResult<()> {
+        let len = 5000usize;
+        let mut values: Vec<f32> = (0..len).map(|i| (i as f32) * 1.1).collect();
+        // Place patches across multiple chunks, including after position 1024.
+        values[0] = 99.9;
+        values[500] = std::f32::consts::PI;
+        values[1024] = std::f32::consts::E;
+        values[2048] = std::f32::consts::LN_2;
+        values[3333] = std::f32::consts::SQRT_2;
+
+        let float_prim = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
+        let encoded = alp_encode(
+            float_prim.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?
+        .into_array();
+
+        // Slice with offset >= 1024 to exercise the double-counted offset bug.
+        let sliced = encoded.slice(1500..4500)?;
+
+        let cpu_decoded = sliced
+            .clone()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
+        let expected: Vec<f32> = cpu_decoded.as_slice::<f32>().to_vec();
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&sliced, &cuda_ctx)?;
+        let actual = run_dispatch_plan_f32(
+            &cuda_ctx,
+            expected.len(),
+            &plan.dispatch_plan,
+            plan.shared_mem_bytes,
+        )?;
+        for (i, (&a, &e)) in actual.iter().zip(expected.iter()).enumerate() {
+            assert!(
+                a.to_bits() == e.to_bits(),
+                "mismatch at index {i} (original index {}): gpu={a} cpu={e} (bits: {:#010x} vs {:#010x})",
+                i + 1500,
+                a.to_bits(),
+                e.to_bits(),
+            );
+        }
+        Ok(())
+    }
+
     /// Empty nullable array should preserve nullability.
     #[crate::test]
     async fn test_empty_nullable_array() -> VortexResult<()> {

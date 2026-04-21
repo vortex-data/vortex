@@ -110,6 +110,6 @@ public:
 private:
     const uint32_t *indices;
     const T *values;
-    uint8_t remaining;
+    uint32_t remaining;
     uint32_t chunk_base;
 };

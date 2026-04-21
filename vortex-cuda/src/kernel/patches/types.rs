@@ -222,16 +222,17 @@ pub(crate) fn upload_gpu_patches(
     ctx: &CudaExecutionCtx,
 ) -> VortexResult<(BufferHandle, u64)> {
     #[expect(clippy::cast_possible_truncation)]
-    let gpu_patches = GPUPatches {
-        chunk_offsets: device_patches.chunk_offsets.cuda_device_ptr()? as _,
-        chunk_offset_type: ptype_to_chunk_offset_type(device_patches.chunk_offset_ptype)?,
-        indices: device_patches.indices.cuda_device_ptr()? as _,
-        values: device_patches.values.cuda_device_ptr()? as _,
-        offset: device_patches.offset as u32,
-        offset_within_chunk: device_patches.offset_within_chunk as u32,
-        num_patches: device_patches.num_patches as u32,
-        n_chunks: device_patches.n_chunks as u32,
-    };
+    // Zero-initialize to avoid uninitialized padding bytes (e.g. between
+    // chunk_offset_type and indices) which would be UB when serialized.
+    let mut gpu_patches: GPUPatches = unsafe { std::mem::zeroed() };
+    gpu_patches.chunk_offsets = device_patches.chunk_offsets.cuda_device_ptr()? as _;
+    gpu_patches.chunk_offset_type = ptype_to_chunk_offset_type(device_patches.chunk_offset_ptype)?;
+    gpu_patches.indices = device_patches.indices.cuda_device_ptr()? as _;
+    gpu_patches.values = device_patches.values.cuda_device_ptr()? as _;
+    gpu_patches.offset = device_patches.offset as u32;
+    gpu_patches.offset_within_chunk = device_patches.offset_within_chunk as u32;
+    gpu_patches.num_patches = device_patches.num_patches as u32;
+    gpu_patches.n_chunks = device_patches.n_chunks as u32;
 
     // Serialize the repr(C) struct to bytes and upload to the device.
     let bytes = unsafe {
