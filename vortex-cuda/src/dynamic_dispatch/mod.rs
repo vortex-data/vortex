@@ -578,7 +578,7 @@ mod tests {
             .collect();
 
         let bitpacked = bitpacked_array_u32(bit_width, len);
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let packed = bitpacked.packed().clone();
         let device_input = futures::executor::block_on(cuda_ctx.ensure_on_device(packed))?;
         let input_ptr = device_input.cuda_device_ptr()?;
@@ -689,7 +689,7 @@ mod tests {
             })
             .collect();
 
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let (input_ptr, _di) = copy_raw_to_device(&cuda_ctx, &data)?;
 
         let plan = CudaDispatchPlan::new(
@@ -1865,7 +1865,7 @@ mod tests {
     /// (the bit-pattern for i32(-1)), not u32(0x000000FF) = 255.
     #[crate::test]
     fn test_load_element_sign_extends_i8_to_u32() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
 
         let i8_values: Vec<i8> = vec![-1, -2, -3, 127, -128, 0, 1, 42];
         let len = i8_values.len();
@@ -1898,7 +1898,7 @@ mod tests {
     /// Same as above but for i16 → u32 widening.
     #[crate::test]
     fn test_load_element_sign_extends_i16_to_u32() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
 
         let i16_values: Vec<i16> = vec![-1, -256, -32768, 32767, 0, 1, -100, 12345];
         let len = i16_values.len();
