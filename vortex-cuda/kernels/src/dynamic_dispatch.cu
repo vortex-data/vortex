@@ -112,7 +112,6 @@ __shared__ uint64_t runend_cursors[BLOCK_SIZE];
 /// Apply one scalar operation to N values in registers.
 template <typename T, uint32_t N>
 __device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem,
-                                  const GPUPatches *alp_patches = nullptr,
                                   uint64_t abs_pos = 0) {
     switch (op.op_code) {
     case ScalarOp::FOR: {
@@ -141,9 +140,11 @@ __device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__r
         // be reconstructed through the ALP encode/decode cycle.
         // Each thread iterates ALL patches for the chunk (thread_idx=0,
         // n_threads=1) and checks against its own positions.
-        if (alp_patches != nullptr) {
+        if (op.params.alp.patches_ptr != 0) {
+            const auto &alp_patches = *reinterpret_cast<const GPUPatches *>(
+                op.params.alp.patches_ptr);
             const uint32_t chunk = static_cast<uint32_t>(abs_pos / 1024);
-            PatchesCursor<T> cursor(*alp_patches, chunk, 0, 1);
+            PatchesCursor<T> cursor(alp_patches, chunk, 0, 1);
             auto patch = cursor.next();
             while (patch.index != 1024) {
                 uint64_t patch_pos = static_cast<uint64_t>(chunk) * 1024 + patch.index;
@@ -380,10 +381,7 @@ __device__ void execute_output_stage(T *__restrict output,
                                           smem);
 
             for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
-                const GPUPatches *alp_p = (stage.alp_patches_ptr != 0)
-                    ? reinterpret_cast<const GPUPatches *>(stage.alp_patches_ptr) : nullptr;
-                scalar_op<T, VALUES_PER_TILE>(values, stage.scalar_ops[op], smem,
-                                              alp_p, tile_start);
+                scalar_op<T, VALUES_PER_TILE>(values, stage.scalar_ops[op], smem, tile_start);
             }
 
 #pragma unroll
@@ -405,9 +403,7 @@ __device__ void execute_output_stage(T *__restrict output,
             source_op<T, 1>(&val, src, raw_input, ptype, smem_src, i, gpos, smem);
 
             for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
-                const GPUPatches *alp_p = (stage.alp_patches_ptr != 0)
-                    ? reinterpret_cast<const GPUPatches *>(stage.alp_patches_ptr) : nullptr;
-                scalar_op<T, 1>(&val, stage.scalar_ops[op], smem, alp_p, gpos);
+                scalar_op<T, 1>(&val, stage.scalar_ops[op], smem, gpos);
             }
             __stcs(&output[gpos], val);
         }
@@ -454,9 +450,7 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
             for (uint32_t i = threadIdx.x; i < stage.len; i += blockDim.x) {
                 T val = smem_out[i];
                 for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
-                    const GPUPatches *alp_p = (stage.alp_patches_ptr != 0)
-                        ? reinterpret_cast<const GPUPatches *>(stage.alp_patches_ptr) : nullptr;
-                    scalar_op<T, 1>(&val, stage.scalar_ops[op], smem, alp_p, i);
+                    scalar_op<T, 1>(&val, stage.scalar_ops[op], smem, i);
                 }
                 smem_out[i] = val;
             }
@@ -481,9 +475,7 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
             T val;
             source_op<T, 1>(&val, src, raw_input, stage.source_ptype, nullptr, 0, i, smem);
             for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
-                const GPUPatches *alp_p = (stage.alp_patches_ptr != 0)
-                    ? reinterpret_cast<const GPUPatches *>(stage.alp_patches_ptr) : nullptr;
-                scalar_op<T, 1>(&val, stage.scalar_ops[op], smem, alp_p, i);
+                scalar_op<T, 1>(&val, stage.scalar_ops[op], smem, i);
             }
             smem_out[i] = val;
         }

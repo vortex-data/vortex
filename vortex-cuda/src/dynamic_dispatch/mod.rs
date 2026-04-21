@@ -122,8 +122,6 @@ pub struct MaterializedStage {
     pub source_ptype: PTypeTag,
     /// The source operation that produces the initial values (e.g. load, bitunpack, sequence).
     pub source: SourceOp,
-    /// Device pointer to packed ALP patches buffer (0 = none).
-    pub alp_patches_ptr: u64,
     /// Chain of element-wise scalar operations applied after the source (e.g. frame-of-reference, zigzag, ALP).
     pub scalar_ops: Vec<ScalarOp>,
 }
@@ -143,7 +141,6 @@ impl MaterializedStage {
             len,
             source_ptype,
             source,
-            alp_patches_ptr: 0,
             scalar_ops: scalar_ops.to_vec(),
         }
     }
@@ -159,7 +156,6 @@ pub struct ParsedStage {
     pub len: u32,
     pub source_ptype: PTypeTag,
     pub source: SourceOp,
-    pub alp_patches_ptr: u64,
     pub num_scalar_ops: u8,
     pub scalar_ops: Vec<ScalarOp>,
 }
@@ -226,7 +222,6 @@ impl CudaDispatchPlan {
                 smem_byte_offset: stage.smem_byte_offset,
                 len: stage.len,
                 source: stage.source,
-                alp_patches_ptr: stage.alp_patches_ptr,
                 num_scalar_ops: stage.scalar_ops.len() as u8,
                 source_ptype: stage.source_ptype,
             };
@@ -298,7 +293,6 @@ impl CudaDispatchPlan {
             len: ps.len,
             source_ptype: ps.source_ptype,
             source: ps.source,
-            alp_patches_ptr: ps.alp_patches_ptr,
             num_scalar_ops: ps.num_scalar_ops,
             scalar_ops,
         }
@@ -400,7 +394,11 @@ impl ScalarOp {
             op_code: ScalarOp_ScalarOpCode_ALP,
             output_ptype: PTypeTag_PTYPE_F32,
             params: ScalarParams {
-                alp: ScalarParams_AlpParams { f, e },
+                alp: ScalarParams_AlpParams {
+                    f,
+                    e,
+                    patches_ptr: 0,
+                },
             },
         }
     }

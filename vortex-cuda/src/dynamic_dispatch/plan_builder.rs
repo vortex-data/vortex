@@ -41,6 +41,7 @@ use super::MaterializedStage;
 use super::PTypeTag;
 use super::SMEM_TILE_SIZE;
 use super::ScalarOp;
+use super::ScalarOp_ScalarOpCode_ALP;
 use super::SourceOp;
 use super::ptype_to_tag;
 use super::tag_to_ptype;
@@ -396,12 +397,17 @@ impl FusedPlan {
                 device_buffers.extend([chunk_offsets, indices, values, gpu_buf]);
             }
 
-            // Upload ALP patches as a GPUPatches struct, applied post-scalar-ops.
-            let mut alp_patches_ptr: u64 = 0;
+            // Set ALP patches_ptr on the ALP ScalarOp itself.
+            let mut scalar_ops = stage.scalar_ops.clone();
             if let Some(patches) = &stage.alp_patches {
                 let device_patches = load_patches_sync(patches, ctx)?;
                 let (gpu_buf, ptr) = upload_gpu_patches(&device_patches, ctx)?;
-                alp_patches_ptr = ptr;
+                // Find the ALP scalar op and set its patches_ptr.
+                for op in &mut scalar_ops {
+                    if op.op_code == ScalarOp_ScalarOpCode_ALP {
+                        op.params.alp.patches_ptr = ptr;
+                    }
+                }
                 let DevicePatches {
                     chunk_offsets,
                     indices,
@@ -411,16 +417,14 @@ impl FusedPlan {
                 device_buffers.extend([chunk_offsets, indices, values, gpu_buf]);
             }
 
-            let mut mat = MaterializedStage::new(
+            stages.push(MaterializedStage::new(
                 resolve_ptr(stage),
                 *smem_byte_offset,
                 *len,
                 stage.source_ptype,
                 source,
-                &stage.scalar_ops,
-            );
-            mat.alp_patches_ptr = alp_patches_ptr;
-            stages.push(mat);
+                &scalar_ops,
+            ));
         }
 
         Ok(MaterializedPlan {

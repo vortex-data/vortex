@@ -158,6 +158,7 @@ union ScalarParams {
     struct AlpParams {
         float f;
         float e;
+        uint64_t patches_ptr; // device pointer to GPUPatches struct (0 = none)
     } alp;
 
     /// Dictionary gather: use current value as index into decoded values in smem.
@@ -194,7 +195,7 @@ struct PackedStage {
     uint32_t len;              // number of elements this stage produces
 
     struct SourceOp source;
-    uint64_t alp_patches_ptr;  // device pointer to packed ALP patches buffer (0 = none)
+
     uint8_t num_scalar_ops;
     enum PTypeTag source_ptype; // PType produced by the source op
 };
@@ -227,7 +228,7 @@ struct Stage {
     uint32_t len;                      // elements produced
     enum PTypeTag source_ptype;        // PType produced by the source op
     struct SourceOp source;            // source decode op
-    uint64_t alp_patches_ptr;         // device pointer to packed ALP patches buffer (0 = none)
+
     uint8_t num_scalar_ops;            // number of scalar ops
     const struct ScalarOp *scalar_ops; // scalar decode ops
 };
@@ -250,7 +251,7 @@ __device__ inline Stage parse_stage(const uint8_t *&cursor) {
         .len = packed_stage->len,
         .source_ptype = packed_stage->source_ptype,
         .source = packed_stage->source,
-        .alp_patches_ptr = packed_stage->alp_patches_ptr,
+
         .num_scalar_ops = packed_stage->num_scalar_ops,
         .scalar_ops = ops,
     };
