@@ -33,9 +33,9 @@ use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
-use vortex_array::scalar_fn::ScalarFn;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::TypedScalarFn;
 use vortex_array::serde::ArrayChildren;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
@@ -66,8 +66,8 @@ pub struct L2Norm;
 
 impl L2Norm {
     /// Creates a new [`ScalarFn`] wrapping the L2 norm operation.
-    pub fn new() -> ScalarFn<L2Norm> {
-        ScalarFn::new(L2Norm, EmptyOptions)
+    pub fn new() -> TypedScalarFn<L2Norm> {
+        TypedScalarFn::new(L2Norm, EmptyOptions)
     }
 
     /// Constructs a [`ScalarFnArray`] that lazily computes the L2 norm over `child`.

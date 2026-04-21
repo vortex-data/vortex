@@ -35,7 +35,7 @@ use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::options::ScalarFnOptions;
 use crate::scalar_fn::signature::ScalarFnSignature;
 use crate::scalar_fn::typed::DynScalarFn;
-use crate::scalar_fn::typed::ScalarFn;
+use crate::scalar_fn::typed::TypedScalarFn;
 
 /// A type-erased scalar function, pairing a vtable with bound options behind a trait object.
 ///
@@ -55,14 +55,14 @@ impl ScalarFnRef {
 
     /// Returns whether the scalar function is of the given vtable type.
     pub fn is<V: ScalarFnVTable>(&self) -> bool {
-        self.0.as_any().is::<ScalarFn<V>>()
+        self.0.as_any().is::<TypedScalarFn<V>>()
     }
 
     /// Returns the typed options for this scalar function if it matches the given vtable type.
     pub fn as_opt<V: ScalarFnVTable>(&self) -> Option<&V::Options> {
         self.0
             .as_any()
-            .downcast_ref::<ScalarFn<V>>()
+            .downcast_ref::<TypedScalarFn<V>>()
             .map(|sf| sf.options())
     }
 
@@ -79,9 +79,9 @@ impl ScalarFnRef {
     /// Downcast to the concrete [`ScalarFn`].
     ///
     /// Returns `Err(self)` if the downcast fails.
-    pub fn try_downcast<V: ScalarFnVTable>(self) -> Result<Arc<ScalarFn<V>>, ScalarFnRef> {
-        if self.0.as_any().is::<ScalarFn<V>>() {
-            let ptr = Arc::into_raw(self.0) as *const ScalarFn<V>;
+    pub fn try_downcast<V: ScalarFnVTable>(self) -> Result<Arc<TypedScalarFn<V>>, ScalarFnRef> {
+        if self.0.as_any().is::<TypedScalarFn<V>>() {
+            let ptr = Arc::into_raw(self.0) as *const TypedScalarFn<V>;
             Ok(unsafe { Arc::from_raw(ptr) })
         } else {
             Err(self)
@@ -93,7 +93,7 @@ impl ScalarFnRef {
     /// # Panics
     ///
     /// Panics if the downcast fails.
-    pub fn downcast<V: ScalarFnVTable>(self) -> Arc<ScalarFn<V>> {
+    pub fn downcast<V: ScalarFnVTable>(self) -> Arc<TypedScalarFn<V>> {
         self.try_downcast::<V>()
             .map_err(|this| {
                 vortex_err!(
@@ -106,8 +106,8 @@ impl ScalarFnRef {
     }
 
     /// Try to downcast into a typed [`ScalarFn`].
-    pub fn downcast_ref<V: ScalarFnVTable>(&self) -> Option<&ScalarFn<V>> {
-        self.0.as_any().downcast_ref::<ScalarFn<V>>()
+    pub fn downcast_ref<V: ScalarFnVTable>(&self) -> Option<&TypedScalarFn<V>> {
+        self.0.as_any().downcast_ref::<TypedScalarFn<V>>()
     }
 
     /// The type-erased options for this scalar function.

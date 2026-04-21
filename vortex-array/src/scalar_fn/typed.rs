@@ -42,12 +42,12 @@ use crate::scalar_fn::SimplifyCtx;
 ///
 /// [`new()`]: ScalarFn::new
 /// [`erased()`]: ScalarFn::erased
-pub struct ScalarFn<V: ScalarFnVTable> {
+pub struct TypedScalarFn<V: ScalarFnVTable> {
     vtable: V,
     options: V::Options,
 }
 
-impl<V: ScalarFnVTable> ScalarFn<V> {
+impl<V: ScalarFnVTable> TypedScalarFn<V> {
     /// Create a new typed scalar function instance.
     pub fn new(vtable: V, options: V::Options) -> Self {
         Self { vtable, options }
@@ -121,7 +121,7 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     fn options_debug(&self, f: &mut Formatter<'_>) -> fmt::Result;
 }
 
-impl<V: ScalarFnVTable> DynScalarFn for ScalarFn<V> {
+impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFn<V> {
     #[inline(always)]
     fn as_any(&self) -> &dyn Any {
         self

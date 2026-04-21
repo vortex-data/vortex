@@ -47,7 +47,7 @@ use std::fmt::Formatter;
 use vortex_array::ArrayRef;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::dtype::PType;
-use vortex_array::scalar_fn::ScalarFn;
+use vortex_array::scalar_fn::TypedScalarFn;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -90,8 +90,8 @@ pub struct SorfOptions {
 
 impl SorfTransform {
     /// Creates a new [`ScalarFn`] wrapping the SORF inverse transform with the given options.
-    pub fn new(options: &SorfOptions) -> ScalarFn<SorfTransform> {
-        ScalarFn::new(SorfTransform, options.clone())
+    pub fn new(options: &SorfOptions) -> TypedScalarFn<SorfTransform> {
+        TypedScalarFn::new(SorfTransform, options.clone())
     }
 
     /// Constructs a validated [`ScalarFnArray`] that lazily applies the inverse SORF transform.

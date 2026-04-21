@@ -15,7 +15,7 @@ use crate::arrays::scalar_fn::vtable::FakeEq;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::expr::Expression;
 use crate::expr::lit;
-use crate::scalar_fn::ScalarFn;
+use crate::scalar_fn::TypedScalarFn;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::root::Root;
@@ -58,7 +58,10 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
                 if let Some(scalar) = child.as_constant() {
                     return Ok(lit(scalar));
                 }
-                Expression::try_new(ScalarFn::new(ArrayExpr, FakeEq(child.clone())).erased(), [])
+                Expression::try_new(
+                    TypedScalarFn::new(ArrayExpr, FakeEq(child.clone())).erased(),
+                    [],
+                )
             })
             .collect::<VortexResult<_>>()?;
 

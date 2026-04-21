@@ -24,9 +24,9 @@ use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
-use vortex_array::scalar_fn::ScalarFn;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::TypedScalarFn;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
@@ -63,8 +63,8 @@ pub struct CosineSimilarity;
 
 impl CosineSimilarity {
     /// Creates a new [`ScalarFn`] wrapping the cosine similarity operation.
-    pub fn new() -> ScalarFn<CosineSimilarity> {
-        ScalarFn::new(CosineSimilarity, EmptyOptions)
+    pub fn new() -> TypedScalarFn<CosineSimilarity> {
+        TypedScalarFn::new(CosineSimilarity, EmptyOptions)
     }
 
     /// Constructs a [`ScalarFnArray`] that lazily computes the cosine similarity between `lhs` and

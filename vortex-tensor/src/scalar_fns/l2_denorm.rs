@@ -42,9 +42,9 @@ use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
-use vortex_array::scalar_fn::ScalarFn;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::TypedScalarFn;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
@@ -93,8 +93,8 @@ impl L2Denorm {
     ///
     /// This is a low-level scalar-function descriptor constructor. To build a semantically valid
     /// [`L2Denorm`] array, prefer [`try_new_array`](Self::try_new_array).
-    pub fn new() -> ScalarFn<L2Denorm> {
-        ScalarFn::new(L2Denorm, EmptyOptions)
+    pub fn new() -> TypedScalarFn<L2Denorm> {
+        TypedScalarFn::new(L2Denorm, EmptyOptions)
     }
 
     /// Constructs a validated [`ScalarFnArray`] that lazily re-applies `norms` to `normalized`.

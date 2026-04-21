@@ -39,9 +39,9 @@ use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
-use vortex_array::scalar_fn::ScalarFn;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::TypedScalarFn;
 use vortex_array::serde::ArrayChildren;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -77,8 +77,8 @@ pub struct InnerProduct;
 
 impl InnerProduct {
     /// Creates a new [`ScalarFn`] wrapping the inner product operation.
-    pub fn new() -> ScalarFn<InnerProduct> {
-        ScalarFn::new(InnerProduct, EmptyOptions)
+    pub fn new() -> TypedScalarFn<InnerProduct> {
+        TypedScalarFn::new(InnerProduct, EmptyOptions)
     }
 
     /// Constructs a [`ScalarFnArray`] that lazily computes the inner product between `lhs` and
