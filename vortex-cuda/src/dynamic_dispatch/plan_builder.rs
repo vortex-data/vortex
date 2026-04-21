@@ -47,7 +47,7 @@ use super::ptype_to_tag;
 use super::tag_to_ptype;
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
-use crate::kernel::upload_patches;
+use crate::kernel::load_patches_sync;
 
 /// A plan whose source buffers have been copied to the device, ready for kernel launch.
 pub struct MaterializedPlan {
@@ -352,7 +352,7 @@ impl FusedPlan {
     }
 
     /// Copy source buffers to the device, producing a [`MaterializedPlan`].
-    pub fn materialize(self, ctx: &CudaExecutionCtx) -> VortexResult<MaterializedPlan> {
+    pub fn materialize(self, ctx: &mut CudaExecutionCtx) -> VortexResult<MaterializedPlan> {
         let shared_mem_bytes = self.dynamic_shared_mem_bytes();
 
         let mut device_buffers = Vec::new();
@@ -385,7 +385,7 @@ impl FusedPlan {
 
             // Upload source patches (e.g. BitPacked exceptions).
             if let Some(patches) = &stage.source_patches {
-                let (ptr, bufs) = upload_patches(patches, ctx)?;
+                let (ptr, bufs) = load_patches_sync(patches, ctx)?;
                 source.params.bitunpack.patches_ptr = ptr;
                 device_buffers.extend(bufs);
             }
@@ -394,7 +394,7 @@ impl FusedPlan {
             let mut scalar_ops: Vec<ScalarOp> = Vec::with_capacity(stage.scalar_ops.len());
             for (mut op, patches) in stage.scalar_ops.clone() {
                 if let Some(patches) = &patches {
-                    let (ptr, bufs) = upload_patches(patches, ctx)?;
+                    let (ptr, bufs) = load_patches_sync(patches, ctx)?;
                     op.params.alp.patches_ptr = ptr;
                     device_buffers.extend(bufs);
                 }
@@ -427,7 +427,7 @@ impl FusedPlan {
     pub fn materialize_with_subtrees(
         mut self,
         subtree_buffers: Vec<BufferHandle>,
-        ctx: &CudaExecutionCtx,
+        ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<MaterializedPlan> {
         for (slot, buf) in zip_eq(
             self.source_buffers.iter_mut().filter(|s| s.is_none()),

@@ -557,7 +557,7 @@ mod tests {
 
     fn dispatch_plan(
         array: &vortex::array::ArrayRef,
-        ctx: &CudaExecutionCtx,
+        ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<MaterializedPlan> {
         match DispatchPlan::new(array)? {
             DispatchPlan::Fused(plan) => plan.materialize(ctx),
@@ -578,7 +578,7 @@ mod tests {
             .collect();
 
         let bitpacked = bitpacked_array_u32(bit_width, len);
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let packed = bitpacked.packed().clone();
         let device_input = futures::executor::block_on(cuda_ctx.ensure_on_device(packed))?;
         let input_ptr = device_input.cuda_device_ptr()?;
@@ -689,7 +689,7 @@ mod tests {
             })
             .collect();
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let (input_ptr, _di) = copy_raw_to_device(&cuda_ctx, &data)?;
 
         let plan = CudaDispatchPlan::new(
@@ -785,8 +785,8 @@ mod tests {
             .collect();
 
         let bp = bitpacked_array_u32(bit_width, len);
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&bp.into_array(), &cuda_ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&bp.into_array(), &mut cuda_ctx)?;
 
         let actual =
             run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
@@ -810,8 +810,8 @@ mod tests {
         let bp = bitpacked_array_u32(bit_width, len);
         let for_arr = FoR::try_new(bp.into_array(), Scalar::from(reference))?;
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&for_arr.into_array(), &cuda_ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&for_arr.into_array(), &mut cuda_ctx)?;
 
         let actual =
             run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
@@ -837,7 +837,7 @@ mod tests {
         let values_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
         let re = RunEnd::new(ends_arr, values_arr, cuda_ctx.execution_ctx());
 
-        let plan = dispatch_plan(&re.into_array(), &cuda_ctx)?;
+        let plan = dispatch_plan(&re.into_array(), &mut cuda_ctx)?;
 
         let actual =
             run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
@@ -877,8 +877,8 @@ mod tests {
 
         let dict = DictArray::try_new(codes_bp.into_array(), dict_for.into_array())?;
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&dict.into_array(), &cuda_ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&dict.into_array(), &mut cuda_ctx)?;
 
         let actual =
             run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
@@ -914,8 +914,8 @@ mod tests {
             None,
         );
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&tree.into_array(), &cuda_ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&tree.into_array(), &mut cuda_ctx)?;
 
         let actual =
             run_dispatch_plan_f32(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
@@ -947,8 +947,8 @@ mod tests {
         )?;
         let zz = ZigZag::try_new(bp.into_array())?;
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&zz.into_array(), &cuda_ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&zz.into_array(), &mut cuda_ctx)?;
 
         let actual =
             run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
@@ -977,7 +977,7 @@ mod tests {
         let re = RunEnd::new(ends_arr, values_arr, cuda_ctx.execution_ctx());
         let for_arr = FoR::try_new(re.into_array(), Scalar::from(reference))?;
 
-        let plan = dispatch_plan(&for_arr.into_array(), &cuda_ctx)?;
+        let plan = dispatch_plan(&for_arr.into_array(), &mut cuda_ctx)?;
 
         let actual =
             run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
@@ -1005,8 +1005,8 @@ mod tests {
         let dict = DictArray::try_new(codes_prim.into_array(), values_prim.into_array())?;
         let for_arr = FoR::try_new(dict.into_array(), Scalar::from(reference))?;
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&for_arr.into_array(), &cuda_ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&for_arr.into_array(), &mut cuda_ctx)?;
 
         let actual =
             run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
@@ -1037,8 +1037,8 @@ mod tests {
         let values_prim = PrimitiveArray::new(Buffer::from(dict_values), NonNullable);
         let dict = DictArray::try_new(codes_for.into_array(), values_prim.into_array())?;
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&dict.into_array(), &cuda_ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&dict.into_array(), &mut cuda_ctx)?;
 
         let actual =
             run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
@@ -1066,8 +1066,8 @@ mod tests {
 
         let dict = DictArray::try_new(codes_bp.into_array(), values_prim.into_array())?;
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&dict.into_array(), &cuda_ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&dict.into_array(), &mut cuda_ctx)?;
 
         let actual =
             run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
@@ -1210,8 +1210,8 @@ mod tests {
 
         let expected: Vec<u32> = data[slice_start..slice_end].to_vec();
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&sliced, &cuda_ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&sliced, &mut cuda_ctx)?;
 
         let actual = run_dynamic_dispatch_plan(
             &cuda_ctx,
@@ -1265,8 +1265,8 @@ mod tests {
         let sliced = zz.into_array().slice(slice_start..slice_end)?;
         let expected: Vec<u32> = all_decoded[slice_start..slice_end].to_vec();
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&sliced, &cuda_ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&sliced, &mut cuda_ctx)?;
 
         let actual = run_dynamic_dispatch_plan(
             &cuda_ctx,
@@ -1315,8 +1315,8 @@ mod tests {
             .map(|&c| dict_values[c as usize])
             .collect();
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&sliced, &cuda_ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&sliced, &mut cuda_ctx)?;
 
         let actual = run_dynamic_dispatch_plan(
             &cuda_ctx,
@@ -1364,8 +1364,8 @@ mod tests {
         let sliced = bp.into_array().slice(slice_start..slice_end)?;
         let expected: Vec<u32> = data[slice_start..slice_end].to_vec();
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&sliced, &cuda_ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&sliced, &mut cuda_ctx)?;
 
         let actual = run_dynamic_dispatch_plan(
             &cuda_ctx,
@@ -1417,8 +1417,8 @@ mod tests {
         let sliced = for_arr.into_array().slice(slice_start..slice_end)?;
         let expected: Vec<u32> = all_decoded[slice_start..slice_end].to_vec();
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&sliced, &cuda_ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&sliced, &mut cuda_ctx)?;
 
         let actual = run_dynamic_dispatch_plan(
             &cuda_ctx,
@@ -1482,8 +1482,8 @@ mod tests {
         let sliced = dict.into_array().slice(slice_start..slice_end)?;
         let expected: Vec<u32> = all_decoded[slice_start..slice_end].to_vec();
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&sliced, &cuda_ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&sliced, &mut cuda_ctx)?;
 
         let actual = run_dynamic_dispatch_plan(
             &cuda_ctx,
@@ -1514,8 +1514,8 @@ mod tests {
 
         let seq = Sequence::try_new_typed(base, multiplier, Nullability::NonNullable, len)?;
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&seq.into_array(), &cuda_ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&seq.into_array(), &mut cuda_ctx)?;
 
         let actual = run_dynamic_dispatch_plan(
             &cuda_ctx,
@@ -1547,8 +1547,8 @@ mod tests {
 
         let seq = Sequence::try_new_typed(base, multiplier, Nullability::NonNullable, len)?;
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&seq.into_array(), &cuda_ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&seq.into_array(), &mut cuda_ctx)?;
 
         let actual_u32 = run_dynamic_dispatch_plan(
             &cuda_ctx,
@@ -1865,7 +1865,7 @@ mod tests {
     /// (the bit-pattern for i32(-1)), not u32(0x000000FF) = 255.
     #[crate::test]
     fn test_load_element_sign_extends_i8_to_u32() -> VortexResult<()> {
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
 
         let i8_values: Vec<i8> = vec![-1, -2, -3, 127, -128, 0, 1, 42];
         let len = i8_values.len();
@@ -1898,7 +1898,7 @@ mod tests {
     /// Same as above but for i16 → u32 widening.
     #[crate::test]
     fn test_load_element_sign_extends_i16_to_u32() -> VortexResult<()> {
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
 
         let i16_values: Vec<i16> = vec![-1, -256, -32768, 32767, 0, 1, -100, 12345];
         let len = i16_values.len();
@@ -2176,8 +2176,8 @@ mod tests {
             (bp.into_array(), values)
         };
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&array, &cuda_ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&array, &mut cuda_ctx)?;
         let actual = run_dynamic_dispatch_plan(
             &cuda_ctx,
             expected.len(),
@@ -2226,8 +2226,8 @@ mod tests {
             (for_arr.into_array(), all_values)
         };
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&array, &cuda_ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&array, &mut cuda_ctx)?;
         let actual = run_dynamic_dispatch_plan(
             &cuda_ctx,
             expected.len(),
@@ -2279,8 +2279,8 @@ mod tests {
             .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
         let expected: Vec<f32> = cpu_decoded.as_slice::<f32>().to_vec();
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&array, &cuda_ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&array, &mut cuda_ctx)?;
         let actual = run_dispatch_plan_f32(
             &cuda_ctx,
             expected.len(),
@@ -2432,8 +2432,8 @@ mod tests {
         let values_prim = PrimitiveArray::new(Buffer::from(dict_values), NonNullable);
         let dict = DictArray::try_new(codes_bp.into_array(), values_prim.into_array())?;
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&dict.into_array(), &cuda_ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&dict.into_array(), &mut cuda_ctx)?;
         let actual =
             run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
         assert_eq!(actual, expected);
@@ -2461,8 +2461,8 @@ mod tests {
         )?;
         assert!(bp.patches().is_some(), "expected patches");
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&bp.into_array(), &cuda_ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&bp.into_array(), &mut cuda_ctx)?;
         let actual =
             run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
         assert_eq!(actual, values);
@@ -2493,8 +2493,8 @@ mod tests {
         )?;
         assert!(bp.patches().is_some(), "expected patches");
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&bp.into_array(), &cuda_ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&bp.into_array(), &mut cuda_ctx)?;
         let actual =
             run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
         assert_eq!(actual, values);
@@ -2561,8 +2561,8 @@ mod tests {
         )?;
         assert!(bp.patches().is_some(), "expected patches");
 
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&bp.into_array(), &cuda_ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&bp.into_array(), &mut cuda_ctx)?;
         let actual =
             run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
         assert_eq!(actual, values);
