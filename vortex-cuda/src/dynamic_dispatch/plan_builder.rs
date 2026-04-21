@@ -48,9 +48,7 @@ use super::ptype_to_tag;
 use super::tag_to_ptype;
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
-use crate::kernel::DevicePatches;
-use crate::kernel::load_patches_sync;
-use crate::kernel::upload_gpu_patches;
+use crate::kernel::upload_patches;
 
 /// A plan whose source buffers have been copied to the device, ready for kernel launch.
 pub struct MaterializedPlan {
@@ -386,37 +384,26 @@ impl FusedPlan {
         for (stage, smem_byte_offset, len) in &self.stages {
             let mut source = stage.source;
 
-            // Upload BitPacked patches as a GPUPatches struct if present.
+            // Upload source patches (e.g. BitPacked exceptions).
             if let Some(patches) = &stage.source_patches {
-                let device_patches = load_patches_sync(patches, ctx)?;
-                let (gpu_buf, ptr) = upload_gpu_patches(&device_patches, ctx)?;
-                source.params.bitunpack.patches_ptr = ptr;
-                // Keep the underlying data buffers and the GPUPatches struct alive.
-                let DevicePatches {
-                    chunk_offsets,
-                    indices,
-                    values,
-                    ..
-                } = device_patches;
-                device_buffers.extend([chunk_offsets, indices, values, gpu_buf]);
+                let (ptr, bufs) = upload_patches(patches, ctx)?;
+                match source.op_code {
+                    SourceOp_SourceOpCode_BITUNPACK => source.params.bitunpack.patches_ptr = ptr,
+                    _ => unreachable!("patches on unsupported source op"),
+                }
+                device_buffers.extend(bufs);
             }
 
             // Upload patches for each scalar op that carries them.
             let mut scalar_ops: Vec<ScalarOp> = Vec::with_capacity(stage.scalar_ops.len());
             for (mut op, patches) in stage.scalar_ops.clone() {
                 if let Some(patches) = &patches {
-                    let device_patches = load_patches_sync(patches, ctx)?;
-                    let (gpu_buf, ptr) = upload_gpu_patches(&device_patches, ctx)?;
-                    if op.op_code == ScalarOp_ScalarOpCode_ALP {
-                        op.params.alp.patches_ptr = ptr;
+                    let (ptr, bufs) = upload_patches(&patches, ctx)?;
+                    match op.op_code {
+                        ScalarOp_ScalarOpCode_ALP => op.params.alp.patches_ptr = ptr,
+                        _ => unreachable!("patches on unsupported scalar op"),
                     }
-                    let DevicePatches {
-                        chunk_offsets,
-                        indices,
-                        values,
-                        ..
-                    } = device_patches;
-                    device_buffers.extend([chunk_offsets, indices, values, gpu_buf]);
+                    device_buffers.extend(bufs);
                 }
                 scalar_ops.push(op);
             }

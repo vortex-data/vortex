@@ -444,8 +444,6 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
         // decoded elements below.
         __syncthreads();
 
-        // BP patches are already applied inside bitunpack().
-
         smem_out += src.params.bitunpack.element_offset % SMEM_TILE_SIZE;
 
         if (stage.num_scalar_ops > 0) {
