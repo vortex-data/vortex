@@ -99,8 +99,7 @@ impl ArrayRef {
     /// For safety, we will error when the number of execution iterations reaches a configurable
     /// maximum (default 128, override with `VORTEX_MAX_ITERATIONS`).
     pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        let root = self.optimize()?;
-        let mut stack: Vec<Entry> = vec![Entry::root(root, M::matches)];
+        let mut stack: Vec<Entry> = vec![Entry::root(self, M::matches)];
 
         for _ in 0..max_iterations() {
             let mut entry = match stack.pop() {
