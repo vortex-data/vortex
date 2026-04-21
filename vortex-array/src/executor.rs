@@ -140,7 +140,7 @@ impl ArrayRef {
                             stack.push(entry);
                         }
                         Some(link) => {
-                            unwind_to_parent(&mut stack, link, rewritten, ctx)?;
+                            put_back_rewritten(&mut stack, link, rewritten)?;
                         }
                     }
                 }
@@ -158,14 +158,7 @@ impl ArrayRef {
                             )?;
                         }
                         ExecutionStep::ExecuteSlots(slots) => {
-                            push_children(
-                                array,
-                                slots,
-                                entry.parent,
-                                entry.done,
-                                &mut stack,
-                                ctx,
-                            )?;
+                            push_children(array, slots, entry.parent, entry.done, &mut stack, ctx)?;
                         }
                         ExecutionStep::Done => {
                             ctx.log(format_args!("Done: {}", array));
@@ -197,6 +190,7 @@ struct Entry {
 }
 
 /// Points from a child [`Entry`] back to its parent in the stack.
+#[derive(Clone)]
 struct ParentLink {
     /// Index of the parent [`Entry`] in the stack vec.
     parent_idx: usize,
@@ -217,12 +211,7 @@ impl Entry {
         }
     }
 
-    fn child(
-        array: ArrayRef,
-        parent_idx: usize,
-        slot_idx: usize,
-        done: DonePredicate,
-    ) -> Self {
+    fn child(array: ArrayRef, parent_idx: usize, slot_idx: usize, done: DonePredicate) -> Self {
         let dtype = array.dtype().clone();
         let len = array.len();
         Self {
@@ -272,107 +261,61 @@ fn put_back_child(
     Ok(())
 }
 
-/// Unwind: put all entries above the parent back into their respective parents,
-/// then put the rewritten child back. This collapses any partially-expanded
-/// descendants so the parent can be re-processed with all children in place.
-fn unwind_to_parent(
-    stack: &mut Vec<Entry>,
-    link: ParentLink,
-    rewritten_child: ArrayRef,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<()> {
-    // Pop entries above the parent, putting each back into its own parent.
-    // Deepest entries are on top so grandchildren are put back before siblings.
-    while stack.len() > link.parent_idx + 1 {
-        let entry = stack.pop().unwrap();
-        if let (Some(entry_link), Some(entry_array)) = (entry.parent, entry.array) {
-            // SAFETY: these entries haven't been modified, dtype/len are preserved.
-            let parent_array = stack[entry_link.parent_idx]
-                .array
-                .take()
-                .expect("parent must have array");
-            let updated =
-                unsafe { parent_array.put_slot_unchecked(entry_link.slot_idx, entry_array)? };
-            stack[entry_link.parent_idx].array = Some(updated);
-        }
-    }
-
-    // Put the rewritten child back into the parent.
-    let parent_array = stack[link.parent_idx]
+/// Put a rewritten child back into its parent. Siblings remain on the stack
+/// and will put themselves back when they complete.
+fn put_back_rewritten(stack: &mut [Entry], link: ParentLink, child: ArrayRef) -> VortexResult<()> {
+    let parent = stack[link.parent_idx]
         .array
         .take()
         .expect("parent must have array");
-    let updated = unsafe { parent_array.put_slot_unchecked(link.slot_idx, rewritten_child)? };
-    let updated = updated.optimize()?;
-    ctx.log(format_args!("unwind -> {}", updated));
+    let updated = unsafe { parent.put_slot_unchecked(link.slot_idx, child)? };
     stack[link.parent_idx].array = Some(updated);
     Ok(())
 }
 
-/// Extract children from a parent array and push them onto the stack.
-///
-/// The parent is pushed first (at a stable index), then children are pushed in
-/// reverse order so the first slot to process is on top.
+/// Extract all undone children from the parent and push them onto the stack in
+/// reverse order (first-to-process on top). Each child puts itself back into the
+/// parent via [`put_back_child`] when done.
 fn push_children(
     mut parent: ArrayRef,
-    slots: Vec<(usize, DonePredicate)>,
+    mut slots: Vec<(usize, DonePredicate)>,
     parent_parent: Option<ParentLink>,
     parent_done: DonePredicate,
     stack: &mut Vec<Entry>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    // Collect children that actually need execution.
-    let mut to_push: Vec<(usize, DonePredicate, ArrayRef)> = Vec::new();
-    for (slot_idx, done) in &slots {
-        let Some(child) = parent.slots().get(*slot_idx).and_then(Option::as_ref) else {
+    let parent_idx = stack.len();
+
+    // Push parent entry up front; children will reference it by index.
+    let mut parent_entry = Entry::root(parent, parent_done);
+    parent_entry.parent = parent_parent;
+    stack.push(parent_entry);
+
+    // Iterate in reverse so first-to-process ends up on top of the stack.
+    // Extract each undone child from the parent as we go.
+    let mut parent = stack[parent_idx].array.take().unwrap();
+    slots.reverse();
+    for (slot_idx, done) in slots {
+        let Some(child) = parent.slots().get(slot_idx).and_then(Option::as_ref) else {
             vortex_bail!(
                 "Execution requested slot {} but array {} has no occupied slot there",
                 slot_idx,
                 parent
             );
         };
-        if (done)(child) || AnyCanonical::matches(child) {
+        if done(child) || AnyCanonical::matches(child) {
             continue;
         }
-        let (new_parent, child) = unsafe { parent.take_slot_unchecked(*slot_idx) }?;
+        let (new_parent, child) = unsafe { parent.take_slot_unchecked(slot_idx) }?;
         parent = new_parent;
-        to_push.push((*slot_idx, *done, child));
-    }
-
-    if to_push.is_empty() {
-        // All children already done, push parent back as-is.
-        let dtype = parent.dtype().clone();
-        let len = parent.len();
-        stack.push(Entry {
-            array: Some(parent),
-            parent: parent_parent,
-            done: parent_done,
-            original_dtype: dtype,
-            original_len: len,
-        });
-        return Ok(());
-    }
-
-    // Push parent entry at a stable index.
-    let parent_idx = stack.len();
-    let dtype = parent.dtype().clone();
-    let len = parent.len();
-    stack.push(Entry {
-        array: Some(parent),
-        parent: parent_parent,
-        done: parent_done,
-        original_dtype: dtype,
-        original_len: len,
-    });
-
-    // Push children in reverse order (first-to-process on top).
-    for (slot_idx, done, child) in to_push.into_iter().rev() {
-        let child = child.optimize()?;
         ctx.log(format_args!(
             "ExecuteSlot({slot_idx}): pushing, focusing on {child}"
         ));
         stack.push(Entry::child(child, parent_idx, slot_idx, done));
     }
+
+    // Store parent back (with extracted slots emptied).
+    stack[parent_idx].array = Some(parent);
 
     Ok(())
 }
@@ -486,8 +429,7 @@ impl Executable for ArrayRef {
                             if already_done {
                                 continue;
                             }
-                            let (parent, child) =
-                                unsafe { array.take_slot_unchecked(slot_idx)? };
+                            let (parent, child) = unsafe { array.take_slot_unchecked(slot_idx)? };
                             let executed = child.execute::<ArrayRef>(ctx)?;
                             return unsafe { parent.put_slot_unchecked(slot_idx, executed) };
                         }
