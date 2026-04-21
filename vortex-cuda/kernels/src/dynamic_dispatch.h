@@ -104,15 +104,11 @@ extern "C" {
 
 /// Parameters for source ops, which decode data into a stage's shared memory region.
 ///
-/// Exception patches (patches_ptr) live directly on the union variant that
-/// owns them (BitunpackParams, AlpParams) rather than on a separate per-stage
-/// field. This ties the pointer to its op and avoids an extra indirection.
-/// The tradeoff is that adding a uint64_t to a variant can grow the union,
-/// which grows every ScalarOp/SourceOp — and those are read in the hot tile
-/// loop. Here, SourceParams is already 24 bytes (RunEndParams is the largest
-/// member), so BitunpackParams' patches_ptr adds no size. ScalarParams grew
-/// from 8 to 16 bytes (AlpParams is now the largest), which we verified has
-/// no measurable performance impact since the tile loop is compute-bound.
+/// patches_ptr lives on the union variant that owns it (BitunpackParams,
+/// AlpParams) — not per-stage — so the pointer is tied to its op.
+/// Adding a u64 can grow the union and every ScalarOp/SourceOp read in the
+/// tile loop; SourceParams was already 24 B (no change), ScalarParams grew
+/// 8→16 B (no measurable impact — tile loop is compute-bound).
 union SourceParams {
     /// Unpack FastLanes bit-packed data.
     struct BitunpackParams {
