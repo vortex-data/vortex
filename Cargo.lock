@@ -10674,6 +10674,7 @@ dependencies = [
  "memchr",
  "prost 0.14.3",
  "rand 0.10.1",
+ "regex",
  "rstest",
  "vortex-array",
  "vortex-buffer",
