@@ -522,6 +522,7 @@ mod tests {
     use vortex::encodings::alp::alp_encode;
     use vortex::encodings::fastlanes::BitPacked;
     use vortex::encodings::fastlanes::BitPackedArray;
+    use vortex::encodings::fastlanes::BitPackedArrayExt;
     use vortex::encodings::fastlanes::FoR;
     use vortex::encodings::fastlanes::FoRArrayExt;
     use vortex::encodings::runend::RunEnd;
@@ -2055,6 +2056,92 @@ mod tests {
         let prim = result.into_primitive();
         assert_eq!(prim.len(), 0);
         assert_eq!(prim.validity()?.nullability(), Nullability::Nullable);
+        Ok(())
+    }
+
+    // ---------------------------------------------------------------
+    // Patch tests — fused dynamic dispatch with exception values
+    // ---------------------------------------------------------------
+
+    #[crate::test]
+    fn test_bitpacked_with_patches() -> VortexResult<()> {
+        let bit_width: u8 = 4;
+        let len = 3000usize;
+        let max_val = (1u32 << bit_width) - 1;
+        let values: Vec<u32> = (0..len)
+            .map(|i| {
+                if i % 100 == 0 {
+                    1000
+                } else {
+                    (i as u32) % (max_val + 1)
+                }
+            })
+            .collect();
+
+        let prim = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
+        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        assert!(bp.patches().is_some(), "expected patches");
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&bp.into_array(), &cuda_ctx)?;
+        let actual =
+            run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
+        assert_eq!(actual, values);
+        Ok(())
+    }
+
+    #[crate::test]
+    fn test_for_bitpacked_with_patches() -> VortexResult<()> {
+        let bit_width: u8 = 6;
+        let len = 3000usize;
+        let reference = 42u32;
+        let max_val = (1u32 << bit_width) - 1;
+        let residuals: Vec<u32> = (0..len)
+            .map(|i| {
+                if i % 200 == 0 {
+                    500
+                } else {
+                    (i as u32) % (max_val + 1)
+                }
+            })
+            .collect();
+        let expected: Vec<u32> = residuals.iter().map(|&v| v + reference).collect();
+
+        let prim = PrimitiveArray::new(Buffer::from(residuals), NonNullable);
+        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        assert!(bp.patches().is_some(), "expected patches");
+        let for_arr = FoR::try_new(bp.into_array(), Scalar::from(reference))?;
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&for_arr.into_array(), &cuda_ctx)?;
+        let actual =
+            run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
+        assert_eq!(actual, expected);
+        Ok(())
+    }
+
+    #[crate::test]
+    fn test_alp_with_patches() -> VortexResult<()> {
+        let len = 2000usize;
+        let mut values: Vec<f32> = (0..len).map(|i| (i as f32) * 1.1).collect();
+        // Insert exception values that ALP can't encode.
+        values[0] = 99.9;
+        values[500] = std::f32::consts::PI;
+        values[1024] = std::f32::consts::E;
+
+        let float_prim = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
+        let encoded = alp_encode(
+            float_prim.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?
+        .into_array();
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&encoded, &cuda_ctx)?;
+        let actual =
+            run_dispatch_plan_f32(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
+        assert_eq!(actual, values);
         Ok(())
     }
 }

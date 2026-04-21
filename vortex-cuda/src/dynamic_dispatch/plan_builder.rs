@@ -251,7 +251,7 @@ impl DispatchPlan {
     /// - Validity is propagated from the root array to the output. Nullable
     ///   arrays are supported, but Dict with nullable codes and RunEnd with
     ///   nullable ends are rejected to guard against out-of-bounds access.
-    /// - `BitPackedArray` and `ALPArray` with patches are not supported.
+    /// - `BitPackedArray` and `ALPArray` with patches are supported.
     /// - Only f32 ALP is supported (kernel stores multipliers as `float`).
     pub fn new(array: &ArrayRef) -> VortexResult<Self> {
         if PType::try_from(array.dtype()).is_err() || !is_dyn_dispatch_compatible(array) {
