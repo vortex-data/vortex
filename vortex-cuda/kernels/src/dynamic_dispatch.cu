@@ -110,8 +110,9 @@ __shared__ uint64_t runend_cursors[BLOCK_SIZE];
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Apply one scalar operation to N values in registers.
-/// `abs_pos` is the absolute output position of the first value (used by
-/// ops that carry per-position patches, e.g. ALP).
+///
+/// `abs_pos` is the absolute output position of the first value to process.
+/// It is used by scalar operations that apply patches, e.g. ALP.
 template <typename T, uint32_t N>
 __device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem,
                                   uint64_t abs_pos = 0) {
@@ -140,8 +141,7 @@ __device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__r
         }
         // Apply ALP patches: override positions whose float value couldn't
         // be reconstructed through the ALP encode/decode cycle.
-        // Compare within-chunk positions directly — avoids coordinate
-        // conversion between output and original address spaces.
+        // Per-value cursor — tiles can span chunk boundaries for sliced arrays.
         if (op.params.alp.patches_ptr != 0) {
             const auto &patches = *reinterpret_cast<const GPUPatches *>(
                 op.params.alp.patches_ptr);
