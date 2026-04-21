@@ -138,26 +138,26 @@ __device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__r
         }
         // Apply ALP patches: override positions whose float value couldn't
         // be reconstructed through the ALP encode/decode cycle.
-        // Each thread iterates ALL patches for the chunk (thread_idx=0,
-        // n_threads=1) and checks against its own positions.
+        // Linear scan over all patches — simple and correct for sliced
+        // arrays. Patches are sparse (<1%), so this is cheap.
         if (op.params.alp.patches_ptr != 0) {
-            const auto &alp_patches = *reinterpret_cast<const GPUPatches *>(
+            const auto &p = *reinterpret_cast<const GPUPatches *>(
                 op.params.alp.patches_ptr);
-            const uint32_t chunk = static_cast<uint32_t>(abs_pos / 1024);
-            PatchesCursor<T> cursor(alp_patches, chunk, 0, 1);
-            auto patch = cursor.next();
-            while (patch.index != 1024) {
-                uint64_t patch_pos = static_cast<uint64_t>(chunk) * 1024 + patch.index;
+            const uint32_t *patch_indices = p.indices;
+            const T *patch_values = reinterpret_cast<const T *>(p.values);
+            for (uint32_t pi = 0; pi < p.num_patches; ++pi) {
+                // patch_indices are absolute positions in the original array.
+                // Subtract p.offset to get the output position.
+                uint64_t patch_output_pos = patch_indices[pi] - p.offset;
 #pragma unroll
                 for (uint32_t i = 0; i < N; ++i) {
                     uint64_t my_pos = (N > 1)
                         ? abs_pos + i * blockDim.x + threadIdx.x
                         : abs_pos;
-                    if (my_pos == patch_pos) {
-                        values[i] = patch.value;
+                    if (my_pos == patch_output_pos) {
+                        values[i] = patch_values[pi];
                     }
                 }
-                patch = cursor.next();
             }
         }
         break;

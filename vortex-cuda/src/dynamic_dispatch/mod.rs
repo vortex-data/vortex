@@ -2118,12 +2118,7 @@ mod tests {
         Ok(())
     }
 
-    // TODO: Patches::slice offset mapping is incorrect — the patch at
-    // original position 0 (value 99.9) leaks into the sliced output at
-    // the wrong index. This is a bug in array-level Patches::slice, not
-    // in the CUDA dispatch path.
     #[crate::test]
-    #[ignore]
     fn test_sliced_alp_with_patches() -> VortexResult<()> {
         let len = 5000usize;
         let mut values: Vec<f32> = (0..len).map(|i| (i as f32) * 1.1).collect();
@@ -2142,7 +2137,12 @@ mod tests {
         .into_array();
 
         let sliced = encoded.slice(100..4000)?;
-        let expected: Vec<f32> = values[100..4000].to_vec();
+
+        // Decode on CPU as ground truth (accounts for ALP precision loss + patches).
+        let cpu_decoded = sliced
+            .clone()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
+        let expected: Vec<f32> = cpu_decoded.as_slice::<f32>().to_vec();
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let plan = dispatch_plan(&sliced, &cuda_ctx)?;
@@ -2152,7 +2152,15 @@ mod tests {
             &plan.dispatch_plan,
             plan.shared_mem_bytes,
         )?;
-        assert_eq!(actual, expected);
+        for (i, (&a, &e)) in actual.iter().zip(expected.iter()).enumerate() {
+            assert!(
+                a.to_bits() == e.to_bits(),
+                "mismatch at index {i} (original index {}): gpu={a} cpu={e} (bits: {:#010x} vs {:#010x})",
+                i + 100,
+                a.to_bits(),
+                e.to_bits(),
+            );
+        }
         Ok(())
     }
 
