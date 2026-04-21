@@ -191,15 +191,34 @@ impl MultiContainsDfa {
     }
 }
 
+/// 2× unrolled stateful scan for the escape-folded multi-contains DFA.
+///
+/// Multi-contains has no state-0 skip (the chained automaton does not have
+/// a separable "before the first segment" skip shape that's always safe),
+/// so we just unroll the uniform lookup. Two dependent table loads per
+/// iteration; accept check deferred until after both loads.
 #[inline(always)]
 fn matches_folded(transitions: &[u8], accept_state: u8, codes: &[u8]) -> bool {
     let mut state = 0u8;
     let mut pos = 0;
     let len = codes.len();
-    while pos < len {
-        // SAFETY: pos < len; state < 2N+1 (≤255); transitions has (2N+1)*256 entries.
+    // 2× unrolled hot loop.
+    while pos + 2 <= len {
+        // SAFETY: pos + 1 < len; state < 2N+1.
+        let c1 = unsafe { *codes.get_unchecked(pos) };
+        let c2 = unsafe { *codes.get_unchecked(pos + 1) };
+        let s1 = unsafe { *transitions.get_unchecked(usize::from(state) * 256 + usize::from(c1)) };
+        let s2 = unsafe { *transitions.get_unchecked(usize::from(s1) * 256 + usize::from(c2)) };
+        pos += 2;
+        if s1 == accept_state || s2 == accept_state {
+            return true;
+        }
+        state = s2;
+    }
+    // Tail: at most one byte remaining.
+    if pos < len {
+        // SAFETY: pos < len; state < 2N+1.
         let code = unsafe { *codes.get_unchecked(pos) };
-        pos += 1;
         state = unsafe { *transitions.get_unchecked(usize::from(state) * 256 + usize::from(code)) };
         if state == accept_state {
             return true;
