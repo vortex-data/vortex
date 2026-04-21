@@ -90,6 +90,7 @@ message SelectOpts {
 // Options for `vortex.variant_get`
 message VariantGetOpts {
   repeated VariantPathElement path = 1;
+  optional vortex.dtype.DType as_dtype = 2;
 }
 
 message VariantPathElement {

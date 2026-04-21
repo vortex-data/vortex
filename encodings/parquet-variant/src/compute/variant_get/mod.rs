@@ -5,6 +5,8 @@ use std::sync::Arc;
 
 use arrow_array::Array as ArrowArray;
 use arrow_array::StructArray;
+use arrow_schema::Field;
+use arrow_schema::FieldRef;
 use parquet_variant::VariantPath;
 use parquet_variant::VariantPathElement as ArrowVariantPathElement;
 use parquet_variant_compute::GetOptions;
@@ -18,6 +20,7 @@ use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::arrays::variant::VariantArrayExt;
+use vortex_array::arrow::FromArrowArray;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::scalar_fn::fns::variant_get::VariantGet;
 use vortex_array::scalar_fn::fns::variant_get::VariantPathElement as VortexVariantPathElement;
@@ -48,6 +51,7 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetExecuteParent {
         let arrow_variant = array.to_arrow(ctx)?;
         let path = parent
             .options
+            .path()
             .iter()
             .cloned()
             .map(|element| match element {
@@ -58,13 +62,23 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetExecuteParent {
             })
             .collect::<Vec<_>>();
         let inner: Arc<dyn ArrowArray> = Arc::new(arrow_variant.into_inner());
+        let mut arrow_options = GetOptions::new_with_path(VariantPath::new(path));
+        if let Some(as_dtype) = parent.options.effective_as_dtype() {
+            arrow_options = arrow_options.with_as_type(Some(FieldRef::new(Field::new(
+                "result",
+                as_dtype.to_arrow_dtype()?,
+                as_dtype.is_nullable(),
+            ))));
+        }
         // Delegate to the Arrow Parquet Variant implementation rather than
         // re-implementing path traversal and shredded/unshredded merge semantics here.
-        let arrow_result = parquet_variant_compute::variant_get(
-            &inner,
-            GetOptions::new_with_path(VariantPath::new(path)),
-        )
-        .map_err(|e| vortex_err!("variant_get failed: {e}"))?;
+        let arrow_result = parquet_variant_compute::variant_get(&inner, arrow_options)
+            .map_err(|e| vortex_err!("variant_get failed: {e}"))?;
+
+        if parent.options.effective_as_dtype().is_some() {
+            return ArrayRef::from_arrow(arrow_result.as_ref(), true).map(Some);
+        }
+
         let result_variant = ArrowVariantArray::try_new(
             arrow_result
                 .as_any()

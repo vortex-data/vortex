@@ -10,8 +10,10 @@ use arrow_array::StringArray;
 use arrow_array::StructArray;
 use arrow_array::builder::BinaryViewBuilder;
 use arrow_buffer::NullBuffer;
+use arrow_schema::DataType as ArrowDataType;
 use arrow_schema::DataType;
 use arrow_schema::Field;
+use arrow_schema::FieldRef;
 use parquet_variant::Variant as PqVariant;
 use parquet_variant::VariantBuilder;
 use parquet_variant::VariantBuilderExt;
@@ -28,10 +30,14 @@ use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Variant;
 use vortex_array::arrays::variant::VariantArrayExt;
+use vortex_array::arrow::FromArrowArray;
+use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::expr::root;
 use vortex_array::expr::variant_get;
+use vortex_array::expr::variant_get_as;
 use vortex_array::scalar_fn::fns::variant_get::VariantPath as VortexVariantPath;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -173,6 +179,39 @@ fn assert_matches_arrow_with_path(
         }
     }
 
+    Ok(())
+}
+
+fn assert_typed_matches_arrow_with_path(
+    json_rows: &[&str],
+    path: VortexVariantPath,
+    arrow_path: VariantPath<'static>,
+    as_dtype: DType,
+    arrow_dtype: ArrowDataType,
+) -> VortexResult<()> {
+    let arrow_strings: ArrowArrayRef = Arc::new(StringArray::from(
+        json_rows.iter().map(|row| Some(*row)).collect::<Vec<_>>(),
+    ));
+    let arrow_variant = json_to_variant(&arrow_strings).unwrap();
+    let arrow_result = parquet_variant_compute::variant_get(
+        &arrow_variant.clone().into(),
+        GetOptions::new_with_path(arrow_path).with_as_type(Some(FieldRef::new(Field::new(
+            "result",
+            arrow_dtype,
+            true,
+        )))),
+    )
+    .unwrap();
+    let expected = ArrayRef::from_arrow(arrow_result.as_ref(), true)?;
+
+    let vortex_input = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
+    let expr = variant_get_as(path, as_dtype.clone(), root());
+    let array = vortex_input.apply(&expr)?;
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let actual = array.execute::<ArrayRef>(&mut ctx)?;
+
+    assert_eq!(actual.dtype(), &as_dtype.as_nullable());
+    assert_arrays_eq!(actual, expected);
     Ok(())
 }
 
@@ -327,6 +366,24 @@ fn test_variant_get_matches_arrow_index_path() -> VortexResult<()> {
         ],
         path,
         arrow_path,
+    )
+}
+
+#[test]
+fn test_variant_get_matches_arrow_typed_path() -> VortexResult<()> {
+    assert_typed_matches_arrow_with_path(
+        &[
+            r#"{"outer": {"inner": 42}}"#,
+            r#"{"outer": {"inner": "x"}}"#,
+            r#"{"outer": {"other": true}}"#,
+        ],
+        VortexVariantPath::from_name("outer").join("inner"),
+        VariantPath::from_iter([
+            VariantPathElement::field("outer".to_string()),
+            VariantPathElement::field("inner".to_string()),
+        ]),
+        DType::Primitive(PType::I64, Nullability::NonNullable),
+        ArrowDataType::Int64,
     )
 }
 

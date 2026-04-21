@@ -158,6 +158,8 @@ pub mod select_opts {
 pub struct VariantGetOpts {
     #[prost(message, repeated, tag = "1")]
     pub path: ::prost::alloc::vec::Vec<VariantPathElement>,
+    #[prost(message, optional, tag = "2")]
+    pub as_dtype: ::core::option::Option<super::dtype::DType>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct VariantPathElement {

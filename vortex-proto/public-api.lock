@@ -1230,6 +1230,8 @@ pub fn vortex_proto::expr::SelectOpts::encoded_len(&self) -> usize
 
 pub struct vortex_proto::expr::VariantGetOpts
 
+pub vortex_proto::expr::VariantGetOpts::as_dtype: core::option::Option<vortex_proto::dtype::DType>
+
 pub vortex_proto::expr::VariantGetOpts::path: alloc::vec::Vec<vortex_proto::expr::VariantPathElement>
 
 impl core::clone::Clone for vortex_proto::expr::VariantGetOpts

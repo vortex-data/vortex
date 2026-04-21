@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
 use std::fmt::Formatter;
 
 use prost::Message;
@@ -29,22 +30,87 @@ mod path;
 pub use path::VariantPath;
 pub use path::VariantPathElement;
 
-/// Extracts a nested path from a variant value, returning a new nullable variant.
-///
-/// Execution prefers encoding-specific parent kernels and otherwise falls back through the
-/// canonical [`Variant`] boundary.
+/// Extracts a nested path from a variant value, returning either another variant or a typed array.
 #[derive(Clone)]
 pub struct VariantGet;
 
+/// Options for [`VariantGet`].
+///
+/// `path` selects the nested variant value to extract. `as_dtype`, when set, requests direct
+/// materialization as that logical type instead of another variant.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct VariantGetOptions {
+    path: VariantPath,
+    as_dtype: Option<DType>,
+}
+
+impl VariantGetOptions {
+    /// Creates options for extracting the given path as another variant value.
+    pub fn new(path: impl Into<VariantPath>) -> Self {
+        Self {
+            path: path.into(),
+            as_dtype: None,
+        }
+    }
+
+    /// Returns the requested path.
+    pub fn path(&self) -> &VariantPath {
+        &self.path
+    }
+
+    /// Returns the requested output type, if any.
+    pub fn as_dtype(&self) -> Option<&DType> {
+        self.as_dtype.as_ref()
+    }
+
+    /// Returns new options that request direct materialization as `as_dtype`.
+    pub fn with_as_dtype(mut self, as_dtype: Option<DType>) -> Self {
+        self.as_dtype = as_dtype;
+        self
+    }
+
+    /// Returns the logical output dtype for this expression.
+    pub fn return_dtype(&self) -> DType {
+        match self.effective_as_dtype() {
+            Some(dtype) => dtype.as_nullable(),
+            None => DType::Variant(Nullability::Nullable),
+        }
+    }
+
+    /// Returns the dtype to materialize directly, if it differs from the default variant output.
+    pub fn effective_as_dtype(&self) -> Option<&DType> {
+        self.as_dtype
+            .as_ref()
+            .filter(|dtype| !matches!(dtype, DType::Variant(_)))
+    }
+}
+
+impl Display for VariantGetOptions {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.path)?;
+        if let Some(as_dtype) = &self.as_dtype {
+            write!(f, " as {as_dtype}")?;
+        }
+        Ok(())
+    }
+}
+
+impl<T: Into<VariantPath>> From<T> for VariantGetOptions {
+    fn from(value: T) -> Self {
+        Self::new(value)
+    }
+}
+
 impl ScalarFnVTable for VariantGet {
-    type Options = VariantPath;
+    type Options = VariantGetOptions;
 
     fn id(&self) -> ScalarFnId {
         ScalarFnId::from("vortex.variant_get")
     }
 
-    fn serialize(&self, path: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        let path = path
+    fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        let path = options
+            .path()
             .iter()
             .cloned()
             .map(|element| match element {
@@ -62,16 +128,14 @@ impl ScalarFnVTable for VariantGet {
                 }),
             })
             .collect::<VortexResult<Vec<_>>>()?;
-        Ok(Some(pb::VariantGetOpts { path }.encode_to_vec()))
+        let as_dtype = options.as_dtype().map(TryInto::try_into).transpose()?;
+        Ok(Some(pb::VariantGetOpts { path, as_dtype }.encode_to_vec()))
     }
 
-    fn deserialize(
-        &self,
-        metadata: &[u8],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Options> {
+    fn deserialize(&self, metadata: &[u8], session: &VortexSession) -> VortexResult<Self::Options> {
         let opts = pb::VariantGetOpts::decode(metadata)?;
-        opts.path
+        let path = opts
+            .path
             .into_iter()
             .map(|element| match element.path_element {
                 Some(pb::variant_path_element::PathElement::Field(name)) => {
@@ -82,14 +146,21 @@ impl ScalarFnVTable for VariantGet {
                 }
                 None => vortex_bail!("variant_get path element must be set"),
             })
-            .collect()
+            .collect::<VortexResult<VariantPath>>()?;
+        let as_dtype = opts
+            .as_dtype
+            .as_ref()
+            .map(|dtype| DType::from_proto(dtype, session))
+            .transpose()?;
+
+        Ok(VariantGetOptions { path, as_dtype })
     }
 
-    fn arity(&self, _path: &Self::Options) -> Arity {
+    fn arity(&self, _options: &Self::Options) -> Arity {
         Arity::Exact(1)
     }
 
-    fn child_name(&self, _path: &Self::Options, child_idx: usize) -> ChildName {
+    fn child_name(&self, _options: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::from("input"),
             _ => unreachable!(
@@ -101,28 +172,32 @@ impl ScalarFnVTable for VariantGet {
 
     fn fmt_sql(
         &self,
-        path: &Self::Options,
+        options: &Self::Options,
         expr: &Expression,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
         write!(f, "variant_get(")?;
         expr.children()[0].fmt_sql(f)?;
-        write!(f, ", '{path}')")
+        write!(f, ", '{}'", options.path())?;
+        if let Some(as_dtype) = options.as_dtype() {
+            write!(f, ", {as_dtype}")?;
+        }
+        write!(f, ")")
     }
 
-    fn return_dtype(&self, _path: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
+    fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         if !matches!(arg_dtypes[0], DType::Variant(_)) {
             vortex_bail!(
                 "variant_get requires a Variant input, got {:?}",
                 arg_dtypes[0]
             );
         }
-        Ok(DType::Variant(Nullability::Nullable))
+        Ok(options.return_dtype())
     }
 
     fn execute(
         &self,
-        path: &Self::Options,
+        options: &Self::Options,
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -134,7 +209,7 @@ impl ScalarFnVTable for VariantGet {
             return self
                 .try_new_array(
                     args.row_count(),
-                    path.clone(),
+                    options.clone(),
                     [variant.core_storage().clone()],
                 )?
                 .execute::<ArrayRef>(ctx);
@@ -149,15 +224,15 @@ impl ScalarFnVTable for VariantGet {
             );
         }
 
-        self.try_new_array(args.row_count(), path.clone(), [executed_input])?
+        self.try_new_array(args.row_count(), options.clone(), [executed_input])?
             .execute::<ArrayRef>(ctx)
     }
 
-    fn is_null_sensitive(&self, _path: &Self::Options) -> bool {
+    fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
         true
     }
 
-    fn is_fallible(&self, _path: &Self::Options) -> bool {
+    fn is_fallible(&self, _options: &Self::Options) -> bool {
         false
     }
 }
@@ -167,27 +242,29 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::VariantGet;
+    use super::VariantGetOptions;
     use super::VariantPath;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::scalar_fn::ScalarFnVTable;
 
     #[test]
     fn variant_get_path_proto_round_trip() {
-        let path = VariantPath::from_name("outer").join(1usize).join("inner");
+        let options =
+            VariantGetOptions::new(VariantPath::from_name("outer").join(1usize).join("inner"))
+                .with_as_dtype(Some(DType::Primitive(PType::I64, Nullability::NonNullable)));
 
-        let metadata = VariantGet.serialize(&path).unwrap().unwrap();
+        let metadata = VariantGet.serialize(&options).unwrap().unwrap();
         let decoded = VariantGet
             .deserialize(&metadata, &VortexSession::empty())
             .unwrap();
 
-        assert_eq!(decoded, path);
-        assert_eq!(decoded.to_string(), "outer[1].inner");
+        assert_eq!(decoded, options);
+        assert_eq!(decoded.to_string(), "outer[1].inner as i64");
         assert_eq!(
-            VariantGet
-                .return_dtype(&decoded, &[DType::Variant(Nullability::NonNullable)])
-                .unwrap(),
-            DType::Variant(Nullability::Nullable)
+            decoded.return_dtype(),
+            DType::Primitive(PType::I64, Nullability::Nullable)
         );
     }
 }
