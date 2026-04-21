@@ -143,12 +143,15 @@ impl ArrayRef {
                                 vec![(i, done)],
                                 entry.parent,
                                 entry.done,
+                                true,
                                 &mut stack,
                                 ctx,
                             )?;
                         }
                         ExecutionStep::ExecuteSlots(slots) => {
-                            push_children(array, slots, entry.parent, entry.done, &mut stack, ctx)?;
+                            push_children(
+                                array, slots, entry.parent, entry.done, false, &mut stack, ctx,
+                            )?;
                         }
                         ExecutionStep::Done => {
                             ctx.log(format_args!("Done: {}", array));
@@ -177,6 +180,10 @@ struct Entry {
     done: DonePredicate,
     original_dtype: DType,
     original_len: usize,
+    /// When true, after this child is put back into its parent, the parent is
+    /// popped and re-entered into the execute loop so that `execute_parent` can
+    /// fire on the reconstructed parent. Set for `ExecuteSlot` children only.
+    reexecute_parent: bool,
 }
 
 /// Points from a child [`Entry`] back to its parent in the stack.
@@ -198,6 +205,7 @@ impl Entry {
             done,
             original_dtype: dtype,
             original_len: len,
+            reexecute_parent: false,
         }
     }
 
@@ -213,6 +221,7 @@ impl Entry {
             done,
             original_dtype: dtype,
             original_len: len,
+            reexecute_parent: false,
         }
     }
 }
@@ -259,6 +268,7 @@ fn push_children(
     mut slots: Vec<(usize, DonePredicate)>,
     parent: Option<ParentLink>,
     done: DonePredicate,
+    reexecute_parent: bool,
     stack: &mut Vec<Entry>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
@@ -289,7 +299,9 @@ fn push_children(
         ctx.log(format_args!(
             "ExecuteSlot({slot_idx}): pushing, focusing on {slot_child}"
         ));
-        stack.push(Entry::child(slot_child, parent_idx, slot_idx, slot_done));
+        let mut entry = Entry::child(slot_child, parent_idx, slot_idx, slot_done);
+        entry.reexecute_parent = reexecute_parent;
+        stack.push(entry);
     }
 
     // Store parent back (with extracted slots emptied).
