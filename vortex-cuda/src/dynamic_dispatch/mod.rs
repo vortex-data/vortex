@@ -2262,4 +2262,242 @@ mod tests {
         assert_eq!(actual, values);
         Ok(())
     }
+
+    // ---------------------------------------------------------------
+    // Additional patch tests — typed widths, edge cases, composites
+    // ---------------------------------------------------------------
+
+    /// u8 BitPacked with patches (bit_width=3, patch values > 7).
+    #[crate::test]
+    async fn test_bitpacked_with_patches_u8() -> VortexResult<()> {
+        let bit_width: u8 = 3;
+        let len = 3000usize;
+        let max_val = (1u8 << bit_width) - 1;
+        let values: Vec<u8> = (0..len)
+            .map(|i| {
+                if i % 100 == 0 {
+                    200u8
+                } else {
+                    (i as u8) % (max_val + 1)
+                }
+            })
+            .collect();
+
+        let prim = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
+        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        assert!(bp.patches().is_some(), "expected patches");
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let canonical = try_gpu_dispatch(&bp.into_array(), &mut cuda_ctx).await?;
+        let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
+
+        let expected_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
+        vortex::array::assert_arrays_eq!(expected_arr, result);
+        Ok(())
+    }
+
+    /// u16 BitPacked with patches (bit_width=6, patch values > 63).
+    #[crate::test]
+    async fn test_bitpacked_with_patches_u16() -> VortexResult<()> {
+        let bit_width: u8 = 6;
+        let len = 3000usize;
+        let max_val = (1u16 << bit_width) - 1;
+        let values: Vec<u16> = (0..len)
+            .map(|i| {
+                if i % 150 == 0 {
+                    5000u16
+                } else {
+                    (i as u16) % (max_val + 1)
+                }
+            })
+            .collect();
+
+        let prim = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
+        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        assert!(bp.patches().is_some(), "expected patches");
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let canonical = try_gpu_dispatch(&bp.into_array(), &mut cuda_ctx).await?;
+        let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
+
+        let expected_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
+        vortex::array::assert_arrays_eq!(expected_arr, result);
+        Ok(())
+    }
+
+    /// u64 BitPacked with patches (bit_width=4, patch values > 15).
+    #[crate::test]
+    async fn test_bitpacked_with_patches_u64() -> VortexResult<()> {
+        let bit_width: u8 = 4;
+        let len = 3000usize;
+        let max_val = (1u64 << bit_width) - 1;
+        let values: Vec<u64> = (0..len)
+            .map(|i| {
+                if i % 200 == 0 {
+                    1_000_000u64
+                } else {
+                    (i as u64) % (max_val + 1)
+                }
+            })
+            .collect();
+
+        let prim = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
+        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        assert!(bp.patches().is_some(), "expected patches");
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let canonical = try_gpu_dispatch(&bp.into_array(), &mut cuda_ctx).await?;
+        let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
+
+        let expected_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
+        vortex::array::assert_arrays_eq!(expected_arr, result);
+        Ok(())
+    }
+
+    /// Dict where codes are BitPacked u32 with patches exceeding the bit width.
+    #[crate::test]
+    fn test_dict_bitpacked_codes_with_patches() -> VortexResult<()> {
+        let dict_values: Vec<u32> = (0..256).map(|i| i * 1000 + 42).collect();
+        let len = 3000;
+        let bit_width: u8 = 4;
+        let max_code = (1u32 << bit_width) - 1;
+        // Some codes exceed max_code (15), creating patches in the BitPacked codes.
+        let codes: Vec<u32> = (0..len)
+            .map(|i| {
+                if i % 100 == 0 {
+                    100u32 // exceeds max_code=15, becomes a patch
+                } else {
+                    (i as u32) % (max_code + 1)
+                }
+            })
+            .collect();
+        let expected: Vec<u32> = codes.iter().map(|&c| dict_values[c as usize]).collect();
+
+        let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
+        let codes_bp = BitPacked::encode(&codes_prim.into_array(), bit_width)?;
+        assert!(codes_bp.patches().is_some(), "expected patches on codes");
+
+        let values_prim = PrimitiveArray::new(Buffer::from(dict_values), NonNullable);
+        let dict = DictArray::try_new(codes_bp.into_array(), values_prim.into_array())?;
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&dict.into_array(), &cuda_ctx)?;
+        let actual =
+            run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
+        assert_eq!(actual, expected);
+        Ok(())
+    }
+
+    /// Patches placed exactly at FastLanes chunk boundaries (1024-element chunks).
+    #[crate::test]
+    fn test_bitpacked_patches_at_chunk_boundaries() -> VortexResult<()> {
+        let len = 4096usize;
+        let bit_width: u8 = 4;
+        let max_val = (1u32 << bit_width) - 1;
+        let mut values: Vec<u32> = (0..len).map(|i| (i as u32) % (max_val + 1)).collect();
+        // Place patches at FL chunk boundaries (1024 elements per chunk).
+        values[1023] = 1000; // end of chunk 0
+        values[1024] = 2000; // start of chunk 1
+        values[2047] = 3000; // end of chunk 1
+        values[2048] = 4000; // start of chunk 2
+
+        let prim = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
+        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        assert!(bp.patches().is_some(), "expected patches");
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&bp.into_array(), &cuda_ctx)?;
+        let actual =
+            run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
+        assert_eq!(actual, values);
+        Ok(())
+    }
+
+    /// Large array (100k elements) spanning many blocks with sparse patches.
+    #[crate::test]
+    fn test_bitpacked_large_array_with_patches() -> VortexResult<()> {
+        let len = 100_000usize;
+        let bit_width: u8 = 6;
+        let max_val = (1u32 << bit_width) - 1;
+        let values: Vec<u32> = (0..len)
+            .map(|i| {
+                if i % 500 == 0 {
+                    1000
+                } else {
+                    (i as u32) % (max_val + 1)
+                }
+            })
+            .collect();
+
+        let prim = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
+        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        assert!(bp.patches().is_some(), "expected patches");
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&bp.into_array(), &cuda_ctx)?;
+        let actual =
+            run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
+        assert_eq!(actual, values);
+        Ok(())
+    }
+
+    /// Nullable BitPacked with patches — validity must survive through fused
+    /// dispatch alongside patch application.
+    #[crate::test]
+    async fn test_nullable_bitpacked_with_patches() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+
+        let len = 3000usize;
+        let bit_width: u8 = 4;
+        let max_val = (1u32 << bit_width) - 1;
+
+        // Every 7th element is null; every 100th (non-null) element is a patch.
+        let values: Vec<Option<u32>> = (0..len)
+            .map(|i| {
+                if i % 7 == 0 {
+                    None
+                } else if i % 100 == 0 {
+                    Some(1000u32) // exceeds max_val=15, becomes a patch
+                } else {
+                    Some((i as u32) % (max_val + 1))
+                }
+            })
+            .collect();
+
+        let prim = PrimitiveArray::from_option_iter(values.iter().copied());
+        let cpu = crate::canonicalize_cpu(prim.clone())?.into_array();
+
+        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        assert!(bp.patches().is_some(), "expected patches");
+
+        let gpu = try_gpu_dispatch(&bp.into_array(), &mut cuda_ctx)
+            .await?
+            .into_host()
+            .await?
+            .into_array();
+
+        vortex::array::assert_arrays_eq!(cpu, gpu);
+        Ok(())
+    }
+
+    /// Extreme case: ALL values are patches (bit_width=1, every value > 1).
+    #[crate::test]
+    fn test_bitpacked_all_patches() -> VortexResult<()> {
+        let bit_width: u8 = 1;
+        let len = 2000usize;
+        // All values >= 2, so every single element exceeds max storable (1) and
+        // becomes a patch.
+        let values: Vec<u32> = (0..len).map(|i| (i as u32) + 2).collect();
+
+        let prim = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
+        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        assert!(bp.patches().is_some(), "expected patches");
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = dispatch_plan(&bp.into_array(), &cuda_ctx)?;
+        let actual =
+            run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
+        assert_eq!(actual, values);
+        Ok(())
+    }
 }
