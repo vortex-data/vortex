@@ -103,6 +103,31 @@ impl Dataset {
             Self::Rare => "%xyzzy%",
         }
     }
+
+    fn multi_contains_pattern(&self) -> &'static str {
+        match self {
+            // Two-segment patterns exercising the multi-contains DFA chain.
+            Self::Urls => "%http%google%",
+            Self::Cb => "%www%yandex%",
+            Self::Log => "%GET%Googlebot%",
+            Self::Json => "%name%enterprise%",
+            Self::Path => "%home%release%",
+            Self::Email => "%@%gmail%",
+            Self::Rare => "%abc%xyzzy%",
+        }
+    }
+
+    fn suffix_pattern(&self) -> &'static str {
+        match self {
+            Self::Urls => "%.html",
+            Self::Cb => "%.ru",
+            Self::Log => "%bot.html)\"",
+            Self::Json => "%true}",
+            Self::Path => "%.rs",
+            Self::Email => "%.com",
+            Self::Rare => "%xyzzy",
+        }
+    }
 }
 
 fn bench_like(bencher: Bencher, fsst: &FSSTArray, pattern: &str) {
@@ -134,4 +159,20 @@ fn fsst_prefix(bencher: Bencher, dataset: &Dataset) {
 ])]
 fn fsst_contains(bencher: Bencher, dataset: &Dataset) {
     bench_like(bencher, dataset.fsst_array(), dataset.contains_pattern());
+}
+
+#[divan::bench(args = [
+    Dataset::Urls, Dataset::Cb, Dataset::Log, Dataset::Json,
+    Dataset::Path, Dataset::Email, Dataset::Rare,
+])]
+fn fsst_multi_contains(bencher: Bencher, dataset: &Dataset) {
+    bench_like(bencher, dataset.fsst_array(), dataset.multi_contains_pattern());
+}
+
+#[divan::bench(args = [
+    Dataset::Urls, Dataset::Cb, Dataset::Log, Dataset::Json,
+    Dataset::Path, Dataset::Email, Dataset::Rare,
+])]
+fn fsst_suffix(bencher: Bencher, dataset: &Dataset) {
+    bench_like(bencher, dataset.fsst_array(), dataset.suffix_pattern());
 }
