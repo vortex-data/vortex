@@ -8,7 +8,7 @@
 //! - slot 1 is the optional `shredded` child
 //!
 //! `core_storage` owns the encoding-specific semantics of the variant values. The outer variant
-//! [`crate::dtype::DType`] and array length are derived from it, and scalar extraction and
+//! [`DType`] and array length are derived from it, and scalar extraction and
 //! validity delegate to it.
 //!
 //! `shredded` is a same-length auxiliary child that exposes a more concrete structure when one is
@@ -22,9 +22,13 @@
 //! slots. If `core_storage` is wrapped by row-preserving encodings such as slice, filter, take,
 //! or masked validity, the delegated `shredded` child is reconstructed through the same wrapper.
 //!
+//! ## Canonicalization
+//!
 //! Recursive canonicalization preserves `core_storage` as-is. Inline `shredded` children are
 //! canonicalized independently; derived `shredded` children continue to be delegated from
 //! `core_storage`.
+//!
+//! [`DType`]: crate::dtype::DType
 
 mod array;
 #[cfg(test)]

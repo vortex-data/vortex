@@ -170,9 +170,12 @@ impl ParquetVariantData {
 
     /// Converts an Arrow `parquet_variant_compute::VariantArray` into a canonical Vortex variant.
     ///
-    /// The returned array is a [`vortex_array::arrays::VariantArray`] whose `core_storage` is a
+    /// The returned array is a [`VariantArray`] whose `core_storage` is a
     /// [`ParquetVariantArray`] and whose canonical `shredded` child delegates to the inner
     /// `typed_value` child when one is present.
+    ///
+    /// [`VariantArray`]: vortex_array::arrays::VariantArray
+    /// [`ParquetVariantArray`]: crate::ParquetVariantArray
     pub fn from_arrow_variant(arrow_variant: &ArrowVariantArray) -> VortexResult<ArrayRef> {
         let storage = arrow_variant.inner();
         let value_nullable = storage
@@ -234,8 +237,12 @@ pub(crate) fn validate_parts(
 /// Accessors for the physical children of a [`ParquetVariantArray`].
 ///
 /// These expose the Parquet encoding's own storage. The canonical outer
-/// [`vortex_array::arrays::VariantArray`] may additionally delegate its logical `shredded` child
-/// to `typed_value` via [`vortex_array::arrays::VariantArrayExt::shredded`].
+/// [`VariantArray`] may additionally delegate its logical `shredded` child to `typed_value` via
+/// [`VariantArrayExt::shredded`].
+///
+/// [`ParquetVariantArray`]: crate::ParquetVariantArray
+/// [`VariantArray`]: vortex_array::arrays::VariantArray
+/// [`VariantArrayExt::shredded`]: vortex_array::arrays::variant::VariantArrayExt::shredded
 pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
     /// Returns the non-nullable Parquet metadata child.
     fn metadata_array(&self) -> &ArrayRef {
