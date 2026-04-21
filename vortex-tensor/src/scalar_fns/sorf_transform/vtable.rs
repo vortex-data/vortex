@@ -93,13 +93,13 @@ impl ScalarFnVTable for SorfTransform {
                 vortex_err!("SorfTransform child must be a Vector extension, got {child_dtype}")
             })?;
 
-        let expected_padded = options.dimension.next_power_of_two();
+        let expected_padded = options.dimensions.next_power_of_two();
         vortex_ensure_eq!(
             vector_metadata.dimensions(),
             expected_padded,
             "SorfTransform child Vector must have dimension {expected_padded} (next power of two \
              for dimension {})",
-            options.dimension,
+            options.dimensions,
         );
 
         // For now, the child Vector storage must be f32. TurboQuant stores its centroids as f32,
@@ -116,7 +116,7 @@ impl ScalarFnVTable for SorfTransform {
         let output_elem_dtype = DType::Primitive(options.element_ptype, Nullability::NonNullable);
         let storage_dtype = DType::FixedSizeList(
             Arc::new(output_elem_dtype),
-            options.dimension,
+            options.dimensions,
             child_dtype.nullability(),
         );
 
@@ -131,7 +131,7 @@ impl ScalarFnVTable for SorfTransform {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         validate_sorf_options(options)?;
-        let dim = options.dimension as usize;
+        let dim = options.dimensions as usize;
         let num_rows = args.row_count();
 
         if num_rows == 0 {
@@ -142,7 +142,7 @@ impl ScalarFnVTable for SorfTransform {
                 let elements = PrimitiveArray::empty::<T>(Nullability::NonNullable);
                 let fsl = FixedSizeListArray::try_new(
                     elements.into_array(),
-                    options.dimension,
+                    options.dimensions,
                     validity,
                     0,
                 )?;
@@ -252,7 +252,7 @@ impl ScalarFnArrayVTable for SorfTransform {
             })?
             .storage_dtype()
             .nullability();
-        let padded_dim = options.dimension.next_power_of_two();
+        let padded_dim = options.dimensions.next_power_of_two();
         let child_storage = DType::FixedSizeList(
             Arc::new(DType::Primitive(PType::F32, Nullability::NonNullable)),
             padded_dim,
@@ -317,7 +317,7 @@ impl From<&SorfOptions> for SorfTransformMetadata {
         Self {
             seed: options.seed,
             num_rounds: u32::from(options.num_rounds),
-            dimension: options.dimension,
+            dimension: options.dimensions,
             element_ptype: options.element_ptype as i32,
             child_dtype: None,
         }
@@ -337,7 +337,7 @@ impl SorfTransformMetadata {
         let options = SorfOptions {
             seed: self.seed,
             num_rounds,
-            dimension: self.dimension,
+            dimensions: self.dimension,
             element_ptype: self.element_ptype(),
         };
         validate_sorf_options(&options)?;

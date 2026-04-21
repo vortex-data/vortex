@@ -414,7 +414,7 @@ impl InnerProduct {
             return Ok(None);
         };
 
-        let dim = sorf_view.options.dimension as usize;
+        let dim = sorf_view.options.dimensions as usize;
         let num_rounds = sorf_view.options.num_rounds as usize;
         let seed = sorf_view.options.seed;
         let padded_dim = dim.next_power_of_two();
@@ -1026,7 +1026,7 @@ mod tests {
             let sorf_options = SorfOptions {
                 seed,
                 num_rounds,
-                dimension: dim,
+                dimensions: dim,
                 element_ptype: PType::F32,
             };
             let sorf =
@@ -1602,7 +1602,7 @@ mod tests {
             let sorf_options = SorfOptions {
                 seed,
                 num_rounds,
-                dimension: dim,
+                dimensions: dim,
                 element_ptype: PType::F32,
             };
             let sorf =

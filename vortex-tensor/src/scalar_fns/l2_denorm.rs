@@ -123,9 +123,9 @@ impl L2Denorm {
     ) -> VortexResult<ScalarFnArray> {
         validate_norms_against_normalized(&normalized, &norms, ctx)?;
 
-        // Promote plain `Vector` children to `NormalizedVector`. The unit-norm invariant was
-        // verified by `validate_norms_against_normalized` above, so the `new_unchecked` wrap is
-        // safe by construction. Inputs that are already `NormalizedVector` pass through.
+        // Promote plain `Vector` children to `NormalizedVector`. The unit-norm invariant is
+        // verified by `validate_norms_against_normalized`, so the `new_unchecked` wrap is safe
+        // by construction.
         let normalized = if normalized
             .dtype()
             .as_extension_opt()
@@ -134,8 +134,9 @@ impl L2Denorm {
             normalized
         } else {
             let ext: ExtensionArray = normalized.execute(ctx)?;
-            // SAFETY: row-wise unit-norm (or zero) was just verified for the plain `Vector`
-            // input above.
+
+            // SAFETY: row-wise unit-norm (or zero) was just verified for the plain `Vector` input
+            // above.
             unsafe { NormalizedVector::new_unchecked(ext.storage_array().clone()) }?
         };
 
@@ -457,6 +458,7 @@ fn execute_l2_denorm_constant_norms(
     Ok(ExtensionArray::new(output_dtype.as_extension().clone(), new_fsl.into_array()).into_array())
 }
 
+// TODO(connor): Fast-path the case where the array is already `NormalizedVector`.
 /// Builds an unexecuted [`L2Denorm`] expression by normalizing `input` and reattaching the exact
 /// norms as the `norms` child.
 ///
@@ -683,6 +685,7 @@ fn build_fsl_storage<T: NativePType>(
     FixedSizeListArray::try_new(elements.into_array(), list_size, validity, row_count)
 }
 
+// TODO(connor): Need better logic here to check against `NormalizedVector` vs `Vector`.
 /// Cross-check that `normalized` and `norms` agree on per-row zero-ness, and that stored norms
 /// are non-negative. Unit-norm enforcement on the rows lives on the
 /// [`NormalizedVector`](crate::normalized_vector::NormalizedVector) dtype itself.

@@ -76,10 +76,10 @@ impl SorfMatrix {
     /// The seed is expanded using Vortex's frozen local SplitMix64 stream. Signs are generated in
     /// round-major, block-major order, with each `u64` contributing 64 sign bits in
     /// least-significant-bit-first order.
-    pub fn try_new(seed: u64, dimension: usize, num_rounds: usize) -> VortexResult<Self> {
+    pub fn try_new(seed: u64, dimensions: usize, num_rounds: usize) -> VortexResult<Self> {
         vortex_ensure!(num_rounds >= 1, "num_rounds must be >= 1, got {num_rounds}");
 
-        let padded_dim = dimension.next_power_of_two();
+        let padded_dim = dimensions.next_power_of_two();
         let sign_masks = gen_sign_masks_from_seed(seed, padded_dim, num_rounds);
 
         // Compute in f64 for precision, then store as f32 since the WHT operates on f32 buffers.
