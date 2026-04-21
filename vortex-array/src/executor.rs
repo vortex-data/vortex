@@ -122,12 +122,45 @@ impl ArrayRef {
                             current,
                             &entry,
                         )?;
+                        if entry.run_execute_parent {
+                            try_execute_parent_inline(&mut stack, link.parent_idx, ctx)?;
+                        }
                         continue;
                     }
                 }
             }
 
-            // Step 2: execute_parent, then execute encoding's own step.
+            // Step 2: if this child has run_execute_parent, try execute_parent
+            // on the reconstructed parent before executing the child further.
+            // This lets fused kernels fire (e.g. Filter(RunEnd) → RunEnd)
+            // before the child decodes to canonical.
+            let current = if entry.run_execute_parent {
+                if let Some(ref link) = entry.parent {
+                    let parent = stack[link.parent_idx].array.take().unwrap();
+                    let parent =
+                        unsafe { parent.put_slot_unchecked(link.slot_idx, current)? };
+                    match try_execute_parent_on(&parent, ctx)? {
+                        Some(rewritten) => {
+                            // Fused kernel fired — discard child, keep rewritten parent.
+                            stack[link.parent_idx].array = Some(rewritten);
+                            continue;
+                        }
+                        None => {
+                            // No rewrite — take child back out, fall through to execute.
+                            let (parent, child) =
+                                unsafe { parent.take_slot_unchecked(link.slot_idx)? };
+                            stack[link.parent_idx].array = Some(parent);
+                            child
+                        }
+                    }
+                } else {
+                    current
+                }
+            } else {
+                current
+            };
+
+            // Step 3: execute_parent on the child's own children, then execute encoding's own step.
             let result = execute_one_step(current, ctx)?;
             match result {
                 OneStepResult::Rewritten(rewritten) => {
@@ -180,10 +213,13 @@ struct Entry {
     done: DonePredicate,
     original_dtype: DType,
     original_len: usize,
-    /// When true, after this child is put back into its parent, the parent is
-    /// popped and re-entered into the execute loop so that `execute_parent` can
-    /// fire on the reconstructed parent. Set for `ExecuteSlot` children only.
-    reexecute_parent: bool,
+    /// When true, after this child is put back into its parent, the scheduler
+    /// runs `execute_one_step` on the reconstructed parent so that
+    /// `execute_parent` can fire immediately. Set for children created by
+    /// [`ExecutionStep::ExecuteSlot`] (single child). Not set for children
+    /// created by [`ExecutionStep::ExecuteSlots`] (batch), where
+    /// `execute_parent` only fires after all children are done.
+    run_execute_parent: bool,
 }
 
 /// Points from a child [`Entry`] back to its parent in the stack.
@@ -205,11 +241,17 @@ impl Entry {
             done,
             original_dtype: dtype,
             original_len: len,
-            reexecute_parent: false,
+            run_execute_parent: false,
         }
     }
 
-    fn child(array: ArrayRef, parent_idx: usize, slot_idx: usize, done: DonePredicate) -> Self {
+    fn child(
+        array: ArrayRef,
+        parent_idx: usize,
+        slot_idx: usize,
+        done: DonePredicate,
+        run_execute_parent: bool,
+    ) -> Self {
         let dtype = array.dtype().clone();
         let len = array.len();
         Self {
@@ -221,7 +263,7 @@ impl Entry {
             done,
             original_dtype: dtype,
             original_len: len,
-            reexecute_parent: false,
+            run_execute_parent,
         }
     }
 }
@@ -260,6 +302,50 @@ fn put_back_child(
     Ok(())
 }
 
+/// Try `execute_parent` on each child of the given array. Returns `Some` if any
+/// child's `execute_parent` rewrites the parent.
+fn try_execute_parent_on(
+    parent: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    for (slot_idx, slot) in parent.slots().iter().enumerate() {
+        let Some(child) = slot else { continue };
+        if let Some(rewritten) = child.execute_parent(parent, slot_idx, ctx)? {
+            rewritten.statistics().inherit_from(parent.statistics());
+            return Ok(Some(rewritten));
+        }
+    }
+    Ok(None)
+}
+
+/// After putting an ExecuteSlot child back, try `execute_parent` on each child
+/// of the reconstructed parent. If any child's `execute_parent` rewrites the
+/// parent, store the rewritten array. Otherwise leave the parent unchanged.
+fn try_execute_parent_inline(
+    stack: &mut Vec<Entry>,
+    parent_idx: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let parent = stack[parent_idx].array.take().unwrap();
+    for (slot_idx, slot) in parent.slots().iter().enumerate() {
+        let Some(child) = slot else { continue };
+        if let Some(rewritten) = child.execute_parent(&parent, slot_idx, ctx)? {
+            rewritten.statistics().inherit_from(parent.statistics());
+            ctx.log(format_args!(
+                "execute_parent inline: slot[{}]({}) rewrote {} -> {}",
+                slot_idx,
+                child.encoding_id(),
+                parent,
+                rewritten
+            ));
+            stack[parent_idx].array = Some(rewritten);
+            return Ok(());
+        }
+    }
+    stack[parent_idx].array = Some(parent);
+    Ok(())
+}
+
 /// Extract all undone children from the parent and push them onto the stack in
 /// reverse order (first-to-process on top). Each child puts itself back into the
 /// parent via [`put_back_child`] when done.
@@ -268,7 +354,7 @@ fn push_children(
     mut slots: Vec<(usize, DonePredicate)>,
     parent: Option<ParentLink>,
     done: DonePredicate,
-    reexecute_parent: bool,
+    run_execute_parent: bool,
     stack: &mut Vec<Entry>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
@@ -299,9 +385,7 @@ fn push_children(
         ctx.log(format_args!(
             "ExecuteSlot({slot_idx}): pushing, focusing on {slot_child}"
         ));
-        let mut entry = Entry::child(slot_child, parent_idx, slot_idx, slot_done);
-        entry.reexecute_parent = reexecute_parent;
-        stack.push(entry);
+        stack.push(Entry::child(slot_child, parent_idx, slot_idx, slot_done, run_execute_parent));
     }
 
     // Store parent back (with extracted slots emptied).
