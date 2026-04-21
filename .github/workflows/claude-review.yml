@@ -52,8 +52,6 @@ jobs:
         with:
           github-token: ${{ github.token }}
           script: |
-            const core = require('@actions/core');
-
             const sender = context.payload.sender?.login ?? '';
             const senderType = context.payload.sender?.type ?? '';
             const trustedClaudeLogin = process.env.CLAUDE_APP_LOGIN ?? '';
