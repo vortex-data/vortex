@@ -99,7 +99,7 @@ jobs:
                 checkoutRef = pr.head.sha;
 
                 const headRepo = pr.head.repo;
-                const isFork = !headRepo || Boolean(headRepo.fork) || headRepo.full_name !== `${context.repo.owner}/${context.repo.repo}`;
+                const isFork = !headRepo || headRepo.fork || headRepo.full_name !== `${context.repo.owner}/${context.repo.repo}`;
                 if (isFork) {
                   reason = 'fork_pr_refused';
                 } else if (!trustedClaudeLogin) {
@@ -115,6 +115,8 @@ jobs:
                     pull_number: context.payload.issue.number,
                     per_page: 100,
                   });
+                  // Refuse workflow changes so write-capable automation never acts on
+                  // `.github/` modifications from the same pull request.
                   if (files.some(f => f.filename.startsWith('.github/'))) {
                     reason = 'modifies_github_dir';
                   }

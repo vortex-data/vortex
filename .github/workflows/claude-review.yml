@@ -20,6 +20,8 @@ name: Claude Code (Review)
 #   claude-write.yml so maintainers can ask Claude to make follow-up changes there.
 
 concurrency:
+  # `issue_comment` events on PRs expose the PR number via `github.event.issue.number`,
+  # so this falls back there when `github.event.pull_request.number` is unset.
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
   cancel-in-progress: true
 
@@ -88,6 +90,10 @@ jobs:
               pullNumber = context.payload.pull_request?.number ?? null;
             }
 
+            if (pullNumber) {
+              core.setOutput('pull_number', String(pullNumber));
+            }
+
             let reason = '';
 
             if (!mentioned) {
@@ -103,9 +109,13 @@ jobs:
               const permission = await getPermission(sender);
               core.setOutput('actor_permission', permission);
               actorHasWrite = ['admin', 'maintain', 'write'].includes(permission) ? 'true' : 'false';
-              if (actorHasWrite != 'true') {
+              if (actorHasWrite !== 'true') {
                 reason = 'actor_lacks_write';
               }
+            }
+
+            if (!reason && context.eventName === 'issue_comment' && !trustedClaudeLogin) {
+              reason = 'missing_claude_app_login';
             }
 
             if (!reason) {
@@ -118,8 +128,7 @@ jobs:
               pr = response.data;
 
               const headRepo = pr.head.repo;
-              const isFork = !headRepo || Boolean(headRepo.fork) || headRepo.full_name !== `${context.repo.owner}/${context.repo.repo}`;
-              core.setOutput('pull_number', String(pullNumber));
+              const isFork = !headRepo || headRepo.fork || headRepo.full_name !== `${context.repo.owner}/${context.repo.repo}`;
               core.setOutput('checkout_ref', pr.head.sha);
 
               if (isFork) {
@@ -139,6 +148,8 @@ jobs:
                   pull_number: pullNumber,
                   per_page: 100,
                 });
+                // Refuse PRs that modify `.github/` because workflow files define the
+                // automation policy this review job is enforcing.
                 if (files.some(f => f.filename.startsWith('.github/'))) {
                   reason = 'modifies_github_dir';
                 }
@@ -151,24 +162,28 @@ jobs:
         env:
           CLAUDE_APP_LOGIN: ${{ vars.CLAUDE_APP_LOGIN }}
 
-  refuse-fork:
-    name: Explain Fork Refusal
+  explain-refusal:
+    name: Explain Refusal
     needs: gate
-    if: needs.gate.outputs.reason == 'fork_pr_refused' && needs.gate.outputs.actor_has_write == 'true'
+    if: |
+      needs.gate.outputs.actor_has_write == 'true' &&
+      (
+        needs.gate.outputs.reason == 'fork_pr_refused' ||
+        needs.gate.outputs.reason == 'modifies_github_dir' ||
+        needs.gate.outputs.reason == 'missing_claude_app_login'
+      )
     runs-on: ubuntu-latest
     permissions:
       issues: write
       pull-requests: write
     steps:
-      - name: Comment with the fork policy
+      - name: Comment with the refusal reason
         uses: actions/github-script@v7
         with:
           script: |
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: Number(${{ needs.gate.outputs.pull_number }}),
-              body: [
+            const reason = ${{ toJSON(needs.gate.outputs.reason) }};
+            const messages = {
+              fork_pr_refused: [
                 "Claude review automation is disabled for fork pull requests.",
                 "",
                 "Why:",
@@ -177,7 +192,32 @@ jobs:
                 "- there is no promotion path for forks",
                 "",
                 "If maintainers want Claude to implement a change, restate the task on an issue and use the issue-driven Claude workflow instead."
-              ].join("\\n"),
+              ].join("\n"),
+              modifies_github_dir: [
+                "Claude review automation is disabled for pull requests that modify `.github/` files.",
+                "",
+                "Why:",
+                "- workflow and action files are part of the automation policy",
+                "- this review workflow refuses to evaluate automation changes from the same PR",
+                "",
+                "Ask a human reviewer to inspect workflow changes directly."
+              ].join("\n"),
+              missing_claude_app_login: [
+                "Claude review automation is misconfigured for issue-comment triggers.",
+                "",
+                "Why:",
+                "- `CLAUDE_APP_LOGIN` is not set",
+                "- without that bot login, the review workflow cannot safely route comments on Claude-owned PRs to the write workflow",
+                "",
+                "Set the `CLAUDE_APP_LOGIN` Actions variable, then retry the command."
+              ].join("\n"),
+            };
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: Number(${{ needs.gate.outputs.pull_number }}),
+              body: messages[reason],
             });
 
   claude:
