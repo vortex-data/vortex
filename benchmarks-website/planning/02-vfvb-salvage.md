@@ -15,9 +15,13 @@ The files listed here should all be understood as **inspiration and starting
 points**, not final code. Expect to rewrite them against the current `develop`
 HEAD; `ct/vfvb` branched off a very old `vortex-array` API.
 
+Verbatim snapshots of every file mentioned below live in
+[`reference/`](./reference/) - see [`reference/README.md`](./reference/README.md)
+for a one-line summary of each and the "do not compile this" caveat.
+
 ## Useful
 
-### `vortex-wasm/src/website/commit_id.rs`
+### `vortex-wasm/src/website/commit_id.rs` ([snapshot](./reference/commit_id.rs))
 
 - 20-byte SHA-1 `CommitId` newtype with hex serde and a passthrough-hasher.
 - Straight-up useful. The passthrough hasher in particular is the right move
@@ -25,7 +29,7 @@ HEAD; `ct/vfvb` branched off a very old `vortex-array` API.
 - In v3, `CommitId` probably just lives in the ingestion crate (not in
   `vortex-wasm` which we will likely delete after migration).
 
-### `vortex-wasm/src/website/commit_info.rs`
+### `vortex-wasm/src/website/commit_info.rs` ([snapshot](./reference/commit_info.rs))
 
 - Struct: `CommitInfo { timestamp: i64, author: Author { name, email }, message,
   commit_id: CommitId }`.
@@ -33,7 +37,7 @@ HEAD; `ct/vfvb` branched off a very old `vortex-array` API.
 - Shape is roughly right for a `commits` table in DuckDB. Drop the Vortex
   conversions; keep the Rust struct + serde for the ingester.
 
-### `vortex-wasm/src/website/entry.rs`
+### `vortex-wasm/src/website/entry.rs` ([snapshot](./reference/entry.rs))
 
 - Struct: `BenchmarkEntry { commit_id, group_name, chart_name, series_name,
   value }`.
@@ -47,7 +51,7 @@ HEAD; `ct/vfvb` branched off a very old `vortex-array` API.
   But the triple is exactly what the **existing v2 site needs to display**, so
   it's a useful intermediate representation.
 
-### `vortex-wasm/src/bin/migrate_data.rs` and `migrate_commits.rs`
+### `vortex-wasm/src/bin/migrate_data.rs` and `migrate_commits.rs` ([data](./reference/migrate_data.rs), [commits](./reference/migrate_commits.rs))
 
 These are the single most valuable pieces of the branch for v3.
 
@@ -60,7 +64,7 @@ These are the single most valuable pieces of the branch for v3.
 - These are one-shot historical migration binaries. After cutover they can be
   deleted.
 
-### `vortex-wasm/src/website/update_s3.rs`
+### `vortex-wasm/src/website/update_s3.rs` ([snapshot](./reference/update_s3.rs))
 
 - AWS-CLI-driven optimistic-concurrency-control wrapper: read ETag, download,
   transform, put-object with `--if-match`, retry on 412.
@@ -70,7 +74,7 @@ These are the single most valuable pieces of the branch for v3.
   ingester service) with a single-writer lock, not with S3 ETag CAS across
   concurrent CI jobs. But the error-handling shape here is a good reference.
 
-### `vortex-wasm/src/website/charts.rs`
+### `vortex-wasm/src/website/charts.rs` ([snapshot](./reference/charts.rs))
 
 - Processes a `Vec<BenchmarkEntry>` into nested `Benchmarks` / `BenchmarkGroup`
   / `ChartData { aligned_series: HashMap<String, Vec<Option<NonZeroU64>>> }`.
@@ -82,7 +86,7 @@ These are the single most valuable pieces of the branch for v3.
   shape of the output (per-chart aligned series) is what the Leptos handlers
   will return.
 
-### `plan.md` (root of `ct/vfvb`)
+### `plan.md` (root of `ct/vfvb`) ([snapshot](./reference/hackathon-plan.md))
 
 - The goals list, the schema sketch with `CommitId` / `NameId` / `BenchmarkEntry`,
   and the "one file vs many files" discussion are good prior art even though we

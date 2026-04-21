@@ -37,6 +37,14 @@ Read in order:
 - [`AGENTS.md`](./AGENTS.md) - Brief for future coding agents working on this
   project. Read this before doing implementation work.
 
+## Reference snapshots
+
+- [`reference/`](./reference/) - Verbatim copies of the directly useful files
+  from the archived `ct/vfvb` branch (CommitId, CommitInfo, the two migration
+  binaries, the ETag CAS helper, and the original hackathon plan). These are
+  **non-compiling references** - see [`reference/README.md`](./reference/README.md)
+  for what each is and what to do with it.
+
 ## Working branches
 
 - `ct/vfvb` - the hackathon PR from 2025 that tried WASM+Vortex-on-S3. Archived

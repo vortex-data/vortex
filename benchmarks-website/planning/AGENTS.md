@@ -44,8 +44,10 @@ ignore. Highlights:
 - `vortex-wasm/src/bin/migrate_{data,commits}.rs` - migration binary templates.
 - Everything else is hackathon-era and mostly not worth porting.
 
-The `ct/vfvb` branch branches off a very old `vortex-array` API. If you port
-code, **re-target it to current HEAD** - the Array APIs changed substantially.
+Verbatim snapshots of the useful files live in `planning/reference/`. These
+are **non-compiling references** (`ct/vfvb` branched off a very old
+`vortex-array` API). If you port code, **re-target it to current HEAD** -
+the Array APIs changed substantially.
 
 ### Repository conventions
 
