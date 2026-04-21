@@ -42,7 +42,6 @@ use super::MaterializedStage;
 use super::PTypeTag;
 use super::SMEM_TILE_SIZE;
 use super::ScalarOp;
-use super::ScalarOp_ScalarOpCode_ALP;
 use super::SourceOp;
 use super::ptype_to_tag;
 use super::tag_to_ptype;
@@ -395,7 +394,7 @@ impl FusedPlan {
             let mut scalar_ops: Vec<ScalarOp> = Vec::with_capacity(stage.scalar_ops.len());
             for (mut op, patches) in stage.scalar_ops.clone() {
                 if let Some(patches) = &patches {
-                    let (ptr, bufs) = upload_patches(&patches, ctx)?;
+                    let (ptr, bufs) = upload_patches(patches, ctx)?;
                     op.params.alp.patches_ptr = ptr;
                     device_buffers.extend(bufs);
                 }
