@@ -58,8 +58,10 @@ enum SkipStrategy {
     Memchr2(u8, u8),
     /// 3 advancing codes — `memchr::memchr3` (SIMD).
     Memchr3(u8, u8, u8),
-    /// 4+ advancing codes — packed bitmap, 1 cache line.
-    Bitmap([u64; 4]),
+    /// 4+ advancing codes — 256-byte lookup table (`table[b] != 0` iff `b` is
+    /// in the advancing set). 4 cache lines; small enough to stay hot in L1,
+    /// and the branchless probe autovectorizes nicely.
+    Table(Box<[u8; 256]>),
 }
 
 /// Flat `u8` transition table DFA for contains matching.
@@ -242,16 +244,17 @@ impl FlatContainsDfa {
 
 fn build_skip(adv: &[u8]) -> SkipStrategy {
     match adv.len() {
-        0 => SkipStrategy::Bitmap([0u64; 4]),
+        // Empty set: build a 256-byte table of zeros (matches nothing).
+        0 => SkipStrategy::Table(Box::new([0u8; 256])),
         1 => SkipStrategy::Memchr1(adv[0]),
         2 => SkipStrategy::Memchr2(adv[0], adv[1]),
         3 => SkipStrategy::Memchr3(adv[0], adv[1], adv[2]),
         _ => {
-            let mut bm = [0u64; 4];
+            let mut table = [0u8; 256];
             for &c in adv {
-                bm[usize::from(c >> 6)] |= 1u64 << (c & 63);
+                table[c as usize] = 1;
             }
-            SkipStrategy::Bitmap(bm)
+            SkipStrategy::Table(Box::new(table))
         }
     }
 }
@@ -262,11 +265,13 @@ fn skip_state0(rest: &[u8], skip: &SkipStrategy) -> Option<usize> {
         SkipStrategy::Memchr1(a) => memchr::memchr(*a, rest),
         SkipStrategy::Memchr2(a, b) => memchr::memchr2(*a, *b, rest),
         SkipStrategy::Memchr3(a, b, c) => memchr::memchr3(*a, *b, *c, rest),
-        SkipStrategy::Bitmap(bm) => {
+        SkipStrategy::Table(t) => {
+            let n = rest.len();
             let mut i = 0;
-            while i < rest.len() {
-                let b = rest[i];
-                if bm[usize::from(b >> 6)] & (1u64 << (b & 63)) != 0 {
+            while i < n {
+                // SAFETY: i < n; t is 256 bytes, byte indexes always in bounds.
+                let b = unsafe { *rest.get_unchecked(i) };
+                if unsafe { *t.get_unchecked(b as usize) } != 0 {
                     return Some(i);
                 }
                 i += 1;
