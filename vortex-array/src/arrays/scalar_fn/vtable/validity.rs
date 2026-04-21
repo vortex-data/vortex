@@ -12,7 +12,7 @@ use crate::array::ValidityVTable;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::vtable::ArrayExpr;
 use crate::arrays::scalar_fn::vtable::FakeEq;
-use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
+use crate::arrays::scalar_fn::vtable::ScalarFn;
 use crate::expr::Expression;
 use crate::expr::lit;
 use crate::scalar_fn::TypedScalarFn;
@@ -50,8 +50,8 @@ fn execute_expr(expr: &Expression, row_count: usize) -> VortexResult<ArrayRef> {
     Ok(expr.scalar_fn().execute(&args, &mut ctx)?.into_array())
 }
 
-impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
-    fn validity(array: ArrayView<'_, ScalarFnVTable>) -> VortexResult<Validity> {
+impl ValidityVTable<ScalarFn> for ScalarFn {
+    fn validity(array: ArrayView<'_, ScalarFn>) -> VortexResult<Validity> {
         let inputs: Vec<_> = array
             .iter_children()
             .map(|child| {

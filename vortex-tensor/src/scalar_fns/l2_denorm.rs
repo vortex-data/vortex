@@ -18,8 +18,8 @@ use vortex_array::arrays::Extension;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::ScalarFn as ScalarFnArrayEncoding;
 use vortex_array::arrays::ScalarFnArray;
-use vortex_array::arrays::ScalarFnVTable as ScalarFnArrayEncoding;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::scalar_fn::ExactScalarFn;
@@ -1119,7 +1119,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let original = normalize_as_l2_denorm(input, &mut ctx)?.into_array();
 
-        let scalar_fn_array = original.as_::<vortex_array::arrays::ScalarFnVTable>();
+        let scalar_fn_array = original.as_::<vortex_array::arrays::ScalarFn>();
         let children = scalar_fn_array.children();
 
         let plugin = ScalarFnArrayPlugin::new(L2Denorm);

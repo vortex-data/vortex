@@ -21,7 +21,7 @@ use tracing::debug;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::VortexSessionExecute;
-use vortex::array::arrays::ScalarFnVTable;
+use vortex::array::arrays::ScalarFn;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::scalar_fn::ScalarFnArrayExt;
@@ -420,7 +420,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                 let array_result: StructArray = if let Some(array) = array_result.as_opt::<Struct>()
                 {
                     array.into_owned()
-                } else if let Some(array) = array_result.as_opt::<ScalarFnVTable>()
+                } else if let Some(array) = array_result.as_opt::<ScalarFn>()
                     && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
                 {
                     StructArray::new(

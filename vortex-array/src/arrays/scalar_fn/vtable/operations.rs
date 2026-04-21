@@ -9,14 +9,14 @@ use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::arrays::ConstantArray;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
-use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
+use crate::arrays::scalar_fn::vtable::ScalarFn;
 use crate::columnar::Columnar;
 use crate::scalar::Scalar;
 use crate::scalar_fn::VecExecutionArgs;
 
-impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
+impl OperationsVTable<ScalarFn> for ScalarFn {
     fn scalar_at(
-        array: ArrayView<'_, ScalarFnVTable>,
+        array: ArrayView<'_, ScalarFn>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

@@ -46,10 +46,10 @@ use crate::scalar_fn::VecExecutionArgs;
 use crate::serde::ArrayChildren;
 
 /// A [`ScalarFnVTable`]-encoded Vortex array.
-pub type ScalarFnArray = Array<ScalarFnVTable>;
+pub type ScalarFnArray = Array<ScalarFn>;
 
 #[derive(Clone, Debug)]
-pub struct ScalarFnVTable {
+pub struct ScalarFn {
     pub(super) id: ScalarFnId,
 }
 
@@ -65,7 +65,7 @@ impl ArrayEq for ScalarFnData {
     }
 }
 
-impl VTable for ScalarFnVTable {
+impl VTable for ScalarFn {
     type ArrayData = ScalarFnData;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
@@ -187,7 +187,7 @@ pub trait ScalarFnFactoryExt: scalar_fn::ScalarFnVTable {
         let data = ScalarFnData {
             scalar_fn: scalar_fn.clone(),
         };
-        let vtable = ScalarFnVTable { id: scalar_fn.id() };
+        let vtable = ScalarFn { id: scalar_fn.id() };
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(vtable, dtype, len, data)
@@ -203,14 +203,14 @@ impl<V: scalar_fn::ScalarFnVTable> ScalarFnFactoryExt for V {}
 #[derive(Debug)]
 pub struct AnyScalarFn;
 impl Matcher for AnyScalarFn {
-    type Match<'a> = ArrayView<'a, ScalarFnVTable>;
+    type Match<'a> = ArrayView<'a, ScalarFn>;
 
     fn matches(array: &ArrayRef) -> bool {
-        array.is::<ScalarFnVTable>()
+        array.is::<ScalarFn>()
     }
 
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        array.as_opt::<ScalarFnVTable>()
+        array.as_opt::<ScalarFn>()
     }
 }
 
@@ -222,7 +222,7 @@ impl<F: scalar_fn::ScalarFnVTable> Matcher for ExactScalarFn<F> {
     type Match<'a> = ScalarFnArrayView<'a, F>;
 
     fn matches(array: &ArrayRef) -> bool {
-        if let Some(scalar_fn_array) = array.as_opt::<ScalarFnVTable>() {
+        if let Some(scalar_fn_array) = array.as_opt::<ScalarFn>() {
             scalar_fn_array.data().scalar_fn().is::<F>()
         } else {
             false
@@ -230,7 +230,7 @@ impl<F: scalar_fn::ScalarFnVTable> Matcher for ExactScalarFn<F> {
     }
 
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        let scalar_fn_array = array.as_opt::<ScalarFnVTable>()?;
+        let scalar_fn_array = array.as_opt::<ScalarFn>()?;
         let scalar_fn_data = scalar_fn_array.data();
         let scalar_fn = scalar_fn_data.scalar_fn().downcast_ref::<F>()?;
         Some(ScalarFnArrayView {
