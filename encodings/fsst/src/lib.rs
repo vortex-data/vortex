@@ -20,6 +20,17 @@ mod kernel;
 mod ops;
 mod rules;
 mod slice;
+
+/// Test/benchmark-only handles to the internal DFA matchers.
+///
+/// Exposes the DFA constructors and their `matches` variants so that
+/// bench harnesses can measure the different scan strategies (default
+/// skip-assisted vs. zero-branch). Not part of the stable API.
+#[cfg(feature = "_test-harness")]
+pub mod dfa_bench_api {
+    pub use crate::dfa::ContainsBench;
+}
+
 #[cfg(feature = "_test-harness")]
 pub mod test_utils;
 #[cfg(test)]

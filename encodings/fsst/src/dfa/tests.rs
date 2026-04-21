@@ -226,6 +226,63 @@ fn test_contains_pushdown_len_254_with_escapes() {
     assert!(!matcher.matches(&escaped(&mismatch)));
 }
 
+/// Zero-branch contains variant must agree with the default variant on all
+/// inputs that the default variant handles.
+#[rstest]
+#[case(b"abc", b"abcdef", true)]
+#[case(b"abc", b"xxabcxx", true)]
+#[case(b"abc", b"ab", false)]
+#[case(b"abc", b"", false)]
+#[case(b"hello", b"hello world", true)]
+#[case(b"world", b"hello world", true)]
+#[case(b"xyz", b"no match here", false)]
+#[case(b"a", b"a", true)]
+#[case(b"a", b"", false)]
+#[case(b"abc", b"abc", true)]
+fn test_contains_branchless_matches_default(
+    #[case] needle: &[u8],
+    #[case] haystack: &[u8],
+    #[case] expected: bool,
+) {
+    // No FSST symbols — every byte goes through the escape path.
+    let dfa = FlatContainsDfa::new(&[], &[], needle).unwrap();
+    let codes = escaped(haystack);
+    let default = dfa.matches(&codes);
+    let branchless = dfa.matches_branchless(&codes);
+    assert_eq!(
+        default, expected,
+        "default variant wrong: needle={:?} haystack={:?}",
+        needle, haystack
+    );
+    assert_eq!(
+        branchless, expected,
+        "branchless variant wrong: needle={:?} haystack={:?}",
+        needle, haystack
+    );
+}
+
+/// With symbols so matches can cross symbol boundaries — ensure branchless
+/// still agrees with the default path.
+#[test]
+fn test_contains_branchless_crosses_symbols() -> VortexResult<()> {
+    // code 0 = "ab", code 1 = "cd"
+    let symbols = [sym(b"ab"), sym(b"cd")];
+    let lengths = [2u8, 2];
+    let dfa = FlatContainsDfa::new(&symbols, &lengths, b"bc")?;
+
+    // "abcd" via symbols: code 0 ("ab") + code 1 ("cd") — contains "bc"
+    let codes = vec![0u8, 1];
+    assert!(dfa.matches(&codes));
+    assert!(dfa.matches_branchless(&codes));
+
+    // "ab" only → no "bc"
+    let codes = vec![0u8];
+    assert!(!dfa.matches(&codes));
+    assert!(!dfa.matches_branchless(&codes));
+
+    Ok(())
+}
+
 #[test]
 fn test_contains_pushdown_rejects_len_255() {
     let needle = "a".repeat(FlatContainsDfa::MAX_NEEDLE_LEN + 1);

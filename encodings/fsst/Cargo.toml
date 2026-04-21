@@ -47,6 +47,11 @@ harness = false
 required-features = ["_test-harness"]
 
 [[bench]]
+name = "fsst_dfa_variants"
+harness = false
+required-features = ["_test-harness"]
+
+[[bench]]
 name = "fsst_url_compare"
 harness = false
 required-features = ["_test-harness"]

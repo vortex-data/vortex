@@ -135,13 +135,19 @@ impl FlatContainsDfa {
         // Progress states 0..=accept
         for state in 0..n_progress {
             let row = state * 256;
-            for code in 0..n_symbols {
-                transitions[row + code] = sym_trans[state * n_symbols + code];
-            }
             if state == accept_state as usize {
-                // Accept is sticky for ESCAPE_CODE too.
-                transitions[row + ESCAPE_CODE as usize] = accept_state;
+                // Accept is fully sticky — every byte, including unused code
+                // values (0..256 not in 0..n_symbols), keeps us at accept.
+                // This is required so that zero-branch scans that continue
+                // past the first accept still report `state == accept` at
+                // the end.
+                for b in 0..256 {
+                    transitions[row + b] = accept_state;
+                }
             } else {
+                for code in 0..n_symbols {
+                    transitions[row + code] = sym_trans[state * n_symbols + code];
+                }
                 // Escape: enter the in-escape state for this progress state.
                 let in_escape = (n_progress + state) as u8;
                 transitions[row + ESCAPE_CODE as usize] = in_escape;
@@ -218,6 +224,44 @@ impl FlatContainsDfa {
                 accept_state,
                 skip,
             } => matches_folded(transitions, *accept_state, skip, codes),
+            ContainsInner::Sentinel {
+                transitions,
+                escape_transitions,
+                accept_state,
+                sentinel,
+                skip,
+            } => matches_sentinel(
+                transitions,
+                escape_transitions,
+                *accept_state,
+                *sentinel,
+                skip,
+                codes,
+            ),
+        }
+    }
+
+    /// Zero-branch variant of [`Self::matches`] for the folded path.
+    ///
+    /// Runs a branchless DFA scan over **every** code byte of the input:
+    /// no state-0 skip, no mid-loop accept check, no back-to-zero bail.
+    /// Because accept is sticky in the transition table, we can defer the
+    /// check until after the scan.
+    ///
+    /// This is intentionally exposed so callers / benchmarks can measure
+    /// the skip-vs-branchless trade-off. It is *not* on the default
+    /// `matches()` path because the `memchr`/table skip dominates on
+    /// sparse-match inputs, but it is consistently faster when the DFA
+    /// would be in a non-zero state for most of the scan (high match
+    /// density, short strings).
+    #[inline]
+    pub(crate) fn matches_branchless(&self, codes: &[u8]) -> bool {
+        match &self.inner {
+            ContainsInner::Folded {
+                transitions,
+                accept_state,
+                ..
+            } => matches_folded_branchless(transitions, *accept_state, codes),
             ContainsInner::Sentinel {
                 transitions,
                 escape_transitions,
@@ -364,6 +408,42 @@ fn matches_folded(transitions: &[u8], accept_state: u8, skip: &SkipStrategy, cod
         }
     }
     false
+}
+
+/// Zero-branch variant of [`matches_folded`].
+///
+/// Processes every code byte unconditionally — no state-0 memchr skip, no
+/// accept check inside the loop, no back-to-zero break. The inner loop is
+/// literally `state = transitions[state * 256 + code]` repeated, with only
+/// the loop termination condition as a branch. Accept is sticky in the
+/// transition table, so once we reach accept the final state stays accept.
+///
+/// The single 2× unrolled body keeps the dependent-load chain at 2 loads
+/// per iteration, which is the same critical path as the default variant
+/// but without the two mid-loop branches.
+#[inline(always)]
+fn matches_folded_branchless(transitions: &[u8], accept_state: u8, codes: &[u8]) -> bool {
+    let len = codes.len();
+    let mut state = 0u8;
+    let mut pos = 0;
+    // 2× unrolled. Every iteration does 2 dependent loads; no conditional
+    // branches except the loop termination.
+    while pos + 2 <= len {
+        // SAFETY: pos + 1 < len; state < 2N+1 and transitions has (2N+1) * 256 entries.
+        let c1 = unsafe { *codes.get_unchecked(pos) };
+        let c2 = unsafe { *codes.get_unchecked(pos + 1) };
+        let s1 =
+            unsafe { *transitions.get_unchecked(usize::from(state) * 256 + usize::from(c1)) };
+        state = unsafe { *transitions.get_unchecked(usize::from(s1) * 256 + usize::from(c2)) };
+        pos += 2;
+    }
+    // Tail: at most one byte remaining.
+    if pos < len {
+        // SAFETY: pos < len.
+        let code = unsafe { *codes.get_unchecked(pos) };
+        state = unsafe { *transitions.get_unchecked(usize::from(state) * 256 + usize::from(code)) };
+    }
+    state == accept_state
 }
 
 /// Two-table scan for needles > 127 bytes.

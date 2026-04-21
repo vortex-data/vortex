@@ -126,6 +126,37 @@ mod flat_contains;
 mod multi_contains;
 mod prefix;
 mod suffix;
+
+/// Bench-only wrapper around `FlatContainsDfa` exposing both the default
+/// and zero-branch `matches` variants. Only compiled with the
+/// `_test-harness` feature.
+#[cfg(feature = "_test-harness")]
+pub struct ContainsBench {
+    inner: FlatContainsDfa,
+}
+
+#[cfg(feature = "_test-harness")]
+impl ContainsBench {
+    /// Build a contains DFA for the given needle.
+    pub fn new(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> VortexResult<Self> {
+        Ok(Self {
+            inner: FlatContainsDfa::new(symbols, symbol_lengths, needle)?,
+        })
+    }
+
+    /// Default scan: state-0 skip + 2× unrolled stateful loop + early accept exit.
+    #[inline]
+    pub fn matches(&self, codes: &[u8]) -> bool {
+        self.inner.matches(codes)
+    }
+
+    /// Zero-branch scan: no state-0 skip, no mid-loop accept check.
+    /// Processes every code byte, reads final state at the end.
+    #[inline]
+    pub fn matches_branchless(&self, codes: &[u8]) -> bool {
+        self.inner.matches_branchless(codes)
+    }
+}
 #[cfg(test)]
 mod tests;
 
