@@ -45,6 +45,11 @@ use super::kmp_failure_table;
 /// Flat `u8` transition table DFA for multi-wildcard contains matching.
 pub(crate) struct MultiContainsDfa {
     inner: MultiInner,
+    /// 256-byte lookup table: `state0_adv[b] != 0` iff code byte `b`
+    /// transitions state 0 (start of first segment) to a non-zero state.
+    /// Allows memchr-style skip when the scanner is in state 0 exactly
+    /// like the single-needle contains DFA does.
+    state0_adv: Box<[u8; 256]>,
 }
 
 enum MultiInner {
@@ -134,11 +139,14 @@ impl MultiContainsDfa {
                 .copy_from_slice(&byte_table[byte_row..byte_row + 256]);
         }
 
+        let state0_adv = build_state0_adv_folded(&transitions);
+
         Ok(Self {
             inner: MultiInner::Folded {
                 transitions,
                 accept_state,
             },
+            state0_adv,
         })
     }
 
@@ -158,6 +166,8 @@ impl MultiContainsDfa {
             build_symbol_transitions(symbols, symbol_lengths, &byte_table, n_states, accept_state);
         let transitions = build_fused_table(&sym_trans, symbols.len(), n_states, |_| sentinel, 0);
 
+        let state0_adv = build_state0_adv_sentinel(&transitions, sentinel);
+
         Ok(Self {
             inner: MultiInner::Sentinel {
                 transitions,
@@ -165,6 +175,7 @@ impl MultiContainsDfa {
                 accept_state,
                 sentinel,
             },
+            state0_adv,
         })
     }
 
@@ -174,7 +185,7 @@ impl MultiContainsDfa {
             MultiInner::Folded {
                 transitions,
                 accept_state,
-            } => matches_folded(transitions, *accept_state, codes),
+            } => matches_folded(transitions, *accept_state, &self.state0_adv, codes),
             MultiInner::Sentinel {
                 transitions,
                 escape_transitions,
@@ -185,40 +196,82 @@ impl MultiContainsDfa {
                 escape_transitions,
                 *accept_state,
                 *sentinel,
+                &self.state0_adv,
                 codes,
             ),
         }
     }
 }
 
-/// 2× unrolled stateful scan for the escape-folded multi-contains DFA.
+/// Build a 256-byte advancing-code table from the first row of a folded
+/// multi-contains transition table. `adv[b] != 0` iff byte `b` in state 0
+/// transitions to a state other than 0 (i.e. it's worth running the DFA
+/// for this byte).
+fn build_state0_adv_folded(transitions: &[u8]) -> Box<[u8; 256]> {
+    let mut adv = [0u8; 256];
+    for b in 0..256usize {
+        if transitions[b] != 0 {
+            adv[b] = 1;
+        }
+    }
+    Box::new(adv)
+}
+
+/// Build the state-0 advancing table for the sentinel variant. The sentinel
+/// (ESCAPE_CODE row) is always advancing since an escape can advance if the
+/// escaped byte is the needle's first byte.
+fn build_state0_adv_sentinel(transitions: &[u8], sentinel: u8) -> Box<[u8; 256]> {
+    let mut adv = [0u8; 256];
+    for b in 0..256usize {
+        let t = transitions[b];
+        // `t != 0` means advance; `t == sentinel` means "escape" — always
+        // treat escapes as advancing so the scanner drops into the DFA to
+        // handle the literal byte properly.
+        if t != 0 || t == sentinel {
+            adv[b] = 1;
+        }
+    }
+    // Also force ESCAPE_CODE row to be advancing in case the transitions
+    // table stores a 0 there (shouldn't happen, but defensive).
+    adv[ESCAPE_CODE as usize] = 1;
+    Box::new(adv)
+}
+
+/// Scan for the escape-folded multi-contains DFA with state-0 skip.
 ///
-/// Multi-contains has no state-0 skip (the chained automaton does not have
-/// a separable "before the first segment" skip shape that's always safe),
-/// so we just unroll the uniform lookup. Two dependent table loads per
-/// iteration; accept check deferred until after both loads.
+/// While in state 0 we byte-skip through the 256-byte advancing-code table
+/// until we find a code that transitions out of state 0. The stateful
+/// scan is a single table lookup per code. (Experiments with 2× unroll
+/// here regressed benchmarks with dense first-segment matches, where the
+/// extra accept-check work hurt more than the loop-overhead win helped.)
 #[inline(always)]
-fn matches_folded(transitions: &[u8], accept_state: u8, codes: &[u8]) -> bool {
+fn matches_folded(
+    transitions: &[u8],
+    accept_state: u8,
+    state0_adv: &[u8; 256],
+    codes: &[u8],
+) -> bool {
     let mut state = 0u8;
     let mut pos = 0;
     let len = codes.len();
-    // 2× unrolled hot loop.
-    while pos + 2 <= len {
-        // SAFETY: pos + 1 < len; state < 2N+1.
-        let c1 = unsafe { *codes.get_unchecked(pos) };
-        let c2 = unsafe { *codes.get_unchecked(pos + 1) };
-        let s1 = unsafe { *transitions.get_unchecked(usize::from(state) * 256 + usize::from(c1)) };
-        let s2 = unsafe { *transitions.get_unchecked(usize::from(s1) * 256 + usize::from(c2)) };
-        pos += 2;
-        if s1 == accept_state || s2 == accept_state {
-            return true;
+    while pos < len {
+        if state == 0 {
+            // Skip non-advancing bytes.
+            while pos < len {
+                // SAFETY: pos < len; state0_adv is 256 bytes.
+                let b = unsafe { *codes.get_unchecked(pos) };
+                if unsafe { *state0_adv.get_unchecked(b as usize) } != 0 {
+                    break;
+                }
+                pos += 1;
+            }
+            if pos >= len {
+                return false;
+            }
         }
-        state = s2;
-    }
-    // Tail: at most one byte remaining.
-    if pos < len {
         // SAFETY: pos < len; state < 2N+1.
         let code = unsafe { *codes.get_unchecked(pos) };
+        pos += 1;
         state = unsafe { *transitions.get_unchecked(usize::from(state) * 256 + usize::from(code)) };
         if state == accept_state {
             return true;
@@ -233,11 +286,25 @@ fn matches_sentinel(
     escape_transitions: &[u8],
     accept_state: u8,
     sentinel: u8,
+    state0_adv: &[u8; 256],
     codes: &[u8],
 ) -> bool {
     let mut state = 0u8;
     let mut pos = 0;
     while pos < codes.len() {
+        if state == 0 {
+            // Skip non-advancing bytes using the 256-byte skip table.
+            while pos < codes.len() {
+                let b = codes[pos];
+                if state0_adv[b as usize] != 0 {
+                    break;
+                }
+                pos += 1;
+            }
+            if pos >= codes.len() {
+                return false;
+            }
+        }
         let code = codes[pos];
         pos += 1;
         let next = transitions[usize::from(state) * 256 + usize::from(code)];
