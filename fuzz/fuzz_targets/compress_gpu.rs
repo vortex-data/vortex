@@ -2,15 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![no_main]
-#![expect(clippy::unwrap_used)]
 
 use libfuzzer_sys::Corpus;
 use libfuzzer_sys::fuzz_target;
+use vortex::io::runtime::BlockingRuntime;
 use vortex_error::vortex_panic;
 use vortex_fuzz::FuzzCompressGpu;
 use vortex_fuzz::RUNTIME;
 use vortex_fuzz::run_compress_gpu;
-use vortex_io::runtime::blocking::BlockingRuntime;
 
 fuzz_target!(|fuzz: FuzzCompressGpu| -> Corpus {
     match RUNTIME.block_on(run_compress_gpu(fuzz)) {
