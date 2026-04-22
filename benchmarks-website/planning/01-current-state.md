@@ -121,12 +121,14 @@ the current site (the other is the append-JSONL storage model).
 1. The classification logic (`getGroup`, `formatQuery`, `normalizeChartName`,
    name-splitting) moves into the **ingestion** step, not the viewer. The
    database stores structured columns, not a parseable `name` string.
-2. `config.js` gets replaced by **a small set of dimension/lookup tables in
-   DuckDB** plus a skinny frontend config for *purely presentational* things
-   (colors, friendly labels).
-3. Raw storage becomes **a DuckDB file** (or its columnar on-disk
-   representation) instead of `data.json.gz`. New runs append rows to a
-   `measurements` table instead of concatenating JSON lines.
+2. `config.js` gets replaced by typed Rust code (for group definitions) plus
+   a handful of DB lookup tables (for pure-data bits like engine/format
+   display names and colors). The frontend config shrinks to just a fallback
+   color palette.
+3. Raw storage becomes **a DuckDB file on a local EBS volume owned by the
+   server**, not a gzipped JSONL on S3. New runs reach the DB via an
+   authenticated HTTP POST to the server, not by concurrent CAS on an S3
+   object.
 4. The viewer becomes **Leptos SSR** with interactive hydration only where
    needed (Chart.js can still be used for the actual drawing).
 

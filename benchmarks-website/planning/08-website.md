@@ -98,11 +98,12 @@ debugging "is my merge showing up yet".
 
 ## What we explicitly DON'T want to rebuild
 
-- The `BESPOKE_CONFIGS.renamedDatasets` pattern. Use the DB dimension tables.
+- The `BESPOKE_CONFIGS.renamedDatasets` pattern. Use the `known_engines` /
+  `known_formats` / `known_datasets` lookup tables in DuckDB.
 - The `CHART_NAME_MAP` that re-pretties chart headers. A chart's display name
   is derived from (metric_kind, dataset, format) at render time with a small
-  Rust helper. If we need to override one, do it in `benchmark_groups`'s
-  `display_name`, not in a parallel frontend map.
+  Rust helper. Overrides, if needed, can live in a data-only
+  `group_display_labels` table keyed by a typed enum discriminator.
 - Fan-out-group enumeration. Don't pre-list `TPC-H (NVMe) (SF=1)` etc.; list
   them dynamically from the DB.
 - `downsample` in Node. Move it server-side or into SQL.

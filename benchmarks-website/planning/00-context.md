@@ -9,9 +9,9 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 We want to rebuild the Vortex benchmarks website (https://bench.vortex.dev/)
 from scratch, one more time. The deliverable is a **Leptos server-side-rendered
-site** that reads benchmark history out of a **DuckDB database** that lives on
-S3, plus a small ingestion pipeline that replaces today's append-to-gzipped-JSONL
-dance.
+site** that owns a **DuckDB database** on a local EBS volume, plus an
+authenticated `/api/ingest` HTTP endpoint that replaces today's
+append-to-gzipped-JSONL dance.
 
 The project is gated by three hard requirements, in priority order:
 

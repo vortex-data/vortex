@@ -5,165 +5,149 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 # 09 - Open questions
 
-These are decisions that need human input (or at least a follow-up agent
-session with more time than this planning pass had) before implementation
-starts. They are ordered roughly by "how much does the answer change
-everything else" - top items are the biggest deal.
+These are decisions that need human input (or a follow-up agent session)
+before implementation. They are ordered roughly by "how much does the answer
+change everything else".
+
+## Resolved (kept here as a log)
+
+### ✓ Ingestion concurrency model
+
+Rejected the earlier proposal of CAS against a DuckDB file on S3 and the
+per-shard-plus-merger variant. Settled on: **the Leptos server owns the DB
+on a local EBS volume; CI POSTs to an authenticated `/api/ingest` endpoint.**
+See [`07-ingestion.md`](./07-ingestion.md) and [`04-architecture.md`](./04-architecture.md).
+
+### ✓ Primary key on `measurements`
+
+Settled on a **synthetic hash PK** (`measurement_id = xxhash64(dimensional
+tuple)`). NULLs stay as NULLs in the columns; the ingester canonicalizes
+NULL into the hash input. Rejected composite UNIQUE because of its
+`NULL != NULL` gotcha. See [`05-schema.md`](./05-schema.md).
+
+### ✓ `filter_sql` in group definitions
+
+Dropped. Group definitions live in typed Rust code, not in data. Display
+strings still live in DB lookup tables. See [`05-schema.md`](./05-schema.md).
+
+### ✓ Extensibility for non-row-table benchmarks
+
+Added `data_descriptor JSON` to `measurements`. Covers vector-search
+(layout / threshold / dimensions / row counts), criterion-style
+microbenchmarks (group / parameter), and any future benchmark with
+parameters that aren't cross-cutting dimensions. See
+[`05-schema.md`](./05-schema.md).
 
 ## Architecture
 
-### Q1. Option A vs B for ingestion
+### Q1. Where does the ingester-classifier crate live?
 
-[`07-ingestion.md`](./07-ingestion.md) leans toward Option B (per-run shards +
-separate merger). Option A (each CI job writes DuckDB with CAS) is simpler in
-infra but worse under concurrent writers. Confirm B before starting.
+The classifier is shared between the Leptos server's `/api/ingest` route and
+the one-shot historical migrator. Candidate homes:
 
-### Q2. Where does the migrator/ingester crate live?
+- New crate `benchmarks-website/classifier/` (colocated with the website).
+- New crate under the workspace root, e.g. `vortex-bench-classifier`.
+- A module inside the server crate, re-exported for the migrator.
 
-Options:
+The migrator can't live inside the server crate (it's a separate binary that
+might not pull in axum/leptos). Lean toward: one `benchmarks-website-shared`
+crate with the `RawMeasurement` types and the classifier function, depended
+on by both `benchmarks-website-server` and `benchmarks-website-migrator`.
 
-- New crate `benchmarks-website/ingester/` (colocated with the website).
-- New crate at workspace root like `vortex-bench-ingester`.
-- Binaries under an existing crate (e.g. `vortex-bench/src/bin/ingest.rs`).
+### Q2. Is Leptos the right framework *today*?
 
-`vortex-bench` already knows the measurement types, so there's a strong case
-for putting the migrator there. But the migrator also needs DuckDB and a
-bunch of S3 glue that `vortex-bench` shouldn't depend on. Probably a separate
-small crate is cleanest.
+Check the state of Leptos at implementation time:
 
-### Q3. Is Leptos the right framework *today*?
+- Is SSR-with-hydration stable?
+- Are breaking changes imminent?
+- Alternatives: axum + `askama`/`maud` templates with vanilla JS for
+  interactivity; dioxus SSR.
 
-Leptos is the Rust-ecosystem answer. Check the state of Leptos at
-implementation time:
+If Leptos is fine, use it. If it's in flux, fall back to axum + templates;
+the DB and schema decisions are framework-agnostic.
 
-- Is SSR-with-hydration stable enough?
-- Are there breaking changes imminent that would bite us?
-- Alternatives worth a quick look: `axum` + `askama` or `maud` templates
-  (server-rendered HTML, no hydration framework, use vanilla JS for the
-  interactive bits); `dioxus` with SSR (similar-ish to Leptos).
+## Authentication and ops
 
-If Leptos is fine, use it. If it's in flux, fall back to axum + templates +
-a minimal client JS bundle; the DB and schema decisions are framework-agnostic.
+### Q3. OIDC vs. shared-secret for `/api/ingest` auth
 
-## Schema
+Option 1: validate GitHub OIDC tokens on the server, check repo+ref claims.
+No rotating shared secret.
 
-### Q4. Synthetic PK vs composite UNIQUE
+Option 2: static bearer token in GitHub Actions secrets.
 
-[`05-schema.md`](./05-schema.md) proposes a `measurement_id` that's a hash of
-the dimensional tuple. The alternative is a composite UNIQUE without a
-synthetic id.
+Lean toward Option 1 if the ergonomics are reasonable. See
+[`07-ingestion.md`](./07-ingestion.md).
 
-- Hashed id: easy upsert (`INSERT ... ON CONFLICT (measurement_id) DO UPDATE`).
-- Composite unique: more honest about what's unique, no magic hash.
+### Q4. EBS volume size + backup cadence
 
-Either works. Pick one. Preference: composite UNIQUE with no synthetic PK if
-DuckDB supports it well; hashed id otherwise.
+Guess: 20 GiB gp3, nightly snapshot → S3. Refine when we know actual DB size
+under real workload. Not a blocker; defaults are fine for launch.
 
-### Q5. `filter_sql` in `benchmark_groups`?
+### Q5. Rollback strategy beyond "restore from snapshot"
 
-Storing SQL strings in a data column means anyone with write access to the DB
-can inject arbitrary query logic. That's OK for an internal benchmarks tool
-but we should be explicit about it. The alternative is keeping the group
-definitions in a Rust const table and regenerating at build time.
+If v3 is broken in prod, can we flip back to v2 in <10 minutes? Yes, as long
+as v2's `cat-s3.sh` → `data.json.gz` pipeline is still running. Don't tear
+that pipeline out until v3 has been live without incident for a week. See
+[`06-migration.md`](./06-migration.md) cutover plan.
 
-### Q6. How do we handle schema evolution?
+## Schema / data
 
-Expect the schema to evolve. We need to decide upfront:
+### Q6. Do we preserve the raw JSON line per measurement?
 
-- Do we store a `schema_version` in a meta table in the DB itself?
-- Do we use DuckDB migrations (via `refinery` or similar)?
-- Or do we just re-run the full migrator from `data.json.gz` every time the
-  schema changes (since we keep the raw data forever)?
+`data_descriptor` gives us room for anticipated extra fields. A stronger
+version is to also store the **entire** raw JSON line (cheap in DuckDB) so
+we can re-derive anything without re-downloading `data.json.gz`.
 
-Re-run-from-source is actually viable and simple as long as JSONL is kept
-around. Recommend that as the default.
+Lean toward: yes, store it in a `raw_json JSON` column for the first six
+months post-cutover, then drop it if unused.
 
-### Q7. Unit normalization at ingest or at query
+### Q7. `all_runtimes_ns` in-row vs. sidecar table
 
-Current plan: persist `value_ns` / `value_bytes` / `value_unitless` as raw
-integers, convert to display units in views/frontend. This is right, but we
-should double-check there's no precision loss in the BIGINT ns representation
-for the longest-running benchmarks (TPC-H SF=1000 queries can run for
-minutes; minutes-in-ns fit in i64 with many orders of magnitude of headroom,
-so it's fine).
+Today Shape B records carry individual run times. `measurements` stores them
+as a `LIST<BIGINT>`. For a chart that only shows the median, that's wasteful
+but harmless. If we ever surface variance/error bars, we have them. Ok as-is
+until proven otherwise.
 
-## Ingestion / data
+### Q8. Run-level metadata
 
-### Q8. What happens to `all_runtimes_ns`?
+Do we need a separate `runs` table (one row per CI invocation) with
+hardware class, start/end times, etc.? Not for launch - the hardware class
+rarely varies and `env_triple` is already in the fact table. Revisit if
+hardware churn becomes a story.
 
-Shape B records carry `all_runtimes` arrays (individual run times, not just
-the median). v2 discards them; v3 can keep them as a DuckDB `LIST<BIGINT>`.
+### Q9. Unit precision for very long runs
 
-Decision needed: do we expose them in the UI (variance plots? error bars)?
-If not, do we still store them (for future use)? I recommend "yes, store them;
-UI can light them up later".
-
-### Q9. Do we preserve the raw JSON line somewhere?
-
-`extra_json` in the schema gives room for unanticipated fields. A stronger
-version is to store the **entire** raw JSON line per row. Cheap in DuckDB,
-lets us re-derive anything without going back to the JSONL blob.
-
-Lean toward storing it for the first 6 months post-cutover while we find
-edge cases, then drop it.
-
-### Q10. `file-sizes-*.json.gz` or a single blob?
-
-CI currently writes per-benchmark-id `file-sizes-<id>.json.gz` files. In v3
-these all go into `measurements` anyway, so the sharding doesn't matter to
-the DB - but the ingester needs to know where to look. Settle on either a
-single `pending/<run_id>/<job_id>/results.json` path (unify with Shape A/B/C
-results) or keep size results in a separate key and make the merger read
-both.
-
-Simpler: unify. One path per CI job.
+BIGINT ns gives >292 years of headroom. Fine.
 
 ## Website UX
 
-### Q11. Do we keep engine/storage/SF filters per-group or global?
+### Q10. Per-group vs. global filters
 
-v2 has a per-group engine filter. Should a global "only show me vortex:parquet
-rows across every chart" toggle exist? If yes, it changes URL structure.
-Start per-group (parity with v2), consider global later.
+v2 has per-group engine filters. A "only show me vortex across every chart"
+global toggle is tempting but changes URL structure. Ship per-group first
+(parity with v2); consider global later.
 
-### Q12. How do we expose the ad-hoc SQL page?
+### Q11. Ad-hoc SQL page
 
-Do we want to let anyone with the URL execute SQL against the DB? DuckDB's
-`SELECT`-only mode + a hardcoded row limit makes this safe-ish. Decide
-whether this is a v3 launch feature or a v3.1 feature.
+Do we expose `SELECT`-only SQL against the DB from the UI? DuckDB makes it
+safe-ish with a read-only handle + timeouts + row limits. Launch-blocker or
+v3.1 feature? Lean: v3.1. Not worth expanding the attack surface before we
+know it's useful.
 
-## Ops
+### Q12. Commit-diff page shape
 
-### Q13. Where does the DB live in the short term?
-
-Do we write to a *new* S3 path (`bench-v3.duckdb` in a new bucket) while v2
-keeps running, then swap? Or do we write to the same bucket alongside
-`data.json.gz`?
-
-Same bucket, new key. Keeps IAM simple. The existing benchmark-writer IAM
-role just needs an extra object permission.
-
-### Q14. Auth / access
-
-The v2 site is fully public. Do we keep it that way? (Assumption: yes.) The
-DB file on S3 needs to be public-readable (same as `data.json.gz`). Writer
-role stays OIDC-only.
-
-### Q15. Rollback strategy
-
-If v3 is broken in prod, can we flip back to v2 in <10 minutes? The answer is
-"yes, as long as v2's data pipeline (`cat-s3.sh` → `data.json.gz`) is still
-running". Don't tear that pipeline out until v3 has been live without
-incident for at least a week.
+`/commit/:sha` shows one commit's state across every benchmark. What does
+"diff vs. parent" look like in the UI? Table with colored deltas? Sparkline?
+Defer; iterate once the page exists.
 
 ## Smaller things worth noting but not blocking
 
 - `scripts/compare-benchmark-jsons.py` on `ct/vfvb` might have useful
   testing-time hooks; re-read before writing the migrator's verification
   step.
-- The `LTTB` downsampling in v2 uses the `downsample` npm package; for v3 we
-  either port LTTB to Rust (small amount of code) or compute it in SQL with
-  a window function.
-- `chartjs-plugin-zoom` + `hammerjs` for touch gestures: keep them, they work.
-- Consider adding a "regressions in last N days" page that uses percentile
-  windows over the `measurements` table. Nice but not launch-critical.
+- LTTB downsampling in v2 uses the `downsample` npm package. For v3, either
+  port LTTB to Rust or compute it in SQL with a window function. Pick
+  whichever the implementer finds simpler.
+- `chartjs-plugin-zoom` + `hammerjs` (touch gestures): keep them.
+- "Regressions in last N days" page using percentile windows over
+  `measurements` is nice but not launch-critical.

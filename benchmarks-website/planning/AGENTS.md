@@ -9,15 +9,17 @@ Read this before starting any implementation work in this subtree.
 
 ## TL;DR
 
-We are rebuilding the benchmarks website. Target: **Leptos SSR + DuckDB on S3**.
-Read `planning/README.md` for the doc tour; read `planning/00-context.md` for
-the why; read `planning/09-open-questions.md` to see what's still up in the
-air before you write code.
+We are rebuilding the benchmarks website. Target: **Leptos SSR + DuckDB on a
+local EBS volume**, with CI POSTing new benchmark results to an authenticated
+`/api/ingest` endpoint on the server. Read `planning/README.md` for the doc
+tour; read `planning/00-context.md` for the why; read
+`planning/09-open-questions.md` to see what's still up in the air before you
+write code.
 
 **The v2 site at `benchmarks-website/` is still in production.** Do not delete
 or rewrite it until v3 has a successful cutover. During v3 implementation,
 **add new code alongside** (e.g. `benchmarks-website/server-v3/`,
-`benchmarks-website/ingester/`). Do not modify the live `server.js` / React
+`benchmarks-website/migrator/`). Do not modify the live `server.js` / React
 app except to fix bugs.
 
 ## Essential context
@@ -82,24 +84,31 @@ Each picks up from `develop`, not from the planning branch.
 
 This is suggested, not prescriptive.
 
-1. **Schema pilot**. Write a prototype migrator that reads a *copy* of
-   `data.json.gz` + `commits.json` and emits a `bench.duckdb`. Port the v2
-   classifier faithfully. Compare the resulting DB's distinct
+1. **Shared classifier crate + migrator**. Write a `benchmarks-website-shared`
+   crate with `RawMeasurement` types and the `classify()` function (v2's
+   `server.js::getGroup` ported bug-for-bug). Write a `migrator` binary that
+   reads a *copy* of `data.json.gz` + `commits.json` and writes a
+   `bench.duckdb` to local disk. Compare the resulting DB's distinct
    (group, chart, series, commit) tuples against v2's `/api/metadata`. Do not
    move forward until this diff is clean.
 
-2. **Leptos scaffold**. Stand up a minimal Leptos SSR server that reads the
-   prototype DuckDB and renders one chart. Prove the end-to-end loop works.
+2. **Leptos scaffold**. Stand up a minimal Leptos SSR server that opens the
+   prototype DuckDB read-write and renders one chart. Prove the end-to-end
+   loop works.
 
-3. **Ingester for new runs**. Implement the per-shard + merger pattern
-   (Option B in `planning/07-ingestion.md`). Wire it into CI behind a flag so
-   it runs in parallel with the existing `cat-s3.sh` flow.
+3. **Ingest endpoint**. Add `POST /api/ingest` to the Leptos server. Reuse
+   `classify()` from step 1 - same code path for "migrate historical data"
+   and "accept a new CI POST". Wire auth (OIDC or bearer, see Q3).
 
-4. **Website feature parity**. Build out the page inventory from
+4. **CI integration**. Add a POST step to `.github/workflows/bench.yml` and
+   `sql-benchmarks.yml` that runs *in addition to* the existing `cat-s3.sh`
+   calls. Dual-write for a grace period.
+
+5. **Website feature parity**. Build out the page inventory from
    `planning/08-website.md`. Start with `/group/:slug` + `/chart/:slug`;
    landing and per-commit come later.
 
-5. **Cutover**. Flip DNS, archive v2's pipeline after a quiet week.
+6. **Cutover**. Flip DNS, drop `cat-s3.sh` after a quiet week, archive v2.
 
 ## Things to avoid
 
@@ -130,10 +139,12 @@ If server-side memoization isn't enough, revisit.
 
 > "Can we drop the v2 config.js mapping tables entirely?"
 
-Yes - that's one of the point of v3. The presentation metadata moves into
-`known_engines`, `known_formats`, `known_datasets`, `benchmark_groups` tables
-in the DB. The frontend's only static config should be purely visual (e.g. a
-fallback color palette).
+Yes - that's one of the points of v3. Pure-data bits (engine/format/dataset
+display names and colors) move into `known_engines` / `known_formats` /
+`known_datasets` tables in the DB. Group-definition logic (which rows make
+up "TPC-H (NVMe) (SF=10)"?) moves into typed Rust code, not SQL strings -
+see `planning/05-schema.md` for why `filter_sql` was rejected. The frontend's
+only static config should be purely visual (e.g. a fallback color palette).
 
 > "What if Leptos isn't ready?"
 
