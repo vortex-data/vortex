@@ -492,26 +492,23 @@ mod tests {
     use crate::BitPackedArrayExt;
     use crate::bitpack_compress::bitpack_encode;
 
-    fn bp(array: &PrimitiveArray, bit_width: u8) -> crate::BitPackedArray {
-        bitpack_encode(
-            array,
-            bit_width,
-            None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .unwrap()
-    }
-
     #[test]
     fn compare_unsigned_constant() {
-        let array = bp(&PrimitiveArray::from_iter([1u32, 2, 3, 4, 5]), 3);
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let array = bitpack_encode(
+            &PrimitiveArray::from_iter([1u32, 2, 3, 4, 5]),
+            3,
+            None,
+            &mut ctx,
+        )
+        .unwrap();
         let rhs = ConstantArray::new(3u32, array.len()).into_array();
 
         let result = <BitPacked as CompareKernel>::compare(
             array.as_view(),
             &rhs,
             CompareOperator::Gt,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )
         .unwrap()
         .unwrap();
@@ -524,14 +521,21 @@ mod tests {
 
     #[test]
     fn compare_signed_constant() {
-        let array = bp(&PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]), 3);
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let array = bitpack_encode(
+            &PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]),
+            3,
+            None,
+            &mut ctx,
+        )
+        .unwrap();
         let rhs = ConstantArray::new(2i32, array.len()).into_array();
 
         let result = <BitPacked as CompareKernel>::compare(
             array.as_view(),
             &rhs,
             CompareOperator::Gte,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )
         .unwrap()
         .unwrap();
@@ -544,7 +548,9 @@ mod tests {
 
     #[test]
     fn compare_with_patches() {
-        let array = bp(&PrimitiveArray::from_iter(0u32..257), 8);
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let array =
+            bitpack_encode(&PrimitiveArray::from_iter(0u32..257), 8, None, &mut ctx).unwrap();
         assert!(array.patches().is_some());
 
         let rhs = ConstantArray::new(256u32, array.len()).into_array();
@@ -552,7 +558,7 @@ mod tests {
             array.as_view(),
             &rhs,
             CompareOperator::Eq,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )
         .unwrap()
         .unwrap();
@@ -565,17 +571,21 @@ mod tests {
 
     #[test]
     fn compare_nullable() {
-        let array = bp(
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let array = bitpack_encode(
             &PrimitiveArray::from_option_iter([Some(1u16), None, Some(3), Some(4), None]),
             3,
-        );
+            None,
+            &mut ctx,
+        )
+        .unwrap();
         let rhs = ConstantArray::new(3u16, array.len()).into_array();
 
         let result = <BitPacked as CompareKernel>::compare(
             array.as_view(),
             &rhs,
             CompareOperator::Eq,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )
         .unwrap()
         .unwrap();
@@ -588,13 +598,21 @@ mod tests {
 
     #[test]
     fn binary_compare_pushdown_executes() {
-        let array = bp(&PrimitiveArray::from_iter([1u32, 2, 3, 4, 5]), 3).into_array();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let array = bitpack_encode(
+            &PrimitiveArray::from_iter([1u32, 2, 3, 4, 5]),
+            3,
+            None,
+            &mut ctx,
+        )
+        .unwrap()
+        .into_array();
         let rhs = ConstantArray::new(4u32, array.len()).into_array();
 
         let result = array
             .binary(rhs, CompareOperator::Lt.into())
             .unwrap()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<Canonical>(&mut ctx)
             .unwrap()
             .into_array();
 
@@ -606,7 +624,10 @@ mod tests {
 
     #[test]
     fn between_executes_in_encoded_space() {
-        let array = bp(&PrimitiveArray::from_iter(0u32..257), 8).into_array();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let array = bitpack_encode(&PrimitiveArray::from_iter(0u32..257), 8, None, &mut ctx)
+            .unwrap()
+            .into_array();
         let len = array.len();
 
         let result = array
@@ -619,7 +640,7 @@ mod tests {
                 },
             )
             .unwrap()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<Canonical>(&mut ctx)
             .unwrap()
             .into_array();
 
@@ -631,7 +652,15 @@ mod tests {
 
     #[test]
     fn between_strict_upper() {
-        let array = bp(&PrimitiveArray::from_iter([10i32, 11, 12, 13]), 4).into_array();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let array = bitpack_encode(
+            &PrimitiveArray::from_iter([10i32, 11, 12, 13]),
+            4,
+            None,
+            &mut ctx,
+        )
+        .unwrap()
+        .into_array();
         let len = array.len();
 
         let result = array
@@ -644,7 +673,7 @@ mod tests {
                 },
             )
             .unwrap()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<Canonical>(&mut ctx)
             .unwrap()
             .into_array();
 
