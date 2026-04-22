@@ -32,6 +32,7 @@ Read in order:
 | 08 | [`08-website.md`](./08-website.md) | UX principles and page inventory. |
 | 09 | [`09-open-questions.md`](./09-open-questions.md) | Unresolved decisions + a log of resolved ones. |
 | 10 | [`10-emitter-changes.md`](./10-emitter-changes.md) | The `vortex-bench` extension that lets us emit v3-shape JSON directly, deleting the need for a classifier in the server. |
+| 11 | [`11-implementation-kickoff.md`](./11-implementation-kickoff.md) | **Binding contracts** for a fresh implementer: concrete Rust types, pinned hash algorithm, DuckDB crate choice, HTTP error matrix, seed-SQL bootstrap. Read after 00-10; this is what closes the "TBD by implementer" gaps. |
 
 ## Memory files
 

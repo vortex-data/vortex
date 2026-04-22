@@ -12,10 +12,14 @@ Read this before starting any implementation work in this subtree.
 We are rebuilding the benchmarks website. Target: **axum + compile-time HTML
 templates (maud / askama) + DuckDB on a local EBS volume**, with CI POSTing
 new benchmark results to an authenticated `/api/ingest` endpoint on the
-server. Read `planning/README.md` for the doc
-tour; read `planning/00-context.md` for the why; read
-`planning/09-open-questions.md` to see what's still up in the air before you
-write code.
+server.
+
+**Start here**: `planning/README.md` for the doc tour → `planning/00-context.md`
+for the why → `planning/11-implementation-kickoff.md` for the binding Rust
+contracts, hash algorithm, error matrix, and directory layout. Doc 11 is
+where the numbers-and-types answers live; docs 00-10 are the context for
+*why* those answers are what they are. `planning/09-open-questions.md`
+tracks the two remaining open questions (both post-launch).
 
 **The v2 site at `benchmarks-website/` is still in production.** Do not delete
 or rewrite it until v3 has a successful cutover. During v3 implementation,
