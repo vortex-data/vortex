@@ -29,6 +29,19 @@ pub(super) fn compress_span(
     )
 }
 
+/// Builds a span covering one deferred per-scheme evaluation (sample or callback).
+///
+/// Lets timeline tooling (e.g. Perfetto) attribute wall-clock time to individual schemes during
+/// the candidate-selection phase, which the instant `sample.result` event cannot express.
+#[inline]
+pub(super) fn scheme_eval_span(scheme: SchemeId) -> tracing::Span {
+    tracing::debug_span!(
+        target: TARGET_TRACE,
+        "scheme_eval",
+        scheme = %scheme,
+    )
+}
+
 /// Records the final output size and, when finite, the top-level compression ratio.
 #[inline]
 pub(super) fn record_compress_outcome(span: &tracing::Span, before_nbytes: u64, after_nbytes: u64) {

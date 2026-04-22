@@ -395,6 +395,7 @@ impl CascadingCompressor {
         // Pass 2: run deferred work. Callbacks receive the current best as a threshold so they can
         // short-circuit with `Skip` when they cannot beat it.
         for (scheme, deferred_estimate) in deferred {
+            let _span = trace::scheme_eval_span(scheme.id()).entered();
             let threshold: Option<EstimateScore> = best.map(|(_, score)| score);
             match deferred_estimate {
                 DeferredEstimate::Sample => {
