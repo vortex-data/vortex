@@ -46,10 +46,12 @@ vortex-nvcomp = { path = "nvcomp" }
 [dev-dependencies]
 criterion = { package = "codspeed-criterion-compat-walltime", version = "4.3.0" }
 futures = { workspace = true, features = ["executor"] }
+mimalloc = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-cuda = { path = ".", features = ["_test-harness"] }
+vortex-fsst = { workspace = true, features = ["_test-harness"] }
 
 [build-dependencies]
 bindgen = { workspace = true }
@@ -89,4 +91,8 @@ harness = false
 
 [[bench]]
 name = "throughput_cuda"
+harness = false
+
+[[bench]]
+name = "fsst_cuda"
 harness = false

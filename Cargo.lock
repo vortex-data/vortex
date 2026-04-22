@@ -10493,6 +10493,7 @@ dependencies = [
  "futures",
  "itertools 0.14.0",
  "kanal",
+ "mimalloc",
  "num-traits",
  "object_store 0.13.2",
  "parking_lot",
@@ -10506,6 +10507,7 @@ dependencies = [
  "vortex-cuda",
  "vortex-cuda-macros",
  "vortex-error",
+ "vortex-fsst",
  "vortex-nvcomp",
 ]
 
