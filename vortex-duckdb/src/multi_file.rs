@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ffi::CString;
 use std::path::Path;
 use std::path::absolute;
 use std::sync::Arc;
 
+use futures::TryStreamExt;
 use itertools::Itertools;
 use url::Url;
 use vortex::error::VortexResult;
@@ -19,6 +21,8 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::RUNTIME;
 use crate::SESSION;
 use crate::datasource::DataSourceTableFunction;
+use crate::datasource::HivePartitionColumn;
+use crate::datasource::extract_hive_partition_columns;
 use crate::duckdb::BindInputRef;
 use crate::duckdb::ClientContextRef;
 use crate::duckdb::ExtractedValue;
@@ -76,7 +80,18 @@ impl DataSourceTableFunction for VortexMultiFileScan {
         vec![LogicalType::varchar()]
     }
 
-    fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<MultiLayoutDataSource> {
+    fn named_parameters() -> Vec<(CString, LogicalType)> {
+        vec![(
+            #[expect(clippy::unwrap_used, reason = "static string known to be valid")]
+            CString::new("hive_partitioning").unwrap(),
+            LogicalType::bool(),
+        )]
+    }
+
+    fn bind(
+        ctx: &ClientContextRef,
+        input: &BindInputRef,
+    ) -> VortexResult<(MultiLayoutDataSource, Vec<HivePartitionColumn>)> {
         bind_multi_file_scan(ctx, input)
     }
 }
@@ -89,13 +104,208 @@ impl DataSourceTableFunction for VortexMultiFileScanList {
         ]
     }
 
-    fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<MultiLayoutDataSource> {
-        bind_multi_file_scan(ctx, input)
+    fn named_parameters() -> Vec<(CString, LogicalType)> {
+        vec![(
+            #[expect(clippy::unwrap_used, reason = "static string known to be valid")]
+            CString::new("hive_partitioning").unwrap(),
+            LogicalType::bool(),
+        )]
+    }
+
+    fn bind(
+        ctx: &ClientContextRef,
+        input: &BindInputRef,
+    ) -> VortexResult<(MultiLayoutDataSource, Vec<HivePartitionColumn>)> {
+        let hive_partitioning = input
+            .get_named_parameter(c"hive_partitioning")
+            .map(|v| matches!(v.extract(), ExtractedValue::Boolean(true)))
+            .unwrap_or(false);
+
+        if !hive_partitioning {
+            let data_source = bind_multi_file_scan_inner(ctx, input)?;
+            return Ok((data_source, vec![]));
+        }
+
+        // With hive partitioning: the caller provides exact file paths, so no glob expansion
+        // is needed. We resolve the filesystem for each path, build the data source, and
+        // extract partition columns — all from the same ordered path list.
+        let (paths_with_fs, path_strings) =
+            collect_exact_paths_with_fs_from_list_input(ctx, input)?;
+
+        let data_source = bind_multi_file_scan_from_exact_paths(paths_with_fs)?;
+        let hive_partition_columns = extract_hive_partition_columns(&path_strings)?;
+
+        Ok((data_source, hive_partition_columns))
     }
 }
 
-/// Shared bind logic for both single-glob and multi-glob variants.
+/// Shared bind logic for single-glob `VortexMultiFileScan` with hive partitioning support.
 fn bind_multi_file_scan(
+    ctx: &ClientContextRef,
+    input: &BindInputRef,
+) -> VortexResult<(MultiLayoutDataSource, Vec<HivePartitionColumn>)> {
+    // Read the hive_partitioning named parameter (defaults to false).
+    let hive_partitioning = input
+        .get_named_parameter(c"hive_partitioning")
+        .map(|v| matches!(v.extract(), ExtractedValue::Boolean(true)))
+        .unwrap_or(false);
+
+    if !hive_partitioning {
+        // Without hive partitioning, use the standard inner bind (single glob call).
+        let data_source = bind_multi_file_scan_inner(ctx, input)?;
+        return Ok((data_source, vec![]));
+    }
+
+    // With hive partitioning we MUST ensure that the file ordering used to build the
+    // MultiLayoutDataSource is identical to the ordering used to extract partition column
+    // values. A second independent glob call may return files in a different order (the
+    // underlying filesystem listing is not required to be deterministic). We therefore do
+    // ONE glob call and pass the resulting exact file paths to both functions.
+    let (file_paths_with_fs, file_path_strings) =
+        collect_file_paths_with_fs_from_input(ctx, input)?;
+
+    let data_source = bind_multi_file_scan_from_exact_paths(file_paths_with_fs)?;
+    let hive_partition_columns = extract_hive_partition_columns(&file_path_strings)?;
+
+    Ok((data_source, hive_partition_columns))
+}
+
+/// Expand glob patterns into a list of exact file paths, each paired with its filesystem.
+///
+/// A single glob call is made per glob pattern. This list is the single source of truth
+/// for file ordering and is shared between `MultiLayoutDataSource` construction and hive
+/// partition column extraction.
+fn collect_file_paths_with_fs_from_input(
+    ctx: &ClientContextRef,
+    input: &BindInputRef,
+) -> VortexResult<(Vec<(String, FileSystemRef)>, Vec<String>)> {
+    let glob_url_parameter = input
+        .get_parameter(0)
+        .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
+
+    let glob_strings: Vec<String> = match glob_url_parameter.extract() {
+        ExtractedValue::Varchar(glob) => vec![glob.to_string()],
+        _ => vortex_bail!("Invalid argument to read_vortex table function"),
+    };
+
+    let mut glob_urls: Vec<Url> = Vec::with_capacity(glob_strings.len());
+    for glob_str in &glob_strings {
+        glob_urls.push(parse_glob_url(glob_str)?);
+    }
+
+    let mut fs_cache: HashMap<Url, FileSystemRef> = HashMap::new();
+    for glob_url in &glob_urls {
+        let mut base_url = glob_url.clone();
+        base_url.set_path("");
+        if !fs_cache.contains_key(&base_url) {
+            let fs = resolve_filesystem(&base_url, ctx)?;
+            fs_cache.insert(base_url, fs);
+        }
+    }
+
+    RUNTIME.block_on(async {
+        let mut paths_with_fs: Vec<(String, FileSystemRef)> = Vec::new();
+        for glob_url in &glob_urls {
+            let mut base_url = glob_url.clone();
+            base_url.set_path("");
+            let fs = fs_cache
+                .get(&base_url)
+                .map(Arc::clone)
+                .unwrap_or_else(|| unreachable!("fs should be cached for all base URLs"));
+            // Strip the leading '/' so the pattern matches the relative FileListing paths
+            // returned by the filesystem, consistent with MultiFileDataSource::with_glob.
+            let glob_path = glob_url.path().trim_start_matches('/');
+            let files: Vec<_> = fs.glob(glob_path)?.try_collect().await?;
+            for file in files {
+                paths_with_fs.push((file.path, Arc::clone(&fs)));
+            }
+        }
+        let path_strings: Vec<String> = paths_with_fs.iter().map(|(p, _)| p.clone()).collect();
+        VortexResult::Ok((paths_with_fs, path_strings))
+    })
+}
+
+/// Build a `MultiLayoutDataSource` from a list of exact file paths.
+///
+/// Unlike `bind_multi_file_scan_inner` which uses glob patterns (which may be expanded in a
+/// different order on a second call), this function passes each file as an exact path to
+/// `MultiFileDataSource::with_glob`. Since exact paths contain no wildcards they are returned
+/// as-is by the glob machinery, preserving the caller-supplied ordering exactly.
+fn bind_multi_file_scan_from_exact_paths(
+    paths_with_fs: Vec<(String, FileSystemRef)>,
+) -> VortexResult<MultiLayoutDataSource> {
+    if paths_with_fs.is_empty() {
+        vortex_bail!("No files found for glob pattern");
+    }
+    RUNTIME.block_on(async {
+        let mut builder = MultiFileDataSource::new(SESSION.clone());
+        for (path, fs) in paths_with_fs {
+            // Each exact path has no wildcards, so with_glob returns it directly without any
+            // additional filesystem listing, preserving the ordering set by the caller.
+            builder = builder.with_glob(path, Some(fs));
+        }
+        builder.build().await
+    })
+}
+
+/// Extract exact file paths from a `List<VARCHAR>` bind input.
+///
+/// Unlike `collect_file_paths_with_fs_from_input` (which expands glob patterns), the paths
+/// provided by the list variant are already exact. We parse each path into a URL, resolve its
+/// filesystem, and strip the leading `/` so the result matches the relative-path convention
+/// used by `bind_multi_file_scan_from_exact_paths` and `extract_hive_partition_columns`.
+fn collect_exact_paths_with_fs_from_list_input(
+    ctx: &ClientContextRef,
+    input: &BindInputRef,
+) -> VortexResult<(Vec<(String, FileSystemRef)>, Vec<String>)> {
+    let param = input
+        .get_parameter(0)
+        .ok_or_else(|| vortex_err!("Missing file list parameter"))?;
+
+    let raw_paths: Vec<String> = match param.extract() {
+        ExtractedValue::List(values) => values
+            .into_iter()
+            .map(|v| {
+                let ExtractedValue::Varchar(s) = v.extract() else {
+                    vortex_bail!("list element must be Varchar type")
+                };
+                Ok(s.to_string())
+            })
+            .try_collect()?,
+        _ => vortex_bail!("Expected a list<varchar> of file paths"),
+    };
+
+    let mut fs_cache: HashMap<Url, FileSystemRef> = HashMap::new();
+    let mut paths_with_fs: Vec<(String, FileSystemRef)> = Vec::with_capacity(raw_paths.len());
+
+    for path_str in &raw_paths {
+        let url = parse_glob_url(path_str)?;
+        let mut base_url = url.clone();
+        base_url.set_path("");
+
+        if !fs_cache.contains_key(&base_url) {
+            let fs = resolve_filesystem(&base_url, ctx)?;
+            fs_cache.insert(base_url.clone(), fs);
+        }
+
+        let fs = fs_cache
+            .get(&base_url)
+            .map(Arc::clone)
+            .unwrap_or_else(|| unreachable!("fs should be cached"));
+
+        // Strip the leading '/' to match the relative-path convention used by the filesystem
+        // listing and expected by both bind_multi_file_scan_from_exact_paths and
+        // extract_hive_partition_columns.
+        let path = url.path().trim_start_matches('/').to_string();
+        paths_with_fs.push((path, fs));
+    }
+
+    let path_strings: Vec<String> = paths_with_fs.iter().map(|(p, _)| p.clone()).collect();
+    Ok((paths_with_fs, path_strings))
+}
+
+/// Inner bind logic shared between the single-glob and list-of-globs variants.
+fn bind_multi_file_scan_inner(
     ctx: &ClientContextRef,
     input: &BindInputRef,
 ) -> VortexResult<MultiLayoutDataSource> {

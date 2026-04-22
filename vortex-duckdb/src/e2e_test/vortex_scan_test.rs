@@ -993,3 +993,383 @@ fn test_vortex_encodings_roundtrip() {
     let fixed_child_values = fixed_child.as_slice_with_len::<i32>(10); // 10 total child elements
     assert_eq!(fixed_child_values, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 }
+
+/// Helper to write a single-field vortex file at the given path.
+async fn write_vortex_file_to_path(path: &Path, field_name: &str, array: impl IntoArray) {
+    let struct_array = StructArray::from_fields(&[(field_name, array.into_array())]).unwrap();
+    let mut file = async_fs::File::create(path).await.unwrap();
+    SESSION
+        .write_options()
+        .write(&mut file, struct_array.into_array().to_array_stream())
+        .await
+        .unwrap();
+}
+
+#[test]
+fn test_vortex_scan_hive_partitioning() {
+    // tempdir/month=01/data.vortex  (value=100)
+    // tempdir/month=02/data.vortex  (value=200)
+    // tempdir/month=03/data.vortex  (value=300)
+    let tempdir = tempfile::tempdir().unwrap();
+
+    RUNTIME.block_on(async {
+        for (month, value) in [("01", 100i32), ("02", 200), ("03", 300)] {
+            let partition_dir = tempdir.path().join(format!("month={month}"));
+            std::fs::create_dir(&partition_dir).unwrap();
+            let file_path = partition_dir.join("data.vortex");
+            write_vortex_file_to_path(&file_path, "value", buffer![value]).await;
+        }
+    });
+
+    let conn = database_connection();
+    let glob_pattern = format!("{}/**/data.vortex", tempdir.path().display());
+
+    let result = conn
+        .query(&format!(
+            "SELECT value, month \
+             FROM read_vortex('{glob_pattern}', hive_partitioning = true) \
+             ORDER BY value"
+        ))
+        .unwrap();
+
+    let mut values = Vec::new();
+    let mut months = Vec::new();
+
+    for mut chunk in result {
+        let len: usize = chunk.len().as_();
+        let value_slice = chunk.get_vector(0).as_slice_with_len::<i32>(len);
+        values.extend_from_slice(value_slice);
+
+        let month_slice =
+            unsafe { chunk.get_vector_mut(1).as_slice_mut::<duckdb_string_t>(len) };
+        for m in month_slice.iter_mut() {
+            months.push(String::from_duckdb_value(m));
+        }
+    }
+
+    assert_eq!(values, vec![100, 200, 300]);
+    assert_eq!(months, vec!["01", "02", "03"]);
+}
+
+#[test]
+fn test_vortex_scan_hive_partitioning_multiple_partition_levels() {
+    // tempdir/year=2023/month=01/data.vortex  (value=1)
+    // tempdir/year=2023/month=02/data.vortex  (value=2)
+    // tempdir/year=2024/month=01/data.vortex  (value=3)
+    let tempdir = tempfile::tempdir().unwrap();
+
+    RUNTIME.block_on(async {
+        for (year, month, value) in [("2023", "01", 1i32), ("2023", "02", 2), ("2024", "01", 3)] {
+            let partition_dir = tempdir.path().join(format!("year={year}/month={month}"));
+            std::fs::create_dir_all(&partition_dir).unwrap();
+            let file_path = partition_dir.join("data.vortex");
+            write_vortex_file_to_path(&file_path, "value", buffer![value]).await;
+        }
+    });
+
+    let conn = database_connection();
+    let glob_pattern = format!("{}/**/data.vortex", tempdir.path().display());
+
+    let result = conn
+        .query(&format!(
+            "SELECT value, year, month \
+             FROM vortex_scan('{glob_pattern}', hive_partitioning = true) \
+             ORDER BY value"
+        ))
+        .unwrap();
+
+    let mut values = Vec::new();
+    let mut years = Vec::new();
+    let mut months = Vec::new();
+
+    for mut chunk in result {
+        let len: usize = chunk.len().as_();
+
+        let value_slice = chunk.get_vector(0).as_slice_with_len::<i32>(len);
+        values.extend_from_slice(value_slice);
+
+        let year_slice =
+            unsafe { chunk.get_vector_mut(1).as_slice_mut::<duckdb_string_t>(len) };
+        for y in year_slice.iter_mut() {
+            years.push(String::from_duckdb_value(y));
+        }
+
+        let month_slice =
+            unsafe { chunk.get_vector_mut(2).as_slice_mut::<duckdb_string_t>(len) };
+        for m in month_slice.iter_mut() {
+            months.push(String::from_duckdb_value(m));
+        }
+    }
+
+    assert_eq!(values, vec![1, 2, 3]);
+    assert_eq!(years, vec!["2023", "2023", "2024"]);
+    assert_eq!(months, vec!["01", "02", "01"]);
+}
+
+#[test]
+fn test_vortex_scan_hive_partitioning_filter_on_file_column() {
+    // Verify that filters on file (non-partition) columns work correctly.
+    let tempdir = tempfile::tempdir().unwrap();
+
+    RUNTIME.block_on(async {
+        for (month, value) in [("01", 100i32), ("02", 200), ("03", 300)] {
+            let partition_dir = tempdir.path().join(format!("month={month}"));
+            std::fs::create_dir(&partition_dir).unwrap();
+            let file_path = partition_dir.join("data.vortex");
+            write_vortex_file_to_path(&file_path, "value", buffer![value]).await;
+        }
+    });
+
+    let conn = database_connection();
+    let glob_pattern = format!("{}/**/data.vortex", tempdir.path().display());
+
+    let result = conn
+        .query(&format!(
+            "SELECT value, month \
+             FROM vortex_scan('{glob_pattern}', hive_partitioning = true) \
+             WHERE value = 200"
+        ))
+        .unwrap();
+
+    let mut values = Vec::new();
+    let mut months = Vec::new();
+
+    for mut chunk in result {
+        let len: usize = chunk.len().as_();
+
+        let value_slice = chunk.get_vector(0).as_slice_with_len::<i32>(len);
+        values.extend_from_slice(value_slice);
+
+        let month_slice =
+            unsafe { chunk.get_vector_mut(1).as_slice_mut::<duckdb_string_t>(len) };
+        for m in month_slice.iter_mut() {
+            months.push(String::from_duckdb_value(m));
+        }
+    }
+
+    assert_eq!(values, vec![200]);
+    assert_eq!(months, vec!["02"]);
+}
+
+#[test]
+fn test_vortex_scan_hive_partitioning_filter_on_partition_column() {
+    // Verify that filters on partition (virtual) columns work correctly.
+    //
+    // `month` does not exist inside any Vortex file — it is extracted from the directory path.
+    // DuckDB owns the filter (`WHERE month = '02'`) because pushdown_complex_filter returns
+    // false and extract_table_filter_expr skips partition columns. DuckDB applies it post-scan
+    // after we stamp each row with its hive partition value.
+    let tempdir = tempfile::tempdir().unwrap();
+
+    RUNTIME.block_on(async {
+        for (month, value) in [("01", 100i32), ("02", 200), ("03", 300)] {
+            let partition_dir = tempdir.path().join(format!("month={month}"));
+            std::fs::create_dir(&partition_dir).unwrap();
+            let file_path = partition_dir.join("data.vortex");
+            write_vortex_file_to_path(&file_path, "value", buffer![value]).await;
+        }
+    });
+
+    let conn = database_connection();
+    let glob_pattern = format!("{}/**/data.vortex", tempdir.path().display());
+
+    let result = conn
+        .query(&format!(
+            "SELECT value, month \
+             FROM vortex_scan('{glob_pattern}', hive_partitioning = true) \
+             WHERE month = '02'"
+        ))
+        .unwrap();
+
+    let mut values = Vec::new();
+    let mut months = Vec::new();
+
+    for mut chunk in result {
+        let len: usize = chunk.len().as_();
+
+        let value_slice = chunk.get_vector(0).as_slice_with_len::<i32>(len);
+        values.extend_from_slice(value_slice);
+
+        let month_slice =
+            unsafe { chunk.get_vector_mut(1).as_slice_mut::<duckdb_string_t>(len) };
+        for m in month_slice.iter_mut() {
+            months.push(String::from_duckdb_value(m));
+        }
+    }
+
+    assert_eq!(values, vec![200]);
+    assert_eq!(months, vec!["02"]);
+}
+
+#[test]
+fn test_vortex_scan_hive_partitioning_complex_filter_on_file_column() {
+    // Verify that a complex filter on a file column (value > 100) is pushed down to the
+    // file reader even when hive_partitioning is enabled. Only rows with value > 100 should
+    // be returned, with the correct partition column values attached.
+    let tempdir = tempfile::tempdir().unwrap();
+
+    RUNTIME.block_on(async {
+        for (month, value) in [("01", 100i32), ("02", 200), ("03", 300)] {
+            let partition_dir = tempdir.path().join(format!("month={month}"));
+            std::fs::create_dir(&partition_dir).unwrap();
+            let file_path = partition_dir.join("data.vortex");
+            write_vortex_file_to_path(&file_path, "value", buffer![value]).await;
+        }
+    });
+
+    let conn = database_connection();
+    let glob_pattern = format!("{}/**/data.vortex", tempdir.path().display());
+
+    let result = conn
+        .query(&format!(
+            "SELECT value, month \
+             FROM vortex_scan('{glob_pattern}', hive_partitioning = true) \
+             WHERE value > 100 \
+             ORDER BY value"
+        ))
+        .unwrap();
+
+    let mut values = Vec::new();
+    let mut months = Vec::new();
+
+    for mut chunk in result {
+        let len: usize = chunk.len().as_();
+
+        let value_slice = chunk.get_vector(0).as_slice_with_len::<i32>(len);
+        values.extend_from_slice(value_slice);
+
+        let month_slice =
+            unsafe { chunk.get_vector_mut(1).as_slice_mut::<duckdb_string_t>(len) };
+        for m in month_slice.iter_mut() {
+            months.push(String::from_duckdb_value(m));
+        }
+    }
+
+    assert_eq!(values, vec![200, 300]);
+    assert_eq!(months, vec!["02", "03"]);
+}
+
+#[test]
+fn test_vortex_scan_hive_partitioning_mixed_filter() {
+    // Verify that a mixed filter touching both a file column and a partition column is
+    // handled correctly: the file-column part (value > 100) is pushed down to the file
+    // reader, while the partition-column part (month = '02') is applied post-scan by DuckDB.
+    // The net result is the intersection of both conditions.
+    let tempdir = tempfile::tempdir().unwrap();
+
+    RUNTIME.block_on(async {
+        for (month, value) in [("01", 100i32), ("02", 200), ("03", 300)] {
+            let partition_dir = tempdir.path().join(format!("month={month}"));
+            std::fs::create_dir(&partition_dir).unwrap();
+            let file_path = partition_dir.join("data.vortex");
+            write_vortex_file_to_path(&file_path, "value", buffer![value]).await;
+        }
+    });
+
+    let conn = database_connection();
+    let glob_pattern = format!("{}/**/data.vortex", tempdir.path().display());
+
+    let result = conn
+        .query(&format!(
+            "SELECT value, month \
+             FROM vortex_scan('{glob_pattern}', hive_partitioning = true) \
+             WHERE value > 100 AND month = '02'"
+        ))
+        .unwrap();
+
+    let mut values = Vec::new();
+    let mut months = Vec::new();
+
+    for mut chunk in result {
+        let len: usize = chunk.len().as_();
+
+        let value_slice = chunk.get_vector(0).as_slice_with_len::<i32>(len);
+        values.extend_from_slice(value_slice);
+
+        let month_slice =
+            unsafe { chunk.get_vector_mut(1).as_slice_mut::<duckdb_string_t>(len) };
+        for m in month_slice.iter_mut() {
+            months.push(String::from_duckdb_value(m));
+        }
+    }
+
+    assert_eq!(values, vec![200]);
+    assert_eq!(months, vec!["02"]);
+}
+
+#[test]
+fn test_vortex_scan_without_hive_partitioning() {
+    // Verify that without hive_partitioning the partition columns are NOT added to the schema.
+    let tempdir = tempfile::tempdir().unwrap();
+
+    RUNTIME.block_on(async {
+        let partition_dir = tempdir.path().join("month=01");
+        std::fs::create_dir(&partition_dir).unwrap();
+        let file_path = partition_dir.join("data.vortex");
+        write_vortex_file_to_path(&file_path, "value", buffer![42i32]).await;
+    });
+
+    let conn = database_connection();
+    let glob_pattern = format!("{}/**/data.vortex", tempdir.path().display());
+
+    // Query without hive_partitioning — only "value" column should exist.
+    let result = conn
+        .query(&format!(
+            "SELECT * FROM vortex_scan('{glob_pattern}')"
+        ))
+        .unwrap();
+
+    for chunk in result {
+        assert_eq!(chunk.column_count(), 1, "expected only the file column");
+        let value_slice = chunk.get_vector(0).as_slice_with_len::<i32>(chunk.len().as_());
+        assert_eq!(value_slice, [42]);
+    }
+}
+
+#[test]
+fn test_vortex_scan_list_hive_partitioning() {
+    // Verify that vortex_scan() also supports hive_partitioning when called with an explicit
+    // list of file paths (the VortexMultiFileScanList overload).
+    let tempdir = tempfile::tempdir().unwrap();
+
+    RUNTIME.block_on(async {
+        for (month, value) in [("01", 100i32), ("02", 200), ("03", 300)] {
+            let partition_dir = tempdir.path().join(format!("month={month}"));
+            std::fs::create_dir(&partition_dir).unwrap();
+            let file_path = partition_dir.join("data.vortex");
+            write_vortex_file_to_path(&file_path, "value", buffer![value]).await;
+        }
+    });
+
+    let conn = database_connection();
+    let file01 = format!("{}/month=01/data.vortex", tempdir.path().display());
+    let file02 = format!("{}/month=02/data.vortex", tempdir.path().display());
+    let file03 = format!("{}/month=03/data.vortex", tempdir.path().display());
+
+    let result = conn
+        .query(&format!(
+            "SELECT value, month \
+             FROM vortex_scan(['{file01}', '{file02}', '{file03}'], hive_partitioning = true) \
+             ORDER BY month"
+        ))
+        .unwrap();
+
+    let mut values = Vec::new();
+    let mut months = Vec::new();
+
+    for mut chunk in result {
+        let len: usize = chunk.len().as_();
+
+        let value_slice = chunk.get_vector(0).as_slice_with_len::<i32>(len);
+        values.extend_from_slice(value_slice);
+
+        let month_slice =
+            unsafe { chunk.get_vector_mut(1).as_slice_mut::<duckdb_string_t>(len) };
+        for m in month_slice.iter_mut() {
+            months.push(String::from_duckdb_value(m));
+        }
+    }
+
+    assert_eq!(values, vec![100, 200, 300]);
+    assert_eq!(months, vec!["01", "02", "03"]);
+}

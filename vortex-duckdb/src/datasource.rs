@@ -15,12 +15,15 @@ use std::sync::atomic::Ordering;
 
 use custom_labels::CURRENT_LABELSET;
 use futures::StreamExt;
+use futures::stream;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use tracing::debug;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
+use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::ScalarFn;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
@@ -29,14 +32,18 @@ use vortex::array::optimizer::ArrayOptimizer;
 use vortex::array::stats::StatsSet;
 use vortex::dtype::DType;
 use vortex::dtype::FieldNames;
+use vortex::dtype::Nullability;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
+use vortex::expr::VortexExprExt;
 use vortex::expr::and_collect;
 use vortex::expr::col;
 use vortex::expr::root;
 use vortex::expr::select;
+use vortex::expr::split_conjunction;
 use vortex::expr::stats::Precision;
 use vortex::expr::stats::Stat;
 use vortex::file::v2::FileStatsLayoutReader;
@@ -56,6 +63,8 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::RUNTIME;
 use crate::SESSION;
 use crate::convert::ToDuckDBScalar;
+use crate::duckdb::ExtractedValue;
+use crate::duckdb::TableFilterClass;
 use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_table_filter;
 use crate::duckdb::BindInputRef;
@@ -86,6 +95,87 @@ use crate::exporter::ConversionCache;
 /// See vortex-duckdb/cpp/table_function.cpp
 static EMPTY_COLUMN_IDX: u64 = 18446744073709551614;
 
+/// A hive-style partition column produced during bind.
+///
+/// Each column has a name (the partition key) and one string value per file,
+/// in the same order as the files resolved from the glob pattern.
+#[derive(Debug, Clone)]
+pub(crate) struct HivePartitionColumn {
+    pub name: String,
+    /// One value per file, in file-discovery order.
+    pub values: Vec<String>,
+}
+
+/// Extracts hive-style `key=value` pairs from path segments.
+///
+/// For example, given `/data/year=2023/month=01/file.vortex`,
+/// returns `[("year", "2023"), ("month", "01")]`.
+pub(crate) fn extract_hive_partitions(path: &str) -> Vec<(String, String)> {
+    let mut partitions = Vec::new();
+    for segment in path.split('/') {
+        if let Some((key, value)) = segment.split_once('=') {
+            if !key.is_empty() && !value.is_empty() {
+                partitions.push((key.to_string(), value.to_string()));
+            }
+        }
+    }
+    partitions
+}
+
+/// Builds per-column hive partition data from a list of file paths.
+///
+/// All files must have the same partition keys in the same order.
+pub(crate) fn extract_hive_partition_columns(
+    file_paths: &[String],
+) -> VortexResult<Vec<HivePartitionColumn>> {
+    if file_paths.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let all_partitions: Vec<Vec<(String, String)>> = file_paths
+        .iter()
+        .map(|p| extract_hive_partitions(p))
+        .collect();
+
+    let first = &all_partitions[0];
+    for (idx, partitions) in all_partitions.iter().enumerate() {
+        if partitions.len() != first.len() {
+            vortex_bail!(
+                "Hive partition mismatch: file {} has {} partition keys but expected {}",
+                file_paths[idx],
+                partitions.len(),
+                first.len()
+            );
+        }
+        for (i, (key, _)) in partitions.iter().enumerate() {
+            if key != &first[i].0 {
+                vortex_bail!(
+                    "Hive partition key mismatch: file {} has key '{}' but expected '{}'",
+                    file_paths[idx],
+                    key,
+                    first[i].0
+                );
+            }
+        }
+    }
+
+    let mut columns: Vec<HivePartitionColumn> = first
+        .iter()
+        .map(|(key, _)| HivePartitionColumn {
+            name: key.clone(),
+            values: Vec::with_capacity(file_paths.len()),
+        })
+        .collect();
+
+    for partitions in &all_partitions {
+        for (i, (_, value)) in partitions.iter().enumerate() {
+            columns[i].values.push(value.clone());
+        }
+    }
+
+    Ok(columns)
+}
+
 /// A trait for table functions that resolve to a [`DataSourceRef`].
 ///
 /// Implementors only need to define how parameters are declared and how binding produces a
@@ -102,8 +192,14 @@ pub(crate) trait DataSourceTableFunction: Sized + Debug {
         vec![]
     }
 
-    /// Bind the table function and return a [`DataSourceRef`].
-    fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<MultiLayoutDataSource>;
+    /// Bind the table function and return a data source and optional hive partition columns.
+    ///
+    /// The second element is non-empty only when `hive_partitioning = true` was requested.
+    /// Hive partition columns are indexed in the same order as the files in the data source.
+    fn bind(
+        ctx: &ClientContextRef,
+        input: &BindInputRef,
+    ) -> VortexResult<(MultiLayoutDataSource, Vec<HivePartitionColumn>)>;
 }
 
 #[derive(Debug, Clone)]
@@ -118,6 +214,12 @@ pub struct DataSourceBindData {
     data_source: Arc<MultiLayoutDataSource>,
     filter_exprs: Vec<Expression>,
     column_fields: Vec<DuckdbField>,
+    /// Number of columns that come from the file (as opposed to hive partition columns).
+    file_column_count: usize,
+    /// Whether hive partitioning was requested.
+    hive_partitioning: bool,
+    /// Hive partition columns, indexed by file discovery order.
+    hive_partition_columns: Vec<HivePartitionColumn>,
 }
 
 impl Clone for DataSourceBindData {
@@ -127,6 +229,9 @@ impl Clone for DataSourceBindData {
             // filter_exprs are consumed once in `init_global`.
             filter_exprs: vec![],
             column_fields: self.column_fields.clone(),
+            file_column_count: self.file_column_count,
+            hive_partitioning: self.hive_partitioning,
+            hive_partition_columns: self.hive_partition_columns.clone(),
         }
     }
 }
@@ -155,6 +260,12 @@ pub struct DataSourceGlobal {
     batch_id: AtomicU64,
     bytes_total: Arc<AtomicU64>,
     bytes_read: AtomicU64,
+    /// Ordered schema column indices for each DataChunk output vector.
+    ///
+    /// DuckDB's `projection_ids` / `column_ids` dictate which columns the scan must write to
+    /// each output vector position. Partition columns may appear at any position, so we need
+    /// to build the StructArray in exactly this order rather than always appending at the end.
+    output_schema_cols: Vec<usize>,
 }
 
 /// Per-thread local scan state.
@@ -276,15 +387,33 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         input: &BindInputRef,
         result: &mut BindResultRef,
     ) -> VortexResult<Self::BindData> {
-        let data_source = T::bind(ctx, input)?;
-        let column_fields = extract_schema_from_dtype(data_source.dtype())?;
-        for fields in &column_fields {
-            result.add_result_column(&fields.name, &fields.logical_type);
+        let (data_source, hive_partition_columns) = T::bind(ctx, input)?;
+        let mut column_fields = extract_schema_from_dtype(data_source.dtype())?;
+        let file_column_count = column_fields.len();
+
+        // Add file columns to the result schema first.
+        for field in &column_fields {
+            result.add_result_column(&field.name, &field.logical_type);
         }
+
+        // Append hive partition columns to the result schema.
+        for partition_col in &hive_partition_columns {
+            result.add_result_column(&partition_col.name, &LogicalType::varchar());
+            column_fields.push(DuckdbField {
+                name: partition_col.name.clone(),
+                logical_type: LogicalType::varchar(),
+                dtype: DType::Utf8(Nullability::NonNullable),
+            });
+        }
+
+        let hive_partitioning = !hive_partition_columns.is_empty();
         Ok(DataSourceBindData {
             data_source: Arc::new(data_source),
             filter_exprs: vec![],
             column_fields,
+            file_column_count,
+            hive_partitioning,
+            hive_partition_columns,
         })
     }
 
@@ -295,14 +424,44 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         let column_ids = init_input.column_ids();
         let projection_ids = init_input.projection_ids();
 
-        let projection_expr =
-            extract_projection_expr(projection_ids, column_ids, &bind_data.column_fields);
+        // Compute the schema column index for each DataChunk output vector position.
+        // When hive partitioning is active, partition columns may appear at any position
+        // in the output (DuckDB can reorder projection_ids to put the filter column first),
+        // so we must record this mapping here and use it in scan() to produce the columns
+        // in the correct order.
+        let output_schema_cols: Vec<usize> = {
+            let (pids, has_proj): (&[u64], bool) = match projection_ids {
+                Some(p) => (p, true),
+                None => (column_ids, false),
+            };
+            pids.iter()
+                .copied()
+                .filter(|&p| p != EMPTY_COLUMN_IDX)
+                .map(|p| {
+                    if has_proj {
+                        column_ids[p as usize] as usize
+                    } else {
+                        p as usize
+                    }
+                })
+                .collect()
+        };
+
+        let file_column_count = bind_data.hive_partitioning.then_some(bind_data.file_column_count);
+
+        let projection_expr = extract_projection_expr(
+            projection_ids,
+            column_ids,
+            &bind_data.column_fields,
+            file_column_count,
+        );
         let filter_expr = extract_table_filter_expr(
             init_input.table_filter_set(),
             column_ids,
             &bind_data.column_fields,
             &bind_data.filter_exprs,
             bind_data.data_source.dtype(),
+            file_column_count,
         )?;
 
         let filter_expr_str = filter_expr
@@ -313,11 +472,8 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         let request = ScanRequest {
             projection: projection_expr,
             filter: filter_expr,
-            ordered: false,
             ..Default::default()
         };
-
-        let scan = RUNTIME.block_on(bind_data.data_source.scan(request))?;
 
         let num_workers = std::thread::available_parallelism()
             .map(|n| n.get())
@@ -327,43 +483,164 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         // available array chunk regardless of which partition it came from.
         let (tx, rx) = kanal::bounded_async(num_workers * 2);
 
-        // We drive one partition per worker thread. Each partition is driven as a spawned task
-        // that pushes array chunks into the shared channel as they are produced. This spawning
-        // allows all worker threads to drive the polling of all partitions, and then return the
-        // first available array chunk.
-        let stream = scan
-            .partitions()
-            .map(move |partition| {
-                // We create a new conversion cache scoped to the partition, since there's no point
-                // caching anything across partitions.
-                let cache = Arc::new(ConversionCache::default());
-                let tx = tx.clone();
+        if bind_data.hive_partitioning {
+            // When hive partitioning is active we must guarantee that the file_index assigned to
+            // each result batch is stable regardless of which files get pruned by the file-level
+            // statistics check in reader_partition().
+            //
+            // With the standard path (scan.partitions().enumerate()), a file whose zone-map
+            // proves the filter can never match is dropped from the stream entirely.  This shifts
+            // the enumerate() counter for every subsequent file and breaks the mapping to
+            // hive_partition_columns.values (which was built from the original discovery order).
+            //
+            // Fix: enumerate children *before* any I/O, assign each a stable file_index, and
+            // then give each child its own independent single-file MultiLayoutDataSource.
+            // File-level pruning now affects only whether that child's task emits rows, not
+            // whether other children receive wrong indices.  Full filter+pruning semantics are
+            // preserved: skipped files emit zero rows, DuckDB applies its post-scan filter, and
+            // the hive partition column is stamped with the correct value for every emitted row.
+            let dtype = bind_data.data_source.dtype().clone();
 
-                RUNTIME.handle().spawn(async move {
-                    let mut stream = match partition.and_then(|p| p.execute()) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            let _ = tx.send(Err(e)).await;
-                            return;
-                        }
+            // Apply partition column table filters eagerly before spawning any I/O tasks.
+            //
+            // DuckDB provides these filters via table_filter_set and removes them from its
+            // own query plan (it assumes the table function handles them). Since partition
+            // columns don't exist inside the files, we evaluate the filters against the
+            // pre-known string values in hive_partition_columns and simply skip files that
+            // cannot possibly match — achieving the same effect as a full partition prune.
+            let children: Vec<(usize, MultiLayoutChild)> = bind_data
+                .data_source
+                .children()
+                .iter()
+                .enumerate()
+                .filter(|(file_index, _)| {
+                    let Some(filter_set) = init_input.table_filter_set() else {
+                        return true;
                     };
-                    while let Some(item) = stream.next().await {
-                        if tx
-                            .send(item.map(|a| (a, Arc::clone(&cache))))
-                            .await
-                            .is_err()
-                        {
-                            // Exit early if the receiver has been dropped, which happens when the
-                            // scan is complete or if an error has occurred in another partition.
-                            return;
+                    for (idx, filter) in filter_set {
+                        let idx_u: usize = idx.as_();
+                        let col_idx: usize = column_ids[idx_u].as_();
+                        if col_idx < bind_data.file_column_count {
+                            continue; // file column — handled elsewhere
+                        }
+                        let part_idx = col_idx - bind_data.file_column_count;
+                        if part_idx >= bind_data.hive_partition_columns.len() {
+                            continue;
+                        }
+                        let part_val =
+                            &bind_data.hive_partition_columns[part_idx].values[*file_index];
+                        if !partition_value_matches_filter(part_val.as_str(), filter) {
+                            return false;
                         }
                     }
+                    true
                 })
-            })
-            .buffer_unordered(num_workers);
+                .map(|(i, child)| {
+                    let child = match child {
+                        MultiLayoutChild::Opened(r) => MultiLayoutChild::Opened(Arc::clone(r)),
+                        MultiLayoutChild::Deferred(f) => {
+                            MultiLayoutChild::Deferred(Arc::clone(f))
+                        }
+                    };
+                    (i, child)
+                })
+                .collect();
 
-        // Spawn a task to drive the partition stream and push array chunks into the channel.
-        RUNTIME.handle().spawn(stream.collect::<()>()).detach();
+            let stream = stream::iter(children)
+                .map(move |(file_index, child)| {
+                    let cache = Arc::new(ConversionCache::new(file_index));
+                    let tx = tx.clone();
+                    let request = request.clone();
+                    let dtype = dtype.clone();
+
+                    RUNTIME.handle().spawn(async move {
+                        // One independent source per file so that pruning this file does not
+                        // affect any other file's index.
+                        let single_source = match child {
+                            MultiLayoutChild::Opened(reader) => {
+                                MultiLayoutDataSource::new_with_first(reader, vec![], &SESSION)
+                            }
+                            MultiLayoutChild::Deferred(factory) => {
+                                MultiLayoutDataSource::new_deferred(dtype, vec![factory], &SESSION)
+                            }
+                        };
+
+                        let scan = match single_source.scan(request).await {
+                            Ok(s) => s,
+                            Err(e) => {
+                                let _ = tx.send(Err(e)).await;
+                                return;
+                            }
+                        };
+
+                        let mut partition_stream = scan.partitions();
+                        while let Some(partition) = partition_stream.next().await {
+                            let mut array_stream = match partition.and_then(|p| p.execute()) {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    let _ = tx.send(Err(e)).await;
+                                    return;
+                                }
+                            };
+                            while let Some(item) = array_stream.next().await {
+                                if tx
+                                    .send(item.map(|a| (a, Arc::clone(&cache))))
+                                    .await
+                                    .is_err()
+                                {
+                                    return;
+                                }
+                            }
+                        }
+                    })
+                })
+                .buffer_unordered(num_workers);
+
+            RUNTIME.handle().spawn(stream.collect::<()>()).detach();
+        } else {
+            // Standard path: a single scan over all files with partitions enumerated in stream
+            // order.  No hive partition columns → file_index is only used for ConversionCache
+            // internal bookkeeping and does not need to match any external mapping.
+            let scan = RUNTIME.block_on(bind_data.data_source.scan(request))?;
+
+            // We drive one partition per worker thread. Each partition is driven as a spawned task
+            // that pushes array chunks into the shared channel as they are produced. This spawning
+            // allows all worker threads to drive the polling of all partitions, and then return the
+            // first available array chunk.
+            let stream = scan
+                .partitions()
+                .enumerate()
+                .map(move |(file_index, partition)| {
+                    // We create a new conversion cache scoped to the partition, since there's no
+                    // point caching anything across partitions.
+                    let cache = Arc::new(ConversionCache::new(file_index));
+                    let tx = tx.clone();
+
+                    RUNTIME.handle().spawn(async move {
+                        let mut stream = match partition.and_then(|p| p.execute()) {
+                            Ok(s) => s,
+                            Err(e) => {
+                                let _ = tx.send(Err(e)).await;
+                                return;
+                            }
+                        };
+                        while let Some(item) = stream.next().await {
+                            if tx
+                                .send(item.map(|a| (a, Arc::clone(&cache))))
+                                .await
+                                .is_err()
+                            {
+                                // Exit early if the receiver has been dropped.
+                                return;
+                            }
+                        }
+                    })
+                })
+                .buffer_unordered(num_workers);
+
+            // Spawn a task to drive the partition stream and push array chunks into the channel.
+            RUNTIME.handle().spawn(stream.collect::<()>()).detach();
+        }
 
         let iterator = RUNTIME.block_on_stream_thread_safe(|_handle| rx.into_stream());
 
@@ -372,6 +649,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
             batch_id: AtomicU64::new(0),
             bytes_total: Arc::new(AtomicU64::new(0)),
             bytes_read: AtomicU64::new(0),
+            output_schema_cols,
         })
     }
 
@@ -403,7 +681,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
 
     fn scan(
         _client_context: &ClientContextRef,
-        _bind_data: &Self::BindData,
+        bind_data: &Self::BindData,
         local_state: &mut Self::LocalState,
         global_state: &Self::GlobalState,
         chunk: &mut DataChunkRef,
@@ -417,21 +695,36 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                 let (array_result, conversion_cache) = result?;
                 let array_result = array_result.optimize_recursive()?;
 
-                let array_result: StructArray = if let Some(array) = array_result.as_opt::<Struct>()
-                {
-                    array.into_owned()
-                } else if let Some(array) = array_result.as_opt::<ScalarFn>()
-                    && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
-                {
-                    StructArray::new(
-                        pack_options.names.clone(),
-                        array.children(),
-                        array.len(),
-                        pack_options.nullability.into(),
-                    )
-                } else {
-                    array_result.execute::<Canonical>(&mut ctx)?.into_struct()
-                };
+                let mut array_result: StructArray =
+                    if let Some(array) = array_result.as_opt::<Struct>() {
+                        array.into_owned()
+                    } else if let Some(array) = array_result.as_opt::<ScalarFn>()
+                        && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
+                    {
+                        StructArray::new(
+                            pack_options.names.clone(),
+                            array.children(),
+                            array.len(),
+                            pack_options.nullability.into(),
+                        )
+                    } else {
+                        array_result.execute::<Canonical>(&mut ctx)?.into_struct()
+                    };
+
+                // Build the output StructArray including hive partition columns.
+                //
+                // DuckDB may reorder projection_ids (e.g. placing the filter column first),
+                // so we cannot simply append partition columns at the end — they must be
+                // inserted at the positions DuckDB expects. We recorded the required schema
+                // column order in global_state.output_schema_cols at init time.
+                if bind_data.hive_partitioning && !bind_data.hive_partition_columns.is_empty() {
+                    array_result = interleave_partition_columns(
+                        array_result,
+                        bind_data,
+                        conversion_cache.file_index,
+                        &global_state.output_schema_cols,
+                    )?;
+                }
 
                 local_state.exporter = Some(ArrayExporter::try_new(
                     &array_result,
@@ -482,6 +775,33 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         let Some(expr) = try_from_bound_expression(expr)? else {
             return Ok(false);
         };
+
+        if bind_data.hive_partitioning {
+            // Split the expression on top-level AND conjuncts and push down only the parts
+            // that exclusively reference file columns. Conjuncts that touch a partition column
+            // (which does not exist inside any file) are left for DuckDB to apply post-scan.
+            let partition_names: std::collections::HashSet<&str> = bind_data
+                .hive_partition_columns
+                .iter()
+                .map(|c| c.name.as_str())
+                .collect();
+
+            for conjunct in split_conjunction(&expr) {
+                let refs = conjunct.field_references();
+                if refs.iter().all(|name| !partition_names.contains(name.as_ref())) {
+                    bind_data.filter_exprs.push(conjunct);
+                }
+                // Partition-column conjuncts: do nothing — DuckDB keeps them post-scan.
+                // TODO: conjuncts that exclusively reference partition columns could also be
+                // used to prune files in init_global (in addition to the table_filter_set
+                // pruning we already do). This would benefit queries like
+                // `WHERE month LIKE '0%'` where the filter arrives here rather than via
+                // table_filter_set. For now, correctness is preserved because DuckDB applies
+                // these conjuncts as a post-scan filter; only unnecessary file I/O is wasted.
+            }
+            return Ok(false);
+        }
+
         bind_data.filter_exprs.push(expr);
 
         // NOTE(ngates): Vortex does indeed run exact filters, so in theory we should return `true`
@@ -558,6 +878,113 @@ impl<T: DataSourceTableFunction> TableFunction for T {
 // Helper functions
 // ---------------------------------------------------------------------------
 
+/// Returns `true` when `value` satisfies the DuckDB table filter.
+///
+/// Partition column values are always non-null UTF-8 strings. Unknown filter types
+/// conservatively return `true` (do not prune the file).
+fn partition_value_matches_filter(
+    value: &str,
+    filter: &crate::duckdb::TableFilterRef,
+) -> bool {
+    use crate::cpp::DUCKDB_VX_EXPR_TYPE;
+
+    match filter.as_class() {
+        TableFilterClass::ConstantComparison(const_) => {
+            let filter_str = match const_.value.extract() {
+                ExtractedValue::Varchar(v) => v.to_string(),
+                _ => return true, // non-varchar comparison: don't prune
+            };
+            let f = filter_str.as_str();
+            match const_.operator {
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_EQUAL => value == f,
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOTEQUAL => value != f,
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_GREATERTHAN => value > f,
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHAN => value < f,
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_GREATERTHANOREQUALTO => {
+                    value >= f
+                }
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHANOREQUALTO => {
+                    value <= f
+                }
+                _ => true,
+            }
+        }
+        TableFilterClass::ConjunctionAnd(conj) => conj
+            .children()
+            .all(|child| partition_value_matches_filter(value, child)),
+        TableFilterClass::ConjunctionOr(disj) => disj
+            .children()
+            .any(|child| partition_value_matches_filter(value, child)),
+        TableFilterClass::InFilter(values) => values.iter().any(|v| match v.extract() {
+            ExtractedValue::Varchar(fv) => value == fv.to_string().as_str(),
+            _ => false,
+        }),
+        TableFilterClass::IsNull => false, // partition values are never null
+        TableFilterClass::IsNotNull => true,
+        _ => true, // unknown filter type: conservatively pass
+    }
+}
+
+/// Rebuilds `array_result` with hive partition columns interleaved at the positions DuckDB
+/// expects, as recorded in `output_schema_cols`.
+///
+/// DuckDB's projection may reorder columns (e.g. filter column first), so we cannot simply
+/// append partition columns at the end of the StructArray. Instead we iterate
+/// `output_schema_cols` — the schema column index per output DataChunk vector — and place each
+/// file column (taken in order from `array_result`) or partition constant at the right slot.
+fn interleave_partition_columns(
+    array_result: StructArray,
+    bind_data: &DataSourceBindData,
+    file_index: usize,
+    output_schema_cols: &[usize],
+) -> VortexResult<StructArray> {
+    use vortex::array::arrays::struct_::StructDataParts;
+    use vortex::array::validity::Validity;
+
+    let row_count = array_result.len();
+    let file_column_count = bind_data.file_column_count;
+
+    if output_schema_cols.is_empty() {
+        // Zero-column projection: just append partition cols at the end (won't affect output).
+        let mut result = array_result;
+        for partition_col in &bind_data.hive_partition_columns {
+            let value = &partition_col.values[file_index];
+            let constant_array = ConstantArray::new(Scalar::from(value.as_str()), row_count);
+            result =
+                result.with_column(partition_col.name.as_str(), constant_array.into_array())?;
+        }
+        return Ok(result);
+    }
+
+    // Extract file field arrays in their current order (matching the file-column positions
+    // in output_schema_cols, which is also the order extract_projection_expr requested them).
+    let StructDataParts { fields: file_arrays, .. } = array_result.into_data_parts();
+
+    let mut file_col_cursor = 0usize;
+    let mut out_names: Vec<Arc<str>> = Vec::with_capacity(output_schema_cols.len());
+    let mut out_arrays: Vec<ArrayRef> = Vec::with_capacity(output_schema_cols.len());
+
+    for &schema_col in output_schema_cols {
+        if schema_col < file_column_count {
+            let name = Arc::from(bind_data.column_fields[schema_col].name.as_str());
+            let arr = file_arrays[file_col_cursor].clone();
+            out_names.push(name);
+            out_arrays.push(arr);
+            file_col_cursor += 1;
+        } else {
+            let part_idx = schema_col - file_column_count;
+            let part_col = &bind_data.hive_partition_columns[part_idx];
+            let value = &part_col.values[file_index];
+            let constant_array = ConstantArray::new(Scalar::from(value.as_str()), row_count);
+            out_names.push(Arc::from(part_col.name.as_str()));
+            out_arrays.push(constant_array.into_array());
+        }
+    }
+
+    let names: FieldNames = out_names.into_iter().collect();
+    StructArray::try_new(names, out_arrays, row_count, Validity::NonNullable.into())
+}
+
 /// Extracts DuckDB column names and logical types from a Vortex struct DType.
 fn extract_schema_from_dtype(dtype: &DType) -> VortexResult<Vec<DuckdbField>> {
     let struct_dtype = dtype
@@ -579,10 +1006,14 @@ fn extract_schema_from_dtype(dtype: &DType) -> VortexResult<Vec<DuckdbField>> {
 }
 
 /// Creates a projection expression from raw projection/column ID slices and column names.
+///
+/// When `file_column_count` is `Some(n)`, column indices ≥ `n` are hive partition columns
+/// that are appended by the scan function and must not be requested from the file reader.
 fn extract_projection_expr(
     projection_ids: Option<&[u64]>,
     column_ids: &[u64],
     column_fields: &[DuckdbField],
+    file_column_count: Option<usize>,
 ) -> Expression {
     // Projection ids may be empty, in which case you need to use projection_ids
     // https://github.com/duckdb/duckdb/blob/6e211da91657a94803c465fd0ce585f4c6754b54/src/planner/operator/logical_get.cpp#L168
@@ -596,16 +1027,26 @@ fn extract_projection_expr(
     let names = projection_ids
         .iter()
         .filter(|p| **p != EMPTY_COLUMN_IDX)
-        .map(|mut idx| {
+        .filter_map(|mut idx| {
             if has_projection_ids {
                 idx = &column_ids[*idx as usize];
             }
 
+            let col_idx = *idx as usize;
+            // Skip partition columns — they are not in the file.
+            if let Some(file_cols) = file_column_count {
+                if col_idx >= file_cols {
+                    return None;
+                }
+            }
+
             #[expect(clippy::cast_possible_truncation)]
-            &column_fields
-                .get(*idx as usize)
-                .vortex_expect("prune idx in column names")
-                .name
+            Some(
+                &column_fields
+                    .get(col_idx)
+                    .vortex_expect("prune idx in column names")
+                    .name,
+            )
         })
         .map(|s| Arc::from(s.as_str()))
         .collect::<FieldNames>();
@@ -615,21 +1056,33 @@ fn extract_projection_expr(
 
 /// Creates a table filter expression from the table filter set, column metadata, additional
 /// filter expressions, and the top-level DType.
+///
+/// When `file_column_count` is `Some(n)`, filters on columns with index ≥ `n` are partition
+/// columns that do not exist in the file and are skipped (DuckDB applies them post-scan).
 fn extract_table_filter_expr(
     table_filter_set: Option<&TableFilterSetRef>,
     column_ids: &[u64],
     column_fields: &[DuckdbField],
     additional_filters: &[Expression],
     dtype: &DType,
+    file_column_count: Option<usize>,
 ) -> VortexResult<Option<Expression>> {
     let mut table_filter_exprs: HashSet<Expression> = if let Some(filter) = table_filter_set {
         filter
             .into_iter()
-            .map(|(idx, ex)| {
+            .filter_map(|(idx, ex)| {
                 let idx_u: usize = idx.as_();
                 let col_idx: usize = column_ids[idx_u].as_();
+
+                // Skip filters on hive partition columns — they don't exist in the file.
+                if let Some(file_cols) = file_column_count {
+                    if col_idx >= file_cols {
+                        return None;
+                    }
+                }
+
                 let name = &column_fields.get(col_idx).vortex_expect("exists").name;
-                try_from_table_filter(ex, &col(name.as_str()), dtype)
+                Some(try_from_table_filter(ex, &col(name.as_str()), dtype))
             })
             .collect::<VortexResult<Option<HashSet<_>>>>()?
             .unwrap_or_else(HashSet::new)

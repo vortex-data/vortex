@@ -16,9 +16,29 @@ use crate::duckdb::Vector;
 /// Uses the memory address of `ArrayRef` pointers as cache keys
 /// to avoid redundant conversions of the same array instances.
 /// We hold on to the `ArrayRef` to ensure that the key (ptr addr) doesn't get reused.
-#[derive(Default)]
 pub struct ConversionCache {
+    /// The 0-based index of the file/partition that produced these arrays.
+    /// Used to look up hive partition column values when hive partitioning is enabled.
+    pub file_index: usize,
     pub dict_cache: DashMap<usize, (ArrayRef, ReusableDict)>,
     pub values_cache: DashMap<usize, (ArrayRef, Arc<Mutex<Vector>>)>,
     pub canonical_cache: DashMap<usize, (ArrayRef, Canonical)>,
+}
+
+impl Default for ConversionCache {
+    fn default() -> Self {
+        Self::new(0)
+    }
+}
+
+impl ConversionCache {
+    /// Creates a new cache associated with the given file/partition index.
+    pub fn new(file_index: usize) -> Self {
+        Self {
+            file_index,
+            dict_cache: DashMap::default(),
+            values_cache: DashMap::default(),
+            canonical_cache: DashMap::default(),
+        }
+    }
 }
