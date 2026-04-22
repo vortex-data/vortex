@@ -8,7 +8,7 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 This directory contains the planning, architecture, and design docs for the next
 iteration of the Vortex benchmarks website. The goal is to replace the current
 Node + React site (which streams a compressed JSONL blob from S3 and parses it on
-every refresh) with a **Leptos SSR website backed by a DuckDB database** of
+every refresh) with a **axum-based website backed by a DuckDB database** of
 historical benchmark results.
 
 These docs are **planning artifacts**, not implementation instructions. Numbers,
@@ -25,7 +25,7 @@ Read in order:
 | 01 | [`01-current-state.md`](./01-current-state.md) | Audit of the current (v2) `benchmarks-website/` + its data pipeline. |
 | 02 | [`02-vfvb-salvage.md`](./02-vfvb-salvage.md) | What we can and should reuse from the `ct/vfvb` hackathon PR, and what we should drop. |
 | 03 | [`03-raw-data-schema.md`](./03-raw-data-schema.md) | The messy, de-facto schema emitted by `vortex-bench` today. |
-| 04 | [`04-architecture.md`](./04-architecture.md) | Target architecture: Leptos SSR + DuckDB. Boxes-and-arrows, deploy story. |
+| 04 | [`04-architecture.md`](./04-architecture.md) | Target architecture: axum + DuckDB. Boxes-and-arrows, deploy story. |
 | 05 | [`05-schema.md`](./05-schema.md) | Proposed DuckDB schema (tables, columns, indexes, views). |
 | 06 | [`06-migration.md`](./06-migration.md) | One-time historical data migration plan (JSONL → DuckDB). |
 | 07 | [`07-ingestion.md`](./07-ingestion.md) | Ongoing ingestion: how new runs get into the DB. Replaces `cat-s3.sh`. |

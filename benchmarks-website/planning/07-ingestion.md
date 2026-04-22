@@ -19,7 +19,7 @@ trivially keeps up. No CAS needed.
 
 ```text
 +--------------+  POST /api/ingest         +-----------------------+
-| CI runner    | -----------------------> | Leptos server         |
+| CI runner    | -----------------------> | axum server         |
 |              |     results.json        |                       |
 |              |     + auth token        |   ...axum routes...   |
 +--------------+                         |                       |
@@ -112,21 +112,50 @@ results.json` step in `.github/workflows/bench.yml` and `sql-benchmarks.yml`
 with something like:
 
 ```bash
-# Get a short-lived token (e.g. via GitHub OIDC → a small exchange endpoint
-# on the server, or a pre-shared GitHub secret).
-TOKEN=$(scripts/get-ingest-token.sh)
-
-# POST the JSONL.
+# POST the JSONL. Bearer token comes from a GitHub Actions secret.
 python3 scripts/post-ingest.py \
-    --server https://bench.vortex.dev \
+    --server  https://bench.vortex.dev \
     --commit-sha "$GITHUB_SHA" \
     --benchmark-id "${{ matrix.benchmark.id }}" \
     --results results.json \
-    --token "$TOKEN"
+    --token   "$INGEST_BEARER_TOKEN" \
+    --spool   "s3://vortex-ci-benchmark-results/outbox/"
 ```
 
-`scripts/post-ingest.py` is ~40 lines: read JSONL, wrap it in the payload
-above, POST, check status, print `{inserted, updated}`.
+`scripts/post-ingest.py` is ~80 lines: read JSONL, wrap in the payload,
+POST with retry, print `{inserted, updated, unclassified}`. On unrecoverable
+failure (server unreachable after all retries), dump the payload to the
+spool S3 prefix - see next section.
+
+## Write buffering (launch requirement)
+
+Single-EC2 deploy means if the server is down when CI tries to POST, we'd
+lose CI's best shot at delivering data. Mitigation (adopted as a launch
+requirement):
+
+**Spool-to-S3 outbox + scheduled drain.**
+
+1. `post-ingest.py` retries up to 4 times with exponential backoff. On
+   final failure, it uploads the payload as-is to
+   `s3://vortex-ci-benchmark-results/outbox/<github_run_id>/<benchmark_id>/payload.json`.
+   Return code 0 either way - the CI job succeeds even if the server was
+   unreachable, because the data is durably in the outbox.
+2. A scheduled workflow
+   (`.github/workflows/drain-ingest-outbox.yml`, cron `*/10 * * * *`)
+   lists `outbox/`, re-POSTs each payload to `/api/ingest`, and deletes
+   the S3 object on success. Concurrency-gated (`concurrency: { group:
+   ingest-drain }`) so two cron runs can't stomp each other.
+3. The drain workflow alerts (via the existing incident.io integration)
+   if the outbox has items older than 1 hour - that's the signal the
+   server has been down long enough to need a human look.
+
+At-least-once delivery, no new writer class (still just the server
+process), minimal extra infra (one cron workflow + an S3 prefix). Total
+code cost ≈ 80 LOC Python + ~40 LOC yaml.
+
+**The drain workflow is the one new moving part we accept for launch.**
+It's the cheap insurance that lets us treat the single-EC2 server as a
+reasonable write path.
 
 ## Authentication
 
@@ -151,7 +180,7 @@ blast radius, comparable failure modes.
   Cloudflare Access policy to `/api/ingest` that validates GitHub OIDC
   tokens. TLS via Cloudflare. Adds Cloudflare as a dependency.
 - **Server-side OIDC validation**: validate `id_token` from GitHub directly
-  in the Leptos handler using a JWKS client. No new infra, more code.
+  in the axum handler using a JWKS client. No new infra, more code.
 
 Any of the three is a clean follow-up once v3 is live and we want to retire
 the shared token. See [`09-open-questions.md`](./09-open-questions.md).
@@ -159,7 +188,7 @@ the shared token. See [`09-open-questions.md`](./09-open-questions.md).
 ## DuckDB concurrency model
 
 DuckDB allows one read-write process at a time per database file. Since the
-Leptos server is that one process, this is fine:
+axum server is that one process, this is fine:
 
 - The **writer path** is the `/api/ingest` route handler. It takes a mutex or
   uses DuckDB's built-in transaction isolation (either works - our write rate

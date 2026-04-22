@@ -8,10 +8,13 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 ## What this project is
 
 We want to rebuild the Vortex benchmarks website (https://bench.vortex.dev/)
-from scratch, one more time. The deliverable is a **Leptos server-side-rendered
-site** that owns a **DuckDB database** on a local EBS volume, plus an
-authenticated `/api/ingest` HTTP endpoint that replaces today's
-append-to-gzipped-JSONL dance.
+from scratch, one more time. The deliverable is an **axum HTTP server with
+compile-time HTML templates** that owns a **DuckDB database** on a local EBS
+volume, plus an authenticated `/api/ingest` HTTP endpoint that replaces
+today's append-to-gzipped-JSONL dance.
+
+(Earlier drafts of these docs proposed Leptos SSR; we switched to plain
+axum + templates for simplicity - see [`04-architecture.md`](./04-architecture.md).)
 
 The project is gated by three hard requirements, in priority order:
 
@@ -71,7 +74,7 @@ FCP is reasonable but:
 
 The current v2 site is "fine" but the underlying data model is still the v1
 data model, and every new benchmark series adds complexity to the viewer rather
-than to the data. A Leptos SSR site on top of a real database lets us:
+than to the data. An axum SSR site on top of a real database lets us:
 
 - Make the schema explicit and enforce it at the ingestion boundary, not in the
   viewer.

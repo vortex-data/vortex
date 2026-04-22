@@ -83,8 +83,8 @@ These are the single most valuable pieces of the branch for v3.
   fast initial page load).
 - **Pattern is right, implementation will change.** In v3 this transformation
   happens in SQL (joins against the commits table), not in Rust maps. But the
-  shape of the output (per-chart aligned series) is what the Leptos handlers
-  will return.
+  shape of the output (per-chart aligned series) is what the axum route
+  handlers will return.
 
 ### `plan.md` (root of `ct/vfvb`) ([snapshot](./reference/hackathon-plan.md))
 
@@ -100,7 +100,7 @@ These are the single most valuable pieces of the branch for v3.
 - Fetches the Vortex files via HTTP, opens them with the Vortex reader, and
   caches the parsed result in a `OnceLock`.
 - Tied to WASM + `reqwest` client-side fetches + Vortex's `OpenOptions` API.
-- v3 reads DuckDB, not Vortex. Rebuild from scratch in Leptos.
+- v3 reads DuckDB, not Vortex. Rebuild from scratch in axum.
 
 ### `vortex-wasm/src/website/mod.rs` WASM bindings
 

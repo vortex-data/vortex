@@ -156,6 +156,10 @@ CREATE TABLE measurements (
     virtual_delta     BIGINT,
 
     -- All individual run times for query measurements (NULL for others).
+    -- Shape B `QueryMeasurementJson` records carry this; v2 ignores it.
+    -- Stored in-row because DuckDB's columnar layout makes LIST<BIGINT>
+    -- storage nearly free, and preserving the per-run times lets us add
+    -- variance bands / error bars later without another migration.
     all_runtimes_ns   BIGINT[],             -- DuckDB LIST<BIGINT>
 
     -- Run context --------------------------------------------------------
@@ -374,7 +378,7 @@ orders of magnitude more data than today.
   dimensions at ingest; groups/charts/series are derived at render time.
 - **No pre-downsampled aliases.** Downsampling is a query-time concern; DuckDB
   can handle LTTB-style filtering cheaply if it ever becomes a bottleneck.
-  (Alternatively, the Leptos server memoizes `(group, chart, downsample_level)`
+  (Alternatively, the axum server memoizes `(group, chart, downsample_level)`
   responses.)
 - **No `schema_version` column.** The ingester is the source of truth for
   shape. If we evolve the schema we do an `ALTER TABLE` + re-migrate. The raw

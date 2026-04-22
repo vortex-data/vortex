@@ -9,9 +9,10 @@ Read this before starting any implementation work in this subtree.
 
 ## TL;DR
 
-We are rebuilding the benchmarks website. Target: **Leptos SSR + DuckDB on a
-local EBS volume**, with CI POSTing new benchmark results to an authenticated
-`/api/ingest` endpoint on the server. Read `planning/README.md` for the doc
+We are rebuilding the benchmarks website. Target: **axum + compile-time HTML
+templates (maud / askama) + DuckDB on a local EBS volume**, with CI POSTing
+new benchmark results to an authenticated `/api/ingest` endpoint on the
+server. Read `planning/README.md` for the doc
 tour; read `planning/00-context.md` for the why; read
 `planning/09-open-questions.md` to see what's still up in the air before you
 write code.
@@ -75,7 +76,7 @@ norms. Callouts specific to this project:
 Later agents will work on feature branches like:
 
 - `claude/benchmarks-v3-ingester`
-- `claude/benchmarks-v3-leptos`
+- `claude/benchmarks-v3-server`
 - `claude/benchmarks-v3-cutover`
 
 Each picks up from `develop`, not from the planning branch.
@@ -92,11 +93,11 @@ This is suggested, not prescriptive.
    (group, chart, series, commit) tuples against v2's `/api/metadata`. Do not
    move forward until this diff is clean.
 
-2. **Leptos scaffold**. Stand up a minimal Leptos SSR server that opens the
+2. **axum scaffold**. Stand up a minimal axum SSR server that opens the
    prototype DuckDB read-write and renders one chart. Prove the end-to-end
    loop works.
 
-3. **Ingest endpoint**. Add `POST /api/ingest` to the Leptos server. Reuse
+3. **Ingest endpoint**. Add `POST /api/ingest` to the axum server. Reuse
    `classify()` from step 1 - same code path for "migrate historical data"
    and "accept a new CI POST". Wire auth (OIDC or bearer, see Q3).
 
@@ -146,7 +147,7 @@ up "TPC-H (NVMe) (SF=10)"?) moves into typed Rust code, not SQL strings -
 see `planning/05-schema.md` for why `filter_sql` was rejected. The frontend's
 only static config should be purely visual (e.g. a fallback color palette).
 
-> "What if Leptos isn't ready?"
+> "What if axum isn't ready?"
 
 See Q3 in `planning/09-open-questions.md`. Fallback is axum + templates
 (askama/maud) with minimal client JS. The DB layer is framework-agnostic.

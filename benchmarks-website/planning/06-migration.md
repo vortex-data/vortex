@@ -61,7 +61,7 @@ cargo run -p benchmarks-website-migrator --release -- \
     --output        ./bench.duckdb
 
 # Same classifier, but instead of writing a DB file, POST to a running
-# Leptos server's /api/ingest endpoint in batches. This is what you'd use
+# axum server's /api/ingest endpoint in batches. This is what you'd use
 # in production cutover.
 cargo run -p benchmarks-website-migrator --release -- \
     --data-url ...    \
@@ -155,7 +155,7 @@ are."
 
 ## Cutover plan
 
-1. **Dev loop.** Run the migrator → local file. Spin up the Leptos server
+1. **Dev loop.** Run the migrator → local file. Spin up the axum server
    against the local file. Compare charts manually against live v2. Fix
    classifier bugs. Repeat until `verify` passes cleanly.
 

@@ -135,9 +135,31 @@ enough on raw data. See [`09-open-questions.md`](./09-open-questions.md).
 
 ## Technology choices (concrete)
 
-- **Leptos** for the web framework. Default SSR mode.
-- **axum** under Leptos for the HTTP router (that's Leptos's current default
-  integration).
+- **axum** for the HTTP router.
+- **`maud`** (preferred) or **`askama`** for compile-time HTML templates.
+  See [`04-architecture.md`](./04-architecture.md) for why axum+templates
+  instead of Leptos.
+- **Chart.js** (plus `chartjs-plugin-zoom` + `hammerjs`) for chart drawing.
+  Same library v2 uses; no reason to change.
+- **Vanilla JS** (no framework) for hydration glue. Each page embeds chart
+  data as `<script type="application/json" id="chart-data-<slug>">...</script>`;
+  a small client-side bundle reads those tags and calls `new Chart(...)`.
+- No CSS framework to start. Plain CSS is fine for a dashboard.
+
+### Rendering model
+
+For initial page render: **embed chart data inline** in the SSR'd HTML as
+one JSON `<script>` tag per chart. One round trip, no client-side fetch to
+initial-paint. Keeps the UX snappy without hydration complexity.
+
+For user interactions (zoom, pan to a new commit range): the Chart.js
+handler calls `GET /api/chart/:slug?start=<ts>&end=<ts>` and updates the
+chart in place. One lazy fetch per interaction.
+
+This matches v2's "metadata-first + lazy per-chart fetches on expand"
+pattern, except simpler: instead of a separate metadata-then-data flow,
+the SSR HTML carries the default (`last=100`) data for visible charts
+directly.
 - **`duckdb` Rust crate** (or `duckdb-rs`) for the DB handle. Open read-only,
   share across request handlers, rebuild the handle on DB refresh.
 - **Chart.js** for the actual chart drawing, hydrated on the client. Data for

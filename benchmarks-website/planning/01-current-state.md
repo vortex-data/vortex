@@ -130,7 +130,7 @@ the current site (the other is the append-JSONL storage model).
    server**, not a gzipped JSONL on S3. New runs reach the DB via an
    authenticated HTTP POST to the server, not by concurrent CAS on an S3
    object.
-4. The viewer becomes **Leptos SSR** with interactive hydration only where
+4. The viewer becomes **axum + compile-time templates** with interactive hydration only where
    needed (Chart.js can still be used for the actual drawing).
 
 ## v2 files worth re-reading before v3 work

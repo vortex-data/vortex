@@ -7,9 +7,10 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 ## One-sentence summary
 
-A **Leptos SSR web service** that owns a local **DuckDB database** on an EBS
-volume, reads it to render pages, and accepts authenticated HTTP POSTs from
-CI to ingest new benchmark results.
+An **axum HTTP server with compile-time HTML templates** (`maud` or
+`askama`) that owns a local **DuckDB database** on an EBS volume, reads it
+to render pages, and accepts authenticated HTTP POSTs from CI to ingest
+new benchmark results.
 
 ## Boxes and arrows
 
@@ -22,7 +23,7 @@ CI to ingest new benchmark results.
                             | POST /api/ingest  (bearer auth)
                             v
             +---------------+----------------+
-            |  Leptos SSR server             |
+            |  axum server             |
             |  (single Rust binary)          |
             |                                |
             |   - /                          |
@@ -64,11 +65,15 @@ problems (no CAS, no snapshot polling, no split-brain).
 
 ## Component breakdown
 
-### 1. Leptos SSR server (new, Rust)
+### 1. axum server (new, Rust)
 
-- Single binary, single process. Built with Leptos (SSR mode) + axum.
+- Single binary, single process. Built with `axum` + a compile-time HTML
+  template library (`maud` preferred; `askama` is the other option).
 - Holds a read-write DuckDB handle. All request handlers share it.
-- Serves SSR HTML for browser routes, JSON for `/api/*` routes.
+- Serves server-rendered HTML for browser routes, JSON for `/api/*` routes.
+- Chart interactivity is **vanilla JS + Chart.js** reading chart data from
+  inline `<script type="application/json">` tags in the rendered HTML. No
+  WASM, no reactive-framework hydration.
 - Accepts authenticated POSTs to `/api/ingest`; see
   [`07-ingestion.md`](./07-ingestion.md) for details.
 - Runs a nightly backup cron inside the container.
@@ -83,28 +88,34 @@ problems (no CAS, no snapshot polling, no split-brain).
 
 ### 3. Ingester (new, Rust)
 
-Not its own long-running service - it's **a route on the Leptos server**:
+Not its own long-running service - it's **a route on the axum server**:
 `POST /api/ingest`. The classifier (the "parse raw vortex-bench JSON →
-structured row" logic ported from v2's `server.js::getGroup`) is a library
-in its own crate that the server depends on.
+structured row" logic ported from v2's `server.js::getGroup`) is a
+module *inside the server crate*, not a separate crate.
 
-The same library backs the one-shot historical migrator (component 4).
+The migrator binary (component 4) lives in the same crate as a sibling
+binary (`src/bin/migrate.rs`) and imports the classifier module directly.
+Post-cutover the migrator binary gets deleted; the classifier module
+stays because `/api/ingest` still needs it for every CI POST.
 
 ### 4. One-shot historical migrator (new)
 
-- Reads `data.json.gz` + `commits.json` from S3.
-- For each record: runs the classifier, produces a structured row.
+- Sibling binary in the server crate (`src/bin/migrate.rs`).
+- Reads `data.json.gz` + `commits.json` + `file-sizes-*.json.gz` from S3.
+- For each record: runs the classifier (same module as the server),
+  produces a structured row.
 - Either (a) POSTs in batches to a running server's `/api/ingest`, or
   (b) writes directly into a local DuckDB file when running without a
   server (for dev / testing).
 - Idempotent (deterministic `measurement_id` hash). Re-running it is free.
-- One binary, one job. Delete or archive it post-cutover.
+- **Deleted from the main branch post-cutover** - it's one-shot
+  scaffolding, not ongoing infrastructure. See [`06-migration.md`](./06-migration.md).
 
 ## What runs where
 
 | What | Where |
 |------|-------|
-| Leptos server | EC2 instance in a Docker container (same host as v2 today) |
+| axum server   | EC2 instance in a Docker container (same host as v2 today) |
 | DuckDB file | EBS volume mounted into the container |
 | Backups | S3 (`vortex-ci-benchmark-results/backups/`) |
 | Historical `data.json.gz` | S3, unchanged, archived for reference |
@@ -180,15 +191,23 @@ insurance; see [`05-schema.md`](./05-schema.md).
   immutable columnar storage; benchmark history is append-only and queryable.
   Not a fit today. Maybe in the future.
 
-## Why Leptos SSR (and not Axum + templates / HTMX / Next.js)
+## Why axum + templates (and not Leptos / HTMX / Next.js)
 
 - The rest of the repo is Rust.
-- SSR by default means no WASM in the critical path. Charts can still hydrate
-  interactively.
-- Leptos's `server fn` story makes DuckDB-from-handler ergonomic.
-- HTMX + askama/maud is a reasonable fallback if Leptos is in flux at
-  implementation time; see [`09-open-questions.md`](./09-open-questions.md).
-- Next.js is out of scope (not in the Rust ecosystem).
+- A compile-time HTML template library (`maud` or `askama`) + axum gives
+  us full server-rendered HTML with zero client-side framework churn, zero
+  WASM, and zero hydration complexity. The server emits `<script
+  type="application/json" id="chart-data">...</script>` for each chart and
+  Chart.js reads from it. That's the whole hydration story.
+- Earlier drafts proposed Leptos SSR. Dropped because the reactive-
+  component model adds real complexity (signals, hydration, framework
+  upgrades) that we don't need for a dashboard with ~10 page shapes. axum
+  + templates is simpler, a little faster to render, and a lot easier for
+  future maintainers to pick up without learning Leptos-isms.
+- HTMX: viable alternative to "vanilla JS reads JSON script tag" for
+  interactions. Skip for launch; consider later if we want fancier zoom/
+  pan UX.
+- Next.js: out of scope (not Rust).
 
 ## Non-goals (of the architecture)
 
@@ -197,7 +216,7 @@ insurance; see [`05-schema.md`](./05-schema.md).
   container restarts. Data survives on EBS; worst case we restore from a
   backup snapshot.
 - Not real-time. A few seconds of delay between "CI POSTs" and "chart shows
-  new point" is fine (the Leptos route handler sees the write immediately
+  new point" is fine (the axum route handler sees the write immediately
   because it's the same process, but any caching on the read path introduces
   a few seconds' lag).
 - Not write-heavy. Reads >> writes. We are not optimizing for concurrent
