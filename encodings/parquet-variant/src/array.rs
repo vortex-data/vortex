@@ -304,6 +304,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
 
     use crate::ParquetVariant;
     use crate::ParquetVariantData;
@@ -314,11 +315,11 @@ mod tests {
         let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
         let variant_view = vortex_arr
             .as_opt::<Variant>()
-            .ok_or_else(|| vortex_error::vortex_err!("expected variant array"))?;
+            .ok_or_else(|| vortex_err!("expected variant array"))?;
         let child = variant_view.child();
         let inner = child
             .as_opt::<ParquetVariant>()
-            .ok_or_else(|| vortex_error::vortex_err!("expected parquet variant child"))?;
+            .ok_or_else(|| vortex_err!("expected parquet variant child"))?;
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let roundtripped = inner.to_arrow(&mut ctx)?;
@@ -407,11 +408,11 @@ mod tests {
 
         let variant_arr = vortex_arr
             .as_opt::<Variant>()
-            .ok_or_else(|| vortex_error::vortex_err!("expected variant array"))?;
+            .ok_or_else(|| vortex_err!("expected variant array"))?;
         let inner = variant_arr
             .child()
             .as_opt::<ParquetVariant>()
-            .ok_or_else(|| vortex_error::vortex_err!("expected parquet variant child"))?;
+            .ok_or_else(|| vortex_err!("expected parquet variant child"))?;
         assert!(inner.typed_value_array().is_some());
 
         Ok(())

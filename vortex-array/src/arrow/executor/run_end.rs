@@ -205,6 +205,7 @@ mod tests {
     use arrow_schema::Field;
     use rstest::rstest;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
     use crate::IntoArray;
@@ -326,13 +327,13 @@ mod tests {
         let ree = result
             .as_any()
             .downcast_ref::<RunArray<Int32Type>>()
-            .ok_or_else(|| vortex_error::vortex_err!("expected Int32 run-end array"))?;
+            .ok_or_else(|| vortex_err!("expected Int32 run-end array"))?;
         assert_eq!(ree.run_ends().values(), expected_ends);
         let values = ree
             .values()
             .as_any()
             .downcast_ref::<Int64Array>()
-            .ok_or_else(|| vortex_error::vortex_err!("expected Int64 values"))?;
+            .ok_or_else(|| vortex_err!("expected Int64 values"))?;
         assert_eq!(values.values(), expected_values);
         Ok(())
     }

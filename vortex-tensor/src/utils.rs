@@ -241,6 +241,7 @@ pub mod test_helpers {
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
 
     use crate::scalar_fns::l2_denorm::L2Denorm;
     use crate::types::fixed_shape::FixedShapeTensor;
@@ -275,7 +276,7 @@ pub mod test_helpers {
             .product::<usize>()
             .max(1)
             .try_into()
-            .map_err(|e| vortex_error::vortex_err!("{e}"))?;
+            .map_err(|e| vortex_err!("{e}"))?;
         let storage = flat_fsl(elements, list_size);
         let metadata = FixedShapeTensorMetadata::new(shape.to_vec());
         let ext_dtype =
