@@ -54,11 +54,9 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     }
 
     /// Deserialize the options of this expression.
-    fn deserialize(
-        &self,
-        _metadata: &[u8],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Options> {
+    fn deserialize(&self, metadata: &[u8], session: &VortexSession) -> VortexResult<Self::Options> {
+        _ = metadata;
+        _ = session;
         vortex_bail!("Expression {} is not deserializable", self.id());
     }
 

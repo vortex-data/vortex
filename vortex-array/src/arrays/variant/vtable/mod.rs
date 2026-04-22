@@ -279,33 +279,22 @@ impl VTable for Variant {
 
 #[cfg(test)]
 mod tests {
+
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
-    use vortex_error::VortexResult;
-    use vortex_error::vortex_ensure;
-    use vortex_error::vortex_panic;
     use vortex_mask::Mask;
-    use vortex_session::VortexSession;
-    use vortex_session::registry::CachedId;
     use vortex_session::registry::ReadContext;
 
-    use super::VariantArray;
-    use super::VariantMetadata;
+    use super::*;
     use crate::ArrayContext;
     use crate::ArrayEq;
-    use crate::ArrayRef;
+    use crate::EmptyArrayData;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    use crate::NotSupported;
     use crate::Precision;
-    use crate::array::Array;
-    use crate::array::ArrayId;
-    use crate::array::ArrayParts;
-    use crate::array::ArrayView;
-    use crate::array::EmptyArrayData;
-    use crate::array::NotSupported;
-    use crate::array::VTable;
-    use crate::array::ValidityChild;
-    use crate::array::ValidityVTableFromChild;
+    use crate::ValidityChild;
+    use crate::ValidityVTableFromChild;
     use crate::arrays::ConstantArray;
     use crate::arrays::DictArray;
     use crate::arrays::FilterArray;
@@ -314,11 +303,8 @@ mod tests {
     use crate::arrays::SliceArray;
     use crate::arrays::variant::VariantArrayExt;
     use crate::assert_arrays_eq;
-    use crate::buffer::BufferHandle;
-    use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
-    use crate::serde::ArrayChildren;
     use crate::serde::SerializeOptions;
     use crate::serde::SerializedArray;
     use crate::validity::Validity;
@@ -422,11 +408,8 @@ mod tests {
             }
         }
 
-        fn execute(
-            array: Array<Self>,
-            _ctx: &mut crate::ExecutionCtx,
-        ) -> VortexResult<crate::ExecutionResult> {
-            Ok(crate::ExecutionResult::done(array))
+        fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+            Ok(ExecutionResult::done(array))
         }
     }
 
@@ -463,9 +446,9 @@ mod tests {
         let core_storage = ConstantArray::new(Scalar::variant(Scalar::from(42i32)), 3).into_array();
         let shredded = buffer![1i32, 2, 3].into_array();
 
-        let result = Array::<super::Variant>::try_from_parts(
+        let result = Array::<Variant>::try_from_parts(
             ArrayParts::new(
-                super::Variant,
+                Variant,
                 core_storage.dtype().clone(),
                 core_storage.len(),
                 VariantMetadata::None,
@@ -487,7 +470,7 @@ mod tests {
         let decoded = roundtrip(array.clone());
 
         assert!(array.array_eq(&decoded, Precision::Value));
-        let decoded = decoded.as_opt::<super::Variant>().unwrap();
+        let decoded = decoded.as_opt::<Variant>().unwrap();
         assert!(
             decoded
                 .shredded()
@@ -496,7 +479,7 @@ mod tests {
         );
         assert!(matches!(
             ArrayRef::clone(decoded.as_ref())
-                .try_downcast::<super::Variant>()
+                .try_downcast::<Variant>()
                 .unwrap()
                 .into_data(),
             VariantMetadata::Inline { shredded_dtype } if shredded_dtype == shredded.dtype().clone()
@@ -525,9 +508,9 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let result = Array::<super::Variant>::try_from_parts(
+        let result = Array::<Variant>::try_from_parts(
             ArrayParts::new(
-                super::Variant,
+                Variant,
                 core_storage.dtype().clone(),
                 core_storage.len(),
                 VariantMetadata::Derived {
@@ -554,7 +537,7 @@ mod tests {
         let decoded = roundtrip(array.clone());
 
         assert!(array.array_eq(&decoded, Precision::Value));
-        let decoded = decoded.as_opt::<super::Variant>().unwrap();
+        let decoded = decoded.as_opt::<Variant>().unwrap();
         assert!(decoded.shredded_is_derived());
         assert_eq!(decoded.derived_shredded_slot_name(), Some("core_storage"));
         assert!(decoded.as_ref().slots()[1].is_none());
@@ -575,7 +558,7 @@ mod tests {
             .unwrap()
             .into_array();
 
-        let variant = array.as_opt::<super::Variant>().unwrap();
+        let variant = array.as_opt::<Variant>().unwrap();
         assert_arrays_eq!(
             variant.shredded().unwrap(),
             PrimitiveArray::from_iter(11i32..14)
@@ -594,7 +577,7 @@ mod tests {
             .unwrap()
             .into_array();
 
-        let variant = array.as_opt::<super::Variant>().unwrap();
+        let variant = array.as_opt::<Variant>().unwrap();
         assert_arrays_eq!(
             variant.shredded().unwrap(),
             PrimitiveArray::from_iter([10i32, 12, 13])
@@ -615,7 +598,7 @@ mod tests {
             .unwrap()
             .into_array();
 
-        let variant = array.as_opt::<super::Variant>().unwrap();
+        let variant = array.as_opt::<Variant>().unwrap();
         let expected = MaskedArray::try_new(
             PrimitiveArray::from_iter(10i32..14).into_array(),
             Validity::from_iter([true, false, true, false]),
@@ -639,7 +622,7 @@ mod tests {
             .unwrap()
             .into_array();
 
-        let variant = array.as_opt::<super::Variant>().unwrap();
+        let variant = array.as_opt::<Variant>().unwrap();
         assert_arrays_eq!(
             variant.shredded().unwrap(),
             PrimitiveArray::from_iter([30i32, 10, 20, 30])

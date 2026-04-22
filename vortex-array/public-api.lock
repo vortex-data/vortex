@@ -16304,7 +16304,7 @@ pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::child_name(&sel
 
 pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::coerce_args(&self, options: &Self::Options, args: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
-pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::execute(&self, data: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -18276,7 +18276,7 @@ pub fn vortex_array::scalar_fn::ScalarFnVTable::child_name(&self, options: &Self
 
 pub fn vortex_array::scalar_fn::ScalarFnVTable::coerce_args(&self, options: &Self::Options, args: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
-pub fn vortex_array::scalar_fn::ScalarFnVTable::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+pub fn vortex_array::scalar_fn::ScalarFnVTable::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::ScalarFnVTable::execute(&self, options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -18504,7 +18504,7 @@ pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::child_name(&sel
 
 pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::coerce_args(&self, options: &Self::Options, args: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
-pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::execute(&self, data: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 

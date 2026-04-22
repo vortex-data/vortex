@@ -239,15 +239,8 @@ impl ScalarFnVTable for VariantGet {
 
 #[cfg(test)]
 mod tests {
-    use vortex_session::VortexSession;
-
-    use super::VariantGet;
-    use super::VariantGetOptions;
-    use super::VariantPath;
-    use crate::dtype::DType;
-    use crate::dtype::Nullability;
+    use super::*;
     use crate::dtype::PType;
-    use crate::scalar_fn::ScalarFnVTable;
 
     #[test]
     fn variant_get_path_proto_round_trip() {
