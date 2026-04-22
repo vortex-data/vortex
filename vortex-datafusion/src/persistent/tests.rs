@@ -14,6 +14,7 @@ use datafusion_common::GetExt;
 use datafusion_physical_plan::display::DisplayableExecutionPlan;
 use insta::assert_snapshot;
 use object_store::ObjectStore;
+use object_store::memory::InMemory;
 use rstest::rstest;
 use vortex::VortexSessionDefault;
 use vortex::array::IntoArray;
@@ -38,11 +39,11 @@ use crate::VortexFormatFactory;
 use crate::common_tests::TestSessionContext;
 
 fn make_session(
-    store: Arc<object_store::memory::InMemory>,
+    object_store: Arc<dyn ObjectStore>,
     repartition_file_scans: bool,
 ) -> SessionContext {
     let factory = Arc::new(VortexFormatFactory::new());
-    let object_store: Arc<dyn ObjectStore> = store.clone();
+
     let config = SessionConfig::new()
         .with_target_partitions(4)
         .with_repartition_file_scans(repartition_file_scans)
@@ -332,8 +333,7 @@ async fn doc_example() -> anyhow::Result<()> {
 #[tokio::test]
 async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits() -> anyhow::Result<()>
 {
-    let store = Arc::new(object_store::memory::InMemory::new());
-    let store_dyn: Arc<dyn ObjectStore> = store.clone();
+    let store = Arc::new(InMemory::new()) as _;
     let session = VortexSession::default();
     let path = object_store::path::Path::parse("/split-aligned-repartition.vortex")?;
 
@@ -372,7 +372,7 @@ async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits() -
         Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default())),
     ));
 
-    let mut writer = ObjectStoreWrite::new(Arc::clone(&store_dyn), &path).await?;
+    let mut writer = ObjectStoreWrite::new(Arc::clone(&store), &path).await?;
     let summary = session
         .write_options()
         .with_strategy(strategy)
@@ -381,7 +381,7 @@ async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits() -
     writer.shutdown().await?;
 
     let reader = Arc::new(ObjectStoreReadAt::new(
-        Arc::clone(&store_dyn),
+        Arc::clone(&store),
         path.clone(),
         vortex::io::runtime::Handle::find().expect("tokio runtime should be available in tests"),
     ));

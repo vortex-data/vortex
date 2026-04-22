@@ -35,6 +35,7 @@ use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::dtype::FieldMask;
 use vortex::error::VortexError;
+use vortex::error::VortexExpect;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
@@ -521,7 +522,7 @@ fn split_midpoint_to_byte(split_range: &Range<u64>, row_count: u64, total_size: 
     let midpoint_row = split_range.start + (split_range.end - split_range.start) / 2;
     let midpoint_byte = (u128::from(midpoint_row) * u128::from(total_size)) / u128::from(row_count);
 
-    u64::try_from(midpoint_byte).expect("midpoint byte projection should fit into u64")
+    u64::try_from(midpoint_byte).vortex_expect("midpoint byte projection should fit into u64")
 }
 
 #[cfg(test)]
