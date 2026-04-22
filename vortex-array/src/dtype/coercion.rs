@@ -3,6 +3,8 @@
 
 //! Utilities for performing type coercion.
 
+use std::sync::Arc;
+
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::dtype::decimal::DecimalDType;
@@ -77,8 +79,9 @@ impl DType {
     /// The core primitive — what type can hold both `self` and `other`?
     /// Returns `None` if no common supertype exists.
     pub fn least_supertype(&self, other: &DType) -> Option<DType> {
-        // 1. Identity (ignoring nullability): return self with union nullability
-        if self.eq_ignore_nullability(other) {
+        // 1. Same type modulo outer nullability: union outer and return. Nested types
+        //    whose only difference is inner nullability fall through to their own arms.
+        if self.with_nullability(other.nullability()) == *other {
             return Some(self.with_nullability(self.nullability() | other.nullability()));
         }
 
@@ -126,7 +129,24 @@ impl DType {
             return decimal_least_supertype(int_dec, *dec).map(|d| DType::Decimal(d, union_null));
         }
 
-        // 7. Extension + anything: delegate to vtable
+        // 7. FixedSizeList + FixedSizeList: same size, recurse on element dtype.
+        if let (
+            DType::FixedSizeList(lhs_elem, lhs_size, _),
+            DType::FixedSizeList(rhs_elem, rhs_size, _),
+        ) = (self, other)
+            && lhs_size == rhs_size
+        {
+            let elem = lhs_elem.least_supertype(rhs_elem)?;
+            return Some(DType::FixedSizeList(Arc::new(elem), *lhs_size, union_null));
+        }
+
+        // 8. List + List: recurse on element dtype.
+        if let (DType::List(lhs_elem, _), DType::List(rhs_elem, _)) = (self, other) {
+            let elem = lhs_elem.least_supertype(rhs_elem)?;
+            return Some(DType::List(Arc::new(elem), union_null));
+        }
+
+        // 9. Extension + anything: delegate to vtable
         if let DType::Extension(ext) = self {
             return ext
                 .least_supertype(other)
@@ -138,7 +158,7 @@ impl DType {
                 .map(|dt| dt.with_nullability(union_null));
         }
 
-        // 8. Everything else: no common supertype
+        // 10. Everything else: no common supertype
         None
     }
 
@@ -194,12 +214,24 @@ impl DType {
                 && (self.is_nullable() || !other.is_nullable());
         }
 
-        // 7. Extension: delegate to vtable
+        // 7. FixedSizeList / List widening: defer to least_supertype + identity check
+        if matches!(
+            (self, other),
+            (DType::FixedSizeList(..), DType::FixedSizeList(..))
+                | (DType::List(..), DType::List(..))
+        ) {
+            return other
+                .least_supertype(self)
+                .is_some_and(|st| st.eq_ignore_nullability(self))
+                && (self.is_nullable() || !other.is_nullable());
+        }
+
+        // 8. Extension: delegate to vtable
         if let DType::Extension(ext) = self {
             return ext.can_coerce_from(other);
         }
 
-        // 8. Everything else: false
+        // 9. Everything else: false
         false
     }
 
@@ -274,6 +306,8 @@ fn decimal_least_supertype(a: DecimalDType, b: DecimalDType) -> Option<DecimalDT
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use crate::dtype::DType;
     use crate::dtype::PType;
     use crate::dtype::decimal::DecimalDType;
@@ -450,6 +484,219 @@ mod tests {
         let result = DType::coerce_to_supertype(&types).unwrap();
         // U8 + I16: unsigned_signed_supertype max_width=max(1,2)=2 => I32
         assert_eq!(result, vec![DType::Primitive(PType::I32, NonNullable); 2]);
+    }
+
+    #[test]
+    fn fsl_widens_element_dtype_when_size_matches() {
+        let lhs = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F32, NonNullable)),
+            768,
+            NonNullable,
+        );
+        let rhs = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F64, NonNullable)),
+            768,
+            NonNullable,
+        );
+        let expected = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F64, NonNullable)),
+            768,
+            NonNullable,
+        );
+        assert_eq!(lhs.least_supertype(&rhs), Some(expected));
+    }
+
+    #[test]
+    fn fsl_size_mismatch_returns_none() {
+        let lhs = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F32, NonNullable)),
+            768,
+            NonNullable,
+        );
+        let rhs = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F32, NonNullable)),
+            1024,
+            NonNullable,
+        );
+        assert_eq!(lhs.least_supertype(&rhs), None);
+    }
+
+    #[test]
+    fn fsl_unions_outer_nullability() {
+        let lhs = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F32, NonNullable)),
+            4,
+            NonNullable,
+        );
+        let rhs = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F64, NonNullable)),
+            4,
+            Nullable,
+        );
+        let expected = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F64, NonNullable)),
+            4,
+            Nullable,
+        );
+        assert_eq!(lhs.least_supertype(&rhs), Some(expected));
+    }
+
+    #[test]
+    fn fsl_widening_unions_element_nullability() {
+        let lhs = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F32, NonNullable)),
+            4,
+            NonNullable,
+        );
+        let rhs = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F64, Nullable)),
+            4,
+            NonNullable,
+        );
+        let expected = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F64, Nullable)),
+            4,
+            NonNullable,
+        );
+        assert_eq!(lhs.least_supertype(&rhs), Some(expected));
+    }
+
+    #[test]
+    fn fsl_incompatible_elements_returns_none() {
+        let lhs = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F32, NonNullable)),
+            4,
+            NonNullable,
+        );
+        let rhs = DType::FixedSizeList(Arc::new(DType::Utf8(NonNullable)), 4, NonNullable);
+        assert_eq!(lhs.least_supertype(&rhs), None);
+    }
+
+    #[test]
+    fn fsl_can_coerce_from_widening() {
+        let target = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F64, NonNullable)),
+            4,
+            NonNullable,
+        );
+        let source = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F32, NonNullable)),
+            4,
+            NonNullable,
+        );
+        assert!(target.can_coerce_from(&source));
+        assert!(!source.can_coerce_from(&target));
+    }
+
+    #[test]
+    fn fsl_same_element_widening_unions_inner_nullability() {
+        let lhs = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::I32, NonNullable)),
+            4,
+            NonNullable,
+        );
+        let rhs = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::I32, Nullable)),
+            4,
+            NonNullable,
+        );
+        let expected = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::I32, Nullable)),
+            4,
+            NonNullable,
+        );
+        assert_eq!(lhs.least_supertype(&rhs), Some(expected));
+    }
+
+    #[test]
+    fn list_widens_element_dtype() {
+        let lhs = DType::List(
+            Arc::new(DType::Primitive(PType::F32, NonNullable)),
+            NonNullable,
+        );
+        let rhs = DType::List(
+            Arc::new(DType::Primitive(PType::F64, NonNullable)),
+            NonNullable,
+        );
+        let expected = DType::List(
+            Arc::new(DType::Primitive(PType::F64, NonNullable)),
+            NonNullable,
+        );
+        assert_eq!(lhs.least_supertype(&rhs), Some(expected));
+    }
+
+    #[test]
+    fn list_unions_outer_nullability() {
+        let lhs = DType::List(
+            Arc::new(DType::Primitive(PType::F32, NonNullable)),
+            NonNullable,
+        );
+        let rhs = DType::List(
+            Arc::new(DType::Primitive(PType::F64, NonNullable)),
+            Nullable,
+        );
+        let expected = DType::List(
+            Arc::new(DType::Primitive(PType::F64, NonNullable)),
+            Nullable,
+        );
+        assert_eq!(lhs.least_supertype(&rhs), Some(expected));
+    }
+
+    #[test]
+    fn list_unions_inner_nullability() {
+        let lhs = DType::List(
+            Arc::new(DType::Primitive(PType::I32, NonNullable)),
+            NonNullable,
+        );
+        let rhs = DType::List(
+            Arc::new(DType::Primitive(PType::I32, Nullable)),
+            NonNullable,
+        );
+        let expected = DType::List(
+            Arc::new(DType::Primitive(PType::I32, Nullable)),
+            NonNullable,
+        );
+        assert_eq!(lhs.least_supertype(&rhs), Some(expected));
+    }
+
+    #[test]
+    fn list_incompatible_elements_returns_none() {
+        let lhs = DType::List(
+            Arc::new(DType::Primitive(PType::F32, NonNullable)),
+            NonNullable,
+        );
+        let rhs = DType::List(Arc::new(DType::Utf8(NonNullable)), NonNullable);
+        assert_eq!(lhs.least_supertype(&rhs), None);
+    }
+
+    #[test]
+    fn list_can_coerce_from_widening() {
+        let target = DType::List(
+            Arc::new(DType::Primitive(PType::F64, NonNullable)),
+            NonNullable,
+        );
+        let source = DType::List(
+            Arc::new(DType::Primitive(PType::F32, NonNullable)),
+            NonNullable,
+        );
+        assert!(target.can_coerce_from(&source));
+        assert!(!source.can_coerce_from(&target));
+    }
+
+    #[test]
+    fn fsl_can_coerce_from_size_mismatch_rejected() {
+        let a = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F32, NonNullable)),
+            4,
+            NonNullable,
+        );
+        let b = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F32, NonNullable)),
+            8,
+            NonNullable,
+        );
+        assert!(!a.can_coerce_from(&b));
+        assert!(!b.can_coerce_from(&a));
     }
 
     #[test]
