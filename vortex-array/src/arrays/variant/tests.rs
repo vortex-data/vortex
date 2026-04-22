@@ -124,10 +124,8 @@ impl ValidityChild<DerivedCoreStorage> for DerivedCoreStorage {
     }
 }
 
-fn make_derived_variant_with_sliced_shredded() -> VortexResult<ArrayRef> {
-    let typed_value =
-        SliceArray::new(PrimitiveArray::from_iter(10i32..20).into_array(), 2..6).into_array();
-    let core_storage = Array::try_from_parts(
+fn make_derived_core_storage(typed_value: ArrayRef) -> VortexResult<ArrayRef> {
+    Ok(Array::try_from_parts(
         ArrayParts::new(
             DerivedCoreStorage,
             DType::Variant(Nullability::NonNullable),
@@ -136,9 +134,152 @@ fn make_derived_variant_with_sliced_shredded() -> VortexResult<ArrayRef> {
         )
         .with_slots(vec![Some(typed_value)]),
     )?
-    .into_array();
+    .into_array())
+}
+
+#[derive(Clone, Debug)]
+struct ExecutingDerivedCoreStorage;
+
+impl VTable for ExecutingDerivedCoreStorage {
+    type ArrayData = EmptyArrayData;
+    type OperationsVTable = NotSupported;
+    type ValidityVTable = ValidityVTableFromChild;
+
+    fn id(&self) -> ArrayId {
+        static ID: CachedId = CachedId::new("vortex.variant.test.executing_derived_core_storage");
+        *ID
+    }
+
+    fn validate(
+        &self,
+        _data: &EmptyArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            matches!(dtype, DType::Variant(_)),
+            "expected variant dtype, found {dtype}"
+        );
+        vortex_ensure!(slots.len() == 1, "expected 1 slot, got {}", slots.len());
+        let typed_value = slots[0]
+            .as_ref()
+            .ok_or_else(|| vortex_error::vortex_err!("missing typed_value slot"))?;
+        vortex_ensure!(
+            typed_value.len() == len,
+            "typed_value length {} does not match outer length {}",
+            typed_value.len(),
+            len
+        );
+        Ok(())
+    }
+
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
+        0
+    }
+
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
+        vortex_error::vortex_panic!("ExecutingDerivedCoreStorage buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn serialize(
+        _array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
+    }
+
+    fn deserialize(
+        &self,
+        _dtype: &DType,
+        _len: usize,
+        _metadata: &[u8],
+        _buffers: &[BufferHandle],
+        _children: &dyn ArrayChildren,
+        _session: &VortexSession,
+    ) -> VortexResult<ArrayParts<Self>> {
+        vortex_bail!("ExecutingDerivedCoreStorage::deserialize is only used in tests")
+    }
+
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        match idx {
+            0 => "typed_value".to_string(),
+            _ => vortex_error::vortex_panic!(
+                "ExecutingDerivedCoreStorage slot_name index {idx} out of bounds"
+            ),
+        }
+    }
+
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let typed_value = array.as_ref().slots()[0]
+            .as_ref()
+            .ok_or_else(|| vortex_error::vortex_err!("missing typed_value slot"))?
+            .clone();
+        let core_storage = make_derived_core_storage(typed_value)?;
+        Ok(ExecutionResult::done(
+            VariantArray::try_new_derived(core_storage, "typed_value")?.into_array(),
+        ))
+    }
+}
+
+impl ValidityChild<ExecutingDerivedCoreStorage> for ExecutingDerivedCoreStorage {
+    fn validity_child(array: ArrayView<'_, ExecutingDerivedCoreStorage>) -> ArrayRef {
+        array.array().slots()[0].as_ref().unwrap().clone()
+    }
+}
+
+fn make_executing_derived_core_storage(typed_value: ArrayRef) -> VortexResult<ArrayRef> {
+    Ok(Array::try_from_parts(
+        ArrayParts::new(
+            ExecutingDerivedCoreStorage,
+            DType::Variant(Nullability::NonNullable),
+            typed_value.len(),
+            EmptyArrayData,
+        )
+        .with_slots(vec![Some(typed_value)]),
+    )?
+    .into_array())
+}
+
+fn make_derived_variant_with_sliced_shredded() -> VortexResult<ArrayRef> {
+    let typed_value =
+        SliceArray::new(PrimitiveArray::from_iter(10i32..20).into_array(), 2..6).into_array();
+    let core_storage = make_derived_core_storage(typed_value)?;
 
     Ok(VariantArray::try_new_derived(core_storage, "typed_value")?.into_array())
+}
+
+fn make_derived_variant_with_executing_core_storage() -> VortexResult<ArrayRef> {
+    let typed_value =
+        SliceArray::new(PrimitiveArray::from_iter(10i32..20).into_array(), 2..6).into_array();
+    let core_storage = make_executing_derived_core_storage(typed_value)?;
+
+    Ok(VariantArray::try_new_derived(core_storage, "typed_value")?.into_array())
+}
+
+#[test]
+fn derived_variant_reconstructs_shredded_through_nested_variant() -> VortexResult<()> {
+    let inner = make_derived_variant_with_sliced_shredded()?;
+    let outer = VariantArray::try_new_derived(inner.clone(), "typed_value")?.into_array();
+    let outer = outer.as_opt::<Variant>().unwrap();
+    let inner = inner.as_opt::<Variant>().unwrap();
+
+    assert!(outer.shredded_is_derived());
+    assert!(outer.core_storage().is::<Variant>());
+    assert_arrays_eq!(
+        outer.shredded().unwrap(),
+        PrimitiveArray::from_iter(12i32..16)
+    );
+    assert!(ArrayRef::ptr_eq(
+        &outer.shredded().unwrap(),
+        &inner.shredded().unwrap(),
+    ));
+
+    Ok(())
 }
 
 #[test]
@@ -182,6 +323,35 @@ fn normalize_with_execution_rebuilds_derived_variant_from_core_storage() -> Vort
     assert!(ArrayRef::ptr_eq(
         &normalized.shredded().unwrap(),
         normalized.core_storage().slots()[0].as_ref().unwrap(),
+    ));
+
+    Ok(())
+}
+
+#[test]
+fn normalize_with_execution_rebuilds_derived_variant_through_nested_variant() -> VortexResult<()> {
+    let array = make_derived_variant_with_executing_core_storage()?;
+    let allowed = HashSet::from_iter([Primitive.id(), DerivedCoreStorage.id()]);
+    let mut ctx = ExecutionCtx::new(VortexSession::empty());
+
+    let normalized = array.normalize(&mut NormalizeOptions {
+        allowed: &allowed,
+        operation: Operation::Execute(&mut ctx),
+    })?;
+    let normalized = normalized.as_opt::<Variant>().unwrap();
+    let inner = normalized.core_storage().as_opt::<Variant>().unwrap();
+
+    assert!(normalized.shredded_is_derived());
+    assert!(normalized.core_storage().is::<Variant>());
+    assert!(inner.shredded_is_derived());
+    assert!(inner.core_storage().is::<DerivedCoreStorage>());
+    assert_arrays_eq!(
+        normalized.shredded().unwrap(),
+        PrimitiveArray::from_iter(12i32..16)
+    );
+    assert!(ArrayRef::ptr_eq(
+        &normalized.shredded().unwrap(),
+        &inner.shredded().unwrap(),
     ));
 
     Ok(())

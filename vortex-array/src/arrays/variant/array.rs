@@ -40,7 +40,9 @@ pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] = ["core_storage", "shredded"];
 ///
 /// The metadata records whether the optional logical `shredded` child is absent, stored inline,
 /// or delegated to a named child of `core_storage`. Delegated children are defined logically, so
-/// they may be recovered through row-preserving wrappers around `core_storage`.
+/// they may be recovered through row-preserving wrappers around `core_storage` and nested
+/// canonical [`crate::arrays::variant::VariantArray`] boundaries produced by execution or
+/// normalization.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub enum VariantMetadata {
     /// The canonical variant exposes no `shredded` child.
@@ -119,6 +121,10 @@ pub(crate) fn try_derived_shredded_from_core_storage(
         return Ok(Some(slot));
     }
 
+    if let Some(variant) = core_storage.as_opt::<Variant>() {
+        return try_derived_shredded_from_core_storage(variant.core_storage(), slot_name);
+    }
+
     if let Some(slice) = core_storage.as_opt::<Slice>() {
         return try_derived_shredded_from_core_storage(slice.child(), slot_name)?
             .map(|child| child.slice(slice.deref().slice_range().clone()))
@@ -150,6 +156,9 @@ pub(crate) fn try_derived_shredded_from_core_storage(
 }
 
 /// Returns the delegated `shredded` child exposed by `core_storage`, if any.
+///
+/// Derived children may be reconstructed through nested canonical [`Variant`] wrappers in
+/// addition to row-preserving wrappers around the underlying core storage.
 pub(crate) fn derived_shredded_from_core_storage(
     core_storage: &ArrayRef,
     slot_name: &str,
@@ -192,7 +201,7 @@ pub trait VariantArrayExt: TypedArrayRef<Variant> {
     ///
     /// Inline `shredded` children are returned from physical slot 1. Derived `shredded` children
     /// are delegated to a named child of [`Self::core_storage`], including through row-preserving
-    /// wrappers around that child.
+    /// wrappers and nested canonical [`Variant`] wrappers around that child.
     fn shredded(&self) -> Option<ArrayRef> {
         match self.deref() {
             VariantMetadata::None => None,
@@ -239,7 +248,8 @@ impl Array<Variant> {
     ///
     /// Derived `shredded` children are accessor-only and are not stored in physical slot 1. The
     /// delegated child is recovered from the logical `core_storage` value, including through
-    /// row-preserving wrappers that preserve the same child relationship.
+    /// row-preserving wrappers and nested canonical [`Variant`] wrappers that preserve the same
+    /// child relationship.
     pub fn try_new_derived(
         core_storage: ArrayRef,
         slot_name: impl AsRef<str>,

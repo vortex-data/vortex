@@ -35,10 +35,30 @@ use crate::serde::ArrayChildren;
 
 /// A canonical Vortex array of [`DType::Variant`] values.
 ///
-/// The array stores its mandatory `core_storage` child in slot 0 and an optional same-length
-/// logical `shredded` child. See [`crate::arrays::variant`] for the canonical layout contract.
-/// Derived `shredded` children are delegated from `core_storage` and are not stored as physical
-/// children.
+/// `VariantArray` is Vortex's stable in-memory boundary for variant values. It has two logical
+/// children:
+/// - slot 0 is mandatory [`core_storage`][crate::arrays::variant::VariantArrayExt::core_storage]
+/// - slot 1 is optional [`shredded`][crate::arrays::variant::VariantArrayExt::shredded]
+///
+/// `core_storage` owns variant encoding semantics. Outer [`DType`], array length, scalar
+/// extraction, and validity are all derived from it.
+///
+/// `shredded` exposes a more concrete same-length child when one is available. It may be stored:
+/// - inline, as physical slot 1
+/// - derived, by delegation to a named child of `core_storage`
+///
+/// Physical storage stays simple:
+/// - slot 0 always stores `core_storage`
+/// - slot 1 is populated only for inline `shredded`
+/// - derived `shredded` is accessor-only and is reconstructed from logical `core_storage`
+///
+/// Delegated `shredded` lookup is defined over logical `core_storage`, not only its top-level
+/// slots. It can pass through row-preserving wrappers and nested canonical [`VariantArray`]
+/// boundaries produced by execution or normalization.
+///
+/// During recursive canonicalization, `core_storage` is preserved as-is. Inline `shredded`
+/// children are canonicalized independently; derived `shredded` children remain delegated from
+/// `core_storage`.
 pub type VariantArray = Array<Variant>;
 
 /// VTable for the canonical two-child [`VariantArray`] layout.

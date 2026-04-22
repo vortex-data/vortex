@@ -341,7 +341,9 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::Variant;
+    use vortex_array::arrays::VariantArray;
     use vortex_array::arrays::variant::VariantArrayExt;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -459,6 +461,39 @@ mod tests {
             .ok_or_else(|| vortex_err!("expected variant array"))?;
         assert!(inner.typed_value_array().is_some());
         assert!(variant_arr.shredded().is_some());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_nested_canonical_variant_delegates_typed_value_through_inner_variant()
+    -> VortexResult<()> {
+        let mut metadata_builder = BinaryViewBuilder::new();
+        let min_metadata = [1u8, 0];
+        for _ in 0..3 {
+            metadata_builder.append_value(min_metadata);
+        }
+        let metadata = metadata_builder.finish();
+
+        let typed_value: ArrowArrayRef = Arc::new(Int32Array::from(vec![10, 20, 30]));
+        let struct_fields: Fields = vec![
+            Arc::new(Field::new("metadata", DataType::BinaryView, false)),
+            Arc::new(Field::new("typed_value", DataType::Int32, false)),
+        ]
+        .into();
+        let struct_array =
+            StructArray::try_new(struct_fields, vec![Arc::new(metadata), typed_value], None)
+                .unwrap();
+
+        let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
+        let inner = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
+        let outer = VariantArray::try_new_derived(inner.clone(), "typed_value")?.into_array();
+        let outer = outer.as_opt::<Variant>().unwrap();
+        let inner = inner.as_opt::<Variant>().unwrap();
+
+        assert!(outer.shredded_is_derived());
+        assert!(outer.core_storage().is::<Variant>());
+        assert_arrays_eq!(outer.shredded().unwrap(), inner.shredded().unwrap());
 
         Ok(())
     }
