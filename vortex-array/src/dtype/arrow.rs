@@ -55,6 +55,26 @@ use crate::extension::datetime::Timestamp;
 
 const ARROW_EXT_NAME_VARIANT: &str = "arrow.parquet.variant";
 
+/// `(vortex_id, arrow_canonical_name)` pairs — single source of truth for bijection between
+/// Vortex-internal extension ids and Arrow canonical extension names. Canonical extensions
+/// serialize metadata as raw UTF-8 (typically JSON) rather than base64-wrapped bytes.
+const CANONICAL_ALIASES: &[(&str, &str)] =
+    &[("vortex.fixed_shape_tensor", "arrow.fixed_shape_tensor")];
+
+fn vortex_id_to_arrow_canonical(vortex_id: &str) -> Option<&'static str> {
+    CANONICAL_ALIASES
+        .iter()
+        .find(|(v, _)| *v == vortex_id)
+        .map(|(_, a)| *a)
+}
+
+fn arrow_canonical_to_vortex_id(arrow_name: &str) -> Option<&'static str> {
+    CANONICAL_ALIASES
+        .iter()
+        .find(|(_, a)| *a == arrow_name)
+        .map(|(v, _)| *v)
+}
+
 /// Trait for converting Arrow types to Vortex types.
 pub trait FromArrowType<T>: Sized {
     /// Convert the Arrow type to a Vortex type.
@@ -277,7 +297,10 @@ fn dtype_from_field(field: &Field, dtypes: &DTypeSession) -> DType {
         return storage_dtype;
     };
 
-    let ext_id = ExtId::new(ext_name);
+    let canonical_alias = arrow_canonical_to_vortex_id(ext_name);
+    let is_canonical = canonical_alias.is_some();
+    let ext_id = ExtId::new(canonical_alias.unwrap_or(ext_name));
+
     let Some(plugin) = dtypes.registry().find(&ext_id) else {
         tracing::warn!(
             "Arrow field {:?} extension id {:?} not registered; using storage dtype",
@@ -287,7 +310,7 @@ fn dtype_from_field(field: &Field, dtypes: &DTypeSession) -> DType {
         return storage_dtype;
     };
 
-    let metadata_bytes = match decode_extension_metadata(field) {
+    let metadata_bytes = match decode_extension_metadata(field, is_canonical) {
         Ok(bytes) => bytes,
         Err(e) => {
             tracing::warn!(
@@ -316,10 +339,15 @@ fn dtype_from_field(field: &Field, dtypes: &DTypeSession) -> DType {
     }
 }
 
-/// Decodes base64-encoded extension metadata. Missing / empty values yield an empty vector.
-fn decode_extension_metadata(field: &Field) -> VortexResult<Vec<u8>> {
+/// Decode extension metadata bytes from a Field.
+///
+/// Canonical Arrow extensions store UTF-8 bytes directly (e.g. JSON). Non-canonical extensions
+/// store base64-encoded bytes so that arbitrary binary plugin output survives a String-typed
+/// metadata channel.
+fn decode_extension_metadata(field: &Field, is_canonical: bool) -> VortexResult<Vec<u8>> {
     match field.extension_type_metadata() {
         None | Some("") => Ok(Vec::new()),
+        Some(s) if is_canonical => Ok(s.as_bytes().to_vec()),
         Some(s) => BASE64_STANDARD
             .decode(s)
             .map_err(|e| vortex_err!("failed to base64-decode {EXTENSION_TYPE_METADATA_KEY}: {e}")),
@@ -475,16 +503,25 @@ fn field_from_dtype(name: &str, dtype: &DType) -> VortexResult<Field> {
         }
 
         let storage_arrow = ext.storage_dtype().to_arrow_dtype()?;
-        let mut metadata = vec![(
-            EXTENSION_TYPE_NAME_KEY.to_owned(),
-            ext.id().as_str().to_owned(),
-        )];
         let ext_meta_bytes = ext.serialize_metadata()?;
-        if !ext_meta_bytes.is_empty() {
-            metadata.push((
-                EXTENSION_TYPE_METADATA_KEY.to_owned(),
+        let (ext_name, meta_str) = match vortex_id_to_arrow_canonical(ext.id().as_str()) {
+            Some(canonical) => {
+                // Canonical Arrow extensions specify a UTF-8 metadata format (typically JSON),
+                // read as-is by arrow-rs / pyarrow. The plugin owns producing those bytes.
+                let s = String::from_utf8(ext_meta_bytes).map_err(|e| {
+                    vortex_err!("canonical extension {canonical} metadata must be valid UTF-8: {e}")
+                })?;
+                (canonical.to_owned(), s)
+            }
+            None => (
+                ext.id().as_str().to_owned(),
                 BASE64_STANDARD.encode(&ext_meta_bytes),
-            ));
+            ),
+        };
+
+        let mut metadata = vec![(EXTENSION_TYPE_NAME_KEY.to_owned(), ext_name)];
+        if !meta_str.is_empty() {
+            metadata.push((EXTENSION_TYPE_METADATA_KEY.to_owned(), meta_str));
         }
         return Ok(Field::new(name, storage_arrow, dtype.is_nullable())
             .with_metadata(metadata.into_iter().collect()));
@@ -687,6 +724,14 @@ mod test {
     fn test_schema_conversion_panics(the_struct: StructFields) {
         let schema_null = DType::Struct(the_struct, Nullability::Nullable);
         schema_null.to_arrow_schema().unwrap();
+    }
+
+    #[test]
+    fn canonical_aliases_bijection() {
+        for (vortex_id, arrow_name) in CANONICAL_ALIASES {
+            assert_eq!(vortex_id_to_arrow_canonical(vortex_id), Some(*arrow_name));
+            assert_eq!(arrow_canonical_to_vortex_id(arrow_name), Some(*vortex_id));
+        }
     }
 
     #[test]

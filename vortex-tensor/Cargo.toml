@@ -29,6 +29,8 @@ half = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
 prost = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 arrow-schema = { workspace = true }
@@ -37,4 +39,5 @@ mimalloc = { workspace = true }
 rand = { workspace = true }
 rand_distr = { workspace = true }
 rstest = { workspace = true }
+serde_json = { workspace = true }
 vortex-btrblocks = { path = "../vortex-btrblocks" }

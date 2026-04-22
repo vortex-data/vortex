@@ -11103,6 +11103,8 @@ dependencies = [
  "rand 0.10.1",
  "rand_distr 0.6.0",
  "rstest",
+ "serde",
+ "serde_json",
  "vortex-array",
  "vortex-btrblocks",
  "vortex-buffer",

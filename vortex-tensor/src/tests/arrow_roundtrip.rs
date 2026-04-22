@@ -23,7 +23,7 @@ use crate::types::fixed_shape::FixedShapeTensorMetadata;
 use crate::types::vector::Vector;
 
 const VECTOR_EXT_NAME: &str = "vortex.tensor.vector";
-const FIXED_SHAPE_EXT_NAME: &str = "vortex.fixed_shape_tensor";
+const FIXED_SHAPE_EXT_NAME: &str = "arrow.fixed_shape_tensor";
 
 fn vector_dtype(len: u32) -> DType {
     let storage = DType::FixedSizeList(
@@ -124,7 +124,14 @@ fn fixed_shape_tensor_metadata_roundtrip() {
             .map(String::as_str),
         Some(FIXED_SHAPE_EXT_NAME),
     );
-    assert!(field.metadata().get(EXTENSION_TYPE_METADATA_KEY).is_some());
+
+    // Canonical extensions put raw JSON on the wire — pyarrow / arrow-rs read it directly
+    // without base64. Parse it back to confirm the on-wire format.
+    let meta_str = field.metadata().get(EXTENSION_TYPE_METADATA_KEY).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(meta_str).unwrap();
+    assert_eq!(parsed["shape"], serde_json::json!([2, 3, 4]));
+    assert_eq!(parsed["dim_names"], serde_json::json!(["x", "y", "z"]));
+    assert_eq!(parsed["permutation"], serde_json::json!([2, 0, 1]));
 
     let recovered = DType::from_arrow_with_session(&schema, &SESSION);
     assert_eq!(recovered, original);

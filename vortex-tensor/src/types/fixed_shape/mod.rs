@@ -14,5 +14,5 @@ pub use matcher::FixedShapeTensorMatcherMetadata;
 mod metadata;
 pub use metadata::FixedShapeTensorMetadata;
 
-mod proto;
+mod canonical;
 mod vtable;
