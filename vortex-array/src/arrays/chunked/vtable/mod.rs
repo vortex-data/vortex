@@ -41,9 +41,12 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::serde::ArrayChildren;
+mod builder_kernel;
 mod canonical;
 mod operations;
 mod validity;
+
+pub(crate) use builder_kernel::ChunkedBuilderKernel;
 /// A [`Chunked`]-encoded Vortex array.
 pub type ChunkedArray = Array<Chunked>;
 

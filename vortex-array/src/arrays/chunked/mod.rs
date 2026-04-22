@@ -11,6 +11,7 @@ pub(crate) mod paired_chunks;
 
 mod vtable;
 pub use vtable::Chunked;
+pub(crate) use vtable::ChunkedBuilderKernel;
 
 #[cfg(test)]
 mod tests;

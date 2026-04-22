@@ -40,6 +40,60 @@ fn chunked_array() -> ChunkedArray {
 }
 
 #[test]
+fn builder_kernel_path_canonicalizes_primitive_chunks() {
+    use crate::builders::builder_with_capacity;
+    use crate::executor::execute_into_builder;
+
+    let array = chunked_array().into_array();
+    let dtype = array.dtype().clone();
+    let len = array.len();
+
+    let builder = builder_with_capacity(&dtype, len);
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut builder = execute_into_builder(array, builder, &mut ctx).unwrap();
+    let output = builder.finish();
+
+    assert_arrays_eq!(
+        output,
+        PrimitiveArray::from_iter([1u64, 2, 3, 4, 5, 6, 7, 8, 9])
+    );
+}
+
+#[test]
+fn builder_kernel_nested_chunked_of_chunked() {
+    use crate::builders::builder_with_capacity;
+    use crate::executor::execute_into_builder;
+
+    let inner_1 = ChunkedArray::try_new(
+        vec![buffer![1u64, 2].into_array(), buffer![3u64].into_array()],
+        DType::Primitive(PType::U64, Nullability::NonNullable),
+    )
+    .unwrap()
+    .into_array();
+    let inner_2 = ChunkedArray::try_new(
+        vec![buffer![4u64, 5, 6].into_array()],
+        DType::Primitive(PType::U64, Nullability::NonNullable),
+    )
+    .unwrap()
+    .into_array();
+    let outer = ChunkedArray::try_new(
+        vec![inner_1, inner_2],
+        DType::Primitive(PType::U64, Nullability::NonNullable),
+    )
+    .unwrap()
+    .into_array();
+
+    let dtype = outer.dtype().clone();
+    let len = outer.len();
+    let builder = builder_with_capacity(&dtype, len);
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut builder = execute_into_builder(outer, builder, &mut ctx).unwrap();
+    let output = builder.finish();
+
+    assert_arrays_eq!(output, PrimitiveArray::from_iter([1u64, 2, 3, 4, 5, 6]));
+}
+
+#[test]
 fn with_slot_rewrites_chunk_and_offsets() {
     let array = chunked_array().into_array();
 
