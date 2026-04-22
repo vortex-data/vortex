@@ -38,17 +38,9 @@ void duckdb_vx_tfunc_bind_result_add_column(duckdb_vx_tfunc_bind_result ffi_resu
                                             size_t name_len,
                                             duckdb_logical_type ffi_type);
 
-// String map for to_string result
 typedef struct duckdb_vx_string_map_ *duckdb_vx_string_map;
-
-// Create a new string map
-duckdb_vx_string_map duckdb_vx_string_map_create();
-
 // Add a key-value pair to the string map
 void duckdb_vx_string_map_insert(duckdb_vx_string_map map, const char *key, const char *value);
-
-// Free the string map
-void duckdb_vx_string_map_free(duckdb_vx_string_map map);
 
 // Input data passed into the init_global and init_local callbacks.
 typedef struct {
@@ -153,8 +145,8 @@ typedef struct {
     bool (*pushdown_complex_filter)(void *bind_data, duckdb_vx_expr expr, duckdb_vx_error *error_out);
 
     void *pushdown_expression;
-    duckdb_vx_string_map (*to_string)(void *bind_data);
-    // void *dynamic_to_string;
+
+    void (*to_string)(void *bind_data, duckdb_vx_string_map map);
 
     double (*table_scan_progress)(duckdb_client_context ctx, void *bind_data, void *global_state);
 
