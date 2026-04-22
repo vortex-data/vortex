@@ -233,7 +233,7 @@ impl ScalarFnVTable for VariantGet {
     }
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {
-        false
+        true
     }
 }
 

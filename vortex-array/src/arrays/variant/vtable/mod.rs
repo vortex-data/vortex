@@ -28,6 +28,7 @@ use crate::arrays::variant::SLOT_NAMES;
 use crate::arrays::variant::VariantMetadata;
 use crate::arrays::variant::try_derived_shredded_from_core_storage;
 use crate::arrays::variant::vtable::rules::PARENT_RULES;
+use crate::arrays::variant::vtable::variant_metadata_proto::Shredded;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
@@ -50,7 +51,7 @@ pub struct Variant;
 #[derive(Clone, prost::Message)]
 struct VariantMetadataProto {
     #[prost(oneof = "variant_metadata_proto::Shredded", tags = "1, 2")]
-    pub shredded: Option<variant_metadata_proto::Shredded>,
+    pub shredded: Option<Shredded>,
 }
 
 mod variant_metadata_proto {
@@ -179,15 +180,11 @@ impl VTable for Variant {
         let metadata = match array.data() {
             VariantMetadata::None => vec![],
             VariantMetadata::Inline { shredded_dtype } => VariantMetadataProto {
-                shredded: Some(variant_metadata_proto::Shredded::InlineDtype(
-                    shredded_dtype.try_into()?,
-                )),
+                shredded: Some(Shredded::InlineDtype(shredded_dtype.try_into()?)),
             }
             .encode_to_vec(),
             VariantMetadata::Derived { slot_name } => VariantMetadataProto {
-                shredded: Some(variant_metadata_proto::Shredded::DerivedSlotName(
-                    slot_name.clone(),
-                )),
+                shredded: Some(Shredded::DerivedSlotName(slot_name.clone())),
             }
             .encode_to_vec(),
         };
@@ -209,12 +206,10 @@ impl VTable for Variant {
         } else {
             let proto = VariantMetadataProto::decode(metadata)?;
             match proto.shredded {
-                Some(variant_metadata_proto::Shredded::InlineDtype(dtype)) => {
-                    VariantMetadata::Inline {
-                        shredded_dtype: DType::from_proto(&dtype, session)?,
-                    }
-                }
-                Some(variant_metadata_proto::Shredded::DerivedSlotName(slot_name)) => {
+                Some(Shredded::InlineDtype(dtype)) => VariantMetadata::Inline {
+                    shredded_dtype: DType::from_proto(&dtype, session)?,
+                },
+                Some(Shredded::DerivedSlotName(slot_name)) => {
                     VariantMetadata::Derived { slot_name }
                 }
                 None => VariantMetadata::None,
