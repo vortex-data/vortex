@@ -5,6 +5,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_compressor::CascadingCompressor;
 use vortex_compressor::ctx::CompressorContext;
 use vortex_compressor::estimate::CompressionEstimate;

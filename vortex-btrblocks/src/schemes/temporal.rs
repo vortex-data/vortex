@@ -12,6 +12,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TemporalArray;
+use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::extension::Matcher;
 use vortex_array::extension::datetime::AnyTemporal;
