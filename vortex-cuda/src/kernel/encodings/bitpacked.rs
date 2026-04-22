@@ -21,7 +21,6 @@ use vortex::encodings::fastlanes::BitPackedArray;
 use vortex::encodings::fastlanes::BitPackedDataParts;
 use vortex::encodings::fastlanes::unpack_iter::BitPacked as BitPackedUnpack;
 use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 
@@ -29,13 +28,10 @@ use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
-use crate::kernel::patches::gpu::ChunkOffsetType;
-use crate::kernel::patches::gpu::ChunkOffsetType_CO_U8;
-use crate::kernel::patches::gpu::ChunkOffsetType_CO_U16;
 use crate::kernel::patches::gpu::ChunkOffsetType_CO_U32;
-use crate::kernel::patches::gpu::ChunkOffsetType_CO_U64;
 use crate::kernel::patches::gpu::GPUPatches;
 use crate::kernel::patches::types::load_patches;
+use crate::kernel::patches::types::ptype_to_chunk_offset_type;
 
 /// CUDA decoder for bit-packed arrays.
 #[derive(Debug)]
@@ -91,17 +87,6 @@ pub fn bitpacked_cuda_launch_config(output_width: usize, len: usize) -> VortexRe
 }
 
 unsafe impl DeviceRepr for GPUPatches {}
-
-/// Convert a PType to the corresponding ChunkOffsetType for GPU patches.
-fn ptype_to_chunk_offset_type(ptype: vortex::dtype::PType) -> VortexResult<ChunkOffsetType> {
-    match ptype {
-        vortex::dtype::PType::U8 => Ok(ChunkOffsetType_CO_U8),
-        vortex::dtype::PType::U16 => Ok(ChunkOffsetType_CO_U16),
-        vortex::dtype::PType::U32 => Ok(ChunkOffsetType_CO_U32),
-        vortex::dtype::PType::U64 => Ok(ChunkOffsetType_CO_U64),
-        _ => vortex_bail!("Invalid PType for chunk_offsets: {:?}", ptype),
-    }
-}
 
 #[instrument(skip_all)]
 pub(crate) async fn decode_bitpacked<A>(
