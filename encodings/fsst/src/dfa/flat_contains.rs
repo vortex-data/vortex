@@ -489,13 +489,51 @@ where
         let mut st2 = 0u8;
         let mut st3 = 0u8;
 
-        // Hot phase: for `min_len` steps every lane is in-bounds, so we
-        // can drop the `pos < len` predicate and issue 4 independent
-        // loads per step.
-        for p in 0..min_len {
-            // SAFETY: p < len_k for all k; s_k + p < e_k ≤ all_bytes.len();
-            // states stay < 2N+1 by construction; transitions has
-            // (2N+1)*256 entries.
+        // Hot phase: `min_len` steps where every lane is in-bounds. 2×
+        // unrolled per lane so we issue 8 bytes (4 lanes × 2) worth of
+        // loads per outer iteration — 4 independent first-round loads,
+        // 4 dependent second-round loads. 2 critical chains of length 2
+        // running in parallel across 4 lanes. At 4-cycle L1 latency and
+        // 2-3 load ports this works out to ~1 cycle/byte aggregate.
+        let min_len_pairs = min_len / 2;
+        let min_len_rem = min_len % 2;
+        for pp in 0..min_len_pairs {
+            let p = pp * 2;
+            // SAFETY: p + 1 < len_k for all k (pp < min_len_pairs);
+            // s_k + p + 1 < e_k ≤ all_bytes.len(); states < 2N+1;
+            // transitions has (2N+1)*256 entries.
+            let b0a = unsafe { *all_bytes.get_unchecked(s0 + p) };
+            let b1a = unsafe { *all_bytes.get_unchecked(s1 + p) };
+            let b2a = unsafe { *all_bytes.get_unchecked(s2 + p) };
+            let b3a = unsafe { *all_bytes.get_unchecked(s3 + p) };
+            let b0b = unsafe { *all_bytes.get_unchecked(s0 + p + 1) };
+            let b1b = unsafe { *all_bytes.get_unchecked(s1 + p + 1) };
+            let b2b = unsafe { *all_bytes.get_unchecked(s2 + p + 1) };
+            let b3b = unsafe { *all_bytes.get_unchecked(s3 + p + 1) };
+            let m0 =
+                unsafe { *transitions.get_unchecked(usize::from(st0) * 256 + usize::from(b0a)) };
+            let m1 =
+                unsafe { *transitions.get_unchecked(usize::from(st1) * 256 + usize::from(b1a)) };
+            let m2 =
+                unsafe { *transitions.get_unchecked(usize::from(st2) * 256 + usize::from(b2a)) };
+            let m3 =
+                unsafe { *transitions.get_unchecked(usize::from(st3) * 256 + usize::from(b3a)) };
+            st0 = unsafe {
+                *transitions.get_unchecked(usize::from(m0) * 256 + usize::from(b0b))
+            };
+            st1 = unsafe {
+                *transitions.get_unchecked(usize::from(m1) * 256 + usize::from(b1b))
+            };
+            st2 = unsafe {
+                *transitions.get_unchecked(usize::from(m2) * 256 + usize::from(b2b))
+            };
+            st3 = unsafe {
+                *transitions.get_unchecked(usize::from(m3) * 256 + usize::from(b3b))
+            };
+        }
+        // Single-byte step if min_len is odd.
+        if min_len_rem != 0 {
+            let p = min_len - 1;
             let b0 = unsafe { *all_bytes.get_unchecked(s0 + p) };
             let b1 = unsafe { *all_bytes.get_unchecked(s1 + p) };
             let b2 = unsafe { *all_bytes.get_unchecked(s2 + p) };
