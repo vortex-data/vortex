@@ -31,7 +31,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::dtype::proto::dtype as pb;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
 use vortex_array::match_each_float_ptype;
@@ -47,18 +46,17 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::matcher::AnyTensor;
-use crate::scalar_fns::l2_denorm::DenormOrientation;
+use crate::scalar_fns::l2_denorm::NormalForm;
 use crate::scalar_fns::sorf_transform::SorfMatrix;
 use crate::scalar_fns::sorf_transform::SorfTransform;
 use crate::types::vector::Vector;
+use crate::utils::BinaryTensorOpMetadata;
 use crate::utils::extract_constant_flat_row;
 use crate::utils::extract_flat_elements;
-use crate::utils::extract_l2_denorm_children;
 use crate::utils::validate_binary_tensor_float_inputs;
 
 /// Inner product (dot product) between two columns.
@@ -130,7 +128,7 @@ impl ScalarFnVTable for InnerProduct {
         let rhs = &arg_dtypes[1];
 
         // TODO(connor): relax the float-only gate once integer tensors are supported.
-        let tensor_match = validate_binary_tensor_float_inputs("InnerProduct", lhs, rhs)?;
+        let tensor_match = validate_binary_tensor_float_inputs(lhs, rhs)?;
         let ptype = tensor_match.element_ptype();
         let nullability = Nullability::from(lhs.is_nullable() || rhs.is_nullable());
         Ok(DType::Primitive(ptype, nullability))
@@ -146,15 +144,16 @@ impl ScalarFnVTable for InnerProduct {
         let rhs_ref = args.get(1)?;
         let len = args.row_count();
 
-        // Take any L2Denorm-wrapped fast path that applies.
-        match DenormOrientation::classify(&lhs_ref, &rhs_ref) {
-            DenormOrientation::Both { lhs, rhs } => {
-                return self.execute_both_denorm(lhs, rhs, len, ctx);
-            }
-            DenormOrientation::One { denorm, plain } => {
-                return self.execute_one_denorm(denorm, plain, len, ctx);
-            }
-            DenormOrientation::Neither => {}
+        // Take the unit-norm fast path only when at least one operand wraps stored norms (the
+        // `Denormalized` form). For naked `NormalizedVector` operands the fall-through dot
+        // product already computes the right thing (and short-circuiting here would recurse
+        // back into `InnerProduct`).
+        let lhs_form = NormalForm::classify(&lhs_ref);
+        let rhs_form = NormalForm::classify(&rhs_ref);
+        if matches!(lhs_form, NormalForm::Denormalized { .. })
+            || matches!(rhs_form, NormalForm::Denormalized { .. })
+        {
+            return self.execute_unit_form(&lhs_form, &rhs_form, &lhs_ref, &rhs_ref, len, ctx);
         }
 
         // Reduction case 1: `InnerProduct(SorfTransform(x), const)` rewrites to
@@ -225,66 +224,6 @@ impl ScalarFnVTable for InnerProduct {
     }
 }
 
-/// Metadata for a serialized binary tensor-op array (shared by [`InnerProduct`] and
-/// [`CosineSimilarity`]). Both operands share the same extension dtype up to nullability
-/// (enforced by their `return_dtype` checks), but their individual nullabilities are lost in the
-/// parent's unioned output, so both are persisted.
-///
-/// [`CosineSimilarity`]: crate::scalar_fns::cosine_similarity::CosineSimilarity
-#[derive(Clone, prost::Message)]
-pub(crate) struct BinaryTensorOpMetadata {
-    #[prost(message, optional, tag = "1")]
-    pub(crate) lhs_dtype: Option<pb::DType>,
-    #[prost(message, optional, tag = "2")]
-    pub(crate) rhs_dtype: Option<pb::DType>,
-}
-
-impl BinaryTensorOpMetadata {
-    /// Encodes the two children of `view` into a [`BinaryTensorOpMetadata`] byte blob.
-    pub(crate) fn encode_from_view<V: ScalarFnVTable>(
-        view: &ScalarFnArrayView<V>,
-    ) -> VortexResult<Vec<u8>> {
-        let scalar_fn_array = view.as_::<ScalarFnArrayEncoding>();
-        let lhs_dtype = Some(scalar_fn_array.child_at(0).dtype().try_into()?);
-        let rhs_dtype = Some(scalar_fn_array.child_at(1).dtype().try_into()?);
-        Ok(Self {
-            lhs_dtype,
-            rhs_dtype,
-        }
-        .encode_to_vec())
-    }
-
-    /// Decodes `metadata` and fetches both children from `children` using the decoded dtypes,
-    /// validating that `lhs` and `rhs` agree modulo nullability.
-    pub(crate) fn decode_children(
-        metadata: &[u8],
-        len: usize,
-        children: &dyn ArrayChildren,
-        session: &VortexSession,
-        scalar_fn_name: &str,
-    ) -> VortexResult<Vec<ArrayRef>> {
-        let metadata = Self::decode(metadata)
-            .map_err(|e| vortex_err!("Failed to decode BinaryTensorOpMetadata: {e}"))?;
-        let lhs_pb = metadata
-            .lhs_dtype
-            .as_ref()
-            .ok_or_else(|| vortex_err!("{scalar_fn_name} metadata missing lhs_dtype"))?;
-        let rhs_pb = metadata
-            .rhs_dtype
-            .as_ref()
-            .ok_or_else(|| vortex_err!("{scalar_fn_name} metadata missing rhs_dtype"))?;
-        let lhs_dtype = DType::from_proto(lhs_pb, session)?;
-        let rhs_dtype = DType::from_proto(rhs_pb, session)?;
-        vortex_ensure!(
-            lhs_dtype.eq_ignore_nullability(&rhs_dtype),
-            "{scalar_fn_name} operand dtype mismatch: {lhs_dtype} vs {rhs_dtype}"
-        );
-        let lhs = children.get(0, &lhs_dtype, len)?;
-        let rhs = children.get(1, &rhs_dtype, len)?;
-        Ok(vec![lhs, rhs])
-    }
-}
-
 impl ScalarFnArrayVTable for InnerProduct {
     fn serialize(
         &self,
@@ -302,13 +241,8 @@ impl ScalarFnArrayVTable for InnerProduct {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ScalarFnArrayParts<Self>> {
-        let reconstructed = BinaryTensorOpMetadata::decode_children(
-            metadata,
-            len,
-            children,
-            session,
-            "InnerProduct",
-        )?;
+        let reconstructed =
+            BinaryTensorOpMetadata::decode_children(metadata, len, children, session)?;
         Ok(ScalarFnArrayParts {
             options: EmptyOptions,
             children: reconstructed,
@@ -317,9 +251,14 @@ impl ScalarFnArrayVTable for InnerProduct {
 }
 
 impl InnerProduct {
-    /// Both sides are `L2Denorm`: `inner_product = s_l * s_r * dot(n_l, n_r)`.
-    fn execute_both_denorm(
+    /// Inner product over operands that may carry a unit-norm representation:
+    /// `inner_product = scale_l * scale_r * dot(unit_l, unit_r)`, where `scale = 1` for naked
+    /// `Normalized` operands, `scale = stored_norms` for `Denormalized` operands, and the
+    /// `unit_*` operands are the input itself for `Plain` operands.
+    fn execute_unit_form(
         &self,
+        lhs_form: &NormalForm<'_>,
+        rhs_form: &NormalForm<'_>,
         lhs_ref: &ArrayRef,
         rhs_ref: &ArrayRef,
         len: usize,
@@ -327,50 +266,42 @@ impl InnerProduct {
     ) -> VortexResult<ArrayRef> {
         let validity = lhs_ref.validity()?.and(rhs_ref.validity()?)?;
 
-        let (normalized_l, norms_l) = extract_l2_denorm_children(lhs_ref);
-        let (normalized_r, norms_r) = extract_l2_denorm_children(rhs_ref);
+        // For each operand, take its unit-norm representation if it has one; fall back to the
+        // operand itself (the `Plain` case feeds the regular dot path with no scaling).
+        let unit_lhs = lhs_form
+            .normalized_array()
+            .cloned()
+            .unwrap_or_else(|| lhs_ref.clone());
+        let unit_rhs = rhs_form
+            .normalized_array()
+            .cloned()
+            .unwrap_or_else(|| rhs_ref.clone());
 
-        let norms_l: PrimitiveArray = norms_l.execute(ctx)?;
-        let norms_r: PrimitiveArray = norms_r.execute(ctx)?;
-
-        let dot: PrimitiveArray = InnerProduct::try_new_array(normalized_l, normalized_r, len)?
+        let dot: PrimitiveArray = InnerProduct::try_new_array(unit_lhs, unit_rhs, len)?
             .into_array()
             .execute(ctx)?;
 
-        match_each_float_ptype!(dot.ptype(), |T| {
-            let dots = dot.as_slice::<T>();
-            let nl = norms_l.as_slice::<T>();
-            let nr = norms_r.as_slice::<T>();
-            let buffer: Buffer<T> = (0..len).map(|i| nl[i] * nr[i] * dots[i]).collect();
-
-            // SAFETY: The buffer length equals `len`, which matches the source validity length.
-            Ok(unsafe { PrimitiveArray::new_unchecked(buffer, validity) }.into_array())
-        })
-    }
-
-    /// One side is `L2Denorm`: `inner_product = s * dot(n, other)`.
-    ///
-    /// The caller must pass the denorm array as `denorm_ref` and the plain array as `plain_ref`.
-    fn execute_one_denorm(
-        &self,
-        denorm_ref: &ArrayRef,
-        plain_ref: &ArrayRef,
-        len: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        let validity = denorm_ref.validity()?.and(plain_ref.validity()?)?;
-
-        let (normalized, norms) = extract_l2_denorm_children(denorm_ref);
-        let denorm_norms: PrimitiveArray = norms.execute(ctx)?;
-
-        let dot: PrimitiveArray = InnerProduct::try_new_array(normalized, plain_ref.clone(), len)?
-            .into_array()
-            .execute(ctx)?;
+        let lhs_scale = norms_for_scaling(lhs_form, ctx)?;
+        let rhs_scale = norms_for_scaling(rhs_form, ctx)?;
 
         match_each_float_ptype!(dot.ptype(), |T| {
             let dots = dot.as_slice::<T>();
-            let ns = denorm_norms.as_slice::<T>();
-            let buffer: Buffer<T> = (0..len).map(|i| ns[i] * dots[i]).collect();
+            let buffer: Buffer<T> = match (lhs_scale.as_ref(), rhs_scale.as_ref()) {
+                (Some(nl), Some(nr)) => {
+                    let nl = nl.as_slice::<T>();
+                    let nr = nr.as_slice::<T>();
+                    (0..len).map(|i| nl[i] * nr[i] * dots[i]).collect()
+                }
+                (Some(nl), None) => {
+                    let nl = nl.as_slice::<T>();
+                    (0..len).map(|i| nl[i] * dots[i]).collect()
+                }
+                (None, Some(nr)) => {
+                    let nr = nr.as_slice::<T>();
+                    (0..len).map(|i| nr[i] * dots[i]).collect()
+                }
+                (None, None) => dots.iter().copied().collect(),
+            };
 
             // SAFETY: The buffer length equals `len`, which matches the source validity length.
             Ok(unsafe { PrimitiveArray::new_unchecked(buffer, validity) }.into_array())
@@ -421,7 +352,7 @@ impl InnerProduct {
             return Ok(None);
         };
 
-        let dim = sorf_view.options.dimension as usize;
+        let dim = sorf_view.options.dimensions as usize;
         let num_rounds = sorf_view.options.num_rounds as usize;
         let seed = sorf_view.options.seed;
         let padded_dim = dim.next_power_of_two();
@@ -568,6 +499,21 @@ impl InnerProduct {
     }
 }
 
+/// Materialize the per-row scaling factor for an operand classified by [`NormalForm`].
+///
+/// - `Plain`: no scaling needed (the operand itself enters the dot product).
+/// - `Normalized`: implicit scaling of `1.0`, returned as `None` so the caller skips the multiply.
+/// - `Denormalized`: returns the materialized stored norms.
+fn norms_for_scaling(
+    form: &NormalForm<'_>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<PrimitiveArray>> {
+    match form {
+        NormalForm::Plain | NormalForm::Normalized { .. } => Ok(None),
+        NormalForm::Denormalized { norms, .. } => Ok(Some(norms.clone().execute(ctx)?)),
+    }
+}
+
 /// Return the storage constant for a canonical tensor-like constant query.
 fn constant_tensor_storage(array: &ArrayRef) -> Option<ArrayRef> {
     let constant = array.as_opt::<Constant>()?;
@@ -651,6 +597,7 @@ mod tests {
     use crate::tests::SESSION;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::l2_denorm_array;
+    use crate::utils::test_helpers::normalized_vector_array;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
 
@@ -771,8 +718,8 @@ mod tests {
         // RHS: [1.0, 0.0] = L2Denorm([1.0, 0.0], 1.0).
         // dot([3.0, 4.0], [1.0, 0.0]) = 3.0.
         let mut ctx = SESSION.create_execution_ctx();
-        let lhs = l2_denorm_array(&[2], &[0.6, 0.8], &[5.0], &mut ctx)?;
-        let rhs = l2_denorm_array(&[2], &[1.0, 0.0], &[1.0], &mut ctx)?;
+        let lhs = l2_denorm_array(2, &[0.6, 0.8], &[5.0], &mut ctx)?;
+        let rhs = l2_denorm_array(2, &[1.0, 0.0], &[1.0], &mut ctx)?;
 
         // Expected: 5.0 * 1.0 * dot([0.6, 0.8], [1.0, 0.0]) = 5.0 * 0.6 = 3.0.
         assert_close(&eval_inner_product(lhs, rhs, 1)?, &[3.0]);
@@ -784,8 +731,8 @@ mod tests {
         // Row 0: [3.0, 4.0] dot [3.0, 4.0] = 25.0.
         // Row 1: [1.0, 0.0] dot [0.0, 1.0] = 0.0.
         let mut ctx = SESSION.create_execution_ctx();
-        let lhs = l2_denorm_array(&[2], &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0], &mut ctx)?;
-        let rhs = l2_denorm_array(&[2], &[0.6, 0.8, 0.0, 1.0], &[5.0, 1.0], &mut ctx)?;
+        let lhs = l2_denorm_array(2, &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0], &mut ctx)?;
+        let rhs = l2_denorm_array(2, &[0.6, 0.8, 0.0, 1.0], &[5.0, 1.0], &mut ctx)?;
 
         assert_close(&eval_inner_product(lhs, rhs, 2)?, &[25.0, 0.0]);
         Ok(())
@@ -797,8 +744,8 @@ mod tests {
         // RHS: plain [1.0, 2.0].
         // dot([3.0, 4.0], [1.0, 2.0]) = 3.0 + 8.0 = 11.0.
         let mut ctx = SESSION.create_execution_ctx();
-        let lhs = l2_denorm_array(&[2], &[0.6, 0.8], &[5.0], &mut ctx)?;
-        let rhs = tensor_array(&[2], &[1.0, 2.0])?;
+        let lhs = l2_denorm_array(2, &[0.6, 0.8], &[5.0], &mut ctx)?;
+        let rhs = vector_array(2, &[1.0, 2.0])?;
 
         assert_close(&eval_inner_product(lhs, rhs, 1)?, &[11.0]);
         Ok(())
@@ -810,8 +757,8 @@ mod tests {
         // RHS: L2Denorm([0.6, 0.8], 5.0) representing [3.0, 4.0].
         // dot([1.0, 2.0], [3.0, 4.0]) = 3.0 + 8.0 = 11.0.
         let mut ctx = SESSION.create_execution_ctx();
-        let lhs = tensor_array(&[2], &[1.0, 2.0])?;
-        let rhs = l2_denorm_array(&[2], &[0.6, 0.8], &[5.0], &mut ctx)?;
+        let lhs = vector_array(2, &[1.0, 2.0])?;
+        let rhs = l2_denorm_array(2, &[0.6, 0.8], &[5.0], &mut ctx)?;
 
         assert_close(&eval_inner_product(lhs, rhs, 1)?, &[11.0]);
         Ok(())
@@ -820,12 +767,16 @@ mod tests {
     #[test]
     fn both_denorm_null_norms() -> VortexResult<()> {
         // Row 0: valid, row 1: null (via nullable norms on lhs).
-        let normalized_l = tensor_array(&[2], &[0.6, 0.8, 1.0, 0.0])?;
+        let normalized_l = normalized_vector_array(
+            2,
+            &[0.6, 0.8, 1.0, 0.0],
+            &mut SESSION.create_execution_ctx(),
+        )?;
         let norms_l = PrimitiveArray::from_option_iter([Some(5.0f64), None]).into_array();
         let mut ctx = SESSION.create_execution_ctx();
 
         let lhs = L2Denorm::try_new_array(normalized_l, norms_l, 2, &mut ctx)?.into_array();
-        let rhs = l2_denorm_array(&[2], &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0], &mut ctx)?;
+        let rhs = l2_denorm_array(2, &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0], &mut ctx)?;
 
         let scalar_fn = InnerProduct::new().erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 2)?;
@@ -835,6 +786,47 @@ mod tests {
         assert!(prim.is_valid(0, &mut ctx)?);
         assert!(!prim.is_valid(1, &mut ctx)?);
         assert_close(&[prim.as_slice::<f64>()[0]], &[25.0]);
+        Ok(())
+    }
+
+    /// Naked [`NormalizedVector`](crate::normalized_vector::NormalizedVector) operands fall
+    /// through to the regular dot path (no extra scaling). The result is just `dot(lhs, rhs)`.
+    #[test]
+    fn naked_normalized_vector_dot() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let lhs = normalized_vector_array(2, &[0.6, 0.8, 1.0, 0.0], &mut ctx)?;
+        let rhs = normalized_vector_array(2, &[0.6, 0.8, 0.0, 1.0], &mut ctx)?;
+
+        // Row 0: dot([0.6,0.8],[0.6,0.8]) = 1.0, Row 1: dot([1.0,0.0],[0.0,1.0]) = 0.0.
+        assert_close(&eval_inner_product(lhs, rhs, 2)?, &[1.0, 0.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn serde_round_trip_mixed_vector_and_normalized_vector() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let lhs = normalized_vector_array(2, &[0.6, 0.8, 1.0, 0.0], &mut ctx)?;
+        let rhs = vector_array(2, &[3.0, 4.0, 0.0, 1.0])?;
+        let original = InnerProduct::try_new_array(lhs.clone(), rhs.clone(), 2)?.into_array();
+
+        let plugin = ScalarFnArrayPlugin::new(InnerProduct);
+        let metadata = plugin
+            .serialize(&original, &SESSION)?
+            .expect("InnerProduct serialize must produce metadata");
+
+        let children = vec![lhs, rhs];
+        let recovered = plugin.deserialize(
+            original.dtype(),
+            original.len(),
+            &metadata,
+            &[],
+            &children,
+            &SESSION,
+        )?;
+
+        assert_eq!(recovered.dtype(), original.dtype());
+        assert_eq!(recovered.len(), original.len());
+        assert_eq!(recovered.encoding_id(), original.encoding_id());
         Ok(())
     }
 
@@ -972,7 +964,7 @@ mod tests {
             let sorf_options = SorfOptions {
                 seed,
                 num_rounds,
-                dimension: dim,
+                dimensions: dim,
                 element_ptype: PType::F32,
             };
             let sorf =
@@ -1548,7 +1540,7 @@ mod tests {
             let sorf_options = SorfOptions {
                 seed,
                 num_rounds,
-                dimension: dim,
+                dimensions: dim,
                 element_ptype: PType::F32,
             };
             let sorf =

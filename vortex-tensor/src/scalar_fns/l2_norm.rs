@@ -6,6 +6,8 @@
 use std::fmt::Formatter;
 
 use num_traits::Float;
+use num_traits::One;
+use num_traits::Zero;
 use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -17,7 +19,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFn as ScalarFnArrayEncoding;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
-use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts;
@@ -25,6 +26,7 @@ use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::dtype::proto::dtype as pb;
 use vortex_array::expr::Expression;
 use vortex_array::match_each_float_ptype;
@@ -40,14 +42,12 @@ use vortex_array::serde::ArrayChildren;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::matcher::AnyTensor;
-use crate::scalar_fns::l2_denorm::L2Denorm;
+use crate::scalar_fns::l2_denorm::NormalForm;
 use crate::utils::extract_flat_elements;
-use crate::utils::extract_l2_denorm_children;
 use crate::utils::validate_tensor_float_input;
 
 /// L2 norm (Euclidean norm) of a tensor or vector column.
@@ -57,10 +57,11 @@ use crate::utils::validate_tensor_float_input;
 /// The input must be a tensor-like extension array with a float element type. The output is a float
 /// column of the same float type.
 ///
-/// When the input is wrapped in [`L2Denorm`], this operator treats the stored norms as
-/// authoritative. For lossy encodings such as TurboQuant, that means `L2Norm` may intentionally
-/// read the stored norms instead of re-deriving them from fully decoded coordinates. That behavior
-/// is part of the lossy storage contract, not a separate lossy-compute mode.
+/// When the input is wrapped in [`L2Denorm`](crate::scalar_fns::l2_denorm::L2Denorm), this operator
+/// treats the stored norms as authoritative. For lossy encodings such as TurboQuant, that means
+/// `L2Norm` may intentionally read the stored norms instead of re-deriving them from fully decoded
+/// coordinates. That behavior is part of the lossy storage contract, not a separate lossy-compute
+/// mode.
 #[derive(Clone)]
 pub struct L2Norm;
 
@@ -115,6 +116,7 @@ impl ScalarFnVTable for L2Norm {
         let tensor_match = validate_tensor_float_input(input_dtype)?;
         let ptype = tensor_match.element_ptype();
 
+        // Inherit the nullability from the vectors themselves.
         let nullability = Nullability::from(input_dtype.is_nullable());
         Ok(DType::Primitive(ptype, nullability))
     }
@@ -137,13 +139,24 @@ impl ScalarFnVTable for L2Norm {
 
         let norm_dtype = DType::Primitive(element_ptype, ext.nullability());
 
-        // L2Norm(L2Denorm(normalized, norms)) is defined to read back the authoritative stored
-        // norms. Exact callers of lossy encodings like TurboQuant opt into that storage semantics
-        // instead of forcing a decode-and-recompute path here.
-        if input_ref.is::<ExactScalarFn<L2Denorm>>() {
-            let (_, norms) = extract_l2_denorm_children(&input_ref);
-            vortex_ensure_eq!(norms.dtype(), &norm_dtype);
-            return Ok(norms);
+        // TODO(connor): Need to write some tests for this.
+        // Short-circuit when the input carries a unit-norm representation already.
+        match NormalForm::classify(&input_ref) {
+            NormalForm::Denormalized { norms, .. } => {
+                return Ok(norms);
+            }
+            NormalForm::Normalized { .. } => {
+                // A naked `NormalizedVector` row is either unit norm or the zero vector by type.
+                // We still have to distinguish those two cases and preserve row validity.
+                return execute_normalized_vector_norms(
+                    &input_ref,
+                    element_ptype,
+                    tensor_flat_size,
+                    row_count,
+                    ctx,
+                );
+            }
+            NormalForm::Plain => {}
         }
 
         // Optimize for the constant array case.
@@ -261,6 +274,35 @@ fn l2_norm_row<T: Float + NativePType>(v: &[T]) -> T {
     sum_sq.sqrt()
 }
 
+/// Computes L2 norms for a [`NormalizedVector`](crate::normalized_vector::NormalizedVector)
+/// without taking square roots: valid rows are either all-zero (`0.0`) or unit-norm (`1.0`).
+fn execute_normalized_vector_norms(
+    input_ref: &ArrayRef,
+    element_ptype: PType,
+    tensor_flat_size: usize,
+    row_count: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let input: ExtensionArray = input_ref.clone().execute(ctx)?;
+    let validity = input.as_ref().validity()?;
+    let flat = extract_flat_elements(input.storage_array(), tensor_flat_size, ctx)?;
+
+    match_each_float_ptype!(element_ptype, |T| {
+        let buffer: Buffer<T> = (0..row_count)
+            .map(|i| {
+                if flat.row::<T>(i).iter().all(|&x| x == T::zero()) {
+                    T::zero()
+                } else {
+                    T::one()
+                }
+            })
+            .collect();
+
+        // SAFETY: The buffer length equals `row_count`, which matches the source validity length.
+        Ok(unsafe { PrimitiveArray::new_unchecked(buffer, validity) }.into_array())
+    })
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -289,6 +331,7 @@ mod tests {
     use crate::types::vector::Vector;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::literal_vector_array;
+    use crate::utils::test_helpers::normalized_vector_array;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
 
@@ -441,6 +484,31 @@ mod tests {
         assert_eq!(recovered.dtype(), original.dtype());
         assert_eq!(recovered.len(), original.len());
         assert_eq!(recovered.encoding_id(), original.encoding_id());
+        Ok(())
+    }
+
+    /// A naked [`NormalizedVector`](crate::normalized_vector::NormalizedVector) input must
+    /// short-circuit to `1.0` for unit rows and `0.0` for zero rows without taking square roots.
+    #[test]
+    fn naked_normalized_vector_returns_unit_norms() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = normalized_vector_array(2, &[1.0, 0.0, 0.6, 0.8, 0.0, 0.0], &mut ctx)?;
+        assert_close(&eval_l2_norm(input, 3)?, &[1.0, 1.0, 0.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn naked_normalized_vector_preserves_nulls() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = normalized_vector_array(2, &[1.0, 0.0, 0.0, 0.0], &mut ctx)?;
+        let input = MaskedArray::try_new(input, Validity::from_iter([true, false]))?.into_array();
+
+        let result = L2Norm::try_new_array(input, 2)?;
+        let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
+
+        assert!(prim.is_valid(0, &mut ctx)?);
+        assert!(!prim.is_valid(1, &mut ctx)?);
+        assert_close(&[prim.as_slice::<f64>()[0]], &[1.0]);
         Ok(())
     }
 }

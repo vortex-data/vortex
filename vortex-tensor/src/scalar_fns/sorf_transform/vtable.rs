@@ -16,8 +16,10 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::ScalarFn as ScalarFnArrayEncoding;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable;
@@ -26,6 +28,7 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDType;
+use vortex_array::dtype::proto::dtype as pb;
 use vortex_array::expr::Expression;
 use vortex_array::extension::EmptyMetadata;
 use vortex_array::match_each_float_ptype;
@@ -47,6 +50,7 @@ use super::SorfOptions;
 use super::SorfTransform;
 use super::rotation::SorfMatrix;
 use super::validate_sorf_options;
+use crate::normalized_vector::NormalizedVector;
 use crate::types::vector::AnyVector;
 use crate::types::vector::Vector;
 
@@ -90,13 +94,13 @@ impl ScalarFnVTable for SorfTransform {
                 vortex_err!("SorfTransform child must be a Vector extension, got {child_dtype}")
             })?;
 
-        let expected_padded = options.dimension.next_power_of_two();
+        let expected_padded = options.dimensions.next_power_of_two();
         vortex_ensure_eq!(
             vector_metadata.dimensions(),
             expected_padded,
             "SorfTransform child Vector must have dimension {expected_padded} (next power of two \
              for dimension {})",
-            options.dimension,
+            options.dimensions,
         );
 
         // For now, the child Vector storage must be f32. TurboQuant stores its centroids as f32,
@@ -113,11 +117,16 @@ impl ScalarFnVTable for SorfTransform {
         let output_elem_dtype = DType::Primitive(options.element_ptype, Nullability::NonNullable);
         let storage_dtype = DType::FixedSizeList(
             Arc::new(output_elem_dtype),
-            options.dimension,
+            options.dimensions,
             child_dtype.nullability(),
         );
 
-        let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, storage_dtype)?.erased();
+        let ext_dtype = if vector_metadata.is_normalized() {
+            ExtDType::<NormalizedVector>::try_new(EmptyMetadata, storage_dtype)?.erased()
+        } else {
+            ExtDType::<Vector>::try_new(EmptyMetadata, storage_dtype)?.erased()
+        };
+
         Ok(DType::Extension(ext_dtype))
     }
 
@@ -127,19 +136,18 @@ impl ScalarFnVTable for SorfTransform {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        validate_sorf_options(options)?;
-        let dim = options.dimension as usize;
+        let dim = options.dimensions as usize;
         let num_rows = args.row_count();
 
         if num_rows == 0 {
-            let child_nullability = args.get(0)?.dtype().nullability();
-            let validity = Validity::from(child_nullability);
+            let child_dtype = args.get(0)?.dtype().clone();
+            let validity = Validity::from(child_dtype.nullability());
 
             return match_each_float_ptype!(options.element_ptype, |T| {
                 let elements = PrimitiveArray::empty::<T>(Nullability::NonNullable);
                 let fsl = FixedSizeListArray::try_new(
                     elements.into_array(),
-                    options.dimension,
+                    options.dimensions,
                     validity,
                     0,
                 )?;
@@ -194,11 +202,10 @@ impl ScalarFnVTable for SorfTransform {
 
 /// Metadata for a serialized [`SorfTransform`] array.
 ///
-/// Stores the full [`SorfOptions`] inline. The child [`DType`] is not serialized because it is
-/// fully determined by the options: the child is always a [`Vector`] extension wrapping
-/// `FSL<f32, dimension.next_power_of_two()>`. The child's nullability is recovered from the
-/// parent output dtype at deserialize time, since `SorfTransform::return_dtype` propagates child
-/// nullability into the output FSL (see `return_dtype` above).
+/// Stores the full [`SorfOptions`] inline along with the child [`DType`]. The child dtype records
+/// whether the input was a plain [`Vector`] or [`NormalizedVector`](crate::normalized_vector::NormalizedVector).
+/// Older metadata omitted this field; deserialization derives the legacy plain-`Vector` child dtype
+/// from the parent dtype in that case.
 #[derive(Clone, prost::Message)]
 pub(super) struct SorfTransformMetadata {
     #[prost(uint64, tag = "1")]
@@ -210,6 +217,8 @@ pub(super) struct SorfTransformMetadata {
     dimension: u32,
     #[prost(enumeration = "PType", tag = "4")]
     element_ptype: i32,
+    #[prost(message, optional, tag = "5")]
+    child_dtype: Option<pb::DType>,
 }
 
 impl ScalarFnArrayVTable for SorfTransform {
@@ -218,9 +227,13 @@ impl ScalarFnArrayVTable for SorfTransform {
         view: &ScalarFnArrayView<Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            SorfTransformMetadata::from(view.options).encode_to_vec(),
-        ))
+        let scalar_fn_array = view.as_::<ScalarFnArrayEncoding>();
+        let child_dtype = Some(scalar_fn_array.child_at(0).dtype().try_into()?);
+        let metadata = SorfTransformMetadata {
+            child_dtype,
+            ..SorfTransformMetadata::from(view.options)
+        };
+        Ok(Some(metadata.encode_to_vec()))
     }
 
     fn deserialize(
@@ -229,11 +242,11 @@ impl ScalarFnArrayVTable for SorfTransform {
         len: usize,
         metadata: &[u8],
         children: &dyn ArrayChildren,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<ScalarFnArrayParts<Self>> {
-        let options = SorfTransformMetadata::decode(metadata)
-            .map_err(|e| vortex_err!("Failed to decode SorfTransformMetadata: {e}"))?
-            .to_options()?;
+        let metadata = SorfTransformMetadata::decode(metadata)
+            .map_err(|e| vortex_err!("Failed to decode SorfTransformMetadata: {e}"))?;
+        let options = metadata.to_options()?;
 
         // `return_dtype` sets the output FSL's nullability to the child's nullability (see
         // `return_dtype` above), so we read the child nullability back from the parent dtype.
@@ -244,14 +257,19 @@ impl ScalarFnArrayVTable for SorfTransform {
             })?
             .storage_dtype()
             .nullability();
-        let padded_dim = options.dimension.next_power_of_two();
+        let padded_dim = options.dimensions.next_power_of_two();
         let child_storage = DType::FixedSizeList(
             Arc::new(DType::Primitive(PType::F32, Nullability::NonNullable)),
             padded_dim,
             child_nullability,
         );
-        let child_ext = ExtDType::<Vector>::try_new(EmptyMetadata, child_storage)?.erased();
-        let child_dtype = DType::Extension(child_ext);
+        let child_dtype = match metadata.child_dtype.as_ref() {
+            Some(dtype) => DType::from_proto(dtype, session)?,
+            None => {
+                let child_ext = ExtDType::<Vector>::try_new(EmptyMetadata, child_storage)?.erased();
+                DType::Extension(child_ext)
+            }
+        };
         let child = children.get(0, &child_dtype, len)?;
 
         Ok(ScalarFnArrayParts {
@@ -270,7 +288,7 @@ fn float_from_f32<T: Float + FromPrimitive>(v: f32) -> T {
 }
 
 /// Apply the inverse SORF transform on f32 data, truncate to the original dimension, cast each
-/// element to `T`, and build the output [`Vector`] extension array.
+/// element to `T`, and build a plain [`Vector`](crate::vector::Vector) extension array.
 fn inverse_rotate_typed<T: NativePType + Float + FromPrimitive>(
     f32_elements: &[f32],
     rotation: &SorfMatrix,
@@ -304,8 +322,9 @@ impl From<&SorfOptions> for SorfTransformMetadata {
         Self {
             seed: options.seed,
             num_rounds: u32::from(options.num_rounds),
-            dimension: options.dimension,
+            dimension: options.dimensions,
             element_ptype: options.element_ptype as i32,
+            child_dtype: None,
         }
     }
 }
@@ -323,7 +342,7 @@ impl SorfTransformMetadata {
         let options = SorfOptions {
             seed: self.seed,
             num_rounds,
-            dimension: self.dimension,
+            dimensions: self.dimension,
             element_ptype: self.element_ptype(),
         };
         validate_sorf_options(&options)?;

@@ -8,10 +8,10 @@
 //! Walsh-Hadamard transform to achieve O(d log d) matrix-vector products instead of the O(d^2) cost
 //! of a dense orthogonal matrix.
 //!
-//! This module wraps a [`Vector`] extension array whose dimension is the padded SORF dimension
-//! (e.g. a `Vector` wrapping `FSL(Dict(codes, centroids))`) and applies the inverse SORF transform
-//! at execution time, producing a [`Vector`] extension array with the original (pre-padding)
-//! dimensionality.
+//! This module wraps a [`Vector`] or [`NormalizedVector`] extension array whose dimension is the
+//! padded SORF dimension (e.g. a `Vector` wrapping `FSL(Dict(codes, centroids))`) and applies the
+//! inverse SORF transform at execution time, producing a plain [`Vector`] extension array with the
+//! original (pre-padding) dimensionality.
 //!
 //! The transform parameters are stored as a deterministic seed in [`SorfOptions`], so the
 //! [`SorfMatrix`] is reconstructed cheaply at decode time. Sign diagonals are defined by Vortex's
@@ -19,9 +19,9 @@
 //!
 //! # Input element type: `f32` only (TODO(connor): for now...)
 //!
-//! The child [`Vector`] **must** have `f32` storage elements. This is a hard constraint that is
-//! enforced by `SorfTransform`'s `return_dtype` check. Callers with `f16` or `f64` source data need
-//! to cast to `f32` before wrapping in a [`Vector`] and handing it to SorfTransform.
+//! The child vector extension **must** have `f32` storage elements. This is a hard constraint that
+//! is enforced by `SorfTransform`'s `return_dtype` check. Callers with `f16` or `f64` source data
+//! need to cast to `f32` before wrapping in a vector extension and handing it to SorfTransform.
 //!
 //! The reason for this constraint is that TurboQuant (the only production caller today) stores its
 //! dictionary centroids as `f32`, and the SORF transform itself operates internally in `f32`.
@@ -40,6 +40,7 @@
 //!
 //! [sorf-paper]: https://proceedings.neurips.cc/paper_files/paper/2016/file/53adaf494dc89ef7196d73636eb2451b-Paper.pdf
 //! [`Vector`]: crate::vector::Vector
+//! [`NormalizedVector`]: crate::normalized_vector::NormalizedVector
 
 use std::fmt;
 use std::fmt::Formatter;
@@ -59,10 +60,10 @@ mod vtable;
 
 /// Inverse SORF orthogonal transform scalar function.
 ///
-/// Takes a [`Vector`](crate::vector::Vector) extension child at the padded dimension with `f32`
-/// storage, applies the inverse structured Walsh-Hadamard orthogonal transform, truncates to the
-/// original (pre-padding) dimension, casts element-wise to [`SorfOptions::element_ptype`], and
-/// wraps the result in a new [`Vector`](crate::vector::Vector) extension array.
+/// Takes a vector extension child at the padded dimension with `f32` storage, applies the inverse
+/// structured Walsh-Hadamard orthogonal transform, truncates to the original (pre-padding)
+/// dimension, casts element-wise to [`SorfOptions::element_ptype`], and wraps the result in a new
+/// plain [`Vector`](crate::vector::Vector) extension array.
 ///
 /// See the [module-level docs](crate::scalar_fns::sorf_transform) for the rationale behind the
 /// `f32`-only input constraint.
@@ -81,7 +82,7 @@ pub struct SorfOptions {
     pub num_rounds: u8,
     /// Original vector dimension (before power-of-2 padding). The output
     /// [`Vector`](crate::vector::Vector) has this dimension.
-    pub dimension: u32,
+    pub dimensions: u32,
     /// Element type of the output [`Vector`](crate::vector::Vector). The child input must always
     /// be `f32`, but the output can be any float type (`F16`, `F32`, `F64`); the final
     /// `f32 -> element_ptype` cast happens while building the output.
@@ -96,16 +97,18 @@ impl SorfTransform {
 
     /// Constructs a validated [`ScalarFnArray`] that lazily applies the inverse SORF transform.
     ///
-    /// The `child` must be a [`Vector`] extension array (or an array that executes to one) with:
+    /// The `child` must be a [`Vector`] or [`NormalizedVector`] extension array (or an array that
+    /// executes to one) with:
     ///
     /// - dimension equal to `padded_dim` (i.e. `options.dimension.next_power_of_two()`), and
     /// - `f32` storage elements. This is a hard requirement today; see the
     ///   [module-level docs](crate::scalar_fns::sorf_transform) for the rationale.
     ///
-    /// The output [`Vector`] has dimension `options.dimension` and element type
+    /// The output plain [`Vector`] has dimension `options.dimension` and element type
     /// `options.element_ptype`.
     ///
     /// [`Vector`]: crate::vector::Vector
+    /// [`NormalizedVector`]: crate::normalized_vector::NormalizedVector
     pub fn try_new_array(
         options: &SorfOptions,
         child: ArrayRef,
@@ -137,7 +140,7 @@ impl fmt::Display for SorfOptions {
         write!(
             f,
             "SorfOptions(seed={}, rounds={}, dim={}, ptype={})",
-            self.seed, self.num_rounds, self.dimension, self.element_ptype
+            self.seed, self.num_rounds, self.dimensions, self.element_ptype
         )
     }
 }

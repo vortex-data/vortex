@@ -8,17 +8,17 @@ use vortex_array::extension::EmptyMetadata;
 use vortex_array::scalar::ScalarValue;
 use vortex_error::VortexResult;
 
-use crate::types::vector::Vector;
+use crate::types::normalized_vector::NormalizedVector;
 use crate::types::vector::validate_vector_storage_dtype;
 
-impl ExtVTable for Vector {
+impl ExtVTable for NormalizedVector {
     type Metadata = EmptyMetadata;
 
     // TODO(connor): This is just a placeholder for now.
     type NativeValue<'a> = &'a ScalarValue;
 
     fn id(&self) -> ExtId {
-        ExtId::new("vortex.tensor.vector")
+        ExtId::new("vortex.tensor.normalized_vector")
     }
 
     fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
@@ -54,11 +54,9 @@ mod tests {
     use vortex_array::extension::EmptyMetadata;
     use vortex_error::VortexResult;
 
-    use crate::types::vector::Vector;
+    use crate::types::normalized_vector::NormalizedVector;
 
-    /// Constructs a `FixedSizeList` storage dtype with the given float [`PType`], list size, and
-    /// [`Nullability`].
-    fn vector_storage_dtype(ptype: PType, size: u32, nullability: Nullability) -> DType {
+    fn storage_dtype(ptype: PType, size: u32, nullability: Nullability) -> DType {
         DType::FixedSizeList(
             Arc::new(DType::Primitive(ptype, Nullability::NonNullable)),
             size,
@@ -71,8 +69,8 @@ mod tests {
     #[case::f32(PType::F32)]
     #[case::f64(PType::F64)]
     fn validate_accepts_float_types(#[case] ptype: PType) -> VortexResult<()> {
-        let storage = vector_storage_dtype(ptype, 128, Nullability::NonNullable);
-        ExtDType::<Vector>::try_new(EmptyMetadata, storage)?;
+        let storage = storage_dtype(ptype, 64, Nullability::NonNullable);
+        ExtDType::<NormalizedVector>::try_new(EmptyMetadata, storage)?;
         Ok(())
     }
 
@@ -82,40 +80,40 @@ mod tests {
     fn validate_accepts_any_outer_nullability(
         #[case] nullability: Nullability,
     ) -> VortexResult<()> {
-        let storage = vector_storage_dtype(PType::F32, 128, nullability);
-        ExtDType::<Vector>::try_new(EmptyMetadata, storage)?;
+        let storage = storage_dtype(PType::F32, 64, nullability);
+        ExtDType::<NormalizedVector>::try_new(EmptyMetadata, storage)?;
         Ok(())
     }
 
     #[test]
     fn validate_rejects_non_fsl() {
         let storage = DType::Primitive(PType::F32, Nullability::NonNullable);
-        assert!(ExtDType::<Vector>::try_new(EmptyMetadata, storage).is_err());
+        assert!(ExtDType::<NormalizedVector>::try_new(EmptyMetadata, storage).is_err());
     }
 
     #[test]
     fn validate_rejects_integer_elements() {
         let storage = DType::FixedSizeList(
             Arc::new(DType::Primitive(PType::U32, Nullability::NonNullable)),
-            128,
+            64,
             Nullability::NonNullable,
         );
-        assert!(ExtDType::<Vector>::try_new(EmptyMetadata, storage).is_err());
+        assert!(ExtDType::<NormalizedVector>::try_new(EmptyMetadata, storage).is_err());
     }
 
     #[test]
     fn validate_rejects_nullable_elements() {
         let storage = DType::FixedSizeList(
             Arc::new(DType::Primitive(PType::F32, Nullability::Nullable)),
-            128,
+            64,
             Nullability::NonNullable,
         );
-        assert!(ExtDType::<Vector>::try_new(EmptyMetadata, storage).is_err());
+        assert!(ExtDType::<NormalizedVector>::try_new(EmptyMetadata, storage).is_err());
     }
 
     #[test]
     fn roundtrip_metadata() -> VortexResult<()> {
-        let vtable = Vector;
+        let vtable = NormalizedVector;
         let bytes = vtable.serialize_metadata(&EmptyMetadata)?;
         assert!(bytes.is_empty());
         let deserialized = vtable.deserialize_metadata(&bytes)?;

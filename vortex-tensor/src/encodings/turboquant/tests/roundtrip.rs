@@ -13,7 +13,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
 use super::*;
-use crate::encodings::turboquant::turboquant_encode_unchecked;
+use crate::encodings::turboquant::turboquant_encode_normalized;
 use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 
 #[rstest]
@@ -28,7 +28,7 @@ fn roundtrip(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
     let fsl = make_fsl(10, dim, 42);
     let config = TurboQuantConfig {
         bit_width,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 3,
     };
     let (original, decoded) = encode_decode(&fsl, &config)?;
@@ -48,7 +48,7 @@ fn mse_within_theoretical_bound(#[case] dim: usize, #[case] bit_width: u8) -> Vo
     let fsl = make_fsl(num_rows, dim, 42);
     let config = TurboQuantConfig {
         bit_width,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 3,
     };
     let (original, decoded) = encode_decode(&fsl, &config)?;
@@ -75,7 +75,7 @@ fn high_bitwidth_mse_is_small(#[case] dim: usize, #[case] bit_width: u8) -> Vort
 
     let config_4bit = TurboQuantConfig {
         bit_width: 4,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 3,
     };
     let (original_4, decoded_4) = encode_decode(&fsl, &config_4bit)?;
@@ -83,7 +83,7 @@ fn high_bitwidth_mse_is_small(#[case] dim: usize, #[case] bit_width: u8) -> Vort
 
     let config = TurboQuantConfig {
         bit_width,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 3,
     };
     let (original, decoded) = encode_decode(&fsl, &config)?;
@@ -107,7 +107,7 @@ fn mse_decreases_with_bits() -> VortexResult<()> {
     for bit_width in 1..=8u8 {
         let config = TurboQuantConfig {
             bit_width,
-            seed: Some(123),
+            seed: 123,
             num_rounds: 3,
         };
         let (original, decoded) = encode_decode(&fsl, &config)?;
@@ -129,7 +129,7 @@ fn roundtrip_edge_cases(#[case] num_rows: usize) -> VortexResult<()> {
     let ext = make_vector_ext(&fsl);
     let config = TurboQuantConfig {
         bit_width: 2,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
@@ -158,7 +158,7 @@ fn rejects_dimension_below_128(#[case] dim: usize) {
     let ext = make_vector_ext(&fsl);
     let config = TurboQuantConfig {
         bit_width: 2,
-        seed: Some(0),
+        seed: 0,
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
@@ -173,7 +173,7 @@ fn rejects_invalid_bit_width(#[case] bit_width: u8) {
     let ext = make_vector_ext(&fsl);
     let config = TurboQuantConfig {
         bit_width,
-        seed: Some(0),
+        seed: 0,
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
@@ -184,7 +184,7 @@ fn rejects_invalid_bit_width(#[case] bit_width: u8) {
     let normalized_ext = normalized
         .as_opt::<Extension>()
         .expect("normalized child should be Extension");
-    assert!(unsafe { turboquant_encode_unchecked(normalized_ext, &config, &mut ctx) }.is_err());
+    assert!(turboquant_encode_normalized(normalized_ext, &config, &mut ctx).is_err());
 }
 
 #[test]
@@ -203,7 +203,7 @@ fn all_zero_vectors_roundtrip() -> VortexResult<()> {
 
     let config = TurboQuantConfig {
         bit_width: 3,
-        seed: Some(42),
+        seed: 42,
         num_rounds: 3,
     };
     let (original, decoded) = encode_decode(&fsl, &config)?;
@@ -223,7 +223,7 @@ fn large_dimension_roundtrip(#[case] dim: usize, #[case] bit_width: u8) -> Vorte
     let fsl = make_fsl(num_rows, dim, 42);
     let config = TurboQuantConfig {
         bit_width,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 3,
     };
     let (original, decoded) = encode_decode(&fsl, &config)?;
@@ -262,7 +262,7 @@ fn f64_input_encodes_successfully() -> VortexResult<()> {
     let ext = make_vector_ext(&fsl);
     let config = TurboQuantConfig {
         bit_width: 3,
-        seed: Some(42),
+        seed: 42,
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
@@ -295,7 +295,7 @@ fn f16_input_encodes_successfully() -> VortexResult<()> {
     let ext = make_vector_ext(&fsl);
     let config = TurboQuantConfig {
         bit_width: 3,
-        seed: Some(42),
+        seed: 42,
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
