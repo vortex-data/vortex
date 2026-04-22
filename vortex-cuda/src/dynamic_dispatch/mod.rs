@@ -664,7 +664,12 @@ mod tests {
         cuda_ctx: &CudaExecutionCtx,
         data: &[u32],
     ) -> VortexResult<(u64, Arc<cudarc::driver::CudaSlice<u32>>)> {
-        let device_buf = Arc::new(cuda_ctx.stream().clone_htod(data).expect("htod"));
+        let device_buf = Arc::new(
+            cuda_ctx
+                .stream()
+                .clone_htod(data)
+                .map_err(|e| vortex_err!("htod: {e}"))?,
+        );
         let (ptr, _) = device_buf.device_ptr(cuda_ctx.stream());
         Ok((ptr, device_buf))
     }
@@ -732,12 +737,15 @@ mod tests {
             cuda_ctx
                 .stream()
                 .clone_htod(plan.as_bytes())
-                .expect("copy plan to device"),
+                .map_err(|e| vortex_err!("copy plan to device: {e}"))?,
         );
         let (plan_ptr, record_plan) = device_plan.device_ptr(cuda_ctx.stream());
         let array_len_u64 = output_len as u64;
 
-        cuda_ctx.stream().synchronize().expect("sync");
+        cuda_ctx
+            .stream()
+            .synchronize()
+            .map_err(|e| vortex_err!("sync: {e}"))?;
 
         let cuda_function = cuda_ctx
             .load_function("dynamic_dispatch", &[PType::U32])
@@ -754,14 +762,16 @@ mod tests {
             shared_mem_bytes,
         };
         unsafe {
-            launch_builder.launch(config).expect("kernel launch");
+            launch_builder
+                .launch(config)
+                .map_err(|e| vortex_err!("kernel launch: {e}"))?;
         }
         drop((record_output, record_plan));
 
-        Ok(cuda_ctx
+        cuda_ctx
             .stream()
             .clone_dtoh(&output_buf.as_view::<u32>())
-            .expect("copy back"))
+            .map_err(|e| vortex_err!("copy back: {e}"))
     }
 
     fn run_dispatch_plan_f32(
@@ -1869,7 +1879,12 @@ mod tests {
 
         let i8_values: Vec<i8> = vec![-1, -2, -3, 127, -128, 0, 1, 42];
         let len = i8_values.len();
-        let device_buf = Arc::new(cuda_ctx.stream().clone_htod(&i8_values).expect("htod"));
+        let device_buf = Arc::new(
+            cuda_ctx
+                .stream()
+                .clone_htod(&i8_values)
+                .map_err(|e| vortex_err!("htod: {e}"))?,
+        );
         let (input_ptr, _) = device_buf.device_ptr(cuda_ctx.stream());
 
         // Build a single-stage LOAD plan: source ptype = I8, output ptype = U32.
@@ -1902,7 +1917,12 @@ mod tests {
 
         let i16_values: Vec<i16> = vec![-1, -256, -32768, 32767, 0, 1, -100, 12345];
         let len = i16_values.len();
-        let device_buf = Arc::new(cuda_ctx.stream().clone_htod(&i16_values).expect("htod"));
+        let device_buf = Arc::new(
+            cuda_ctx
+                .stream()
+                .clone_htod(&i16_values)
+                .map_err(|e| vortex_err!("htod: {e}"))?,
+        );
         let (input_ptr, _) = device_buf.device_ptr(cuda_ctx.stream());
 
         let plan = CudaDispatchPlan::new(

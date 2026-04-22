@@ -1113,8 +1113,8 @@ mod tests {
     /// inherits the input's nullability, giving us two different per-child nullabilities to
     /// round-trip.
     #[rstest]
-    #[case::vector(vector_array(3, &[3.0, 4.0, 0.0, 0.0, 0.0, 0.0]).unwrap())]
-    #[case::fixed_shape_tensor(tensor_array(&[2, 2], &[1.0, 2.0, 3.0, 4.0, 0.0, 0.0, 0.0, 0.0]).unwrap())]
+    #[case::vector(l2_denorm_vector_input())]
+    #[case::fixed_shape_tensor(l2_denorm_tensor_input())]
     fn serde_round_trip(#[case] input: ArrayRef) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let original = normalize_as_l2_denorm(input, &mut ctx)?.into_array();
@@ -1140,5 +1140,14 @@ mod tests {
         assert_eq!(recovered.len(), original.len());
         assert_eq!(recovered.encoding_id(), original.encoding_id());
         Ok(())
+    }
+
+    fn l2_denorm_vector_input() -> ArrayRef {
+        vector_array(3, &[3.0, 4.0, 0.0, 0.0, 0.0, 0.0]).expect("valid vector array")
+    }
+
+    fn l2_denorm_tensor_input() -> ArrayRef {
+        tensor_array(&[2, 2], &[1.0, 2.0, 3.0, 4.0, 0.0, 0.0, 0.0, 0.0])
+            .expect("valid tensor array")
     }
 }

@@ -669,7 +669,7 @@ mod test {
         let runtime = SingleThreadRuntime::default();
         let session = crate::scan::test::session_with_handle(runtime.handle());
 
-        let stream = ScanBuilder::new(session, reader).into_stream().unwrap();
+        let stream = ScanBuilder::new(session, reader).into_stream()?;
         let mut iter = runtime.block_on_stream(stream);
 
         let mut values = Vec::new();

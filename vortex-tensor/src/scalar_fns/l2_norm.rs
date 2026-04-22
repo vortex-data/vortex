@@ -418,8 +418,8 @@ mod tests {
     }
 
     #[rstest]
-    #[case::fixed_shape_tensor(tensor_array(&[3], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap(), 2)]
-    #[case::vector(vector_array(3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap(), 2)]
+    #[case::fixed_shape_tensor(l2_norm_tensor_child(), 2)]
+    #[case::vector(l2_norm_vector_child(), 2)]
     fn serde_round_trip(#[case] child: ArrayRef, #[case] len: usize) -> VortexResult<()> {
         let original = L2Norm::try_new_array(child.clone(), len)?.into_array();
 
@@ -442,5 +442,13 @@ mod tests {
         assert_eq!(recovered.len(), original.len());
         assert_eq!(recovered.encoding_id(), original.encoding_id());
         Ok(())
+    }
+
+    fn l2_norm_tensor_child() -> ArrayRef {
+        tensor_array(&[3], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).expect("valid tensor array")
+    }
+
+    fn l2_norm_vector_child() -> ArrayRef {
+        vector_array(3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).expect("valid vector array")
     }
 }

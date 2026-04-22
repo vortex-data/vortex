@@ -180,7 +180,7 @@ mod tests {
 
     #[test]
     fn test_parse_glob_url_absolute_glob_path() -> VortexResult<()> {
-        let tmpdir = tempfile::tempdir().unwrap();
+        let tmpdir = tempfile::tempdir()?;
         let glob = format!("{}/*.vortex", tmpdir.path().display());
         let url = parse_glob_url(&glob)?;
         assert_eq!(url.scheme(), "file");
@@ -190,9 +190,11 @@ mod tests {
 
     #[test]
     fn test_parse_glob_url_absolute_existing_path() -> VortexResult<()> {
-        let tmpfile = tempfile::NamedTempFile::new().unwrap();
-        let canonical = std::fs::canonicalize(tmpfile.path()).unwrap();
-        let path_str = canonical.to_str().unwrap();
+        let tmpfile = tempfile::NamedTempFile::new()?;
+        let canonical = std::fs::canonicalize(tmpfile.path())?;
+        let path_str = canonical
+            .to_str()
+            .ok_or_else(|| vortex_err!("canonical path is not valid UTF-8"))?;
         let url = parse_glob_url(path_str)?;
         assert_eq!(url.scheme(), "file");
         assert_eq!(url.path(), path_str);
@@ -203,8 +205,13 @@ mod tests {
     fn test_parse_glob_url_relative_path() -> VortexResult<()> {
         // Create a tempfile in the current working directory so we can refer to it
         // by a relative name (just the filename, without any directory component).
-        let tmpfile = tempfile::NamedTempFile::new_in(".").unwrap();
-        let filename = tmpfile.path().file_name().unwrap().to_str().unwrap();
+        let tmpfile = tempfile::NamedTempFile::new_in(".")?;
+        let filename = tmpfile
+            .path()
+            .file_name()
+            .ok_or_else(|| vortex_err!("temp file missing file name"))?
+            .to_str()
+            .ok_or_else(|| vortex_err!("temp file name is not valid UTF-8"))?;
 
         let url = parse_glob_url(filename)?;
         assert_eq!(url.scheme(), "file");
@@ -218,8 +225,13 @@ mod tests {
     fn test_parse_glob_url_relative_glob_path() -> VortexResult<()> {
         // A relative path with a glob character (e.g. `./data/*.vortex`) must also resolve
         // correctly.
-        let tmpdir = tempfile::tempdir_in(".").unwrap();
-        let dir_name = tmpdir.path().file_name().unwrap().to_str().unwrap();
+        let tmpdir = tempfile::tempdir_in(".")?;
+        let dir_name = tmpdir
+            .path()
+            .file_name()
+            .ok_or_else(|| vortex_err!("temp dir missing file name"))?
+            .to_str()
+            .ok_or_else(|| vortex_err!("temp dir name is not valid UTF-8"))?;
         let glob = format!("./{dir_name}/*.vortex");
         let url = parse_glob_url(&glob)?;
         assert_eq!(url.scheme(), "file");
@@ -241,8 +253,13 @@ mod tests {
     fn test_parse_glob_url_parent_relative_path() -> VortexResult<()> {
         // A path starting with `..` must be resolved to an absolute path without
         // percent-encoding the `..` component in the resulting URL.
-        let tmpfile = tempfile::NamedTempFile::new_in("..").unwrap();
-        let filename = tmpfile.path().file_name().unwrap().to_str().unwrap();
+        let tmpfile = tempfile::NamedTempFile::new_in("..")?;
+        let filename = tmpfile
+            .path()
+            .file_name()
+            .ok_or_else(|| vortex_err!("temp file missing file name"))?
+            .to_str()
+            .ok_or_else(|| vortex_err!("temp file name is not valid UTF-8"))?;
         let relative = format!("../{filename}");
 
         let url = parse_glob_url(&relative)?;

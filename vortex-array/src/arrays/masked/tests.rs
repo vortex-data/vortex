@@ -46,7 +46,7 @@ fn test_dtype_nullability_with_nullable_child() {
 fn test_canonical_dtype_matches_array_dtype() -> VortexResult<()> {
     // The canonical form should have the same nullability as the array's dtype.
     let child = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
-    let array = MaskedArray::try_new(child, Validity::AllValid).unwrap();
+    let array = MaskedArray::try_new(child, Validity::AllValid)?;
 
     let canonical = array
         .clone()
