@@ -194,7 +194,6 @@ mod tests {
 
     #[test]
     fn vector_unions_outer_nullability_with_float_widening() -> VortexResult<()> {
-        // Regression: widened result must re-validate — element non-nullable invariant preserved.
         let lhs = vector_dtype_with_outer(PType::F32, 4, Nullability::NonNullable)?;
         let rhs = vector_dtype_with_outer(PType::F64, 4, Nullability::Nullable)?;
         let expected = vector_dtype_with_outer(PType::F64, 4, Nullability::Nullable)?;

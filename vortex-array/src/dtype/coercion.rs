@@ -79,13 +79,27 @@ impl DType {
     /// The core primitive — what type can hold both `self` and `other`?
     /// Returns `None` if no common supertype exists.
     pub fn least_supertype(&self, other: &DType) -> Option<DType> {
-        // 1. Same type modulo outer nullability: union outer and return. Nested types
-        //    whose only difference is inner nullability fall through to their own arms.
-        if self.with_nullability(other.nullability()) == *other {
-            return Some(self.with_nullability(self.nullability() | other.nullability()));
+        let union_null = self.nullability() | other.nullability();
+
+        if let (
+            DType::FixedSizeList(lhs_elem, lhs_size, _),
+            DType::FixedSizeList(rhs_elem, rhs_size, _),
+        ) = (self, other)
+            && lhs_size == rhs_size
+        {
+            let elem = lhs_elem.least_supertype(rhs_elem)?;
+            return Some(DType::FixedSizeList(Arc::new(elem), *lhs_size, union_null));
         }
 
-        let union_null = self.nullability() | other.nullability();
+        if let (DType::List(lhs_elem, _), DType::List(rhs_elem, _)) = (self, other) {
+            let elem = lhs_elem.least_supertype(rhs_elem)?;
+            return Some(DType::List(Arc::new(elem), union_null));
+        }
+
+        // 1. Identity (ignoring nullability): return self with union nullability
+        if self.eq_ignore_nullability(other) {
+            return Some(self.with_nullability(union_null));
+        }
 
         // 2. Null + X: return X as nullable
         if matches!(self, DType::Null) {
@@ -129,24 +143,7 @@ impl DType {
             return decimal_least_supertype(int_dec, *dec).map(|d| DType::Decimal(d, union_null));
         }
 
-        // 7. FixedSizeList + FixedSizeList: same size, recurse on element dtype.
-        if let (
-            DType::FixedSizeList(lhs_elem, lhs_size, _),
-            DType::FixedSizeList(rhs_elem, rhs_size, _),
-        ) = (self, other)
-            && lhs_size == rhs_size
-        {
-            let elem = lhs_elem.least_supertype(rhs_elem)?;
-            return Some(DType::FixedSizeList(Arc::new(elem), *lhs_size, union_null));
-        }
-
-        // 8. List + List: recurse on element dtype.
-        if let (DType::List(lhs_elem, _), DType::List(rhs_elem, _)) = (self, other) {
-            let elem = lhs_elem.least_supertype(rhs_elem)?;
-            return Some(DType::List(Arc::new(elem), union_null));
-        }
-
-        // 9. Extension + anything: delegate to vtable
+        // 7. Extension + anything: delegate to vtable
         if let DType::Extension(ext) = self {
             return ext
                 .least_supertype(other)
@@ -158,7 +155,7 @@ impl DType {
                 .map(|dt| dt.with_nullability(union_null));
         }
 
-        // 10. Everything else: no common supertype
+        // 8. Everything else: no common supertype
         None
     }
 
@@ -172,6 +169,21 @@ impl DType {
 
     /// Is there any implicit coercion path from `other` to `self`?
     pub fn can_coerce_from(&self, other: &DType) -> bool {
+        if let (
+            DType::FixedSizeList(target_elem, target_size, _),
+            DType::FixedSizeList(source_elem, source_size, _),
+        ) = (self, other)
+        {
+            return target_size == source_size
+                && (self.is_nullable() || !other.is_nullable())
+                && target_elem.can_coerce_from(source_elem);
+        }
+
+        if let (DType::List(target_elem, _), DType::List(source_elem, _)) = (self, other) {
+            return (self.is_nullable() || !other.is_nullable())
+                && target_elem.can_coerce_from(source_elem);
+        }
+
         // 1. Same type (ignoring nullability): check nullability compatibility
         if self.eq_ignore_nullability(other) {
             return self.is_nullable() || !other.is_nullable();
@@ -214,24 +226,12 @@ impl DType {
                 && (self.is_nullable() || !other.is_nullable());
         }
 
-        // 7. FixedSizeList / List widening: defer to least_supertype + identity check
-        if matches!(
-            (self, other),
-            (DType::FixedSizeList(..), DType::FixedSizeList(..))
-                | (DType::List(..), DType::List(..))
-        ) {
-            return other
-                .least_supertype(self)
-                .is_some_and(|st| st.eq_ignore_nullability(self))
-                && (self.is_nullable() || !other.is_nullable());
-        }
-
-        // 8. Extension: delegate to vtable
+        // 7. Extension: delegate to vtable
         if let DType::Extension(ext) = self {
             return ext.can_coerce_from(other);
         }
 
-        // 9. Everything else: false
+        // 8. Everything else: false
         false
     }
 
@@ -681,6 +681,49 @@ mod tests {
         );
         assert!(target.can_coerce_from(&source));
         assert!(!source.can_coerce_from(&target));
+    }
+
+    #[test]
+    fn fsl_can_coerce_from_rejects_nullable_source_elements() {
+        let target = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F64, NonNullable)),
+            4,
+            NonNullable,
+        );
+        let source = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F32, Nullable)),
+            4,
+            NonNullable,
+        );
+        assert!(!target.can_coerce_from(&source));
+    }
+
+    #[test]
+    fn list_can_coerce_from_rejects_nullable_source_elements() {
+        let target = DType::List(
+            Arc::new(DType::Primitive(PType::F64, NonNullable)),
+            NonNullable,
+        );
+        let source = DType::List(
+            Arc::new(DType::Primitive(PType::F32, Nullable)),
+            NonNullable,
+        );
+        assert!(!target.can_coerce_from(&source));
+    }
+
+    #[test]
+    fn fsl_can_coerce_from_allows_widening_nullable_target() {
+        let target = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::I32, Nullable)),
+            4,
+            NonNullable,
+        );
+        let source = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::I32, NonNullable)),
+            4,
+            NonNullable,
+        );
+        assert!(target.can_coerce_from(&source));
     }
 
     #[test]
