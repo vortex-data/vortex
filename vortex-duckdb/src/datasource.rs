@@ -21,9 +21,7 @@ use num_traits::AsPrimitive;
 use tracing::debug;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
-use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::ScalarFn;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
@@ -35,7 +33,6 @@ use vortex::dtype::FieldNames;
 use vortex::dtype::Nullability;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::VortexExprExt;
@@ -63,10 +60,11 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::RUNTIME;
 use crate::SESSION;
 use crate::convert::ToDuckDBScalar;
-use crate::duckdb::ExtractedValue;
-use crate::duckdb::TableFilterClass;
 use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_table_filter;
+use crate::hive::HivePartitionColumn;
+use crate::hive::interleave_partition_columns;
+use crate::hive::partition_value_matches_filter;
 use crate::duckdb::BindInputRef;
 use crate::duckdb::BindResultRef;
 use crate::duckdb::Cardinality;
@@ -94,87 +92,6 @@ use crate::exporter::ConversionCache;
 /// virtual column.
 /// See vortex-duckdb/cpp/table_function.cpp
 static EMPTY_COLUMN_IDX: u64 = 18446744073709551614;
-
-/// A hive-style partition column produced during bind.
-///
-/// Each column has a name (the partition key) and one string value per file,
-/// in the same order as the files resolved from the glob pattern.
-#[derive(Debug, Clone)]
-pub(crate) struct HivePartitionColumn {
-    pub name: String,
-    /// One value per file, in file-discovery order.
-    pub values: Vec<String>,
-}
-
-/// Extracts hive-style `key=value` pairs from path segments.
-///
-/// For example, given `/data/year=2023/month=01/file.vortex`,
-/// returns `[("year", "2023"), ("month", "01")]`.
-pub(crate) fn extract_hive_partitions(path: &str) -> Vec<(String, String)> {
-    let mut partitions = Vec::new();
-    for segment in path.split('/') {
-        if let Some((key, value)) = segment.split_once('=') {
-            if !key.is_empty() && !value.is_empty() {
-                partitions.push((key.to_string(), value.to_string()));
-            }
-        }
-    }
-    partitions
-}
-
-/// Builds per-column hive partition data from a list of file paths.
-///
-/// All files must have the same partition keys in the same order.
-pub(crate) fn extract_hive_partition_columns(
-    file_paths: &[String],
-) -> VortexResult<Vec<HivePartitionColumn>> {
-    if file_paths.is_empty() {
-        return Ok(vec![]);
-    }
-
-    let all_partitions: Vec<Vec<(String, String)>> = file_paths
-        .iter()
-        .map(|p| extract_hive_partitions(p))
-        .collect();
-
-    let first = &all_partitions[0];
-    for (idx, partitions) in all_partitions.iter().enumerate() {
-        if partitions.len() != first.len() {
-            vortex_bail!(
-                "Hive partition mismatch: file {} has {} partition keys but expected {}",
-                file_paths[idx],
-                partitions.len(),
-                first.len()
-            );
-        }
-        for (i, (key, _)) in partitions.iter().enumerate() {
-            if key != &first[i].0 {
-                vortex_bail!(
-                    "Hive partition key mismatch: file {} has key '{}' but expected '{}'",
-                    file_paths[idx],
-                    key,
-                    first[i].0
-                );
-            }
-        }
-    }
-
-    let mut columns: Vec<HivePartitionColumn> = first
-        .iter()
-        .map(|(key, _)| HivePartitionColumn {
-            name: key.clone(),
-            values: Vec::with_capacity(file_paths.len()),
-        })
-        .collect();
-
-    for partitions in &all_partitions {
-        for (i, (_, value)) in partitions.iter().enumerate() {
-            columns[i].values.push(value.clone());
-        }
-    }
-
-    Ok(columns)
-}
 
 /// A trait for table functions that resolve to a [`DataSourceRef`].
 ///
@@ -718,9 +635,16 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                 // inserted at the positions DuckDB expects. We recorded the required schema
                 // column order in global_state.output_schema_cols at init time.
                 if bind_data.hive_partitioning && !bind_data.hive_partition_columns.is_empty() {
+                    let file_column_names: Vec<String> =
+                        bind_data.column_fields[..bind_data.file_column_count]
+                            .iter()
+                            .map(|f| f.name.clone())
+                            .collect();
                     array_result = interleave_partition_columns(
                         array_result,
-                        bind_data,
+                        bind_data.file_column_count,
+                        &file_column_names,
+                        &bind_data.hive_partition_columns,
                         conversion_cache.file_index,
                         &global_state.output_schema_cols,
                     )?;
@@ -877,113 +801,6 @@ impl<T: DataSourceTableFunction> TableFunction for T {
 // ---------------------------------------------------------------------------
 // Helper functions
 // ---------------------------------------------------------------------------
-
-/// Returns `true` when `value` satisfies the DuckDB table filter.
-///
-/// Partition column values are always non-null UTF-8 strings. Unknown filter types
-/// conservatively return `true` (do not prune the file).
-fn partition_value_matches_filter(
-    value: &str,
-    filter: &crate::duckdb::TableFilterRef,
-) -> bool {
-    use crate::cpp::DUCKDB_VX_EXPR_TYPE;
-
-    match filter.as_class() {
-        TableFilterClass::ConstantComparison(const_) => {
-            let filter_str = match const_.value.extract() {
-                ExtractedValue::Varchar(v) => v.to_string(),
-                _ => return true, // non-varchar comparison: don't prune
-            };
-            let f = filter_str.as_str();
-            match const_.operator {
-                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_EQUAL => value == f,
-                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOTEQUAL => value != f,
-                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_GREATERTHAN => value > f,
-                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHAN => value < f,
-                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_GREATERTHANOREQUALTO => {
-                    value >= f
-                }
-                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHANOREQUALTO => {
-                    value <= f
-                }
-                _ => true,
-            }
-        }
-        TableFilterClass::ConjunctionAnd(conj) => conj
-            .children()
-            .all(|child| partition_value_matches_filter(value, child)),
-        TableFilterClass::ConjunctionOr(disj) => disj
-            .children()
-            .any(|child| partition_value_matches_filter(value, child)),
-        TableFilterClass::InFilter(values) => values.iter().any(|v| match v.extract() {
-            ExtractedValue::Varchar(fv) => value == fv.to_string().as_str(),
-            _ => false,
-        }),
-        TableFilterClass::IsNull => false, // partition values are never null
-        TableFilterClass::IsNotNull => true,
-        _ => true, // unknown filter type: conservatively pass
-    }
-}
-
-/// Rebuilds `array_result` with hive partition columns interleaved at the positions DuckDB
-/// expects, as recorded in `output_schema_cols`.
-///
-/// DuckDB's projection may reorder columns (e.g. filter column first), so we cannot simply
-/// append partition columns at the end of the StructArray. Instead we iterate
-/// `output_schema_cols` — the schema column index per output DataChunk vector — and place each
-/// file column (taken in order from `array_result`) or partition constant at the right slot.
-fn interleave_partition_columns(
-    array_result: StructArray,
-    bind_data: &DataSourceBindData,
-    file_index: usize,
-    output_schema_cols: &[usize],
-) -> VortexResult<StructArray> {
-    use vortex::array::arrays::struct_::StructDataParts;
-    use vortex::array::validity::Validity;
-
-    let row_count = array_result.len();
-    let file_column_count = bind_data.file_column_count;
-
-    if output_schema_cols.is_empty() {
-        // Zero-column projection: just append partition cols at the end (won't affect output).
-        let mut result = array_result;
-        for partition_col in &bind_data.hive_partition_columns {
-            let value = &partition_col.values[file_index];
-            let constant_array = ConstantArray::new(Scalar::from(value.as_str()), row_count);
-            result =
-                result.with_column(partition_col.name.as_str(), constant_array.into_array())?;
-        }
-        return Ok(result);
-    }
-
-    // Extract file field arrays in their current order (matching the file-column positions
-    // in output_schema_cols, which is also the order extract_projection_expr requested them).
-    let StructDataParts { fields: file_arrays, .. } = array_result.into_data_parts();
-
-    let mut file_col_cursor = 0usize;
-    let mut out_names: Vec<Arc<str>> = Vec::with_capacity(output_schema_cols.len());
-    let mut out_arrays: Vec<ArrayRef> = Vec::with_capacity(output_schema_cols.len());
-
-    for &schema_col in output_schema_cols {
-        if schema_col < file_column_count {
-            let name = Arc::from(bind_data.column_fields[schema_col].name.as_str());
-            let arr = file_arrays[file_col_cursor].clone();
-            out_names.push(name);
-            out_arrays.push(arr);
-            file_col_cursor += 1;
-        } else {
-            let part_idx = schema_col - file_column_count;
-            let part_col = &bind_data.hive_partition_columns[part_idx];
-            let value = &part_col.values[file_index];
-            let constant_array = ConstantArray::new(Scalar::from(value.as_str()), row_count);
-            out_names.push(Arc::from(part_col.name.as_str()));
-            out_arrays.push(constant_array.into_array());
-        }
-    }
-
-    let names: FieldNames = out_names.into_iter().collect();
-    StructArray::try_new(names, out_arrays, row_count, Validity::NonNullable.into())
-}
 
 /// Extracts DuckDB column names and logical types from a Vortex struct DType.
 fn extract_schema_from_dtype(dtype: &DType) -> VortexResult<Vec<DuckdbField>> {

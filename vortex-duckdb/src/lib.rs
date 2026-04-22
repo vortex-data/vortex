@@ -28,6 +28,7 @@ mod datasource;
 pub mod duckdb;
 mod exporter;
 mod filesystem;
+mod hive;
 mod multi_file;
 
 #[rustfmt::skip]
