@@ -89,7 +89,10 @@ than to the data. An axum SSR site on top of a real database lets us:
   small (tens of MB, single-digit millions of rows).
 - We are not going to store raw benchmark traces (pprof, flamegraphs). That
   stays in Polar Signals / CI artifacts.
-- We are not replacing the CI runners or `vortex-bench` itself. We change the
-  output *sink*, not the measurement logic.
+- We are not replacing the CI runners or `vortex-bench`'s measurement
+  logic. We do, however, **extend `vortex-bench` with a new output format
+  (`-d gh-json-v3`)** that emits structured records directly - this lets
+  the website's `/api/ingest` skip the v2 name-parsing classifier
+  entirely. See [`10-emitter-changes.md`](./10-emitter-changes.md).
 - We are not building a PR-blocking regression detector in this project. That
   can be built later on top of the new DB.

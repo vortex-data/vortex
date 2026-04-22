@@ -135,8 +135,10 @@ the current site (the other is the append-JSONL storage model).
 
 ## v2 files worth re-reading before v3 work
 
-- `benchmarks-website/server.js` - for the classifier heuristics we need to
-  encode into the ingester.
+- `benchmarks-website/server.js` - for the classifier heuristics. They
+  get ported *once*, into the one-shot migrator binary, to handle
+  historical data. See `planning/10-emitter-changes.md` for why the v3
+  server itself has no classifier.
 - `benchmarks-website/src/config.js` - for the set of known groups, engines,
   and rename rules.
 - `benchmarks-website/src/components/BenchmarkSection.jsx` - for the summary

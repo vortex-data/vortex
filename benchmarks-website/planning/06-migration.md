@@ -93,10 +93,13 @@ cargo run -p benchmarks-website-migrator --release -- verify \
 
 5. (Optional) Upload the resulting DB to the preview key.
 
-### The classifier
+### The classifier (one-shot, migrator-only)
 
-This is the crux of the migration. One Rust function, shared with the
-ingest endpoint's request handler:
+This is the crux of the migration. It lives **only in the migrator
+binary** and gets deleted post-cutover along with the migrator itself.
+The server has no classifier (see
+[`07-ingestion.md`](./07-ingestion.md) and
+[`10-emitter-changes.md`](./10-emitter-changes.md)).
 
 ```rust
 /// Classify a raw measurement into dimensional columns for the measurements
@@ -155,27 +158,43 @@ are."
 
 ## Cutover plan
 
-1. **Dev loop.** Run the migrator → local file. Spin up the axum server
-   against the local file. Compare charts manually against live v2. Fix
-   classifier bugs. Repeat until `verify` passes cleanly.
+Sequencing is: emitters first, then migrate history, then dual-write, then
+cut DNS. The order matters - the v3 server needs v3-shape input, which
+means `vortex-bench` has to emit it before we can run the server against
+real CI data.
 
-2. **Preview deploy.** Stand up a separate hostname
+1. **Extend `vortex-bench` emitters.** Add `-d gh-json-v3` output to every
+   measurement type. See [`10-emitter-changes.md`](./10-emitter-changes.md).
+   No CI changes yet; just code + unit tests.
+
+2. **Write the migrator.** Port v2's `server.js::getGroup` into the
+   migrator's one-shot classifier. Run it against a *copy* of
+   `data.json.gz` → local DuckDB. Verify against v2's `/api/metadata`.
+   Iterate on the classifier until `verify` passes cleanly.
+
+3. **Preview deploy.** Stand up a separate hostname
    (`bench-preview.vortex.dev`) running the full v3 stack against a preview
-   DB on EBS. Run the migrator once, pointed at that server's `/api/ingest`.
-   Leave it sitting for a week so we can compare live v2 vs. live v3-preview
-   side by side.
+   DB on EBS. Run the migrator once, pointed at that server's
+   `/api/ingest`. Leave it sitting for a week so we can compare live v2
+   vs. live v3-preview side by side.
 
-3. **Dual-write window.** Wire `scripts/post-ingest.py` into the CI
-   workflows (`bench.yml`, `sql-benchmarks.yml`) *in addition to* the
-   existing `cat-s3.sh` calls. New runs land in both places. Preview site
-   now stays fresh; production site (still v2) is unchanged.
+4. **Dual-write window.** Wire the new `-d gh-json-v3` + POST step into
+   the CI workflows (`bench.yml`, `sql-benchmarks.yml`) *in addition to*
+   the existing `-d gh-json` + `cat-s3.sh` calls. New runs land in both
+   places. Preview v3 site now stays fresh; production v2 site is
+   unchanged.
 
-4. **Cut DNS.** Flip `bench.vortex.dev` to the v3 container.
+5. **Cut DNS.** Flip `bench.vortex.dev` to the v3 container.
 
-5. **After one quiet week** with no regressions, remove `cat-s3.sh` from the
-   CI workflows. `data.json.gz` stops being written; the frozen file stays
-   archived on S3 as historical reference but is no longer authoritative.
-   Delete the migrator binary source (the DB is now authoritative).
+6. **Retire v2.** After one quiet week with no regressions:
+   - Remove the `-d gh-json` emitter path and the `ToJson` impls in
+     `vortex-bench` (keep only `ToV3Json`).
+   - Remove `cat-s3.sh`, `commit-json.sh`, and the corresponding steps
+     from the CI workflows.
+   - `data.json.gz` stops being written; the frozen file stays archived
+     on S3 as historical reference but is no longer authoritative.
+   - **Delete the migrator binary source and its one-shot classifier.**
+     The main repo is now classifier-free.
 
 ## What we do NOT delete during migration
 

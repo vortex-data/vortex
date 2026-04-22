@@ -30,7 +30,8 @@ Read in order:
 | 06 | [`06-migration.md`](./06-migration.md) | One-time historical data migration plan (JSONL → DuckDB). |
 | 07 | [`07-ingestion.md`](./07-ingestion.md) | Ongoing ingestion: how new runs get into the DB. Replaces `cat-s3.sh`. |
 | 08 | [`08-website.md`](./08-website.md) | UX principles and page inventory. |
-| 09 | [`09-open-questions.md`](./09-open-questions.md) | Unresolved decisions that need human input before implementation. |
+| 09 | [`09-open-questions.md`](./09-open-questions.md) | Unresolved decisions + a log of resolved ones. |
+| 10 | [`10-emitter-changes.md`](./10-emitter-changes.md) | The `vortex-bench` extension that lets us emit v3-shape JSON directly, deleting the need for a classifier in the server. |
 
 ## Memory files
 

@@ -89,27 +89,28 @@ problems (no CAS, no snapshot polling, no split-brain).
 ### 3. Ingester (new, Rust)
 
 Not its own long-running service - it's **a route on the axum server**:
-`POST /api/ingest`. The classifier (the "parse raw vortex-bench JSON →
-structured row" logic ported from v2's `server.js::getGroup`) is a
-module *inside the server crate*, not a separate crate.
-
-The migrator binary (component 4) lives in the same crate as a sibling
-binary (`src/bin/migrate.rs`) and imports the classifier module directly.
-Post-cutover the migrator binary gets deleted; the classifier module
-stays because `/api/ingest` still needs it for every CI POST.
+`POST /api/ingest`. **No classifier lives in the server.** `vortex-bench`
+is extended to emit v3-shape JSON directly (see
+[`10-emitter-changes.md`](./10-emitter-changes.md)); the ingest handler is
+a serde-validated passthrough that upserts rows straight into
+`measurements`. ~50 lines of route-handler code, no string parsing.
 
 ### 4. One-shot historical migrator (new)
 
-- Sibling binary in the server crate (`src/bin/migrate.rs`).
-- Reads `data.json.gz` + `commits.json` + `file-sizes-*.json.gz` from S3.
-- For each record: runs the classifier (same module as the server),
-  produces a structured row.
+- Standalone crate or binary under `benchmarks-website/migrator/`, kept
+  on the development branch only. **Never lands on `main` / `develop`.**
+- Reads the historical v2-shape `data.json.gz` + `commits.json` +
+  `file-sizes-*.json.gz` from S3.
+- Carries its own v2→v3 classifier (the "parse `name` back into structured
+  dimensions" logic ported from v2's `server.js::getGroup`). This is the
+  **only place a classifier exists** in the whole plan, and it's
+  single-use.
 - Either (a) POSTs in batches to a running server's `/api/ingest`, or
   (b) writes directly into a local DuckDB file when running without a
   server (for dev / testing).
 - Idempotent (deterministic `measurement_id` hash). Re-running it is free.
-- **Deleted from the main branch post-cutover** - it's one-shot
-  scaffolding, not ongoing infrastructure. See [`06-migration.md`](./06-migration.md).
+- **Deleted alongside its classifier post-cutover.** See
+  [`06-migration.md`](./06-migration.md).
 
 ## What runs where
 

@@ -32,9 +32,13 @@ app except to fix bugs.
 - Commit metadata lives in `s3://vortex-ci-benchmark-results/commits.json`.
 - `vortex-bench/src/measurements.rs` is the emitter. There are ~4 distinct
   record shapes (see `planning/03-raw-data-schema.md`).
-- The current v2 Node server at `benchmarks-website/server.js` does all the
-  classification of raw records into groups/charts/series. This logic **must
-  be ported into the v3 ingester**, bug-for-bug, before we can cut over.
+- The current v2 Node server at `benchmarks-website/server.js` parses those
+  records into groups/charts/series via a hand-written regex stack
+  (`getGroup`, `formatQuery`, `normalizeChartName`). **v3 deletes this
+  problem** by extending `vortex-bench` to emit v3-shape JSON directly -
+  see `planning/10-emitter-changes.md`. The v2 regex logic lives exactly
+  once more, inside the one-shot historical migrator, which is deleted
+  post-cutover.
 
 ### Prior art on `ct/vfvb`
 
@@ -75,57 +79,73 @@ norms. Callouts specific to this project:
 
 Later agents will work on feature branches like:
 
-- `claude/benchmarks-v3-ingester`
-- `claude/benchmarks-v3-server`
-- `claude/benchmarks-v3-cutover`
+- `claude/benchmarks-v3-emitters`   (vortex-bench `-d gh-json-v3` + vector-search-bench CI wiring)
+- `claude/benchmarks-v3-migrator`   (one-shot historical migrator + classifier)
+- `claude/benchmarks-v3-server`     (axum server, routes, templates)
+- `claude/benchmarks-v3-cutover`    (CI dual-write wiring + DNS flip + v2 retire)
 
 Each picks up from `develop`, not from the planning branch.
 
 ## Recommended implementation order
 
-This is suggested, not prescriptive.
+This is suggested, not prescriptive. The emitter work comes first because
+everything downstream depends on the shape of its output.
 
-1. **Shared classifier crate + migrator**. Write a `benchmarks-website-shared`
-   crate with `RawMeasurement` types and the `classify()` function (v2's
-   `server.js::getGroup` ported bug-for-bug). Write a `migrator` binary that
-   reads a *copy* of `data.json.gz` + `commits.json` and writes a
-   `bench.duckdb` to local disk. Compare the resulting DB's distinct
-   (group, chart, series, commit) tuples against v2's `/api/metadata`. Do not
-   move forward until this diff is clean.
+1. **Extend `vortex-bench` emitters.** Add the `-d gh-json-v3` output
+   format to every measurement type (see `planning/10-emitter-changes.md`).
+   Existing `-d gh-json` path stays intact. Include vector-search-bench
+   in this pass - it doesn't emit `gh-json` today and should gain v3
+   emission + a CI workflow.
 
-2. **axum scaffold**. Stand up a minimal axum SSR server that opens the
-   prototype DuckDB read-write and renders one chart. Prove the end-to-end
-   loop works.
+2. **Write the migrator.** Standalone binary under
+   `benchmarks-website/migrator/` (or wherever - kept off `main` /
+   `develop`). Carries its own one-shot v2→v3 classifier (port v2's
+   `server.js::getGroup` bug-for-bug). Reads `data.json.gz` +
+   `commits.json` + `file-sizes-*.json.gz`, emits a populated
+   `bench.duckdb`. Verify against v2's `/api/metadata` before moving on.
 
-3. **Ingest endpoint**. Add `POST /api/ingest` to the axum server. Reuse
-   `classify()` from step 1 - same code path for "migrate historical data"
-   and "accept a new CI POST". Wire auth (OIDC or bearer, see Q3).
+3. **Server scaffold.** Stand up a minimal axum server that opens the
+   migrator's DuckDB read-write and renders one chart with a template.
+   Prove the end-to-end loop works.
 
-4. **CI integration**. Add a POST step to `.github/workflows/bench.yml` and
-   `sql-benchmarks.yml` that runs *in addition to* the existing `cat-s3.sh`
-   calls. Dual-write for a grace period.
+4. **Ingest endpoint.** Add `POST /api/ingest` to the server. **No
+   classifier** - the handler serde-parses v3-shape records and upserts.
+   Wire bearer-token auth.
 
-5. **Website feature parity**. Build out the page inventory from
+5. **CI integration (dual-write).** Add the new `-d gh-json-v3` + POST
+   step to `.github/workflows/bench.yml` and `sql-benchmarks.yml`,
+   alongside the existing `-d gh-json` + `cat-s3.sh` calls. Add the
+   `drain-ingest-outbox.yml` cron workflow for the spool-to-S3 safety
+   net.
+
+6. **Website feature parity.** Build out the page inventory from
    `planning/08-website.md`. Start with `/group/:slug` + `/chart/:slug`;
    landing and per-commit come later.
 
-6. **Cutover**. Flip DNS, drop `cat-s3.sh` after a quiet week, archive v2.
+7. **Cutover.** Flip DNS, then in a follow-up PR: remove the `-d gh-json`
+   emission path, remove `cat-s3.sh` / `commit-json.sh`, **delete the
+   migrator binary and its classifier**. The main repo is now classifier-
+   free.
 
 ## Things to avoid
 
-- Don't touch `vortex-bench`'s emission format in this project. We are
-  changing the *sink*, not the source. If the emitter produces garbage,
-  fix that in a separate PR.
-- Don't invent new dimension tables / new group categorizations beyond what
-  v2 already has. **Parity first, improvements later.** It's much easier to
-  argue about whether "Compression" should be split into "Write" and "Scan"
-  *after* users can see both versions side by side.
-- Don't delete `scripts/cat-s3.sh`, `commits-json.sh`, `data.json.gz`, or any
-  v2 code until cutover is complete and verified. These are the rollback path.
+- **Don't write a string-parsing classifier in the server.** If you find
+  yourself porting v2's `getGroup` regex stack into the axum app, stop.
+  Extend `vortex-bench`'s emitter instead and emit the v3-shape directly.
+  See `planning/10-emitter-changes.md`. The only place a classifier is
+  allowed to exist is inside the one-shot migrator binary, and that
+  binary is deleted post-cutover.
+- Don't invent new dimension tables / new group categorizations beyond
+  what v2 already has. **Parity first, improvements later.** It's much
+  easier to argue about whether "Compression" should be split into
+  "Write" and "Scan" *after* users can see both versions side by side.
+- Don't remove v2's `-d gh-json` output path from `vortex-bench` until
+  cutover is complete. Same for `scripts/cat-s3.sh` / `commits-json.sh` -
+  they are the dual-write rollback path.
 - Don't add WASM to the critical path. If you find yourself reaching for
   `wasm-bindgen`, stop and reread `planning/00-context.md`.
-- Don't over-engineer schema evolution. Our raw data is tiny; re-running the
-  migrator is free. Start simple.
+- Don't over-engineer schema evolution. Our raw data is tiny; the
+  migrator can be re-run during development for free. Start simple.
 
 ## Questions that keep coming up
 
@@ -135,8 +155,9 @@ No. They're views. See `planning/05-schema.md`.
 
 > "Should we precompute downsampled series in the DB?"
 
-Probably not, but it's in open questions (Q1-related). DuckDB can do it fast.
-If server-side memoization isn't enough, revisit.
+Probably not. DuckDB can compute LTTB-style slices on demand quickly enough
+at our data size. Revisit if charts ever render slowly. See
+`planning/09-open-questions.md` Q2.
 
 > "Can we drop the v2 config.js mapping tables entirely?"
 
@@ -147,10 +168,12 @@ up "TPC-H (NVMe) (SF=10)"?) moves into typed Rust code, not SQL strings -
 see `planning/05-schema.md` for why `filter_sql` was rejected. The frontend's
 only static config should be purely visual (e.g. a fallback color palette).
 
-> "What if axum isn't ready?"
+> "Where does the classifier live?"
 
-See Q3 in `planning/09-open-questions.md`. Fallback is axum + templates
-(askama/maud) with minimal client JS. The DB layer is framework-agnostic.
+**In the one-shot migrator only.** Nowhere else. The server doesn't have
+one; neither does any part of the main repo. `vortex-bench` emits v3-shape
+records directly (see `planning/10-emitter-changes.md`), so the server's
+`/api/ingest` is a serde-validated passthrough.
 
 ## How to update this file
 

@@ -69,20 +69,27 @@ Server responsibilities:
    already has this info via `scripts/commit-json.sh` and ships it in the
    payload. Keeps the server free of GitHub API dependencies / tokens /
    rate limits.
-3. For each record: run the **classifier** (the same Rust logic the
-   migrator uses - it's a shared library) to produce a structured row.
+3. For each record: parse it with serde into a `ClassifiedMeasurement`
+   struct. **No classification / name-parsing step.** `vortex-bench`
+   emits v3-shape records directly (see
+   [`10-emitter-changes.md`](./10-emitter-changes.md)), so the server
+   just validates the shape.
 4. Compute `measurement_id` (see [`05-schema.md`](./05-schema.md)).
 5. `INSERT ... ON CONFLICT (measurement_id) DO UPDATE`. Duplicate POSTs are
    a no-op.
-6. Records the classifier rejects go into the `unclassified_records`
-   sidecar table (never silently dropped). Response body includes their
-   count so CI logs surface them.
+6. Records that fail serde parsing (malformed JSON, missing required
+   fields) go into the `unclassified_records` sidecar table for
+   inspection. Response body includes their count so CI logs surface
+   them. In steady state this count should always be zero; non-zero
+   means an emitter bug or version skew.
 7. Return `{inserted: N, updated: M, unclassified: K}` plus any warnings.
 
-The classifier runs server-side, not in CI, so the moment we fix a
-classification bug the fix applies retroactively. Re-POSTing the same
-payload (or running the migrator's `reclassify` subcommand over
-`unclassified_records`) picks up the fix.
+The server has **no classifier module**. If the record shape evolves, we
+update `vortex-bench`'s emitter + the server's `ClassifiedMeasurement`
+struct + `schema_meta.current_version` in lockstep. The one-shot historical
+migrator (see [`06-migration.md`](./06-migration.md)) is the only piece
+of code that ever parses v2-shape `name` strings, and it's deleted
+post-cutover.
 
 ### Commit-only POSTs
 
@@ -107,25 +114,34 @@ No separate sidecar upload.
 
 ## Ingesting data
 
-Replace each `bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz
-results.json` step in `.github/workflows/bench.yml` and `sql-benchmarks.yml`
-with something like:
+During the dual-write cutover window, each CI bench job emits both v2-shape
+and v3-shape JSONL (see [`10-emitter-changes.md`](./10-emitter-changes.md))
+and runs both paths in parallel. The legacy `bash scripts/cat-s3.sh`
+remains active until cutover. The new step is:
 
 ```bash
-# POST the JSONL. Bearer token comes from a GitHub Actions secret.
+# Produce v3-shape JSONL alongside the existing v2-shape output.
+bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} \
+    --formats ${{ matrix.benchmark.formats }} \
+    -d gh-json-v3 -o results.v3.json
+
+# POST the v3-shape JSONL. Bearer token from a GitHub Actions secret.
 python3 scripts/post-ingest.py \
     --server  https://bench.vortex.dev \
-    --commit-sha "$GITHUB_SHA" \
+    --commit-sha  "$GITHUB_SHA" \
     --benchmark-id "${{ matrix.benchmark.id }}" \
-    --results results.json \
+    --results results.v3.json \
     --token   "$INGEST_BEARER_TOKEN" \
     --spool   "s3://vortex-ci-benchmark-results/outbox/"
 ```
 
-`scripts/post-ingest.py` is ~80 lines: read JSONL, wrap in the payload,
-POST with retry, print `{inserted, updated, unclassified}`. On unrecoverable
-failure (server unreachable after all retries), dump the payload to the
-spool S3 prefix - see next section.
+Post-cutover the `-d gh-json` + `cat-s3.sh` pair is deleted; only the
+`-d gh-json-v3` + POST path remains.
+
+`scripts/post-ingest.py` is ~80 lines: read v3-shape JSONL, wrap in the
+payload, POST with retry, print `{inserted, updated, unclassified}`. On
+unrecoverable failure (server unreachable after all retries), dump the
+payload to the spool S3 prefix - see next section.
 
 ## Write buffering (launch requirement)
 
@@ -283,12 +299,15 @@ braces. See [`06-migration.md`](./06-migration.md).
 
 ## What the migrator does vs. what the ingester does
 
-Same classifier, same hash function, same DuckDB shape. Different entry
-points:
+Same hash function, same DuckDB shape. Different JSON input shapes, and
+only one of them has a classifier:
 
-- **`/api/ingest`** - one payload per CI run, many small POSTs over time.
-- **Migrator binary** - reads `data.json.gz` + `commits.json` once, batches
-  everything into the same classifier, and either (a) POSTs in bulk to the
-  ingest endpoint or (b) writes directly to the DuckDB file when running
-  locally without a server. Option (a) is the preferred dev loop; see
-  [`06-migration.md`](./06-migration.md).
+- **`/api/ingest`** - receives v3-shape JSON emitted directly by
+  `vortex-bench` (see [`10-emitter-changes.md`](./10-emitter-changes.md)).
+  Serde-parse → hash → INSERT ON CONFLICT. No classifier.
+- **Migrator binary** - reads historical v2-shape `data.json.gz` +
+  `commits.json` + `file-sizes-*.json.gz`. Runs its own one-shot
+  classifier that parses v2's `name` strings into dimensions, then either
+  (a) POSTs v3-shape records to the preview server's `/api/ingest` or
+  (b) writes directly to a local DuckDB file. Deleted post-cutover along
+  with its classifier. See [`06-migration.md`](./06-migration.md).
