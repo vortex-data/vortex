@@ -39,11 +39,24 @@ component-level design. Designers/implementers later can make it pretty.
 - Summary card per benchmark group (the stuff `calcSummary` produces in v2):
   - For "Random Access": ranking of engines by latency.
   - For "Compression": geomean compress/decompress throughput vs parquet.
-  - For "Compression Size": min/mean/max size ratio vs parquet.
+  - For "Compression Size" (renders historical `file-sizes-*.json.gz`
+    data + ongoing CI size records - same semantics as v2's group): mean/
+    max size ratio vs parquet, shown over time so codec regressions are
+    visible.
   - For each SQL suite: per-engine geomean score of query-time ratio to
     fastest.
 - Each summary card links to `/group/:slug`.
 - A "last updated" indicator + a "latest commit" link.
+
+### Post-launch feature: memory charts
+
+Memory records (peak physical / virtual, delta per query) are stored today
+but v2 never displays them. Once the core site is up, add a "Memory" view
+per SQL-suite group showing peak physical memory over time per
+engine:format. Schema already supports it (see
+[`05-schema.md`](./05-schema.md)); this is a view-layer addition, not a
+data-layer one. Not a launch blocker; track in
+[`09-open-questions.md`](./09-open-questions.md).
 
 ### `/group/:slug` - One benchmark group
 
@@ -67,27 +80,39 @@ page. Link to it from the header + from the commit-message list.
 
 ### `/api/...`
 
-Compatibility routes for anything that was scripted against v2's `/api/metadata`
-and `/api/data/:group/:chart`. We do not need to guarantee the JSON shape is
-identical, but we should keep the endpoints live so nothing external breaks.
+Fresh routes for v3. **No backward compatibility with v2's `/api/metadata`
+or `/api/data/:group/:chart`.** Nothing external is scripted against them;
+removing the compat burden lets us design JSON payloads that fit v3's
+schema instead of v2's pre-joined group/chart/series shape.
+
+Write path:
+
+- `POST /api/ingest` (authenticated) - see [`07-ingestion.md`](./07-ingestion.md).
+
+Read paths (shape TBD during implementation):
+
+- `GET /api/groups` - group metadata + latest summary cards.
+- `GET /api/chart/:slug?last=N&...` - one chart's aligned series data.
+- `GET /api/commit/:sha` - per-commit snapshot.
 
 ### `/health`
 
-Returns the `bench.duckdb` version (ETag or last-modified), row count,
-commit count, most recent commit's timestamp. Used by uptime checks and for
-debugging "is my merge showing up yet".
+Returns the schema version, row count, commit count, most recent commit's
+timestamp, last backup timestamp. Used by uptime checks and for debugging
+"is my merge showing up yet".
 
 ## Interactive features
 
 ### Must-have
 
 - Pan / zoom on charts (keep chartjs-plugin-zoom; it's fine).
-- Pre-downsampled 1x/2x/4x/8x levels per chart (either computed in SQL at
-  request time or cached server-side). The client picks a level based on the
-  current zoom.
 - Engine filter that greys out series rather than removes them, so the axis
   doesn't rescale.
 - Copy-link buttons on every chart and group header.
+
+Downsampling strategy (SQL window function vs. server-memoized vs. pre-computed
+materialized views) is on hold - v3 may not need it if charts render fast
+enough on raw data. See [`09-open-questions.md`](./09-open-questions.md).
 
 ### Nice-to-have (don't block cutover)
 

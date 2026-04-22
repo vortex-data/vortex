@@ -19,7 +19,7 @@ CI to ingest new benchmark results.
                 |  results.json (JSONL)   |
                 +-----------+-------------+
                             |
-                            | POST /api/ingest  (OIDC-auth)
+                            | POST /api/ingest  (bearer auth)
                             v
             +---------------+----------------+
             |  Leptos SSR server             |
@@ -108,7 +108,7 @@ The same library backs the one-shot historical migrator (component 4).
 | DuckDB file | EBS volume mounted into the container |
 | Backups | S3 (`vortex-ci-benchmark-results/backups/`) |
 | Historical `data.json.gz` | S3, unchanged, archived for reference |
-| Ingest POSTs | HTTPS to the public EC2 / CloudFront hostname |
+| Ingest POSTs | HTTP to the EC2's public hostname (bearer-token gated). TLS upgrade is a post-launch follow-up. |
 
 ## Why "server owns the DB" instead of "DB on S3"
 
@@ -135,13 +135,38 @@ Tradeoffs vs. "DB on S3":
 
 ## Hosting and deploy
 
-- **Today**: v2 runs in docker-compose on an EC2 (see `ec2-init.txt`).
-- **v3**: same shape. Dockerfile + docker-compose.yml + Watchtower on EC2.
-  - Attach an EBS volume to the instance. Mount it into the container.
-  - Add an S3 write permission (backup) + CI POST access (via CloudFront /
-    ALB with auth).
-- The container is a single Rust binary instead of Node+Vite. Smaller image,
-  faster cold start.
+Same shape as v2 on the happy path, with one new piece (EBS) and one new
+concern (write-path auth):
+
+- **Compute**: EC2 instance, same class as v2. Docker-compose + Watchtower.
+- **Storage**: attach an EBS volume (e.g. 20 GiB gp3) and mount it into the
+  container at `/var/lib/bench/`. The DuckDB file lives here.
+- **Read path**: public HTTP on port 80, exactly like v2. No TLS to start.
+  Anyone can read the site.
+- **Write path**: `/api/ingest` is served from the same binary on the same
+  port, but validates a **shared bearer token** against an env var on every
+  request. The token lives in a GitHub Actions secret (same storage v2 uses
+  for AWS role creds today). This matches v2's current security posture -
+  v2 keeps writes off the website entirely by routing them through AWS IAM
+  on S3; v3 moves them onto the website and compensates by checking a
+  bearer token.
+- **TLS + OIDC upgrade path**: once v3 is live we can put the container
+  behind either AWS ALB (native OIDC) or Cloudflare Tunnel + Access for
+  TLS. Neither is a launch requirement. See [`09-open-questions.md`](./09-open-questions.md)
+  for the follow-up note.
+- **Backups**: a cron inside the container snapshots the DuckDB file to S3
+  nightly. See [`07-ingestion.md`](./07-ingestion.md).
+- **Ops bits**: existing `benchmarks-website/ec2-init.txt` needs two edits:
+  attach/mount the EBS volume, and add the `INGEST_BEARER_TOKEN` env var
+  to the compose file.
+
+## Schema version guard
+
+The server checks a `schema_meta.current_version` row on boot and refuses
+to serve if the DB is at a version newer than the binary expects. This
+catches "someone deployed an old container against a DB that's already been
+migrated forward" at startup rather than midway through a query. Cheap
+insurance; see [`05-schema.md`](./05-schema.md).
 
 ## Why DuckDB (and not Postgres / SQLite / Parquet / Vortex)
 

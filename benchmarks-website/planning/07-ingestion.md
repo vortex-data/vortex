@@ -64,19 +64,46 @@ Content-Type: application/json
 Server responsibilities:
 
 1. Validate auth (see below).
-2. Ensure the commit exists in `commits` (upsert if new - server can fetch
-   commit metadata from GitHub's API given the SHA, or accept it in the
-   payload).
-3. For each record: run the **classifier** (the same Rust logic the migrator
-   uses - it's a shared library) to produce a structured row.
+2. Upsert the commit row from the full metadata in `run_meta.commit` into
+   `commits`. The server **does not** reach out to the GitHub API - CI
+   already has this info via `scripts/commit-json.sh` and ships it in the
+   payload. Keeps the server free of GitHub API dependencies / tokens /
+   rate limits.
+3. For each record: run the **classifier** (the same Rust logic the
+   migrator uses - it's a shared library) to produce a structured row.
 4. Compute `measurement_id` (see [`05-schema.md`](./05-schema.md)).
-5. `INSERT ... ON CONFLICT (measurement_id) DO UPDATE`. Duplicate POSTs are a
-   no-op.
-6. Return `{inserted: N, updated: M}` plus any classifier warnings.
+5. `INSERT ... ON CONFLICT (measurement_id) DO UPDATE`. Duplicate POSTs are
+   a no-op.
+6. Records the classifier rejects go into the `unclassified_records`
+   sidecar table (never silently dropped). Response body includes their
+   count so CI logs surface them.
+7. Return `{inserted: N, updated: M, unclassified: K}` plus any warnings.
 
 The classifier runs server-side, not in CI, so the moment we fix a
-classification bug the fix applies retroactively to re-POSTed data without
-touching CI.
+classification bug the fix applies retroactively. Re-POSTing the same
+payload (or running the migrator's `reclassify` subcommand over
+`unclassified_records`) picks up the fix.
+
+### Commit-only POSTs
+
+Not every push to `develop` produces benchmark measurements immediately,
+but we want **every commit on `develop`** represented in the `commits`
+table so the website can enumerate history even for commits whose bench
+runs haven't completed (or never will, e.g. docs-only commits).
+
+Solution: the `commit-metadata` job in `.github/workflows/bench.yml` (which
+already runs unconditionally on every push to `develop` to append to
+`commits.json` today) gets a second step that POSTs a commit-only payload
+(`records: []`) to `/api/ingest`. Cheap. Triggers the same upsert path.
+
+### File-size measurements
+
+Today the SQL-benchmarks workflow writes `file-sizes-<id>.json.gz` files
+to S3 separately from the main `data.json.gz`. In v3 these fold into the
+same POST: each CI job's `results.json` includes its file-size records
+alongside its timing records, and the classifier buckets them into
+`metric_kind = 'compression_size'` (same as historical file-sizes data).
+No separate sidecar upload.
 
 ## Ingesting data
 
@@ -103,27 +130,31 @@ above, POST, check status, print `{inserted, updated}`.
 
 ## Authentication
 
-The ingest endpoint accepts writes from our CI and nowhere else. Two feasible
-approaches; we can pick at implementation time:
+**Launch configuration: shared bearer token.** The token is generated once,
+stored in a GitHub Actions secret (alongside the existing `GitHubBenchmarkRole`
+credentials), and validated by the server against an `INGEST_BEARER_TOKEN`
+env var on every POST. Constant-time comparison. Token is rotated manually
+if compromised.
 
-### Option 1: GitHub OIDC + pre-shared JWKS validation
+This matches v2's existing security complexity: v2 keeps writes off the
+website entirely by routing them through AWS IAM on S3, using a single
+shared OIDC role stored in GitHub Actions. v3 moves writes onto the website
+and gates them with a single shared bearer token in the same place. Same
+blast radius, comparable failure modes.
 
-- The CI job already gets an OIDC token from GitHub (we use that for AWS IAM
-  role assumption today).
-- The server validates the token's signature against GitHub's public JWKS and
-  checks the `repository` + `ref` claims match `vortex-data/vortex` +
-  `refs/heads/develop` (or an allowlist).
-- No shared secret to rotate.
+**Follow-up upgrade paths (post-launch, not blocking):**
 
-### Option 2: Static bearer token in GitHub Secrets
+- **AWS ALB + OIDC**: put the container behind an ALB with a listener rule
+  that OIDC-authenticates `/api/ingest` via Cognito + GitHub. TLS via ACM.
+  No server-side auth code.
+- **Cloudflare Tunnel + Access**: publish through `cloudflared`, attach a
+  Cloudflare Access policy to `/api/ingest` that validates GitHub OIDC
+  tokens. TLS via Cloudflare. Adds Cloudflare as a dependency.
+- **Server-side OIDC validation**: validate `id_token` from GitHub directly
+  in the Leptos handler using a JWKS client. No new infra, more code.
 
-- A long-lived token lives in GitHub Actions secrets.
-- Server validates against a hash stored in an env var.
-- Easier to set up. Needs manual rotation.
-
-Preference is Option 1 (OIDC, no rotating shared secret). Fall back to
-Option 2 if the OIDC flow is annoying to wire up. Either way, the endpoint is
-not accessible to randos on the internet.
+Any of the three is a clean follow-up once v3 is live and we want to retire
+the shared token. See [`09-open-questions.md`](./09-open-questions.md).
 
 ## DuckDB concurrency model
 
@@ -182,17 +213,32 @@ The server also exposes `/health`:
 
 ## Failure modes
 
-- **Server down when CI tries to POST.** CI retries with backoff (4 attempts,
-  like existing `git push` retry policy). After that it fails the job. The
-  results aren't lost - they're in `results.json` as a CI artifact and can be
-  replayed by hand: `scripts/post-ingest.py --results <downloaded_artifact>`.
-- **Bad record in a payload.** Classifier rejects just that record; the rest
-  of the payload is accepted. The response lists rejected records so the
-  operator can see what needs a classifier fix.
-- **EBS volume fails.** Restore from the latest S3 backup; if that's stale,
-  re-run the migrator from `data.json.gz`.
-- **Ingest endpoint DoS'd.** It's behind CloudFront / ALB with rate limits
-  and bearer-token auth; not reachable without credentials in normal use.
+- **Server down when CI tries to POST.** CI retries with backoff (4
+  attempts, matching the existing `git push` retry policy). After that the
+  job fails. The results aren't lost - they're in `results.json` as a CI
+  artifact and can be replayed by hand: `scripts/post-ingest.py --results
+  <downloaded_artifact>`. See also the "Write buffering / HA gap" note in
+  [`09-open-questions.md`](./09-open-questions.md) - this is the one
+  scenario where the current single-EC2 design is visibly fragile, and we
+  may want a spool-to-S3 fallback path for launch.
+- **Bad record in a payload.** Classifier puts the record into
+  `unclassified_records`; the rest of the payload is accepted. The
+  response's `{unclassified: K}` field lets CI log the count so the
+  operator notices.
+- **EBS volume fails.** Restore from the latest S3 backup (nightly
+  snapshots). If that's stale, re-run the historical migrator.
+- **Ingest endpoint abused.** Bearer-token required; unauthorized POSTs
+  return 401 with a constant-time comparison so tokens can't be brute-
+  guessed by timing. Launch: no rate limit beyond that. Add one if abuse
+  ever materializes.
+
+## Schema version on boot
+
+The server reads `schema_meta.current_version` from the DB on startup and
+refuses to serve if the DB's version is newer than the binary expects (see
+[`05-schema.md`](./05-schema.md)). This prevents the "deployed an old
+container against a migrated-forward DB" footgun. Migrations forward are
+applied automatically; there is no downgrade path.
 
 ## What replaces `cat-s3.sh` / `commit-json.sh`?
 

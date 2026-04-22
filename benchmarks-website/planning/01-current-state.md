@@ -106,15 +106,16 @@ the current site (the other is the append-JSONL storage model).
 
 ## What we want to keep in v3 (even if reimplemented)
 
-- The **URL surface** (`/api/metadata`, `/api/data/:group/:chart?last=N`) is
-  reasonable. v3 does not need to keep it byte-identical, but the
-  "metadata-first, lazy per-chart data fetches" pattern is worth keeping.
-- **LTTB pre-downsampling at multiple levels**. At 1000s of data points per
-  series, this is the difference between "chart renders" and "tab locks".
+- The **"metadata-first, lazy per-chart data fetches" pattern**. v3
+  designs fresh JSON route shapes (no byte-compat with v2's `/api/*`), but
+  the shape of "one small summary response on page load, lazy per-chart
+  fetches as sections expand" is worth reproducing.
 - The **summary cards** (geomean ratio vs parquet, random-access rankings,
   per-query geomean score). Users actually look at these.
 - **Deep links** to groups (`#group-TPC-H-(NVMe)-(SF=10)` etc.).
 - Engine/category filters in the sidebar.
+- LTTB-style downsampling *if* it turns out to be necessary for
+  performance; otherwise skip. See [`09-open-questions.md`](./09-open-questions.md).
 
 ## What we want to change in v3
 

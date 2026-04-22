@@ -40,9 +40,13 @@ Requirements:
 
 | S3 key | Size | Shape | Notes |
 |--------|------|-------|-------|
-| `data.json.gz` | Growing, single-digit MB gzipped | JSONL, one record per measurement (shapes A-C from [`03-raw-data-schema.md`](./03-raw-data-schema.md)) | The main blob. |
+| `data.json.gz` | Growing, single-digit MB gzipped | JSONL, one record per measurement (shapes A-C from [`03-raw-data-schema.md`](./03-raw-data-schema.md)) | Main timing/size/memory blob. |
 | `commits.json` | Small | JSONL, one record per commit | |
-| `file-sizes-*.json.gz` | Small per-dataset | JSONL, size measurements (Shape D) | Per-benchmark-id, appended by sql-benchmarks.yml. |
+| `file-sizes-*.json.gz` | Small per-dataset | JSONL, size measurements (Shape D) | **First-class input**, not a sidecar. One file per CI benchmark id, written by sql-benchmarks.yml. Data is "how big is a vortex/parquet/lance file for dataset X on commit Y", which users want to see evolve over time - the website will render it as its own "Compression Size" section (same v2 group name). |
+
+All three sources must be fully ingested by the migrator before the new DB
+is considered complete. The verification step compares against v2's
+`/api/metadata`, which also reads all three sources today.
 
 ## The migrator binary
 
@@ -169,16 +173,20 @@ are."
 4. **Cut DNS.** Flip `bench.vortex.dev` to the v3 container.
 
 5. **After one quiet week** with no regressions, remove `cat-s3.sh` from the
-   CI workflows. Archive `data.json.gz` in place (we keep it forever). Delete
-   the migrator binary source (the DB is now authoritative).
+   CI workflows. `data.json.gz` stops being written; the frozen file stays
+   archived on S3 as historical reference but is no longer authoritative.
+   Delete the migrator binary source (the DB is now authoritative).
 
 ## What we do NOT delete during migration
 
-- `data.json.gz` stays on S3 forever (it's cheap). If the new schema ever
-  turns out to have missed a dimension, we can re-run the migrator with an
-  improved classifier.
-- `commits.json` stays too.
-- `cat-s3.sh`, `commit-json.sh` stay in the repo during the dual-write window.
+- `cat-s3.sh`, `commit-json.sh` stay in the repo during the dual-write
+  window. After cutover they can go.
+- `data.json.gz`, `commits.json`, `file-sizes-*.json.gz` stay archived on
+  S3 post-cutover (cheap, and useful as a historical reference if we ever
+  need to re-migrate). They are not load-bearing after cutover - rollback
+  relies on **DuckDB backup snapshots** (nightly to S3), not on
+  re-migrating from raw JSON. Keep the S3 bucket's versioning enabled so
+  an accidental `aws s3 rm` is recoverable.
 
 ## Estimated scope
 

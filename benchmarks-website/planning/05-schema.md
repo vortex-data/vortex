@@ -36,6 +36,36 @@ be settled when the ingester is being written.
 
 ## Tables
 
+### `schema_meta`
+
+One row, one column. Server checks this on boot to make sure the binary and
+the DB agree on which schema version is live.
+
+```sql
+CREATE TABLE schema_meta (
+    current_version INTEGER PRIMARY KEY
+);
+INSERT INTO schema_meta VALUES (1);  -- bump per migration
+```
+
+Server startup logic (pseudo-code):
+
+```rust
+let db_version: i32 = conn.query_row("SELECT current_version FROM schema_meta", ...)?;
+if db_version > BINARY_EXPECTED_VERSION {
+    bail!("DB is at version {db_version}, this binary expects {BINARY_EXPECTED_VERSION}. \
+           Deploy a newer binary or roll back the DB.");
+}
+if db_version < BINARY_EXPECTED_VERSION {
+    apply_migrations(db_version, BINARY_EXPECTED_VERSION)?;  // CREATE OR REPLACE etc.
+}
+```
+
+Views are idempotent `CREATE OR REPLACE` statements re-run on every boot.
+Schema DDL changes are applied as Rust-owned migrations keyed on
+`db_version`. Since the DB is the data, there's no down-migration story - we
+only go forward.
+
 ### `commits`
 
 One row per commit to `develop`.
@@ -197,18 +227,20 @@ Cost: `measurement_id` is opaque to humans. You always have to join or look at
 the dimension columns to understand what a row is. That's fine - nobody is
 querying measurements by id directly.
 
-The ingester's hash function is versioned in the **schema**, not in the data.
-If we ever change how it canonicalizes NULL or JSON, we re-run the full
-migrator (we keep the raw `data.json.gz` forever for this reason). Hash
-algorithm pinned to something stable (xxhash64 or SHA1-truncated - either
-works).
+The ingester's hash function is versioned in the **schema**, not in the
+data. If we ever change how it canonicalizes NULL or JSON, every row's id
+changes and we do a schema migration that recomputes them in place
+(cheap). Hash algorithm pinned to something stable (xxhash64 or SHA1-
+truncated - either works).
 
 ### `known_engines`, `known_formats`, `known_datasets` (dimension lookup)
 
-Tiny three-column tables: `name`, `display_name`, `color_hex`. Populated by
-the ingester when a new value is seen. Lets the frontend render colors /
-labels without the `ENGINE_RENAMES` / `SERIES_COLOR_MAP` tables being baked
-into config files.
+Tiny three-column tables: `name`, `display_name`, `color_hex`. Populated
+from a **seed SQL file** checked into the repo, re-applied on server boot
+as idempotent upserts. The ingester does **not** auto-insert rows here -
+if it sees an engine it's never seen before, that engine just renders with
+fallback defaults (name-as-display-name, palette color) until someone
+updates the seed SQL in a PR.
 
 ```sql
 CREATE TABLE known_engines (
@@ -219,10 +251,51 @@ CREATE TABLE known_engines (
 -- same shape for known_formats, known_datasets.
 ```
 
-These are *pure data*, human-editable. They replace the ad-hoc `ENGINE_RENAMES`,
-`SERIES_COLOR_MAP`, `SCALE_FACTOR_DESCRIPTIONS`, etc. tables from v2's
-`config.js`. An admin route on the Leptos server (or a plain SQL UPDATE) can
-tune labels and colors without a redeploy.
+The seed file (e.g. `benchmarks-website/server/src/seed/known.sql`) looks
+roughly like:
+
+```sql
+INSERT INTO known_engines (name, display_name, color_hex) VALUES
+  ('datafusion', 'DataFusion', '#7a27b1'),
+  ('duckdb',     'DuckDB',     '#87752e'),
+  ('vortex',     'Vortex',     '#19a508'),
+  ...
+ON CONFLICT (name) DO UPDATE SET
+  display_name = excluded.display_name,
+  color_hex    = excluded.color_hex;
+```
+
+This effectively ports v2's `ENGINE_RENAMES` + `SERIES_COLOR_MAP` out of
+`config.js` and into a reviewed seed file, re-applied on every deploy.
+Adding a new engine = a single SQL line + a PR, the same cadence as today.
+Colors or labels can be tweaked in the same PR.
+
+### `unclassified_records`
+
+A sidecar table for any raw record the ingester's classifier can't bucket
+today. Cheap insurance - we never silently drop on the POST path, and we
+can retroactively re-process these once the classifier catches up.
+
+```sql
+CREATE TABLE unclassified_records (
+    id             BIGINT PRIMARY KEY,   -- hash of (commit_sha, raw_json)
+    commit_sha     VARCHAR REFERENCES commits(commit_sha),
+    ingested_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    source_shape   VARCHAR,              -- 'A' | 'B' | 'C' | 'D' | 'unknown'
+    raw_json       JSON NOT NULL,
+    reason         VARCHAR               -- classifier's dropped-because message
+);
+```
+
+The migrator populates it for anything `data.json.gz` holds that the
+v2-parity classifier would drop (e.g. `throughput`, unrecognized
+`parquet-unc`, anything that doesn't match a known name pattern). The
+`/api/ingest` handler does the same. A follow-up process can `SELECT ...`
+out of this table, re-run an improved classifier, and upsert into
+`measurements`.
+
+Storage cost is negligible. See [`09-open-questions.md`](./09-open-questions.md)
+for the "what about purposefully-dropped records like ratios" subcase.
 
 ### Group definitions: in Rust, not SQL
 
