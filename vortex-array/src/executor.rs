@@ -322,7 +322,7 @@ impl Drop for ExecutionCtx {
 ///
 /// It attempts to take the smallest possible step of execution such that the returned array
 /// is incrementally more "executed" than the input array. In other words, it is closer to becoming
-/// a canonical array.
+/// a canonical array. Conceptually each call removes one node from the execution path.
 ///
 /// The execution steps are as follows:
 /// 0. Check for canonical.
@@ -334,6 +334,16 @@ impl Drop for ExecutionCtx {
 /// Most users will not call this method directly, instead preferring to specify an executable
 /// target such as [`crate::Columnar`], [`Canonical`], or any of the canonical array types (such as
 /// [`crate::arrays::PrimitiveArray`]).
+///
+/// # Single-step semantics and [`ExecutionStep::AppendSlot`]
+///
+/// `Done` and `ExecuteSlot` preserve the "one logical step" invariant: the returned array is
+/// exactly one node simpler than the input. `AppendSlot(i)` intentionally does **not** — when
+/// an encoding asks the executor to build slot `i` into a canonical output, there is no useful
+/// "partial" progress point to stop at, so single-step `execute::<ArrayRef>` drives the child
+/// at slot `i` all the way to canonical via the builder-kernel path and splices the result back.
+/// The returned array is the same encoding with one child replaced by its canonical form, and
+/// `execute` may have done O(depth) of decoding inside that sub-tree during the call.
 impl Executable for ArrayRef {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         // 0. Check for canonical
@@ -679,6 +689,12 @@ pub enum ExecutionStep {
     /// slot's `dtype` and `len`, drive the builder-kernel path (see [`crate::BuilderStep`])
     /// against the taken child, and put the resulting canonical array back into the slot
     /// before re-entering this array's execute.
+    ///
+    /// Unlike [`ExecutionStep::ExecuteSlot`] this variant does not preserve the "one logical
+    /// step" invariant: the scheduler may perform an arbitrary amount of decoding on the
+    /// sub-tree rooted at the slot before returning. Single-step entry points (such as
+    /// `Executable for ArrayRef`) honour the request by driving the slot all the way to
+    /// canonical — the returned array collapses what would otherwise be many calls into one.
     AppendSlot(usize),
 
     /// Execution is complete. The array in the accompanying [`ExecutionResult`] is the result.
