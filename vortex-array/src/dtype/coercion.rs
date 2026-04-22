@@ -96,12 +96,12 @@ impl DType {
             return Some(DType::List(Arc::new(elem), union_null));
         }
 
-        // 1. Identity (ignoring nullability): return self with union nullability
+        // Identity (ignoring nullability): return self with union nullability
         if self.eq_ignore_nullability(other) {
             return Some(self.with_nullability(union_null));
         }
 
-        // 2. Null + X: return X as nullable
+        // Null + X: return X as nullable
         if matches!(self, DType::Null) {
             return Some(other.as_nullable());
         }
@@ -109,7 +109,7 @@ impl DType {
             return Some(self.as_nullable());
         }
 
-        // 3. Bool + numeric: return the numeric type (with union nullability)
+        // Bool + numeric: return the numeric type (with union nullability)
         if self.is_boolean() && other.is_numeric() {
             return Some(other.with_nullability(union_null));
         }
@@ -117,19 +117,19 @@ impl DType {
             return Some(self.with_nullability(union_null));
         }
 
-        // 4. Primitive + Primitive (different ptypes): delegate to PType::least_supertype
+        // Primitive + Primitive (different ptypes): delegate to PType::least_supertype
         if let (DType::Primitive(lhs_p, _), DType::Primitive(rhs_p, _)) = (self, other) {
             return lhs_p
                 .least_supertype(*rhs_p)
                 .map(|p| DType::Primitive(p, union_null));
         }
 
-        // 5. Decimal + Decimal: compute wider decimal
+        // Decimal + Decimal: compute wider decimal
         if let (DType::Decimal(lhs_d, _), DType::Decimal(rhs_d, _)) = (self, other) {
             return decimal_least_supertype(*lhs_d, *rhs_d).map(|d| DType::Decimal(d, union_null));
         }
 
-        // 6. Decimal + integer Primitive: convert integer to Decimal, then widen
+        // Decimal + integer Primitive: convert integer to Decimal, then widen
         if let (DType::Decimal(dec, _), DType::Primitive(p, _)) = (self, other)
             && p.is_int()
         {
@@ -143,7 +143,7 @@ impl DType {
             return decimal_least_supertype(int_dec, *dec).map(|d| DType::Decimal(d, union_null));
         }
 
-        // 7. Extension + anything: delegate to vtable
+        // Extension + anything: delegate to vtable
         if let DType::Extension(ext) = self {
             return ext
                 .least_supertype(other)
@@ -155,7 +155,6 @@ impl DType {
                 .map(|dt| dt.with_nullability(union_null));
         }
 
-        // 8. Everything else: no common supertype
         None
     }
 
@@ -184,22 +183,22 @@ impl DType {
                 && target_elem.can_coerce_from(source_elem);
         }
 
-        // 1. Same type (ignoring nullability): check nullability compatibility
+        // Same type (ignoring nullability): check nullability compatibility
         if self.eq_ignore_nullability(other) {
             return self.is_nullable() || !other.is_nullable();
         }
 
-        // 2. Null → nullable target
+        // Null → nullable target
         if matches!(other, DType::Null) {
             return self.is_nullable();
         }
 
-        // 3. Bool → numeric
+        // Bool → numeric
         if other.is_boolean() && self.is_numeric() {
             return self.is_nullable() || !other.is_nullable();
         }
 
-        // 4. Primitive widening: true if least_supertype(source, target) == target
+        // Primitive widening: true if least_supertype(source, target) == target
         if let (DType::Primitive(..), DType::Primitive(..)) = (self, other) {
             return other
                 .least_supertype(self)
@@ -207,7 +206,7 @@ impl DType {
                 && (self.is_nullable() || !other.is_nullable());
         }
 
-        // 5. Decimal widening
+        // Decimal widening
         if let (DType::Decimal(target, _), DType::Decimal(source, _)) = (self, other) {
             let target_integral = target.precision() as i16 - target.scale() as i16;
             let source_integral = source.precision() as i16 - source.scale() as i16;
@@ -216,7 +215,7 @@ impl DType {
                 && (self.is_nullable() || !other.is_nullable());
         }
 
-        // 6. Integer → Decimal
+        // Integer → Decimal
         if let (DType::Decimal(dec, _), DType::Primitive(p, _)) = (self, other)
             && p.is_int()
         {
@@ -226,12 +225,11 @@ impl DType {
                 && (self.is_nullable() || !other.is_nullable());
         }
 
-        // 7. Extension: delegate to vtable
+        // Extension: delegate to vtable
         if let DType::Extension(ext) = self {
             return ext.can_coerce_from(other);
         }
 
-        // 8. Everything else: false
         false
     }
 
