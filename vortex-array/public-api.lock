@@ -2302,7 +2302,7 @@ pub fn vortex_array::arrays::Extension::scalar_at(array: vortex_array::ArrayView
 
 impl vortex_array::VTable for vortex_array::arrays::Extension
 
-pub type vortex_array::arrays::Extension::ArrayData = vortex_array::arrays::extension::ExtensionData
+pub type vortex_array::arrays::Extension::ArrayData = vortex_array::EmptyArrayData
 
 pub type vortex_array::arrays::Extension::OperationsVTable = vortex_array::arrays::Extension
 
@@ -2338,7 +2338,7 @@ pub fn vortex_array::arrays::Extension::serialize(_array: vortex_array::ArrayVie
 
 pub fn vortex_array::arrays::Extension::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::Extension::validate(&self, data: &vortex_array::arrays::extension::ExtensionData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::Extension::validate(&self, _data: &vortex_array::EmptyArrayData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::ValidityChild<vortex_array::arrays::Extension> for vortex_array::arrays::Extension
 
@@ -2368,43 +2368,15 @@ impl vortex_array::scalar_fn::fns::mask::MaskReduce for vortex_array::arrays::Ex
 
 pub fn vortex_array::arrays::Extension::mask(array: vortex_array::ArrayView<'_, vortex_array::arrays::Extension>, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-pub struct vortex_array::arrays::extension::ExtensionData
-
-impl vortex_array::arrays::extension::ExtensionData
-
-pub fn vortex_array::arrays::extension::ExtensionData::ext_dtype(&self) -> &vortex_array::dtype::extension::ExtDTypeRef
-
-pub fn vortex_array::arrays::extension::ExtensionData::new(ext_dtype: vortex_array::dtype::extension::ExtDTypeRef, storage_dtype: &vortex_array::dtype::DType) -> Self
-
-pub unsafe fn vortex_array::arrays::extension::ExtensionData::new_unchecked(ext_dtype: vortex_array::dtype::extension::ExtDTypeRef, storage_dtype: &vortex_array::dtype::DType) -> Self
-
-pub fn vortex_array::arrays::extension::ExtensionData::try_new(ext_dtype: vortex_array::dtype::extension::ExtDTypeRef, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
-
-impl core::clone::Clone for vortex_array::arrays::extension::ExtensionData
-
-pub fn vortex_array::arrays::extension::ExtensionData::clone(&self) -> vortex_array::arrays::extension::ExtensionData
-
-impl core::fmt::Debug for vortex_array::arrays::extension::ExtensionData
-
-pub fn vortex_array::arrays::extension::ExtensionData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::fmt::Display for vortex_array::arrays::extension::ExtensionData
-
-pub fn vortex_array::arrays::extension::ExtensionData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl vortex_array::ArrayEq for vortex_array::arrays::extension::ExtensionData
-
-pub fn vortex_array::arrays::extension::ExtensionData::array_eq(&self, _other: &Self, _precision: vortex_array::Precision) -> bool
-
-impl vortex_array::ArrayHash for vortex_array::arrays::extension::ExtensionData
-
-pub fn vortex_array::arrays::extension::ExtensionData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::Precision)
-
 pub trait vortex_array::arrays::extension::ExtensionArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::Extension>
+
+pub fn vortex_array::arrays::extension::ExtensionArrayExt::ext_dtype(&self) -> &vortex_array::dtype::extension::ExtDTypeRef
 
 pub fn vortex_array::arrays::extension::ExtensionArrayExt::storage_array(&self) -> &vortex_array::ArrayRef
 
 impl<T: vortex_array::TypedArrayRef<vortex_array::arrays::Extension>> vortex_array::arrays::extension::ExtensionArrayExt for T
+
+pub fn T::ext_dtype(&self) -> &vortex_array::dtype::extension::ExtDTypeRef
 
 pub fn T::storage_array(&self) -> &vortex_array::ArrayRef
 
@@ -5558,7 +5530,7 @@ pub fn vortex_array::arrays::Extension::scalar_at(array: vortex_array::ArrayView
 
 impl vortex_array::VTable for vortex_array::arrays::Extension
 
-pub type vortex_array::arrays::Extension::ArrayData = vortex_array::arrays::extension::ExtensionData
+pub type vortex_array::arrays::Extension::ArrayData = vortex_array::EmptyArrayData
 
 pub type vortex_array::arrays::Extension::OperationsVTable = vortex_array::arrays::Extension
 
@@ -5594,7 +5566,7 @@ pub fn vortex_array::arrays::Extension::serialize(_array: vortex_array::ArrayVie
 
 pub fn vortex_array::arrays::Extension::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::Extension::validate(&self, data: &vortex_array::arrays::extension::ExtensionData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::Extension::validate(&self, _data: &vortex_array::EmptyArrayData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::ValidityChild<vortex_array::arrays::Extension> for vortex_array::arrays::Extension
 
@@ -19464,7 +19436,7 @@ pub fn vortex_array::arrays::Decimal::validate(&self, data: &vortex_array::array
 
 impl vortex_array::VTable for vortex_array::arrays::Extension
 
-pub type vortex_array::arrays::Extension::ArrayData = vortex_array::arrays::extension::ExtensionData
+pub type vortex_array::arrays::Extension::ArrayData = vortex_array::EmptyArrayData
 
 pub type vortex_array::arrays::Extension::OperationsVTable = vortex_array::arrays::Extension
 
@@ -19500,7 +19472,7 @@ pub fn vortex_array::arrays::Extension::serialize(_array: vortex_array::ArrayVie
 
 pub fn vortex_array::arrays::Extension::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::Extension::validate(&self, data: &vortex_array::arrays::extension::ExtensionData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::Extension::validate(&self, _data: &vortex_array::EmptyArrayData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::VTable for vortex_array::arrays::Filter
 
@@ -20436,7 +20408,7 @@ pub fn vortex_array::arrays::Decimal::validate(&self, data: &vortex_array::array
 
 impl vortex_array::VTable for vortex_array::arrays::Extension
 
-pub type vortex_array::arrays::Extension::ArrayData = vortex_array::arrays::extension::ExtensionData
+pub type vortex_array::arrays::Extension::ArrayData = vortex_array::EmptyArrayData
 
 pub type vortex_array::arrays::Extension::OperationsVTable = vortex_array::arrays::Extension
 
@@ -20472,7 +20444,7 @@ pub fn vortex_array::arrays::Extension::serialize(_array: vortex_array::ArrayVie
 
 pub fn vortex_array::arrays::Extension::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::Extension::validate(&self, data: &vortex_array::arrays::extension::ExtensionData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::Extension::validate(&self, _data: &vortex_array::EmptyArrayData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::VTable for vortex_array::arrays::Filter
 
@@ -22686,10 +22658,6 @@ impl vortex_array::ArrayEq for vortex_array::arrays::dict::DictData
 
 pub fn vortex_array::arrays::dict::DictData::array_eq(&self, _other: &Self, _precision: vortex_array::Precision) -> bool
 
-impl vortex_array::ArrayEq for vortex_array::arrays::extension::ExtensionData
-
-pub fn vortex_array::arrays::extension::ExtensionData::array_eq(&self, _other: &Self, _precision: vortex_array::Precision) -> bool
-
 impl vortex_array::ArrayEq for vortex_array::arrays::filter::FilterData
 
 pub fn vortex_array::arrays::filter::FilterData::array_eq(&self, other: &Self, precision: vortex_array::Precision) -> bool
@@ -22793,10 +22761,6 @@ pub fn vortex_array::arrays::decimal::DecimalData::array_hash<H: core::hash::Has
 impl vortex_array::ArrayHash for vortex_array::arrays::dict::DictData
 
 pub fn vortex_array::arrays::dict::DictData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::Precision)
-
-impl vortex_array::ArrayHash for vortex_array::arrays::extension::ExtensionData
-
-pub fn vortex_array::arrays::extension::ExtensionData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::Precision)
 
 impl vortex_array::ArrayHash for vortex_array::arrays::filter::FilterData
 
@@ -23132,7 +23096,7 @@ pub fn vortex_array::arrays::Decimal::validate(&self, data: &vortex_array::array
 
 impl vortex_array::VTable for vortex_array::arrays::Extension
 
-pub type vortex_array::arrays::Extension::ArrayData = vortex_array::arrays::extension::ExtensionData
+pub type vortex_array::arrays::Extension::ArrayData = vortex_array::EmptyArrayData
 
 pub type vortex_array::arrays::Extension::OperationsVTable = vortex_array::arrays::Extension
 
@@ -23168,7 +23132,7 @@ pub fn vortex_array::arrays::Extension::serialize(_array: vortex_array::ArrayVie
 
 pub fn vortex_array::arrays::Extension::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::Extension::validate(&self, data: &vortex_array::arrays::extension::ExtensionData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::Extension::validate(&self, _data: &vortex_array::EmptyArrayData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::VTable for vortex_array::arrays::Filter
 
@@ -24352,7 +24316,7 @@ pub fn vortex_array::arrays::Decimal::validate(&self, data: &vortex_array::array
 
 impl vortex_array::VTable for vortex_array::arrays::Extension
 
-pub type vortex_array::arrays::Extension::ArrayData = vortex_array::arrays::extension::ExtensionData
+pub type vortex_array::arrays::Extension::ArrayData = vortex_array::EmptyArrayData
 
 pub type vortex_array::arrays::Extension::OperationsVTable = vortex_array::arrays::Extension
 
@@ -24388,7 +24352,7 @@ pub fn vortex_array::arrays::Extension::serialize(_array: vortex_array::ArrayVie
 
 pub fn vortex_array::arrays::Extension::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::Extension::validate(&self, data: &vortex_array::arrays::extension::ExtensionData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::Extension::validate(&self, _data: &vortex_array::EmptyArrayData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::VTable for vortex_array::arrays::Filter
 
