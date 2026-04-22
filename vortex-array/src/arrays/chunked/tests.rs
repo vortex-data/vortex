@@ -50,8 +50,11 @@ fn builder_kernel_path_canonicalizes_primitive_chunks() {
 
     let builder = builder_with_capacity(&dtype, len);
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    let mut builder = execute_into_builder(array, builder, &mut ctx).unwrap();
+    // Clone the array into the builder path — the test also holds `array` so refcount > 1 on
+    // entry, which previously caused `take_slot_unchecked` to silently keep slots populated.
+    let mut builder = execute_into_builder(array.clone(), builder, &mut ctx).unwrap();
     let output = builder.finish();
+    drop(array);
 
     assert_arrays_eq!(
         output,

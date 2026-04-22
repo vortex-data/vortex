@@ -448,14 +448,7 @@ fn drive_builder(
     mut builder: Box<dyn ArrayBuilder>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ArrayBuilder>> {
-    // Drop the input `array` binding as soon as possible so the `Arc` refcount of `current` is
-    // reduced to one. The executor relies on that to let `take_slot_unchecked` actually leave
-    // the taken slot as `None`.
-    let mut current = {
-        let optimized = array.optimize()?;
-        drop(array);
-        optimized
-    };
+    let mut current = array.optimize()?;
 
     for _ in 0..max_iterations() {
         // Fast path: the array is already canonical.

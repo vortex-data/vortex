@@ -143,6 +143,20 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns a new array with the given slots.
     fn with_slots(&self, this: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef>;
 
+    /// Returns a new array with the given slots, bypassing encoding-level validation.
+    ///
+    /// Used by the executor to temporarily carry an array that has had one of its child slots
+    /// taken out (leaving `None`) without panicking `V::validate`. The caller must ensure the
+    /// missing slot is filled back in (via `put_slot_unchecked`) or driven to completion by the
+    /// builder path before the array becomes externally observable.
+    ///
+    /// # Safety
+    ///
+    /// The array returned may have slots whose content does not match the encoding's normal
+    /// invariants. Callers must re-establish those invariants before handing the array to
+    /// anything outside the executor.
+    unsafe fn with_slots_unchecked(&self, this: &ArrayRef, slots: Vec<Option<ArrayRef>>) -> ArrayRef;
+
     /// Attempt to reduce the array to a simpler representation.
     fn reduce(&self, this: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
 
@@ -385,6 +399,26 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         )?
         .with_stats_set(stats)
         .into_array())
+    }
+
+    unsafe fn with_slots_unchecked(
+        &self,
+        this: &ArrayRef,
+        slots: Vec<Option<ArrayRef>>,
+    ) -> ArrayRef {
+        // SAFETY: we intentionally skip `V::validate` here. Caller guarantees that the resulting
+        // array is either repaired or not externally observed.
+        let inner = unsafe {
+            ArrayInner::<V>::from_data_unchecked(
+                self.vtable.clone(),
+                this.dtype().clone(),
+                self.len,
+                self.data.clone(),
+                slots,
+                self.stats.clone(),
+            )
+        };
+        ArrayRef::from_inner(std::sync::Arc::new(inner))
     }
 
     fn reduce(&self, this: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
