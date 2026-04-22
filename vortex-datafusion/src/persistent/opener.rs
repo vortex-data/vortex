@@ -29,6 +29,7 @@ use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
+use itertools::Itertools;
 use object_store::path::Path;
 use tracing::Instrument;
 use vortex::array::VortexSessionExecute;
@@ -464,29 +465,15 @@ fn natural_split_ranges_for_file(
 fn compute_natural_split_ranges(layout_reader: &dyn LayoutReader) -> DFResult<Arc<[Range<u64>]>> {
     let row_count = layout_reader.row_count();
     let row_range = 0..row_count;
-    let mut split_points: Vec<_> = SplitBy::Layout
+    let split_points: Vec<_> = SplitBy::Layout
         .splits(layout_reader, &row_range, &[FieldMask::All])
         .map_err(|e| exec_datafusion_err!("Failed to compute Vortex natural splits: {e}"))?
         .into_iter()
-        .collect();
-
-    if split_points.first().copied() != Some(0) {
-        split_points.insert(0, 0);
-    }
-    if split_points.last().copied() != Some(row_count) {
-        split_points.push(row_count);
-    }
-
-    let mut split_ranges = split_points
-        .windows(2)
-        .map(|window| window[0]..window[1])
+        .tuple_windows()
+        .map(|(s, e)| s..e)
         .collect::<Vec<_>>();
 
-    if split_ranges.is_empty() && row_count > 0 {
-        split_ranges.push(0..row_count);
-    }
-
-    Ok(split_ranges.into())
+    Ok(split_points.into())
 }
 
 /// Translate a DataFusion byte range to the contiguous natural split ranges it owns.
