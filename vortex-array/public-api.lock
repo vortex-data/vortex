@@ -13360,9 +13360,37 @@ pub fn vortex_array::optimizer::rules::ParentReduceRuleAdapter<V, K>::matches(&s
 
 pub fn vortex_array::optimizer::rules::ParentReduceRuleAdapter<V, K>::reduce_parent(&self, child: vortex_array::ArrayView<'_, V>, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
+pub mod vortex_array::optimizer::session
+
+pub struct vortex_array::optimizer::session::OptimizerSession
+
+impl vortex_array::optimizer::session::OptimizerSession
+
+pub fn vortex_array::optimizer::session::OptimizerSession::empty() -> Self
+
+pub fn vortex_array::optimizer::session::OptimizerSession::registry(&self) -> &vortex_session::registry::FnRegistry
+
+impl core::default::Default for vortex_array::optimizer::session::OptimizerSession
+
+pub fn vortex_array::optimizer::session::OptimizerSession::default() -> vortex_array::optimizer::session::OptimizerSession
+
+impl core::fmt::Debug for vortex_array::optimizer::session::OptimizerSession
+
+pub fn vortex_array::optimizer::session::OptimizerSession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub trait vortex_array::optimizer::session::OptimizerSessionExt: vortex_session::SessionExt
+
+pub fn vortex_array::optimizer::session::OptimizerSessionExt::optimizer(&self) -> vortex_session::Ref<'_, vortex_array::optimizer::session::OptimizerSession>
+
+impl<S: vortex_session::SessionExt> vortex_array::optimizer::session::OptimizerSessionExt for S
+
+pub fn S::optimizer(&self) -> vortex_session::Ref<'_, vortex_array::optimizer::session::OptimizerSession>
+
 pub trait vortex_array::optimizer::ArrayOptimizer
 
 pub fn vortex_array::optimizer::ArrayOptimizer::optimize(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::optimizer::ArrayOptimizer::optimize_ctx(&self, ctx: &vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::optimizer::ArrayOptimizer::optimize_recursive(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -13370,7 +13398,11 @@ impl vortex_array::optimizer::ArrayOptimizer for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::optimize(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
+pub fn vortex_array::ArrayRef::optimize_ctx(&self, ctx: &vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
 pub fn vortex_array::ArrayRef::optimize_recursive(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub type vortex_array::optimizer::ReduceParentFn = fn(child: &vortex_array::ArrayRef, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub mod vortex_array::patches
 
@@ -22327,6 +22359,8 @@ pub fn vortex_array::ArrayRef::zip(&self, if_true: vortex_array::ArrayRef, if_fa
 impl vortex_array::optimizer::ArrayOptimizer for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::optimize(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::ArrayRef::optimize_ctx(&self, ctx: &vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::ArrayRef::optimize_recursive(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 

@@ -4,6 +4,7 @@
 //! Many session types use a registry of objects that can be looked up by name to construct
 //! contexts. This module provides a generic registry type for that purpose.
 
+use std::any::Any;
 use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::Debug;
@@ -285,5 +286,88 @@ impl<T: Clone> Context<T> {
     /// Get the list of interned IDs.
     pub fn to_ids(&self) -> Vec<Id> {
         self.ids.read().clone()
+    }
+}
+
+/// A registry of type-erased function values keyed by a pair of [`Id`] values.
+///
+/// Each entry stores an `Arc<dyn Any + Send + Sync>` wrapping a caller-supplied concrete type `F`
+/// (typically a function pointer). Callers recover the original type by passing the same `F` to
+/// [`FnRegistry::find`]; `find` returns `Some(Arc<F>)` on a type match and `None` otherwise.
+///
+/// Used for pluggable dispatch keyed by an `(outer, inner)` identifier pair — for example the
+/// optimizer's parent-reduce registry keys by `(parent_encoding_id, child_encoding_id)` so that
+/// downstream crates can override the rule that would normally run from the child encoding's
+/// static `PARENT_RULES` set.
+#[derive(Clone, Debug, Default)]
+pub struct FnRegistry(Arc<DashMap<(Id, Id), Arc<dyn Any + Send + Sync>>>);
+
+impl FnRegistry {
+    /// Create a new, empty registry.
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
+    /// Register a function under `(outer, inner)`, replacing any existing entry.
+    pub fn register<F: Any + Send + Sync>(&self, outer: Id, inner: Id, f: F) {
+        self.0.insert((outer, inner), Arc::new(f));
+    }
+
+    /// Look up a function registered under `(outer, inner)`, downcasting to `F`.
+    ///
+    /// Returns `None` if no function is registered, or if the registered value is not of type `F`.
+    pub fn find<F: Any + Send + Sync>(&self, outer: Id, inner: Id) -> Option<Arc<F>> {
+        let entry = self.0.get(&(outer, inner))?;
+        Arc::clone(entry.value()).downcast::<F>().ok()
+    }
+
+    /// Return `true` if any function is registered under `(outer, inner)`.
+    pub fn contains(&self, outer: Id, inner: Id) -> bool {
+        self.0.contains_key(&(outer, inner))
+    }
+}
+
+#[cfg(test)]
+mod fn_registry_tests {
+    use super::FnRegistry;
+    use super::Id;
+
+    type DoubleFn = fn(i64) -> i64;
+
+    fn double(x: i64) -> i64 {
+        x * 2
+    }
+
+    #[test]
+    fn register_and_find() {
+        let registry = FnRegistry::default();
+        let outer = Id::new("test.double");
+        let inner = Id::new("test.int");
+
+        assert!(!registry.contains(outer, inner));
+        registry.register::<DoubleFn>(outer, inner, double);
+
+        assert!(registry.contains(outer, inner));
+        let f = registry.find::<DoubleFn>(outer, inner).unwrap();
+        assert_eq!(f(21), 42);
+    }
+
+    #[test]
+    fn find_with_wrong_type_returns_none() {
+        let registry = FnRegistry::default();
+        let outer = Id::new("test.double");
+        let inner = Id::new("test.int");
+        registry.register::<DoubleFn>(outer, inner, double);
+
+        type OtherFn = fn(i32) -> i32;
+        assert!(registry.find::<OtherFn>(outer, inner).is_none());
+    }
+
+    #[test]
+    fn missing_entry_returns_none() {
+        let registry = FnRegistry::default();
+        let outer = Id::new("test.missing");
+        let inner = Id::new("test.int");
+        assert!(registry.find::<DoubleFn>(outer, inner).is_none());
     }
 }

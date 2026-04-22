@@ -121,7 +121,7 @@ impl ArrayRef {
                         return Ok(current);
                     }
                     Some(frame) => {
-                        current = frame.put_back(current)?.optimize()?;
+                        current = frame.put_back(current)?.optimize_ctx(ctx)?;
                         continue;
                     }
                 }
@@ -137,9 +137,9 @@ impl ArrayRef {
                     "execute_parent rewrote {} -> {}",
                     current, rewritten
                 ));
-                current = rewritten.optimize()?;
+                current = rewritten.optimize_ctx(ctx)?;
                 if let Some(frame) = stack.pop() {
-                    current = frame.put_back(current)?.optimize()?;
+                    current = frame.put_back(current)?.optimize_ctx(ctx)?;
                 }
                 continue;
             }
@@ -158,7 +158,7 @@ impl ArrayRef {
                     ));
                     let frame = StackFrame::new(parent, i, done, &child);
                     stack.push(frame);
-                    current = child.optimize()?;
+                    current = child.optimize_ctx(ctx)?;
                 }
                 ExecutionStep::Done => {
                     ctx.log(format_args!("Done: {}", array));
