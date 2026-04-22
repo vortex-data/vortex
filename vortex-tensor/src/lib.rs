@@ -80,4 +80,6 @@ mod tests {
         crate::initialize(&session);
         session
     });
+
+    mod arrow_roundtrip;
 }

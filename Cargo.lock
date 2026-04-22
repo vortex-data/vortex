@@ -10255,6 +10255,7 @@ dependencies = [
  "arrow-select 58.1.0",
  "arrow-string 58.1.0",
  "async-lock",
+ "base64",
  "bytes",
  "cfg-if",
  "codspeed-divan-compat",
@@ -11092,6 +11093,7 @@ dependencies = [
 name = "vortex-tensor"
 version = "0.1.0"
 dependencies = [
+ "arrow-schema 58.1.0",
  "codspeed-divan-compat",
  "half",
  "itertools 0.14.0",

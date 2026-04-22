@@ -8492,6 +8492,26 @@ impl vortex_array::dtype::arrow::FromArrowType<alloc::sync::Arc<arrow_schema::sc
 
 pub fn vortex_array::dtype::DType::from_arrow(value: arrow_schema::schema::SchemaRef) -> Self
 
+pub trait vortex_array::dtype::arrow::FromArrowWithSession<T>: core::marker::Sized
+
+pub fn vortex_array::dtype::arrow::FromArrowWithSession::from_arrow_with_session(value: T, session: &vortex_session::VortexSession) -> Self
+
+impl vortex_array::dtype::arrow::FromArrowWithSession<&alloc::sync::Arc<arrow_schema::schema::Schema>> for vortex_array::dtype::DType
+
+pub fn vortex_array::dtype::DType::from_arrow_with_session(value: &arrow_schema::schema::SchemaRef, session: &vortex_session::VortexSession) -> Self
+
+impl vortex_array::dtype::arrow::FromArrowWithSession<&arrow_schema::field::Field> for vortex_array::dtype::DType
+
+pub fn vortex_array::dtype::DType::from_arrow_with_session(field: &arrow_schema::field::Field, session: &vortex_session::VortexSession) -> Self
+
+impl vortex_array::dtype::arrow::FromArrowWithSession<&arrow_schema::fields::Fields> for vortex_array::dtype::StructFields
+
+pub fn vortex_array::dtype::StructFields::from_arrow_with_session(value: &arrow_schema::fields::Fields, session: &vortex_session::VortexSession) -> Self
+
+impl vortex_array::dtype::arrow::FromArrowWithSession<&arrow_schema::schema::Schema> for vortex_array::dtype::DType
+
+pub fn vortex_array::dtype::DType::from_arrow_with_session(value: &arrow_schema::schema::Schema, session: &vortex_session::VortexSession) -> Self
+
 pub trait vortex_array::dtype::arrow::TryFromArrowType<T>: core::marker::Sized
 
 pub fn vortex_array::dtype::arrow::TryFromArrowType::try_from_arrow(value: T) -> vortex_error::VortexResult<Self>
@@ -9037,6 +9057,18 @@ pub fn vortex_array::dtype::DType::from_arrow((data_type, nullability): (&arrow_
 impl vortex_array::dtype::arrow::FromArrowType<alloc::sync::Arc<arrow_schema::schema::Schema>> for vortex_array::dtype::DType
 
 pub fn vortex_array::dtype::DType::from_arrow(value: arrow_schema::schema::SchemaRef) -> Self
+
+impl vortex_array::dtype::arrow::FromArrowWithSession<&alloc::sync::Arc<arrow_schema::schema::Schema>> for vortex_array::dtype::DType
+
+pub fn vortex_array::dtype::DType::from_arrow_with_session(value: &arrow_schema::schema::SchemaRef, session: &vortex_session::VortexSession) -> Self
+
+impl vortex_array::dtype::arrow::FromArrowWithSession<&arrow_schema::field::Field> for vortex_array::dtype::DType
+
+pub fn vortex_array::dtype::DType::from_arrow_with_session(field: &arrow_schema::field::Field, session: &vortex_session::VortexSession) -> Self
+
+impl vortex_array::dtype::arrow::FromArrowWithSession<&arrow_schema::schema::Schema> for vortex_array::dtype::DType
+
+pub fn vortex_array::dtype::DType::from_arrow_with_session(value: &arrow_schema::schema::Schema, session: &vortex_session::VortexSession) -> Self
 
 impl vortex_flatbuffers::FlatBufferRoot for vortex_array::dtype::DType
 
@@ -9991,6 +10023,10 @@ pub fn vortex_array::dtype::StructFields::hash<__H: core::hash::Hasher>(&self, s
 impl vortex_array::dtype::arrow::FromArrowType<&arrow_schema::fields::Fields> for vortex_array::dtype::StructFields
 
 pub fn vortex_array::dtype::StructFields::from_arrow(value: &arrow_schema::fields::Fields) -> Self
+
+impl vortex_array::dtype::arrow::FromArrowWithSession<&arrow_schema::fields::Fields> for vortex_array::dtype::StructFields
+
+pub fn vortex_array::dtype::StructFields::from_arrow_with_session(value: &arrow_schema::fields::Fields, session: &vortex_session::VortexSession) -> Self
 
 impl<T, V> core::iter::traits::collect::FromIterator<(T, V)> for vortex_array::dtype::StructFields where T: core::convert::Into<vortex_array::dtype::FieldName>, V: core::convert::Into<vortex_array::dtype::FieldDType>
 
