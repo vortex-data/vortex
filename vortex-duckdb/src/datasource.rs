@@ -64,6 +64,7 @@ use crate::duckdb::Cardinality;
 use crate::duckdb::ClientContextRef;
 use crate::duckdb::ColumnStatistics;
 use crate::duckdb::DataChunkRef;
+use crate::duckdb::DuckdbStringMapRef;
 use crate::duckdb::ExpressionRef;
 use crate::duckdb::LogicalType;
 use crate::duckdb::TableFilterSetRef;
@@ -540,17 +541,12 @@ impl<T: DataSourceTableFunction> TableFunction for T {
             .ok_or_else(|| vortex_err!("batch id missing, no batches exported"))
     }
 
-    fn to_string(bind_data: &Self::BindData) -> Option<Vec<(String, String)>> {
-        let mut result = Vec::new();
-
-        result.push(("Function".to_string(), "Vortex Scan".to_string()));
-
+    fn to_string(bind_data: &Self::BindData, map: &mut DuckdbStringMapRef) {
+        map.push("Function", "Vortex Scan");
         if !bind_data.filter_exprs.is_empty() {
             let mut filters = bind_data.filter_exprs.iter().map(|f| format!("{}", f));
-            result.push(("Filters".to_string(), filters.join(" /\\\n")));
+            map.push("Filters", &filters.join(" /\\\n"));
         }
-
-        Some(result)
     }
 }
 

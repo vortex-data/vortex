@@ -704,16 +704,8 @@ mod tests {
     }
 
     #[rstest]
-    #[case::vector(
-        vector_array(3, &[1.0, 0.0, 0.0, 3.0, 4.0, 0.0]).unwrap(),
-        vector_array(3, &[0.0, 1.0, 0.0, 3.0, 4.0, 0.0]).unwrap(),
-        2,
-    )]
-    #[case::fixed_shape_tensor(
-        tensor_array(&[2], &[1.0, 0.0, 3.0, 4.0]).unwrap(),
-        tensor_array(&[2], &[0.0, 1.0, 3.0, 4.0]).unwrap(),
-        2,
-    )]
+    #[case::vector(cosine_vector_lhs(), cosine_vector_rhs(), 2)]
+    #[case::fixed_shape_tensor(cosine_tensor_lhs(), cosine_tensor_rhs(), 2)]
     fn serde_round_trip(
         #[case] lhs: ArrayRef,
         #[case] rhs: ArrayRef,
@@ -740,5 +732,21 @@ mod tests {
         assert_eq!(recovered.len(), original.len());
         assert_eq!(recovered.encoding_id(), original.encoding_id());
         Ok(())
+    }
+
+    fn cosine_vector_lhs() -> ArrayRef {
+        vector_array(3, &[1.0, 0.0, 0.0, 3.0, 4.0, 0.0]).expect("valid vector array")
+    }
+
+    fn cosine_vector_rhs() -> ArrayRef {
+        vector_array(3, &[0.0, 1.0, 0.0, 3.0, 4.0, 0.0]).expect("valid vector array")
+    }
+
+    fn cosine_tensor_lhs() -> ArrayRef {
+        tensor_array(&[2], &[1.0, 0.0, 3.0, 4.0]).expect("valid tensor array")
+    }
+
+    fn cosine_tensor_rhs() -> ArrayRef {
+        tensor_array(&[2], &[0.0, 1.0, 3.0, 4.0]).expect("valid tensor array")
     }
 }

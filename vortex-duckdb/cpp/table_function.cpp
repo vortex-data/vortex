@@ -397,24 +397,18 @@ OperatorPartitionData c_get_partition_data(ClientContext & /*context*/,
     return OperatorPartitionData(index);
 }
 
+extern "C" void duckdb_vx_string_map_insert(duckdb_vx_string_map map, const char *key, const char *value) {
+    D_ASSERT(map);
+    D_ASSERT(key);
+    D_ASSERT(value);
+    reinterpret_cast<InsertionOrderPreservingMap<string> *>(map)->insert(key, value);
+}
+
 InsertionOrderPreservingMap<string> c_to_string(TableFunctionToStringInput &input) {
     InsertionOrderPreservingMap<string> result;
-    auto &bind = input.bind_data->Cast<CTableBindData>();
-
-    // Call the Rust side to get custom string representation if available
-    if (bind.info->vtab.to_string) {
-        auto map = bind.info->vtab.to_string(bind.ffi_data->DataPtr());
-        if (map) {
-            // Copy the map contents to the result
-            auto *cpp_map = reinterpret_cast<InsertionOrderPreservingMap<string> *>(map);
-            for (const auto &[key, value] : *cpp_map) {
-                result[key] = value;
-            }
-            // Free the map allocated by Rust
-            duckdb_vx_string_map_free(map);
-        }
-    }
-
+    duckdb_vx_string_map ffi_map = reinterpret_cast<duckdb_vx_string_map>(&result);
+    void *const ffi_bind = input.bind_data->Cast<CTableBindData>().ffi_data->DataPtr();
+    static_cast<CTableFunctionInfo &>(*input.table_function.function_info).vtab.to_string(ffi_bind, ffi_map);
     return result;
 }
 
@@ -470,26 +464,5 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_database ffi_db, const d
         return DuckDBError;
     }
     return DuckDBSuccess;
-}
-
-extern "C" duckdb_vx_string_map duckdb_vx_string_map_create() {
-    auto map = new InsertionOrderPreservingMap<string>();
-    return reinterpret_cast<duckdb_vx_string_map>(map);
-}
-
-extern "C" void duckdb_vx_string_map_insert(duckdb_vx_string_map map, const char *key, const char *value) {
-    if (!map || !key || !value) {
-        return;
-    }
-    auto *cpp_map = reinterpret_cast<InsertionOrderPreservingMap<string> *>(map);
-    (*cpp_map)[string(key)] = string(value);
-}
-
-extern "C" void duckdb_vx_string_map_free(duckdb_vx_string_map map) {
-    if (!map) {
-        return;
-    }
-    auto *cpp_map = reinterpret_cast<InsertionOrderPreservingMap<string> *>(map);
-    delete cpp_map;
 }
 } // namespace vortex

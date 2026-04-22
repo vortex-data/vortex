@@ -662,10 +662,8 @@ mod tests {
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype = DecimalDType::new(19, 2);
-        let i100 =
-            parse_decimal::<Decimal128Type>("100.00", dtype.precision(), dtype.scale()).unwrap();
-        let i200 =
-            parse_decimal::<Decimal128Type>("200.00", dtype.precision(), dtype.scale()).unwrap();
+        let i100 = parse_decimal::<Decimal128Type>("100.00", dtype.precision(), dtype.scale())?;
+        let i200 = parse_decimal::<Decimal128Type>("200.00", dtype.precision(), dtype.scale())?;
 
         let sorted = buffer![i100, i200, i200];
         let unsorted = buffer![i200, i100, i200];
@@ -689,12 +687,9 @@ mod tests {
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype = DecimalDType::new(19, 2);
-        let i100 =
-            parse_decimal::<Decimal128Type>("100.00", dtype.precision(), dtype.scale()).unwrap();
-        let i200 =
-            parse_decimal::<Decimal128Type>("200.00", dtype.precision(), dtype.scale()).unwrap();
-        let i300 =
-            parse_decimal::<Decimal128Type>("300.00", dtype.precision(), dtype.scale()).unwrap();
+        let i100 = parse_decimal::<Decimal128Type>("100.00", dtype.precision(), dtype.scale())?;
+        let i200 = parse_decimal::<Decimal128Type>("200.00", dtype.precision(), dtype.scale())?;
+        let i300 = parse_decimal::<Decimal128Type>("300.00", dtype.precision(), dtype.scale())?;
 
         let strict_sorted = buffer![i100, i200, i300];
         let sorted = buffer![i100, i200, i200];

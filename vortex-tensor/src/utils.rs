@@ -241,6 +241,7 @@ pub mod test_helpers {
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
 
     use crate::scalar_fns::l2_denorm::L2Denorm;
     use crate::types::fixed_shape::FixedShapeTensor;
@@ -270,7 +271,12 @@ pub mod test_helpers {
     /// The number of rows is inferred from the total element count divided by the product of the
     /// shape dimensions. For 0-dimensional tensors (scalar), each element is one row.
     pub fn tensor_array<T: NativePType>(shape: &[usize], elements: &[T]) -> VortexResult<ArrayRef> {
-        let list_size: u32 = shape.iter().product::<usize>().max(1).try_into().unwrap();
+        let list_size: u32 = shape
+            .iter()
+            .product::<usize>()
+            .max(1)
+            .try_into()
+            .map_err(|e| vortex_err!("{e}"))?;
         let storage = flat_fsl(elements, list_size);
         let metadata = FixedShapeTensorMetadata::new(shape.to_vec());
         let ext_dtype =

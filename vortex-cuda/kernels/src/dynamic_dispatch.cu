@@ -52,6 +52,7 @@
 
 #include "bit_unpack.cuh"
 #include "dynamic_dispatch.h"
+#include "patches.cuh"
 #include "types.cuh"
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -109,8 +110,12 @@ __shared__ uint64_t runend_cursors[BLOCK_SIZE];
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Apply one scalar operation to N values in registers.
+///
+/// `abs_pos` is the absolute output position of the first value to process.
+/// It is used by scalar operations that apply patches, e.g. ALP.
 template <typename T, uint32_t N>
-__device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem) {
+__device__ inline void
+scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem, uint64_t abs_pos = 0) {
     switch (op.op_code) {
     case ScalarOp::FOR: {
         const T ref = static_cast<T>(op.params.frame_of_ref.reference);
@@ -134,6 +139,33 @@ __device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__r
             float r = static_cast<float>(static_cast<int32_t>(values[i])) * f * e;
             values[i] = static_cast<T>(__float_as_uint(r));
         }
+        // Apply ALP patches: override positions whose float value couldn't
+        // be reconstructed through the ALP encode/decode cycle.
+        // Per-value cursor — with a slice offset, a tile's N values can
+        // straddle two FL chunks, so each value needs its own lookup.
+        if (op.params.alp.patches_ptr != 0) {
+            const auto &patches = *reinterpret_cast<const GPUPatches *>(op.params.alp.patches_ptr);
+            // The sliced chunk_offsets array starts at original chunk
+            // (offset / FL_CHUNK). PatchesCursor indexes from 0, so
+            // subtract that base to get the index into chunk_offsets.
+            const uint32_t chunk_start = patches.offset / FL_CHUNK;
+#pragma unroll
+            for (uint32_t i = 0; i < N; ++i) {
+                uint64_t my_pos = (N > 1) ? abs_pos + i * blockDim.x + threadIdx.x : abs_pos;
+                uint64_t orig = my_pos + patches.offset;
+                uint32_t chunk = static_cast<uint32_t>(orig / FL_CHUNK) - chunk_start;
+                uint32_t within = static_cast<uint32_t>(orig % FL_CHUNK);
+                PatchesCursor<T> cursor(patches, chunk, 0, 1);
+                auto patch = cursor.next();
+                while (patch.index != FL_CHUNK) {
+                    if (patch.index == within) {
+                        values[i] = patch.value;
+                        break;
+                    }
+                    patch = cursor.next();
+                }
+            }
+        }
         break;
     }
     case ScalarOp::DICT: {
@@ -150,6 +182,24 @@ __device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__r
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Patches
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Scatter patches for a single chunk into `out` using PatchesCursor.
+/// All threads in the block cooperate. Caller must issue __syncthreads()
+/// afterward if other threads read from `out`.
+template <typename T>
+__device__ __forceinline__ void
+scatter_patches_chunk(const GPUPatches &patches, T *__restrict out, uint32_t chunk) {
+    PatchesCursor<T> cursor(patches, chunk, threadIdx.x, blockDim.x);
+    auto patch = cursor.next();
+    while (patch.index != FL_CHUNK) {
+        out[patch.index] = patch.value;
+        patch = cursor.next();
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Source ops
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -162,11 +212,8 @@ __device__ inline void bitunpack(const T *__restrict packed,
                                  uint64_t chunk_start,
                                  uint32_t chunk_len,
                                  const struct SourceOp &src) {
-    constexpr uint32_t T_BITS = sizeof(T) * 8;
-    constexpr uint32_t FL_CHUNK = 1024;
-    constexpr uint32_t LANES = FL_CHUNK / T_BITS;
     const uint32_t bw = src.params.bitunpack.bit_width;
-    const uint32_t words_per_block = LANES * bw;
+    const uint32_t words_per_block = FL_LANES<T> * bw;
     const uint32_t elem_off = src.params.bitunpack.element_offset;
     const uint32_t dst_off = (chunk_start + elem_off) % FL_CHUNK;
     const uint64_t first_block = (chunk_start + elem_off) / FL_CHUNK;
@@ -177,8 +224,14 @@ __device__ inline void bitunpack(const T *__restrict packed,
     for (uint32_t c = 0; c < n_chunks; ++c) {
         const T *src_chunk = packed + (first_block + c) * words_per_block;
         T *chunk_dst = dst + c * FL_CHUNK;
-        for (uint32_t lane = threadIdx.x; lane < LANES; lane += blockDim.x) {
+        for (uint32_t lane = threadIdx.x; lane < FL_LANES<T>; lane += blockDim.x) {
             bit_unpack_lane<T>(src_chunk, chunk_dst, 0, lane, bw);
+        }
+        // Apply BitPacked patches inline, matching the standalone kernel pattern.
+        if (src.params.bitunpack.patches_ptr != 0) {
+            __syncthreads();
+            const auto &patches = *reinterpret_cast<const GPUPatches *>(src.params.bitunpack.patches_ptr);
+            scatter_patches_chunk<T>(patches, chunk_dst, first_block + c);
         }
     }
 }
@@ -282,15 +335,12 @@ __device__ void execute_output_stage(T *__restrict output,
     // Cap at 4 values per thread per tile to minimise register pressure.
     constexpr uint32_t VALUES_PER_TILE = (32 / sizeof(T)) < 4 ? (32 / sizeof(T)) : 4;
     const uint32_t tile_size = blockDim.x * VALUES_PER_TILE;
+
     const auto &src = stage.source;
     const void *raw_input = reinterpret_cast<const void *>(stage.input_ptr);
     const PTypeTag ptype = stage.source_ptype;
 
     if (src.op_code == SourceOp::RUNEND) {
-        // Seed each thread's cursor with the run containing its first
-        // strided position. The RUNEND arm in source_op advances the
-        // cursor monotonically, so this avoids a full binary search on
-        // every element.
         const T *ends = reinterpret_cast<const T *>(smem + src.params.runend.ends_smem_byte_offset);
         runend_cursors[threadIdx.x] = upper_bound(ends,
                                                   src.params.runend.num_runs,
@@ -301,10 +351,6 @@ __device__ void execute_output_stage(T *__restrict output,
         uint32_t chunk_len;
         const T *smem_src = nullptr;
 
-        // BITUNPACK uses smem scratch, so the outer loop advances one
-        // chunk at a time. LOAD, SEQUENCE, and RUNEND need no smem
-        // scratch, so chunk_len = block_len (single outer iteration);
-        // tiling happens in the inner tile_idx loop.
         if (src.op_code == SourceOp::BITUNPACK) {
             chunk_len = bitunpack_tile_len(stage, block_len, elem_idx);
             T *scratch = reinterpret_cast<T *>(smem + stage.smem_byte_offset);
@@ -313,10 +359,10 @@ __device__ void execute_output_stage(T *__restrict output,
                          block_start + elem_idx,
                          chunk_len,
                          src);
-            constexpr uint32_t FL_CHUNK = 1024; // FastLanes chunk size
             const uint32_t align = (block_start + elem_idx + src.params.bitunpack.element_offset) % FL_CHUNK;
             smem_src = scratch + align;
-            // Write barrier: all threads finished bitunpack, safe to read from scratch.
+            // Write barrier: all threads finished bitunpack (and any
+            // patches), safe to read from scratch.
             __syncthreads();
         } else {
             chunk_len = block_len;
@@ -337,7 +383,7 @@ __device__ void execute_output_stage(T *__restrict output,
                                           smem);
 
             for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
-                scalar_op<T, VALUES_PER_TILE>(values, stage.scalar_ops[op], smem);
+                scalar_op<T, VALUES_PER_TILE>(values, stage.scalar_ops[op], smem, tile_start);
             }
 
 #pragma unroll
@@ -359,7 +405,7 @@ __device__ void execute_output_stage(T *__restrict output,
             source_op<T, 1>(&val, src, raw_input, ptype, smem_src, i, gpos, smem);
 
             for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
-                scalar_op<T, 1>(&val, stage.scalar_ops[op], smem);
+                scalar_op<T, 1>(&val, stage.scalar_ops[op], smem, gpos);
             }
             __stcs(&output[gpos], val);
         }
@@ -392,24 +438,27 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
     const auto &src = stage.source;
 
     if (src.op_code == SourceOp::BITUNPACK) {
+        T *raw_smem = smem_out;
         bitunpack<T>(reinterpret_cast<const T *>(stage.input_ptr), smem_out, 0, stage.len, src);
-        smem_out += src.params.bitunpack.element_offset % SMEM_TILE_SIZE;
         // Write barrier: cooperative bitunpack finished, safe to read
-        // decoded elements in the scalar-op loop below.
+        // decoded elements below.
         __syncthreads();
 
+        smem_out += src.params.bitunpack.element_offset % SMEM_TILE_SIZE;
+
         if (stage.num_scalar_ops > 0) {
-            for (uint32_t i = threadIdx.x; i < stage.len; i += blockDim.x) {
-                T val = smem_out[i];
+            for (uint32_t elem_idx = threadIdx.x; elem_idx < stage.len; elem_idx += blockDim.x) {
+                T val = smem_out[elem_idx];
                 for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
-                    scalar_op<T, 1>(&val, stage.scalar_ops[op], smem);
+                    scalar_op<T, 1>(&val, stage.scalar_ops[op], smem, elem_idx);
                 }
-                smem_out[i] = val;
+                smem_out[elem_idx] = val;
             }
             // Write barrier: scalar ops applied in-place, smem region is
             // now fully populated for subsequent stages to read.
             __syncthreads();
         }
+
     } else {
         if (src.op_code == SourceOp::RUNEND) {
             // Seed each thread's cursor with the run containing its first
@@ -421,13 +470,13 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
                 upper_bound(ends, src.params.runend.num_runs, threadIdx.x + src.params.runend.offset);
         }
         const void *raw_input = reinterpret_cast<const void *>(stage.input_ptr);
-        for (uint32_t i = threadIdx.x; i < stage.len; i += blockDim.x) {
+        for (uint32_t elem_idx = threadIdx.x; elem_idx < stage.len; elem_idx += blockDim.x) {
             T val;
-            source_op<T, 1>(&val, src, raw_input, stage.source_ptype, nullptr, 0, i, smem);
+            source_op<T, 1>(&val, src, raw_input, stage.source_ptype, nullptr, 0, elem_idx, smem);
             for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
-                scalar_op<T, 1>(&val, stage.scalar_ops[op], smem);
+                scalar_op<T, 1>(&val, stage.scalar_ops[op], smem, elem_idx);
             }
-            smem_out[i] = val;
+            smem_out[elem_idx] = val;
         }
         // Write barrier: smem region is fully populated for subsequent
         // stages to read.

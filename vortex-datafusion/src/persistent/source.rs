@@ -3,6 +3,7 @@
 
 use std::any::Any;
 use std::fmt::Formatter;
+use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Weak;
 
@@ -185,6 +186,8 @@ pub struct VortexSource {
     ///
     /// Sharing the readers allows us to only read every layout once from the file, even across partitions.
     layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
+    /// Shared full-file natural split ranges keyed by path.
+    natural_split_ranges: Arc<DashMap<Path, Arc<[Range<u64>]>>>,
     expression_convertor: Arc<dyn ExpressionConvertor>,
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
     vx_metrics_registry: Arc<dyn MetricsRegistry>,
@@ -216,6 +219,7 @@ impl VortexSource {
             batch_size: None,
             _unused_df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
+            natural_split_ranges: Arc::new(DashMap::default()),
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             vortex_reader_factory: None,
             vx_metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
@@ -333,6 +337,7 @@ impl FileSource for VortexSource {
             limit: base_config.limit.map(|l| l as u64),
             metrics_registry: Arc::clone(&self.vx_metrics_registry),
             layout_readers: Arc::clone(&self.layout_readers),
+            natural_split_ranges: Arc::clone(&self.natural_split_ranges),
             has_output_ordering: !base_config.output_ordering.is_empty(),
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: self.file_metadata_cache.clone(),

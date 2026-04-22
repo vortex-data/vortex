@@ -169,8 +169,13 @@ mod tests {
         let chunk =
             StructArray::from_fields(&[("id", id_array(&[0, 1])), ("emb", emb)])?.into_array();
         let out = transform_chunk(chunk, &mut ctx)?;
-        let out_struct = out.as_opt::<Struct>().expect("returns Struct");
-        let out_emb = out_struct.unmasked_field_by_name("emb").unwrap().clone();
+        let out_struct = out
+            .as_opt::<Struct>()
+            .context("transform_chunk should return a Struct array")?;
+        let out_emb = out_struct
+            .unmasked_field_by_name("emb")
+            .context("transform_chunk output should contain an emb field")?
+            .clone();
         let DType::Extension(ext) = out_emb.dtype() else {
             panic!("expected extension dtype, got {}", out_emb.dtype());
         };

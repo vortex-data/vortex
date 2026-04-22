@@ -16,12 +16,14 @@ use vortex::array::arrays::Slice;
 use vortex::array::arrays::dict::DictArraySlotsExt;
 use vortex::array::arrays::slice::SliceArrayExt;
 use vortex::array::buffer::BufferHandle;
+use vortex::array::patches::Patches;
 use vortex::array::validity::Validity;
 use vortex::dtype::PType;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPArrayExt;
 use vortex::encodings::alp::ALPArraySlotsExt;
 use vortex::encodings::alp::ALPFloat;
+use vortex::encodings::alp::Exponents;
 use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::BitPackedArrayExt;
 use vortex::encodings::fastlanes::FoR;
@@ -45,6 +47,7 @@ use super::ptype_to_tag;
 use super::tag_to_ptype;
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
+use crate::kernel::load_patches_sync;
 
 /// A plan whose source buffers have been copied to the device, ready for kernel launch.
 pub struct MaterializedPlan {
@@ -69,10 +72,10 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
     let id = array.encoding_id();
     if id == ALP.id() {
         let arr = array.as_::<ALP>();
-        return arr.patches().is_none() && arr.dtype().as_ptype() == PType::F32;
+        return arr.dtype().as_ptype() == PType::F32;
     }
     if id == BitPacked.id() {
-        return array.as_::<BitPacked>().patches().is_none();
+        return true;
     }
     if id == Dict.id() {
         let arr = array.as_::<Dict>();
@@ -119,9 +122,17 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
 }
 
 /// An unmaterialized stage: a source op, scalar ops, and optional source buffer reference.
+///
+/// Patches are tied to their owning ops, mirroring the CUDA side where
+/// `patches_ptr` lives on `BitunpackParams` / `AlpParams`:
+/// - `source_patches` for the source op (BitPacked exceptions)
+/// - Each scalar op carries its own `Option<Patches>` (ALP exceptions)
 struct Stage {
     source: SourceOp,
-    scalar_ops: Vec<ScalarOp>,
+    /// Patches from the source op (e.g. BitPacked overflow exceptions).
+    source_patches: Option<Patches>,
+    /// Scalar ops with optional per-op patches (e.g. ALP float exceptions).
+    scalar_ops: Vec<(ScalarOp, Option<Patches>)>,
     /// Index into `FusedPlan::source_buffers`, or `None`
     /// for sources that don't read from a device buffer.
     source_buffer_index: Option<usize>,
@@ -133,6 +144,7 @@ impl Stage {
     fn new(source: SourceOp, source_buffer_index: Option<usize>, source_ptype: PTypeTag) -> Self {
         Self {
             source,
+            source_patches: None,
             scalar_ops: vec![],
             source_buffer_index,
             source_ptype,
@@ -240,7 +252,7 @@ impl DispatchPlan {
     /// - Validity is propagated from the root array to the output. Nullable
     ///   arrays are supported, but Dict with nullable codes and RunEnd with
     ///   nullable ends are rejected to guard against out-of-bounds access.
-    /// - `BitPackedArray` and `ALPArray` with patches are not supported.
+    /// - `BitPackedArray` and `ALPArray` with patches are supported.
     /// - Only f32 ALP is supported (kernel stores multipliers as `float`).
     pub fn new(array: &ArrayRef) -> VortexResult<Self> {
         if PType::try_from(array.dtype()).is_err() || !is_dyn_dispatch_compatible(array) {
@@ -340,7 +352,7 @@ impl FusedPlan {
     }
 
     /// Copy source buffers to the device, producing a [`MaterializedPlan`].
-    pub fn materialize(self, ctx: &CudaExecutionCtx) -> VortexResult<MaterializedPlan> {
+    pub fn materialize(self, ctx: &mut CudaExecutionCtx) -> VortexResult<MaterializedPlan> {
         let shared_mem_bytes = self.dynamic_shared_mem_bytes();
 
         let mut device_buffers = Vec::new();
@@ -367,20 +379,37 @@ impl FusedPlan {
         // Byte offsets are passed directly to the C ABI — the kernel now
         // indexes shared memory by byte offset and casts to the correct type
         // using source_ptype / output_ptype.
-        let stages: Vec<MaterializedStage> = self
-            .stages
-            .iter()
-            .map(|(stage, smem_byte_offset, len)| {
-                MaterializedStage::new(
-                    resolve_ptr(stage),
-                    *smem_byte_offset,
-                    *len,
-                    stage.source_ptype,
-                    stage.source,
-                    &stage.scalar_ops,
-                )
-            })
-            .collect();
+        let mut stages: Vec<MaterializedStage> = Vec::new();
+        for (stage, smem_byte_offset, len) in &self.stages {
+            let mut source = stage.source;
+
+            // Upload source patches (e.g. BitPacked exceptions).
+            if let Some(patches) = &stage.source_patches {
+                let (ptr, bufs) = load_patches_sync(patches, ctx)?;
+                source.params.bitunpack.patches_ptr = ptr;
+                device_buffers.extend(bufs);
+            }
+
+            // Upload patches for each scalar op that carries them.
+            let mut scalar_ops: Vec<ScalarOp> = Vec::with_capacity(stage.scalar_ops.len());
+            for (mut op, patches) in stage.scalar_ops.clone() {
+                if let Some(patches) = &patches {
+                    let (ptr, bufs) = load_patches_sync(patches, ctx)?;
+                    op.params.alp.patches_ptr = ptr;
+                    device_buffers.extend(bufs);
+                }
+                scalar_ops.push(op);
+            }
+
+            stages.push(MaterializedStage::new(
+                resolve_ptr(stage),
+                *smem_byte_offset,
+                *len,
+                stage.source_ptype,
+                source,
+                &scalar_ops,
+            ));
+        }
 
         Ok(MaterializedPlan {
             dispatch_plan: CudaDispatchPlan::new(stages, self.output_ptype),
@@ -398,7 +427,7 @@ impl FusedPlan {
     pub fn materialize_with_subtrees(
         mut self,
         subtree_buffers: Vec<BufferHandle>,
-        ctx: &CudaExecutionCtx,
+        ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<MaterializedPlan> {
         for (slot, buf) in zip_eq(
             self.source_buffers.iter_mut().filter(|s| s.is_none()),
@@ -465,7 +494,8 @@ impl FusedPlan {
     /// SliceArray → resolve the slice via reduce/execute rules.
     ///
     /// When the plan builder encounters a `SliceArray`, it resolves the slice
-    /// by invoking the child's `reduce_parent`, `execute_parent`.
+    /// by invoking the child's `reduce_parent`. If that fails (e.g. ALP
+    /// doesn't implement it), we manually slice the child's sub-arrays.
     fn walk_slice(
         &mut self,
         array: ArrayRef,
@@ -476,6 +506,26 @@ impl FusedPlan {
 
         if let Some(reduced) = child.reduce_parent(&array, 0)? {
             return self.walk(reduced, pending_subtrees);
+        }
+
+        // ALP doesn't implement reduce_parent — slice encoded child and
+        // patches manually (Patches::slice adjusts offsets for the range).
+        if child.encoding_id() == ALP.id() {
+            let alp = child.as_::<ALP>();
+            let offset = slice_arr.data().slice_range().start;
+            let len = array.len();
+            let sliced_encoded = alp.encoded().clone().slice(offset..offset + len)?;
+            let sliced_patches = alp
+                .patches()
+                .map(|p| p.slice(offset..offset + len))
+                .transpose()?
+                .flatten();
+            return self.walk_alp_inner(
+                sliced_encoded,
+                sliced_patches,
+                alp.exponents(),
+                pending_subtrees,
+            );
         }
 
         vortex_bail!(
@@ -498,20 +548,18 @@ impl FusedPlan {
     fn walk_bitpacked(&mut self, array: ArrayRef) -> VortexResult<Stage> {
         let bp = array.as_::<BitPacked>();
 
-        if bp.patches().is_some() {
-            vortex_bail!("Dynamic dispatch does not support BitPackedArray with patches");
-        }
-
         let source_ptype = ptype_to_tag(PType::try_from(bp.dtype()).map_err(|_| {
             vortex_err!("BitPacked must have primitive dtype, got {:?}", bp.dtype())
         })?);
         let buf_index = self.source_buffers.len();
         self.source_buffers.push(Some(bp.packed().clone()));
-        Ok(Stage::new(
+        let mut stage = Stage::new(
             SourceOp::bitunpack(bp.bit_width(), bp.offset()),
             Some(buf_index),
             source_ptype,
-        ))
+        );
+        stage.source_patches = bp.patches();
+        Ok(stage)
     }
 
     fn walk_for(
@@ -537,7 +585,7 @@ impl FusedPlan {
             .cast::<u64>()?;
         pipeline
             .scalar_ops
-            .push(ScalarOp::frame_of_ref(ref_u64, output_ptype));
+            .push((ScalarOp::frame_of_ref(ref_u64, output_ptype), None));
         Ok(pipeline)
     }
 
@@ -553,7 +601,9 @@ impl FusedPlan {
         })?);
 
         let mut pipeline = self.walk(encoded, pending_subtrees)?;
-        pipeline.scalar_ops.push(ScalarOp::zigzag(output_ptype));
+        pipeline
+            .scalar_ops
+            .push((ScalarOp::zigzag(output_ptype), None));
         Ok(pipeline)
     }
 
@@ -563,26 +613,29 @@ impl FusedPlan {
         pending_subtrees: &mut Vec<ArrayRef>,
     ) -> VortexResult<Stage> {
         let alp = array.as_::<ALP>();
+        self.walk_alp_inner(
+            alp.encoded().clone(),
+            alp.patches(),
+            alp.exponents(),
+            pending_subtrees,
+        )
+    }
 
-        if alp.patches().is_some() {
-            vortex_bail!("Dynamic dispatch does not support ALPArray with patches");
-        }
-
-        let ptype = alp.dtype().as_ptype();
-        if ptype != PType::F32 {
-            vortex_bail!(
-                "Dynamic dispatch only supports f32 ALP, got {:?}",
-                alp.dtype()
-            );
-        }
-
-        let exponents = alp.exponents();
+    /// Shared ALP logic for both `walk_alp` and `walk_slice` (Slice(ALP)).
+    fn walk_alp_inner(
+        &mut self,
+        encoded: ArrayRef,
+        patches: Option<Patches>,
+        exponents: Exponents,
+        pending_subtrees: &mut Vec<ArrayRef>,
+    ) -> VortexResult<Stage> {
         let alp_f = <f32 as ALPFloat>::F10[exponents.f as usize];
         let alp_e = <f32 as ALPFloat>::IF10[exponents.e as usize];
-        let encoded = alp.encoded().clone();
 
         let mut pipeline = self.walk(encoded, pending_subtrees)?;
-        pipeline.scalar_ops.push(ScalarOp::alp(alp_f, alp_e));
+        pipeline
+            .scalar_ops
+            .push((ScalarOp::alp(alp_f, alp_e), patches));
         Ok(pipeline)
     }
 
@@ -645,9 +698,9 @@ impl FusedPlan {
         };
         // DICT scalar op: pass byte offset directly (C ABI uses byte offsets).
         // output_ptype is the values' ptype — DICT transforms codes → values.
-        pipeline.scalar_ops.push(ScalarOp::dict(
-            values_smem_byte_offset,
-            ptype_to_tag(values_ptype),
+        pipeline.scalar_ops.push((
+            ScalarOp::dict(values_smem_byte_offset, ptype_to_tag(values_ptype)),
+            None,
         ));
         Ok(pipeline)
     }
@@ -727,7 +780,7 @@ impl FusedPlan {
         let final_ptype = spec
             .scalar_ops
             .last()
-            .map(|op| op.output_ptype)
+            .map(|(op, _)| op.output_ptype)
             .unwrap_or(spec.source_ptype);
         let final_elem_bytes = tag_to_ptype(final_ptype).byte_width() as u32;
         let elem_bytes = final_elem_bytes.max(self.output_elem_bytes);
