@@ -19,6 +19,8 @@ struct ValidityExporter {
 }
 
 pub(super) struct ZeroCopyValidity {
+    /// VectorBuffer whose `DataPtr()` returns the raw validity bitmap pointer.
+    /// The buffer also keeps the underlying memory alive via DuckDB's ref-counting.
     pub(super) shared_buffer: VectorBuffer,
 }
 
@@ -27,6 +29,7 @@ pub(super) struct ZeroCopyValidity {
 /// Requirements:
 /// - No sub-byte bit offset (offset == 0)
 /// - The underlying byte buffer is u64-aligned
+/// - The underlying byte buffer length is a multiple of 8 (so u64 reads are in-bounds)
 fn can_zero_copy_validity(mask: &Mask) -> bool {
     let Mask::Values(values) = mask else {
         return false;
@@ -36,8 +39,11 @@ fn can_zero_copy_validity(mask: &Mask) -> bool {
         return false;
     }
     let inner = bit_buf.inner();
-    // Check u64 alignment of the underlying data pointer
-    (inner.as_slice().as_ptr() as usize).is_multiple_of(size_of::<u64>())
+    let slice = inner.as_slice();
+    // DuckDB reads validity as u64 words, so the buffer must be u64-aligned and
+    // its length must be a multiple of 8 bytes to avoid out-of-bounds reads.
+    (slice.as_ptr() as usize).is_multiple_of(size_of::<u64>())
+        && slice.len().is_multiple_of(size_of::<u64>())
 }
 
 pub(crate) fn new_exporter(
@@ -52,8 +58,10 @@ pub(crate) fn new_exporter(
                 unreachable!()
             };
             let buffer = values.bit_buffer().inner().clone();
+            let data_ptr = buffer.as_slice().as_ptr();
             ZeroCopyValidity {
-                shared_buffer: VectorBuffer::new(buffer),
+                // SAFETY: data_ptr is derived from buffer and remains valid for its lifetime.
+                shared_buffer: unsafe { VectorBuffer::with_data_ptr(buffer, data_ptr) },
             }
         });
         Box::new(ValidityExporter {

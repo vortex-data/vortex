@@ -153,11 +153,11 @@ impl VectorRef {
 
     /// Sets the validity data for the vector from an external buffer, and stores the buffer in
     /// auxiliary to keep it alive. The validity pointer is derived from the buffer's data pointer
-    /// at the given `u64_offset`. This enables zero-copy export of validity masks.
+    /// (via `DataPtr()` on the C++ side) at the given `u64_offset`.
     ///
     /// # Safety
     ///
-    /// The buffer's data must be a valid `u64` array with at least
+    /// The buffer's `DataPtr()` must point to a valid `u64` array with at least
     /// `u64_offset + capacity.div_ceil(64)` elements.
     pub unsafe fn set_validity_data(
         &self,

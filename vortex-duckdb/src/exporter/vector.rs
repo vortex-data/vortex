@@ -37,7 +37,7 @@ impl VectorRef {
                     let u64_offset = offset / 64;
                     // SAFETY: the underlying buffer is u64-aligned (checked in
                     // can_zero_copy_validity) and the VectorBuffer keeps the data alive.
-                    // The C++ side derives the validity pointer from the buffer at u64_offset.
+                    // The C++ side derives the validity pointer from DataPtr() at u64_offset.
                     unsafe { self.set_validity_data(u64_offset, len, &zc.shared_buffer) };
                 } else {
                     // If zero_copy is available and offset is aligned, we should
