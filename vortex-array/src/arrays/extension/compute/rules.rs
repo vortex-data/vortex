@@ -78,13 +78,17 @@ impl ArrayParentReduceRule<Extension> for ExtensionFilterPushDownRule {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     #[expect(deprecated)]
     use crate::ToCanonical as _;
+    use crate::VortexSessionExecute;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::Extension;
@@ -108,6 +112,10 @@ mod tests {
     use crate::scalar::ScalarValue;
     use crate::scalar_fn::fns::binary::Binary;
     use crate::scalar_fn::fns::operators::Operator;
+    use crate::session::ArraySession;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
     struct TestExt;
@@ -220,7 +228,9 @@ mod tests {
             .try_new_array(3, Operator::Lt, [constant_ext, ext_array])
             .unwrap();
 
-        let optimized = scalar_fn_array.optimize_recursive().unwrap();
+        let optimized = scalar_fn_array
+            .optimize_recursive(&SESSION.create_execution_ctx())
+            .unwrap();
         let scalar_fn = optimized.as_opt::<ScalarFn>().unwrap();
         let children = scalar_fn.children();
         let constant = children[0]

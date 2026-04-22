@@ -54,8 +54,13 @@ pub trait ArrayOptimizer {
     /// vtable rules.
     fn optimize_ctx(&self, ctx: &ExecutionCtx) -> VortexResult<ArrayRef>;
 
-    /// Optimize the entire array tree recursively (root and all descendants), static rules only.
-    fn optimize_recursive(&self) -> VortexResult<ArrayRef>;
+    /// Optimize the entire array tree recursively (root and all descendants).
+    ///
+    /// Consults the session's [`OptimizerSession`] registry for each parent/child pair
+    /// encountered during the recursive walk, so plugin-registered rules apply throughout the
+    /// tree. Requires a context unconditionally so the registry is always honored when a
+    /// recursive optimization is requested.
+    fn optimize_recursive(&self, ctx: &ExecutionCtx) -> VortexResult<ArrayRef>;
 }
 
 impl ArrayOptimizer for ArrayRef {
@@ -67,8 +72,8 @@ impl ArrayOptimizer for ArrayRef {
         Ok(try_optimize(self, Some(ctx))?.unwrap_or_else(|| self.clone()))
     }
 
-    fn optimize_recursive(&self) -> VortexResult<ArrayRef> {
-        Ok(try_optimize_recursive(self)?.unwrap_or_else(|| self.clone()))
+    fn optimize_recursive(&self, ctx: &ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(try_optimize_recursive(self, ctx)?.unwrap_or_else(|| self.clone()))
     }
 }
 
@@ -142,11 +147,11 @@ fn try_optimize(array: &ArrayRef, ctx: Option<&ExecutionCtx>) -> VortexResult<Op
     }
 }
 
-fn try_optimize_recursive(array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+fn try_optimize_recursive(array: &ArrayRef, ctx: &ExecutionCtx) -> VortexResult<Option<ArrayRef>> {
     let mut current_array = array.clone();
     let mut any_optimizations = false;
 
-    if let Some(new_array) = try_optimize(&current_array, None)? {
+    if let Some(new_array) = try_optimize(&current_array, Some(ctx))? {
         current_array = new_array;
         any_optimizations = true;
     }
@@ -156,7 +161,7 @@ fn try_optimize_recursive(array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
     for slot in current_array.slots() {
         match slot {
             Some(child) => {
-                if let Some(new_child) = try_optimize_recursive(child)? {
+                if let Some(new_child) = try_optimize_recursive(child, ctx)? {
                     new_slots.push(Some(new_child));
                     any_slot_optimized = true;
                 } else {

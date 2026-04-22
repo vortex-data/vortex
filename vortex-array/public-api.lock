@@ -13392,7 +13392,7 @@ pub fn vortex_array::optimizer::ArrayOptimizer::optimize(&self) -> vortex_error:
 
 pub fn vortex_array::optimizer::ArrayOptimizer::optimize_ctx(&self, ctx: &vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::optimizer::ArrayOptimizer::optimize_recursive(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::optimizer::ArrayOptimizer::optimize_recursive(&self, ctx: &vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 impl vortex_array::optimizer::ArrayOptimizer for vortex_array::ArrayRef
 
@@ -13400,7 +13400,7 @@ pub fn vortex_array::ArrayRef::optimize(&self) -> vortex_error::VortexResult<vor
 
 pub fn vortex_array::ArrayRef::optimize_ctx(&self, ctx: &vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::ArrayRef::optimize_recursive(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::ArrayRef::optimize_recursive(&self, ctx: &vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub type vortex_array::optimizer::ReduceParentFn = fn(child: &vortex_array::ArrayRef, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -22362,7 +22362,7 @@ pub fn vortex_array::ArrayRef::optimize(&self) -> vortex_error::VortexResult<vor
 
 pub fn vortex_array::ArrayRef::optimize_ctx(&self, ctx: &vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::ArrayRef::optimize_recursive(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::ArrayRef::optimize_recursive(&self, ctx: &vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 impl vortex_array::scalar_fn::ReduceNode for vortex_array::ArrayRef
 
