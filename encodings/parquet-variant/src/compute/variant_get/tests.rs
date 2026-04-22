@@ -63,7 +63,7 @@ fn vortex_to_arrow_variant(array: &ArrayRef) -> VortexResult<ArrowVariantArray> 
     parquet_variant.to_arrow(&mut ctx)
 }
 
-fn assert_variant_storage_matches(expected: &ArrowVariantArray, actual: &ArrowVariantArray) {
+fn assert_variant_arrays_match(expected: &ArrowVariantArray, actual: &ArrowVariantArray) {
     assert_eq!(actual.len(), expected.len(), "length mismatch");
     assert_eq!(
         actual.inner().column_names(),
@@ -86,6 +86,23 @@ fn assert_variant_storage_matches(expected: &ArrowVariantArray, actual: &ArrowVa
         assert_eq!(actual.data_type(), expected.data_type());
         assert_eq!(actual.is_nullable(), expected.is_nullable());
     }
+    for index in 0..expected.len() {
+        let expected_is_null = expected.is_null(index);
+        let actual_is_null = actual.is_null(index);
+
+        assert_eq!(
+            actual_is_null, expected_is_null,
+            "row {index}: null mismatch (vortex={actual_is_null}, arrow={expected_is_null})"
+        );
+
+        if !expected_is_null {
+            assert_eq!(
+                actual.value(index),
+                expected.value(index),
+                "row {index}: value mismatch"
+            );
+        }
+    }
 }
 
 fn binary_view_array(values: &[&[u8]]) -> ArrowArrayRef {
@@ -96,177 +113,111 @@ fn binary_view_array(values: &[&[u8]]) -> ArrowArrayRef {
     Arc::new(builder.finish())
 }
 
-fn assert_matches_arrow(json_rows: &[&str], field: &str) -> VortexResult<()> {
-    let arrow_strings: ArrowArrayRef = Arc::new(StringArray::from(
-        json_rows.iter().map(|row| Some(*row)).collect::<Vec<_>>(),
-    ));
-    let arrow_variant = json_to_variant(&arrow_strings).unwrap();
-    let arrow_input: ArrowArrayRef = Arc::new(arrow_variant.clone().into_inner());
-    let arrow_result = parquet_variant_compute::variant_get(
-        &arrow_input,
-        GetOptions::new_with_path(VariantPath::try_from(field).unwrap()),
-    )
-    .unwrap();
-    let arrow_result_variant =
-        ArrowVariantArray::try_new(arrow_result.as_any().downcast_ref::<StructArray>().unwrap())
-            .unwrap();
-
-    let vortex_input = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
-    let vortex_result = apply_variant_get(&vortex_input, field)?;
-    let vortex_as_arrow = vortex_to_arrow_variant(&vortex_result)?;
-
-    assert_variant_storage_matches(&arrow_result_variant, &vortex_as_arrow);
-
-    for index in 0..arrow_result_variant.len() {
-        let arrow_is_null = arrow_result_variant.is_null(index);
-        let vortex_is_null = vortex_as_arrow.is_null(index);
-
-        assert_eq!(
-            vortex_is_null, arrow_is_null,
-            "row {index}: null mismatch (vortex={vortex_is_null}, arrow={arrow_is_null})"
-        );
-
-        if !arrow_is_null {
-            assert_eq!(
-                vortex_as_arrow.value(index),
-                arrow_result_variant.value(index),
-                "row {index}: value mismatch"
-            );
-        }
-    }
-
-    Ok(())
-}
-
-fn assert_matches_arrow_with_path(
+fn arrow_variant_from_json_rows(
     json_rows: &[&str],
-    path: VortexVariantPath,
-    arrow_path: VariantPath<'static>,
-) -> VortexResult<()> {
-    let arrow_strings: ArrowArrayRef = Arc::new(StringArray::from(
-        json_rows.iter().map(|row| Some(*row)).collect::<Vec<_>>(),
-    ));
-    let arrow_variant = json_to_variant(&arrow_strings).unwrap();
-    let arrow_input: ArrowArrayRef = Arc::new(arrow_variant.clone().into_inner());
-    let arrow_result =
-        parquet_variant_compute::variant_get(&arrow_input, GetOptions::new_with_path(arrow_path))
-            .unwrap();
-    let arrow_result_variant =
-        ArrowVariantArray::try_new(arrow_result.as_any().downcast_ref::<StructArray>().unwrap())
-            .unwrap();
-
-    let vortex_input = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
-    let vortex_result = apply_variant_get(&vortex_input, path)?;
-    let vortex_as_arrow = vortex_to_arrow_variant(&vortex_result)?;
-
-    assert_variant_storage_matches(&arrow_result_variant, &vortex_as_arrow);
-
-    for index in 0..arrow_result_variant.len() {
-        let arrow_is_null = arrow_result_variant.is_null(index);
-        let vortex_is_null = vortex_as_arrow.is_null(index);
-
-        assert_eq!(
-            vortex_is_null, arrow_is_null,
-            "row {index}: null mismatch (vortex={vortex_is_null}, arrow={arrow_is_null})"
-        );
-
-        if !arrow_is_null {
-            assert_eq!(
-                vortex_as_arrow.value(index),
-                arrow_result_variant.value(index),
-                "row {index}: value mismatch"
-            );
-        }
-    }
-
-    Ok(())
-}
-
-fn assert_typed_matches_arrow_with_path(
-    json_rows: &[&str],
-    path: VortexVariantPath,
-    arrow_path: VariantPath<'static>,
-    as_dtype: DType,
-    arrow_dtype: ArrowDataType,
-) -> VortexResult<()> {
-    let arrow_strings: ArrowArrayRef = Arc::new(StringArray::from(
-        json_rows.iter().map(|row| Some(*row)).collect::<Vec<_>>(),
-    ));
-    let arrow_variant = json_to_variant(&arrow_strings).unwrap();
-    let arrow_result = parquet_variant_compute::variant_get(
-        &arrow_variant.clone().into(),
-        GetOptions::new_with_path(arrow_path).with_as_type(Some(FieldRef::new(Field::new(
-            "result",
-            arrow_dtype,
-            true,
-        )))),
-    )
-    .unwrap();
-    let expected = ArrayRef::from_arrow(arrow_result.as_ref(), true)?;
-
-    let vortex_input = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
-    let expr = variant_get_as(path, as_dtype.clone(), root());
-    let array = vortex_input.apply(&expr)?;
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    let actual = array.execute::<ArrayRef>(&mut ctx)?;
-
-    assert_eq!(actual.dtype(), &as_dtype.as_nullable());
-    assert_arrays_eq!(actual, expected);
-    Ok(())
-}
-
-fn assert_matches_arrow_nullable(
-    json_rows: &[&str],
-    validity: &[bool],
-    field: &str,
-) -> VortexResult<()> {
+    validity: Option<&[bool]>,
+) -> ArrowVariantArray {
     let arrow_strings: ArrowArrayRef = Arc::new(StringArray::from(
         json_rows.iter().map(|row| Some(*row)).collect::<Vec<_>>(),
     ));
     let base_variant = json_to_variant(&arrow_strings).unwrap();
-    let inner = base_variant.into_inner();
-    let null_struct = StructArray::try_new(
-        inner.fields().clone(),
-        inner.columns().to_vec(),
-        Some(NullBuffer::from(validity.to_vec())),
-    )
-    .unwrap();
-    let arrow_variant = ArrowVariantArray::try_new(&null_struct).unwrap();
-    let arrow_input: ArrowArrayRef = Arc::new(arrow_variant.clone().into_inner());
-    let arrow_result = parquet_variant_compute::variant_get(
-        &arrow_input,
-        GetOptions::new_with_path(VariantPath::try_from(field).unwrap()),
-    )
-    .unwrap();
-    let arrow_result_variant =
-        ArrowVariantArray::try_new(arrow_result.as_any().downcast_ref::<StructArray>().unwrap())
+
+    match validity {
+        Some(validity) => {
+            let inner = base_variant.into_inner();
+            let null_struct = StructArray::try_new(
+                inner.fields().clone(),
+                inner.columns().to_vec(),
+                Some(NullBuffer::from(validity.to_vec())),
+            )
             .unwrap();
-
-    let vortex_input = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
-    let vortex_result = apply_variant_get(&vortex_input, field)?;
-    let vortex_as_arrow = vortex_to_arrow_variant(&vortex_result)?;
-
-    assert_variant_storage_matches(&arrow_result_variant, &vortex_as_arrow);
-
-    for index in 0..arrow_result_variant.len() {
-        let arrow_is_null = arrow_result_variant.is_null(index);
-        let vortex_is_null = vortex_as_arrow.is_null(index);
-
-        assert_eq!(
-            vortex_is_null, arrow_is_null,
-            "row {index}: null mismatch (vortex={vortex_is_null}, arrow={arrow_is_null})"
-        );
-
-        if !arrow_is_null {
-            assert_eq!(
-                vortex_as_arrow.value(index),
-                arrow_result_variant.value(index),
-                "row {index}: value mismatch"
-            );
+            ArrowVariantArray::try_new(&null_struct).unwrap()
         }
+        None => base_variant,
     }
+}
 
-    Ok(())
+macro_rules! assert_variant_get_matches_arrow {
+    (json_rows = $json_rows:expr,field = $field:expr $(,)?) => {
+        assert_variant_get_matches_arrow!(
+            arrow_variant = arrow_variant_from_json_rows($json_rows, None),
+            path = $field,
+            arrow_path = VariantPath::try_from($field).unwrap(),
+        )
+    };
+    (json_rows = $json_rows:expr,validity = $validity:expr,field = $field:expr $(,)?) => {
+        assert_variant_get_matches_arrow!(
+            arrow_variant = arrow_variant_from_json_rows($json_rows, Some($validity)),
+            path = $field,
+            arrow_path = VariantPath::try_from($field).unwrap(),
+        )
+    };
+    (json_rows = $json_rows:expr,path = $path:expr,arrow_path = $arrow_path:expr $(,)?) => {
+        assert_variant_get_matches_arrow!(
+            arrow_variant = arrow_variant_from_json_rows($json_rows, None),
+            path = $path,
+            arrow_path = $arrow_path,
+        )
+    };
+    (
+        arrow_variant = $arrow_variant:expr,path = $path:expr,arrow_path = $arrow_path:expr $(,)?
+    ) => {{
+        let arrow_variant = $arrow_variant;
+        let path = $path;
+        let arrow_path = $arrow_path;
+        let arrow_input: ArrowArrayRef = Arc::new(arrow_variant.clone().into_inner());
+        let arrow_result = parquet_variant_compute::variant_get(
+            &arrow_input,
+            GetOptions::new_with_path(arrow_path),
+        )
+        .unwrap();
+        let expected = ArrowVariantArray::try_new(
+            arrow_result.as_any().downcast_ref::<StructArray>().unwrap(),
+        )
+        .unwrap();
+
+        let vortex_input = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
+        let actual = apply_variant_get(&vortex_input, path)?;
+        let actual = vortex_to_arrow_variant(&actual)?;
+
+        assert_variant_arrays_match(&expected, &actual);
+        Ok(())
+    }};
+}
+
+macro_rules! assert_variant_get_typed_matches_arrow {
+    (
+        json_rows =
+        $json_rows:expr,path =
+        $path:expr,arrow_path =
+        $arrow_path:expr,as_dtype =
+        $as_dtype:expr,arrow_dtype =
+        $arrow_dtype:expr $(,)?
+    ) => {{
+        let arrow_variant = arrow_variant_from_json_rows($json_rows, None);
+        let path = $path;
+        let arrow_path = $arrow_path;
+        let as_dtype = $as_dtype;
+        let arrow_result =
+            parquet_variant_compute::variant_get(
+                &arrow_variant.clone().into(),
+                GetOptions::new_with_path(arrow_path).with_as_type(Some(FieldRef::new(
+                    Field::new("result", $arrow_dtype, true),
+                ))),
+            )
+            .unwrap();
+        let expected = ArrayRef::from_arrow(arrow_result.as_ref(), true)?;
+
+        let vortex_input = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
+        let expr = variant_get_as(path, as_dtype.clone(), root());
+        let array = vortex_input.apply(&expr)?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let actual = array.execute::<ArrayRef>(&mut ctx)?;
+
+        assert_eq!(actual.dtype(), &as_dtype.as_nullable());
+        assert_arrays_eq!(actual, expected);
+        Ok(())
+    }};
 }
 
 #[rstest]
@@ -282,54 +233,57 @@ fn test_variant_get_matches_arrow(
     #[case] field: &str,
     #[case] json_rows: &[&str],
 ) -> VortexResult<()> {
-    assert_matches_arrow(json_rows, field)
+    assert_variant_get_matches_arrow!(json_rows = json_rows, field = field)
 }
 
 #[test]
 fn test_variant_get_matches_arrow_non_object() -> VortexResult<()> {
-    assert_matches_arrow(&["42", r#""hello""#, "true", "null"], "a")
+    assert_variant_get_matches_arrow!(
+        json_rows = &["42", r#""hello""#, "true", "null"],
+        field = "a",
+    )
 }
 
 #[test]
 fn test_variant_get_matches_arrow_mixed_types() -> VortexResult<()> {
-    assert_matches_arrow(
-        &[
+    assert_variant_get_matches_arrow!(
+        json_rows = &[
             r#"{"v": 1}"#,
             r#"{"v": "text"}"#,
             r#"{"v": true}"#,
             r#"{"v": [1,2]}"#,
             r#"{"v": {"nested": 1}}"#,
         ],
-        "v",
+        field = "v",
     )
 }
 
 #[test]
 fn test_variant_get_matches_arrow_nullable() -> VortexResult<()> {
-    assert_matches_arrow_nullable(
-        &[r#"{"a": 10}"#, r#"{"a": 20}"#, r#"{"a": 30}"#],
-        &[true, false, true],
-        "a",
+    assert_variant_get_matches_arrow!(
+        json_rows = &[r#"{"a": 10}"#, r#"{"a": 20}"#, r#"{"a": 30}"#],
+        validity = &[true, false, true],
+        field = "a",
     )
 }
 
 #[test]
 fn test_variant_get_matches_arrow_all_null() -> VortexResult<()> {
-    assert_matches_arrow_nullable(
-        &[r#"{"a": 1}"#, r#"{"a": 2}"#, r#"{"a": 3}"#],
-        &[false, false, false],
-        "a",
+    assert_variant_get_matches_arrow!(
+        json_rows = &[r#"{"a": 1}"#, r#"{"a": 2}"#, r#"{"a": 3}"#],
+        validity = &[false, false, false],
+        field = "a",
     )
 }
 
 #[test]
 fn test_variant_get_matches_arrow_nested_object_result() -> VortexResult<()> {
-    assert_matches_arrow(
-        &[
+    assert_variant_get_matches_arrow!(
+        json_rows = &[
             r#"{"outer": {"inner": 42}}"#,
             r#"{"outer": {"a": 1, "b": 2}}"#,
         ],
-        "outer",
+        field = "outer",
     )
 }
 
@@ -340,14 +294,14 @@ fn test_variant_get_matches_arrow_nested_path() -> VortexResult<()> {
         VariantPathElement::field("outer".to_string()),
         VariantPathElement::field("inner".to_string()),
     ]);
-    assert_matches_arrow_with_path(
-        &[
+    assert_variant_get_matches_arrow!(
+        json_rows = &[
             r#"{"outer": {"inner": 42}}"#,
             r#"{"outer": {"inner": "x"}}"#,
             r#"{"outer": {"other": true}}"#,
         ],
-        path,
-        arrow_path,
+        path = path,
+        arrow_path = arrow_path,
     )
 }
 
@@ -358,32 +312,32 @@ fn test_variant_get_matches_arrow_index_path() -> VortexResult<()> {
         VariantPathElement::field("arr".to_string()),
         VariantPathElement::index(1),
     ]);
-    assert_matches_arrow_with_path(
-        &[
+    assert_variant_get_matches_arrow!(
+        json_rows = &[
             r#"{"arr": [1, 2, 3]}"#,
             r#"{"arr": ["a", "b"]}"#,
             r#"{"arr": [true]}"#,
         ],
-        path,
-        arrow_path,
+        path = path,
+        arrow_path = arrow_path,
     )
 }
 
 #[test]
 fn test_variant_get_matches_arrow_typed_path() -> VortexResult<()> {
-    assert_typed_matches_arrow_with_path(
-        &[
+    assert_variant_get_typed_matches_arrow!(
+        json_rows = &[
             r#"{"outer": {"inner": 42}}"#,
             r#"{"outer": {"inner": "x"}}"#,
             r#"{"outer": {"other": true}}"#,
         ],
-        VortexVariantPath::from_name("outer").join("inner"),
-        VariantPath::from_iter([
+        path = VortexVariantPath::from_name("outer").join("inner"),
+        arrow_path = VariantPath::from_iter([
             VariantPathElement::field("outer".to_string()),
             VariantPathElement::field("inner".to_string()),
         ]),
-        DType::Primitive(PType::I64, Nullability::NonNullable),
-        ArrowDataType::Int64,
+        as_dtype = DType::Primitive(PType::I64, Nullability::NonNullable),
+        arrow_dtype = ArrowDataType::Int64,
     )
 }
 
@@ -596,7 +550,7 @@ fn variant_get_on_canonical_variant_preserves_parquet_core_and_shredded_child() 
     assert!(result_variant.shredded().is_some());
 
     let actual = vortex_to_arrow_variant(&result)?;
-    assert_variant_storage_matches(&expected, &actual);
+    assert_variant_arrays_match(&expected, &actual);
     assert_eq!(actual.value(0), expected.value(0));
 
     Ok(())
