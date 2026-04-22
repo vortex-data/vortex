@@ -16,6 +16,9 @@
 mod vtable;
 pub use vtable::*;
 
+mod refinement;
+pub use refinement::*;
+
 mod plugin;
 pub use plugin::*;
 
