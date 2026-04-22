@@ -42,6 +42,19 @@ pub(super) fn scheme_eval_span(scheme: SchemeId) -> tracing::Span {
     )
 }
 
+/// Builds a span covering the winning scheme's full-array compression.
+///
+/// Separates final-encode time from the sampling/selection time captured by `scheme_eval`,
+/// so the two phases can be compared per call.
+#[inline]
+pub(super) fn winner_compress_span(scheme: SchemeId) -> tracing::Span {
+    tracing::debug_span!(
+        target: TARGET_TRACE,
+        "winner_compress",
+        scheme = %scheme,
+    )
+}
+
 /// Records the final output size and, when finite, the top-level compression ratio.
 #[inline]
 pub(super) fn record_compress_outcome(span: &tracing::Span, before_nbytes: u64, after_nbytes: u64) {

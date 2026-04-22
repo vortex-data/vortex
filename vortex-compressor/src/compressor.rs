@@ -314,14 +314,22 @@ impl CascadingCompressor {
         // Run the winning scheme's `compress`. On failure, emit an ERROR event carrying the
         // scheme name and cascade history before propagating.
         let error_ctx = trace::enabled_error_context(&compress_ctx);
-        let compressed = match winner.compress(self, &data, compress_ctx, exec_ctx) {
-            Ok(compressed) => compressed,
-            Err(err) => {
-                // NB: this is the only way we can tell which scheme panicked / bailed on their
-                // data, especially for third-party schemes where the error site may not carry any
-                // compressor context.
-                trace::scheme_compress_failed(winner.id(), before_nbytes, error_ctx.as_ref(), &err);
-                return Err(err);
+        let compressed = {
+            let _span = trace::winner_compress_span(winner.id()).entered();
+            match winner.compress(self, &data, compress_ctx, exec_ctx) {
+                Ok(compressed) => compressed,
+                Err(err) => {
+                    // NB: this is the only way we can tell which scheme panicked / bailed on their
+                    // data, especially for third-party schemes where the error site may not carry
+                    // any compressor context.
+                    trace::scheme_compress_failed(
+                        winner.id(),
+                        before_nbytes,
+                        error_ctx.as_ref(),
+                        &err,
+                    );
+                    return Err(err);
+                }
             }
         };
 
