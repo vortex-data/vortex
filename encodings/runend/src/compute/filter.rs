@@ -137,7 +137,7 @@ mod tests {
 
     #[test]
     fn filter_sliced_run_end() -> VortexResult<()> {
-        let arr = ree_array().slice(2..7).unwrap();
+        let arr = ree_array().slice(2..7)?;
         let filtered = arr.filter(Mask::from_iter([true, false, false, true, true]))?;
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();

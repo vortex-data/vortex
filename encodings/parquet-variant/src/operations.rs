@@ -384,13 +384,11 @@ mod tests {
         let vortex_arr = ParquetVariantData::from_arrow_variant(arrow_variant)?;
 
         for index in rows {
-            let expected_inner =
-                parquet_variant_to_scalar(arrow_variant.try_value(index).unwrap())?;
+            let expected_inner = parquet_variant_to_scalar(arrow_variant.try_value(index)?)?;
             let expected = Scalar::try_new(
                 vortex_arr.dtype().clone(),
                 Some(ScalarValue::Variant(Box::new(expected_inner))),
-            )
-            .unwrap();
+            )?;
             assert_eq!(
                 vortex_arr.execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())?,
                 expected
@@ -412,10 +410,9 @@ mod tests {
             inner.fields().clone(),
             inner.columns().to_vec(),
             Some(NullBuffer::from(vec![true, false, true])),
-        )
-        .unwrap();
+        )?;
 
-        let arrow_variant = ArrowVariantArray::try_new(&null_struct).unwrap();
+        let arrow_variant = ArrowVariantArray::try_new(&null_struct)?;
         let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
 
         assert_eq!(vortex_arr.dtype(), &DType::Variant(Nullability::Nullable));
@@ -453,10 +450,9 @@ mod tests {
             inner.fields().clone(),
             inner.columns().to_vec(),
             Some(NullBuffer::from(vec![false, false])),
-        )
-        .unwrap();
+        )?;
 
-        let arrow_variant = ArrowVariantArray::try_new(&null_struct).unwrap();
+        let arrow_variant = ArrowVariantArray::try_new(&null_struct)?;
         let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
 
         assert_eq!(vortex_arr.dtype(), &DType::Variant(Nullability::Nullable));
@@ -533,10 +529,9 @@ mod tests {
                 Arc::new(Int32Array::from(vec![10, 20, 30])),
             ],
             None,
-        )
-        .unwrap();
+        )?;
 
-        let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
+        let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
         assert_scalar_at_matches_arrow_try_value(&arrow_variant, [0, 1, 2])
     }
 
@@ -567,10 +562,9 @@ mod tests {
             .into(),
             vec![metadata, value, typed_value],
             None,
-        )
-        .unwrap();
+        )?;
 
-        let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
+        let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
         assert_scalar_at_matches_arrow_try_value(&arrow_variant, [0, 1, 2])
     }
 
@@ -583,22 +577,18 @@ mod tests {
             vec![Arc::new(Field::new("typed_value", DataType::Int32, false))].into(),
             vec![Arc::new(Int32Array::from(vec![10, 20, 30]))],
             None,
-        )
-        .unwrap();
+        )?;
 
-        let typed_value: ArrowArrayRef = Arc::new(
-            ListArray::try_new(
-                Arc::new(Field::new(
-                    "element",
-                    element_struct.data_type().clone(),
-                    false,
-                )),
-                OffsetBuffer::from_lengths([2, 1]),
-                Arc::new(element_struct),
-                None,
-            )
-            .unwrap(),
-        );
+        let typed_value: ArrowArrayRef = Arc::new(ListArray::try_new(
+            Arc::new(Field::new(
+                "element",
+                element_struct.data_type().clone(),
+                false,
+            )),
+            OffsetBuffer::from_lengths([2, 1]),
+            Arc::new(element_struct),
+            None,
+        )?);
 
         let struct_array = StructArray::try_new(
             vec![
@@ -612,10 +602,9 @@ mod tests {
             .into(),
             vec![binary_view_array(&[b"\x01\x00", b"\x01\x00"]), typed_value],
             None,
-        )
-        .unwrap();
+        )?;
 
-        let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
+        let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
         let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
 
         let row0 = vortex_arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?;
@@ -676,21 +665,17 @@ mod tests {
             vec![Arc::new(Field::new("typed_value", DataType::Int32, false))].into(),
             vec![Arc::new(Int32Array::from(vec![7]))],
             None,
-        )
-        .unwrap();
-        let typed_value: ArrowArrayRef = Arc::new(
-            StructArray::try_new(
-                vec![Arc::new(Field::new(
-                    "a",
-                    shredded_a.data_type().clone(),
-                    false,
-                ))]
-                .into(),
-                vec![Arc::new(shredded_a)],
-                None,
-            )
-            .unwrap(),
-        );
+        )?;
+        let typed_value: ArrowArrayRef = Arc::new(StructArray::try_new(
+            vec![Arc::new(Field::new(
+                "a",
+                shredded_a.data_type().clone(),
+                false,
+            ))]
+            .into(),
+            vec![Arc::new(shredded_a)],
+            None,
+        )?);
 
         let struct_array = StructArray::try_new(
             vec![
@@ -709,10 +694,9 @@ mod tests {
                 typed_value,
             ],
             None,
-        )
-        .unwrap();
+        )?;
 
-        let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
+        let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
         let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
         let object = vortex_arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?;
         let object = object.as_variant().value().unwrap().as_struct();

@@ -839,16 +839,8 @@ mod tests {
     }
 
     #[rstest]
-    #[case::vector(
-        vector_array(3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap(),
-        vector_array(3, &[7.0, 8.0, 9.0, 10.0, 11.0, 12.0]).unwrap(),
-        2,
-    )]
-    #[case::fixed_shape_tensor(
-        tensor_array(&[2], &[1.0, 2.0, 3.0, 4.0]).unwrap(),
-        tensor_array(&[2], &[5.0, 6.0, 7.0, 8.0]).unwrap(),
-        2,
-    )]
+    #[case::vector(inner_product_vector_lhs(), inner_product_vector_rhs(), 2)]
+    #[case::fixed_shape_tensor(inner_product_tensor_lhs(), inner_product_tensor_rhs(), 2)]
     fn serde_round_trip(
         #[case] lhs: ArrayRef,
         #[case] rhs: ArrayRef,
@@ -875,6 +867,22 @@ mod tests {
         assert_eq!(recovered.len(), original.len());
         assert_eq!(recovered.encoding_id(), original.encoding_id());
         Ok(())
+    }
+
+    fn inner_product_vector_lhs() -> ArrayRef {
+        vector_array(3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).expect("valid vector array")
+    }
+
+    fn inner_product_vector_rhs() -> ArrayRef {
+        vector_array(3, &[7.0, 8.0, 9.0, 10.0, 11.0, 12.0]).expect("valid vector array")
+    }
+
+    fn inner_product_tensor_lhs() -> ArrayRef {
+        tensor_array(&[2], &[1.0, 2.0, 3.0, 4.0]).expect("valid tensor array")
+    }
+
+    fn inner_product_tensor_rhs() -> ArrayRef {
+        tensor_array(&[2], &[5.0, 6.0, 7.0, 8.0]).expect("valid tensor array")
     }
 
     // ---- Tests for the `SorfTransform + constant` and `Dict + constant` fast paths ----

@@ -135,8 +135,8 @@ mod tests {
         let array = PrimitiveArray::from_option_iter(
             (0u8..200).map(|i| (!(50..100).contains(&i)).then_some(i)),
         );
-        let (bases, deltas) = delta_compress(&array, &mut ctx).unwrap();
-        let bitpacked_deltas = bitpack_encode(&deltas, 1, None, &mut ctx).unwrap();
+        let (bases, deltas) = delta_compress(&array, &mut ctx)?;
+        let bitpacked_deltas = bitpack_encode(&deltas, 1, None, &mut ctx)?;
         let packed_delta = Delta::try_new(
             bases.into_array(),
             bitpacked_deltas.into_array(),

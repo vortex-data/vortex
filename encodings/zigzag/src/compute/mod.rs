@@ -108,7 +108,7 @@ mod tests {
         )?;
 
         let indices = buffer![0, 2].into_array();
-        let actual = zigzag.take(indices).unwrap();
+        let actual = zigzag.take(indices)?;
         let expected =
             zigzag_encode(PrimitiveArray::new(buffer![-189, 1], Validity::AllValid).as_view())?
                 .into_array();
@@ -123,7 +123,7 @@ mod tests {
         )?;
 
         let filter_mask = BitBuffer::from(vec![true, false, true]).into();
-        let actual = zigzag.filter(filter_mask).unwrap();
+        let actual = zigzag.filter(filter_mask)?;
         let expected =
             zigzag_encode(PrimitiveArray::new(buffer![-189, 1], Validity::AllValid).as_view())?
                 .into_array();
