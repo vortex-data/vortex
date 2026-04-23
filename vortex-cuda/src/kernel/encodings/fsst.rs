@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use cudarc::driver::CudaSlice;
+use cudarc::driver::DevicePtr;
 use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
@@ -187,6 +188,18 @@ impl CudaExecute for FsstExecutor {
             let symbols_view = prep.symbols.cuda_view::<u64>()?;
             let symbol_lengths_view = prep.symbol_lengths.cuda_view::<u8>()?;
             let output_offsets_view = prep.output_offsets.cuda_view::<i32>()?;
+
+            // The aligned-output optimization in the fsst_decompress kernel
+            // requires an 8-byte-aligned base pointer. cudaMalloc returns ≥256-
+            // aligned pointers, so this should always hold; the assertion
+            // guards against allocator regressions.
+            let (output_base_ptr, _) = prep.device_output.device_ptr(ctx.stream());
+            assert_eq!(
+                output_base_ptr % 8,
+                0,
+                "device_output base not 8-aligned: {:#x}",
+                output_base_ptr,
+            );
 
             let cuda_function = ctx.load_function("fsst_decompress", &[])?;
             let num_strings_u64 = prep.num_strings as u64;

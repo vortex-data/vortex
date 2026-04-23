@@ -17,6 +17,14 @@
 //
 // The 256-entry symbol table is cooperatively loaded into shared memory before
 // decoding begins, so every per-code lookup in the inner loop hits SRAM.
+//
+// Symbol emission uses an 8-byte fat store whenever (a) `out_pos` is 8-byte
+// aligned (CUDA hardware rejects misaligned u64 stores with
+// CUDA_ERROR_MISALIGNED_ADDRESS) and (b) at least 8 bytes of this thread's
+// own output region remain. The store writes the full symbol u64 (valid
+// bytes plus garbage from the top); `out_pos` advances by sym_len so a
+// subsequent fat store overwrites the garbage. Misaligned positions and the
+// last up-to-7 bytes of each string fall back to a scalar byte loop.
 extern "C" __global__ void fsst_decompress(const uint8_t *__restrict codes_bytes,
                                            const int32_t *__restrict codes_offsets,
                                            const uint64_t *__restrict symbols,
@@ -41,6 +49,7 @@ extern "C" __global__ void fsst_decompress(const uint8_t *__restrict codes_bytes
 
     for (uint64_t tid = block_start + threadIdx.x; tid < block_end; tid += blockDim.x) {
         const int32_t in_end = codes_offsets[tid + 1];
+        const int32_t out_end = output_offsets[tid + 1];
         int32_t in_pos = codes_offsets[tid];
         int32_t out_pos = output_offsets[tid];
 
@@ -54,8 +63,16 @@ extern "C" __global__ void fsst_decompress(const uint8_t *__restrict codes_bytes
             } else {
                 const uint64_t symbol = sm_symbols[code];
                 const uint8_t sym_len = sm_symbol_lengths[code];
-                for (uint8_t i = 0; i < sym_len; ++i) {
-                    output_bytes[out_pos + i] = (uint8_t)(symbol >> (8 * i));
+                if ((out_pos & 7) == 0 && out_pos + 8 <= out_end) {
+                    *reinterpret_cast<uint64_t *>(output_bytes + out_pos) = symbol;
+                } else {
+                    // `#pragma unroll 1` prevents nvcc at -O3 from unrolling and
+                    // fusing these byte stores into a wider store that would hit
+                    // the alignment fault we took this branch to avoid.
+#pragma unroll 1
+                    for (uint8_t i = 0; i < sym_len; ++i) {
+                        output_bytes[out_pos + i] = (uint8_t)(symbol >> (8 * i));
+                    }
                 }
                 in_pos += 1;
                 out_pos += sym_len;
