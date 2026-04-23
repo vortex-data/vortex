@@ -1,0 +1,77 @@
+[package]
+name = "vortex-wasm"
+description = "WASM bindings for Vortex"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+include.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["native"]
+# Native feature for binaries: includes tokio runtime and file system dependencies.
+native = [
+    "dep:async-fs",
+    "dep:tempfile",
+    "dep:tokio",
+    "dep:tracing",
+    "vortex/tokio",
+]
+
+[dependencies]
+# Core dependencies for both WASM and native.
+console_error_panic_hook = "0.1"
+futures = { workspace = true }
+hex = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde-wasm-bindgen = "0.6"
+vortex = { workspace = true }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = { workspace = true }
+hashbrown = { workspace = true, features = ["serde"] }
+
+# These are needed by binaries - accessed via vortex re-exports for library code.
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-dtype = { workspace = true }
+vortex-error = { workspace = true }
+vortex-file = { workspace = true }
+vortex-io = { workspace = true }
+vortex-layout = { workspace = true }
+vortex-metrics = { workspace = true }
+vortex-scalar = { workspace = true }
+vortex-session = { workspace = true }
+
+# Native-only dependencies (for binaries).
+async-fs = { workspace = true, optional = true }
+tempfile = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["full"], optional = true }
+tracing = { workspace = true, optional = true }
+
+[dependencies.web-sys]
+features = ["console"]
+version = "0.3"
+
+[[bin]]
+name = "migrate_data"
+path = "src/bin/migrate_data.rs"
+required-features = ["native"]
+
+[[bin]]
+name = "migrate_commits"
+path = "src/bin/migrate_commits.rs"
+required-features = ["native"]
+
+[lints]
+workspace = true
