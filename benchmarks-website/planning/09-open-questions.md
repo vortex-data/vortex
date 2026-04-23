@@ -84,6 +84,38 @@ First-class input. Migrator reads historical `file-sizes-*.json.gz`;
 emitter rewrite folds future size records into the main POST payload.
 Rendered under the "Compression Size" group.
 
+### ✓ Compression-ratio records are not emitted
+
+The cross-format ratio `CustomUnitMeasurement`s that `compress-bench`
+generates today (`vortex:parquet size/<name>`, `vortex:lance ratio
+compress time/<name>`, etc.) are derivable from the raw
+`compression_size` / `compression_encode` / `compression_decode`
+records. In v3 they are **DuckDB views**, not stored rows. The emitter
+stops producing them. See [`10-emitter-changes.md`](./10-emitter-changes.md)
+per-measurement-type mapping.
+
+### ✓ v3 on-wire emitter output format
+
+`-d gh-json-v3` writes JSONL of bare `ClassifiedMeasurement` records,
+one per line. The `IngestPayload` envelope (`run_meta`, `commit`,
+`records`) is constructed by the CI wrapper (`scripts/post-ingest.py`)
+before POSTing, not by the Rust emitter. Keeps the emitter
+dependency-light and mirrors the existing `-d gh-json` convention.
+
+### ✓ Single benchmark run during dual-write
+
+During the dual-write window, the benchmark loop runs **once** and the
+CLI emits both `results.json` (v2-shape) and `results.v3.json` (v3-shape)
+side by side. `-d` becomes repeatable, with a paired `-o` per format.
+Post-cutover, `-d gh-json` is removed and emission collapses back to a
+single output path.
+
+### ✓ `gcs` as a storage target
+
+Not real. The `Storage` enum is closed to `{Nvme, S3}`. A stale doc
+comment in the code mentioning `gcs` should be removed when
+`TimingMeasurement::storage` migrates to the enum.
+
 ### ✓ Unclassified records
 
 Go to an `unclassified_records` sidecar table. In v3 steady state this

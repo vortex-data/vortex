@@ -73,6 +73,22 @@ pub enum DisplayFormat {
 Wire `print_measurements_json_v3` through `runner.rs` the same way
 `print_measurements_json` is wired today.
 
+### On-wire / on-disk format
+
+`-d gh-json-v3` writes **newline-delimited JSON**, one `ClassifiedMeasurement`
+per line. Same line-per-record convention as today's `-d gh-json`, just
+the record shape changes.
+
+The file is **not** an `IngestPayload`. Wrapping records into
+`IngestPayload { run_meta, commit, records }` is the job of the CI wrapper
+(`scripts/post-ingest.py`), not the Rust emitter. The emitter has no
+commit metadata or run metadata of its own - it emits records; the
+wrapper adds the envelope before POSTing to `/api/ingest`.
+
+That split keeps the emitter dependency-light (still just `serde` +
+`serde_json`) and matches the existing JSONL convention, so local
+developers can `cat results.v3.json` and reason about one record per line.
+
 ### New emission trait (or method)
 
 Each measurement type learns a `to_v3_json()` method (or a `ToV3Json`
@@ -110,14 +126,23 @@ Fill in the new shape for each existing `impl ToJson for X` in
 |---|---|---|
 | `QueryMeasurement` | `"query_time"` | `dataset` / `scale_factor` / `dataset_variant` from the tagged `BenchmarkDataset`; `query_idx` already stored structurally. |
 | `MemoryMeasurement` | `"query_memory"` | Same dimensions as query_time plus the four memory fields. |
-| `TimingMeasurement` (random-access, etc.) | `"random_access"` | Parse the existing `name` field's structure into dimensions in the emitter - the random-access runner has the dataset/pattern/format at hand. |
-| `CompressionTimingMeasurement` | `"compression_time"` | Already carries `format`; map "compress" vs "decompress" into the `metric_kind` (split into `"compression_encode"` / `"compression_decode"`) or keep as a single kind with a field in `data_descriptor`. Pick one; former is cleaner. |
-| `CustomUnitMeasurement` | varies (ratios/sizes/etc.) | The one place where the existing format is genuinely free-form. Emitters that use this carry context the base type doesn't - plumb more dimensions through to keep the v3 output structured. |
+| `TimingMeasurement` (random-access, etc.) | `"random_access"` | Extend the struct with structured dimensions (dataset, pattern, `storage: Storage` enum) rather than re-parsing the `name` string. The random-access runner has the dataset/pattern/format at hand today; it's just flattening them into `name` on emission. |
+| `CompressionTimingMeasurement` | `"compression_encode"` / `"compression_decode"` | Already carries `format`. Split "compress" vs "decompress" into two distinct `metric_kind` values (not one kind with an `op` field in `data_descriptor`) - cleaner SQL for the "compress time over time" chart. Decision pinned in [`11-implementation-kickoff.md`](./11-implementation-kickoff.md). |
+| `CustomUnitMeasurement` (raw file sizes from `compress/mod.rs::benchmark_compress`) | `"compression_size"` | Emit as a `compression_size` record with `value_bytes` populated. Consider routing through a dedicated `CompressionSizeMeasurement` struct rather than re-using `CustomUnitMeasurement`'s `to_v3_json`, since the v3 shape wants structured dimensions (dataset/format). |
+| `CustomUnitMeasurement` (cross-format ratios from `calculate_ratios`) | **not emitted** | `vortex:parquet size`, `vortex:lance ratio compress time`, etc. are fully derivable from the stored `compression_size` + `compression_encode` + `compression_decode` records. They become **DuckDB views** in v3 (see [`05-schema.md`](./05-schema.md) and AGENTS.md "Should we store ratios as rows?" = No). The emitter drops them. |
 
 The file-size measurements (Shape D from [`03-raw-data-schema.md`](./03-raw-data-schema.md))
 become `metric_kind = "compression_size"` with `value_bytes` populated. No
 more separate `file-sizes-*.json.gz` output stream - they get folded into
 the main `results.json` emitted by each benchmark binary.
+
+Note on `CustomUnitMeasurement`: `vortex-bench`'s only in-tree consumer is
+`compress-bench` (via `compress/mod.rs`). The struct itself may be kept
+for future free-form extensibility - vector-search-bench-style metrics
+that carry auxiliary fields in `data_descriptor` - but it has **no direct
+`to_v3_json()` emission in step 1**. Both the raw-bytes path and the
+ratios path are handled explicitly (structured struct and DB view
+respectively).
 
 ### vector-search-bench gets promoted
 
@@ -156,20 +181,26 @@ the "extensibility proof" for `data_descriptor`.
 ### CI wiring (dual-write window)
 
 For each existing bench workflow (`bench.yml`, `sql-benchmarks.yml`) and
-each benchmark binary invocation, emit **both** formats during the
-transition:
+each benchmark binary invocation, emit **both** formats from a **single
+benchmark run** during the transition. The expensive part is running the
+benchmark loop; serializing the already-collected measurements twice is
+free.
+
+The CLI surface: `-d` becomes repeatable, with a matching per-format
+output path. Concrete shape TBD during emitter implementation, but the
+pattern looks like:
 
 ```bash
-# Old path, stays alive for v2.
+# Single benchmark run; emits v2 legacy JSONL and v3 JSONL side by side.
 bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} \
     --formats ${{ matrix.benchmark.formats }} \
-    -d gh-json -o results.json
+    -d gh-json    -o results.json \
+    -d gh-json-v3 -o results.v3.json
+
+# v2 upload path, stays alive through cutover.
 bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
 
-# New path, feeds v3.
-bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} \
-    --formats ${{ matrix.benchmark.formats }} \
-    -d gh-json-v3 -o results.v3.json
+# v3 ingest path.
 python3 scripts/post-ingest.py \
     --server  https://bench-preview.vortex.dev \
     --commit-sha "$GITHUB_SHA" \
@@ -179,9 +210,8 @@ python3 scripts/post-ingest.py \
     --spool   "s3://vortex-ci-benchmark-results/outbox/"
 ```
 
-Running each benchmark twice for dual output isn't necessary - the
-benchmark runs once, only the serialization / upload doubles. That's
-pennies of extra CI time.
+Post-cutover, `-d gh-json` is removed and this collapses back to a single
+`-d gh-json-v3 -o results.v3.json`.
 
 ## What stays, what goes
 

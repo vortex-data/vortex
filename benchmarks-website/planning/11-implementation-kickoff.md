@@ -137,6 +137,39 @@ pub enum Storage {
 values (not one kind with an `op` field in `data_descriptor`). Cleaner SQL
 for the common "compress time over time" chart.
 
+**Decision on `Storage` enum membership**: closed to `{Nvme, S3}`. A
+stale doc comment on `TimingMeasurement::storage` mentions
+`"One of: s3, gcs, nvme"`, but `gcs` is not a real target and is not
+emitted by any current benchmark. Drop the mention when migrating to the
+`Storage` enum. If a historical record in the v2 JSONL has `"gcs"`, the
+migrator should error loudly rather than silently ingest it.
+
+**Decision on `commit_sha` emission**: the emitter emits `GIT_COMMIT_ID`
+as-is with no validation. Local developer runs may produce a short or
+dirty SHA; that's fine, local runs don't flow into `/api/ingest`. The
+server's `/api/ingest` is responsible for rejecting payloads whose
+`commit_sha` is not 40-hex lowercase.
+
+**Decision on `env_triple` emission**: the emitter flattens today's
+structured `TripleJson { architecture, operating_system, environment }`
+into `format!("{arch}-{os}-{env}")` (e.g. `"x86_64-linux-gnu"`). No
+need to preserve the pre-flattened struct on the wire - if a consumer
+needs the components, it parses the string.
+
+**Decision on `scale_factor` format**: emit whatever stringified form
+`BenchmarkDataset` already carries for scale factor (no forced decimal
+normalization). Consistency is the emitter's responsibility - the same
+`(dataset, scale_factor)` tuple must produce the same string every time,
+or `measurement_id` hashing breaks. This is enforced by a snapshot test,
+not by a format rule.
+
+**Decision on output file format**: emitter writes **JSONL of bare
+`ClassifiedMeasurement` records** (one per line), not an `IngestPayload`.
+See [`10-emitter-changes.md`](./10-emitter-changes.md) §"On-wire / on-disk
+format". The `IngestPayload` envelope (with `run_meta` + `commit`) is
+assembled by the CI wrapper (`scripts/post-ingest.py`) before POSTing,
+not by the Rust emitter.
+
 ### Ingest payload (`server::model`)
 
 ```rust
@@ -416,8 +449,21 @@ and does not go through `vortex-bench::runner`. When adding
 - [ ] No new emitter uses the `name` string to smuggle dimensions.
 - [ ] Every `data_descriptor` value is documented by an example in
       `05-schema.md`.
-- [ ] `to_v3_json()` output compares clean against a golden snapshot
-      for one record of each measurement type.
+- [ ] `to_v3_json()` output compares clean against an `insta` golden
+      snapshot for one record of each measurement type. Snapshots
+      scrub environment-dependent fields (`commit_sha`, `env_triple`)
+      via redactions so they're reproducible across machines.
+- [ ] No cross-format ratio records are emitted (`vortex:parquet size`,
+      `vortex:lance ratio compress time`, etc.) - ratios are DuckDB
+      views, not rows.
+- [ ] `CompressionTimingMeasurement` emits `compression_encode` or
+      `compression_decode` (not `compression_time`); each
+      `compress/decompress time/<name>` today maps to exactly one
+      metric_kind.
+- [ ] Raw file-size `CustomUnitMeasurement` records emit as
+      `compression_size` with `value_bytes` set; the
+      `compressed_size as f64` roundtrip is gone (we store the bytes
+      as an `i64`, not a float).
 
 ## Review checklist before merging `/api/ingest`
 
