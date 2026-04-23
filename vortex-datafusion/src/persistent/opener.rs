@@ -451,11 +451,11 @@ fn natural_split_ranges_for_file(
         return Ok(Arc::clone(split_ranges.value()));
     }
 
-    let split_ranges = compute_natural_split_ranges(layout_reader.as_ref())?;
-
     match natural_split_ranges.entry(path.clone()) {
         Entry::Occupied(entry) => Ok(Arc::clone(entry.get())),
         Entry::Vacant(entry) => {
+            let split_ranges = compute_natural_split_ranges(layout_reader.as_ref())?;
+
             entry.insert(Arc::clone(&split_ranges));
             Ok(split_ranges)
         }
