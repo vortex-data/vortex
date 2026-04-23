@@ -123,12 +123,18 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDataSource_open(
 /// Parse a glob string into a [`Url`]. Accepts full URLs and bare (relative or absolute)
 /// file paths — see the module docs for details.
 fn parse_glob_url(glob: &str) -> VortexResult<Url> {
-    Url::parse(glob).or_else(|_| {
-        let path = absolute(Path::new(glob))
-            .map_err(|e| vortex_err!("failed to absolutize {glob}: {e}"))?;
-        let path = normalize_path(path);
-        Url::from_file_path(path).map_err(|_| vortex_err!("neither URL nor path: {glob}"))
-    })
+    // `Url::parse` accepts Windows absolute paths like `C:\foo` as a URL with a
+    // single-letter scheme (`c`). No real URL scheme is one character, so treat any
+    // single-letter scheme as a filesystem path instead.
+    if let Ok(url) = Url::parse(glob)
+        && url.scheme().len() > 1
+    {
+        return Ok(url);
+    }
+    let path =
+        absolute(Path::new(glob)).map_err(|e| vortex_err!("failed to absolutize {glob}: {e}"))?;
+    let path = normalize_path(path);
+    Url::from_file_path(path).map_err(|_| vortex_err!("neither URL nor path: {glob}"))
 }
 
 /// Normalize `.` and `..` without touching the filesystem.
@@ -238,6 +244,16 @@ mod tests {
         let (input, expected_path) = (r"C:\a\b\..\c\.\d", "/C:/a/c/d");
         let url = parse_glob_url(input).unwrap();
         assert_eq!(url.path(), expected_path);
+    }
+
+    #[test]
+    fn test_parse_glob_url_single_letter_scheme_is_path() {
+        // Regression: `Url::parse("C:\\tmp")` succeeds with scheme="c"; the function must
+        // treat that as a filesystem path, not a URL. Exercised on all platforms because
+        // the check lives in `parse_glob_url`, not in an OS-specific branch.
+        let url = parse_glob_url(r"C:\tmp\data\*.vortex").unwrap();
+        assert_eq!(url.scheme(), "file");
+        assert_ne!(url.scheme(), "c");
     }
 
     #[test]
