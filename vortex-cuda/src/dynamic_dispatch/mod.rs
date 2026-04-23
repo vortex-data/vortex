@@ -1849,7 +1849,7 @@ mod tests {
     #[case::bp_u8_codes_u32_values(2u8, 3000usize, vec![100_000u32, 200_000, 300_000, 400_000])]
     #[case::bp_u16_codes_u32_values(4u8, 2048usize, vec![1_000_000u32, 2_000_000, 3_000_000, 4_000_000, 5_000_000, 6_000_000, 7_000_000, 8_000_000])]
     #[crate::test]
-    async fn test_dict_mixed_width_bitpacked_codes<V: vortex::dtype::NativePType + Into<u64>>(
+    async fn test_dict_mixed_width_bitpacked_codes<V: vortex::dtype::NativePType>(
         #[case] bit_width: u8,
         #[case] len: usize,
         #[case] dict_values: Vec<V>,
@@ -1936,32 +1936,25 @@ mod tests {
     #[case::bp_u8_ends_u16_values(
         vec![25u8, 50, 75, 100],
         vec![10u16, 20, 30, 40],
-        100usize,
     )]
     #[case::bp_u8_ends_u32_values(
         vec![40u8, 80, 120],
         vec![1000u32, 2000, 3000],
-        120usize,
     )]
     #[case::bp_u16_ends_u32_values(
         vec![500u16, 1000, 1500, 2000],
         vec![100_000u32, 200_000, 300_000, 400_000],
-        2000usize,
     )]
     #[crate::test]
     async fn test_runend_mixed_width_bitpacked_ends<
-        E: vortex::dtype::NativePType + Into<u64> + TryInto<usize>,
-        V: vortex::dtype::NativePType + Copy,
+        E: vortex::dtype::NativePType + Into<u64>,
+        V: vortex::dtype::NativePType,
     >(
         #[case] ends: Vec<E>,
         #[case] values: Vec<V>,
-        #[case] len: usize,
-    ) -> VortexResult<()>
-    where
-        <E as TryInto<usize>>::Error: std::fmt::Debug,
-    {
+    ) -> VortexResult<()> {
         let ends_u64: Vec<u64> = ends.iter().map(|e| (*e).into()).collect();
-
+        let len = *ends_u64.last().unwrap() as usize;
         let bit_width = 64 - ends_u64.iter().max().unwrap().leading_zeros() as u8;
         let ends_prim = PrimitiveArray::new(Buffer::from(ends.clone()), NonNullable);
         let ends_bp = BitPacked::encode(
@@ -2032,19 +2025,12 @@ mod tests {
         let canonical = try_gpu_dispatch(&array, &mut cuda_ctx).await?;
         let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
 
-        let expected: Vec<u32> = (0..len as u64)
-            .map(|i| {
-                if i < 500 {
-                    100
-                } else if i < 1000 {
-                    200
-                } else if i < 1500 {
-                    300
-                } else {
-                    400
-                }
-            })
-            .collect();
+        let mut expected: Vec<u32> = Vec::with_capacity(len);
+        let mut prev = 0u16;
+        for (&end, &val) in ends.iter().zip(values.iter()) {
+            expected.extend(std::iter::repeat_n(val, (end - prev) as usize));
+            prev = end;
+        }
         let expected_arr = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
         vortex::array::assert_arrays_eq!(expected_arr, result);
 
