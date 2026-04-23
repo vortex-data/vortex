@@ -106,8 +106,6 @@ impl ArrayRef {
     /// For safety, we will error when the number of execution iterations reaches a configurable
     /// maximum (default 128, override with `VORTEX_MAX_ITERATIONS`).
     pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        // Clone the session up-front so each `optimize_ctx` call below borrows from this owned
-        // value rather than re-borrowing through `&mut ctx`.
         let mut current = self;
         let mut stack: Vec<StackFrame> = Vec::new();
 
