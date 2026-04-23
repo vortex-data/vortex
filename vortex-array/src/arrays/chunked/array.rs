@@ -8,6 +8,8 @@
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use futures::stream;
 use vortex_buffer::BufferMut;
@@ -34,9 +36,19 @@ use crate::validity::Validity;
 pub(super) const CHUNK_OFFSETS_SLOT: usize = 0;
 pub(super) const CHUNKS_OFFSET: usize = 1;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ChunkedData {
     pub(super) chunk_offsets: Vec<usize>,
+    builder_next_slot: AtomicUsize,
+}
+
+impl Clone for ChunkedData {
+    fn clone(&self) -> Self {
+        Self {
+            chunk_offsets: self.chunk_offsets.clone(),
+            builder_next_slot: AtomicUsize::new(self.builder_next_slot.load(Ordering::Relaxed)),
+        }
+    }
 }
 
 impl Display for ChunkedData {
@@ -114,6 +126,27 @@ pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {
 impl<T: TypedArrayRef<Chunked>> ChunkedArrayExt for T {}
 
 impl ChunkedData {
+    pub(super) fn new(chunk_offsets: Vec<usize>) -> Self {
+        Self {
+            chunk_offsets,
+            builder_next_slot: AtomicUsize::new(CHUNKS_OFFSET),
+        }
+    }
+
+    pub(super) fn next_builder_slot(&self, slots: &[Option<ArrayRef>]) -> Option<usize> {
+        let start = self
+            .builder_next_slot
+            .load(Ordering::Relaxed)
+            .max(CHUNKS_OFFSET)
+            .min(slots.len());
+        let next = slots[start..]
+            .iter()
+            .position(Option::is_some)
+            .map(|idx| start + idx)?;
+        self.builder_next_slot.store(next + 1, Ordering::Relaxed);
+        Some(next)
+    }
+
     pub(super) fn compute_chunk_offsets(chunks: &[ArrayRef]) -> Vec<usize> {
         let mut chunk_offsets = Vec::with_capacity(chunks.len() + 1);
         chunk_offsets.push(0);
@@ -166,15 +199,8 @@ impl Array<Chunked> {
         let chunk_offsets = ChunkedData::compute_chunk_offsets(&chunks);
         Ok(unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(
-                    Chunked,
-                    dtype,
-                    len,
-                    ChunkedData {
-                        chunk_offsets: chunk_offsets.clone(),
-                    },
-                )
-                .with_slots(ChunkedData::make_slots(&chunk_offsets, &chunks)),
+                ArrayParts::new(Chunked, dtype, len, ChunkedData::new(chunk_offsets.clone()))
+                    .with_slots(ChunkedData::make_slots(&chunk_offsets, &chunks)),
             )
         })
     }
@@ -238,15 +264,8 @@ impl Array<Chunked> {
         let chunk_offsets = ChunkedData::compute_chunk_offsets(&chunks);
         unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(
-                    Chunked,
-                    dtype,
-                    len,
-                    ChunkedData {
-                        chunk_offsets: chunk_offsets.clone(),
-                    },
-                )
-                .with_slots(ChunkedData::make_slots(&chunk_offsets, &chunks)),
+                ArrayParts::new(Chunked, dtype, len, ChunkedData::new(chunk_offsets.clone()))
+                    .with_slots(ChunkedData::make_slots(&chunk_offsets, &chunks)),
             )
         }
     }

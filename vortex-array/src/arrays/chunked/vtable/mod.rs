@@ -216,9 +216,7 @@ impl VTable for Chunked {
             self.clone(),
             dtype.clone(),
             len,
-            ChunkedData {
-                chunk_offsets: chunk_offsets_usize,
-            },
+            ChunkedData::new(chunk_offsets_usize),
         )
         .with_slots(slots))
     }
