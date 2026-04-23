@@ -4,6 +4,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use num_traits::AsPrimitive;
 use smallvec::smallvec;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
@@ -159,13 +160,9 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
         match codes_validity.bit_buffer() {
             AllOr::All => {
                 match_each_integer_ptype!(codes_primitive.ptype(), |P| {
-                    #[allow(
-                        clippy::cast_possible_truncation,
-                        clippy::cast_sign_loss,
-                        reason = "codes are non-negative indices; a negative signed code would wrap to a large usize and panic on the bounds-checked array index"
-                    )]
-                    for &idx in codes_primitive.as_slice::<P>() {
-                        values_vec[idx as usize] = referenced_value;
+                    for idx in codes_primitive.as_slice::<P>() {
+                        let idxu: usize = idx.as_();
+                        values_vec[idxu] = referenced_value;
                     }
                 });
             }
@@ -173,14 +170,9 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
             AllOr::Some(mask) => {
                 match_each_integer_ptype!(codes_primitive.ptype(), |P| {
                     let codes = codes_primitive.as_slice::<P>();
-
-                    #[allow(
-                        clippy::cast_possible_truncation,
-                        clippy::cast_sign_loss,
-                        reason = "codes are non-negative indices; a negative signed code would wrap to a large usize and panic on the bounds-checked array index"
-                    )]
                     mask.set_indices().for_each(|idx| {
-                        values_vec[codes[idx] as usize] = referenced_value;
+                        let idxu: usize = codes[idx].as_();
+                        values_vec[idxu] = referenced_value;
                     });
                 });
             }

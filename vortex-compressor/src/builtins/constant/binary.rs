@@ -48,7 +48,7 @@ impl Scheme for BinaryConstantScheme {
 
         // We want to use `Constant` if there are only nulls in the array.
         if stats.value_count() == 0 {
-            debug_assert_eq!(stats.null_count() as usize, array_len);
+            debug_assert_eq!(stats.null_count(), array_len);
             return CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse);
         }
 

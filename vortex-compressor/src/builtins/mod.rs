@@ -16,8 +16,6 @@ pub use dict::BinaryDictScheme;
 pub use dict::FloatDictScheme;
 pub use dict::IntDictScheme;
 pub use dict::StringDictScheme;
-pub use dict::float_dictionary_encode;
-pub use dict::integer_dictionary_encode;
 
 mod constant;
 

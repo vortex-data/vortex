@@ -20,6 +20,8 @@ use futures::stream::once;
 use futures::try_join;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Dict;
 use vortex_array::builders::dict::DictConstraints;
@@ -557,7 +559,9 @@ fn encode_chunk(
     mut encoder: Box<dyn DictEncoder>,
     chunk: &ArrayRef,
 ) -> VortexResult<EncodingState> {
-    let encoded = encoder.encode(chunk);
+    let encoded = encoder
+        .encode(chunk, &mut LEGACY_SESSION.create_execution_ctx())?
+        .into_array();
     match remainder(chunk, encoded.len())? {
         None => Ok(EncodingState::Continue((encoder, encoded))),
         Some(unencoded) => Ok(EncodingState::Done((encoder.reset(), encoded, unencoded))),

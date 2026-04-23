@@ -1037,6 +1037,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cardinality-estimator"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "53a7bc4e9a7ab9239a4a46df35d75101cee57defc8e4255a1b2b6f8eab8de87e"
+dependencies = [
+ "enum_dispatch",
+ "wyhash",
+]
+
+[[package]]
 name = "cargo-platform"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3586,6 +3596,18 @@ version = "4.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ca9601fb2d62598ee17836250842873a413586e5d7ed88b356e38ddbb0ec631"
 dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
+]
+
+[[package]]
+name = "enum_dispatch"
+version = "0.3.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa18ce2bc66555b3218614519ac839ddb759a7d6720732f979ef8d13be147ecd"
+dependencies = [
+ "once_cell",
  "proc-macro2",
  "quote",
  "syn 2.0.118",
@@ -9704,7 +9726,9 @@ dependencies = [
 name = "vortex-compressor"
 version = "0.1.0"
 dependencies = [
+ "cardinality-estimator",
  "codspeed-divan-compat",
+ "hyperloglogplus",
  "itertools 0.14.0",
  "num-traits",
  "parking_lot",
@@ -11101,6 +11125,15 @@ name = "writeable"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
+
+[[package]]
+name = "wyhash"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "baf6e163c25e3fac820b4b453185ea2dea3b6a3e0a721d4d23d75bd33734c295"
+dependencies = [
+ "rand_core 0.6.4",
+]
 
 [[package]]
 name = "wyz"

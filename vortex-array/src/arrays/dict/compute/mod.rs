@@ -56,15 +56,11 @@ impl FilterReduce for Dict {
 mod test {
     use std::sync::LazyLock;
 
-    #[expect(unused_imports)]
-    use itertools::Itertools;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::accessor::ArrayAccessor;
     use crate::arrays::ConstantArray;
@@ -101,8 +97,10 @@ mod test {
             &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
-        #[expect(deprecated)]
-        let actual = dict.as_array().to_primitive();
+        let actual = dict
+            .into_array()
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
 
         let expected = PrimitiveArray::from_option_iter(values);
 
@@ -119,9 +117,12 @@ mod test {
             &expected.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
         )
-        .unwrap();
-        #[expect(deprecated)]
-        let actual = dict.as_array().to_primitive();
+        .unwrap()
+        .into_array();
+
+        let actual = dict
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
 
         assert_arrays_eq!(actual, expected, &mut ctx);
     }
@@ -136,9 +137,12 @@ mod test {
             &expected.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
         )
-        .unwrap();
-        #[expect(deprecated)]
-        let actual = dict.as_array().to_primitive();
+        .unwrap()
+        .into_array();
+
+        let actual = dict
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
 
         assert_arrays_eq!(actual, expected, &mut ctx);
     }
@@ -155,8 +159,10 @@ mod test {
             &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
-        #[expect(deprecated)]
-        let flattened_dict = dict.as_array().to_varbinview();
+        let flattened_dict = dict
+            .into_array()
+            .execute::<VarBinViewArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(
             flattened_dict.with_iterator(|iter| iter
                 .map(|slice| slice.map(|s| s.to_vec()))

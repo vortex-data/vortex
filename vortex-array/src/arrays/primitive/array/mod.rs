@@ -488,18 +488,18 @@ impl Array<Primitive> {
 
         let buffer = match &validity {
             Validity::NonNullable | Validity::AllValid => {
-                BufferMut::<R>::from_iter(buf_iter.zip(iter::repeat(true)).map(f))
+                Buffer::<R>::from_trusted_len_iter(buf_iter.zip(iter::repeat(true)).map(f))
             }
             Validity::AllInvalid => {
-                BufferMut::<R>::from_iter(buf_iter.zip(iter::repeat(false)).map(f))
+                Buffer::<R>::from_trusted_len_iter(buf_iter.zip(iter::repeat(false)).map(f))
             }
             Validity::Array(val) => {
                 #[expect(deprecated)]
                 let val = val.to_bool().into_bit_buffer();
-                BufferMut::<R>::from_iter(buf_iter.zip(val.iter()).map(f))
+                Buffer::<R>::from_trusted_len_iter(buf_iter.zip(val.iter()).map(f))
             }
         };
-        Ok(PrimitiveArray::new(buffer.freeze(), validity))
+        Ok(PrimitiveArray::new(buffer, validity))
     }
 }
 
