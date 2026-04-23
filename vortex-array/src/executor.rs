@@ -402,8 +402,9 @@ fn execute_loop(
                             original_dtype: child.dtype().clone(),
                             original_len: child.len(),
                         });
-                        current = child.optimize()?;
-                        // current_builder stays Some — builder threads down to child
+                        // Don't optimize — parent already has None slots, and the
+                        // child will be checked by the canonical/done check next iteration.
+                        current = child;
                     }
                 }
                 continue;
@@ -466,7 +467,7 @@ fn execute_loop(
                     original_dtype: child.dtype().clone(),
                     original_len: child.len(),
                 });
-                current = child.optimize()?;
+                current = child;
             }
             ExecutionStep::Done => {
                 ctx.log(format_args!("Done: {}", array));
