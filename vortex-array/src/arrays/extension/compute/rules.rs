@@ -228,9 +228,7 @@ mod tests {
             .try_new_array(3, Operator::Lt, [constant_ext, ext_array])
             .unwrap();
 
-        let optimized = scalar_fn_array
-            .optimize_recursive(&SESSION.create_execution_ctx())
-            .unwrap();
+        let optimized = scalar_fn_array.optimize_recursive(&SESSION).unwrap();
         let scalar_fn = optimized.as_opt::<ScalarFn>().unwrap();
         let children = scalar_fn.children();
         let constant = children[0]

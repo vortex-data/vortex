@@ -10,7 +10,7 @@
 //! There are two entry points:
 //!
 //! * [`ArrayOptimizer::optimize`] — runs the static rules only (the child encoding's
-//!   `PARENT_RULES`). It does not require an execution context and is used by helpers like
+//!   `PARENT_RULES`). It does not require a [`VortexSession`] and is used by helpers like
 //!   `ArrayBuiltins::cast` and `ArrayRef::slice` that build wrapped expressions and need them
 //!   normalized inline.
 //! * [`ArrayOptimizer::optimize_ctx`] — runs the static rules and additionally consults the
@@ -23,9 +23,9 @@ use std::sync::Arc;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::SessionExt;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::ExecutionCtx;
 use crate::optimizer::session::OptimizerSession;
 
 pub mod rules;
@@ -49,18 +49,19 @@ pub trait ArrayOptimizer {
     /// inside the execute loop to also consult the session-scoped [`OptimizerSession`] registry.
     fn optimize(&self) -> VortexResult<ArrayRef>;
 
-    /// Like [`Self::optimize`], but additionally consults the session's [`OptimizerSession`]
-    /// registry for each `(parent_encoding_id, child_encoding_id)` pair before the static
-    /// vtable rules.
-    fn optimize_ctx(&self, ctx: &ExecutionCtx) -> VortexResult<ArrayRef>;
+    /// Like [`Self::optimize`], but additionally consults the [`OptimizerSession`] registered on
+    /// `session` for each `(parent_encoding_id, child_encoding_id)` pair before the static
+    /// vtable rules. If `session` does not have an [`OptimizerSession`] registered, falls
+    /// through to the static rules.
+    fn optimize_ctx(&self, session: &VortexSession) -> VortexResult<ArrayRef>;
 
     /// Optimize the entire array tree recursively (root and all descendants).
     ///
-    /// Consults the session's [`OptimizerSession`] registry for each parent/child pair
+    /// Consults the [`OptimizerSession`] registered on `session` for each parent/child pair
     /// encountered during the recursive walk, so plugin-registered rules apply throughout the
-    /// tree. Requires a context unconditionally so the registry is always honored when a
-    /// recursive optimization is requested.
-    fn optimize_recursive(&self, ctx: &ExecutionCtx) -> VortexResult<ArrayRef>;
+    /// tree. Requires a [`VortexSession`] unconditionally so the registry is always honored
+    /// when a recursive optimization is requested.
+    fn optimize_recursive(&self, session: &VortexSession) -> VortexResult<ArrayRef>;
 }
 
 impl ArrayOptimizer for ArrayRef {
@@ -68,32 +69,35 @@ impl ArrayOptimizer for ArrayRef {
         Ok(try_optimize(self, None)?.unwrap_or_else(|| self.clone()))
     }
 
-    fn optimize_ctx(&self, ctx: &ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(try_optimize(self, Some(ctx))?.unwrap_or_else(|| self.clone()))
+    fn optimize_ctx(&self, session: &VortexSession) -> VortexResult<ArrayRef> {
+        Ok(try_optimize(self, Some(session))?.unwrap_or_else(|| self.clone()))
     }
 
-    fn optimize_recursive(&self, ctx: &ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(try_optimize_recursive(self, ctx)?.unwrap_or_else(|| self.clone()))
+    fn optimize_recursive(&self, session: &VortexSession) -> VortexResult<ArrayRef> {
+        Ok(try_optimize_recursive(self, session)?.unwrap_or_else(|| self.clone()))
     }
 }
 
-/// Resolve a pluggable [`ReduceParentFn`] for `(parent, child)` from the session registry.
+/// Resolve a pluggable [`ReduceParentFn`] for `(parent, child)` from `session`.
 ///
 /// Returns `None` when no [`OptimizerSession`] is registered, or no function is registered under
-/// `(parent.encoding_id(), child.encoding_id())`. The returned `Arc` is owned so the caller is
-/// free to drop the session borrow before invoking it.
+/// `(parent.encoding_id(), child.encoding_id())`. The returned `Arc` is owned so the caller can
+/// drop the session borrow before invoking it.
 fn plugin_reduce_parent(
-    ctx: &ExecutionCtx,
+    session: &VortexSession,
     parent: &ArrayRef,
     child: &ArrayRef,
 ) -> Option<Arc<ReduceParentFn>> {
-    ctx.session().get_opt::<OptimizerSession>().and_then(|s| {
+    session.get_opt::<OptimizerSession>().and_then(|s| {
         s.registry()
             .find::<ReduceParentFn>(parent.encoding_id(), child.encoding_id())
     })
 }
 
-fn try_optimize(array: &ArrayRef, ctx: Option<&ExecutionCtx>) -> VortexResult<Option<ArrayRef>> {
+fn try_optimize(
+    array: &ArrayRef,
+    session: Option<&VortexSession>,
+) -> VortexResult<Option<ArrayRef>> {
     let mut current_array = array.clone();
     let mut any_optimizations = false;
 
@@ -117,8 +121,8 @@ fn try_optimize(array: &ArrayRef, ctx: Option<&ExecutionCtx>) -> VortexResult<Op
             let Some(child) = slot else { continue };
 
             // Registry-based override: tried before the child encoding's static PARENT_RULES.
-            if let Some(ctx) = ctx
-                && let Some(plugin) = plugin_reduce_parent(ctx, &current_array, child)
+            if let Some(session) = session
+                && let Some(plugin) = plugin_reduce_parent(session, &current_array, child)
                 && let Some(new_array) = plugin(child, &current_array, slot_idx)?
             {
                 current_array = new_array;
@@ -147,11 +151,14 @@ fn try_optimize(array: &ArrayRef, ctx: Option<&ExecutionCtx>) -> VortexResult<Op
     }
 }
 
-fn try_optimize_recursive(array: &ArrayRef, ctx: &ExecutionCtx) -> VortexResult<Option<ArrayRef>> {
+fn try_optimize_recursive(
+    array: &ArrayRef,
+    session: &VortexSession,
+) -> VortexResult<Option<ArrayRef>> {
     let mut current_array = array.clone();
     let mut any_optimizations = false;
 
-    if let Some(new_array) = try_optimize(&current_array, Some(ctx))? {
+    if let Some(new_array) = try_optimize(&current_array, Some(session))? {
         current_array = new_array;
         any_optimizations = true;
     }
@@ -161,7 +168,7 @@ fn try_optimize_recursive(array: &ArrayRef, ctx: &ExecutionCtx) -> VortexResult<
     for slot in current_array.slots() {
         match slot {
             Some(child) => {
-                if let Some(new_child) = try_optimize_recursive(child, ctx)? {
+                if let Some(new_child) = try_optimize_recursive(child, session)? {
                     new_slots.push(Some(new_child));
                     any_slot_optimized = true;
                 } else {

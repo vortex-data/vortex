@@ -106,6 +106,9 @@ impl ArrayRef {
     /// For safety, we will error when the number of execution iterations reaches a configurable
     /// maximum (default 128, override with `VORTEX_MAX_ITERATIONS`).
     pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        // Clone the session up-front so each `optimize_ctx` call below borrows from this owned
+        // value rather than re-borrowing through `&mut ctx`.
+        let session = ctx.session().clone();
         let mut current = self;
         let mut stack: Vec<StackFrame> = Vec::new();
 
@@ -121,7 +124,7 @@ impl ArrayRef {
                         return Ok(current);
                     }
                     Some(frame) => {
-                        current = frame.put_back(current)?.optimize_ctx(ctx)?;
+                        current = frame.put_back(current)?.optimize_ctx(&session)?;
                         continue;
                     }
                 }
@@ -137,9 +140,9 @@ impl ArrayRef {
                     "execute_parent rewrote {} -> {}",
                     current, rewritten
                 ));
-                current = rewritten.optimize_ctx(ctx)?;
+                current = rewritten.optimize_ctx(&session)?;
                 if let Some(frame) = stack.pop() {
-                    current = frame.put_back(current)?.optimize_ctx(ctx)?;
+                    current = frame.put_back(current)?.optimize_ctx(&session)?;
                 }
                 continue;
             }
@@ -158,7 +161,7 @@ impl ArrayRef {
                     ));
                     let frame = StackFrame::new(parent, i, done, &child);
                     stack.push(frame);
-                    current = child.optimize_ctx(ctx)?;
+                    current = child.optimize_ctx(&session)?;
                 }
                 ExecutionStep::Done => {
                     ctx.log(format_args!("Done: {}", array));
