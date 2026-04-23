@@ -78,9 +78,18 @@ impl Scheme for StringDictScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        let estimated_distinct_values_count = stats.estimated_distinct_count().vortex_expect(
-            "this must be present since `DictScheme` declared that we need distinct values",
-        );
+        // This gate is intentionally permissive. Dictionary encoding only needs a cheap signal that
+        // repeated categories are plausible; sampling decides whether the final dictionary layout
+        // is actually better than the alternatives. Using the suffix-aware string distinct count
+        // here turned out to be too strict for URL- and path-like columns: those arrays often have
+        // high full-value cardinality while still benefiting from dictionary encoding because many
+        // rows reuse exact values across the larger compression batch. The coarser
+        // `(length, first four bytes)` count keeps those candidates eligible for sampling instead
+        // of skipping dictionary encoding up front.
+        let estimated_distinct_values_count =
+            stats.estimated_prefix_distinct_count().vortex_expect(
+                "this must be present since `DictScheme` declared that we need distinct values",
+            );
 
         // If > 50% of the values are distinct, skip dictionary scheme.
         if estimated_distinct_values_count > stats.value_count() / 2 {
@@ -122,5 +131,62 @@ impl Scheme for StringDictScheme {
                     .into_array(),
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+
+    use super::*;
+
+    #[test]
+    fn string_dict_stays_eligible_for_common_prefix_varying_tail_values() {
+        let strings = VarBinViewArray::from_iter(
+            [
+                Some("https://example.com/events/0000"),
+                Some("https://example.com/events/0001"),
+                Some("https://example.com/events/0002"),
+                Some("https://example.com/events/0003"),
+            ],
+            DType::Utf8(Nullability::NonNullable),
+        );
+        let data = ArrayAndStats::new(
+            strings.into_array(),
+            GenerateStatsOptions {
+                count_distinct_values: true,
+            },
+        );
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+        assert!(matches!(
+            StringDictScheme.expected_compression_ratio(&data, CompressorContext::new(), &mut ctx,),
+            CompressionEstimate::Deferred(DeferredEstimate::Sample)
+        ));
+    }
+
+    #[test]
+    fn string_dict_skips_when_prefix_cardinality_is_high() {
+        let strings = VarBinViewArray::from_iter(
+            [Some("aaaa"), Some("bbbb"), Some("cccc"), Some("dddd")],
+            DType::Utf8(Nullability::NonNullable),
+        );
+        let data = ArrayAndStats::new(
+            strings.into_array(),
+            GenerateStatsOptions {
+                count_distinct_values: true,
+            },
+        );
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+        assert!(matches!(
+            StringDictScheme.expected_compression_ratio(&data, CompressorContext::new(), &mut ctx,),
+            CompressionEstimate::Verdict(EstimateVerdict::Skip)
+        ));
     }
 }

@@ -938,6 +938,8 @@ impl vortex_compressor::stats::StringStats
 
 pub fn vortex_compressor::stats::StringStats::estimated_distinct_count(&self) -> core::option::Option<u32>
 
+pub fn vortex_compressor::stats::StringStats::estimated_prefix_distinct_count(&self) -> core::option::Option<u32>
+
 pub fn vortex_compressor::stats::StringStats::generate(input: &vortex_array::arrays::varbinview::vtable::VarBinViewArray, ctx: &mut vortex_array::executor::ExecutionCtx) -> Self
 
 pub fn vortex_compressor::stats::StringStats::generate_opts(input: &vortex_array::arrays::varbinview::vtable::VarBinViewArray, opts: vortex_compressor::stats::GenerateStatsOptions, ctx: &mut vortex_array::executor::ExecutionCtx) -> Self

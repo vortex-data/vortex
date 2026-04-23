@@ -558,6 +558,8 @@ pub fn vortex_btrblocks::schemes::string::FSSTScheme::num_children(&self) -> usi
 
 pub fn vortex_btrblocks::schemes::string::FSSTScheme::scheme_name(&self) -> &'static str
 
+pub fn vortex_btrblocks::schemes::string::FSSTScheme::stats_options(&self) -> vortex_compressor::stats::options::GenerateStatsOptions
+
 pub struct vortex_btrblocks::schemes::string::NullDominatedSparseScheme
 
 impl core::clone::Clone for vortex_btrblocks::schemes::string::NullDominatedSparseScheme
