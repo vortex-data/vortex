@@ -102,6 +102,7 @@ mod strategy;
 #[cfg(test)]
 mod tests;
 pub mod v2;
+mod wasm;
 mod writer;
 
 pub use file::*;

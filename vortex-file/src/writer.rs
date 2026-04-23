@@ -16,6 +16,7 @@ use futures::pin_mut;
 use futures::select;
 use itertools::Itertools;
 use vortex_array::ArrayContext;
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::expr::stats::Stat;
@@ -52,6 +53,7 @@ use crate::Footer;
 use crate::MAGIC_BYTES;
 use crate::WriteStrategyBuilder;
 use crate::counting::CountingVortexWrite;
+use crate::footer::BundledWasmSpec;
 use crate::footer::FileStatistics;
 use crate::segments::writer::BufferedSegmentSink;
 
@@ -66,6 +68,18 @@ pub struct VortexWriteOptions {
     exclude_dtype: bool,
     max_variable_length_statistics_size: usize,
     file_statistics: Vec<Stat>,
+    bundled_wasm_encodings: Vec<BundledWasmEncoding>,
+}
+
+/// A WASM module to bundle into a file for a specific array encoding.
+#[derive(Clone, Debug)]
+pub struct BundledWasmEncoding {
+    /// The array encoding ID handled by this module.
+    pub id: ArrayId,
+    /// The raw module bytes stored in the file.
+    pub module_bytes: ByteBuffer,
+    /// The module ABI version expected by the host.
+    pub abi_version: u16,
 }
 
 pub trait WriteOptionsSessionExt: SessionExt {
@@ -78,6 +92,7 @@ pub trait WriteOptionsSessionExt: SessionExt {
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
             max_variable_length_statistics_size: 64,
+            bundled_wasm_encodings: Vec::new(),
         }
     }
 }
@@ -92,6 +107,7 @@ impl VortexWriteOptions {
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
             max_variable_length_statistics_size: 64,
+            bundled_wasm_encodings: Vec::new(),
         }
     }
 
@@ -112,6 +128,17 @@ impl VortexWriteOptions {
     /// Configure which statistics to compute at the file-level.
     pub fn with_file_statistics(mut self, file_statistics: Vec<Stat>) -> Self {
         self.file_statistics = file_statistics;
+        self
+    }
+
+    /// Bundle a WASM module for a specific encoding into the file footer.
+    pub fn with_bundled_wasm_encoding(
+        mut self,
+        bundled_wasm_encoding: BundledWasmEncoding,
+    ) -> Self {
+        self.bundled_wasm_encodings
+            .retain(|existing| existing.id != bundled_wasm_encoding.id);
+        self.bundled_wasm_encodings.push(bundled_wasm_encoding);
         self
     }
 }
@@ -209,11 +236,58 @@ impl VortexWriteOptions {
         }
 
         let (layout, segment_specs) = layout_fut.await?;
+        let mut segment_specs = segment_specs.iter().copied().collect::<Vec<_>>();
+        let mut bundled_wasm_specs = Vec::new();
+
+        for bundled_wasm_encoding in &self.bundled_wasm_encodings {
+            let alignment = bundled_wasm_encoding.module_bytes.alignment();
+            let padding = position.next_multiple_of(*alignment as u64) - position;
+            if padding > 0 {
+                let padding = ByteBuffer::zeroed(padding as usize);
+                position += padding.len() as u64;
+                write.write_all(padding).await?;
+            }
+
+            let segment_idx = u32::try_from(segment_specs.len())
+                .map_err(|_| vortex_err!("Too many segments to bundle WASM modules"))?;
+            let length = u32::try_from(bundled_wasm_encoding.module_bytes.len())
+                .map_err(|_| vortex_err!("Bundled WASM module exceeds u32 length"))?;
+            segment_specs.push(crate::footer::SegmentSpec {
+                offset: position,
+                length,
+                alignment,
+            });
+
+            write
+                .write_all(bundled_wasm_encoding.module_bytes.clone())
+                .await?;
+            position += u64::from(length);
+
+            let array_spec_idx = ctx
+                .to_ids()
+                .iter()
+                .position(|id| *id == bundled_wasm_encoding.id)
+                .ok_or_else(|| {
+                    vortex_err!(
+                        "Bundled WASM encoding {} is not present in the file array registry",
+                        bundled_wasm_encoding.id
+                    )
+                })
+                .and_then(|idx| {
+                    u16::try_from(idx).map_err(|_| vortex_err!("Array spec index exceeds u16::MAX"))
+                })?;
+
+            bundled_wasm_specs.push(BundledWasmSpec {
+                array_spec_idx,
+                segment_idx,
+                abi_version: bundled_wasm_encoding.abi_version,
+            });
+        }
 
         // Assemble the Footer object now that we have all the segments.
         let mut footer = Footer::new(
             Arc::clone(&layout),
-            segment_specs,
+            segment_specs.into(),
             if self.file_statistics.is_empty() {
                 None
             } else {
@@ -223,7 +297,8 @@ impl VortexWriteOptions {
                 ))
             },
             ReadContext::new(ctx.to_ids()),
-        );
+        )
+        .with_bundled_wasm_specs(bundled_wasm_specs.into());
 
         // Emit the footer buffers and EOF.
         let footer_buffers = footer

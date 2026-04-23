@@ -3,6 +3,10 @@
 
 #![expect(clippy::cast_possible_truncation)]
 use std::iter;
+#[cfg(feature = "wasm_plugins")]
+use std::path::PathBuf;
+#[cfg(feature = "wasm_plugins")]
+use std::process::Command;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -12,6 +16,8 @@ use futures::TryStreamExt;
 use futures::pin_mut;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+#[cfg(feature = "wasm_plugins")]
+use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::ChunkedArray;
@@ -54,11 +60,14 @@ use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_array::scalar_fn::fns::pack::PackOptions;
 use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
+#[cfg(feature = "wasm_plugins")]
+use vortex_array::session::ArraySessionExt;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
@@ -74,6 +83,7 @@ use crate::VERSION;
 use crate::VortexFile;
 use crate::WriteOptionsSessionExt;
 use crate::footer::SegmentSpec;
+use crate::writer::BundledWasmEncoding;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty()
@@ -1193,6 +1203,348 @@ async fn basic_file_roundtrip() -> VortexResult<()> {
     let expected = buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8].into_array();
     assert_arrays_eq!(result, expected);
 
+    Ok(())
+}
+
+fn session_without_fastlanes() -> VortexSession {
+    VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<LayoutSession>()
+        .with::<ScalarFnSession>()
+        .with::<RuntimeSession>()
+}
+
+#[cfg(feature = "wasm_plugins")]
+fn build_for_wasm_plugin() -> VortexResult<Option<ByteBuffer>> {
+    let installed_targets = Command::new("rustup")
+        .args(["target", "list", "--installed"])
+        .output()?;
+    if !String::from_utf8_lossy(&installed_targets.stdout).contains("wasm32-unknown-unknown") {
+        return Ok(None);
+    }
+
+    let manifest_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../wasm-test/for-plugin/Cargo.toml");
+    let target_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target");
+    let status = Command::new("cargo")
+        .env("CARGO_TARGET_DIR", &target_dir)
+        .args([
+            "build",
+            "--manifest-path",
+            manifest_path
+                .to_str()
+                .expect("manifest path must be valid UTF-8"),
+            "--target",
+            "wasm32-unknown-unknown",
+        ])
+        .status()?;
+    if !status.success() {
+        return Err(vortex_error::vortex_err!(
+            "failed to build wasm-test/for-plugin for wasm32-unknown-unknown"
+        ));
+    }
+
+    let wasm_path = target_dir.join("wasm32-unknown-unknown/debug/vortex_for_wasm_plugin.wasm");
+    Ok(Some(ByteBuffer::from(std::fs::read(wasm_path)?)))
+}
+
+#[cfg(feature = "wasm_plugins")]
+async fn write_bundled_wasm_file(
+    array: ArrayRef,
+    bundled_id: &str,
+    module_bytes: ByteBuffer,
+    abi_version: u16,
+) -> VortexResult<ByteBuffer> {
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .with_bundled_wasm_encoding(BundledWasmEncoding {
+            id: bundled_id.into(),
+            module_bytes,
+            abi_version,
+        })
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    Ok(buf.freeze())
+}
+
+#[cfg(feature = "wasm_plugins")]
+async fn read_root_array(file: &VortexFile) -> VortexResult<ArrayRef> {
+    file.layout_reader()?
+        .projection_evaluation(
+            &(0..file.row_count()),
+            &root(),
+            MaskFuture::new_true(file.row_count() as usize),
+        )?
+        .await
+}
+
+#[cfg(feature = "wasm_plugins")]
+fn replace_module_bytes(
+    module_bytes: &ByteBuffer,
+    from: &[u8],
+    to: &[u8],
+) -> VortexResult<ByteBuffer> {
+    if from.len() != to.len() {
+        return Err(vortex_error::vortex_err!(
+            "byte replacement requires equal-length patterns"
+        ));
+    }
+
+    let mut bytes = module_bytes.as_slice().to_vec();
+    let Some(offset) = bytes.windows(from.len()).position(|window| window == from) else {
+        return Err(vortex_error::vortex_err!(
+            "pattern {:?} not found in module bytes",
+            from
+        ));
+    };
+    bytes[offset..offset + from.len()].copy_from_slice(to);
+    Ok(ByteBuffer::from(bytes))
+}
+
+#[tokio::test]
+async fn test_footer_round_trips_bundled_wasm_specs() -> VortexResult<()> {
+    let array =
+        vortex_fastlanes::FoR::encode(PrimitiveArray::from_iter([100i32, 101, 102]))?.into_array();
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_bundled_wasm_encoding(BundledWasmEncoding {
+            id: "fastlanes.for".into(),
+            module_bytes: ByteBuffer::from(vec![1, 2, 3, 4]),
+            abi_version: 1,
+        })
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+
+    let footer = summary.footer().clone();
+    assert_eq!(footer.bundled_wasm_specs().len(), 1);
+
+    let serialized_footer = footer.clone().into_serializer().serialize()?;
+    let mut footer_bytes = Vec::new();
+    for buffer in serialized_footer {
+        footer_bytes.extend_from_slice(buffer.as_slice());
+    }
+
+    let mut deserializer =
+        crate::Footer::deserializer(ByteBuffer::from(footer_bytes.clone()), SESSION.clone())
+            .with_size(footer_bytes.len() as u64);
+    let crate::DeserializeStep::Done(deserialized_footer) = deserializer.deserialize()? else {
+        panic!("footer deserializer unexpectedly requested more data")
+    };
+
+    assert_eq!(deserialized_footer.bundled_wasm_specs().len(), 1);
+    assert_eq!(
+        deserialized_footer.bundled_wasm_specs()[0].abi_version,
+        footer.bundled_wasm_specs()[0].abi_version
+    );
+    Ok(())
+}
+
+#[cfg(not(feature = "wasm_plugins"))]
+#[tokio::test]
+async fn test_open_rejects_bundled_wasm_without_feature() -> VortexResult<()> {
+    let array =
+        vortex_fastlanes::FoR::encode(PrimitiveArray::from_iter([100i32, 101, 102]))?.into_array();
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .with_bundled_wasm_encoding(BundledWasmEncoding {
+            id: "fastlanes.for".into(),
+            module_bytes: ByteBuffer::from(vec![1, 2, 3, 4]),
+            abi_version: 1,
+        })
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+
+    let err = session_without_fastlanes()
+        .open_options()
+        .open_buffer(buf.freeze())
+        .err()
+        .expect("open should fail without wasm_plugins");
+    assert!(err.to_string().contains("wasm_plugins"));
+    Ok(())
+}
+
+#[cfg(feature = "wasm_plugins")]
+#[tokio::test]
+async fn test_bundled_wasm_for_round_trip() -> VortexResult<()> {
+    let Some(module_bytes) = build_for_wasm_plugin()? else {
+        return Ok(());
+    };
+
+    let expected = PrimitiveArray::from_iter([100i32, 101, 102, 103]);
+    let array = vortex_fastlanes::FoR::encode(expected.clone())?.into_array();
+    let file_bytes = write_bundled_wasm_file(array, "fastlanes.for", module_bytes, 1).await?;
+
+    let session = session_without_fastlanes();
+    let file = session.open_options().open_buffer(file_bytes)?;
+    let array = read_root_array(&file).await?;
+    assert_eq!(array.encoding_id().as_str(), "fastlanes.for");
+
+    let mut ctx = session.create_execution_ctx();
+    let decoded = array.execute::<PrimitiveArray>(&mut ctx)?;
+    assert_arrays_eq!(decoded, expected);
+    Ok(())
+}
+
+#[cfg(feature = "wasm_plugins")]
+#[tokio::test]
+async fn test_bundled_wasm_open_rejects_invalid_module() -> VortexResult<()> {
+    let array =
+        vortex_fastlanes::FoR::encode(PrimitiveArray::from_iter([100i32, 101, 102]))?.into_array();
+    let file_bytes = write_bundled_wasm_file(
+        array,
+        "fastlanes.for",
+        ByteBuffer::from(vec![0, 1, 2, 3]),
+        1,
+    )
+    .await?;
+
+    let err = session_without_fastlanes()
+        .open_options()
+        .open_buffer(file_bytes)
+        .err()
+        .expect("open should fail for invalid bundled WASM");
+    assert!(err.to_string().contains("bundled WASM"));
+    Ok(())
+}
+
+#[cfg(feature = "wasm_plugins")]
+#[tokio::test]
+async fn test_bundled_wasm_open_rejects_wrong_abi() -> VortexResult<()> {
+    let Some(module_bytes) = build_for_wasm_plugin()? else {
+        return Ok(());
+    };
+
+    let array =
+        vortex_fastlanes::FoR::encode(PrimitiveArray::from_iter([100i32, 101, 102]))?.into_array();
+    let file_bytes = write_bundled_wasm_file(array, "fastlanes.for", module_bytes, 2).await?;
+
+    let err = session_without_fastlanes()
+        .open_options()
+        .open_buffer(file_bytes)
+        .err()
+        .expect("open should fail for ABI mismatch");
+    assert!(err.to_string().contains("ABI"));
+    Ok(())
+}
+
+#[cfg(feature = "wasm_plugins")]
+#[tokio::test]
+async fn test_bundled_wasm_open_rejects_manifest_mismatch() -> VortexResult<()> {
+    let Some(module_bytes) = build_for_wasm_plugin()? else {
+        return Ok(());
+    };
+    let patched_module = replace_module_bytes(&module_bytes, b"fastlanes.for", b"fastlanes.rle")?;
+
+    let array =
+        vortex_fastlanes::FoR::encode(PrimitiveArray::from_iter([100i32, 101, 102]))?.into_array();
+    let file_bytes = write_bundled_wasm_file(array, "fastlanes.for", patched_module, 1).await?;
+
+    let err = session_without_fastlanes()
+        .open_options()
+        .open_buffer(file_bytes)
+        .err()
+        .expect("open should fail for manifest mismatch");
+    assert!(err.to_string().contains("manifest id mismatch"));
+    Ok(())
+}
+
+#[cfg(feature = "wasm_plugins")]
+#[tokio::test]
+async fn test_bundled_wasm_open_rejects_non_primitive_for_child() -> VortexResult<()> {
+    let Some(module_bytes) = build_for_wasm_plugin()? else {
+        return Ok(());
+    };
+
+    let primitive = PrimitiveArray::from_iter([0u32, 1, 2, 3]).into_array();
+    let mut encode_ctx = SESSION.create_execution_ctx();
+    let bitpacked =
+        vortex_fastlanes::BitPacked::encode(&primitive, 2, &mut encode_ctx)?.into_array();
+    let array = vortex_fastlanes::FoR::try_new(bitpacked, Scalar::from(100u32))?.into_array();
+    let file_bytes = write_bundled_wasm_file(array, "fastlanes.for", module_bytes, 1).await?;
+
+    let err = session_without_fastlanes()
+        .open_options()
+        .open_buffer(file_bytes)
+        .err()
+        .expect("open should fail for non-primitive FoR child");
+    assert!(err.to_string().contains("requires child"));
+    Ok(())
+}
+
+#[cfg(feature = "wasm_plugins")]
+#[tokio::test]
+async fn test_bundled_wasm_overlay_is_file_local() -> VortexResult<()> {
+    let Some(module_bytes) = build_for_wasm_plugin()? else {
+        return Ok(());
+    };
+
+    let array =
+        vortex_fastlanes::FoR::encode(PrimitiveArray::from_iter([100i32, 101, 102]))?.into_array();
+    let file_bytes = write_bundled_wasm_file(array, "fastlanes.for", module_bytes, 1).await?;
+
+    let session = session_without_fastlanes();
+    assert!(
+        session
+            .arrays()
+            .registry()
+            .find(&"fastlanes.for".into())
+            .is_none()
+    );
+
+    let file = session.open_options().open_buffer(file_bytes)?;
+    let array = read_root_array(&file).await?;
+    assert_eq!(array.encoding_id().as_str(), "fastlanes.for");
+    assert!(
+        session
+            .arrays()
+            .registry()
+            .find(&"fastlanes.for".into())
+            .is_none()
+    );
+
+    drop(file);
+    assert!(
+        session
+            .arrays()
+            .registry()
+            .find(&"fastlanes.for".into())
+            .is_none()
+    );
+    Ok(())
+}
+
+#[cfg(feature = "wasm_plugins")]
+#[tokio::test]
+async fn test_bundled_wasm_open_with_footer_hydrates_overlay() -> VortexResult<()> {
+    let Some(module_bytes) = build_for_wasm_plugin()? else {
+        return Ok(());
+    };
+
+    let expected = PrimitiveArray::from_iter([100i32, 101, 102, 103]);
+    let array = vortex_fastlanes::FoR::encode(expected.clone())?.into_array();
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_bundled_wasm_encoding(BundledWasmEncoding {
+            id: "fastlanes.for".into(),
+            module_bytes,
+            abi_version: 1,
+        })
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+
+    let session = session_without_fastlanes();
+    let file = session
+        .open_options()
+        .with_footer(summary.footer().clone())
+        .open_buffer(buf.freeze())?;
+    let array = read_root_array(&file).await?;
+    let mut ctx = session.create_execution_ctx();
+    let decoded = array.execute::<PrimitiveArray>(&mut ctx)?;
+    assert_arrays_eq!(decoded, expected);
     Ok(())
 }
 

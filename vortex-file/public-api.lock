@@ -130,6 +130,54 @@ pub fn vortex_file::BlockingWriter<'_, '_, B>::finish(self) -> vortex_error::Vor
 
 pub fn vortex_file::BlockingWriter<'_, '_, B>::push(&mut self, chunk: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<()>
 
+pub struct vortex_file::BundledWasmEncoding
+
+pub vortex_file::BundledWasmEncoding::abi_version: u16
+
+pub vortex_file::BundledWasmEncoding::id: vortex_array::array::ArrayId
+
+pub vortex_file::BundledWasmEncoding::module_bytes: vortex_buffer::ByteBuffer
+
+impl core::clone::Clone for vortex_file::BundledWasmEncoding
+
+pub fn vortex_file::BundledWasmEncoding::clone(&self) -> vortex_file::BundledWasmEncoding
+
+impl core::fmt::Debug for vortex_file::BundledWasmEncoding
+
+pub fn vortex_file::BundledWasmEncoding::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct vortex_file::BundledWasmSpec
+
+pub vortex_file::BundledWasmSpec::abi_version: u16
+
+pub vortex_file::BundledWasmSpec::array_spec_idx: u16
+
+pub vortex_file::BundledWasmSpec::segment_idx: u32
+
+impl core::clone::Clone for vortex_file::BundledWasmSpec
+
+pub fn vortex_file::BundledWasmSpec::clone(&self) -> vortex_file::BundledWasmSpec
+
+impl core::cmp::Eq for vortex_file::BundledWasmSpec
+
+impl core::cmp::PartialEq for vortex_file::BundledWasmSpec
+
+pub fn vortex_file::BundledWasmSpec::eq(&self, other: &vortex_file::BundledWasmSpec) -> bool
+
+impl core::convert::TryFrom<vortex_flatbuffers::footer::BundledWasmSpec<'_>> for vortex_file::BundledWasmSpec
+
+pub type vortex_file::BundledWasmSpec::Error = vortex_error::VortexError
+
+pub fn vortex_file::BundledWasmSpec::try_from(value: vortex_flatbuffers::footer::BundledWasmSpec<'_>) -> core::result::Result<Self, Self::Error>
+
+impl core::fmt::Debug for vortex_file::BundledWasmSpec
+
+pub fn vortex_file::BundledWasmSpec::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_file::BundledWasmSpec
+
+impl core::marker::StructuralPartialEq for vortex_file::BundledWasmSpec
+
 pub struct vortex_file::FileStatistics
 
 impl vortex_file::FileStatistics
@@ -175,6 +223,8 @@ pub struct vortex_file::Footer
 impl vortex_file::Footer
 
 pub fn vortex_file::Footer::approx_byte_size(&self) -> core::option::Option<usize>
+
+pub fn vortex_file::Footer::bundled_wasm_specs(&self) -> &[vortex_file::BundledWasmSpec]
 
 pub fn vortex_file::Footer::deserializer(eof_buffer: vortex_buffer::ByteBuffer, session: vortex_session::VortexSession) -> vortex_file::FooterDeserializer
 
@@ -335,6 +385,8 @@ impl vortex_file::VortexWriteOptions
 pub fn vortex_file::VortexWriteOptions::exclude_dtype(self) -> Self
 
 pub fn vortex_file::VortexWriteOptions::new(session: vortex_session::VortexSession) -> Self
+
+pub fn vortex_file::VortexWriteOptions::with_bundled_wasm_encoding(self, bundled_wasm_encoding: vortex_file::BundledWasmEncoding) -> Self
 
 pub fn vortex_file::VortexWriteOptions::with_file_statistics(self, file_statistics: alloc::vec::Vec<vortex_array::expr::stats::Stat>) -> Self
 

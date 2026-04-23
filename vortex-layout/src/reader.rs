@@ -16,6 +16,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
+use vortex_array::session::ArrayRegistry;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
@@ -114,6 +115,7 @@ pub struct LazyReaderChildren {
     names: Vec<Arc<str>>,
     segment_source: Arc<dyn SegmentSource>,
     session: VortexSession,
+    array_registry: Option<ArrayRegistry>,
     // TODO(ngates): we may want a hash map of some sort here?
     cache: Vec<OnceCell<LayoutReaderRef>>,
 }
@@ -125,6 +127,7 @@ impl LazyReaderChildren {
         names: Vec<Arc<str>>,
         segment_source: Arc<dyn SegmentSource>,
         session: VortexSession,
+        array_registry: Option<ArrayRegistry>,
     ) -> Self {
         let nchildren = children.nchildren();
         let cache = (0..nchildren).map(|_| OnceCell::new()).collect();
@@ -134,6 +137,7 @@ impl LazyReaderChildren {
             names,
             segment_source,
             session,
+            array_registry,
             cache,
         }
     }
@@ -146,10 +150,11 @@ impl LazyReaderChildren {
         self.cache[idx].get_or_try_init(|| {
             let dtype = &self.dtypes[idx];
             let child = self.children.child(idx, dtype)?;
-            child.new_reader(
+            child.new_reader_with_array_registry(
                 Arc::clone(&self.names[idx]),
                 Arc::clone(&self.segment_source),
                 &self.session,
+                self.array_registry.clone(),
             )
         })
     }

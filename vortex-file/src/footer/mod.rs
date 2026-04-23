@@ -44,6 +44,7 @@ use vortex_session::registry::ReadContext;
 pub struct Footer {
     root_layout: LayoutRef,
     segments: Arc<[SegmentSpec]>,
+    bundled_wasm_specs: Arc<[BundledWasmSpec]>,
     statistics: Option<FileStatistics>,
     // The specific arrays used within the file, in the order they were registered.
     array_read_ctx: ReadContext,
@@ -61,10 +62,19 @@ impl Footer {
         Self {
             root_layout,
             segments,
+            bundled_wasm_specs: Arc::new([]),
             statistics,
             array_read_ctx,
             approx_byte_size: None,
         }
+    }
+
+    pub(crate) fn with_bundled_wasm_specs(
+        mut self,
+        bundled_wasm_specs: Arc<[BundledWasmSpec]>,
+    ) -> Self {
+        self.bundled_wasm_specs = bundled_wasm_specs;
+        self
     }
 
     pub(crate) fn with_approx_byte_size(mut self, approx_byte_size: usize) -> Self {
@@ -116,6 +126,17 @@ impl Footer {
             .iter()
             .map(SegmentSpec::try_from)
             .try_collect()?;
+        let bundled_wasm_specs: Arc<[BundledWasmSpec]> = fb_footer
+            .bundled_wasm_specs()
+            .map(|specs| {
+                specs
+                    .iter()
+                    .map(BundledWasmSpec::try_from)
+                    .collect::<VortexResult<Vec<_>>>()
+            })
+            .transpose()?
+            .unwrap_or_default()
+            .into();
 
         // Note this assertion is `<=` since we allow zero-length segments
         if !segments.is_sorted_by_key(|segment| segment.offset) {
@@ -125,6 +146,7 @@ impl Footer {
         Ok(Self {
             root_layout,
             segments,
+            bundled_wasm_specs,
             statistics,
             array_read_ctx,
             approx_byte_size: Some(approx_byte_size),
@@ -139,6 +161,11 @@ impl Footer {
     /// Returns the segment map of the file.
     pub fn segment_map(&self) -> &Arc<[SegmentSpec]> {
         &self.segments
+    }
+
+    /// Returns the bundled WASM modules referenced by the footer.
+    pub fn bundled_wasm_specs(&self) -> &[BundledWasmSpec] {
+        &self.bundled_wasm_specs
     }
 
     /// Returns the statistics of the file.
@@ -169,5 +196,33 @@ impl Footer {
     /// Create a deserializer for a Vortex file footer.
     pub fn deserializer(eof_buffer: ByteBuffer, session: VortexSession) -> FooterDeserializer {
         FooterDeserializer::new(eof_buffer, session)
+    }
+
+    #[cfg(feature = "wasm_plugins")]
+    pub(crate) fn resolve_array_spec(&self, array_spec_idx: u16) -> Option<ArrayId> {
+        self.array_read_ctx.resolve(array_spec_idx)
+    }
+}
+
+/// A footer entry describing a bundled WASM module stored elsewhere in the file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BundledWasmSpec {
+    /// The array-spec index for the encoding implemented by the bundled module.
+    pub array_spec_idx: u16,
+    /// The file segment containing the raw WASM module bytes.
+    pub segment_idx: u32,
+    /// The expected host/guest ABI version for the bundled module.
+    pub abi_version: u16,
+}
+
+impl TryFrom<fb::BundledWasmSpec<'_>> for BundledWasmSpec {
+    type Error = vortex_error::VortexError;
+
+    fn try_from(value: fb::BundledWasmSpec<'_>) -> Result<Self, Self::Error> {
+        Ok(Self {
+            array_spec_idx: value.array_spec_idx(),
+            segment_idx: value.segment_idx(),
+            abi_version: value.abi_version(),
+        })
     }
 }

@@ -1,0 +1,343 @@
+pub mod vortex_wasm_plugin
+
+pub struct vortex_wasm_plugin::CanonicalizeRequest
+
+pub vortex_wasm_plugin::CanonicalizeRequest::array_bytes: alloc::vec::Vec<u8>
+
+pub vortex_wasm_plugin::CanonicalizeRequest::ctx_ids: alloc::vec::Vec<alloc::string::String>
+
+pub vortex_wasm_plugin::CanonicalizeRequest::dtype_bytes: alloc::vec::Vec<u8>
+
+pub vortex_wasm_plugin::CanonicalizeRequest::len: u64
+
+impl core::clone::Clone for vortex_wasm_plugin::CanonicalizeRequest
+
+pub fn vortex_wasm_plugin::CanonicalizeRequest::clone(&self) -> vortex_wasm_plugin::CanonicalizeRequest
+
+impl core::cmp::Eq for vortex_wasm_plugin::CanonicalizeRequest
+
+impl core::cmp::PartialEq for vortex_wasm_plugin::CanonicalizeRequest
+
+pub fn vortex_wasm_plugin::CanonicalizeRequest::eq(&self, other: &vortex_wasm_plugin::CanonicalizeRequest) -> bool
+
+impl core::default::Default for vortex_wasm_plugin::CanonicalizeRequest
+
+pub fn vortex_wasm_plugin::CanonicalizeRequest::default() -> Self
+
+impl core::fmt::Debug for vortex_wasm_plugin::CanonicalizeRequest
+
+pub fn vortex_wasm_plugin::CanonicalizeRequest::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::StructuralPartialEq for vortex_wasm_plugin::CanonicalizeRequest
+
+impl prost::message::Message for vortex_wasm_plugin::CanonicalizeRequest
+
+pub fn vortex_wasm_plugin::CanonicalizeRequest::clear(&mut self)
+
+pub fn vortex_wasm_plugin::CanonicalizeRequest::encoded_len(&self) -> usize
+
+pub struct vortex_wasm_plugin::CanonicalizeResponse
+
+pub vortex_wasm_plugin::CanonicalizeResponse::array_bytes: alloc::vec::Vec<u8>
+
+pub vortex_wasm_plugin::CanonicalizeResponse::ctx_ids: alloc::vec::Vec<alloc::string::String>
+
+impl core::clone::Clone for vortex_wasm_plugin::CanonicalizeResponse
+
+pub fn vortex_wasm_plugin::CanonicalizeResponse::clone(&self) -> vortex_wasm_plugin::CanonicalizeResponse
+
+impl core::cmp::Eq for vortex_wasm_plugin::CanonicalizeResponse
+
+impl core::cmp::PartialEq for vortex_wasm_plugin::CanonicalizeResponse
+
+pub fn vortex_wasm_plugin::CanonicalizeResponse::eq(&self, other: &vortex_wasm_plugin::CanonicalizeResponse) -> bool
+
+impl core::default::Default for vortex_wasm_plugin::CanonicalizeResponse
+
+pub fn vortex_wasm_plugin::CanonicalizeResponse::default() -> Self
+
+impl core::fmt::Debug for vortex_wasm_plugin::CanonicalizeResponse
+
+pub fn vortex_wasm_plugin::CanonicalizeResponse::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::StructuralPartialEq for vortex_wasm_plugin::CanonicalizeResponse
+
+impl prost::message::Message for vortex_wasm_plugin::CanonicalizeResponse
+
+pub fn vortex_wasm_plugin::CanonicalizeResponse::clear(&mut self)
+
+pub fn vortex_wasm_plugin::CanonicalizeResponse::encoded_len(&self) -> usize
+
+pub struct vortex_wasm_plugin::ChildConstraint
+
+pub vortex_wasm_plugin::ChildConstraint::encoding_id: alloc::string::String
+
+pub vortex_wasm_plugin::ChildConstraint::slot_name: alloc::string::String
+
+impl core::clone::Clone for vortex_wasm_plugin::ChildConstraint
+
+pub fn vortex_wasm_plugin::ChildConstraint::clone(&self) -> vortex_wasm_plugin::ChildConstraint
+
+impl core::cmp::Eq for vortex_wasm_plugin::ChildConstraint
+
+impl core::cmp::PartialEq for vortex_wasm_plugin::ChildConstraint
+
+pub fn vortex_wasm_plugin::ChildConstraint::eq(&self, other: &vortex_wasm_plugin::ChildConstraint) -> bool
+
+impl core::default::Default for vortex_wasm_plugin::ChildConstraint
+
+pub fn vortex_wasm_plugin::ChildConstraint::default() -> Self
+
+impl core::fmt::Debug for vortex_wasm_plugin::ChildConstraint
+
+pub fn vortex_wasm_plugin::ChildConstraint::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::StructuralPartialEq for vortex_wasm_plugin::ChildConstraint
+
+impl prost::message::Message for vortex_wasm_plugin::ChildConstraint
+
+pub fn vortex_wasm_plugin::ChildConstraint::clear(&mut self)
+
+pub fn vortex_wasm_plugin::ChildConstraint::encoded_len(&self) -> usize
+
+pub struct vortex_wasm_plugin::EncodingManifest
+
+pub vortex_wasm_plugin::EncodingManifest::child_constraints: alloc::vec::Vec<vortex_wasm_plugin::ChildConstraint>
+
+pub vortex_wasm_plugin::EncodingManifest::id: alloc::string::String
+
+pub vortex_wasm_plugin::EncodingManifest::validity_from_child: core::option::Option<u32>
+
+impl vortex_wasm_plugin::EncodingManifest
+
+pub fn vortex_wasm_plugin::EncodingManifest::validity_from_child(&self) -> u32
+
+impl core::clone::Clone for vortex_wasm_plugin::EncodingManifest
+
+pub fn vortex_wasm_plugin::EncodingManifest::clone(&self) -> vortex_wasm_plugin::EncodingManifest
+
+impl core::cmp::Eq for vortex_wasm_plugin::EncodingManifest
+
+impl core::cmp::PartialEq for vortex_wasm_plugin::EncodingManifest
+
+pub fn vortex_wasm_plugin::EncodingManifest::eq(&self, other: &vortex_wasm_plugin::EncodingManifest) -> bool
+
+impl core::convert::TryFrom<&vortex_wasm_plugin::EncodingManifest> for vortex_wasm_plugin::WasmEncodingSpec
+
+pub type vortex_wasm_plugin::WasmEncodingSpec::Error = vortex_error::VortexError
+
+pub fn vortex_wasm_plugin::WasmEncodingSpec::try_from(value: &vortex_wasm_plugin::EncodingManifest) -> core::result::Result<Self, Self::Error>
+
+impl core::default::Default for vortex_wasm_plugin::EncodingManifest
+
+pub fn vortex_wasm_plugin::EncodingManifest::default() -> Self
+
+impl core::fmt::Debug for vortex_wasm_plugin::EncodingManifest
+
+pub fn vortex_wasm_plugin::EncodingManifest::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::StructuralPartialEq for vortex_wasm_plugin::EncodingManifest
+
+impl prost::message::Message for vortex_wasm_plugin::EncodingManifest
+
+pub fn vortex_wasm_plugin::EncodingManifest::clear(&mut self)
+
+pub fn vortex_wasm_plugin::EncodingManifest::encoded_len(&self) -> usize
+
+pub struct vortex_wasm_plugin::GuestManifest
+
+pub vortex_wasm_plugin::GuestManifest::abi_version: u32
+
+pub vortex_wasm_plugin::GuestManifest::encodings: alloc::vec::Vec<vortex_wasm_plugin::EncodingManifest>
+
+impl core::clone::Clone for vortex_wasm_plugin::GuestManifest
+
+pub fn vortex_wasm_plugin::GuestManifest::clone(&self) -> vortex_wasm_plugin::GuestManifest
+
+impl core::cmp::Eq for vortex_wasm_plugin::GuestManifest
+
+impl core::cmp::PartialEq for vortex_wasm_plugin::GuestManifest
+
+pub fn vortex_wasm_plugin::GuestManifest::eq(&self, other: &vortex_wasm_plugin::GuestManifest) -> bool
+
+impl core::default::Default for vortex_wasm_plugin::GuestManifest
+
+pub fn vortex_wasm_plugin::GuestManifest::default() -> Self
+
+impl core::fmt::Debug for vortex_wasm_plugin::GuestManifest
+
+pub fn vortex_wasm_plugin::GuestManifest::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::StructuralPartialEq for vortex_wasm_plugin::GuestManifest
+
+impl prost::message::Message for vortex_wasm_plugin::GuestManifest
+
+pub fn vortex_wasm_plugin::GuestManifest::clear(&mut self)
+
+pub fn vortex_wasm_plugin::GuestManifest::encoded_len(&self) -> usize
+
+pub struct vortex_wasm_plugin::WasmArrayData
+
+impl vortex_wasm_plugin::WasmArrayData
+
+pub fn vortex_wasm_plugin::WasmArrayData::new(metadata: alloc::vec::Vec<u8>, buffers: alloc::vec::Vec<vortex_array::buffer::BufferHandle>, spec: vortex_wasm_plugin::WasmEncodingSpec, runtime: alloc::sync::Arc<dyn vortex_wasm_plugin::WasmRuntime>, array_registry: vortex_array::session::ArrayRegistry) -> Self
+
+impl core::clone::Clone for vortex_wasm_plugin::WasmArrayData
+
+pub fn vortex_wasm_plugin::WasmArrayData::clone(&self) -> vortex_wasm_plugin::WasmArrayData
+
+impl core::fmt::Debug for vortex_wasm_plugin::WasmArrayData
+
+pub fn vortex_wasm_plugin::WasmArrayData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_wasm_plugin::WasmArrayData
+
+pub fn vortex_wasm_plugin::WasmArrayData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::hash::ArrayEq for vortex_wasm_plugin::WasmArrayData
+
+pub fn vortex_wasm_plugin::WasmArrayData::array_eq(&self, other: &Self, precision: vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_wasm_plugin::WasmArrayData
+
+pub fn vortex_wasm_plugin::WasmArrayData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::hash::Precision)
+
+pub struct vortex_wasm_plugin::WasmArrayEncoding
+
+impl vortex_wasm_plugin::WasmArrayEncoding
+
+pub fn vortex_wasm_plugin::WasmArrayEncoding::new(spec: vortex_wasm_plugin::WasmEncodingSpec, runtime: alloc::sync::Arc<dyn vortex_wasm_plugin::WasmRuntime>, array_registry: vortex_array::session::ArrayRegistry) -> Self
+
+pub fn vortex_wasm_plugin::WasmArrayEncoding::spec(&self) -> &vortex_wasm_plugin::WasmEncodingSpec
+
+impl core::clone::Clone for vortex_wasm_plugin::WasmArrayEncoding
+
+pub fn vortex_wasm_plugin::WasmArrayEncoding::clone(&self) -> vortex_wasm_plugin::WasmArrayEncoding
+
+impl core::fmt::Debug for vortex_wasm_plugin::WasmArrayEncoding
+
+pub fn vortex_wasm_plugin::WasmArrayEncoding::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::array::vtable::VTable for vortex_wasm_plugin::WasmArrayEncoding
+
+pub type vortex_wasm_plugin::WasmArrayEncoding::ArrayData = vortex_wasm_plugin::WasmArrayData
+
+pub type vortex_wasm_plugin::WasmArrayEncoding::OperationsVTable = vortex_wasm_plugin::WasmOperationsVTable
+
+pub type vortex_wasm_plugin::WasmArrayEncoding::ValidityVTable = vortex_wasm_plugin::WasmValidityVTable
+
+pub fn vortex_wasm_plugin::WasmArrayEncoding::buffer(array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
+
+pub fn vortex_wasm_plugin::WasmArrayEncoding::buffer_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
+
+pub fn vortex_wasm_plugin::WasmArrayEncoding::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::typed::ArrayParts<Self>>
+
+pub fn vortex_wasm_plugin::WasmArrayEncoding::execute(array: vortex_array::array::typed::Array<Self>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+
+pub fn vortex_wasm_plugin::WasmArrayEncoding::id(&self) -> vortex_array::array::ArrayId
+
+pub fn vortex_wasm_plugin::WasmArrayEncoding::nbuffers(array: vortex_array::array::view::ArrayView<'_, Self>) -> usize
+
+pub fn vortex_wasm_plugin::WasmArrayEncoding::serialize(array: vortex_array::array::view::ArrayView<'_, Self>, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_wasm_plugin::WasmArrayEncoding::slot_name(array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
+
+pub fn vortex_wasm_plugin::WasmArrayEncoding::validate(&self, _data: &Self::ArrayData, _dtype: &vortex_array::dtype::DType, _len: usize, slots: &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+
+impl vortex_array::array::vtable::operations::OperationsVTable<vortex_wasm_plugin::WasmArrayEncoding> for vortex_wasm_plugin::WasmOperationsVTable
+
+pub fn vortex_wasm_plugin::WasmOperationsVTable::scalar_at(array: vortex_array::array::view::ArrayView<'_, vortex_wasm_plugin::WasmArrayEncoding>, index: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+impl vortex_array::array::vtable::validity::ValidityVTable<vortex_wasm_plugin::WasmArrayEncoding> for vortex_wasm_plugin::WasmValidityVTable
+
+pub fn vortex_wasm_plugin::WasmValidityVTable::validity(array: vortex_array::array::view::ArrayView<'_, vortex_wasm_plugin::WasmArrayEncoding>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
+pub struct vortex_wasm_plugin::WasmChildConstraint
+
+impl vortex_wasm_plugin::WasmChildConstraint
+
+pub fn vortex_wasm_plugin::WasmChildConstraint::encoding_id(&self) -> vortex_array::array::ArrayId
+
+pub fn vortex_wasm_plugin::WasmChildConstraint::new(slot_name: impl core::convert::Into<alloc::sync::Arc<str>>, encoding_id: vortex_array::array::ArrayId) -> Self
+
+pub fn vortex_wasm_plugin::WasmChildConstraint::slot_name(&self) -> &alloc::sync::Arc<str>
+
+impl core::clone::Clone for vortex_wasm_plugin::WasmChildConstraint
+
+pub fn vortex_wasm_plugin::WasmChildConstraint::clone(&self) -> vortex_wasm_plugin::WasmChildConstraint
+
+impl core::cmp::Eq for vortex_wasm_plugin::WasmChildConstraint
+
+impl core::cmp::PartialEq for vortex_wasm_plugin::WasmChildConstraint
+
+pub fn vortex_wasm_plugin::WasmChildConstraint::eq(&self, other: &vortex_wasm_plugin::WasmChildConstraint) -> bool
+
+impl core::fmt::Debug for vortex_wasm_plugin::WasmChildConstraint
+
+pub fn vortex_wasm_plugin::WasmChildConstraint::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::StructuralPartialEq for vortex_wasm_plugin::WasmChildConstraint
+
+pub struct vortex_wasm_plugin::WasmEncodingSpec
+
+impl vortex_wasm_plugin::WasmEncodingSpec
+
+pub fn vortex_wasm_plugin::WasmEncodingSpec::child_constraints(&self) -> &[vortex_wasm_plugin::WasmChildConstraint]
+
+pub fn vortex_wasm_plugin::WasmEncodingSpec::id(&self) -> vortex_array::array::ArrayId
+
+pub fn vortex_wasm_plugin::WasmEncodingSpec::new(id: vortex_array::array::ArrayId, validity_from_child: core::option::Option<usize>, child_constraints: alloc::vec::Vec<vortex_wasm_plugin::WasmChildConstraint>) -> Self
+
+pub fn vortex_wasm_plugin::WasmEncodingSpec::validity_from_child(&self) -> core::option::Option<usize>
+
+impl core::clone::Clone for vortex_wasm_plugin::WasmEncodingSpec
+
+pub fn vortex_wasm_plugin::WasmEncodingSpec::clone(&self) -> vortex_wasm_plugin::WasmEncodingSpec
+
+impl core::cmp::Eq for vortex_wasm_plugin::WasmEncodingSpec
+
+impl core::cmp::PartialEq for vortex_wasm_plugin::WasmEncodingSpec
+
+pub fn vortex_wasm_plugin::WasmEncodingSpec::eq(&self, other: &vortex_wasm_plugin::WasmEncodingSpec) -> bool
+
+impl core::convert::TryFrom<&vortex_wasm_plugin::EncodingManifest> for vortex_wasm_plugin::WasmEncodingSpec
+
+pub type vortex_wasm_plugin::WasmEncodingSpec::Error = vortex_error::VortexError
+
+pub fn vortex_wasm_plugin::WasmEncodingSpec::try_from(value: &vortex_wasm_plugin::EncodingManifest) -> core::result::Result<Self, Self::Error>
+
+impl core::fmt::Debug for vortex_wasm_plugin::WasmEncodingSpec
+
+pub fn vortex_wasm_plugin::WasmEncodingSpec::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::StructuralPartialEq for vortex_wasm_plugin::WasmEncodingSpec
+
+pub struct vortex_wasm_plugin::WasmOperationsVTable
+
+impl vortex_array::array::vtable::operations::OperationsVTable<vortex_wasm_plugin::WasmArrayEncoding> for vortex_wasm_plugin::WasmOperationsVTable
+
+pub fn vortex_wasm_plugin::WasmOperationsVTable::scalar_at(array: vortex_array::array::view::ArrayView<'_, vortex_wasm_plugin::WasmArrayEncoding>, index: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub struct vortex_wasm_plugin::WasmValidityVTable
+
+impl vortex_array::array::vtable::validity::ValidityVTable<vortex_wasm_plugin::WasmArrayEncoding> for vortex_wasm_plugin::WasmValidityVTable
+
+pub fn vortex_wasm_plugin::WasmValidityVTable::validity(array: vortex_array::array::view::ArrayView<'_, vortex_wasm_plugin::WasmArrayEncoding>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
+pub const vortex_wasm_plugin::ABI_VERSION: u16
+
+pub trait vortex_wasm_plugin::WasmRuntime: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
+
+pub fn vortex_wasm_plugin::WasmRuntime::canonicalize(&self, array: &vortex_array::array::erased::ArrayRef, session: &vortex_session::VortexSession, array_registry: &vortex_array::session::ArrayRegistry) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_wasm_plugin::build_canonicalize_request(array: &vortex_array::array::erased::ArrayRef, session: &vortex_session::VortexSession, array_registry: &vortex_array::session::ArrayRegistry) -> vortex_error::VortexResult<vortex_wasm_plugin::CanonicalizeRequest>
+
+pub fn vortex_wasm_plugin::build_canonicalize_response(array: &vortex_array::array::erased::ArrayRef, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_wasm_plugin::CanonicalizeResponse>
+
+pub fn vortex_wasm_plugin::decode_canonicalize_request(request: &vortex_wasm_plugin::CanonicalizeRequest, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<(vortex_array::dtype::DType, usize, vortex_session::registry::ReadContext, vortex_array::array::erased::ArrayRef)>
+
+pub fn vortex_wasm_plugin::decode_canonicalize_response(dtype: &vortex_array::dtype::DType, len: usize, response: &vortex_wasm_plugin::CanonicalizeResponse, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_wasm_plugin::pack_ptr_len(ptr: u32, len: u32) -> u64
+
+pub fn vortex_wasm_plugin::unpack_ptr_len(value: u64) -> (u32, u32)

@@ -1,0 +1,16 @@
+[package]
+name = "vortex-for-wasm-plugin"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+version = "0.0.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+prost = "0.14"
+vortex-array = { path = "../../vortex-array" }
+vortex-fastlanes = { path = "../../encodings/fastlanes" }
+vortex-session = { path = "../../vortex-session" }
+vortex-wasm-plugin = { path = "../../vortex-wasm-plugin" }

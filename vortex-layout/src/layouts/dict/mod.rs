@@ -12,6 +12,7 @@ use vortex_array::ProstMetadata;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::session::ArrayRegistry;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -92,12 +93,14 @@ impl VTable for Dict {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
+        array_registry: Option<ArrayRegistry>,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(DictReader::try_new(
             layout.clone(),
             name,
             segment_source,
             session.clone(),
+            array_registry,
         )?))
     }
 

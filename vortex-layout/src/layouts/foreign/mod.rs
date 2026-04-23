@@ -5,6 +5,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_array::dtype::DType;
+use vortex_array::session::ArrayRegistry;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -171,6 +172,16 @@ impl Layout for ForeignLayout {
         _name: Arc<str>,
         _segment_source: Arc<dyn SegmentSource>,
         _session: &VortexSession,
+    ) -> VortexResult<LayoutReaderRef> {
+        self.new_reader_with_array_registry(_name, _segment_source, _session, None)
+    }
+
+    fn new_reader_with_array_registry(
+        &self,
+        _name: Arc<str>,
+        _segment_source: Arc<dyn SegmentSource>,
+        _session: &VortexSession,
+        _array_registry: Option<ArrayRegistry>,
     ) -> VortexResult<LayoutReaderRef> {
         vortex_bail!(
             "Cannot read unknown layout encoding '{}'",

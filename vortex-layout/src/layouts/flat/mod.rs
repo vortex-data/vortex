@@ -11,6 +11,7 @@ use std::sync::LazyLock;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ProstMetadata;
 use vortex_array::dtype::DType;
+use vortex_array::session::ArrayRegistry;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -87,12 +88,14 @@ impl VTable for Flat {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
+        array_registry: Option<ArrayRegistry>,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(FlatReader::new(
             layout.clone(),
             name,
             segment_source,
             session.clone(),
+            array_registry,
         )))
     }
 

@@ -226,6 +226,8 @@ pub struct Context<T> {
     //  enum of Segment { Array, DType, Buffer } then we don't actually need a mutable context
     //  in the LayoutWriter, therefore we don't need a RwLock here and everyone is happier.
     ids: Arc<RwLock<Vec<Id>>>,
+    // Tracks the IDs that were actually interned after construction, preserving first-use order.
+    used_ids: Arc<RwLock<Vec<Id>>>,
     // Optional registry used to filter the permissible interned items.
     registry: Option<Registry<T>>,
 }
@@ -234,6 +236,7 @@ impl<T> Default for Context<T> {
     fn default() -> Self {
         Self {
             ids: Arc::new(RwLock::new(Vec::new())),
+            used_ids: Arc::new(RwLock::new(Vec::new())),
             registry: None,
         }
     }
@@ -244,6 +247,7 @@ impl<T: Clone> Context<T> {
     pub fn new(ids: Vec<Id>) -> Self {
         Self {
             ids: Arc::new(RwLock::new(ids)),
+            used_ids: Arc::new(RwLock::new(Vec::new())),
             registry: None,
         }
     }
@@ -270,6 +274,8 @@ impl<T: Clone> Context<T> {
 
         let mut ids = self.ids.write();
         if let Some(idx) = ids.iter().position(|e| e == id) {
+            drop(ids);
+            self.record_used_id(id);
             return Some(u16::try_from(idx).vortex_expect("Cannot have more than u16::MAX items"));
         }
 
@@ -279,11 +285,25 @@ impl<T: Clone> Context<T> {
             "Cannot have more than u16::MAX items"
         );
         ids.push(*id);
+        drop(ids);
+        self.record_used_id(id);
         Some(u16::try_from(idx).vortex_expect("checked already"))
     }
 
     /// Get the list of interned IDs.
     pub fn to_ids(&self) -> Vec<Id> {
         self.ids.read().clone()
+    }
+
+    /// Get the IDs that were actually interned after construction, in first-use order.
+    pub fn used_ids(&self) -> Vec<Id> {
+        self.used_ids.read().clone()
+    }
+
+    fn record_used_id(&self, id: &Id) {
+        let mut used_ids = self.used_ids.write();
+        if !used_ids.iter().any(|used| used == id) {
+            used_ids.push(*id);
+        }
     }
 }

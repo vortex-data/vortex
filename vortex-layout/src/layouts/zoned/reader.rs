@@ -26,6 +26,7 @@ use vortex_array::expr::Expression;
 use vortex_array::expr::pruning::checked_pruning_expr;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
+use vortex_array::session::ArrayRegistry;
 use vortex_buffer::BitBufferMut;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexError;
@@ -69,6 +70,7 @@ impl ZonedReader {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: VortexSession,
+        array_registry: Option<ArrayRegistry>,
     ) -> VortexResult<Self> {
         let dtypes = vec![
             layout.dtype.clone(),
@@ -81,6 +83,7 @@ impl ZonedReader {
             names,
             Arc::clone(&segment_source),
             session.clone(),
+            array_registry,
         );
 
         Ok(Self {

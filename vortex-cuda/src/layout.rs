@@ -31,6 +31,7 @@ use vortex::array::normalize::NormalizeOptions;
 use vortex::array::normalize::Operation;
 use vortex::array::serde::SerializeOptions;
 use vortex::array::serde::SerializedArray;
+use vortex::array::session::ArrayRegistry;
 use vortex::array::stats::StatsSetRef;
 use vortex::buffer::BufferString;
 use vortex::buffer::ByteBuffer;
@@ -179,6 +180,7 @@ impl VTable for CudaFlat {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
+        _array_registry: Option<ArrayRegistry>,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(CudaFlatReader {
             layout: layout.clone(),

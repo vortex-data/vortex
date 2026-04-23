@@ -13,6 +13,7 @@ use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
+use vortex_array::session::ArrayRegistry;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -114,12 +115,14 @@ impl VTable for Struct {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
+        array_registry: Option<ArrayRegistry>,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(StructReader::try_new(
             layout.clone(),
             name,
             segment_source,
             session.session(),
+            array_registry,
         )?))
     }
 

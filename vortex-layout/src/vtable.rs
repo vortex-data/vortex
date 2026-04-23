@@ -8,6 +8,7 @@ use std::sync::Arc;
 use vortex_array::DeserializeMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::dtype::DType;
+use vortex_array::session::ArrayRegistry;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
@@ -63,6 +64,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
+        array_registry: Option<ArrayRegistry>,
     ) -> VortexResult<LayoutReaderRef>;
 
     /// Construct a new [`Layout`] from the provided parts.

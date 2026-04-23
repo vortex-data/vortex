@@ -11,6 +11,7 @@ use itertools::Itertools;
 use vortex_array::SerializeMetadata;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
+use vortex_array::session::ArrayRegistry;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -68,6 +69,14 @@ pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
+    ) -> VortexResult<LayoutReaderRef>;
+
+    fn new_reader_with_array_registry(
+        &self,
+        name: Arc<str>,
+        segment_source: Arc<dyn SegmentSource>,
+        session: &VortexSession,
+        array_registry: Option<ArrayRegistry>,
     ) -> VortexResult<LayoutReaderRef>;
 }
 
@@ -312,7 +321,17 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
     ) -> VortexResult<LayoutReaderRef> {
-        V::new_reader(&self.0, name, segment_source, session)
+        self.new_reader_with_array_registry(name, segment_source, session, None)
+    }
+
+    fn new_reader_with_array_registry(
+        &self,
+        name: Arc<str>,
+        segment_source: Arc<dyn SegmentSource>,
+        session: &VortexSession,
+        array_registry: Option<ArrayRegistry>,
+    ) -> VortexResult<LayoutReaderRef> {
+        V::new_reader(&self.0, name, segment_source, session, array_registry)
     }
 }
 

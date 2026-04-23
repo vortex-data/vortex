@@ -31,6 +31,7 @@ use vortex_array::expr::transform::replace;
 use vortex_array::expr::transform::replace_root_fields;
 use vortex_array::scalar_fn::fns::merge::Merge;
 use vortex_array::scalar_fn::fns::pack::Pack;
+use vortex_array::session::ArrayRegistry;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -67,6 +68,7 @@ impl StructReader {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: VortexSession,
+        array_registry: Option<ArrayRegistry>,
     ) -> VortexResult<Self> {
         let struct_dt = layout.struct_fields();
 
@@ -98,6 +100,7 @@ impl StructReader {
             names,
             Arc::clone(&segment_source),
             session.clone(),
+            array_registry,
         );
 
         // Create an expanded root expression that contains all fields of the struct.

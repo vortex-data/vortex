@@ -19,6 +19,7 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
+use vortex_array::session::ArrayRegistry;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -46,6 +47,7 @@ impl ChunkedReader {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
+        array_registry: Option<ArrayRegistry>,
     ) -> Self {
         let nchildren = layout.nchildren();
 
@@ -65,6 +67,7 @@ impl ChunkedReader {
             names,
             segment_source,
             session.clone(),
+            array_registry,
         );
 
         Self {
@@ -398,9 +401,10 @@ mod test {
     fn test_chunked_evaluator(
         #[from(chunked_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        block_on(|_h| async {
+        block_on(|handle| async move {
+            let session = SESSION.clone().with_handle(handle);
             let result = layout
-                .new_reader("".into(), segments, &SESSION)
+                .new_reader("".into(), segments, &session)
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),

@@ -18580,7 +18580,7 @@ pub struct vortex_array::serde::ArrayNodeFlatBuffer<'a>
 
 impl<'a> vortex_array::serde::ArrayNodeFlatBuffer<'a>
 
-pub fn vortex_array::serde::ArrayNodeFlatBuffer<'a>::try_new(ctx: &'a vortex_array::ArrayContext, session: &'a vortex_session::VortexSession, array: &'a vortex_array::ArrayRef) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::serde::ArrayNodeFlatBuffer<'a>::try_new(ctx: &'a vortex_array::ArrayContext, session: &'a vortex_session::VortexSession, array_registry: core::option::Option<&'a vortex_array::session::ArrayRegistry>, array: &'a vortex_array::ArrayRef) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::serde::ArrayNodeFlatBuffer<'a>::try_write_flatbuffer<'fb>(&self, fbb: &mut flatbuffers::builder::FlatBufferBuilder<'fb>) -> vortex_error::VortexResult<flatbuffers::primitives::WIPOffset<vortex_flatbuffers::array::ArrayNode<'fb>>>
 
@@ -18609,6 +18609,8 @@ pub fn vortex_array::serde::SerializedArray::buffer_lengths(&self) -> alloc::vec
 pub fn vortex_array::serde::SerializedArray::child(&self, idx: usize) -> vortex_array::serde::SerializedArray
 
 pub fn vortex_array::serde::SerializedArray::decode(&self, dtype: &vortex_array::dtype::DType, len: usize, ctx: &vortex_session::registry::ReadContext, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::serde::SerializedArray::decode_with_array_registry(&self, dtype: &vortex_array::dtype::DType, len: usize, ctx: &vortex_session::registry::ReadContext, session: &vortex_session::VortexSession, array_registry: core::option::Option<&vortex_array::session::ArrayRegistry>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::serde::SerializedArray::encoding_id(&self) -> u16
 
@@ -18686,11 +18688,15 @@ pub trait vortex_array::session::ArraySessionExt: vortex_session::SessionExt
 
 pub fn vortex_array::session::ArraySessionExt::array_serialize(&self, array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
+pub fn vortex_array::session::ArraySessionExt::array_serialize_with_overlay(&self, array: &vortex_array::ArrayRef, overlay: core::option::Option<&vortex_array::session::ArrayRegistry>) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
 pub fn vortex_array::session::ArraySessionExt::arrays(&self) -> vortex_session::Ref<'_, vortex_array::session::ArraySession>
 
 impl<S: vortex_session::SessionExt> vortex_array::session::ArraySessionExt for S
 
 pub fn S::array_serialize(&self, array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn S::array_serialize_with_overlay(&self, array: &vortex_array::ArrayRef, overlay: core::option::Option<&vortex_array::session::ArrayRegistry>) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn S::arrays(&self) -> vortex_session::Ref<'_, vortex_array::session::ArraySession>
 
@@ -22083,6 +22089,8 @@ pub fn vortex_array::ArrayRef::ptr_eq(this: &vortex_array::ArrayRef, other: &vor
 impl vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::serialize(&self, ctx: &vortex_array::ArrayContext, session: &vortex_session::VortexSession, options: &vortex_array::serde::SerializeOptions) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_buffer::ByteBuffer>>
+
+pub fn vortex_array::ArrayRef::serialize_with_array_registry(&self, ctx: &vortex_array::ArrayContext, session: &vortex_session::VortexSession, array_registry: core::option::Option<&vortex_array::session::ArrayRegistry>, options: &vortex_array::serde::SerializeOptions) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_buffer::ByteBuffer>>
 
 impl vortex_array::ArrayRef
 

@@ -1,0 +1,25 @@
+[package]
+name = "vortex-wasm-plugin"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Bundled WASM array plugin protocol and runtime arrays for Vortex"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = "README.md"
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+prost = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-flatbuffers = { workspace = true }
+vortex-session = { workspace = true }
+
+[lints]
+workspace = true

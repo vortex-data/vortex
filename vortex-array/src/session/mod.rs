@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::registry::Registry;
@@ -92,16 +92,28 @@ pub trait ArraySessionExt: SessionExt {
         self.get::<ArraySession>()
     }
 
-    /// Serialize an array using a plugin from the registry.
-    fn array_serialize(&self, array: &ArrayRef) -> VortexResult<Option<Vec<u8>>> {
-        let Some(plugin) = self.arrays().registry.find(&array.encoding_id()) else {
-            vortex_bail!(
-                "Array {} is not registered for serializations",
-                array.encoding_id()
-            );
-        };
+    /// Serialize an array using a plugin from the overlay registry first, then the session registry.
+    fn array_serialize_with_overlay(
+        &self,
+        array: &ArrayRef,
+        overlay: Option<&ArrayRegistry>,
+    ) -> VortexResult<Option<Vec<u8>>> {
+        let plugin = overlay
+            .and_then(|registry| registry.find(&array.encoding_id()))
+            .or_else(|| self.arrays().registry.find(&array.encoding_id()))
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Array {} is not registered for serialization",
+                    array.encoding_id()
+                )
+            })?;
 
         plugin.serialize(array, &self.session())
+    }
+
+    /// Serialize an array using a plugin from the registry.
+    fn array_serialize(&self, array: &ArrayRef) -> VortexResult<Option<Vec<u8>>> {
+        self.array_serialize_with_overlay(array, None)
     }
 }
 

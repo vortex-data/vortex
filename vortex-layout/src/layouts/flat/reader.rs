@@ -15,6 +15,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
 use vortex_array::serde::SerializedArray;
+use vortex_array::session::ArrayRegistry;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -37,6 +38,7 @@ pub struct FlatReader {
     name: Arc<str>,
     segment_source: Arc<dyn SegmentSource>,
     session: VortexSession,
+    array_registry: Option<ArrayRegistry>,
 }
 
 impl FlatReader {
@@ -45,12 +47,14 @@ impl FlatReader {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: VortexSession,
+        array_registry: Option<ArrayRegistry>,
     ) -> Self {
         Self {
             layout,
             name,
             segment_source,
             session,
+            array_registry,
         }
     }
 
@@ -66,6 +70,7 @@ impl FlatReader {
 
         let ctx = self.layout.array_ctx().clone();
         let session = self.session.clone();
+        let array_registry = self.array_registry.clone();
         let dtype = self.layout.dtype().clone();
         let array_tree = self.layout.array_tree().cloned();
         async move {
@@ -78,7 +83,13 @@ impl FlatReader {
                 SerializedArray::try_from(segment)?
             };
             parts
-                .decode(&dtype, row_count, &ctx, &session)
+                .decode_with_array_registry(
+                    &dtype,
+                    row_count,
+                    &ctx,
+                    &session,
+                    array_registry.as_ref(),
+                )
                 .map_err(Arc::new)
         }
         .boxed()

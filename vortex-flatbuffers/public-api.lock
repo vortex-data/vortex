@@ -1598,6 +1598,8 @@ pub mod vortex_flatbuffers::footer
 
 pub enum vortex_flatbuffers::footer::ArraySpecOffset
 
+pub enum vortex_flatbuffers::footer::BundledWasmSpecOffset
+
 pub enum vortex_flatbuffers::footer::CompressionSpecOffset
 
 pub enum vortex_flatbuffers::footer::EncryptionSpecOffset
@@ -1669,6 +1671,80 @@ pub fn vortex_flatbuffers::footer::ArraySpecBuilder<'a, 'b, A>::add_id(&mut self
 pub fn vortex_flatbuffers::footer::ArraySpecBuilder<'a, 'b, A>::finish(self) -> flatbuffers::primitives::WIPOffset<vortex_flatbuffers::footer::ArraySpec<'a>>
 
 pub fn vortex_flatbuffers::footer::ArraySpecBuilder<'a, 'b, A>::new(_fbb: &'b mut flatbuffers::builder::FlatBufferBuilder<'a, A>) -> vortex_flatbuffers::footer::ArraySpecBuilder<'a, 'b, A>
+
+pub struct vortex_flatbuffers::footer::BundledWasmSpec<'a>
+
+pub vortex_flatbuffers::footer::BundledWasmSpec::_tab: flatbuffers::table::Table<'a>
+
+impl<'a> vortex_flatbuffers::footer::BundledWasmSpec<'a>
+
+pub const vortex_flatbuffers::footer::BundledWasmSpec<'a>::VT_ABI_VERSION: flatbuffers::primitives::VOffsetT
+
+pub const vortex_flatbuffers::footer::BundledWasmSpec<'a>::VT_ARRAY_SPEC_IDX: flatbuffers::primitives::VOffsetT
+
+pub const vortex_flatbuffers::footer::BundledWasmSpec<'a>::VT_SEGMENT_IDX: flatbuffers::primitives::VOffsetT
+
+pub fn vortex_flatbuffers::footer::BundledWasmSpec<'a>::abi_version(&self) -> u16
+
+pub fn vortex_flatbuffers::footer::BundledWasmSpec<'a>::array_spec_idx(&self) -> u16
+
+pub fn vortex_flatbuffers::footer::BundledWasmSpec<'a>::create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::builder::Allocator + 'bldr>(_fbb: &'mut_bldr mut flatbuffers::builder::FlatBufferBuilder<'bldr, A>, args: &'args vortex_flatbuffers::footer::BundledWasmSpecArgs) -> flatbuffers::primitives::WIPOffset<vortex_flatbuffers::footer::BundledWasmSpec<'bldr>>
+
+pub unsafe fn vortex_flatbuffers::footer::BundledWasmSpec<'a>::init_from_table(table: flatbuffers::table::Table<'a>) -> Self
+
+pub fn vortex_flatbuffers::footer::BundledWasmSpec<'a>::segment_idx(&self) -> u32
+
+impl core::fmt::Debug for vortex_flatbuffers::footer::BundledWasmSpec<'_>
+
+pub fn vortex_flatbuffers::footer::BundledWasmSpec<'_>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl flatbuffers::verifier::Verifiable for vortex_flatbuffers::footer::BundledWasmSpec<'_>
+
+pub fn vortex_flatbuffers::footer::BundledWasmSpec<'_>::run_verifier(v: &mut flatbuffers::verifier::Verifier<'_, '_>, pos: usize) -> core::result::Result<(), flatbuffers::verifier::InvalidFlatbuffer>
+
+impl<'a> core::clone::Clone for vortex_flatbuffers::footer::BundledWasmSpec<'a>
+
+pub fn vortex_flatbuffers::footer::BundledWasmSpec<'a>::clone(&self) -> vortex_flatbuffers::footer::BundledWasmSpec<'a>
+
+impl<'a> core::cmp::PartialEq for vortex_flatbuffers::footer::BundledWasmSpec<'a>
+
+pub fn vortex_flatbuffers::footer::BundledWasmSpec<'a>::eq(&self, other: &vortex_flatbuffers::footer::BundledWasmSpec<'a>) -> bool
+
+impl<'a> core::marker::Copy for vortex_flatbuffers::footer::BundledWasmSpec<'a>
+
+impl<'a> core::marker::StructuralPartialEq for vortex_flatbuffers::footer::BundledWasmSpec<'a>
+
+impl<'a> flatbuffers::follow::Follow<'a> for vortex_flatbuffers::footer::BundledWasmSpec<'a>
+
+pub type vortex_flatbuffers::footer::BundledWasmSpec<'a>::Inner = vortex_flatbuffers::footer::BundledWasmSpec<'a>
+
+pub unsafe fn vortex_flatbuffers::footer::BundledWasmSpec<'a>::follow(buf: &'a [u8], loc: usize) -> Self::Inner
+
+pub struct vortex_flatbuffers::footer::BundledWasmSpecArgs
+
+pub vortex_flatbuffers::footer::BundledWasmSpecArgs::abi_version: u16
+
+pub vortex_flatbuffers::footer::BundledWasmSpecArgs::array_spec_idx: u16
+
+pub vortex_flatbuffers::footer::BundledWasmSpecArgs::segment_idx: u32
+
+impl<'a> core::default::Default for vortex_flatbuffers::footer::BundledWasmSpecArgs
+
+pub fn vortex_flatbuffers::footer::BundledWasmSpecArgs::default() -> Self
+
+pub struct vortex_flatbuffers::footer::BundledWasmSpecBuilder<'a: 'b, 'b, A: flatbuffers::builder::Allocator + 'a>
+
+impl<'a: 'b, 'b, A: flatbuffers::builder::Allocator + 'a> vortex_flatbuffers::footer::BundledWasmSpecBuilder<'a, 'b, A>
+
+pub fn vortex_flatbuffers::footer::BundledWasmSpecBuilder<'a, 'b, A>::add_abi_version(&mut self, abi_version: u16)
+
+pub fn vortex_flatbuffers::footer::BundledWasmSpecBuilder<'a, 'b, A>::add_array_spec_idx(&mut self, array_spec_idx: u16)
+
+pub fn vortex_flatbuffers::footer::BundledWasmSpecBuilder<'a, 'b, A>::add_segment_idx(&mut self, segment_idx: u32)
+
+pub fn vortex_flatbuffers::footer::BundledWasmSpecBuilder<'a, 'b, A>::finish(self) -> flatbuffers::primitives::WIPOffset<vortex_flatbuffers::footer::BundledWasmSpec<'a>>
+
+pub fn vortex_flatbuffers::footer::BundledWasmSpecBuilder<'a, 'b, A>::new(_fbb: &'b mut flatbuffers::builder::FlatBufferBuilder<'a, A>) -> vortex_flatbuffers::footer::BundledWasmSpecBuilder<'a, 'b, A>
 
 #[repr(transparent)] pub struct vortex_flatbuffers::footer::CompressionScheme(pub u8)
 
@@ -1924,6 +2000,8 @@ impl<'a> vortex_flatbuffers::footer::Footer<'a>
 
 pub const vortex_flatbuffers::footer::Footer<'a>::VT_ARRAY_SPECS: flatbuffers::primitives::VOffsetT
 
+pub const vortex_flatbuffers::footer::Footer<'a>::VT_BUNDLED_WASM_SPECS: flatbuffers::primitives::VOffsetT
+
 pub const vortex_flatbuffers::footer::Footer<'a>::VT_COMPRESSION_SPECS: flatbuffers::primitives::VOffsetT
 
 pub const vortex_flatbuffers::footer::Footer<'a>::VT_ENCRYPTION_SPECS: flatbuffers::primitives::VOffsetT
@@ -1933,6 +2011,8 @@ pub const vortex_flatbuffers::footer::Footer<'a>::VT_LAYOUT_SPECS: flatbuffers::
 pub const vortex_flatbuffers::footer::Footer<'a>::VT_SEGMENT_SPECS: flatbuffers::primitives::VOffsetT
 
 pub fn vortex_flatbuffers::footer::Footer<'a>::array_specs(&self) -> core::option::Option<flatbuffers::vector::Vector<'a, flatbuffers::primitives::ForwardsUOffset<vortex_flatbuffers::footer::ArraySpec<'a>>>>
+
+pub fn vortex_flatbuffers::footer::Footer<'a>::bundled_wasm_specs(&self) -> core::option::Option<flatbuffers::vector::Vector<'a, flatbuffers::primitives::ForwardsUOffset<vortex_flatbuffers::footer::BundledWasmSpec<'a>>>>
 
 pub fn vortex_flatbuffers::footer::Footer<'a>::compression_specs(&self) -> core::option::Option<flatbuffers::vector::Vector<'a, flatbuffers::primitives::ForwardsUOffset<vortex_flatbuffers::footer::CompressionSpec<'a>>>>
 
@@ -1976,6 +2056,8 @@ pub struct vortex_flatbuffers::footer::FooterArgs<'a>
 
 pub vortex_flatbuffers::footer::FooterArgs::array_specs: core::option::Option<flatbuffers::primitives::WIPOffset<flatbuffers::vector::Vector<'a, flatbuffers::primitives::ForwardsUOffset<vortex_flatbuffers::footer::ArraySpec<'a>>>>>
 
+pub vortex_flatbuffers::footer::FooterArgs::bundled_wasm_specs: core::option::Option<flatbuffers::primitives::WIPOffset<flatbuffers::vector::Vector<'a, flatbuffers::primitives::ForwardsUOffset<vortex_flatbuffers::footer::BundledWasmSpec<'a>>>>>
+
 pub vortex_flatbuffers::footer::FooterArgs::compression_specs: core::option::Option<flatbuffers::primitives::WIPOffset<flatbuffers::vector::Vector<'a, flatbuffers::primitives::ForwardsUOffset<vortex_flatbuffers::footer::CompressionSpec<'a>>>>>
 
 pub vortex_flatbuffers::footer::FooterArgs::encryption_specs: core::option::Option<flatbuffers::primitives::WIPOffset<flatbuffers::vector::Vector<'a, flatbuffers::primitives::ForwardsUOffset<vortex_flatbuffers::footer::EncryptionSpec<'a>>>>>
@@ -1993,6 +2075,8 @@ pub struct vortex_flatbuffers::footer::FooterBuilder<'a: 'b, 'b, A: flatbuffers:
 impl<'a: 'b, 'b, A: flatbuffers::builder::Allocator + 'a> vortex_flatbuffers::footer::FooterBuilder<'a, 'b, A>
 
 pub fn vortex_flatbuffers::footer::FooterBuilder<'a, 'b, A>::add_array_specs(&mut self, array_specs: flatbuffers::primitives::WIPOffset<flatbuffers::vector::Vector<'b, flatbuffers::primitives::ForwardsUOffset<vortex_flatbuffers::footer::ArraySpec<'b>>>>)
+
+pub fn vortex_flatbuffers::footer::FooterBuilder<'a, 'b, A>::add_bundled_wasm_specs(&mut self, bundled_wasm_specs: flatbuffers::primitives::WIPOffset<flatbuffers::vector::Vector<'b, flatbuffers::primitives::ForwardsUOffset<vortex_flatbuffers::footer::BundledWasmSpec<'b>>>>)
 
 pub fn vortex_flatbuffers::footer::FooterBuilder<'a, 'b, A>::add_compression_specs(&mut self, compression_specs: flatbuffers::primitives::WIPOffset<flatbuffers::vector::Vector<'b, flatbuffers::primitives::ForwardsUOffset<vortex_flatbuffers::footer::CompressionSpec<'b>>>>)
 

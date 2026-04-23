@@ -33,6 +33,7 @@ use crate::array::new_foreign_array;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::TryFromBytes;
+use crate::session::ArrayRegistry;
 use crate::session::ArraySessionExt;
 use crate::stats::StatsSet;
 
@@ -61,6 +62,18 @@ impl ArrayRef {
         &self,
         ctx: &ArrayContext,
         session: &VortexSession,
+        options: &SerializeOptions,
+    ) -> VortexResult<Vec<ByteBuffer>> {
+        self.serialize_with_array_registry(ctx, session, None, options)
+    }
+
+    /// Serialize the array using a file-local array registry overlay before falling back to the
+    /// session registry.
+    pub fn serialize_with_array_registry(
+        &self,
+        ctx: &ArrayContext,
+        session: &VortexSession,
+        array_registry: Option<&ArrayRegistry>,
         options: &SerializeOptions,
     ) -> VortexResult<Vec<ByteBuffer>> {
         // Collect all array buffers
@@ -119,7 +132,7 @@ impl ArrayRef {
         // Set up the flatbuffer builder
         let mut fbb = FlatBufferBuilder::new();
 
-        let root = ArrayNodeFlatBuffer::try_new(ctx, session, self)?;
+        let root = ArrayNodeFlatBuffer::try_new(ctx, session, array_registry, self)?;
         let fb_root = root.try_write_flatbuffer(&mut fbb)?;
 
         let fb_buffers = fbb.create_vector(&fb_buffers);
@@ -160,6 +173,7 @@ impl ArrayRef {
 pub struct ArrayNodeFlatBuffer<'a> {
     ctx: &'a ArrayContext,
     session: &'a VortexSession,
+    array_registry: Option<&'a ArrayRegistry>,
     array: &'a ArrayRef,
     buffer_idx: u16,
 }
@@ -168,6 +182,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
     pub fn try_new(
         ctx: &'a ArrayContext,
         session: &'a VortexSession,
+        array_registry: Option<&'a ArrayRegistry>,
         array: &'a ArrayRef,
     ) -> VortexResult<Self> {
         let n_buffers_recursive = array.nbuffers_recursive();
@@ -180,6 +195,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         Ok(Self {
             ctx,
             session,
+            array_registry,
             array,
             buffer_idx: 0,
         })
@@ -200,12 +216,15 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
                 )
             })?;
 
-        let metadata_bytes = self.session.array_serialize(self.array)?.ok_or_else(|| {
-            vortex_err!(
-                "Array {} does not support serialization",
-                self.array.encoding_id()
-            )
-        })?;
+        let metadata_bytes = self
+            .session
+            .array_serialize_with_overlay(self.array, self.array_registry)?
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Array {} does not support serialization",
+                    self.array.encoding_id()
+                )
+            })?;
         let metadata = Some(fbb.create_vector(metadata_bytes.as_slice()));
 
         // Assign buffer indices for all child arrays.
@@ -222,6 +241,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
                 let msg = ArrayNodeFlatBuffer {
                     ctx: self.ctx,
                     session: self.session,
+                    array_registry: self.array_registry,
                     array: child,
                     buffer_idx: child_buffer_idx,
                 }
@@ -319,11 +339,26 @@ impl SerializedArray {
         ctx: &ReadContext,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
+        self.decode_with_array_registry(dtype, len, ctx, session, None)
+    }
+
+    /// Decode using a file-local array registry overlay before falling back to the session registry.
+    pub fn decode_with_array_registry(
+        &self,
+        dtype: &DType,
+        len: usize,
+        ctx: &ReadContext,
+        session: &VortexSession,
+        array_registry: Option<&ArrayRegistry>,
+    ) -> VortexResult<ArrayRef> {
         let encoding_idx = self.flatbuffer().encoding();
         let encoding_id = ctx
             .resolve(encoding_idx)
             .ok_or_else(|| vortex_err!("Unknown encoding index: {}", encoding_idx))?;
-        let Some(plugin) = session.arrays().registry().find(&encoding_id) else {
+        let Some(plugin) = array_registry
+            .and_then(|registry| registry.find(&encoding_id))
+            .or_else(|| session.arrays().registry().find(&encoding_id))
+        else {
             if session.allows_unknown() {
                 return self.decode_foreign(encoding_id, dtype, len, ctx);
             }
@@ -334,6 +369,7 @@ impl SerializedArray {
             ser: self,
             ctx,
             session,
+            array_registry,
         };
 
         let buffers = self.collect_buffers()?;
@@ -645,13 +681,18 @@ struct SerializedArrayChildren<'a> {
     ser: &'a SerializedArray,
     ctx: &'a ReadContext,
     session: &'a VortexSession,
+    array_registry: Option<&'a ArrayRegistry>,
 }
 
 impl ArrayChildren for SerializedArrayChildren<'_> {
     fn get(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
-        self.ser
-            .child(index)
-            .decode(dtype, len, self.ctx, self.session)
+        self.ser.child(index).decode_with_array_registry(
+            dtype,
+            len,
+            self.ctx,
+            self.session,
+            self.array_registry,
+        )
     }
 
     fn len(&self) -> usize {

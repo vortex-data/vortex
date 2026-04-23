@@ -9,6 +9,7 @@ use std::sync::Arc;
 use vortex_array::DeserializeMetadata;
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
+use vortex_array::session::ArrayRegistry;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
@@ -74,12 +75,14 @@ impl VTable for Chunked {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
+        array_registry: Option<ArrayRegistry>,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(ChunkedReader::new(
             layout.clone(),
             name,
             segment_source,
             session,
+            array_registry,
         )))
     }
 

@@ -34,6 +34,7 @@ use crate::FileStatistics;
 use crate::footer::Footer;
 use crate::pruning::extract_relevant_file_stats_as_struct_row;
 use crate::v2::FileStatsLayoutReader;
+use crate::wasm::FileArrayPluginOverlay;
 
 /// Represents a Vortex file, providing access to its metadata and content.
 ///
@@ -48,6 +49,8 @@ pub struct VortexFile {
     pub(crate) segment_source: Arc<dyn SegmentSource>,
     /// The Vortex session used to open this file
     pub(crate) session: VortexSession,
+    /// File-local array plugin overlay hydrated from bundled WASM modules.
+    pub(crate) array_registry: Option<FileArrayPluginOverlay>,
 }
 
 impl VortexFile {
@@ -87,7 +90,12 @@ impl VortexFile {
         self.footer
             .layout()
             // TODO(ngates): we may want to allow the user pass in a name here?
-            .new_reader("".into(), segment_source, &self.session)
+            .new_reader_with_array_registry(
+                "".into(),
+                segment_source,
+                &self.session,
+                self.array_registry.clone(),
+            )
     }
 
     /// Create a [`DataSource`](vortex_scan::DataSource) from this file for scanning.

@@ -20,6 +20,7 @@ use vortex_layout::segments::NoOpSegmentCache;
 use vortex_layout::segments::SegmentCache;
 use vortex_layout::segments::SegmentCacheSourceAdapter;
 use vortex_layout::segments::SegmentId;
+use vortex_layout::segments::SegmentSource;
 use vortex_layout::segments::SharedSegmentSource;
 use vortex_layout::session::LayoutSessionExt;
 use vortex_metrics::DefaultMetricsRegistry;
@@ -37,6 +38,7 @@ use crate::segments::BufferSegmentSource;
 use crate::segments::FileSegmentSource;
 use crate::segments::InitialReadSegmentCache;
 use crate::segments::RequestMetrics;
+use crate::wasm::load_file_array_plugin_overlay;
 
 const INITIAL_READ_SIZE: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE;
 
@@ -193,11 +195,19 @@ impl VortexOpenOptions {
             buffer,
             Arc::clone(footer.segment_map()),
         ));
+        let overlay_segment_source: Arc<dyn SegmentSource> =
+            Arc::clone(&segment_source) as Arc<dyn SegmentSource>;
+        let array_registry = block_on(load_file_array_plugin_overlay(
+            &footer,
+            overlay_segment_source,
+            &opts.session,
+        ))?;
 
         Ok(VortexFile {
             footer,
             segment_source,
             session: opts.session,
+            array_registry,
         })
     }
 
@@ -243,11 +253,16 @@ impl VortexOpenOptions {
             segment_cache,
             segment_source,
         ));
+        let overlay_segment_source: Arc<dyn SegmentSource> =
+            Arc::clone(&segment_source) as Arc<dyn SegmentSource>;
+        let array_registry =
+            load_file_array_plugin_overlay(&footer, overlay_segment_source, &self.session).await?;
 
         Ok(VortexFile {
             footer,
             segment_source,
             session: self.session.clone(),
+            array_registry,
         })
     }
 

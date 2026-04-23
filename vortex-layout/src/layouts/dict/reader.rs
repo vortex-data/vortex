@@ -22,6 +22,7 @@ use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
 use vortex_array::optimizer::ArrayOptimizer;
+use vortex_array::session::ArrayRegistry;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -57,17 +58,21 @@ impl DictReader {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: VortexSession,
+        array_registry: Option<ArrayRegistry>,
     ) -> VortexResult<Self> {
         let values_len = usize::try_from(layout.values.row_count())?;
-        let values = layout.values.new_reader(
+        let values = layout.values.new_reader_with_array_registry(
             format!("{name}.values").into(),
             Arc::clone(&segment_source),
             &session,
+            array_registry.clone(),
         )?;
-        let codes =
-            layout
-                .codes
-                .new_reader(format!("{name}.codes").into(), segment_source, &session)?;
+        let codes = layout.codes.new_reader_with_array_registry(
+            format!("{name}.codes").into(),
+            segment_source,
+            &session,
+            array_registry,
+        )?;
 
         Ok(Self {
             layout,

@@ -12,6 +12,7 @@ members = [
     "vortex-io",
     "vortex-proto",
     "vortex-array",
+    "vortex-wasm-plugin",
     "vortex-tensor",
     "vortex-compressor",
     "vortex-btrblocks",
@@ -256,6 +257,7 @@ tracing-subscriber = "0.3"
 url = "2.5.7"
 uuid = { version = "1.21", features = ["js"] }
 wasm-bindgen-futures = "0.4.54"
+wasmi = "2.0.0-beta.2"
 xshell = "0.2.6"
 zigzag = "0.1.0"
 zip = "8.0.0"
@@ -293,6 +295,7 @@ vortex-session = { version = "0.1.0", path = "./vortex-session", default-feature
 vortex-sparse = { version = "0.1.0", path = "./encodings/sparse", default-features = false }
 vortex-tensor = { version = "0.1.0", path = "./vortex-tensor", default-features = false }
 vortex-utils = { version = "0.1.0", path = "./vortex-utils", default-features = false }
+vortex-wasm-plugin = { version = "0.1.0", path = "./vortex-wasm-plugin", default-features = false }
 vortex-zigzag = { version = "0.1.0", path = "./encodings/zigzag", default-features = false }
 vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features = false }
 # END crates published by this project

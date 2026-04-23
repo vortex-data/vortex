@@ -15,6 +15,7 @@ use vortex_array::SerializeMetadata;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::TryFromBytes;
 use vortex_array::expr::stats::Stat;
+use vortex_array::session::ArrayRegistry;
 use vortex_array::stats::as_stat_bitset_bytes;
 use vortex_array::stats::stats_from_bitset_bytes;
 use vortex_error::VortexExpect;
@@ -100,12 +101,14 @@ impl VTable for Zoned {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
+        array_registry: Option<ArrayRegistry>,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(ZonedReader::try_new(
             layout.clone(),
             name,
             segment_source,
             session.clone(),
+            array_registry,
         )?))
     }
 

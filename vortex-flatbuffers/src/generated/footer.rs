@@ -787,8 +787,9 @@ impl<'a> Footer<'a> {
   pub const VT_ARRAY_SPECS: flatbuffers::VOffsetT = 4;
   pub const VT_LAYOUT_SPECS: flatbuffers::VOffsetT = 6;
   pub const VT_SEGMENT_SPECS: flatbuffers::VOffsetT = 8;
-  pub const VT_COMPRESSION_SPECS: flatbuffers::VOffsetT = 10;
-  pub const VT_ENCRYPTION_SPECS: flatbuffers::VOffsetT = 12;
+  pub const VT_BUNDLED_WASM_SPECS: flatbuffers::VOffsetT = 10;
+  pub const VT_COMPRESSION_SPECS: flatbuffers::VOffsetT = 12;
+  pub const VT_ENCRYPTION_SPECS: flatbuffers::VOffsetT = 14;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -802,6 +803,7 @@ impl<'a> Footer<'a> {
     let mut builder = FooterBuilder::new(_fbb);
     if let Some(x) = args.encryption_specs { builder.add_encryption_specs(x); }
     if let Some(x) = args.compression_specs { builder.add_compression_specs(x); }
+    if let Some(x) = args.bundled_wasm_specs { builder.add_bundled_wasm_specs(x); }
     if let Some(x) = args.segment_specs { builder.add_segment_specs(x); }
     if let Some(x) = args.layout_specs { builder.add_layout_specs(x); }
     if let Some(x) = args.array_specs { builder.add_array_specs(x); }
@@ -831,6 +833,13 @@ impl<'a> Footer<'a> {
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, SegmentSpec>>>(Footer::VT_SEGMENT_SPECS, None)}
   }
   #[inline]
+  pub fn bundled_wasm_specs(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<BundledWasmSpec<'a>>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<BundledWasmSpec>>>>(Footer::VT_BUNDLED_WASM_SPECS, None)}
+  }
+  #[inline]
   pub fn compression_specs(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<CompressionSpec<'a>>>> {
     // Safety:
     // Created from valid Table for this object
@@ -856,6 +865,7 @@ impl flatbuffers::Verifiable for Footer<'_> {
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<ArraySpec>>>>("array_specs", Self::VT_ARRAY_SPECS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<LayoutSpec>>>>("layout_specs", Self::VT_LAYOUT_SPECS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, SegmentSpec>>>("segment_specs", Self::VT_SEGMENT_SPECS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<BundledWasmSpec>>>>("bundled_wasm_specs", Self::VT_BUNDLED_WASM_SPECS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<CompressionSpec>>>>("compression_specs", Self::VT_COMPRESSION_SPECS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<EncryptionSpec>>>>("encryption_specs", Self::VT_ENCRYPTION_SPECS, false)?
      .finish();
@@ -866,6 +876,7 @@ pub struct FooterArgs<'a> {
     pub array_specs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArraySpec<'a>>>>>,
     pub layout_specs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<LayoutSpec<'a>>>>>,
     pub segment_specs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, SegmentSpec>>>,
+    pub bundled_wasm_specs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<BundledWasmSpec<'a>>>>>,
     pub compression_specs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<CompressionSpec<'a>>>>>,
     pub encryption_specs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<EncryptionSpec<'a>>>>>,
 }
@@ -876,6 +887,7 @@ impl<'a> Default for FooterArgs<'a> {
       array_specs: None,
       layout_specs: None,
       segment_specs: None,
+      bundled_wasm_specs: None,
       compression_specs: None,
       encryption_specs: None,
     }
@@ -898,6 +910,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> FooterBuilder<'a, 'b, A> {
   #[inline]
   pub fn add_segment_specs(&mut self, segment_specs: flatbuffers::WIPOffset<flatbuffers::Vector<'b , SegmentSpec>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Footer::VT_SEGMENT_SPECS, segment_specs);
+  }
+  #[inline]
+  pub fn add_bundled_wasm_specs(&mut self, bundled_wasm_specs: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<BundledWasmSpec<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Footer::VT_BUNDLED_WASM_SPECS, bundled_wasm_specs);
   }
   #[inline]
   pub fn add_compression_specs(&mut self, compression_specs: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<CompressionSpec<'b >>>>) {
@@ -928,6 +944,7 @@ impl core::fmt::Debug for Footer<'_> {
       ds.field("array_specs", &self.array_specs());
       ds.field("layout_specs", &self.layout_specs());
       ds.field("segment_specs", &self.segment_specs());
+      ds.field("bundled_wasm_specs", &self.bundled_wasm_specs());
       ds.field("compression_specs", &self.compression_specs());
       ds.field("encryption_specs", &self.encryption_specs());
       ds.finish()
@@ -1134,6 +1151,137 @@ impl core::fmt::Debug for LayoutSpec<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     let mut ds = f.debug_struct("LayoutSpec");
       ds.field("id", &self.id());
+      ds.finish()
+  }
+}
+pub enum BundledWasmSpecOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct BundledWasmSpec<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for BundledWasmSpec<'a> {
+  type Inner = BundledWasmSpec<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> BundledWasmSpec<'a> {
+  pub const VT_ARRAY_SPEC_IDX: flatbuffers::VOffsetT = 4;
+  pub const VT_SEGMENT_IDX: flatbuffers::VOffsetT = 6;
+  pub const VT_ABI_VERSION: flatbuffers::VOffsetT = 8;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    BundledWasmSpec { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args BundledWasmSpecArgs
+  ) -> flatbuffers::WIPOffset<BundledWasmSpec<'bldr>> {
+    let mut builder = BundledWasmSpecBuilder::new(_fbb);
+    builder.add_segment_idx(args.segment_idx);
+    builder.add_abi_version(args.abi_version);
+    builder.add_array_spec_idx(args.array_spec_idx);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn array_spec_idx(&self) -> u16 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u16>(BundledWasmSpec::VT_ARRAY_SPEC_IDX, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn segment_idx(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(BundledWasmSpec::VT_SEGMENT_IDX, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn abi_version(&self) -> u16 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u16>(BundledWasmSpec::VT_ABI_VERSION, Some(0)).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for BundledWasmSpec<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<u16>("array_spec_idx", Self::VT_ARRAY_SPEC_IDX, false)?
+     .visit_field::<u32>("segment_idx", Self::VT_SEGMENT_IDX, false)?
+     .visit_field::<u16>("abi_version", Self::VT_ABI_VERSION, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct BundledWasmSpecArgs {
+    pub array_spec_idx: u16,
+    pub segment_idx: u32,
+    pub abi_version: u16,
+}
+impl<'a> Default for BundledWasmSpecArgs {
+  #[inline]
+  fn default() -> Self {
+    BundledWasmSpecArgs {
+      array_spec_idx: 0,
+      segment_idx: 0,
+      abi_version: 0,
+    }
+  }
+}
+
+pub struct BundledWasmSpecBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> BundledWasmSpecBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_array_spec_idx(&mut self, array_spec_idx: u16) {
+    self.fbb_.push_slot::<u16>(BundledWasmSpec::VT_ARRAY_SPEC_IDX, array_spec_idx, 0);
+  }
+  #[inline]
+  pub fn add_segment_idx(&mut self, segment_idx: u32) {
+    self.fbb_.push_slot::<u32>(BundledWasmSpec::VT_SEGMENT_IDX, segment_idx, 0);
+  }
+  #[inline]
+  pub fn add_abi_version(&mut self, abi_version: u16) {
+    self.fbb_.push_slot::<u16>(BundledWasmSpec::VT_ABI_VERSION, abi_version, 0);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> BundledWasmSpecBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    BundledWasmSpecBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<BundledWasmSpec<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for BundledWasmSpec<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("BundledWasmSpec");
+      ds.field("array_spec_idx", &self.array_spec_idx());
+      ds.field("segment_idx", &self.segment_idx());
+      ds.field("abi_version", &self.abi_version());
       ds.finish()
   }
 }

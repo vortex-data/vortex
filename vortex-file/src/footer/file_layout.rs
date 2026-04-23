@@ -17,6 +17,7 @@ use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::footer as fb;
 use vortex_session::registry::ReadContext;
 
+use crate::footer::BundledWasmSpec;
 use crate::footer::segment::SegmentSpec;
 
 /// A writer for serializing a file layout to a FlatBuffer.
@@ -30,6 +31,8 @@ pub(crate) struct FooterFlatBufferWriter {
     pub(crate) layout_ctx: ReadContext,
     /// Specifications for all segments in the file.
     pub(crate) segment_specs: Arc<[SegmentSpec]>,
+    /// Optional bundled WASM modules keyed by array encoding.
+    pub(crate) bundled_wasm_specs: Arc<[BundledWasmSpec]>,
 }
 
 impl FlatBufferRoot for FooterFlatBufferWriter {}
@@ -43,6 +46,23 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
     ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
         let segment_specs =
             fbb.create_vector_from_iter(self.segment_specs.iter().map(fb::SegmentSpec::from));
+        let bundled_wasm_specs = (!self.bundled_wasm_specs.is_empty()).then(|| {
+            let specs = self
+                .bundled_wasm_specs
+                .iter()
+                .map(|spec| {
+                    fb::BundledWasmSpec::create(
+                        fbb,
+                        &fb::BundledWasmSpecArgs {
+                            array_spec_idx: spec.array_spec_idx,
+                            segment_idx: spec.segment_idx,
+                            abi_version: spec.abi_version,
+                        },
+                    )
+                })
+                .collect::<Vec<_>>();
+            fbb.create_vector(&specs)
+        });
 
         let array_specs = self
             .ctx
@@ -70,6 +90,7 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
             fbb,
             &fb::FooterArgs {
                 segment_specs: Some(segment_specs),
+                bundled_wasm_specs,
                 array_specs: Some(array_specs),
                 layout_specs: Some(layout_specs),
                 compression_specs: None,

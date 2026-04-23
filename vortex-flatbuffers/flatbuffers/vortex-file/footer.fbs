@@ -59,6 +59,8 @@ table Footer {
     layout_specs: [LayoutSpec];
     // Dictionary-encoded segment specs, up to u32::MAX.
     segment_specs: [SegmentSpec];
+    // Optional bundled WASM modules keyed by array encoding.
+    bundled_wasm_specs: [BundledWasmSpec];
     // Dictionary-encoded compress specs, up to u3::MAX (8).
     compression_specs: [CompressionSpec];
     // Dictionary-encoded encryption specs, up to u16::MAX.
@@ -79,6 +81,12 @@ table ArraySpec {
 /// at read-time.
 table LayoutSpec {
     id: string (required);
+}
+
+table BundledWasmSpec {
+    array_spec_idx: uint16;
+    segment_idx: uint32;
+    abi_version: uint16;
 }
 
 /// A `SegmentSpec` acts as the locator for a buffer within the file.
