@@ -24,12 +24,12 @@ use crate::dtype::PType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
 
-/// Compute the arithmetic avg of an array.
+/// Compute the arithmetic mean of an array.
 ///
-/// See [`Avg`] for details.
-pub fn avg(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
+/// See [`Mean`] for details.
+pub fn mean(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
     let mut acc = Accumulator::try_new(
-        Avg::combined(),
+        Mean::combined(),
         PairOptions(EmptyOptions, EmptyOptions),
         array.dtype().clone(),
     )?;
@@ -37,7 +37,7 @@ pub fn avg(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
     acc.finish()
 }
 
-/// Compute the arithmetic avg of an array.
+/// Compute the arithmetic mean of an array.
 ///
 /// Implemented as `Sum / Count` via [`BinaryCombined`].
 ///
@@ -46,20 +46,20 @@ pub fn avg(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
 ///   is a nullable `f64`.
 /// - Decimals are kept as decimals but not implemented currently
 #[derive(Clone, Debug)]
-pub struct Avg;
+pub struct Mean;
 
-impl Avg {
+impl Mean {
     pub fn combined() -> Combined<Self> {
-        Combined(Avg)
+        Combined(Mean)
     }
 }
 
-impl BinaryCombined for Avg {
+impl BinaryCombined for Mean {
     type Left = Sum;
     type Right = Count;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new("vortex.avg")
+        AggregateFnId::new("vortex.mean")
     }
 
     fn left(&self) -> Sum {
@@ -79,7 +79,7 @@ impl BinaryCombined for Avg {
     }
 
     fn return_dtype(&self, input_dtype: &DType) -> Option<DType> {
-        Some(avg_output_dtype(input_dtype)?.with_nullability(Nullability::Nullable))
+        Some(mean_output_dtype(input_dtype)?.with_nullability(Nullability::Nullable))
     }
 
     fn finalize(&self, sum: ArrayRef, count: ArrayRef) -> VortexResult<ArrayRef> {
@@ -94,7 +94,7 @@ impl BinaryCombined for Avg {
 
     fn finalize_scalar(&self, left_scalar: Scalar, right_scalar: Scalar) -> VortexResult<Scalar> {
         if let DType::Decimal(..) = left_scalar.dtype() {
-            vortex_bail!("avg::finalize_scalar not yet implemented for decimal inputs");
+            vortex_bail!("mean::finalize_scalar not yet implemented for decimal inputs");
         }
 
         let target = DType::Primitive(PType::F64, Nullability::Nullable);
@@ -111,7 +111,7 @@ impl BinaryCombined for Avg {
     }
 
     fn serialize(&self, _options: &CombinedOptions<Self>) -> VortexResult<Option<Vec<u8>>> {
-        unimplemented!("avg is not yet serializable");
+        unimplemented!("mean is not yet serializable");
     }
 
     fn coerce_args(
@@ -123,7 +123,7 @@ impl BinaryCombined for Avg {
         input_dtype: &DType,
     ) -> VortexResult<DType> {
         // Advisory hint for query planners: where possible, cast input to the
-        // type we're going to compute the avg in.
+        // type we're going to compute the mean in.
         Ok(coerced_input_dtype(input_dtype).unwrap_or_else(|| input_dtype.clone()))
     }
 }
@@ -138,19 +138,19 @@ fn coerced_input_dtype(input_dtype: &DType) -> Option<DType> {
         DType::Bool(_) => Some(input_dtype.clone()),
         DType::Primitive(_, n) => Some(DType::Primitive(PType::F64, *n)),
         DType::Decimal(..) => {
-            unimplemented!("Avg is not implemented for decimals yet")
+            unimplemented!("mean is not implemented for decimals yet")
         }
         _ => None,
     }
 }
 
-fn avg_output_dtype(input_dtype: &DType) -> Option<DType> {
+fn mean_output_dtype(input_dtype: &DType) -> Option<DType> {
     match input_dtype {
         DType::Bool(_) | DType::Primitive(..) => {
             Some(DType::Primitive(PType::F64, Nullability::Nullable))
         }
         DType::Decimal(..) => {
-            unimplemented!("Avg for decimals is not yet implemented");
+            unimplemented!("mean for decimals is not yet implemented");
         }
         _ => None,
     }
@@ -172,78 +172,78 @@ mod tests {
     use crate::validity::Validity;
 
     #[test]
-    fn avg_all_valid() -> VortexResult<()> {
+    fn mean_all_valid() -> VortexResult<()> {
         let array = PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0, 4.0, 5.0], Validity::NonNullable)
             .into_array();
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let result = avg(&array, &mut ctx)?;
+        let result = mean(&array, &mut ctx)?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(3.0));
         Ok(())
     }
 
     #[test]
-    fn avg_with_nulls() -> VortexResult<()> {
+    fn mean_with_nulls() -> VortexResult<()> {
         let array = PrimitiveArray::from_option_iter([Some(2.0f64), None, Some(4.0)]).into_array();
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let result = avg(&array, &mut ctx)?;
+        let result = mean(&array, &mut ctx)?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(3.0));
         Ok(())
     }
 
     #[test]
-    fn avg_integers() -> VortexResult<()> {
+    fn mean_integers() -> VortexResult<()> {
         let array = PrimitiveArray::new(buffer![10i32, 20, 30], Validity::NonNullable).into_array();
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let result = avg(&array, &mut ctx)?;
+        let result = mean(&array, &mut ctx)?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(20.0));
         Ok(())
     }
 
     #[test]
-    fn avg_bool() -> VortexResult<()> {
+    fn mean_bool() -> VortexResult<()> {
         let array: BoolArray = [true, false, true, true].into_iter().collect();
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let result = avg(&array.into_array(), &mut ctx)?;
+        let result = mean(&array.into_array(), &mut ctx)?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(0.75));
         Ok(())
     }
 
     #[test]
-    fn avg_constant_non_null() -> VortexResult<()> {
+    fn mean_constant_non_null() -> VortexResult<()> {
         let array = ConstantArray::new(5.0f64, 4);
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let result = avg(&array.into_array(), &mut ctx)?;
+        let result = mean(&array.into_array(), &mut ctx)?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(5.0));
         Ok(())
     }
 
     #[test]
-    fn avg_chunked() -> VortexResult<()> {
+    fn mean_chunked() -> VortexResult<()> {
         let chunk1 = PrimitiveArray::from_option_iter([Some(1.0f64), None, Some(3.0)]);
         let chunk2 = PrimitiveArray::from_option_iter([Some(5.0f64), None]);
         let dtype = chunk1.dtype().clone();
         let chunked = ChunkedArray::try_new(vec![chunk1.into_array(), chunk2.into_array()], dtype)?;
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let result = avg(&chunked.into_array(), &mut ctx)?;
+        let result = mean(&chunked.into_array(), &mut ctx)?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(3.0));
         Ok(())
     }
 
     #[test]
-    fn avg_all_null_returns_null() -> VortexResult<()> {
+    fn mean_all_null_returns_null() -> VortexResult<()> {
         let array = PrimitiveArray::from_option_iter::<f64, _>([None, None, None]).into_array();
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let result = avg(&array, &mut ctx)?;
+        let result = mean(&array, &mut ctx)?;
         assert_eq!(result.as_primitive().as_::<f64>(), None);
         Ok(())
     }
 
     #[test]
-    fn avg_multi_batch() -> VortexResult<()> {
+    fn mean_multi_batch() -> VortexResult<()> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(
-            Avg::combined(),
+            Mean::combined(),
             PairOptions(EmptyOptions, EmptyOptions),
             dtype,
         )?;
