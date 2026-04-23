@@ -44,17 +44,13 @@ pub struct vortex_session::registry::FnRegistry(_)
 
 impl vortex_session::registry::FnRegistry
 
-pub fn vortex_session::registry::FnRegistry::contains(&self, outer: vortex_session::registry::Id, inner: vortex_session::registry::Id) -> bool
+pub fn vortex_session::registry::FnRegistry::contains(&self, id: u64) -> bool
 
 pub fn vortex_session::registry::FnRegistry::empty() -> Self
 
-pub fn vortex_session::registry::FnRegistry::find<F: core::any::Any + core::marker::Send + core::marker::Sync>(&self, outer: vortex_session::registry::Id, inner: vortex_session::registry::Id) -> core::option::Option<alloc::sync::Arc<F>>
+pub fn vortex_session::registry::FnRegistry::find<F: core::any::Any + core::marker::Send + core::marker::Sync>(&self, id: u64) -> core::option::Option<alloc::sync::Arc<F>>
 
-pub fn vortex_session::registry::FnRegistry::register<F: core::any::Any + core::marker::Send + core::marker::Sync>(&self, outer: vortex_session::registry::Id, inner: vortex_session::registry::Id, f: F)
-
-impl core::clone::Clone for vortex_session::registry::FnRegistry
-
-pub fn vortex_session::registry::FnRegistry::clone(&self) -> vortex_session::registry::FnRegistry
+pub fn vortex_session::registry::FnRegistry::register<F: core::any::Any + core::marker::Send + core::marker::Sync>(&self, id: u64, f: F)
 
 impl core::default::Default for vortex_session::registry::FnRegistry
 

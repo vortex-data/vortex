@@ -45,6 +45,7 @@ pub type ReduceParentFn =
 /// different kernel kinds (parent-reduce, reduce, execute, etc.) in one shared [`FnRegistry`]
 /// without collisions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[expect(unused)]
 enum FnKind {
     Reduce,
     ReduceParent,
