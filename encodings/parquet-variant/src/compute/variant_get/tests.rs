@@ -495,21 +495,17 @@ fn variant_get_on_canonical_variant_preserves_parquet_core_and_shredded_child() 
         vec![Arc::new(Field::new("typed_value", DataType::Int32, false))].into(),
         vec![Arc::new(Int32Array::from(vec![7]))],
         None,
-    )
-    .unwrap();
-    let typed_value: ArrowArrayRef = Arc::new(
-        StructArray::try_new(
-            vec![Arc::new(Field::new(
-                "a",
-                shredded_a.data_type().clone(),
-                false,
-            ))]
-            .into(),
-            vec![Arc::new(shredded_a)],
-            None,
-        )
-        .unwrap(),
-    );
+    )?;
+    let typed_value: ArrowArrayRef = Arc::new(StructArray::try_new(
+        vec![Arc::new(Field::new(
+            "a",
+            shredded_a.data_type().clone(),
+            false,
+        ))]
+        .into(),
+        vec![Arc::new(shredded_a)],
+        None,
+    )?);
 
     let struct_array = StructArray::try_new(
         vec![
@@ -528,18 +524,15 @@ fn variant_get_on_canonical_variant_preserves_parquet_core_and_shredded_child() 
             typed_value,
         ],
         None,
-    )
-    .unwrap();
-    let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
+    )?;
+    let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
     let expected_input: ArrowArrayRef = Arc::new(arrow_variant.clone().into_inner());
     let expected = parquet_variant_compute::variant_get(
         &expected_input,
-        GetOptions::new_with_path(VariantPath::try_from("a").unwrap()),
-    )
-    .unwrap();
+        GetOptions::new_with_path(VariantPath::try_from("a")?),
+    )?;
     let expected =
-        ArrowVariantArray::try_new(expected.as_any().downcast_ref::<StructArray>().unwrap())
-            .unwrap();
+        ArrowVariantArray::try_new(expected.as_any().downcast_ref::<StructArray>().unwrap())?;
 
     let canonical_variant = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
     let result = apply_variant_get(&canonical_variant, "a")?;
@@ -562,7 +555,7 @@ fn variant_get_missing_path_returns_nullable_nulls() -> VortexResult<()> {
         Some(r#"{"a": 1}"#),
         Some(r#"{"b": 2}"#),
     ]));
-    let arrow_variant = json_to_variant(&arrow_strings).unwrap();
+    let arrow_variant = json_to_variant(&arrow_strings)?;
     let canonical_variant = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
     let result = apply_variant_get(&canonical_variant, "missing")?;
     let mut ctx = LEGACY_SESSION.create_execution_ctx();

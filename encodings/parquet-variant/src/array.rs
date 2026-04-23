@@ -350,7 +350,6 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_error::vortex_err;
 
     use crate::ParquetVariant;
     use crate::ParquetVariantData;
@@ -359,13 +358,11 @@ mod tests {
     fn assert_arrow_variant_storage_roundtrip(struct_array: StructArray) -> VortexResult<()> {
         let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
         let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
-        let variant_view = vortex_arr
-            .as_opt::<Variant>()
-            .ok_or_else(|| vortex_err!("expected variant array"))?;
+        let variant_view = vortex_arr.as_opt::<Variant>().unwrap();
         let inner = variant_view
             .core_storage()
             .as_opt::<ParquetVariant>()
-            .ok_or_else(|| vortex_err!("expected variant array"))?;
+            .unwrap();
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let roundtripped = inner.to_arrow(&mut ctx)?;
@@ -452,13 +449,13 @@ mod tests {
             &DType::Variant(Nullability::NonNullable)
         );
 
-        let variant_arr = vortex_arr
-            .as_opt::<Variant>()
-            .ok_or_else(|| vortex_err!("expected variant array"))?;
+        let variant_arr = vortex_arr.as_opt::<Variant>().unwrap();
+
         let inner = variant_arr
             .core_storage()
             .as_opt::<ParquetVariant>()
-            .ok_or_else(|| vortex_err!("expected variant array"))?;
+            .unwrap();
+
         assert!(inner.typed_value_array().is_some());
         assert!(variant_arr.shredded().is_some());
 
@@ -482,10 +479,9 @@ mod tests {
         ]
         .into();
         let struct_array =
-            StructArray::try_new(struct_fields, vec![Arc::new(metadata), typed_value], None)
-                .unwrap();
+            StructArray::try_new(struct_fields, vec![Arc::new(metadata), typed_value], None)?;
 
-        let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
+        let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
         let inner = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
         let outer = VariantArray::try_new_derived(inner.clone(), "typed_value")?.into_array();
         let outer = outer.as_opt::<Variant>().unwrap();
@@ -514,10 +510,9 @@ mod tests {
         ]
         .into();
         let struct_array =
-            StructArray::try_new(struct_fields, vec![Arc::new(metadata), typed_value], None)
-                .unwrap();
+            StructArray::try_new(struct_fields, vec![Arc::new(metadata), typed_value], None)?;
 
-        let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
+        let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
         let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();

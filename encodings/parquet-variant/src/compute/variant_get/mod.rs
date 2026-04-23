@@ -48,17 +48,21 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetExecuteParent {
         _child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        // For now, we delegate to the Arrow Parquet Variant implementation rather than
+        // re-implementing path traversal and shredded/unshredded merge semantics here.
         let arrow_variant = array.to_arrow(ctx)?;
+
         let path = parent
             .options
             .path()
             .iter()
-            .cloned()
             .map(|element| match element {
                 VortexVariantPathElement::Field(name) => ArrowVariantPathElement::Field {
                     name: name.to_string().into(),
                 },
-                VortexVariantPathElement::Index(index) => ArrowVariantPathElement::Index { index },
+                VortexVariantPathElement::Index(index) => {
+                    ArrowVariantPathElement::Index { index: *index }
+                }
             })
             .collect::<Vec<_>>();
         let inner: Arc<dyn ArrowArray> = Arc::new(arrow_variant.into_inner());
@@ -70,8 +74,7 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetExecuteParent {
                 as_dtype.is_nullable(),
             ))));
         }
-        // Delegate to the Arrow Parquet Variant implementation rather than
-        // re-implementing path traversal and shredded/unshredded merge semantics here.
+
         let arrow_result = parquet_variant_compute::variant_get(&inner, arrow_options)
             .map_err(|e| vortex_err!("variant_get failed: {e}"))?;
 

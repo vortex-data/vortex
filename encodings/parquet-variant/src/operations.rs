@@ -710,13 +710,11 @@ mod tests {
 
         let arrow_a = parquet_variant_compute::variant_get(
             &arrow_input,
-            GetOptions::new_with_path(VariantPath::try_from("a").unwrap()),
-        )
-        .unwrap();
+            GetOptions::new_with_path(VariantPath::try_from("a")?),
+        )?;
         let arrow_a =
-            ArrowVariantArray::try_new(arrow_a.as_any().downcast_ref::<StructArray>().unwrap())
-                .unwrap();
-        let expected_a = parquet_variant_to_scalar(arrow_a.try_value(0).unwrap())?;
+            ArrowVariantArray::try_new(arrow_a.as_any().downcast_ref::<StructArray>().unwrap())?;
+        let expected_a = parquet_variant_to_scalar(arrow_a.try_value(0)?)?;
 
         assert_eq!(
             object
@@ -732,13 +730,11 @@ mod tests {
 
         let arrow_b = parquet_variant_compute::variant_get(
             &arrow_input,
-            GetOptions::new_with_path(VariantPath::try_from("b").unwrap()),
-        )
-        .unwrap();
+            GetOptions::new_with_path(VariantPath::try_from("b")?),
+        )?;
         let arrow_b =
-            ArrowVariantArray::try_new(arrow_b.as_any().downcast_ref::<StructArray>().unwrap())
-                .unwrap();
-        let expected_b = parquet_variant_to_scalar(arrow_b.try_value(0).unwrap())?;
+            ArrowVariantArray::try_new(arrow_b.as_any().downcast_ref::<StructArray>().unwrap())?;
+        let expected_b = parquet_variant_to_scalar(arrow_b.try_value(0)?)?;
 
         assert_eq!(
             object
