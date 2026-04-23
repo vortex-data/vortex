@@ -12,12 +12,9 @@ DUCKDB_INCLUDES_BEGIN
 #include <duckdb/main/client_context.hpp>
 DUCKDB_INCLUDES_END
 
-#include <memory>
-#include <string>
 #include <utility>
 
 using namespace duckdb;
-using vortex::HandleException;
 using vortex::SetError;
 
 extern "C" duckdb_vx_file_handle

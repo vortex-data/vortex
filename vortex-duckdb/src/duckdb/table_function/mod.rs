@@ -5,7 +5,6 @@ use std::ffi::CStr;
 use std::ffi::CString;
 use std::ffi::c_void;
 use std::fmt::Debug;
-use std::ptr;
 
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -65,33 +64,9 @@ pub trait TableFunction: Sized + Debug {
     type GlobalState: Send + Sync;
     type LocalState;
 
-    /// Whether the table function supports projection pushdown.
-    /// If not supported a projection will be added that filters out unused columns.
-    const PROJECTION_PUSHDOWN: bool = false;
-
-    /// Whether the table function supports filter pushdown.
-    /// If not supported a filter will be added that applies the table filter directly.
-    const FILTER_PUSHDOWN: bool = false;
-
-    /// Whether the table function can immediately prune out filter columns that are unused
-    /// in the remainder of the query plan.
-    /// e.g. "SELECT i FROM tbl WHERE j = 42;"
-    ///   - j does not need to leave the table function at all.
-    const FILTER_PRUNE: bool = false;
-
-    /// Maximum number of threads the table function can use.
-    /// If not specified, DuckDB will use its default (GlobalTableFunctionState::MAX_THREADS).
-    const MAX_THREADS: u64 = u64::MAX;
-
     /// Returns the parameters of the table function.
     fn parameters() -> Vec<LogicalType> {
         // By default, we don't have any parameters.
-        vec![]
-    }
-
-    /// Returns the named parameters of the table function, if any.
-    fn named_parameters() -> Vec<(CString, LogicalType)> {
-        // By default, we don't have any named parameters.
         vec![]
     }
 
@@ -103,6 +78,8 @@ pub trait TableFunction: Sized + Debug {
         result: &mut BindResultRef,
     ) -> VortexResult<Self::BindData>;
 
+    /// Report column statistics for a file or collections of files e.g.
+    /// registered as a VIEW.
     fn statistics(
         client_context: &ClientContextRef,
         bind_data: &Self::BindData,
@@ -167,8 +144,6 @@ pub trait TableFunction: Sized + Debug {
 
     /// Returns a vector of key-value pairs for EXPLAIN output
     fn to_string(bind_data: &Self::BindData, map: &mut DuckdbStringMapRef);
-
-    // TODO(ngates): there are many more callbacks that can be configured.
 }
 
 #[derive(Debug)]
@@ -190,19 +165,10 @@ impl DatabaseRef {
             .map(|logical_type| logical_type.as_ptr())
             .collect::<Vec<_>>();
 
-        let param_names = T::named_parameters();
-        let (param_names_ptrs, param_types_ptr) = param_names
-            .into_iter()
-            .map(|(name, logical_type)| (name.as_ptr(), logical_type.as_ptr()))
-            .unzip::<_, _, Vec<_>, Vec<_>>();
-
         let vtab = cpp::duckdb_vx_tfunc_vtab_t {
             name: name.as_ptr(),
             parameters: parameter_ptrs.as_ptr(),
             parameter_count: parameters.len() as _,
-            named_parameter_names: param_names_ptrs.as_ptr(),
-            named_parameter_types: param_types_ptr.as_ptr(),
-            named_parameter_count: param_names_ptrs.len() as _,
             bind: Some(bind_callback::<T>),
             bind_data_clone: Some(bind_data_clone_callback::<T>),
             init_global: Some(init_global_callback::<T>),
@@ -211,16 +177,9 @@ impl DatabaseRef {
             statistics: Some(statistics::<T>),
             cardinality: Some(cardinality_callback::<T>),
             pushdown_complex_filter: Some(pushdown_complex_filter_callback::<T>),
-            pushdown_expression: ptr::null_mut::<c_void>(),
             to_string: Some(to_string_callback::<T>),
             table_scan_progress: Some(table_scan_progress_callback::<T>),
             get_partition_data: Some(get_partition_data_callback::<T>),
-            projection_pushdown: T::PROJECTION_PUSHDOWN,
-            filter_pushdown: T::FILTER_PUSHDOWN,
-            filter_prune: T::FILTER_PRUNE,
-            sampling_pushdown: false,
-            late_materialization: false,
-            max_threads: T::MAX_THREADS,
         };
 
         duckdb_try!(

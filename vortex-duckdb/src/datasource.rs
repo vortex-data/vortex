@@ -7,7 +7,6 @@
 //! to get a blanket [`TableFunction`] implementation covering init, scan, progress, filter
 //! pushdown, cardinality, and partitioning.
 
-use std::ffi::CString;
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
@@ -84,7 +83,7 @@ use crate::exporter::ConversionCache;
 /// first column. As we don't want to fill the output chunk and we can leave
 /// it uninitialized in this case, we define COLUMN_IDENTIFIER_EMPTY as a
 /// virtual column.
-/// See vortex-duckdb/cpp/table_function.cpp
+/// See virtual_columns in vortex-duckdb/cpp/table_function.cpp
 static EMPTY_COLUMN_IDX: u64 = 18446744073709551614;
 
 /// A trait for table functions that resolve to a [`DataSourceRef`].
@@ -93,15 +92,8 @@ static EMPTY_COLUMN_IDX: u64 = 18446744073709551614;
 /// data source. All other [`TableFunction`] methods (init, scan, progress, filter pushdown,
 /// cardinality, partitioning) are provided by a blanket implementation.
 pub(crate) trait DataSourceTableFunction: Sized + Debug {
-    /// Returns the positional parameters of the table function.
-    fn parameters() -> Vec<LogicalType> {
-        vec![]
-    }
-
-    /// Returns the named parameters of the table function, if any.
-    fn named_parameters() -> Vec<(CString, LogicalType)> {
-        vec![]
-    }
+    /// Positional parameters
+    fn parameters() -> Vec<LogicalType>;
 
     /// Bind the table function and return a [`DataSourceRef`].
     fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<MultiLayoutDataSource>;
@@ -260,16 +252,8 @@ impl<T: DataSourceTableFunction> TableFunction for T {
     type GlobalState = DataSourceGlobal;
     type LocalState = DataSourceLocal;
 
-    const PROJECTION_PUSHDOWN: bool = true;
-    const FILTER_PUSHDOWN: bool = true;
-    const FILTER_PRUNE: bool = true;
-
     fn parameters() -> Vec<LogicalType> {
         T::parameters()
-    }
-
-    fn named_parameters() -> Vec<(CString, LogicalType)> {
-        T::named_parameters()
     }
 
     fn bind(
@@ -507,7 +491,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         // Otherwise we'd have to open all files eagerly which is a performance
         // regression. Duckdb's Parquet reader only gets metadata for multiple
         // files with a UNION BY NAME and we don't support it (yet)
-        // https://github.com/duckdb/duckdb/blob/471de9f0e0e157ae672e56710e8c43b132a5ddc4/src/include/duckdb/common/multi_file/multi_file_function.hpp#L691
+        // See duckdb/common/multi_file/multi_file_function.hpp#L691
         if children.len() != 1 {
             return None;
         }
@@ -581,7 +565,7 @@ fn extract_projection_expr(
     column_fields: &[DuckdbField],
 ) -> Expression {
     // Projection ids may be empty, in which case you need to use projection_ids
-    // https://github.com/duckdb/duckdb/blob/6e211da91657a94803c465fd0ce585f4c6754b54/src/planner/operator/logical_get.cpp#L168
+    // See duckdb/src/planner/operator/logical_get.cpp#L168
     let (projection_ids, has_projection_ids) = match projection_ids {
         Some(ids) => (ids, true),
         None => (column_ids, false),
