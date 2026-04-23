@@ -144,58 +144,67 @@ that carry auxiliary fields in `data_descriptor` - but it has **no direct
 ratios path are handled explicitly (structured struct and DB view
 respectively).
 
-### vector-search-bench gets promoted
+### vector-search-bench: deferred to post-launch
 
-`benchmarks/vector-search-bench/` currently has its own `display.rs` with
-a bespoke tabled table renderer and **does not emit `gh-json` at all**. As
-part of this work we add v3-shape emission to it too, and wire it into
-CI. Records land as:
+Originally this doc proposed adding v3-shape emission to
+`benchmarks/vector-search-bench/` (which has its own `display.rs` and
+doesn't emit `gh-json` today) in the same pass as the rest of the
+emitter work. **Decision: deferred.** Getting vector-search results
+into v3 is a post-launch follow-up, not a launch requirement.
 
-```jsonc
-{
-  "metric_kind":     "vector_search_time",   // or "vector_search_count",
-  "dataset":         "cohere-large-10m",     // "vector_search_bytes"
-  "scale_factor":    null,
-  "dataset_variant": null,
-  "storage":         "nvme",
-  "engine":          "vortex",
-  "format":          "vortex-turboquant",
-  "value_ns":        485000000,
-  "data_descriptor": {
-    "layout":         "partitioned",
-    "threshold":      0.85,
-    "n_dimensions":   1024,
-    "n_rows":         10000000,
-    "iterations":     5,
-    "query_seed":     42
-  },
-  ...
-}
+The hooks we keep now so we don't paint ourselves into a corner:
+
+- `CustomUnitMeasurement` is retained (no direct `to_v3_json()` in
+  step 1, but not deleted) as the forward-compat surface for
+  future-vector-search-style free-form metrics.
+- `data_descriptor` on `ClassifiedMeasurement` is designed for
+  auxiliary fields like `{layout, threshold, n_dimensions, n_rows,
+  iterations, query_seed}` that vector search will need.
+- `MetricKind::VectorSearchTime / VectorSearchCount / VectorSearchBytes`
+  exist in the enum as reserved variants; the server accepts them
+  but no benchmark emits them at launch.
+
+What we do **not** do in this project: add `--format=gh-json-v3` to
+`vector-search-bench`, add `.github/workflows/vector-bench.yml`, or
+build `BenchmarkGroupFilter::VectorSearch` routing in the server.
+Those all wait until vector-search-bench is ready to graduate.
+
+### CLI surface
+
+Existing `-d <format> -o <path>` is replaced by **one output flag per
+format**, each taking its own path. Multiple output flags may be
+supplied in the same invocation; the benchmark runs once and writes
+every requested output from the already-collected measurements.
+
+```text
+--table                   emit a human-readable table to stdout (default if no other output given)
+--gh-json     <path>      emit legacy v2-shape JSONL to <path>    (retired post-cutover)
+--gh-json-v3  <path>      emit v3-shape JSONL to <path>
 ```
 
-Multiple records per run (one per metric: wall time mean, wall time
-median, matches, rows scanned, bytes scanned) all share the same
-`data_descriptor` so they can be grouped in the UI if desired. This is
-the "extensibility proof" for `data_descriptor`.
+Designed in a vacuum - backwards compatibility with `-d`/`-o` is
+deliberately not preserved. `-d` was always a mode selector pretending
+to be a flag; swapping to format-named flags lets us emit several
+formats from one run without overloading `clap` or inventing a
+`format=path` micro-syntax.
+
+All existing callers that pass `-d gh-json -o results.json` get updated
+in the same pass. Post-cutover, `--gh-json` is removed and the help
+text collapses to just `--table` and `--gh-json-v3`.
 
 ### CI wiring (dual-write window)
 
-For each existing bench workflow (`bench.yml`, `sql-benchmarks.yml`) and
-each benchmark binary invocation, emit **both** formats from a **single
-benchmark run** during the transition. The expensive part is running the
-benchmark loop; serializing the already-collected measurements twice is
-free.
-
-The CLI surface: `-d` becomes repeatable, with a matching per-format
-output path. Concrete shape TBD during emitter implementation, but the
-pattern looks like:
+For each existing bench workflow (`bench.yml`, `sql-benchmarks.yml`),
+emit **both** formats from a **single benchmark run** during the
+transition. The expensive part is running the benchmark loop;
+serializing the already-collected measurements twice is free.
 
 ```bash
 # Single benchmark run; emits v2 legacy JSONL and v3 JSONL side by side.
 bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} \
     --formats ${{ matrix.benchmark.formats }} \
-    -d gh-json    -o results.json \
-    -d gh-json-v3 -o results.v3.json
+    --gh-json    results.json \
+    --gh-json-v3 results.v3.json
 
 # v2 upload path, stays alive through cutover.
 bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
@@ -210,8 +219,8 @@ python3 scripts/post-ingest.py \
     --spool   "s3://vortex-ci-benchmark-results/outbox/"
 ```
 
-Post-cutover, `-d gh-json` is removed and this collapses back to a single
-`-d gh-json-v3 -o results.v3.json`.
+Post-cutover, `--gh-json` is removed and this collapses to a single
+`--gh-json-v3 results.v3.json`.
 
 ## What stays, what goes
 
@@ -281,28 +290,34 @@ The classifier module **never lands on the main branch** of the repo.
 
 ## Rollout plan
 
-1. **Add `-d gh-json-v3` emission** to every measurement type in
-   `vortex-bench`. Leave `-d gh-json` alone. Tests compare old vs. new
-   output to confirm the new path carries the same data, just structured.
-2. **Add v3 emission to `vector-search-bench`**. Wire the benchmark into
-   `.github/workflows/vector-bench.yml` (new workflow) so it runs in CI
-   alongside the rest.
-3. **Stand up the preview v3 server + migrator** (work described in
+1. **Add `--gh-json-v3` emission** to every measurement type in
+   `vortex-bench` (and convert the CLI from `-d`/`-o` to format-named
+   output flags in the same pass). Leave `--gh-json` alive. Tests
+   compare old vs. new output to confirm the new path carries the same
+   data, just structured.
+2. **Stand up the preview v3 server + migrator** (work described in
    [`06-migration.md`](./06-migration.md)).
-4. **Dual-write CI**: add the new POST step to `bench.yml` +
-   `sql-benchmarks.yml`. Both paths alive simultaneously.
-5. **Compare**: preview site and live v2 site should show equivalent
+3. **Dual-write CI**: update `bench.yml` + `sql-benchmarks.yml` to the
+   single-run two-flag pattern, add the POST step. Both paths alive
+   simultaneously.
+4. **Compare**: preview site and live v2 site should show equivalent
    numbers for every chart.
-6. **Cutover**: flip DNS, remove `-d gh-json`, remove `cat-s3.sh`,
+5. **Cutover**: flip DNS, remove `--gh-json`, remove `cat-s3.sh`,
    remove `commit-json.sh`, delete the migrator binary.
+
+Vector-search-bench v3 emission is **not** part of this rollout. It's
+a post-launch follow-up (see "vector-search-bench: deferred to
+post-launch" above).
 
 ## Estimated scope
 
 - Emitter extensions in `vortex-bench`: ~2-3 days. Mechanical; write a
-  `to_v3_json()` per measurement type + a couple of field-plumbing fixes
-  for `CustomUnitMeasurement`.
-- vector-search-bench v3 emission + CI wiring: ~2 days.
+  `to_v3_json()` per measurement type, add a `CompressionSizeMeasurement`
+  for the compress-bench bytes path, extend `TimingMeasurement` with
+  structured random-access dimensions, and convert every caller to the
+  new `--gh-json` / `--gh-json-v3` flag names.
 - CI dual-write yaml changes: ~0.5 days.
 
-Total: about a week of focused work. Dual-write window can run for as
-long as we want (weeks is fine); cutover is a yaml deletion + DNS flip.
+Total: roughly half a week for step 1. Dual-write window can run for
+as long as we want (weeks is fine); cutover is a yaml deletion + DNS
+flip.

@@ -116,6 +116,27 @@ Not real. The `Storage` enum is closed to `{Nvme, S3}`. A stale doc
 comment in the code mentioning `gcs` should be removed when
 `TimingMeasurement::storage` migrates to the enum.
 
+### ✓ vector-search-bench v3 emission
+
+Deferred to post-launch. v3 ships without wiring
+`benchmarks/vector-search-bench/` through `/api/ingest`. Forward-compat
+hooks are preserved so no schema-version bump is needed when it
+graduates: `MetricKind::VectorSearch*` variants are reserved in the
+enum, `data_descriptor` is designed for free-form fields, and
+`CustomUnitMeasurement` stays in-tree. See
+[`10-emitter-changes.md`](./10-emitter-changes.md) §"vector-search-bench:
+deferred to post-launch".
+
+### ✓ Emitter CLI shape
+
+Format-named output flags: `--table`, `--gh-json <path>`,
+`--gh-json-v3 <path>`. Multiple flags may be combined in one
+invocation; the benchmark runs once. Replaces the old
+`-d <format> -o <path>` pair. Designed in a vacuum; backwards
+compatibility with `-d`/`-o` is deliberately not preserved since
+every caller is in-tree and updated in the same pass. See
+[`10-emitter-changes.md`](./10-emitter-changes.md) §"CLI surface".
+
 ### ✓ Unclassified records
 
 Go to an `unclassified_records` sidecar table. In v3 steady state this

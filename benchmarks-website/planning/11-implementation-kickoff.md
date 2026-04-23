@@ -118,6 +118,10 @@ pub enum MetricKind {
     CompressionSize,
     QueryTime,
     QueryMemory,
+    // The Vector* variants are reserved for a post-launch graduation of
+    // benchmarks/vector-search-bench. No benchmark emits them in step 1;
+    // the server accepts them so that when vector-search gains v3 emission
+    // we don't have to bump the schema version.
     VectorSearchTime,
     VectorSearchCount,   // matches count
     VectorSearchBytes,   // rows / bytes scanned
@@ -169,6 +173,38 @@ See [`10-emitter-changes.md`](./10-emitter-changes.md) §"On-wire / on-disk
 format". The `IngestPayload` envelope (with `run_meta` + `commit`) is
 assembled by the CI wrapper (`scripts/post-ingest.py`) before POSTing,
 not by the Rust emitter.
+
+**Decision on CLI shape**: the old `-d <format> -o <path>` pair is
+replaced by format-named output flags: `--table`, `--gh-json <path>`,
+`--gh-json-v3 <path>`. Multiple output flags may be combined in a
+single invocation; the benchmark runs once and writes every requested
+output. See [`10-emitter-changes.md`](./10-emitter-changes.md)
+§"CLI surface" for the full rationale. Designed in a vacuum -
+backwards compatibility with `-d`/`-o` is deliberately not preserved.
+
+**Decision on `CompressionSizeMeasurement`**: introduce a new
+structured measurement type for raw compressed bytes, rather than
+reusing `CustomUnitMeasurement` for the bytes path. The type carries
+`{dataset: String, format: Format, bytes: u64}` (and any other
+dimensions surfaced by a `compress-bench` call-site audit). Its
+`to_v3_json()` emits `metric_kind = "compression_size"` with
+`value_bytes` populated.
+
+**Decision on `CustomUnitMeasurement` retention**: kept in-tree, but
+drops its direct `to_v3_json()` path in step 1. Rationale: it's the
+most natural forward-compat surface for vector-search-bench-style
+metrics that carry auxiliary fields in `data_descriptor`. Removing
+it would just force us to reinvent it later. It has no v3 emitter
+today because its only in-tree consumer (`compress-bench`) is being
+migrated to `CompressionSizeMeasurement` (bytes) and DB views
+(ratios).
+
+**Decision on `TimingMeasurement` struct extension**: gain structured
+dimensions (`dataset`, `pattern`, `storage: Storage`) rather than
+continuing to smuggle them through the `name` string. The random-access
+runner has all three fields at emission time today; it's just flattening
+them. v2's `ToJson` stays intact during dual-write - we only add fields,
+don't break the existing shape.
 
 ### Ingest payload (`server::model`)
 
@@ -230,7 +266,7 @@ pub enum BenchmarkGroupFilter {
         storage: Storage,
         scale_factor: &'static str,
     },
-    VectorSearch,                                   // added when vector-search-bench lands in CI
+    // VectorSearch,                               // post-launch, added when vector-search-bench graduates
     // Microbench { ... }                           // future
 }
 
@@ -426,20 +462,16 @@ type="application/json" id="chart-data-<slug>">` tag. Chart.js reads it.
 Zoom/pan triggers a fetch to `GET /api/chart/:slug?start=<ts>&end=<ts>`
 returning the same shape, with `commits` + `series` sliced to the range.
 
-### Vector-search-bench wiring
+### Vector-search-bench wiring (deferred to post-launch)
 
-`benchmarks/vector-search-bench/` currently uses its own runner/display
-and does not go through `vortex-bench::runner`. When adding
-`-d gh-json-v3` to it:
-
-1. Teach `vector-search-bench::main` to accept the `--format=gh-json-v3`
-   CLI flag (mirror `DisplayFormat::GhJsonV3`).
-2. The scan phase already produces a `ScanTiming` plus per-flavor metrics.
-   Convert each into one or more `ClassifiedMeasurement` records with
-   `metric_kind = VectorSearchTime / VectorSearchCount / VectorSearchBytes`.
-3. Add a new CI workflow `.github/workflows/vector-bench.yml` that runs
-   the binary on merge to `develop`, POSTs to `/api/ingest`. Not gated on
-   launch, but nice to add in the same pass.
+Originally scoped into the emitter pass, now deferred. See
+[`10-emitter-changes.md`](./10-emitter-changes.md) §"vector-search-bench:
+deferred to post-launch" for what we keep as forward-compat hooks
+(`MetricKind::VectorSearch*` reserved variants, `data_descriptor` for
+free-form fields, `CustomUnitMeasurement` kept in-tree) and what we
+intentionally don't build now (`--gh-json-v3` in
+`benchmarks/vector-search-bench/`, the `vector-bench.yml` workflow,
+the `BenchmarkGroupFilter::VectorSearch` group).
 
 ## Review checklist before merging emitter changes
 

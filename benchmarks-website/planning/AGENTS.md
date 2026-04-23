@@ -83,7 +83,7 @@ norms. Callouts specific to this project:
 
 Later agents will work on feature branches like:
 
-- `claude/benchmarks-v3-emitters`   (vortex-bench `-d gh-json-v3` + vector-search-bench CI wiring)
+- `claude/benchmarks-v3-emitters`   (vortex-bench `--gh-json-v3` + CLI conversion)
 - `claude/benchmarks-v3-migrator`   (one-shot historical migrator + classifier)
 - `claude/benchmarks-v3-server`     (axum server, routes, templates)
 - `claude/benchmarks-v3-cutover`    (CI dual-write wiring + DNS flip + v2 retire)
@@ -95,11 +95,13 @@ Each picks up from `develop`, not from the planning branch.
 This is suggested, not prescriptive. The emitter work comes first because
 everything downstream depends on the shape of its output.
 
-1. **Extend `vortex-bench` emitters.** Add the `-d gh-json-v3` output
+1. **Extend `vortex-bench` emitters.** Add the `--gh-json-v3` output
    format to every measurement type (see `planning/10-emitter-changes.md`).
-   Existing `-d gh-json` path stays intact. Include vector-search-bench
-   in this pass - it doesn't emit `gh-json` today and should gain v3
-   emission + a CI workflow.
+   Convert the CLI from `-d <format> -o <path>` to format-named output
+   flags (`--table`, `--gh-json`, `--gh-json-v3`) in the same pass.
+   Legacy `--gh-json` emission stays alive through cutover.
+   `vector-search-bench` is **not** in scope - it's deferred to a
+   post-launch follow-up.
 
 2. **Write the migrator.** Standalone binary under
    `benchmarks-website/migrator/` (or wherever - kept off `main` /
