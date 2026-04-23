@@ -21236,6 +21236,16 @@ pub macro vortex_array::require_patches!
 
 pub macro vortex_array::require_validity!
 
+pub enum vortex_array::BuilderStep
+
+pub vortex_array::BuilderStep::Done
+
+pub vortex_array::BuilderStep::ExecuteSlot(usize, vortex_array::DonePredicate)
+
+impl core::fmt::Debug for vortex_array::BuilderStep
+
+pub fn vortex_array::BuilderStep::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 pub enum vortex_array::Canonical
 
 pub vortex_array::Canonical::Bool(vortex_array::arrays::BoolArray)
@@ -21406,6 +21416,8 @@ pub vortex_array::ColumnarView::Constant(vortex_array::ArrayView<'a, vortex_arra
 
 pub enum vortex_array::ExecutionStep
 
+pub vortex_array::ExecutionStep::AppendChild(usize)
+
 pub vortex_array::ExecutionStep::Done
 
 pub vortex_array::ExecutionStep::ExecuteSlot(usize, vortex_array::DonePredicate)
@@ -21449,6 +21461,20 @@ pub type vortex_array::AnyColumnar::Match<'a> = vortex_array::ColumnarView<'a>
 pub fn vortex_array::AnyColumnar::matches(array: &vortex_array::ArrayRef) -> bool
 
 pub fn vortex_array::AnyColumnar::try_match<'a>(array: &'a vortex_array::ArrayRef) -> core::option::Option<Self::Match>
+
+pub struct vortex_array::AppendToBuilderKernelAdapter<V: vortex_array::VTable, K: vortex_array::AppendToBuilderKernel<V>>
+
+impl<V: vortex_array::VTable, K: vortex_array::AppendToBuilderKernel<V>> vortex_array::AppendToBuilderKernelAdapter<V, K>
+
+pub const fn vortex_array::AppendToBuilderKernelAdapter<V, K>::new(kernel: K) -> Self
+
+impl<V: vortex_array::VTable, K: vortex_array::AppendToBuilderKernel<V>> core::fmt::Debug for vortex_array::AppendToBuilderKernelAdapter<V, K>
+
+pub fn vortex_array::AppendToBuilderKernelAdapter<V, K>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<V: vortex_array::VTable, K: vortex_array::AppendToBuilderKernel<V>> vortex_array::DynAppendToBuilderKernel for vortex_array::AppendToBuilderKernelAdapter<V, K>
+
+pub fn vortex_array::AppendToBuilderKernelAdapter<V, K>::append_to_builder(&self, array: vortex_array::ArrayRef, builder: alloc::boxed::Box<dyn vortex_array::builders::ArrayBuilder>, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::BuilderResult>
 
 pub struct vortex_array::Array<V: vortex_array::VTable>
 
@@ -22432,6 +22458,38 @@ impl<V: vortex_array::VTable> vortex_array::TypedArrayRef<V> for vortex_array::A
 
 pub fn vortex_array::ArrayView<'_, V>::to_owned(&self) -> vortex_array::Array<V>
 
+pub struct vortex_array::BuilderKernelSession
+
+impl vortex_array::BuilderKernelSession
+
+pub fn vortex_array::BuilderKernelSession::empty() -> Self
+
+pub fn vortex_array::BuilderKernelSession::find(&self, id: &vortex_session::registry::Id) -> core::option::Option<alloc::sync::Arc<dyn vortex_array::DynAppendToBuilderKernel>>
+
+pub fn vortex_array::BuilderKernelSession::register<V, K>(&self, id: impl core::convert::Into<vortex_session::registry::Id>, kernel: K) where V: vortex_array::VTable, K: vortex_array::AppendToBuilderKernel<V>
+
+impl core::clone::Clone for vortex_array::BuilderKernelSession
+
+pub fn vortex_array::BuilderKernelSession::clone(&self) -> vortex_array::BuilderKernelSession
+
+impl core::default::Default for vortex_array::BuilderKernelSession
+
+pub fn vortex_array::BuilderKernelSession::default() -> Self
+
+impl core::fmt::Debug for vortex_array::BuilderKernelSession
+
+pub fn vortex_array::BuilderKernelSession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct vortex_array::BuilderResult
+
+impl vortex_array::BuilderResult
+
+pub fn vortex_array::BuilderResult::into_parts(self) -> (vortex_array::ArrayRef, alloc::boxed::Box<dyn vortex_array::builders::ArrayBuilder>, vortex_array::BuilderStep)
+
+impl core::fmt::Debug for vortex_array::BuilderResult
+
+pub fn vortex_array::BuilderResult::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 pub struct vortex_array::CanonicalValidity(pub vortex_array::Canonical)
 
 impl vortex_array::Executable for vortex_array::CanonicalValidity
@@ -22519,6 +22577,8 @@ pub fn vortex_array::ExecutionCtx::drop(&mut self)
 pub struct vortex_array::ExecutionResult
 
 impl vortex_array::ExecutionResult
+
+pub fn vortex_array::ExecutionResult::append_child(array: impl vortex_array::IntoArray, slot_idx: usize) -> Self
 
 pub fn vortex_array::ExecutionResult::array(&self) -> &vortex_array::ArrayRef
 
@@ -22625,6 +22685,10 @@ impl<V: vortex_array::VTable> vortex_array::ValidityVTable<V> for vortex_array::
 pub fn vortex_array::ValidityVTableFromChildSliceHelper::validity(array: vortex_array::ArrayView<'_, V>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
 pub static vortex_array::LEGACY_SESSION: std::sync::lazy_lock::LazyLock<vortex_session::VortexSession>
+
+pub trait vortex_array::AppendToBuilderKernel<V: vortex_array::VTable>: core::fmt::Debug + core::marker::Send + core::marker::Sync + 'static
+
+pub fn vortex_array::AppendToBuilderKernel::append_to_builder(&self, array: vortex_array::ArrayView<'_, V>, builder: alloc::boxed::Box<dyn vortex_array::builders::ArrayBuilder>, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<(alloc::boxed::Box<dyn vortex_array::builders::ArrayBuilder>, vortex_array::BuilderStep)>
 
 pub trait vortex_array::ArrayEq
 
@@ -23797,6 +23861,14 @@ impl<M> vortex_array::DeserializeMetadata for vortex_array::ProstMetadata<M> whe
 pub type vortex_array::ProstMetadata<M>::Output = M
 
 pub fn vortex_array::ProstMetadata<M>::deserialize(metadata: &[u8]) -> vortex_error::VortexResult<Self::Output>
+
+pub trait vortex_array::DynAppendToBuilderKernel: core::marker::Send + core::marker::Sync + core::fmt::Debug
+
+pub fn vortex_array::DynAppendToBuilderKernel::append_to_builder(&self, array: vortex_array::ArrayRef, builder: alloc::boxed::Box<dyn vortex_array::builders::ArrayBuilder>, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::BuilderResult>
+
+impl<V: vortex_array::VTable, K: vortex_array::AppendToBuilderKernel<V>> vortex_array::DynAppendToBuilderKernel for vortex_array::AppendToBuilderKernelAdapter<V, K>
+
+pub fn vortex_array::AppendToBuilderKernelAdapter<V, K>::append_to_builder(&self, array: vortex_array::ArrayRef, builder: alloc::boxed::Box<dyn vortex_array::builders::ArrayBuilder>, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::BuilderResult>
 
 pub trait vortex_array::DynArrayEq: vortex_array::hash::private::SealedEq
 
@@ -25109,6 +25181,8 @@ impl vortex_array::VortexSessionExecute for vortex_session::VortexSession
 pub fn vortex_session::VortexSession::create_execution_ctx(&self) -> vortex_array::ExecutionCtx
 
 pub fn vortex_array::child_to_validity(child: &core::option::Option<vortex_array::ArrayRef>, nullability: vortex_array::dtype::Nullability) -> vortex_array::validity::Validity
+
+pub fn vortex_array::execute_into_builder(array: vortex_array::ArrayRef, builder: alloc::boxed::Box<dyn vortex_array::builders::ArrayBuilder>, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<alloc::boxed::Box<dyn vortex_array::builders::ArrayBuilder>>
 
 pub fn vortex_array::patches_child(patches: &vortex_array::patches::Patches, idx: usize) -> vortex_array::ArrayRef
 

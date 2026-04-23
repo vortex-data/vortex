@@ -38,15 +38,10 @@ pub enum BuilderStep {
     /// continue driving an outer kernel.
     Done,
 
-    /// The scheduler should fully execute the slot at this index on the returned array until the
-    /// given [`DonePredicate`] matches, put the result back, then call this kernel again with the
-    /// same builder.
+    /// The scheduler should execute the child at this slot index until the [`DonePredicate`]
+    /// matches. When done, the scheduler extends the builder from the child, nulls the slot,
+    /// and re-enters this kernel.
     ExecuteSlot(usize, DonePredicate),
-
-    /// The scheduler should take the slot at this index on the returned array and continue
-    /// driving the builder path on that child array. When the child is done, the slot will be
-    /// left as `None` and this kernel is re-entered.
-    AppendSlot(usize),
 }
 
 impl Debug for BuilderStep {
@@ -54,7 +49,6 @@ impl Debug for BuilderStep {
         match self {
             BuilderStep::Done => write!(f, "Done"),
             BuilderStep::ExecuteSlot(i, _) => f.debug_tuple("ExecuteSlot").field(i).finish(),
-            BuilderStep::AppendSlot(i) => f.debug_tuple("AppendSlot").field(i).finish(),
         }
     }
 }

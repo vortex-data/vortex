@@ -155,7 +155,11 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
     /// The array returned may have slots whose content does not match the encoding's normal
     /// invariants. Callers must re-establish those invariants before handing the array to
     /// anything outside the executor.
-    unsafe fn with_slots_unchecked(&self, this: &ArrayRef, slots: Vec<Option<ArrayRef>>) -> ArrayRef;
+    unsafe fn with_slots_unchecked(
+        &self,
+        this: &ArrayRef,
+        slots: Vec<Option<ArrayRef>>,
+    ) -> ArrayRef;
 
     /// Attempt to reduce the array to a simpler representation.
     fn reduce(&self, this: &ArrayRef) -> VortexResult<Option<ArrayRef>>;

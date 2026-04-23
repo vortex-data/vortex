@@ -17,7 +17,6 @@ use crate::array::VTable;
 use crate::arrays::Bool;
 use crate::arrays::Chunked;
 use crate::arrays::Constant;
-use crate::arrays::chunked::ChunkedBuilderKernel;
 use crate::arrays::Decimal;
 use crate::arrays::Dict;
 use crate::arrays::Extension;
@@ -31,6 +30,7 @@ use crate::arrays::Struct;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinView;
 use crate::arrays::Variant;
+use crate::arrays::chunked::ChunkedBuilderKernel;
 
 pub type ArrayRegistry = Registry<ArrayPluginRef>;
 
