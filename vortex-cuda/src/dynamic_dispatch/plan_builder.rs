@@ -178,55 +178,28 @@ pub enum DispatchPlan {
 ///
 /// Stages are stored in kernel execution order. There are two phases:
 ///
-/// 1. All stages except the last run first and decode their output
-///    into shared memory (e.g. all dict values, all run-end endpoints).
-///    This data stays resident for the output stage to index into.
+/// 1. All stages except the last decode into shared memory (dict values,
+///    run-end endpoints). The kernel writes `T`-wide elements even when
+///    a stage's source ptype is narrower, widening in-place as needed.
 ///
-/// 2. The last stage (the output stage) iterates over the input in tiles
-///    of `SMEM_TILE_SIZE` (1024) elements, decoding each tile into a
-///    scratch region of shared memory, applying scalar ops (which may
-///    reference data from the earlier stages), and writing the result to
-///    global memory.
-///
-/// # Per-stage PType tracking
-///
-/// Each stage carries a `source_ptype` (`PTypeTag`) that identifies the
-/// primitive type produced by its source op (LOAD, BITUNPACK, etc.).
-/// Scalar ops may change the type (e.g. DICT transforms codes → values,
-/// ALP transforms encoded ints → floats); each `ScalarOp` declares its
-/// `output_ptype`. The kernel uses these tags to dispatch typed memory
-/// operations and cross-stage references at the correct element width.
+/// 2. The last stage (the output stage) tiles at `SMEM_TILE_SIZE` (1024)
+///    elements, decoding each tile into a scratch region, applying scalar
+///    ops (which may reference earlier stages), and streaming to global
+///    memory.
 ///
 /// # Shared memory allocation
 ///
-/// Total shared memory = `smem_byte_cursor` + `SMEM_TILE_SIZE` × `output_elem_bytes`.
+/// Total = `smem_byte_cursor` + `SMEM_TILE_SIZE × output_elem_bytes`.
 ///
-/// `smem_byte_cursor` is tracked in bytes and covers the preceding
-/// fully-decoded stages (dict values, run-end endpoints). Each stage's
-/// shared memory footprint is `len × final_ptype_byte_width`, where the
-/// final ptype is determined by the last scalar op's `output_ptype` (or
-/// `source_ptype` if there are no scalar ops).
+/// Each input stage occupies `len × max(final_width, output_elem_bytes)`
+/// bytes, where `final_width` is the byte width of the last scalar op's
+/// `output_ptype` (or `source_ptype` if none). The `max` is necessary
+/// because `execute_input_stage<T>` writes `T`-wide elements even when
+/// the stage's logical type is narrower.
 ///
-/// All shared memory offsets are byte offsets — the C ABI uses byte
-/// offsets and per-field `PTypeTag` values so that stages with different
-/// element widths can coexist in the same shared memory pool.
-///
-/// This is sufficient because:
-///
-/// - Earlier stages only originate from dict (values) and run-end (ends,
-///   values). `push_smem_stage` reserves the appropriate number of bytes
-///   in `smem_byte_cursor`, so each stage's source op has room to decode
-///   the complete input.
-///
-/// - The output stage (last) tiles at `SMEM_TILE_SIZE` (1024 elements),
-///   so its source op never writes more than 1024 elements into the
-///   scratch region, even though each block is responsible for
-///   `ELEMENTS_PER_BLOCK` (2048) output elements — it processes them in
-///   two passes through the scratch.
-///
-/// Note: `BITUNPACK` writes full FastLanes blocks (1024 elements), which can
-/// exceed `stage.len` by up to 1023 elements. This overflow is absorbed by
-/// the scratch region (`SMEM_TILE_SIZE` ≥ `FL_CHUNK_SIZE`).
+/// `BITUNPACK` writes full FastLanes blocks (1024 elements) which may
+/// exceed `stage.len` by up to 1023 elements; this overflow is absorbed
+/// by the scratch region (`SMEM_TILE_SIZE` ≥ `FL_CHUNK_SIZE`).
 pub struct FusedPlan {
     /// Stages in kernel execution order; all but the last decode into
     /// shared memory, the last decodes into global memory.
@@ -746,13 +719,10 @@ impl FusedPlan {
     }
 
     /// Add a stage that decodes fully into shared memory before the output
-    /// stage runs. Returns the shared memory byte offset where the data starts.
-    ///
-    /// The smem region is sized at the stage's output ptype width — i.e.
-    /// the ptype after all scalar ops have run. For stages that go through
-    /// type-changing scalar ops (e.g. dict values with FoR→ALP), the final
-    /// smem footprint is `len × final_ptype_byte_width`. If there are no
-    /// scalar ops, the source_ptype determines the width.
+    /// stage runs. Returns the shared memory byte offset where the data
+    /// starts. Allocates `len × max(final_width, output_elem_bytes)` bytes
+    /// so that narrower stages widened to `T` by `bitunpack_typed` never
+    /// overflow.
     fn push_smem_stage(&mut self, spec: Stage, len: u32) -> u32 {
         let smem_byte_offset = self.smem_byte_cursor;
         // The kernel's execute_input_stage<T> always writes T-wide elements
