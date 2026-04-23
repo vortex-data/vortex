@@ -242,7 +242,28 @@ impl VTable for Chunked {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done(_canonicalize(array.as_view(), ctx)?))
+        match array.dtype() {
+            // Struct and List need special swizzling logic, use the existing canonicalize path.
+            DType::Struct(..) | DType::List(..) => {
+                Ok(ExecutionResult::done(_canonicalize(array.as_view(), ctx)?))
+            }
+            // For all other types, use the builder-kernel path via AppendChild.
+            _ => {
+                let first_chunk = array
+                    .as_view()
+                    .slots()
+                    .iter()
+                    .enumerate()
+                    .skip(CHUNKS_OFFSET)
+                    .find_map(|(idx, slot)| slot.as_ref().map(|_| idx));
+                match first_chunk {
+                    Some(idx) => Ok(ExecutionResult::append_child(array, idx)),
+                    None => Ok(ExecutionResult::done(
+                        Canonical::empty(array.dtype()).into_array(),
+                    )),
+                }
+            }
+        }
     }
 
     fn execute_parent(
