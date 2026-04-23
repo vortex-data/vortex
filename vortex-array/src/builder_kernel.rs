@@ -33,14 +33,34 @@ use crate::matcher::Matcher;
 ///
 /// The kernel has already appended zero or more items into the owned builder it returns in the
 /// accompanying [`BuilderResult`]. This enum tells the scheduler whether more work is needed.
+///
+/// # Semantics
+///
+/// Builder kernels operate in "builder mode" — instead of producing intermediate canonical arrays,
+/// they append decoded values directly into an [`ArrayBuilder`] that the executor threads through
+/// the execution. This avoids materializing intermediate arrays when the final destination is
+/// already a builder (e.g. `ChunkedArray` appending each chunk into a single output builder).
+///
+/// - [`Done`](BuilderStep::Done): The kernel has finished appending all values from this array
+///   into the builder. The scheduler may `finish()` the builder to produce a canonical array,
+///   or — if this kernel was invoked from an outer builder kernel — return control to the outer
+///   kernel with the builder intact.
+///
+/// - [`ExecuteSlot`](BuilderStep::ExecuteSlot): The kernel needs a child slot decoded before
+///   it can continue. The scheduler takes the child at the given slot index, executes it in
+///   **normal mode** (not builder mode) until the [`DonePredicate`] matches, puts it back into
+///   the parent, and then re-enters this builder kernel. While the child executes, the builder
+///   is stashed on the stack frame and restored afterward. This allows the builder kernel to
+///   request that a child be decoded to a specific form (e.g. `Primitive`) before the kernel
+///   reads from it directly.
 pub enum BuilderStep {
     /// Kernel has finished appending this array; the scheduler may `finish()` the builder or
     /// continue driving an outer kernel.
     Done,
 
     /// The scheduler should execute the child at this slot index until the [`DonePredicate`]
-    /// matches. When done, the scheduler extends the builder from the child, nulls the slot,
-    /// and re-enters this kernel.
+    /// matches. When done, the scheduler puts the child back into the parent and re-enters
+    /// this kernel. The builder is stashed during child execution and restored afterward.
     ExecuteSlot(usize, DonePredicate),
 }
 

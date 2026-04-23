@@ -225,8 +225,16 @@ impl Drop for ExecutionCtx {
 
 /// Single-step execution: takes one step toward canonical form.
 ///
-/// Steps through reduce, reduce_parent, execute_parent, then execute. For `AppendChild`,
-/// drives the builder path to completion in one call (no useful partial progress point).
+/// Steps through reduce, reduce_parent, execute_parent, then execute. For `ExecuteSlot`,
+/// only a single child execution step is performed — the child is executed once and put back,
+/// making this a lightweight, bounded operation.
+///
+/// **However**, if `execute_step` returns [`ExecutionStep::AppendChild`], this implementation
+/// drives the *entire* array to completion via [`execute_into_builder`] in a single call.
+/// This can do substantially more work than a normal step because it creates a builder,
+/// iterates over all children via builder kernels, and fully decodes the array to canonical
+/// form before returning. Callers should be aware that a single `.execute::<ArrayRef>(ctx)`
+/// call may perform O(n_children * decode_cost) work when `AppendChild` is returned.
 impl Executable for ArrayRef {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         if let Some(canonical) = array.as_opt::<AnyCanonical>() {
@@ -566,6 +574,32 @@ pub type DonePredicate = fn(&ArrayRef) -> bool;
 /// Instead of recursively executing children, encodings return an `ExecutionStep` that tells the
 /// scheduler what to do next. This enables the scheduler to manage execution iteratively using
 /// an explicit work stack, run cross-step optimizations, and cache shared sub-expressions.
+///
+/// # Semantics
+///
+/// Each variant describes a different execution strategy with distinct cost profiles:
+///
+/// - [`Done`](ExecutionStep::Done): The encoding has finished its work in this step. The
+///   returned array is the result. The scheduler may continue executing if the target form
+///   (e.g. canonical) has not yet been reached.
+///
+/// - [`ExecuteSlot`](ExecutionStep::ExecuteSlot): The encoding needs one of its children
+///   decoded before it can make further progress. The scheduler takes ownership of the child,
+///   executes it until the [`DonePredicate`] matches, puts it back, and re-enters the parent.
+///   Between steps the optimizer runs reduce/reduce_parent rules to fixpoint, enabling
+///   cross-step optimization (e.g. pushing scalar functions through newly-decoded children).
+///   This is a cooperative yield — the encoding does a bounded amount of work per step.
+///
+/// - [`AppendChild`](ExecutionStep::AppendChild): The encoding wants the scheduler to enter
+///   **builder mode**. The scheduler creates an [`ArrayBuilder`](crate::builders::ArrayBuilder)
+///   for the parent's dtype/length (if one does not already exist), then iterates over children
+///   via registered builder kernels, appending each child's data directly into the builder.
+///   **Important:** in the single-step executor ([`Executable`] for [`ArrayRef`]), returning
+///   `AppendChild` causes the executor to drive the *entire* array to completion via
+///   [`execute_into_builder`] in one call — this can do significantly more work than a single
+///   `ExecuteSlot` step. The encoding must have a builder kernel registered in
+///   [`BuilderKernelSession`](crate::BuilderKernelSession) so the scheduler can re-enter it
+///   after each child is consumed.
 pub enum ExecutionStep {
     /// Request that the scheduler execute the slot at the given index, using the provided
     /// [`DonePredicate`] to determine when the slot is "done", then replace the slot in this
@@ -586,6 +620,10 @@ pub enum ExecutionStep {
     ///
     /// When the builder kernel returns [`crate::BuilderStep::Done`], the scheduler finishes
     /// the builder and uses the resulting canonical array as the execution result.
+    ///
+    /// **Note:** In the single-step executor ([`Executable`] for [`ArrayRef`]), this variant
+    /// drives the entire parent to completion in one call via [`execute_into_builder`], which
+    /// may perform substantially more work than a single `ExecuteSlot` step.
     AppendChild(usize),
 
     /// Execution is complete. The array in the accompanying [`ExecutionResult`] is the result.
