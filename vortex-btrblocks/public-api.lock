@@ -550,7 +550,7 @@ impl vortex_compressor::scheme::Scheme for vortex_btrblocks::schemes::string::FS
 
 pub fn vortex_btrblocks::schemes::string::FSSTScheme::compress(&self, compressor: &vortex_compressor::compressor::CascadingCompressor, data: &vortex_compressor::stats::cache::ArrayAndStats, compress_ctx: vortex_compressor::ctx::CompressorContext, exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_btrblocks::schemes::string::FSSTScheme::expected_compression_ratio(&self, _data: &vortex_compressor::stats::cache::ArrayAndStats, _compress_ctx: vortex_compressor::ctx::CompressorContext, _exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
+pub fn vortex_btrblocks::schemes::string::FSSTScheme::expected_compression_ratio(&self, data: &vortex_compressor::stats::cache::ArrayAndStats, _compress_ctx: vortex_compressor::ctx::CompressorContext, exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
 pub fn vortex_btrblocks::schemes::string::FSSTScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 

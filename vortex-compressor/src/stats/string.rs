@@ -5,9 +5,10 @@
 
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::varbinview::VarBinViewArrayExt;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use super::GenerateStatsOptions;
@@ -22,25 +23,39 @@ pub struct StringStats {
     value_count: u32,
     /// The number of null values.
     null_count: u32,
+    /// The total byte length of all non-null string values.
+    total_value_bytes: u64,
 }
 
-/// Estimate the number of distinct strings in the var bin view array.
-fn estimate_distinct_count(strings: &VarBinViewArray) -> VortexResult<u32> {
-    let views = strings.views();
-    // Iterate the views. Two strings which are equal must have the same first 8-bytes.
-    // NOTE: there are cases where this performs pessimally, e.g. when we have strings that all
-    // share a 4-byte prefix and have the same length.
-    let mut distinct = HashSet::with_capacity(views.len() / 2);
-    views.iter().for_each(|&view| {
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "approximate uniqueness with view prefix"
-        )]
-        let len_and_prefix = view.as_u128() as u64;
-        distinct.insert(len_and_prefix);
-    });
+/// Returns the length-plus-prefix key currently used for approximate string distinct counts.
+fn view_len_and_prefix(view: u128) -> u64 {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "approximate uniqueness with view prefix"
+    )]
+    {
+        view as u64
+    }
+}
 
-    Ok(u32::try_from(distinct.len())?)
+/// Visits the varbin views that correspond to non-null string values.
+fn for_each_valid_view(strings: &VarBinViewArray, validity: &Mask, mut visit: impl FnMut(u64)) {
+    let views = strings.views();
+
+    match validity {
+        Mask::AllTrue(_) => {
+            views
+                .iter()
+                .for_each(|view| visit(view_len_and_prefix(view.as_u128())));
+        }
+        Mask::AllFalse(_) => {}
+        Mask::Values(values) => {
+            values
+                .indices()
+                .iter()
+                .for_each(|&idx| visit(view_len_and_prefix(views[idx].as_u128())));
+        }
+    }
 }
 
 impl StringStats {
@@ -50,19 +65,31 @@ impl StringStats {
         opts: GenerateStatsOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
-        let null_count = input
-            .statistics()
-            .compute_null_count(ctx)
-            .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
-        let value_count = input.len() - null_count;
-        let estimated_distinct_count = opts
+        let validity = input.varbinview_validity().execute_mask(input.len(), ctx)?;
+        let value_count = validity.true_count();
+        let null_count = input.len() - value_count;
+        let mut total_value_bytes = 0u64;
+        let mut distinct_values = opts
             .count_distinct_values
-            .then(|| estimate_distinct_count(input))
+            .then(|| HashSet::with_capacity(value_count / 2));
+
+        for_each_valid_view(input, &validity, |view| {
+            if let Some(distinct_values) = &mut distinct_values {
+                distinct_values.insert(view);
+            }
+
+            let len = view & u64::from(u32::MAX);
+            total_value_bytes += len;
+        });
+
+        let estimated_distinct_count = distinct_values
+            .map(|distinct_values| u32::try_from(distinct_values.len()))
             .transpose()?;
 
         Ok(Self {
             value_count: u32::try_from(value_count)?,
             null_count: u32::try_from(null_count)?,
+            total_value_bytes,
             estimated_distinct_count,
         })
     }
@@ -99,5 +126,43 @@ impl StringStats {
     /// Returns the number of null values.
     pub fn null_count(&self) -> u32 {
         self.null_count
+    }
+
+    /// Returns the total byte length of all non-null string values.
+    pub fn total_value_bytes(&self) -> u64 {
+        self.total_value_bytes
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+
+    use super::*;
+
+    #[test]
+    fn string_stats_only_count_non_null_value_bytes() {
+        let strings = VarBinViewArray::from_iter(
+            [Some("alpha"), None, Some("beta"), Some("alpha")],
+            DType::Utf8(Nullability::Nullable),
+        );
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+        let stats = StringStats::generate_opts(
+            &strings,
+            GenerateStatsOptions {
+                count_distinct_values: true,
+            },
+            &mut ctx,
+        );
+
+        assert_eq!(stats.value_count(), 3);
+        assert_eq!(stats.null_count(), 1);
+        assert_eq!(stats.total_value_bytes(), 14);
+        assert_eq!(stats.estimated_distinct_count(), Some(2));
     }
 }

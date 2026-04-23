@@ -944,6 +944,8 @@ pub fn vortex_compressor::stats::StringStats::generate_opts(input: &vortex_array
 
 pub fn vortex_compressor::stats::StringStats::null_count(&self) -> u32
 
+pub fn vortex_compressor::stats::StringStats::total_value_bytes(&self) -> u64
+
 pub fn vortex_compressor::stats::StringStats::value_count(&self) -> u32
 
 impl core::clone::Clone for vortex_compressor::stats::StringStats
