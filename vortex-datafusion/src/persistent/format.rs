@@ -15,8 +15,9 @@ use datafusion_common::DataFusionError;
 use datafusion_common::GetExt;
 use datafusion_common::Result as DFResult;
 use datafusion_common::Statistics;
-use datafusion_common::config::ConfigField;
-use datafusion_common::config_namespace;
+use datafusion_common::config::ConfigExtension;
+use datafusion_common::config::ExtensionOptions;
+use datafusion_common::extensions_options;
 use datafusion_common::internal_datafusion_err;
 use datafusion_common::not_impl_err;
 use datafusion_common::parsers::CompressionTypeVariant;
@@ -130,7 +131,7 @@ impl Debug for VortexFormat {
     }
 }
 
-config_namespace! {
+extensions_options! {
     /// Options to configure [`VortexFormat`] and [`VortexSource`].
     ///
     /// These options are usually set on a [`VortexFormatFactory`] and inherited
@@ -142,13 +143,26 @@ config_namespace! {
     /// ```rust
     /// use vortex_datafusion::{VortexFormatFactory, VortexTableOptions};
     ///
-    /// let factory = VortexFormatFactory::new().with_options(VortexTableOptions {
-    ///     projection_pushdown: true,
-    ///     scan_concurrency: Some(8),
-    ///     ..Default::default()
-    /// });
-    /// # let _ = factory;
+    /// let mut opts = VortexTableOptions::default();
+    /// opts.projection_pushdown = true;
+    /// opts.scan_concurrency = Some(8);
+    ///
+    /// let factory = VortexFormatFactory::new().with_options(opts);
     /// ```
+    /// If used through the SQL interface, additional setup is required, by adding it as an extensions to `ConfigOptions`:
+    ///
+    /// ```rust
+    /// use vortex_datafusion::{VortexFormatFactory, VortexTableOptions};
+    /// use datafusion_common::config::{ConfigOptions, Extensions};
+    ///
+    ///
+    /// let mut extensions = Extensions::new();
+    /// extensions.insert(VortexTableOptions::default());
+    /// let mut config = ConfigOptions::new().with_extensions(extensions);
+    /// config.set("vortex.scan_concurrency", "1");
+    /// ```
+    ///
+    /// Or directly on [`SessionConfig`] using `SessionConfig::with_option_extension`.
     ///
     /// [`SessionConfig`]: https://docs.rs/datafusion/latest/datafusion/prelude/struct.SessionConfig.html
     pub struct VortexTableOptions {
@@ -172,8 +186,6 @@ config_namespace! {
     }
 }
 
-impl Eq for VortexTableOptions {}
-
 /// Registration entry point for the file-backed Vortex integration.
 ///
 /// `VortexFormatFactory` is the type most applications use. Register it with a
@@ -194,10 +206,10 @@ impl Eq for VortexTableOptions {}
 /// use datafusion_common::GetExt;
 /// use vortex_datafusion::{VortexFormatFactory, VortexTableOptions};
 ///
-/// let factory = Arc::new(VortexFormatFactory::new().with_options(VortexTableOptions {
-///     projection_pushdown: true,
-///     ..Default::default()
-/// }));
+/// let mut opts = VortexTableOptions::default();
+/// opts.projection_pushdown = true;
+///
+/// let factory = Arc::new(VortexFormatFactory::new().with_options(opts));
 ///
 /// let mut state_builder = SessionStateBuilder::new()
 ///     .with_default_features()
@@ -259,11 +271,10 @@ impl VortexFormatFactory {
     /// ```rust
     /// use vortex_datafusion::{VortexFormatFactory, VortexTableOptions};
     ///
-    /// let factory = VortexFormatFactory::new().with_options(VortexTableOptions {
-    ///     projection_pushdown: true,
-    ///     ..Default::default()
-    /// });
-    /// # let _ = factory;
+    /// let mut opts = VortexTableOptions::default();
+    /// opts.projection_pushdown = true;
+    ///
+    /// let factory = VortexFormatFactory::new().with_options(opts);
     /// ```
     pub fn with_options(mut self, options: VortexTableOptions) -> Self {
         self.options = Some(options);
@@ -271,14 +282,24 @@ impl VortexFormatFactory {
     }
 }
 
+impl ConfigExtension for VortexTableOptions {
+    const PREFIX: &'static str = "vortex";
+}
+
 impl FileFormatFactory for VortexFormatFactory {
     #[expect(clippy::disallowed_types, reason = "required by trait signature")]
     fn create(
         &self,
-        _state: &dyn Session,
+        state: &dyn Session,
         format_options: &std::collections::HashMap<String, String>,
     ) -> DFResult<Arc<dyn FileFormat>> {
-        let mut opts = self.options.clone().unwrap_or_default();
+        let mut opts = state
+            .config_options()
+            .extensions
+            .get::<VortexTableOptions>()
+            .cloned()
+            .unwrap_or_default();
+
         for (key, value) in format_options {
             if let Some(key) = key.strip_prefix("format.") {
                 opts.set(key, value)?;

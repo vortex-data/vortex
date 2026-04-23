@@ -7,6 +7,7 @@ use clap::Parser;
 use datafusion::common::GetExt;
 use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::SessionStateBuilder;
+use datafusion::prelude::SessionConfig;
 use datafusion::prelude::SessionContext;
 use datafusion_sqllogictest::DataFusion;
 use datafusion_sqllogictest::df_value_validator;
@@ -24,6 +25,7 @@ use sqllogictest::parse_file;
 use sqllogictest::strict_column_validator;
 use vortex::error::VortexExpect;
 use vortex_datafusion::VortexFormatFactory;
+use vortex_datafusion::VortexTableOptions;
 use vortex_sqllogictest::args::Args;
 use vortex_sqllogictest::duckdb::DuckDB;
 use vortex_sqllogictest::duckdb::DuckDBTestError;
@@ -77,7 +79,11 @@ async fn main() -> anyhow::Result<()> {
 
             let mut errors = vec![];
             let factory = Arc::new(VortexFormatFactory::new());
+
+            let config = SessionConfig::new().with_option_extension(VortexTableOptions::default());
+
             let session_state_builder = SessionStateBuilder::new()
+                .with_config(config)
                 .with_default_features()
                 .with_table_factory(
                     factory.get_ext().to_uppercase(),

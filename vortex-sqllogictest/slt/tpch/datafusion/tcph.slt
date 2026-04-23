@@ -7,4 +7,14 @@ include ../../setup.slt
 include ./create.slt.no
 
 include ../results/*.slt.no
-# include ../drop.slt.no
+
+include ../drop.slt.no
+
+statement ok
+set vortex.projection_pushdown = true
+
+include ./create.slt.no
+
+include ../results/*.slt.no
+
+include ../drop.slt.no

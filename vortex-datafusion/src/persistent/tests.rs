@@ -148,7 +148,6 @@ async fn test_query_file(#[values(Some(1), None)] limit: Option<usize>) -> anyho
 #[tokio::test]
 async fn test_addition_pushdown() -> anyhow::Result<()> {
     let ctx = TestSessionContext::default();
-    dbg!(&ctx.store);
 
     ctx.session
         .sql(
