@@ -307,13 +307,7 @@ impl FileOpener for VortexOpener {
                 }
             };
 
-            let natural_split_ranges = natural_split_ranges_for_file(
-                natural_split_ranges.as_ref(),
-                &file.object_meta.location,
-                &layout_reader,
-            )?;
-
-            let mut scan_builder = ScanBuilder::new(session.clone(), layout_reader);
+            let mut scan_builder = ScanBuilder::new(session.clone(), Arc::clone(&layout_reader));
 
             if let Some(extensions) = file.extensions
                 && let Some(vortex_plan) = extensions.downcast_ref::<VortexAccessPlan>()
@@ -322,6 +316,12 @@ impl FileOpener for VortexOpener {
             }
 
             if let Some(file_range) = file.range {
+                let natural_split_ranges = natural_split_ranges_for_file(
+                    natural_split_ranges.as_ref(),
+                    &file.object_meta.location,
+                    &layout_reader,
+                )?;
+
                 let byte_range = Range {
                     start: u64::try_from(file_range.start)
                         .map_err(|_| exec_datafusion_err!("Vortex file range start is negative"))?,
@@ -451,11 +451,11 @@ fn natural_split_ranges_for_file(
         return Ok(Arc::clone(split_ranges.value()));
     }
 
+    let split_ranges = compute_natural_split_ranges(layout_reader.as_ref())?;
+
     match natural_split_ranges.entry(path.clone()) {
         Entry::Occupied(entry) => Ok(Arc::clone(entry.get())),
         Entry::Vacant(entry) => {
-            let split_ranges = compute_natural_split_ranges(layout_reader.as_ref())?;
-
             entry.insert(Arc::clone(&split_ranges));
             Ok(split_ranges)
         }
