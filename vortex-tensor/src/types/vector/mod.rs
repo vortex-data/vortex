@@ -14,6 +14,30 @@ use vortex_array::extension::EmptyMetadata;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+
+/// Validates that `storage` is a valid storage dtype for a [`Vector`] or
+/// [`NormalizedVector`](crate::normalized_vector::NormalizedVector) extension type.
+///
+/// The storage must be a `FixedSizeList<float, dim, nullability>` with non-nullable float
+/// elements. The outer nullability is not constrained.
+pub(crate) fn validate_vector_storage_dtype(storage: &DType) -> VortexResult<()> {
+    let DType::FixedSizeList(element_dtype, _list_size, _nullability) = storage else {
+        vortex_bail!("Vector storage dtype must be a FixedSizeList, got {storage}");
+    };
+
+    vortex_ensure!(
+        element_dtype.is_float(),
+        "Vector element dtype must be a float, got {element_dtype}"
+    );
+    vortex_ensure!(
+        !element_dtype.is_nullable(),
+        "Vector element dtype must be non-nullable"
+    );
+
+    Ok(())
+}
 
 /// The Vector extension type.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
