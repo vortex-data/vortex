@@ -88,7 +88,6 @@ mod tests {
     use crate::IntoArray;
     #[expect(deprecated)]
     use crate::ToCanonical as _;
-    use crate::VortexSessionExecute;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::Extension;

@@ -14,7 +14,7 @@
 //!   `ArrayBuiltins::cast` and `ArrayRef::slice` that build wrapped expressions and need them
 //!   normalized inline.
 //! * [`ArrayOptimizer::optimize_ctx`] — runs the static rules and additionally consults the
-//!   session's [`OptimizerSession`] registry keyed by `(parent_encoding_id, child_encoding_id)`
+//!   session's [`ArrayKernels`] registry keyed by `(parent_encoding_id, child_encoding_id)`
 //!   before each `reduce_parent` step. The execute loop calls this entry point so plugin-
 //!   registered parent-reduce rules fire during execution.
 
@@ -26,38 +26,29 @@ use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::optimizer::session::OptimizerSession;
+use crate::optimizer::kernels::ArrayKernels;
+use crate::optimizer::kernels::ReduceParentFn;
 
+pub mod kernels;
 pub mod rules;
-pub mod session;
-
-/// Pluggable parent-reduce function signature used by [`OptimizerSession`].
-///
-/// A function of this type rewrites the parent array that holds `child` at `child_idx`, given
-/// the child itself and its parent. Returns `Ok(None)` when the function doesn't apply.
-///
-/// Registered under `(parent_encoding_id, child_encoding_id)`; callers downcast the erased
-/// `child`/`parent` to their expected types before applying logic.
-pub type ReduceParentFn =
-    fn(child: &ArrayRef, parent: &ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>>;
 
 /// Extension trait for optimizing array trees using reduce/reduce_parent rules.
 pub trait ArrayOptimizer {
     /// Optimize the root array node by running reduce and reduce_parent rules to fixpoint.
     ///
     /// Uses only the child encoding's static `PARENT_RULES`. Use [`Self::optimize_ctx`] from
-    /// inside the execute loop to also consult the session-scoped [`OptimizerSession`] registry.
+    /// inside the execute loop to also consult the session-scoped [`ArrayKernels`] registry.
     fn optimize(&self) -> VortexResult<ArrayRef>;
 
-    /// Like [`Self::optimize`], but additionally consults the [`OptimizerSession`] registered on
+    /// Like [`Self::optimize`], but additionally consults the [`ArrayKernels`] registered on
     /// `session` for each `(parent_encoding_id, child_encoding_id)` pair before the static
-    /// vtable rules. If `session` does not have an [`OptimizerSession`] registered, falls
+    /// vtable rules. If `session` does not have an [`ArrayKernels`] registered, falls
     /// through to the static rules.
     fn optimize_ctx(&self, session: &VortexSession) -> VortexResult<ArrayRef>;
 
     /// Optimize the entire array tree recursively (root and all descendants).
     ///
-    /// Consults the [`OptimizerSession`] registered on `session` for each parent/child pair
+    /// Consults the [`ArrayKernels`] registered on `session` for each parent/child pair
     /// encountered during the recursive walk, so plugin-registered rules apply throughout the
     /// tree. Requires a [`VortexSession`] unconditionally so the registry is always honored
     /// when a recursive optimization is requested.
@@ -80,7 +71,7 @@ impl ArrayOptimizer for ArrayRef {
 
 /// Resolve a pluggable [`ReduceParentFn`] for `(parent, child)` from `session`.
 ///
-/// Returns `None` when no [`OptimizerSession`] is registered, or no function is registered under
+/// Returns `None` when no [`ArrayKernels`] is registered, or no function is registered under
 /// `(parent.encoding_id(), child.encoding_id())`. The returned `Arc` is owned so the caller can
 /// drop the session borrow before invoking it.
 fn plugin_reduce_parent(
@@ -88,10 +79,9 @@ fn plugin_reduce_parent(
     parent: &ArrayRef,
     child: &ArrayRef,
 ) -> Option<Arc<ReduceParentFn>> {
-    session.get_opt::<OptimizerSession>().and_then(|s| {
-        s.registry()
-            .find::<ReduceParentFn>(parent.encoding_id(), child.encoding_id())
-    })
+    session
+        .get_opt::<ArrayKernels>()
+        .and_then(|s| s.find_reduce_parent(parent.encoding_id(), child.encoding_id()))
 }
 
 fn try_optimize(

@@ -10,16 +10,19 @@ use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::hash::Hash;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::OnceLock;
 
+use arc_swap::ArcSwap;
 use lasso::Spur;
 use lasso::ThreadedRodeo;
 use parking_lot::RwLock;
 use vortex_error::VortexExpect;
 use vortex_utils::aliases::dash_map::DashMap;
+use vortex_utils::aliases::hash_map::HashMap;
 
 /// Global string interner for [`Id`] values.
 static INTERNER: LazyLock<ThreadedRodeo> = LazyLock::new(ThreadedRodeo::new);
@@ -299,8 +302,8 @@ impl<T: Clone> Context<T> {
 /// optimizer's parent-reduce registry keys by `(parent_encoding_id, child_encoding_id)` so that
 /// downstream crates can override the rule that would normally run from the child encoding's
 /// static `PARENT_RULES` set.
-#[derive(Clone, Debug, Default)]
-pub struct FnRegistry(Arc<DashMap<(Id, Id), Arc<dyn Any + Send + Sync>>>);
+#[derive(Debug, Default)]
+pub struct FnRegistry(ArcSwap<HashMap<u64, Arc<dyn Any + Send + Sync>>>);
 
 impl FnRegistry {
     /// Create a new, empty registry.
@@ -309,26 +312,35 @@ impl FnRegistry {
     }
 
     /// Register a function under `(outer, inner)`, replacing any existing entry.
-    pub fn register<F: Any + Send + Sync>(&self, outer: Id, inner: Id, f: F) {
-        self.0.insert((outer, inner), Arc::new(f));
+    pub fn register<F: Any + Send + Sync>(&self, id: u64, f: F) {
+        let registry = self.0.load();
+        let mut owned_registry = registry.as_ref().clone();
+        owned_registry.insert(id, Arc::new(f));
+        self.0.store(Arc::new(owned_registry));
     }
 
     /// Look up a function registered under `(outer, inner)`, downcasting to `F`.
     ///
     /// Returns `None` if no function is registered, or if the registered value is not of type `F`.
-    pub fn find<F: Any + Send + Sync>(&self, outer: Id, inner: Id) -> Option<Arc<F>> {
-        let entry = self.0.get(&(outer, inner))?;
-        Arc::clone(entry.value()).downcast::<F>().ok()
+    pub fn find<F: Any + Send + Sync>(&self, id: u64) -> Option<Arc<F>> {
+        let map = self.0.load();
+        let entry = map.get(&id)?;
+        Arc::clone(entry).downcast::<F>().ok()
     }
 
     /// Return `true` if any function is registered under `(outer, inner)`.
-    pub fn contains(&self, outer: Id, inner: Id) -> bool {
-        self.0.contains_key(&(outer, inner))
+    pub fn contains(&self, id: u64) -> bool {
+        let map = self.0.load();
+        map.contains_key(&id)
     }
 }
 
 #[cfg(test)]
 mod fn_registry_tests {
+    use std::hash::BuildHasher;
+
+    use vortex_utils::aliases::DefaultHashBuilder;
+
     use super::FnRegistry;
     use super::Id;
 
@@ -343,12 +355,13 @@ mod fn_registry_tests {
         let registry = FnRegistry::default();
         let outer = Id::new("test.double");
         let inner = Id::new("test.int");
+        let id = DefaultHashBuilder::default().hash_one((outer, inner));
 
-        assert!(!registry.contains(outer, inner));
-        registry.register::<DoubleFn>(outer, inner, double);
+        assert!(!registry.contains(id));
+        registry.register::<DoubleFn>(id, double);
 
-        assert!(registry.contains(outer, inner));
-        let f = registry.find::<DoubleFn>(outer, inner).unwrap();
+        assert!(registry.contains(id));
+        let f = registry.find::<DoubleFn>(id).unwrap();
         assert_eq!(f(21), 42);
     }
 
@@ -357,10 +370,12 @@ mod fn_registry_tests {
         let registry = FnRegistry::default();
         let outer = Id::new("test.double");
         let inner = Id::new("test.int");
-        registry.register::<DoubleFn>(outer, inner, double);
+        let id = DefaultHashBuilder::default().hash_one((outer, inner));
+
+        registry.register::<DoubleFn>(id, double);
 
         type OtherFn = fn(i32) -> i32;
-        assert!(registry.find::<OtherFn>(outer, inner).is_none());
+        assert!(registry.find::<OtherFn>(id).is_none());
     }
 
     #[test]
@@ -368,6 +383,7 @@ mod fn_registry_tests {
         let registry = FnRegistry::default();
         let outer = Id::new("test.missing");
         let inner = Id::new("test.int");
-        assert!(registry.find::<DoubleFn>(outer, inner).is_none());
+        let id = DefaultHashBuilder::default().hash_one((outer, inner));
+        assert!(registry.find::<DoubleFn>(id).is_none());
     }
 }

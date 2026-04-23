@@ -10814,7 +10814,7 @@ dependencies = [
 name = "vortex-session"
 version = "0.1.0"
 dependencies = [
- "arcref",
+ "arc-swap",
  "dashmap",
  "lasso",
  "parking_lot",
