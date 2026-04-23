@@ -320,6 +320,8 @@ pub enum vortex_compressor::estimate::DeferredEstimate
 
 pub vortex_compressor::estimate::DeferredEstimate::Callback(alloc::boxed::Box<vortex_compressor::estimate::EstimateFn>)
 
+pub vortex_compressor::estimate::DeferredEstimate::PreflightThenSample(alloc::boxed::Box<vortex_compressor::estimate::SamplePreflightFn>)
+
 pub vortex_compressor::estimate::DeferredEstimate::Sample
 
 impl core::fmt::Debug for vortex_compressor::estimate::DeferredEstimate
@@ -364,7 +366,33 @@ impl core::fmt::Debug for vortex_compressor::estimate::EstimateVerdict
 
 pub fn vortex_compressor::estimate::EstimateVerdict::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+pub enum vortex_compressor::estimate::SamplePreflightVerdict
+
+pub vortex_compressor::estimate::SamplePreflightVerdict::Sample
+
+pub vortex_compressor::estimate::SamplePreflightVerdict::Skip
+
+impl core::clone::Clone for vortex_compressor::estimate::SamplePreflightVerdict
+
+pub fn vortex_compressor::estimate::SamplePreflightVerdict::clone(&self) -> vortex_compressor::estimate::SamplePreflightVerdict
+
+impl core::cmp::Eq for vortex_compressor::estimate::SamplePreflightVerdict
+
+impl core::cmp::PartialEq for vortex_compressor::estimate::SamplePreflightVerdict
+
+pub fn vortex_compressor::estimate::SamplePreflightVerdict::eq(&self, other: &vortex_compressor::estimate::SamplePreflightVerdict) -> bool
+
+impl core::fmt::Debug for vortex_compressor::estimate::SamplePreflightVerdict
+
+pub fn vortex_compressor::estimate::SamplePreflightVerdict::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_compressor::estimate::SamplePreflightVerdict
+
+impl core::marker::StructuralPartialEq for vortex_compressor::estimate::SamplePreflightVerdict
+
 pub type vortex_compressor::estimate::EstimateFn = (dyn core::ops::function::FnOnce(&vortex_compressor::CascadingCompressor, &vortex_compressor::stats::ArrayAndStats, core::option::Option<vortex_compressor::estimate::EstimateScore>, vortex_compressor::ctx::CompressorContext, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_compressor::estimate::EstimateVerdict> + core::marker::Send + core::marker::Sync)
+
+pub type vortex_compressor::estimate::SamplePreflightFn = (dyn core::ops::function::FnOnce(&vortex_compressor::stats::ArrayAndStats, core::option::Option<vortex_compressor::estimate::EstimateScore>, vortex_compressor::ctx::CompressorContext, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_compressor::estimate::SamplePreflightVerdict> + core::marker::Send + core::marker::Sync)
 
 pub mod vortex_compressor::scheme
 

@@ -44,6 +44,21 @@ pub type EstimateFn = dyn FnOnce(
     + Send
     + Sync;
 
+/// Closure type for [`DeferredEstimate::PreflightThenSample`].
+///
+/// This is for schemes that can cheaply prove they should be skipped when the current best
+/// estimate is already too strong, but still want to use the compressor's normal sampling path
+/// otherwise.
+#[rustfmt::skip]
+pub type SamplePreflightFn = dyn FnOnce(
+        &ArrayAndStats,
+        Option<EstimateScore>,
+        CompressorContext,
+        &mut ExecutionCtx,
+    ) -> VortexResult<SamplePreflightVerdict>
+    + Send
+    + Sync;
+
 /// The result of a [`Scheme`]'s compression ratio estimation.
 ///
 /// This type is returned by [`Scheme::expected_compression_ratio`] to tell the compressor how
@@ -89,6 +104,13 @@ pub enum DeferredEstimate {
     /// sample to determine effectiveness.
     Sample,
 
+    /// Run a cheap preflight first, and only sample if it stays competitive.
+    ///
+    /// The preflight receives the same "best so far" threshold as a normal callback, but it may
+    /// only decide whether sampling should proceed. This keeps the actual sample compression logic
+    /// centralized in the compressor.
+    PreflightThenSample(Box<SamplePreflightFn>),
+
     /// A fallible estimation requiring a custom expensive computation.
     ///
     /// Use this only when the scheme needs to perform trial encoding or other costly checks to
@@ -101,6 +123,15 @@ pub enum DeferredEstimate {
     /// expensive work when its maximum achievable ratio cannot beat the current best. See
     /// [`EstimateFn`] for the full contract.
     Callback(Box<EstimateFn>),
+}
+
+/// Terminal answer for [`DeferredEstimate::PreflightThenSample`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SamplePreflightVerdict {
+    /// Do not sample this scheme; it cannot plausibly beat the current best.
+    Skip,
+    /// Continue with the compressor's normal sampled-ratio evaluation.
+    Sample,
 }
 
 /// Ranked estimate used for comparing non-terminal compression candidates.
@@ -195,7 +226,7 @@ pub(super) fn is_better_score(
 /// # Errors
 ///
 /// Returns an error if sample compression fails.
-pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
+pub(crate) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     compressor: &CascadingCompressor,
     scheme: &S,
     array: &ArrayRef,
@@ -210,7 +241,6 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
         let canonical: Canonical = sample(array, SAMPLE_SIZE, sample_count).execute(exec_ctx)?;
         canonical.into_array()
     };
-
     let sample_data = ArrayAndStats::new(sample_array, scheme.stats_options());
     let error_ctx = trace::enabled_error_context(&compress_ctx);
     let sample_ctx = compress_ctx.with_sampling();
@@ -239,6 +269,7 @@ impl fmt::Debug for DeferredEstimate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DeferredEstimate::Sample => write!(f, "Sample"),
+            DeferredEstimate::PreflightThenSample(_) => write!(f, "PreflightThenSample(..)"),
             DeferredEstimate::Callback(_) => write!(f, "Callback(..)"),
         }
     }
