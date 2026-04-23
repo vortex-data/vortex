@@ -45,10 +45,10 @@ pub fn get_session_context() -> SessionContext {
         .build_arc()
         .expect("could not build runtime environment");
 
-    let factory = VortexFormatFactory::new().with_options(VortexTableOptions {
-        projection_pushdown: true,
-        ..Default::default()
-    });
+    let mut options = VortexTableOptions::default();
+    options.projection_pushdown = true;
+
+    let factory = VortexFormatFactory::new().with_options(options);
 
     let mut session_state_builder = SessionStateBuilder::new()
         .with_config(SessionConfig::from_env().expect("shouldn't fail"))
