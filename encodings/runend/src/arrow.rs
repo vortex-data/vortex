@@ -157,7 +157,7 @@ mod tests {
         // Values: [10, 20, 30] means values 10, 10, 10, 20, 20, 30, 30, 30
         let run_ends = Int32Array::from(vec![3i32, 5, 8]);
         let values = Int32Array::from(vec![10, 20, 30]);
-        let arrow_run_array = RunArray::<Int32Type>::try_new(&run_ends, &values).unwrap();
+        let arrow_run_array = RunArray::<Int32Type>::try_new(&run_ends, &values)?;
 
         // Convert to Vortex
         let vortex_array = decode_run_array(&arrow_run_array, false)?;
@@ -174,7 +174,7 @@ mod tests {
         // Create an Arrow RunArray with nullable values
         let run_ends = Int32Array::from(vec![2i32, 4, 6]);
         let values = Int32Array::from(vec![Some(100), None, Some(300)]);
-        let arrow_run_array = RunArray::<Int32Type>::try_new(&run_ends, &values).unwrap();
+        let arrow_run_array = RunArray::<Int32Type>::try_new(&run_ends, &values)?;
 
         // Convert to Vortex with nullable=true
         let vortex_array = decode_run_array(&arrow_run_array, true)?;
@@ -198,7 +198,7 @@ mod tests {
         // Test with UInt64 run ends and Float64 values
         let run_ends = Int64Array::from(vec![1i64, 3, 4]);
         let values = Float64Array::from(vec![1.5, 2.5, 3.5]);
-        let arrow_run_array = RunArray::<Int64Type>::try_new(&run_ends, &values).unwrap();
+        let arrow_run_array = RunArray::<Int64Type>::try_new(&run_ends, &values)?;
 
         // Convert to Vortex
         let vortex_array = decode_run_array(&arrow_run_array, false)?;
@@ -214,7 +214,7 @@ mod tests {
         // Values: [100, 200, 300, 400] means: 100, 100, 200, 200, 200, 300, 300, 300, 400, 400
         let run_ends = Int32Array::from(vec![2i32, 5, 8, 10]);
         let values = Int32Array::from(vec![100, 200, 300, 400]);
-        let arrow_run_array = RunArray::<Int32Type>::try_new(&run_ends, &values).unwrap();
+        let arrow_run_array = RunArray::<Int32Type>::try_new(&run_ends, &values)?;
 
         // Slice the array from index 1 to 7 (length 6)
         // This should give us: 100, 200, 200, 200, 300, 300
@@ -236,7 +236,7 @@ mod tests {
         // Values: [Some(10), None, Some(30), Some(40)]
         let run_ends = Int64Array::from(vec![3i64, 6, 9, 12]);
         let values = Int64Array::from(vec![Some(10), None, Some(30), Some(40)]);
-        let arrow_run_array = RunArray::<Int64Type>::try_new(&run_ends, &values).unwrap();
+        let arrow_run_array = RunArray::<Int64Type>::try_new(&run_ends, &values)?;
 
         // Slice from index 4 to 10 (length 6)
         // Original: 10, 10, 10, null, null, null, 30, 30, 30, 40, 40, 40
@@ -267,7 +267,7 @@ mod tests {
         // Values: [Some(10), None, Some(30), Some(40)]
         let run_ends = Int64Array::from(vec![3i64, 6, 9, 12]);
         let values = Int64Array::from(vec![Some(10), None, Some(30), Some(40)]);
-        let arrow_run_array = RunArray::<Int64Type>::try_new(&run_ends, &values).unwrap();
+        let arrow_run_array = RunArray::<Int64Type>::try_new(&run_ends, &values)?;
 
         // Slice from index 4 to 4 (length 0)
         // Original: 10, 10, 10, null, null, null, 30, 30, 30, 40, 40, 40

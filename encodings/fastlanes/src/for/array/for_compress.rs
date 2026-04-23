@@ -143,7 +143,7 @@ mod test {
         // Create a range offset by a million.
         let expect = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7 + 10));
         let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
-        let bp = BitPackedData::encode(&array.into_array(), 2, &mut ctx).unwrap();
+        let bp = BitPackedData::encode(&array.into_array(), 2, &mut ctx)?;
         let compressed = FoR::try_new(bp.clone().into_array(), 10u32.into())?;
         let decompressed = fused_decompress::<u32>(&compressed, bp.as_view(), &mut ctx)?;
         assert_arrays_eq!(decompressed, expect);
@@ -154,7 +154,7 @@ mod test {
     fn test_overflow() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_iter(i8::MIN..=i8::MAX);
-        let compressed = FoRData::encode(array.clone()).unwrap();
+        let compressed = FoRData::encode(array.clone())?;
         assert_eq!(
             i8::MIN,
             compressed

@@ -11,6 +11,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use super::*;
 use crate::encodings::turboquant::turboquant_encode_unchecked;
@@ -195,8 +196,7 @@ fn all_zero_vectors_roundtrip() -> VortexResult<()> {
     let elements = PrimitiveArray::new::<f32>(buf.freeze(), Validity::NonNullable);
     let fsl = FixedSizeListArray::try_new(
         elements.into_array(),
-        dim.try_into()
-            .expect("somehow got dimension greater than u32::MAX"),
+        dim.try_into().map_err(|e| vortex_err!("{e}"))?,
         Validity::NonNullable,
         num_rows,
     )?;
@@ -245,7 +245,7 @@ fn f64_input_encodes_successfully() -> VortexResult<()> {
     let num_rows = 10;
     let dim = 128;
     let mut rng = StdRng::seed_from_u64(99);
-    let normal = Normal::new(0.0f64, 1.0).unwrap();
+    let normal = Normal::new(0.0f64, 1.0).map_err(|e| vortex_err!("{e}"))?;
 
     let mut buf = BufferMut::<f64>::with_capacity(num_rows * dim);
     for _ in 0..(num_rows * dim) {
@@ -254,7 +254,7 @@ fn f64_input_encodes_successfully() -> VortexResult<()> {
     let elements = PrimitiveArray::new::<f64>(buf.freeze(), Validity::NonNullable);
     let fsl = FixedSizeListArray::try_new(
         elements.into_array(),
-        dim.try_into().unwrap(),
+        dim.try_into().map_err(|e| vortex_err!("{e}"))?,
         Validity::NonNullable,
         num_rows,
     )?;
@@ -278,7 +278,7 @@ fn f16_input_encodes_successfully() -> VortexResult<()> {
     let num_rows = 10;
     let dim = 128;
     let mut rng = StdRng::seed_from_u64(99);
-    let normal = Normal::new(0.0f32, 1.0).unwrap();
+    let normal = Normal::new(0.0f32, 1.0).map_err(|e| vortex_err!("{e}"))?;
 
     let mut buf = BufferMut::<half::f16>::with_capacity(num_rows * dim);
     for _ in 0..(num_rows * dim) {
@@ -287,7 +287,7 @@ fn f16_input_encodes_successfully() -> VortexResult<()> {
     let elements = PrimitiveArray::new::<half::f16>(buf.freeze(), Validity::NonNullable);
     let fsl = FixedSizeListArray::try_new(
         elements.into_array(),
-        dim.try_into().unwrap(),
+        dim.try_into().map_err(|e| vortex_err!("{e}"))?,
         Validity::NonNullable,
         num_rows,
     )?;

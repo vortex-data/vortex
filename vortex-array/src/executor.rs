@@ -21,7 +21,6 @@ use std::env::VarError;
 use std::fmt;
 use std::fmt::Display;
 use std::sync::LazyLock;
-use std::sync::atomic::AtomicUsize;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -143,19 +142,25 @@ enum ExecuteLoopResult {
 /// Execution context for batch CPU compute.
 #[derive(Debug, Clone)]
 pub struct ExecutionCtx {
-    id: usize,
     session: VortexSession,
+    #[cfg(debug_assertions)]
+    id: usize,
+    #[cfg(debug_assertions)]
     ops: Vec<String>,
 }
 
 impl ExecutionCtx {
     /// Create a new execution context with the given session.
     pub fn new(session: VortexSession) -> Self {
-        static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
-        let id = EXEC_CTX_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Self {
             session,
-            id,
+            #[cfg(debug_assertions)]
+            id: {
+                static EXEC_CTX_ID: std::sync::atomic::AtomicUsize =
+                    std::sync::atomic::AtomicUsize::new(0);
+                EXEC_CTX_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            },
+            #[cfg(debug_assertions)]
             ops: Vec::new(),
         }
     }
@@ -177,20 +182,26 @@ impl ExecutionCtx {
     ///
     /// Use the [`format_args!`] macro to create the `msg` argument.
     pub fn log(&mut self, msg: fmt::Arguments<'_>) {
+        #[cfg(debug_assertions)]
         if tracing::enabled!(tracing::Level::DEBUG) {
             let formatted = format!(" - {msg}");
             tracing::trace!("exec[{}]: {formatted}", self.id);
             self.ops.push(formatted);
         }
+        let _ = msg;
     }
 }
 
 impl Display for ExecutionCtx {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "exec[{}]", self.id)
+        #[cfg(debug_assertions)]
+        return write!(f, "exec[{}]", self.id);
+        #[cfg(not(debug_assertions))]
+        write!(f, "exec")
     }
 }
 
+#[cfg(debug_assertions)]
 impl Drop for ExecutionCtx {
     fn drop(&mut self) {
         if !self.ops.is_empty() && tracing::enabled!(tracing::Level::DEBUG) {

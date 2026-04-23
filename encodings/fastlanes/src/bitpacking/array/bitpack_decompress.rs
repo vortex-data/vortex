@@ -305,11 +305,8 @@ mod tests {
         let bitpacked = encode(&zeros, 10);
         assert_eq!(bitpacked.len(), 1025);
         assert!(bitpacked.patches().is_some());
-        let slice_ref = bitpacked.into_array().slice(1023..1025).unwrap();
-        let actual = slice_ref
-            .execute::<Canonical>(&mut ctx)
-            .unwrap()
-            .into_primitive();
+        let slice_ref = bitpacked.into_array().slice(1023..1025)?;
+        let actual = slice_ref.execute::<Canonical>(&mut ctx)?.into_primitive();
         assert_arrays_eq!(actual, PrimitiveArray::from_iter([1535u16, 1536]));
         Ok(())
     }
@@ -323,11 +320,8 @@ mod tests {
         let bitpacked = encode(&zeros, 10);
         assert_eq!(bitpacked.len(), 2229);
         assert!(bitpacked.patches().is_some());
-        let slice_ref = bitpacked.into_array().slice(1023..2049).unwrap();
-        let actual = slice_ref
-            .execute::<Canonical>(&mut ctx)
-            .unwrap()
-            .into_primitive();
+        let slice_ref = bitpacked.into_array().slice(1023..2049)?;
+        let actual = slice_ref.execute::<Canonical>(&mut ctx)?.into_primitive();
         assert_arrays_eq!(
             actual,
             PrimitiveArray::from_iter((1023u16..2049).map(|x| x + 512))
@@ -380,11 +374,11 @@ mod tests {
         // Verify the validity mask was correctly applied.
         assert_eq!(result.len(), 5);
         let mut ctx = SESSION.create_execution_ctx();
-        assert!(!result.execute_scalar(0, &mut ctx).unwrap().is_null());
-        assert!(result.execute_scalar(1, &mut ctx).unwrap().is_null());
-        assert!(!result.execute_scalar(2, &mut ctx).unwrap().is_null());
-        assert!(!result.execute_scalar(3, &mut ctx).unwrap().is_null());
-        assert!(result.execute_scalar(4, &mut ctx).unwrap().is_null());
+        assert!(!result.execute_scalar(0, &mut ctx)?.is_null());
+        assert!(result.execute_scalar(1, &mut ctx)?.is_null());
+        assert!(!result.execute_scalar(2, &mut ctx)?.is_null());
+        assert!(!result.execute_scalar(3, &mut ctx)?.is_null());
+        assert!(result.execute_scalar(4, &mut ctx)?.is_null());
         Ok(())
     }
 
@@ -504,10 +498,7 @@ mod tests {
 
             let executed = {
                 let mut ctx = SESSION.create_execution_ctx();
-                bitpacked
-                    .into_array()
-                    .execute::<Canonical>(&mut ctx)
-                    .unwrap()
+                bitpacked.into_array().execute::<Canonical>(&mut ctx)?
             };
 
             assert_eq!(
@@ -530,8 +521,7 @@ mod tests {
                 let mut ctx = SESSION.create_execution_ctx();
                 unpacked_array
                     .into_array()
-                    .execute::<Canonical>(&mut ctx)
-                    .unwrap()
+                    .execute::<Canonical>(&mut ctx)?
                     .into_primitive()
             };
             assert_eq!(
@@ -560,13 +550,12 @@ mod tests {
         // Test with sliced array (offset > 0).
         let values = PrimitiveArray::from_iter(0u32..2048);
         let bitpacked = encode(&values, 11);
-        let slice_ref = bitpacked.into_array().slice(500..1500).unwrap();
+        let slice_ref = bitpacked.into_array().slice(500..1500)?;
         let sliced = {
             let mut ctx = SESSION.create_execution_ctx();
             slice_ref
                 .clone()
-                .execute::<Canonical>(&mut ctx)
-                .unwrap()
+                .execute::<Canonical>(&mut ctx)?
                 .into_primitive()
         };
 
@@ -575,7 +564,7 @@ mod tests {
         let unpacked_array = sliced;
         let executed = {
             let mut ctx = SESSION.create_execution_ctx();
-            slice_ref.execute::<Canonical>(&mut ctx).unwrap()
+            slice_ref.execute::<Canonical>(&mut ctx)?
         };
 
         assert_eq!(

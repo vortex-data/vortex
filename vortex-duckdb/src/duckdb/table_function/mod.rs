@@ -45,6 +45,18 @@ pub struct ColumnStatistics {
     pub has_null: bool,
 }
 
+// String map lifetime is managed by C++ code
+crate::lifetime_wrapper!(DuckdbStringMap, cpp::duckdb_vx_string_map, |_| {});
+impl DuckdbStringMapRef {
+    pub fn push(&mut self, key: &str, value: &str) {
+        let key = CString::new(key).unwrap_or_else(|_| CString::default());
+        let value = CString::new(value).unwrap_or_else(|_| CString::default());
+        unsafe {
+            cpp::duckdb_vx_string_map_insert(self.as_ptr(), key.as_ptr(), value.as_ptr());
+        }
+    }
+}
+
 /// A trait that defines the supported operations for a table function in DuckDB.
 ///
 /// This trait does not yet cover the full C++ API, see table_function.hpp.
@@ -154,9 +166,7 @@ pub trait TableFunction: Sized + Debug {
     ) -> VortexResult<u64>;
 
     /// Returns a vector of key-value pairs for EXPLAIN output
-    fn to_string(_bind_data: &Self::BindData) -> Option<Vec<(String, String)>> {
-        None
-    }
+    fn to_string(bind_data: &Self::BindData, map: &mut DuckdbStringMapRef);
 
     // TODO(ngates): there are many more callbacks that can be configured.
 }
@@ -223,35 +233,13 @@ impl DatabaseRef {
     }
 }
 
-/// The to_string callback for a table function.
 unsafe extern "C-unwind" fn to_string_callback<T: TableFunction>(
     bind_data: *mut c_void,
-) -> cpp::duckdb_vx_string_map {
+    map: cpp::duckdb_vx_string_map,
+) {
     let bind_data = unsafe { &*(bind_data as *const T::BindData) };
-
-    match T::to_string(bind_data) {
-        Some(map) => {
-            // Create a new C++ map
-            let cpp_map = unsafe { cpp::duckdb_vx_string_map_create() };
-
-            // Fill the map with key-value pairs
-            for (key, value) in map {
-                let key_cstr = CString::new(key).unwrap_or_else(|_| CString::default());
-                let value_cstr = CString::new(value).unwrap_or_else(|_| CString::default());
-
-                unsafe {
-                    cpp::duckdb_vx_string_map_insert(
-                        cpp_map,
-                        key_cstr.as_ptr(),
-                        value_cstr.as_ptr(),
-                    );
-                }
-            }
-
-            cpp_map
-        }
-        None => ptr::null_mut(),
-    }
+    let map = unsafe { DuckdbStringMap::borrow_mut(map) };
+    T::to_string(bind_data, map);
 }
 
 /// The native function callback for a table function.

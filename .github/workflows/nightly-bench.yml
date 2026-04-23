@@ -39,7 +39,6 @@ jobs:
             "develop_targets": [
               {"engine": "datafusion", "format": "parquet"},
               {"engine": "datafusion", "format": "vortex"},
-              {"engine": "datafusion", "format": "lance"},
               {"engine": "duckdb", "format": "parquet"},
               {"engine": "duckdb", "format": "vortex"}
             ],

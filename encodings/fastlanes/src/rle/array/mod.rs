@@ -365,7 +365,7 @@ mod tests {
     fn test_rle_serialization() -> VortexResult<()> {
         let mut exec_ctx = SESSION.create_execution_ctx();
         let primitive = PrimitiveArray::from_iter((0..2048).map(|i| (i / 100) as u32));
-        let rle_array = RLEData::encode(primitive.as_view(), &mut exec_ctx).unwrap();
+        let rle_array = RLEData::encode(primitive.as_view(), &mut exec_ctx)?;
         assert_eq!(rle_array.len(), 2048);
 
         let original_data = rle_array
@@ -374,10 +374,10 @@ mod tests {
             .execute::<PrimitiveArray>(&mut exec_ctx)?;
 
         let ctx = ArrayContext::empty();
-        let serialized = rle_array
-            .into_array()
-            .serialize(&ctx, &SESSION, &SerializeOptions::default())
-            .unwrap();
+        let serialized =
+            rle_array
+                .into_array()
+                .serialize(&ctx, &SESSION, &SerializeOptions::default())?;
 
         let mut concat = ByteBufferMut::empty();
         for buf in serialized {
@@ -385,15 +385,13 @@ mod tests {
         }
         let concat = concat.freeze();
 
-        let parts = SerializedArray::try_from(concat).unwrap();
-        let decoded = parts
-            .decode(
-                &DType::Primitive(PType::U32, Nullability::NonNullable),
-                2048,
-                &ReadContext::new(ctx.to_ids()),
-                &SESSION,
-            )
-            .unwrap();
+        let parts = SerializedArray::try_from(concat)?;
+        let decoded = parts.decode(
+            &DType::Primitive(PType::U32, Nullability::NonNullable),
+            2048,
+            &ReadContext::new(ctx.to_ids()),
+            &SESSION,
+        )?;
 
         let decoded_data = decoded.execute::<PrimitiveArray>(&mut exec_ctx)?;
 
@@ -405,7 +403,7 @@ mod tests {
     fn test_rle_serialization_slice() -> VortexResult<()> {
         let mut exec_ctx = SESSION.create_execution_ctx();
         let primitive = PrimitiveArray::from_iter((0..2048).map(|i| (i / 100) as u32));
-        let rle_array = RLEData::encode(primitive.as_view(), &mut exec_ctx).unwrap();
+        let rle_array = RLEData::encode(primitive.as_view(), &mut exec_ctx)?;
 
         let sliced = RLE::try_new(
             rle_array.values().clone(),
@@ -418,11 +416,11 @@ mod tests {
         assert_eq!(sliced.len(), 100);
 
         let ctx = ArrayContext::empty();
-        let serialized = sliced
-            .clone()
-            .into_array()
-            .serialize(&ctx, &SESSION, &SerializeOptions::default())
-            .unwrap();
+        let serialized =
+            sliced
+                .clone()
+                .into_array()
+                .serialize(&ctx, &SESSION, &SerializeOptions::default())?;
 
         let mut concat = ByteBufferMut::empty();
         for buf in serialized {
@@ -430,15 +428,13 @@ mod tests {
         }
         let concat = concat.freeze();
 
-        let parts = SerializedArray::try_from(concat).unwrap();
-        let decoded = parts
-            .decode(
-                sliced.dtype(),
-                sliced.len(),
-                &ReadContext::new(ctx.to_ids()),
-                &SESSION,
-            )
-            .unwrap();
+        let parts = SerializedArray::try_from(concat)?;
+        let decoded = parts.decode(
+            sliced.dtype(),
+            sliced.len(),
+            &ReadContext::new(ctx.to_ids()),
+            &SESSION,
+        )?;
 
         let original_data = sliced
             .as_array()

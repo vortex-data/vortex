@@ -158,12 +158,7 @@ mod test {
             .execute::<PrimitiveArray>(&mut ctx)?;
 
         assert_arrays_eq!(primitive_values, milliseconds);
-        assert!(
-            primitive_values
-                .validity()
-                .unwrap()
-                .mask_eq(&validity, &mut ctx)?
-        );
+        assert!(primitive_values.validity()?.mask_eq(&validity, &mut ctx)?);
         Ok(())
     }
 }

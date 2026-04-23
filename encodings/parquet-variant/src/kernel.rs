@@ -135,9 +135,8 @@ mod tests {
             inner.fields().clone(),
             inner.columns().to_vec(),
             Some(NullBuffer::from(vec![true, false, true, false])),
-        )
-        .unwrap();
-        let arrow_variant = ArrowVariantArray::try_new(&null_struct).unwrap();
+        )?;
+        let arrow_variant = ArrowVariantArray::try_new(&null_struct)?;
         ParquetVariantData::from_arrow_variant(&arrow_variant)
     }
 
@@ -306,9 +305,8 @@ mod tests {
             .into(),
             vec![metadata, typed_value],
             None,
-        )
-        .unwrap();
-        let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
+        )?;
+        let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
         let arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
 
         let sliced = arr.slice(1..3)?;
