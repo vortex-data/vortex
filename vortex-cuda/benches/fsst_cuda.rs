@@ -22,6 +22,7 @@ use vortex::session::VortexSession;
 use vortex_cuda::CudaBufferExt;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
+use vortex_cuda::DEFAULT_SPLIT_COMPRESSED_BYTES;
 use vortex_cuda::FsstKernelPrep;
 use vortex_cuda::fsst_kernel_prepare;
 use vortex_cuda_macros::cuda_available;
@@ -39,13 +40,13 @@ async fn execute_fsst_kernel(
     cuda_ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Duration> {
     let codes_bytes_view = prep.codes_bytes.cuda_view::<u8>()?;
-    let codes_offsets_view = prep.codes_offsets.cuda_view::<i32>()?;
+    let split_in_view = prep.split_in_offsets.cuda_view::<i32>()?;
+    let split_out_view = prep.split_out_offsets.cuda_view::<i32>()?;
     let symbols_view = prep.symbols.cuda_view::<u64>()?;
     let symbol_lengths_view = prep.symbol_lengths.cuda_view::<u8>()?;
-    let output_offsets_view = prep.output_offsets.cuda_view::<i32>()?;
 
     let cuda_function = cuda_ctx.load_function("fsst_decompress", &[])?;
-    let num_strings_u64 = prep.num_strings as u64;
+    let num_splits_u64 = prep.num_splits as u64;
 
     let stream = cuda_ctx.stream();
     let ctx = stream.context();
@@ -57,14 +58,14 @@ async fn execute_fsst_kernel(
         .record(stream)
         .map_err(|e| vortex_err!("failed to record start event: {:?}", e))?;
 
-    cuda_ctx.launch_kernel(&cuda_function, prep.num_strings, |args| {
+    cuda_ctx.launch_kernel(&cuda_function, prep.num_splits, |args| {
         args.arg(&codes_bytes_view)
-            .arg(&codes_offsets_view)
+            .arg(&split_in_view)
+            .arg(&split_out_view)
             .arg(&symbols_view)
             .arg(&symbol_lengths_view)
-            .arg(&output_offsets_view)
             .arg(&prep.device_output)
-            .arg(&num_strings_u64);
+            .arg(&num_splits_u64);
     })?;
 
     let stream = cuda_ctx.stream();
@@ -104,8 +105,12 @@ fn benchmark_fsst_cuda_decompress(c: &mut Criterion) {
                         .vortex_expect("failed to create cuda execution context");
                     let mut total_time = Duration::ZERO;
                     for _ in 0..iters {
-                        let prep = block_on(fsst_kernel_prepare(array.clone(), &mut cuda_ctx))
-                            .vortex_expect("kernel setup failed");
+                        let prep = block_on(fsst_kernel_prepare(
+                            array.clone(),
+                            DEFAULT_SPLIT_COMPRESSED_BYTES,
+                            &mut cuda_ctx,
+                        ))
+                        .vortex_expect("kernel setup failed");
                         let kernel_time = block_on(execute_fsst_kernel(&prep, &mut cuda_ctx))
                             .vortex_expect("kernel execution failed");
                         total_time += kernel_time;

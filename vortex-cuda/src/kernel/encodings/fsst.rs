@@ -15,8 +15,6 @@ use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::VarBinViewArray;
-use vortex::array::arrays::primitive::PrimitiveDataParts;
-use vortex::array::arrays::varbin::VarBinArrayExt;
 use vortex::array::arrays::varbinview::BinaryView;
 use vortex::array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use vortex::array::arrays::varbinview::build_views::build_views;
@@ -37,22 +35,33 @@ use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
 
+/// Default target compressed-byte size per split used by [`FsstExecutor`].
+/// Each split is a code-boundary-aligned chunk of the compressed stream that
+/// one GPU thread decodes. Smaller → more parallel units + more coalescing,
+/// larger → lower per-thread overhead.
+pub const DEFAULT_SPLIT_COMPRESSED_BYTES: usize = 32;
+
 /// FSST kernel execution parameters prepared from a compressed array.
+///
+/// The kernel's parallelism unit is a **split**: a code-boundary-aligned chunk
+/// of the compressed stream, ~`target_split_bytes` compressed bytes long. Each
+/// GPU thread decodes one split. This is the GSST-style layout, computed at
+/// prep time by a CPU pre-pass over `codes_bytes`.
 pub struct FsstKernelPrep {
     /// Compressed codes byte stream on device.
     pub codes_bytes: BufferHandle,
-    /// Per-string compressed offsets into `codes_bytes` (I32).
-    pub codes_offsets: BufferHandle,
+    /// Per-split start offsets into `codes_bytes` (I32). Length = num_splits + 1.
+    pub split_in_offsets: BufferHandle,
+    /// Per-split start offsets into the output buffer (I32). Length = num_splits + 1.
+    pub split_out_offsets: BufferHandle,
     /// Symbol table (256 × u64).
     pub symbols: BufferHandle,
     /// Per-symbol byte length (256 × u8).
     pub symbol_lengths: BufferHandle,
-    /// Per-string prefix-summed output offsets (I32).
-    pub output_offsets: BufferHandle,
     /// Preallocated device output buffer (sized `total_size + 7`).
     pub device_output: CudaSlice<u8>,
-    /// Number of strings in the array.
-    pub num_strings: usize,
+    /// Number of splits the kernel will decode in parallel.
+    pub num_splits: usize,
     /// Total decoded bytes (sum of uncompressed_lens).
     pub total_size: usize,
     /// Canonicalized uncompressed_lens PrimitiveArray, kept for the post-kernel `build_views` call.
@@ -61,31 +70,27 @@ pub struct FsstKernelPrep {
 
 /// Prepare FSST kernel parameters and device buffers for decompression.
 ///
-/// Asserts the stored ptypes for `codes_offsets` and `uncompressed_lengths` are
-/// both `I32`. File-loaded FSST arrays with narrower slot ptypes (U8 / U16 / U32)
-/// are not yet supported and will return an error.
+/// Runs a CPU pre-pass over `codes_bytes` tracking `in_pos` + `out_pos`,
+/// emitting a split boundary at the next code boundary every time consumed
+/// compressed bytes reach `target_split_bytes`. Splits never land mid-escape.
+///
+/// Asserts the stored ptype for `uncompressed_lengths` is `I32`. File-loaded
+/// FSST arrays with narrower slot ptypes (U8 / U16 / U32) are not yet
+/// supported and will return an error.
 pub async fn fsst_kernel_prepare(
     fsst: FSSTArray,
+    target_split_bytes: usize,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<FsstKernelPrep> {
-    let num_strings = fsst.len();
+    if target_split_bytes == 0 {
+        vortex_bail!("target_split_bytes must be > 0");
+    }
 
-    let codes_offsets = fsst
-        .codes()
-        .offsets()
-        .clone()
-        .execute::<PrimitiveArray>(ctx.execution_ctx())?;
     let uncompressed_lens_array = fsst
         .uncompressed_lengths()
         .clone()
         .execute::<PrimitiveArray>(ctx.execution_ctx())?;
 
-    if codes_offsets.ptype() != PType::I32 {
-        vortex_bail!(
-            "CUDA FSST decode: expected codes_offsets ptype I32, got {} (not yet implemented)",
-            codes_offsets.ptype()
-        );
-    }
     if uncompressed_lens_array.ptype() != PType::I32 {
         vortex_bail!(
             "CUDA FSST decode: expected uncompressed_lens ptype I32, got {} (not yet implemented)",
@@ -93,53 +98,84 @@ pub async fn fsst_kernel_prepare(
         );
     }
 
-    // CPU-side prefix sum of uncompressed lengths → Vec<i32> output offsets.
-    let lens_slice = uncompressed_lens_array.as_slice::<i32>();
-    let mut output_offsets = Vec::with_capacity(num_strings + 1);
-    let mut acc: i64 = 0;
-    output_offsets.push(0i32);
-    for &len in lens_slice {
-        acc += i64::from(len);
-        let off = i32::try_from(acc).map_err(|_| {
+    let codes_bytes_host = fsst.codes_bytes().as_slice();
+    let symbol_lengths_buf = fsst.symbol_lengths();
+    let symbol_lengths_host = symbol_lengths_buf.as_slice();
+
+    let capacity = codes_bytes_host.len() / target_split_bytes + 2;
+    let mut split_in_offsets = Vec::<i32>::with_capacity(capacity);
+    let mut split_out_offsets = Vec::<i32>::with_capacity(capacity);
+    split_in_offsets.push(0);
+    split_out_offsets.push(0);
+
+    let mut in_pos: usize = 0;
+    let mut out_pos: i64 = 0;
+    let mut split_start_in: usize = 0;
+
+    while in_pos < codes_bytes_host.len() {
+        let code = codes_bytes_host[in_pos];
+        if code == 255 {
+            in_pos += 2;
+            out_pos += 1;
+        } else {
+            let len = i64::from(symbol_lengths_host[code as usize]);
+            in_pos += 1;
+            out_pos += len;
+        }
+
+        if in_pos - split_start_in >= target_split_bytes {
+            split_in_offsets.push(
+                i32::try_from(in_pos).map_err(|_| vortex_err!("codes_bytes exceeds i32::MAX"))?,
+            );
+            split_out_offsets.push(i32::try_from(out_pos).map_err(|_| {
+                vortex_err!(
+                    "FSST decoded output size exceeds MAX_BUFFER_LEN ({})",
+                    MAX_BUFFER_LEN
+                )
+            })?);
+            split_start_in = in_pos;
+        }
+    }
+    if in_pos > split_start_in {
+        split_in_offsets
+            .push(i32::try_from(in_pos).map_err(|_| vortex_err!("codes_bytes exceeds i32::MAX"))?);
+        split_out_offsets.push(i32::try_from(out_pos).map_err(|_| {
             vortex_err!(
                 "FSST decoded output size exceeds MAX_BUFFER_LEN ({})",
                 MAX_BUFFER_LEN
             )
-        })?;
-        output_offsets.push(off);
+        })?);
     }
-    let total_size = usize::try_from(acc)
-        .map_err(|_| vortex_err!("FSST output size overflow (unreachable — bounded above)"))?;
+
+    let num_splits = split_in_offsets.len() - 1;
+    let total_size = usize::try_from(out_pos).map_err(|_| vortex_err!("output size overflow"))?;
 
     let symbols_u64: Vec<u64> = fsst.symbols().iter().map(|s| s.to_u64()).collect();
     let symbol_lengths = fsst.symbol_lengths().clone();
     let codes_bytes_handle = fsst.codes_bytes_handle().clone();
-    let PrimitiveDataParts {
-        buffer: codes_offsets_handle,
-        ..
-    } = codes_offsets.into_data_parts();
 
     let symbols_fut = ctx.copy_to_device(symbols_u64)?;
     let symbol_lengths_fut = ctx.copy_to_device(symbol_lengths)?;
-    let output_offsets_fut = ctx.copy_to_device(output_offsets)?;
+    let split_in_fut = ctx.copy_to_device(split_in_offsets)?;
+    let split_out_fut = ctx.copy_to_device(split_out_offsets)?;
 
     let codes_bytes = ctx.ensure_on_device(codes_bytes_handle).await?;
-    let codes_offsets = ctx.ensure_on_device(codes_offsets_handle).await?;
 
     let symbols = symbols_fut.await?;
     let symbol_lengths = symbol_lengths_fut.await?;
-    let output_offsets = output_offsets_fut.await?;
+    let split_in_offsets = split_in_fut.await?;
+    let split_out_offsets = split_out_fut.await?;
 
     let device_output = ctx.device_alloc::<u8>(total_size + 7)?;
 
     Ok(FsstKernelPrep {
         codes_bytes,
-        codes_offsets,
+        split_in_offsets,
+        split_out_offsets,
         symbols,
         symbol_lengths,
-        output_offsets,
         device_output,
-        num_strings,
+        num_splits,
         total_size,
         uncompressed_lens_array,
     })
@@ -179,20 +215,19 @@ impl CudaExecute for FsstExecutor {
             return Ok(Canonical::VarBinView(empty));
         }
 
-        let prep = fsst_kernel_prepare(fsst, ctx).await?;
+        let prep = fsst_kernel_prepare(fsst, DEFAULT_SPLIT_COMPRESSED_BYTES, ctx).await?;
 
         // Scope the views so they're dropped before `prep.device_output` is moved.
         {
             let codes_bytes_view = prep.codes_bytes.cuda_view::<u8>()?;
-            let codes_offsets_view = prep.codes_offsets.cuda_view::<i32>()?;
+            let split_in_view = prep.split_in_offsets.cuda_view::<i32>()?;
+            let split_out_view = prep.split_out_offsets.cuda_view::<i32>()?;
             let symbols_view = prep.symbols.cuda_view::<u64>()?;
             let symbol_lengths_view = prep.symbol_lengths.cuda_view::<u8>()?;
-            let output_offsets_view = prep.output_offsets.cuda_view::<i32>()?;
 
-            // The aligned-output optimization in the fsst_decompress kernel
-            // requires an 8-byte-aligned base pointer. cudaMalloc returns ≥256-
-            // aligned pointers, so this should always hold; the assertion
-            // guards against allocator regressions.
+            // The aligned-output optimization requires an 8-byte-aligned base
+            // pointer. cudaMalloc returns ≥256-aligned pointers, so this
+            // should always hold; the assertion guards against allocator regressions.
             let (output_base_ptr, _) = prep.device_output.device_ptr(ctx.stream());
             assert_eq!(
                 output_base_ptr % 8,
@@ -202,15 +237,15 @@ impl CudaExecute for FsstExecutor {
             );
 
             let cuda_function = ctx.load_function("fsst_decompress", &[])?;
-            let num_strings_u64 = prep.num_strings as u64;
-            ctx.launch_kernel(&cuda_function, prep.num_strings, |args| {
+            let num_splits_u64 = prep.num_splits as u64;
+            ctx.launch_kernel(&cuda_function, prep.num_splits, |args| {
                 args.arg(&codes_bytes_view)
-                    .arg(&codes_offsets_view)
+                    .arg(&split_in_view)
+                    .arg(&split_out_view)
                     .arg(&symbols_view)
                     .arg(&symbol_lengths_view)
-                    .arg(&output_offsets_view)
                     .arg(&prep.device_output)
-                    .arg(&num_strings_u64);
+                    .arg(&num_splits_u64);
             })?;
         }
 
@@ -239,10 +274,6 @@ impl CudaExecute for FsstExecutor {
     }
 }
 
-// This test will FAIL until the `fsst_decode` kernel body in
-// `vortex-cuda/kernels/src/fsst.cu` is filled in. The scaffolding stub writes
-// zeros across each thread's output range, so the GPU-side canonical output is
-// all-zero bytes and won't match the CPU reference.
 #[cfg(test)]
 mod tests {
     use vortex::array::IntoArray;
@@ -293,10 +324,9 @@ mod tests {
         Ok(())
     }
 
-    /// Exercises the multi-block grid-stride path. With 100K strings, the launch
-    /// spans ~49 blocks of 2048 strings each, so every thread cycles through its
-    /// 32-string share. A bug where threads only handle their first string (or
-    /// the wrong stride) would leave most outputs zero and fail this assertion.
+    /// Exercises the multi-block grid-stride path on a larger dataset. With
+    /// 100K strings and ~17 compressed bytes each, the launch produces
+    /// thousands of splits spanning many blocks.
     #[crate::test]
     async fn test_cuda_fsst_decompression_roundtrip_large() -> VortexResult<()> {
         use vortex_fsst::test_utils::make_fsst_clickbench_urls;

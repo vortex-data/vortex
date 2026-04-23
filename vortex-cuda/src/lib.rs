@@ -39,6 +39,7 @@ use kernel::DictExecutor;
 use kernel::FilterExecutor;
 use kernel::FoRExecutor;
 use kernel::FsstExecutor;
+pub use kernel::DEFAULT_SPLIT_COMPRESSED_BYTES;
 pub use kernel::FsstKernelPrep;
 pub use kernel::LaunchStrategy;
 use kernel::RunEndExecutor;

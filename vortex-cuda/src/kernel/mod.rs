@@ -30,6 +30,7 @@ mod slice;
 pub(crate) use arrays::ConstantNumericExecutor;
 pub(crate) use arrays::DictExecutor;
 pub(crate) use arrays::SharedExecutor;
+pub use encodings::DEFAULT_SPLIT_COMPRESSED_BYTES;
 pub use encodings::FsstKernelPrep;
 pub use encodings::ZstdKernelPrep;
 pub use encodings::fsst_kernel_prepare;

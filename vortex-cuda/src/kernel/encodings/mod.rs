@@ -20,6 +20,7 @@ pub(crate) use date_time_parts::DateTimePartsExecutor;
 pub(crate) use decimal_byte_parts::DecimalBytePartsExecutor;
 pub(crate) use for_::FoRExecutor;
 pub(crate) use fsst::FsstExecutor;
+pub use fsst::DEFAULT_SPLIT_COMPRESSED_BYTES;
 pub use fsst::FsstKernelPrep;
 pub use fsst::fsst_kernel_prepare;
 pub(crate) use runend::RunEndExecutor;
