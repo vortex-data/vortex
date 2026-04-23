@@ -81,7 +81,7 @@ pub struct SorfOptions {
     pub num_rounds: u8,
     /// Original vector dimension (before power-of-2 padding). The output
     /// [`Vector`](crate::vector::Vector) has this dimension.
-    pub dimension: u32,
+    pub dimensions: u32,
     /// Element type of the output [`Vector`](crate::vector::Vector). The child input must always
     /// be `f32`, but the output can be any float type (`F16`, `F32`, `F64`); the final
     /// `f32 -> element_ptype` cast happens while building the output.
@@ -137,7 +137,7 @@ impl fmt::Display for SorfOptions {
         write!(
             f,
             "SorfOptions(seed={}, rounds={}, dim={}, ptype={})",
-            self.seed, self.num_rounds, self.dimension, self.element_ptype
+            self.seed, self.num_rounds, self.dimensions, self.element_ptype
         )
     }
 }

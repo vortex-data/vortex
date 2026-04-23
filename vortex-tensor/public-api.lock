@@ -28,7 +28,7 @@ pub vortex_tensor::encodings::turboquant::TurboQuantConfig::bit_width: u8
 
 pub vortex_tensor::encodings::turboquant::TurboQuantConfig::num_rounds: u8
 
-pub vortex_tensor::encodings::turboquant::TurboQuantConfig::seed: core::option::Option<u64>
+pub vortex_tensor::encodings::turboquant::TurboQuantConfig::seed: u64
 
 impl core::clone::Clone for vortex_tensor::encodings::turboquant::TurboQuantConfig
 
@@ -440,11 +440,11 @@ pub fn vortex_tensor::scalar_fns::sorf_transform::SorfMatrix::padded_dim(&self) 
 
 pub fn vortex_tensor::scalar_fns::sorf_transform::SorfMatrix::rotate(&self, input: &[f32], output: &mut [f32])
 
-pub fn vortex_tensor::scalar_fns::sorf_transform::SorfMatrix::try_new(seed: u64, dimension: usize, num_rounds: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_tensor::scalar_fns::sorf_transform::SorfMatrix::try_new(seed: u64, dimensions: usize, num_rounds: usize) -> vortex_error::VortexResult<Self>
 
 pub struct vortex_tensor::scalar_fns::sorf_transform::SorfOptions
 
-pub vortex_tensor::scalar_fns::sorf_transform::SorfOptions::dimension: u32
+pub vortex_tensor::scalar_fns::sorf_transform::SorfOptions::dimensions: u32
 
 pub vortex_tensor::scalar_fns::sorf_transform::SorfOptions::element_ptype: vortex_array::dtype::ptype::PType
 
@@ -490,7 +490,7 @@ pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::clone(&self) ->
 
 impl vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable for vortex_tensor::scalar_fns::sorf_transform::SorfTransform
 
-pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts<Self>>
+pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts<Self>>
 
 pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::serialize(&self, view: &vortex_array::arrays::scalar_fn::vtable::ScalarFnArrayView<'_, Self>, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 

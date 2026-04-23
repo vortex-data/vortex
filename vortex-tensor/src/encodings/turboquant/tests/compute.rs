@@ -40,7 +40,7 @@ fn slice_preserves_data() -> VortexResult<()> {
     let ext = make_vector_ext(&fsl);
     let config = TurboQuantConfig {
         bit_width: 3,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 4,
     };
     let mut ctx = SESSION.create_execution_ctx();
@@ -85,7 +85,7 @@ fn scalar_at_matches_decompress() -> VortexResult<()> {
     let ext = make_vector_ext(&fsl);
     let config = TurboQuantConfig {
         bit_width: 3,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 2,
     };
     let mut ctx = SESSION.create_execution_ctx();
@@ -108,7 +108,7 @@ fn l2_norm_readthrough() -> VortexResult<()> {
     let ext = make_vector_ext(&fsl);
     let config = TurboQuantConfig {
         bit_width: 3,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 5,
     };
     let mut ctx = SESSION.create_execution_ctx();
@@ -146,7 +146,7 @@ fn l2_norm_readthrough_is_authoritative_for_lossy_storage() -> VortexResult<()> 
     let ext = make_vector_ext(&fsl);
     let config = TurboQuantConfig {
         bit_width: 1,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
@@ -183,7 +183,7 @@ fn cosine_similarity_readthrough_is_authoritative_for_lossy_storage() -> VortexR
     let ext = make_vector_ext(&fsl);
     let config = TurboQuantConfig {
         bit_width: 1,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();

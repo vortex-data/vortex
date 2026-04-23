@@ -36,7 +36,7 @@ static CENTROID_CACHE: LazyLock<DashMap<(u32, u8), Buffer<f32>>> = LazyLock::new
 /// Returns `2^bit_width` centroids sorted in ascending order, representing optimal scalar
 /// quantization levels for the coordinate distribution after random rotation in
 /// `dimension`-dimensional space.
-pub fn get_centroids(dimension: u32, bit_width: u8) -> VortexResult<Buffer<f32>> {
+pub fn compute_or_get_centroids(dimension: u32, bit_width: u8) -> VortexResult<Buffer<f32>> {
     vortex_ensure!(
         (1..=MAX_BIT_WIDTH).contains(&bit_width),
         "TurboQuant bit_width must be 1-{}, got {bit_width}",
@@ -239,7 +239,7 @@ mod tests {
         #[case] bits: u8,
         #[case] expected: usize,
     ) -> VortexResult<()> {
-        let centroids = get_centroids(dim, bits)?;
+        let centroids = compute_or_get_centroids(dim, bits)?;
         assert_eq!(centroids.len(), expected);
         Ok(())
     }
@@ -251,7 +251,7 @@ mod tests {
     #[case(128, 4)]
     #[case(768, 2)]
     fn centroids_are_sorted(#[case] dim: u32, #[case] bits: u8) -> VortexResult<()> {
-        let centroids = get_centroids(dim, bits)?;
+        let centroids = compute_or_get_centroids(dim, bits)?;
         for window in centroids.windows(2) {
             assert!(
                 window[0] < window[1],
@@ -268,7 +268,7 @@ mod tests {
     #[case(256, 2)]
     #[case(768, 2)]
     fn centroids_are_symmetric(#[case] dim: u32, #[case] bits: u8) -> VortexResult<()> {
-        let centroids = get_centroids(dim, bits)?;
+        let centroids = compute_or_get_centroids(dim, bits)?;
         let count = centroids.len();
         for idx in 0..count / 2 {
             let diff = (centroids[idx] + centroids[count - 1 - idx]).abs();
@@ -287,7 +287,7 @@ mod tests {
     #[case(128, 1)]
     #[case(128, 4)]
     fn centroids_within_bounds(#[case] dim: u32, #[case] bits: u8) -> VortexResult<()> {
-        let centroids = get_centroids(dim, bits)?;
+        let centroids = compute_or_get_centroids(dim, bits)?;
         for &val in centroids.iter() {
             assert!(
                 (-1.0..=1.0).contains(&val),
@@ -299,15 +299,15 @@ mod tests {
 
     #[test]
     fn centroids_cached() -> VortexResult<()> {
-        let c1 = get_centroids(128, 2)?;
-        let c2 = get_centroids(128, 2)?;
+        let c1 = compute_or_get_centroids(128, 2)?;
+        let c2 = compute_or_get_centroids(128, 2)?;
         assert_eq!(c1, c2);
         Ok(())
     }
 
     #[test]
     fn find_nearest_basic() -> VortexResult<()> {
-        let centroids = get_centroids(128, 2)?;
+        let centroids = compute_or_get_centroids(128, 2)?;
         let boundaries = compute_centroid_boundaries(&centroids);
         assert_eq!(find_nearest_centroid(-1.0, &boundaries), 0);
 
@@ -324,9 +324,9 @@ mod tests {
 
     #[test]
     fn rejects_invalid_params() {
-        assert!(get_centroids(128, 0).is_err());
-        assert!(get_centroids(128, 9).is_err());
-        assert!(get_centroids(1, 2).is_err());
-        assert!(get_centroids(127, 2).is_err());
+        assert!(compute_or_get_centroids(128, 0).is_err());
+        assert!(compute_or_get_centroids(128, 9).is_err());
+        assert!(compute_or_get_centroids(1, 2).is_err());
+        assert!(compute_or_get_centroids(127, 2).is_err());
     }
 }
