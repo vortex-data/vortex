@@ -3,6 +3,9 @@
 
 //! Fixed-shape Tensor extension type.
 
+/// Vortex extension id for [`FixedShapeTensor`].
+pub(crate) const ID: &str = "vortex.tensor.fixed_shape_tensor";
+
 /// The VTable for the Tensor extension type.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct FixedShapeTensor;

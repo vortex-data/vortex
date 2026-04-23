@@ -6,6 +6,7 @@
 //! similarity.
 
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
+use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_array::session::ArraySessionExt;
@@ -42,8 +43,11 @@ pub const SCALAR_FN_ARRAY_TENSOR_PLUGIN_ENV: &str = "VX_SCALAR_FN_ARRAY_TENSOR_P
 
 /// Initialize the Vortex tensor library with a Vortex session.
 pub fn initialize(session: &VortexSession) {
-    session.dtypes().register(Vector);
-    session.dtypes().register(FixedShapeTensor);
+    let dtypes = session.dtypes();
+    dtypes.register(Vector);
+    dtypes.register(FixedShapeTensor);
+    dtypes.register_arrow_canonical(ExtId::new(fixed_shape::ID), "arrow.fixed_shape_tensor");
+    drop(dtypes);
 
     let session_fns = session.scalar_fns();
 

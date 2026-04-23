@@ -12,7 +12,7 @@ use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::dtype::arrow::FromArrowWithSession;
+use vortex_array::dtype::arrow::FromArrowType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
@@ -114,7 +114,7 @@ fn fixed_shape_tensor_metadata_roundtrip() {
         Nullability::NonNullable,
     );
 
-    let schema = original.to_arrow_schema().unwrap();
+    let schema = original.to_arrow_schema_with_session(&SESSION).unwrap();
     let field = schema.field(0);
 
     assert_eq!(

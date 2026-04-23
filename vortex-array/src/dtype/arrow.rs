@@ -55,45 +55,23 @@ use crate::extension::datetime::Timestamp;
 
 const ARROW_EXT_NAME_VARIANT: &str = "arrow.parquet.variant";
 
-/// `(vortex_id, arrow_canonical_name)` pairs — single source of truth for bijection between
-/// Vortex-internal extension ids and Arrow canonical extension names. Canonical extensions
-/// serialize metadata as raw UTF-8 (typically JSON) rather than base64-wrapped bytes.
-const CANONICAL_ALIASES: &[(&str, &str)] =
-    &[("vortex.fixed_shape_tensor", "arrow.fixed_shape_tensor")];
-
-fn vortex_id_to_arrow_canonical(vortex_id: &str) -> Option<&'static str> {
-    CANONICAL_ALIASES
-        .iter()
-        .find(|(v, _)| *v == vortex_id)
-        .map(|(_, a)| *a)
-}
-
-fn arrow_canonical_to_vortex_id(arrow_name: &str) -> Option<&'static str> {
-    CANONICAL_ALIASES
-        .iter()
-        .find(|(_, a)| *a == arrow_name)
-        .map(|(v, _)| *v)
-}
-
 /// Trait for converting Arrow types to Vortex types.
 pub trait FromArrowType<T>: Sized {
     /// Convert the Arrow type to a Vortex type.
     fn from_arrow(value: T) -> Self;
+
+    /// Convert the Arrow type to a Vortex type, consulting `session` for extension lookup.
+    ///
+    /// Unregistered or malformed extension metadata falls back to the storage dtype.
+    fn from_arrow_with_session(value: T, _session: &VortexSession) -> Self {
+        Self::from_arrow(value)
+    }
 }
 
 /// Trait for converting Vortex types to Arrow types.
 pub trait TryFromArrowType<T>: Sized {
     /// Convert the Arrow type to a Vortex type.
     fn try_from_arrow(value: T) -> VortexResult<Self>;
-}
-
-/// Conversion from Arrow types to Vortex types using a session's extension dtype registry to
-/// resolve `ARROW:extension:name` metadata into [`DType::Extension`] values.
-///
-/// Unregistered or malformed extension metadata falls back to the storage dtype.
-pub trait FromArrowWithSession<T>: Sized {
-    /// Convert the Arrow type to a Vortex type.
-    fn from_arrow_with_session(value: T, session: &VortexSession) -> Self;
 }
 
 impl TryFromArrowType<&DataType> for PType {
@@ -167,7 +145,11 @@ impl TryFrom<TimeUnit> for ArrowTimeUnit {
 
 impl FromArrowType<SchemaRef> for DType {
     fn from_arrow(value: SchemaRef) -> Self {
-        Self::from_arrow_with_session(value.as_ref(), &LEGACY_SESSION)
+        Self::from_arrow_with_session(value, &LEGACY_SESSION)
+    }
+
+    fn from_arrow_with_session(value: SchemaRef, session: &VortexSession) -> Self {
+        Self::from_arrow_with_session(value.as_ref(), session)
     }
 }
 
@@ -175,21 +157,7 @@ impl FromArrowType<&Schema> for DType {
     fn from_arrow(value: &Schema) -> Self {
         Self::from_arrow_with_session(value, &LEGACY_SESSION)
     }
-}
 
-impl FromArrowType<&Fields> for StructFields {
-    fn from_arrow(value: &Fields) -> Self {
-        Self::from_arrow_with_session(value, &LEGACY_SESSION)
-    }
-}
-
-impl FromArrowWithSession<&SchemaRef> for DType {
-    fn from_arrow_with_session(value: &SchemaRef, session: &VortexSession) -> Self {
-        Self::from_arrow_with_session(value.as_ref(), session)
-    }
-}
-
-impl FromArrowWithSession<&Schema> for DType {
     fn from_arrow_with_session(value: &Schema, session: &VortexSession) -> Self {
         Self::Struct(
             StructFields::from_arrow_with_session(value.fields(), session),
@@ -198,7 +166,11 @@ impl FromArrowWithSession<&Schema> for DType {
     }
 }
 
-impl FromArrowWithSession<&Fields> for StructFields {
+impl FromArrowType<&Fields> for StructFields {
+    fn from_arrow(value: &Fields) -> Self {
+        Self::from_arrow_with_session(value, &LEGACY_SESSION)
+    }
+
     fn from_arrow_with_session(value: &Fields, session: &VortexSession) -> Self {
         let dtypes = session.dtypes();
         StructFields::from_iter(value.into_iter().map(|f| {
@@ -272,9 +244,7 @@ impl FromArrowType<&Field> for DType {
     fn from_arrow(field: &Field) -> Self {
         Self::from_arrow_with_session(field, &LEGACY_SESSION)
     }
-}
 
-impl FromArrowWithSession<&Field> for DType {
     fn from_arrow_with_session(field: &Field, session: &VortexSession) -> Self {
         dtype_from_field(field, &session.dtypes())
     }
@@ -297,9 +267,9 @@ fn dtype_from_field(field: &Field, dtypes: &DTypeSession) -> DType {
         return storage_dtype;
     };
 
-    let canonical_alias = arrow_canonical_to_vortex_id(ext_name);
+    let canonical_alias = dtypes.vortex_id_for_arrow_canonical(ext_name);
     let is_canonical = canonical_alias.is_some();
-    let ext_id = ExtId::new(canonical_alias.unwrap_or(ext_name));
+    let ext_id = canonical_alias.unwrap_or_else(|| ExtId::new(ext_name));
 
     let Some(plugin) = dtypes.registry().find(&ext_id) else {
         tracing::warn!(
@@ -386,6 +356,12 @@ fn storage_dtype_from_field(field: &Field, dtypes: &DTypeSession) -> DType {
 impl DType {
     /// Convert a Vortex [`DType`] into an Arrow [`Schema`].
     pub fn to_arrow_schema(&self) -> VortexResult<Schema> {
+        self.to_arrow_schema_with_session(&LEGACY_SESSION)
+    }
+
+    /// Convert a Vortex [`DType`] into an Arrow [`Schema`], consulting `session` for Arrow
+    /// canonical extension aliases registered via [`DTypeSession::register_arrow_canonical`].
+    pub fn to_arrow_schema_with_session(&self, session: &VortexSession) -> VortexResult<Schema> {
         let DType::Struct(struct_dtype, nullable) = self else {
             vortex_bail!("only DType::Struct can be converted to arrow schema");
         };
@@ -394,9 +370,14 @@ impl DType {
             vortex_bail!("top-level struct in Schema must be NonNullable");
         }
 
+        let dtypes = session.dtypes();
         let mut builder = SchemaBuilder::with_capacity(struct_dtype.names().len());
         for (field_name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
-            builder.push(field_from_dtype(field_name.as_ref(), &field_dtype)?);
+            builder.push(field_from_dtype(
+                field_name.as_ref(),
+                &field_dtype,
+                &dtypes,
+            )?);
         }
 
         Ok(builder.finish())
@@ -404,84 +385,90 @@ impl DType {
 
     /// Returns the Arrow [`DataType`] that best corresponds to this Vortex [`DType`].
     pub fn to_arrow_dtype(&self) -> VortexResult<DataType> {
-        Ok(match self {
-            DType::Null => DataType::Null,
-            DType::Bool(_) => DataType::Boolean,
-            DType::Primitive(ptype, _) => match ptype {
-                PType::U8 => DataType::UInt8,
-                PType::U16 => DataType::UInt16,
-                PType::U32 => DataType::UInt32,
-                PType::U64 => DataType::UInt64,
-                PType::I8 => DataType::Int8,
-                PType::I16 => DataType::Int16,
-                PType::I32 => DataType::Int32,
-                PType::I64 => DataType::Int64,
-                PType::F16 => DataType::Float16,
-                PType::F32 => DataType::Float32,
-                PType::F64 => DataType::Float64,
-            },
-            DType::Decimal(dt, _) => {
-                let precision = dt.precision();
-                let scale = dt.scale();
+        to_arrow_dtype_with_dtypes(self, &LEGACY_SESSION.dtypes())
+    }
+}
 
-                match precision {
-                    // This code is commented out until DataFusion improves its support for smaller decimals.
-                    // // DECIMAL32_MAX_PRECISION
-                    // 0..=9 => DataType::Decimal32(precision, scale),
-                    // // DECIMAL64_MAX_PRECISION
-                    // 10..=18 => DataType::Decimal64(precision, scale),
-                    // DECIMAL128_MAX_PRECISION
-                    0..=38 => DataType::Decimal128(precision, scale),
-                    // DECIMAL256_MAX_PRECISION
-                    39.. => DataType::Decimal256(precision, scale),
-                }
+fn to_arrow_dtype_with_dtypes(dtype: &DType, dtypes: &DTypeSession) -> VortexResult<DataType> {
+    Ok(match dtype {
+        DType::Null => DataType::Null,
+        DType::Bool(_) => DataType::Boolean,
+        DType::Primitive(ptype, _) => match ptype {
+            PType::U8 => DataType::UInt8,
+            PType::U16 => DataType::UInt16,
+            PType::U32 => DataType::UInt32,
+            PType::U64 => DataType::UInt64,
+            PType::I8 => DataType::Int8,
+            PType::I16 => DataType::Int16,
+            PType::I32 => DataType::Int32,
+            PType::I64 => DataType::Int64,
+            PType::F16 => DataType::Float16,
+            PType::F32 => DataType::Float32,
+            PType::F64 => DataType::Float64,
+        },
+        DType::Decimal(dt, _) => {
+            let precision = dt.precision();
+            let scale = dt.scale();
+
+            match precision {
+                // This code is commented out until DataFusion improves its support for smaller decimals.
+                // // DECIMAL32_MAX_PRECISION
+                // 0..=9 => DataType::Decimal32(precision, scale),
+                // // DECIMAL64_MAX_PRECISION
+                // 10..=18 => DataType::Decimal64(precision, scale),
+                // DECIMAL128_MAX_PRECISION
+                0..=38 => DataType::Decimal128(precision, scale),
+                // DECIMAL256_MAX_PRECISION
+                39.. => DataType::Decimal256(precision, scale),
             }
-            DType::Utf8(_) => DataType::Utf8View,
-            DType::Binary(_) => DataType::BinaryView,
-            // There are four kinds of lists: List (32-bit offsets), Large List (64-bit), List View
-            // (32-bit), Large List View (64-bit). We cannot both guarantee zero-copy and commit to an
-            // Arrow dtype because we do not how large our offsets are.
-            DType::List(elem_dtype, _) => DataType::List(FieldRef::new(field_from_dtype(
+        }
+        DType::Utf8(_) => DataType::Utf8View,
+        DType::Binary(_) => DataType::BinaryView,
+        // There are four kinds of lists: List (32-bit offsets), Large List (64-bit), List View
+        // (32-bit), Large List View (64-bit). We cannot both guarantee zero-copy and commit to an
+        // Arrow dtype because we do not how large our offsets are.
+        DType::List(elem_dtype, _) => DataType::List(FieldRef::new(field_from_dtype(
+            Field::LIST_FIELD_DEFAULT_NAME,
+            elem_dtype,
+            dtypes,
+        )?)),
+        DType::FixedSizeList(elem_dtype, size, _) => DataType::FixedSizeList(
+            FieldRef::new(field_from_dtype(
                 Field::LIST_FIELD_DEFAULT_NAME,
                 elem_dtype,
-            )?)),
-            DType::FixedSizeList(elem_dtype, size, _) => DataType::FixedSizeList(
-                FieldRef::new(field_from_dtype(
-                    Field::LIST_FIELD_DEFAULT_NAME,
-                    elem_dtype,
-                )?),
-                *size as i32,
-            ),
-            DType::Struct(struct_dtype, _) => {
-                let mut fields = Vec::with_capacity(struct_dtype.names().len());
-                for (field_name, field_dt) in struct_dtype.names().iter().zip(struct_dtype.fields())
-                {
-                    fields.push(FieldRef::from(field_from_dtype(
-                        field_name.as_ref(),
-                        &field_dt,
-                    )?));
-                }
+                dtypes,
+            )?),
+            *size as i32,
+        ),
+        DType::Struct(struct_dtype, _) => {
+            let mut fields = Vec::with_capacity(struct_dtype.names().len());
+            for (field_name, field_dt) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
+                fields.push(FieldRef::from(field_from_dtype(
+                    field_name.as_ref(),
+                    &field_dt,
+                    dtypes,
+                )?));
+            }
 
-                DataType::Struct(Fields::from(fields))
+            DataType::Struct(Fields::from(fields))
+        }
+        DType::Variant(_) => vortex_bail!(
+            "DType::Variant requires Arrow Field metadata; use to_arrow_schema or a Field helper"
+        ),
+        DType::Extension(ext_dtype) => {
+            if let Some(native) = native_arrow_dtype_for_extension(ext_dtype) {
+                return Ok(native);
             }
-            DType::Variant(_) => vortex_bail!(
-                "DType::Variant requires Arrow Field metadata; use to_arrow_schema or a Field helper"
-            ),
-            DType::Extension(ext_dtype) => {
-                if let Some(native) = native_arrow_dtype_for_extension(ext_dtype) {
-                    return Ok(native);
-                }
-                // Extension identity lives on the Field (see `field_from_dtype`), not on
-                // DataType, so here we only encode the storage type.
-                ext_dtype.storage_dtype().to_arrow_dtype()?
-            }
-        })
-    }
+            // Extension identity lives on the Field (see `field_from_dtype`), not on
+            // DataType, so here we only encode the storage type.
+            to_arrow_dtype_with_dtypes(ext_dtype.storage_dtype(), dtypes)?
+        }
+    })
 }
 
 /// Build an Arrow [`Field`], attaching `ARROW:extension:name` and, when present,
 /// `ARROW:extension:metadata` for extensions and Variant that have no native Arrow mapping.
-fn field_from_dtype(name: &str, dtype: &DType) -> VortexResult<Field> {
+fn field_from_dtype(name: &str, dtype: &DType, dtypes: &DTypeSession) -> VortexResult<Field> {
     if dtype.is_variant() {
         let storage = DataType::Struct(variant_storage_fields_minimal());
         return Ok(
@@ -502,9 +489,9 @@ fn field_from_dtype(name: &str, dtype: &DType) -> VortexResult<Field> {
             return Ok(Field::new(name, native, dtype.is_nullable()));
         }
 
-        let storage_arrow = ext.storage_dtype().to_arrow_dtype()?;
+        let storage_arrow = to_arrow_dtype_with_dtypes(ext.storage_dtype(), dtypes)?;
         let ext_meta_bytes = ext.serialize_metadata()?;
-        let (ext_name, meta_str) = match vortex_id_to_arrow_canonical(ext.id().as_str()) {
+        let (ext_name, meta_str) = match dtypes.arrow_canonical_for(&ext.id()) {
             Some(canonical) => {
                 // Canonical Arrow extensions specify a UTF-8 metadata format (typically JSON),
                 // read as-is by arrow-rs / pyarrow. The plugin owns producing those bytes.
@@ -529,7 +516,7 @@ fn field_from_dtype(name: &str, dtype: &DType) -> VortexResult<Field> {
 
     Ok(Field::new(
         name,
-        dtype.to_arrow_dtype()?,
+        to_arrow_dtype_with_dtypes(dtype, dtypes)?,
         dtype.is_nullable(),
     ))
 }
@@ -724,14 +711,6 @@ mod test {
     fn test_schema_conversion_panics(the_struct: StructFields) {
         let schema_null = DType::Struct(the_struct, Nullability::Nullable);
         schema_null.to_arrow_schema().unwrap();
-    }
-
-    #[test]
-    fn canonical_aliases_bijection() {
-        for (vortex_id, arrow_name) in CANONICAL_ALIASES {
-            assert_eq!(vortex_id_to_arrow_canonical(vortex_id), Some(*arrow_name));
-            assert_eq!(arrow_canonical_to_vortex_id(arrow_name), Some(*vortex_id));
-        }
     }
 
     #[test]
