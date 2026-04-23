@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#include "duckdb_vx/data_chunk.h"
 #include "duckdb_vx/duckdb_diagnostics.h"
 DUCKDB_INCLUDES_BEGIN
 #include "duckdb/common/types/data_chunk.hpp"
 DUCKDB_INCLUDES_END
-
-#include "duckdb_vx.h"
 
 const char *duckdb_data_chunk_to_string(duckdb_data_chunk chunk, duckdb_vx_error *err) {
     try {
