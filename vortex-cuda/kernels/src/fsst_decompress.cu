@@ -14,6 +14,9 @@
 // input byte is emitted as a literal.
 //
 // Grid-stride: each block handles blockDim.x * ELEMENTS_PER_THREAD strings.
+//
+// The 256-entry symbol table is cooperatively loaded into shared memory before
+// decoding begins, so every per-code lookup in the inner loop hits SRAM.
 extern "C" __global__ void fsst_decompress(const uint8_t *__restrict codes_bytes,
                                            const int32_t *__restrict codes_offsets,
                                            const uint64_t *__restrict symbols,
@@ -21,6 +24,15 @@ extern "C" __global__ void fsst_decompress(const uint8_t *__restrict codes_bytes
                                            const int32_t *__restrict output_offsets,
                                            uint8_t *__restrict output_bytes,
                                            uint64_t num_strings) {
+    __shared__ uint64_t sm_symbols[256];
+    __shared__ uint8_t sm_symbol_lengths[256];
+
+    for (uint32_t i = threadIdx.x; i < 256; i += blockDim.x) {
+        sm_symbols[i] = symbols[i];
+        sm_symbol_lengths[i] = symbol_lengths[i];
+    }
+    __syncthreads();
+
     const uint64_t elements_per_block = (uint64_t)blockDim.x * ELEMENTS_PER_THREAD;
     const uint64_t block_start = (uint64_t)blockIdx.x * elements_per_block;
     const uint64_t block_end = (block_start + elements_per_block < num_strings)
@@ -40,8 +52,8 @@ extern "C" __global__ void fsst_decompress(const uint8_t *__restrict codes_bytes
                 in_pos += 2;
                 out_pos += 1;
             } else {
-                const uint64_t symbol = symbols[code];
-                const uint8_t sym_len = symbol_lengths[code];
+                const uint64_t symbol = sm_symbols[code];
+                const uint8_t sym_len = sm_symbol_lengths[code];
                 for (uint8_t i = 0; i < sym_len; ++i) {
                     output_bytes[out_pos + i] = (uint8_t)(symbol >> (8 * i));
                 }
