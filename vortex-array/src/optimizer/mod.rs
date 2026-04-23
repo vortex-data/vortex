@@ -7,19 +7,13 @@
 //! Optimization runs between execution steps, which is what enables cross-step optimizations:
 //! after a child is decoded, new `reduce_parent` rules may match that were previously blocked.
 //!
-//! There are three entry points, all on the [`ArrayOptimizer`] trait:
+//! There are three public entry points on [`ArrayOptimizer`]:
 //!
-//! * [`ArrayOptimizer::optimize`] — runs the static rules only (the child encoding's
-//!   `PARENT_RULES`). It does not require a [`VortexSession`] and is used by helpers like
-//!   `ArrayBuiltins::cast` and `ArrayRef::slice` that build wrapped expressions and need them
-//!   normalized inline.
-//! * [`ArrayOptimizer::optimize_ctx`] — runs the static rules and additionally consults the
-//!   [`ArrayKernels`] registered on the session for each
-//!   `(parent_encoding_id, child_encoding_id)` pair, before each `reduce_parent` step. The
-//!   execute loop calls this entry point so plugin-registered parent-reduce rules fire during
-//!   execution.
-//! * [`ArrayOptimizer::optimize_recursive`] — like [`ArrayOptimizer::optimize_ctx`], but also
-//!   descends into every child of the array so the whole tree is driven to fixpoint.
+//! - [`ArrayOptimizer::optimize`] uses only static rules registered on encoding vtables.
+//! - [`ArrayOptimizer::optimize_ctx`] also consults session-scoped [`ArrayKernels`] before
+//!   static parent-reduce rules, so this is the entry point used by execution.
+//! - [`ArrayOptimizer::optimize_recursive`] applies the session-aware optimizer to the root and
+//!   every descendant.
 
 use std::sync::Arc;
 
@@ -39,22 +33,21 @@ pub mod rules;
 pub trait ArrayOptimizer {
     /// Optimize the root array node by running reduce and reduce_parent rules to fixpoint.
     ///
-    /// Uses only the child encoding's static `PARENT_RULES`. Use [`Self::optimize_ctx`] from
-    /// inside the execute loop to also consult the session-scoped [`ArrayKernels`] registry.
+    /// This uses only static rules registered on encoding vtables. Use [`Self::optimize_ctx`]
+    /// when session-registered [`ArrayKernels`] should participate.
     fn optimize(&self) -> VortexResult<ArrayRef>;
 
-    /// Like [`Self::optimize`], but additionally consults the [`ArrayKernels`] registered on
-    /// `session` for each `(parent_encoding_id, child_encoding_id)` pair before the static
-    /// vtable rules. If `session` does not have an [`ArrayKernels`] registered, falls
-    /// through to the static rules.
+    /// Optimize the root array node using static rules and any [`ArrayKernels`] on `session`.
+    ///
+    /// Session kernels are checked for each `(parent_encoding_id, child_encoding_id)` pair before
+    /// the child's static `PARENT_RULES`. If `session` does not contain [`ArrayKernels`], this
+    /// behaves like [`Self::optimize`].
     fn optimize_ctx(&self, session: &VortexSession) -> VortexResult<ArrayRef>;
 
     /// Optimize the entire array tree recursively (root and all descendants).
     ///
-    /// Consults the [`ArrayKernels`] registered on `session` for each parent/child pair
-    /// encountered during the recursive walk, so plugin-registered rules apply throughout the
-    /// tree. Requires a [`VortexSession`] unconditionally so the registry is always honored
-    /// when a recursive optimization is requested.
+    /// This uses the same session-aware rule ordering as [`Self::optimize_ctx`] for every node in
+    /// the tree.
     fn optimize_recursive(&self, session: &VortexSession) -> VortexResult<ArrayRef>;
 }
 
@@ -72,11 +65,10 @@ impl ArrayOptimizer for ArrayRef {
     }
 }
 
-/// Resolve a pluggable [`ReduceParentFn`] for the `(parent, child)` pair on `session`.
+/// Resolve a session-registered [`ReduceParentFn`] for the `(parent, child)` pair.
 ///
-/// Returns `None` when `session` has no [`ArrayKernels`] variable, or when no function is
-/// registered for `(parent.encoding_id(), child.encoding_id())`. The returned `Arc` is owned so
-/// the caller can drop the [`ArrayKernels`] borrow before invoking it.
+/// The returned [`Arc`] is owned so the caller can drop the [`ArrayKernels`] borrow before
+/// invoking the function.
 fn plugin_reduce_parent(
     session: &VortexSession,
     parent: &ArrayRef,
@@ -113,7 +105,7 @@ fn try_optimize(
         for (slot_idx, slot) in current_array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
 
-            // Registry-based override: tried before the child encoding's static PARENT_RULES.
+            // Session kernels take precedence over the child encoding's static PARENT_RULES.
             if let Some(session) = session
                 && let Some(plugin) = plugin_reduce_parent(session, &current_array, child)
                 && let Some(new_array) = plugin(child, &current_array, slot_idx)?

@@ -10,9 +10,10 @@
 //! 3. **`execute_parent`** -- child-driven fused execution (may read buffers).
 //! 4. **`execute`** -- the encoding's own decode step (most expensive).
 //!
-//! The main entry point is [`DynArray::execute_until`], which uses an explicit work stack
+//! The main entry point is [`ArrayRef::execute_until`], which uses an explicit work stack
 //! to drive execution iteratively without recursion. Between steps, the optimizer runs
-//! reduce/reduce_parent rules to fixpoint.
+//! reduce/reduce_parent rules to fixpoint using the active [`ExecutionCtx`] session, so
+//! session-registered optimizer kernels participate during execution.
 //!
 //! See <https://docs.vortex.dev/developer-guide/internals/execution> for a full description
 //! of the model.
@@ -88,16 +89,20 @@ impl ArrayRef {
     ///
     /// Each iteration proceeds through three steps in order:
     ///
-    /// 1. **Done / canonical check** — if `current` satisfies the active done predicate or is
+    /// 1. **Done / canonical check** - if `current` satisfies the active done predicate or is
     ///    canonical, splice it back into the stacked parent (if any) and continue, or return.
-    /// 2. **`execute_parent` on children** — try each child's `execute_parent` against `current`
+    /// 2. **`execute_parent` on children** - try each child's `execute_parent` against `current`
     ///    as the parent (e.g. `Filter(RunEnd)` → `FilterExecuteAdaptor` fires from RunEnd).
     ///    If there is a stacked parent frame, the rewritten child is spliced back into it so
     ///    that optimize and further `execute_parent` can fire on the reconstructed parent
     ///    (e.g. `Slice(RunEnd)` → `RunEnd` spliced into stacked `Filter` → `Filter(RunEnd)`
     ///    whose `FilterExecuteAdaptor` fires on the next iteration).
-    /// 3. **`execute`** — call the encoding's own execute step, which either returns `Done` or
+    /// 3. **`execute`** - call the encoding's own execute step, which either returns `Done` or
     ///    `ExecuteSlot(i)` to push a child onto the stack for focused execution.
+    ///
+    /// Optimizer calls in this loop use [`ExecutionCtx::session`], so kernels registered on the
+    /// session's [`ArrayKernels`](crate::optimizer::kernels::ArrayKernels) are visible between
+    /// execution steps.
     ///
     /// Note: the returned array may not match `M`. If execution converges to a canonical form
     /// that does not match `M`, the canonical array is returned since no further execution
@@ -110,7 +115,7 @@ impl ArrayRef {
         let mut stack: Vec<StackFrame> = Vec::new();
 
         for _ in 0..max_iterations() {
-            // Step 1: done / canonical — splice back into stacked parent or return.
+            // Step 1: done / canonical - splice back into stacked parent or return.
             let is_done = stack
                 .last()
                 .map_or(M::matches as DonePredicate, |frame| frame.done);
@@ -523,7 +528,7 @@ macro_rules! require_child {
 /// execution of child `$idx`.
 ///
 /// Unlike `require_child!`, this is a statement macro (no value produced) and does not clone
-/// `$parent` — it is moved into the early-return path.
+/// `$parent` - it is moved into the early-return path.
 ///
 /// ```ignore
 /// require_opt_child!(array, array.patches().map(|p| p.indices()), 1 => Primitive);

@@ -292,10 +292,10 @@ impl<T: Clone> Context<T> {
     }
 }
 
-/// A registry of type-erased function values keyed by a pre-computed `u64` identifier.
+/// Copy-on-write registry of type-erased function values keyed by caller-provided `u64` IDs.
 ///
 /// Each entry stores an `Arc<dyn Any + Send + Sync>` wrapping a caller-supplied concrete type `F`
-/// — typically a function pointer. Callers recover the original type by passing the same `F` to
+/// (typically a function pointer). Callers recover the original type by passing the same `F` to
 /// [`FnRegistry::find`]; `find` returns `Some(Arc<F>)` on a type match and `None` otherwise.
 ///
 /// The `u64` key is produced by the caller, usually by hashing a tuple that uniquely identifies
@@ -304,9 +304,10 @@ impl<T: Clone> Context<T> {
 /// `(parent_encoding_id, child_encoding_id, FnKind)` so one registry can hold several kinds of
 /// pluggable kernel keyed by encoding pairs without collisions.
 ///
-/// The registry is thread-safe and lock-free on the read path — the underlying map is held
-/// behind an [`ArcSwap`], so `find`/`contains` never block. Writes copy-on-write the map, so
-/// concurrent registration is serialized but does not block readers.
+/// This type is intended for read-heavy registries that are populated during session setup and
+/// then shared. Reads load a snapshot through [`ArcSwap`] and do not block on writers. Writes
+/// clone the current map and swap in a new snapshot, so externally serialize concurrent
+/// [`FnRegistry::register`] calls if every write must be retained.
 #[derive(Debug, Default)]
 pub struct FnRegistry(ArcSwap<HashMap<u64, Arc<dyn Any + Send + Sync>>>);
 
@@ -317,6 +318,8 @@ impl FnRegistry {
     }
 
     /// Register a function under `id`, replacing any existing entry with the same key.
+    ///
+    /// Intended to be called while constructing a session or under an external writer lock.
     pub fn register<F: Any + Send + Sync>(&self, id: u64, f: F) {
         let registry = self.0.load();
         let mut owned_registry = registry.as_ref().clone();

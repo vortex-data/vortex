@@ -155,7 +155,8 @@ pub mod encodings {
 
 /// Extension trait to create a default Vortex session.
 pub trait VortexSessionDefault {
-    /// Creates a default Vortex session with the standard arrays, layouts, and expressions.
+    /// Creates a default Vortex session with standard arrays, layouts, scalar functions,
+    /// optimizer kernels, expressions, aggregate functions, and runtime support.
     fn default() -> VortexSession;
 }
 
