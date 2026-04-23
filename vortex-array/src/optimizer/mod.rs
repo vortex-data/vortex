@@ -7,16 +7,19 @@
 //! Optimization runs between execution steps, which is what enables cross-step optimizations:
 //! after a child is decoded, new `reduce_parent` rules may match that were previously blocked.
 //!
-//! There are two entry points:
+//! There are three entry points, all on the [`ArrayOptimizer`] trait:
 //!
 //! * [`ArrayOptimizer::optimize`] — runs the static rules only (the child encoding's
 //!   `PARENT_RULES`). It does not require a [`VortexSession`] and is used by helpers like
 //!   `ArrayBuiltins::cast` and `ArrayRef::slice` that build wrapped expressions and need them
 //!   normalized inline.
 //! * [`ArrayOptimizer::optimize_ctx`] — runs the static rules and additionally consults the
-//!   session's [`ArrayKernels`] registry keyed by `(parent_encoding_id, child_encoding_id)`
-//!   before each `reduce_parent` step. The execute loop calls this entry point so plugin-
-//!   registered parent-reduce rules fire during execution.
+//!   [`ArrayKernels`] registered on the session for each
+//!   `(parent_encoding_id, child_encoding_id)` pair, before each `reduce_parent` step. The
+//!   execute loop calls this entry point so plugin-registered parent-reduce rules fire during
+//!   execution.
+//! * [`ArrayOptimizer::optimize_recursive`] — like [`ArrayOptimizer::optimize_ctx`], but also
+//!   descends into every child of the array so the whole tree is driven to fixpoint.
 
 use std::sync::Arc;
 
@@ -69,11 +72,11 @@ impl ArrayOptimizer for ArrayRef {
     }
 }
 
-/// Resolve a pluggable [`ReduceParentFn`] for `(parent, child)` from `session`.
+/// Resolve a pluggable [`ReduceParentFn`] for the `(parent, child)` pair on `session`.
 ///
-/// Returns `None` when no [`ArrayKernels`] is registered, or no function is registered under
-/// `(parent.encoding_id(), child.encoding_id())`. The returned `Arc` is owned so the caller can
-/// drop the session borrow before invoking it.
+/// Returns `None` when `session` has no [`ArrayKernels`] variable, or when no function is
+/// registered for `(parent.encoding_id(), child.encoding_id())`. The returned `Arc` is owned so
+/// the caller can drop the [`ArrayKernels`] borrow before invoking it.
 fn plugin_reduce_parent(
     session: &VortexSession,
     parent: &ArrayRef,

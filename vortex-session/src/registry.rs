@@ -292,16 +292,21 @@ impl<T: Clone> Context<T> {
     }
 }
 
-/// A registry of type-erased function values keyed by a pair of [`Id`] values.
+/// A registry of type-erased function values keyed by a pre-computed `u64` identifier.
 ///
 /// Each entry stores an `Arc<dyn Any + Send + Sync>` wrapping a caller-supplied concrete type `F`
-/// (typically a function pointer). Callers recover the original type by passing the same `F` to
+/// — typically a function pointer. Callers recover the original type by passing the same `F` to
 /// [`FnRegistry::find`]; `find` returns `Some(Arc<F>)` on a type match and `None` otherwise.
 ///
-/// Used for pluggable dispatch keyed by an `(outer, inner)` identifier pair — for example the
-/// optimizer's parent-reduce registry keys by `(parent_encoding_id, child_encoding_id)` so that
-/// downstream crates can override the rule that would normally run from the child encoding's
-/// static `PARENT_RULES` set.
+/// The `u64` key is produced by the caller, usually by hashing a tuple that uniquely identifies
+/// the registered function. This lets each consumer choose its own key layout rather than
+/// committing this registry to a specific schema. For example, `ArrayKernels` hashes
+/// `(parent_encoding_id, child_encoding_id, FnKind)` so one registry can hold several kinds of
+/// pluggable kernel keyed by encoding pairs without collisions.
+///
+/// The registry is thread-safe and lock-free on the read path — the underlying map is held
+/// behind an [`ArcSwap`], so `find`/`contains` never block. Writes copy-on-write the map, so
+/// concurrent registration is serialized but does not block readers.
 #[derive(Debug, Default)]
 pub struct FnRegistry(ArcSwap<HashMap<u64, Arc<dyn Any + Send + Sync>>>);
 
@@ -311,7 +316,7 @@ impl FnRegistry {
         Self::default()
     }
 
-    /// Register a function under `(outer, inner)`, replacing any existing entry.
+    /// Register a function under `id`, replacing any existing entry with the same key.
     pub fn register<F: Any + Send + Sync>(&self, id: u64, f: F) {
         let registry = self.0.load();
         let mut owned_registry = registry.as_ref().clone();
@@ -319,16 +324,17 @@ impl FnRegistry {
         self.0.store(Arc::new(owned_registry));
     }
 
-    /// Look up a function registered under `(outer, inner)`, downcasting to `F`.
+    /// Look up a function registered under `id`, downcasting to `F`.
     ///
-    /// Returns `None` if no function is registered, or if the registered value is not of type `F`.
+    /// Returns `None` if no function is registered for `id`, or if the registered value is not
+    /// of type `F`.
     pub fn find<F: Any + Send + Sync>(&self, id: u64) -> Option<Arc<F>> {
         let map = self.0.load();
         let entry = map.get(&id)?;
         Arc::clone(entry).downcast::<F>().ok()
     }
 
-    /// Return `true` if any function is registered under `(outer, inner)`.
+    /// Return `true` if any function is registered under `id`, regardless of type.
     pub fn contains(&self, id: u64) -> bool {
         let map = self.0.load();
         map.contains_key(&id)
