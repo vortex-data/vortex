@@ -14,6 +14,7 @@ use vortex::io::runtime::wasm::WasmRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 
+mod video_index;
 mod wasm;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {

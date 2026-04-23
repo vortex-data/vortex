@@ -350,7 +350,7 @@ export function DataTable({
         }),
       ),
     ],
-    [columns, columnStats],
+    [approximate, cellRenderers, columns, columnStats],
   );
 
   const table = useReactTable({
@@ -416,8 +416,8 @@ export function DataTable({
                 key={row.id}
                 className="border-b border-vortex-grey-light/20 dark:border-white/[0.03] hover:bg-vortex-grey-lightest/50 dark:hover:bg-white/[0.02] cursor-default"
                 style={{ height: rowHeight }}
-                onClick={() => onRowClick?.(virtualRow.index)}
-                onMouseEnter={() => onRowHover?.(virtualRow.index)}
+                onClick={() => onRowClick?.(row.index)}
+                onMouseEnter={() => onRowHover?.(row.index)}
                 onMouseLeave={() => onRowHover?.(null)}
               >
                 {row.getVisibleCells().map((cell) => (

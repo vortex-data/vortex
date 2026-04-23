@@ -11174,6 +11174,7 @@ dependencies = [
  "arrow-schema 58.1.0",
  "console_error_panic_hook",
  "futures",
+ "getrandom 0.4.2",
  "js-sys",
  "serde",
  "serde_json",

@@ -45,6 +45,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
 use crate::SESSION;
+use crate::video_index::try_read_video_index_info;
 
 /// Initialize the WASM module (sets up panic hook for better error messages).
 #[wasm_bindgen(start)]
@@ -139,12 +140,21 @@ pub async fn open_vortex_file(file: web_sys::File) -> Result<VortexFileHandle, J
 
     // Extract the array ReadContext from any FlatLayout in the tree.
     let array_read_ctx = find_array_read_ctx(vxf.footer().layout());
+    let video_index_info_json = match try_read_video_index_info(&vxf, &SESSION).await {
+        Ok(Some(info)) => Some(
+            serde_json::to_string(&info)
+                .map_err(|e| JsValue::from_str(&format!("JSON serialization failed: {e}")))?,
+        ),
+        Ok(None) => None,
+        Err(_) => None,
+    };
 
     Ok(VortexFileHandle {
         vxf,
         session: SESSION.clone(),
         file_size,
         array_read_ctx,
+        video_index_info_json,
     })
 }
 
@@ -170,6 +180,7 @@ pub struct VortexFileHandle {
     session: VortexSession,
     file_size: usize,
     array_read_ctx: Option<ReadContext>,
+    video_index_info_json: Option<String>,
 }
 
 #[wasm_bindgen]
@@ -184,6 +195,11 @@ impl VortexFileHandle {
     #[wasm_bindgen(getter)]
     pub fn dtype(&self) -> String {
         format!("{}", self.vxf.dtype())
+    }
+
+    /// Typed semantic metadata when the opened file is a persisted video index.
+    pub fn video_index_info(&self) -> Option<String> {
+        self.video_index_info_json.clone()
     }
 
     /// Returns the layout tree as a JSON string matching the TS `LayoutTreeNode` type.

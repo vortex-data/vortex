@@ -14,6 +14,7 @@ const segments = generateSegments(layout, 12_400_000);
 const fileStructure = generateFileStructure(segments, 12_400_000);
 
 const mockFileState: VortexFileState = {
+  kind: 'generic',
   fileName: 'orders.vortex',
   fileSize: 12_400_000,
   rowCount: 100_000,

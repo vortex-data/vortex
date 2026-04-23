@@ -7,9 +7,17 @@ import type {
   SegmentMapEntry,
   FileStructureInfo,
   ArrayEncodingNode,
+  VideoIndexInfo,
 } from '../components/swimlane/types';
 
+export interface PairedMediaInfo {
+  fileName: string | null;
+  objectUrl: string | null;
+  hasMedia: boolean;
+}
+
 export interface VortexFileState {
+  kind: 'generic' | 'videoIndex';
   fileName: string;
   fileSize: number;
   rowCount: number;
@@ -18,6 +26,8 @@ export interface VortexFileState {
   layoutTree: LayoutTreeNode;
   segments: SegmentMapEntry[];
   fileStructure: FileStructureInfo;
+  videoIndex?: VideoIndexInfo;
+  pairedMedia?: PairedMediaInfo;
 }
 
 export interface VortexFileContextValue extends VortexFileState {

@@ -6,14 +6,17 @@ import type {
   SegmentMapEntry,
   FileStructureInfo,
   ArrayEncodingNode,
+  VideoIndexInfo,
 } from '../components/swimlane/types';
 
 export interface OpenFileResult {
+  kind: 'generic' | 'videoIndex';
   rowCount: number;
   dtype: string;
   layoutTree: LayoutTreeNode;
   segments: SegmentMapEntry[];
   fileStructure: FileStructureInfo;
+  videoIndex?: VideoIndexInfo;
 }
 
 interface PendingRequest<T = unknown> {

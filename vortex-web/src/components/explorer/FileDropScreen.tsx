@@ -5,12 +5,12 @@ import { useState, useCallback, type DragEvent, type FormEvent } from 'react';
 import { ThemePicker } from '../ThemePicker';
 
 interface FileDropScreenProps {
-  onFileLoaded: (file: File) => void;
+  onFilesLoaded: (files: File[]) => void | Promise<void>;
   loading: boolean;
   error: string | null;
 }
 
-export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenProps) {
+export function FileDropScreen({ onFilesLoaded, loading, error }: FileDropScreenProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [url, setUrl] = useState('');
   const [fetchingUrl, setFetchingUrl] = useState(false);
@@ -30,22 +30,23 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
     (e: DragEvent<HTMLDivElement>) => {
       e.preventDefault();
       setIsDragging(false);
-      const file = e.dataTransfer.files[0];
-      if (file) onFileLoaded(file);
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length > 0) void onFilesLoaded(files);
     },
-    [onFileLoaded],
+    [onFilesLoaded],
   );
 
   const handleClick = useCallback(() => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.vortex,.vtx';
+    input.multiple = true;
+    input.accept = '.vortex,.vtx,.mp4';
     input.onchange = () => {
-      const file = input.files?.[0];
-      if (file) onFileLoaded(file);
+      const files = Array.from(input.files ?? []);
+      if (files.length > 0) void onFilesLoaded(files);
     };
     input.click();
-  }, [onFileLoaded]);
+  }, [onFilesLoaded]);
 
   const handleUrlSubmit = useCallback(
     async (e: FormEvent) => {
@@ -61,14 +62,14 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
         const blob = await resp.blob();
         const name = trimmed.split('/').pop() ?? 'remote.vortex';
         const file = new File([blob], name, { type: blob.type });
-        onFileLoaded(file);
+        await onFilesLoaded([file]);
       } catch (err) {
         setUrlError(err instanceof Error ? err.message : String(err));
       } finally {
         setFetchingUrl(false);
       }
     },
-    [url, onFileLoaded],
+    [url, onFilesLoaded],
   );
 
   const busy = loading || fetchingUrl;
@@ -106,7 +107,9 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
               </code>{' '}
               file here
             </p>
-            <p className="mt-2 font-mono text-sm text-vortex-grey-dark/60">or click to browse</p>
+            <p className="mt-2 font-mono text-sm text-vortex-grey-dark/60">
+              add a matching <code>.mp4</code> too for video index mode, or click to browse
+            </p>
           </div>
         )}
       </div>

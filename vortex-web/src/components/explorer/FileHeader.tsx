@@ -6,9 +6,11 @@ import { ThemePicker } from '../ThemePicker';
 
 interface FileHeaderProps {
   onClose: () => void;
+  viewMode?: 'raw' | 'video';
+  onViewModeChange?: (mode: 'raw' | 'video') => void;
 }
 
-export function FileHeader({ onClose }: FileHeaderProps) {
+export function FileHeader({ onClose, viewMode, onViewModeChange }: FileHeaderProps) {
   const file = useVortexFile();
 
   return (
@@ -22,6 +24,23 @@ export function FileHeader({ onClose }: FileHeaderProps) {
       >
         v{file.version}
       </span>
+      {viewMode && onViewModeChange && (
+        <div className="flex rounded-md bg-vortex-grey-lightest dark:bg-white/[0.06] p-0.5">
+          {(['video', 'raw'] as const).map((mode) => (
+            <button
+              key={mode}
+              className={`px-2 py-0.5 text-[10px] rounded-[3px] transition-colors ${
+                viewMode === mode
+                  ? 'bg-white dark:bg-white/[0.1] text-vortex-fg-light dark:text-vortex-fg shadow-sm'
+                  : 'text-vortex-grey-dark hover:text-vortex-fg-light dark:hover:text-vortex-fg'
+              }`}
+              onClick={() => onViewModeChange(mode)}
+            >
+              {mode === 'video' ? 'Video' : 'Raw'}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="ml-auto flex items-center gap-1">
         <ThemePicker />
         <button

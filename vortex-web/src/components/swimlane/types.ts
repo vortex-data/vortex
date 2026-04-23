@@ -69,6 +69,115 @@ export interface FileStructureInfo {
   totalMetadataBytes: number;
 }
 
+export interface VideoPlanningFrameInfo {
+  videoFramePos: number;
+  globalDecodePos: number;
+  gopPos: number;
+  gopDecodePos: number;
+  sampleByteOffset: number;
+  sampleByteLength: number;
+  closureLocalDecodeMaskLe: number[];
+  closureExternalDecodePositions: number[];
+}
+
+export interface DecodeSampleInfo {
+  sampleId: number;
+  globalDecodePos: number;
+  videoFramePos: number;
+  gopPos: number;
+  gopFramePos: number;
+  gopDecodePos: number;
+  pts: number;
+  dts: number;
+  duration: number;
+  sampleByteOffset: number;
+  sampleByteLength: number;
+  isSync: boolean;
+}
+
+export interface VideoFrameInfo {
+  sampleId: number;
+  globalDecodePos: number;
+  videoFramePos: number;
+  gopPos: number;
+  gopFramePos: number;
+  pts: number;
+  dts: number;
+  duration: number;
+  displayPos: number;
+  decodePos: number;
+  frameType: string;
+  isSync: boolean;
+  frameNum?: number | null;
+  isReference: boolean;
+  sampleByteOffset: number;
+  sampleByteLength: number;
+  refL0DecodePositions: number[];
+  refL1DecodePositions: number[];
+  refL0GlobalDecodePositions: number[];
+  refL1GlobalDecodePositions: number[];
+  refPrevDecodePos?: number | null;
+  refNextDecodePos?: number | null;
+  dependencyDepth?: number | null;
+}
+
+export interface VideoGopInfo {
+  gopPos: number;
+  startPts: number;
+  endPts: number;
+  startDts: number;
+  endDts: number;
+  startByteOffset: number;
+  byteLength: number;
+  frameCount: number;
+  keyframeDecodePos: number;
+  dependencyTreeHeight: number;
+  startGlobalDecodePos: number;
+  endGlobalDecodePos: number;
+  frames: VideoFrameInfo[];
+}
+
+export interface VideoTrackInfo {
+  trackId: number;
+  trackLanguage: string;
+  width: number;
+  height: number;
+  fpsNum: number;
+  fpsDen: number;
+  timescale: number;
+  durationTs: number;
+  durationMs: number;
+  nalLengthSize: number;
+  frameCount: number;
+  gops: VideoGopInfo[];
+  frames: VideoFrameInfo[];
+  planningFrames: VideoPlanningFrameInfo[];
+  samplesByDecode: DecodeSampleInfo[];
+}
+
+export interface VideoIndexInfo {
+  sourceUri: string;
+  container: string;
+  codec: string;
+  primaryTrackId: number;
+  trackLanguage: string;
+  width: number;
+  height: number;
+  fpsNum: number;
+  fpsDen: number;
+  timescale: number;
+  durationTs: number;
+  durationMs: number;
+  fileSizeBytes: number;
+  nalLengthSize: number;
+  frameCount: number;
+  gops: VideoGopInfo[];
+  frames: VideoFrameInfo[];
+  planningFrames: VideoPlanningFrameInfo[];
+  samplesByDecode: DecodeSampleInfo[];
+  tracks: VideoTrackInfo[];
+}
+
 // Rendering types (internal to swimlane)
 
 export type DisplayKind = 'normal' | 'group' | 'hiddenIndicator';

@@ -23,12 +23,20 @@ self.onmessage = async (e: MessageEvent) => {
         fileHandle = null;
       }
       fileHandle = await open_vortex_file(e.data.file);
+      const videoIndexJson = (
+        fileHandle as VortexFileHandle & {
+          video_index_info(): string | undefined;
+        }
+      ).video_index_info();
+      const videoIndex = videoIndexJson ? JSON.parse(videoIndexJson) : undefined;
       const result = {
+        kind: videoIndex ? 'videoIndex' : 'generic',
         rowCount: Number(fileHandle.row_count),
         dtype: fileHandle.dtype,
         layoutTree: JSON.parse(fileHandle.layout_tree()),
         segments: JSON.parse(fileHandle.segment_map()),
         fileStructure: JSON.parse(fileHandle.file_structure()),
+        videoIndex,
       };
       self.postMessage({ type: 'result', id, data: result });
     } else if (type === 'fetchEncodingTree') {
