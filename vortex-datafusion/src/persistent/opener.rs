@@ -316,28 +316,29 @@ impl FileOpener for VortexOpener {
             }
 
             if let Some(file_range) = file.range {
-                let natural_split_ranges = natural_split_ranges_for_file(
-                    natural_split_ranges.as_ref(),
-                    &file.object_meta.location,
-                    &layout_reader,
-                )?;
-
                 let byte_range = Range {
                     start: u64::try_from(file_range.start)
                         .map_err(|_| exec_datafusion_err!("Vortex file range start is negative"))?,
                     end: u64::try_from(file_range.end)
                         .map_err(|_| exec_datafusion_err!("Vortex file range end is negative"))?,
                 };
+                if byte_range.start != 0 || byte_range.end != file.object_meta.size {
+                    let natural_split_ranges = natural_split_ranges_for_file(
+                        natural_split_ranges.as_ref(),
+                        &file.object_meta.location,
+                        &layout_reader,
+                    )?;
 
-                let Some(row_range) = split_aligned_row_range(
-                    byte_range,
-                    file.object_meta.size,
-                    natural_split_ranges.as_ref(),
-                ) else {
-                    return Ok(stream::empty().boxed());
-                };
+                    let Some(row_range) = split_aligned_row_range(
+                        byte_range,
+                        file.object_meta.size,
+                        natural_split_ranges.as_ref(),
+                    ) else {
+                        return Ok(stream::empty().boxed());
+                    };
 
-                scan_builder = scan_builder.with_row_range(row_range);
+                    scan_builder = scan_builder.with_row_range(row_range);
+                }
             }
 
             let filter = filter
@@ -491,10 +492,17 @@ fn split_aligned_row_range(
         return None;
     }
 
-    let mut owned_splits = split_ranges.iter().filter(|split_range| {
-        let midpoint_byte = split_midpoint_to_byte(split_range, row_count, total_size);
-        byte_range.contains(&midpoint_byte)
-    });
+    let mut owned_splits = split_ranges
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, split_range)| {
+            if idx == 0 && split_range.start == 0 {
+                return (byte_range.start == 0).then_some(split_range);
+            }
+
+            let midpoint_byte = split_midpoint_to_byte(split_range, row_count, total_size);
+            byte_range.contains(&midpoint_byte).then_some(split_range)
+        });
 
     let first_split = owned_splits.next()?;
     let mut row_range = first_split.start..first_split.end;
@@ -566,6 +574,7 @@ mod tests {
     #[case(3..7, 10, vec![0..2, 2..5, 5..10], Some(2..5))]
     #[case(1..8, 10, vec![0..1, 1..9, 9..10], Some(1..9))]
     #[case(1..4, 16, vec![0..1, 1..2, 2..3, 3..4], None)]
+    #[case(0..1, 10, vec![0..2, 2..10], Some(0..2))]
     fn test_split_aligned_row_range(
         #[case] byte_range: Range<u64>,
         #[case] total_size: u64,
