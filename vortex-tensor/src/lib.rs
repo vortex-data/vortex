@@ -22,6 +22,7 @@ use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::scalar_fns::l2_norm::L2Norm;
 use crate::scalar_fns::sorf_transform::SorfTransform;
 use crate::types::fixed_shape::FixedShapeTensor;
+use crate::types::normalized_vector::NormalizedVector;
 use crate::types::vector::Vector;
 
 pub mod matcher;
@@ -30,6 +31,7 @@ pub mod scalar_fns;
 mod types;
 
 pub use types::fixed_shape;
+pub use types::normalized_vector;
 pub use types::vector;
 
 pub mod encodings;
@@ -48,6 +50,7 @@ pub const SCALAR_FN_ARRAY_TENSOR_PLUGIN_ENV: &str = "VX_SCALAR_FN_ARRAY_TENSOR_P
 /// Initialize the Vortex tensor library with a Vortex session.
 pub fn initialize(session: &VortexSession) {
     session.dtypes().register(Vector);
+    session.dtypes().register(NormalizedVector);
     session.dtypes().register(FixedShapeTensor);
 
     let session_fns = session.scalar_fns();
