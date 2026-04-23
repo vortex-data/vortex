@@ -15,6 +15,7 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Extension;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::DictArray;
@@ -106,7 +107,8 @@ pub fn turboquant_encode(
     Ok(unsafe { L2Denorm::new_array_unchecked(tq, norms, num_rows) }?.into_array())
 }
 
-/// Encode a non-nullable [`NormalizedVector`](crate::vector::NormalizedVector) extension array into
+/// Encode a non-nullable [`NormalizedVector`](crate::normalized_vector::NormalizedVector)
+/// extension array into
 /// a `ScalarFnArray(SorfTransform, [FSL(Dict(codes, centroids))])`, without validating the
 /// unit-norm precondition.
 ///
@@ -123,8 +125,10 @@ pub fn turboquant_encode_normalized(
     let element_ptype = vector_metadata.element_ptype();
     let dimensions = vector_metadata.dimensions();
 
-    let storage = ext.storage_array();
-    let fsl = storage.clone().execute::<FixedSizeListArray>(ctx)?;
+    // `NormalizedVector` storage is `Extension(Vector(FSL))`; drill past the inner `Vector` to
+    // reach the underlying `FixedSizeList`.
+    let inner_vector: ExtensionArray = ext.storage_array().clone().execute(ctx)?;
+    let fsl: FixedSizeListArray = inner_vector.storage_array().clone().execute(ctx)?;
 
     vortex_ensure!(
         config.bit_width >= 1 && config.bit_width <= MAX_BIT_WIDTH,

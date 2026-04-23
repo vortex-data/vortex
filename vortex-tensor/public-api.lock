@@ -218,11 +218,15 @@ pub enum vortex_tensor::matcher::TensorMatch<'a>
 
 pub vortex_tensor::matcher::TensorMatch::FixedShapeTensor(vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>)
 
+pub vortex_tensor::matcher::TensorMatch::NormalizedVector(vortex_tensor::vector::VectorMatcherMetadata)
+
 pub vortex_tensor::matcher::TensorMatch::Vector(vortex_tensor::vector::VectorMatcherMetadata)
 
 impl vortex_tensor::matcher::TensorMatch<'_>
 
 pub fn vortex_tensor::matcher::TensorMatch<'_>::element_ptype(self) -> vortex_array::dtype::ptype::PType
+
+pub fn vortex_tensor::matcher::TensorMatch<'_>::is_normalized(self) -> bool
 
 pub fn vortex_tensor::matcher::TensorMatch<'_>::list_size(self) -> u32
 
@@ -266,9 +270,11 @@ pub struct vortex_tensor::normalized_vector::NormalizedVector
 
 impl vortex_tensor::normalized_vector::NormalizedVector
 
-pub unsafe fn vortex_tensor::normalized_vector::NormalizedVector::new_unchecked(storage: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+pub unsafe fn vortex_tensor::normalized_vector::NormalizedVector::new_unchecked(fsl: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_tensor::normalized_vector::NormalizedVector::try_new(storage: vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+pub fn vortex_tensor::normalized_vector::NormalizedVector::try_new(fsl: vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub unsafe fn vortex_tensor::normalized_vector::NormalizedVector::wrap_vector_unchecked(vector: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 impl core::clone::Clone for vortex_tensor::normalized_vector::NormalizedVector
 
@@ -294,21 +300,23 @@ pub fn vortex_tensor::normalized_vector::NormalizedVector::hash<__H: core::hash:
 
 impl core::marker::StructuralPartialEq for vortex_tensor::normalized_vector::NormalizedVector
 
-impl vortex_array::dtype::extension::vtable::ExtVTable for vortex_tensor::normalized_vector::NormalizedVector
+impl vortex_array::dtype::extension::refinement::RefinementVTable for vortex_tensor::normalized_vector::NormalizedVector
 
 pub type vortex_tensor::normalized_vector::NormalizedVector::Metadata = vortex_array::extension::EmptyMetadata
 
 pub type vortex_tensor::normalized_vector::NormalizedVector::NativeValue<'a> = &'a vortex_array::scalar::scalar_value::ScalarValue
 
+pub type vortex_tensor::normalized_vector::NormalizedVector::Source = vortex_array::dtype::extension::refinement::ExtRefinedSource<vortex_tensor::vector::Vector>
+
 pub fn vortex_tensor::normalized_vector::NormalizedVector::deserialize_metadata(&self, _metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_tensor::normalized_vector::NormalizedVector::id(&self) -> vortex_array::dtype::extension::ExtId
 
+pub fn vortex_tensor::normalized_vector::NormalizedVector::refine_scalar<'a>(_metadata: &'a Self::Metadata, source_value: &'a vortex_array::scalar::scalar_value::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
+
 pub fn vortex_tensor::normalized_vector::NormalizedVector::serialize_metadata(&self, _metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
-pub fn vortex_tensor::normalized_vector::NormalizedVector::unpack_native<'a>(_ext_dtype: &'a vortex_array::dtype::extension::typed::ExtDType<Self>, storage_value: &'a vortex_array::scalar::scalar_value::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
-
-pub fn vortex_tensor::normalized_vector::NormalizedVector::validate_dtype(ext_dtype: &vortex_array::dtype::extension::typed::ExtDType<Self>) -> vortex_error::VortexResult<()>
+pub fn vortex_tensor::normalized_vector::NormalizedVector::validate_array(_metadata: &Self::Metadata, source_array: &vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<()>
 
 pub mod vortex_tensor::scalar_fns
 
@@ -634,9 +642,7 @@ pub fn vortex_tensor::vector::VectorMatcherMetadata::dimensions(&self) -> u32
 
 pub fn vortex_tensor::vector::VectorMatcherMetadata::element_ptype(&self) -> vortex_array::dtype::ptype::PType
 
-pub fn vortex_tensor::vector::VectorMatcherMetadata::is_normalized(&self) -> bool
-
-pub fn vortex_tensor::vector::VectorMatcherMetadata::try_new(element_ptype: vortex_array::dtype::ptype::PType, dimensions: u32, is_normalized: bool) -> vortex_error::VortexResult<Self>
+pub fn vortex_tensor::vector::VectorMatcherMetadata::try_new(element_ptype: vortex_array::dtype::ptype::PType, dimensions: u32) -> vortex_error::VortexResult<Self>
 
 impl core::clone::Clone for vortex_tensor::vector::VectorMatcherMetadata
 

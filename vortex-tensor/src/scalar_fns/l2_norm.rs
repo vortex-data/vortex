@@ -185,6 +185,9 @@ impl ScalarFnVTable for L2Norm {
             return Ok(norms);
         }
 
+        // Drill past any `NormalizedVector` wrapper so we always work with the underlying
+        // `Vector` extension array.
+        let input_ref = crate::types::normalized_vector::inner_vector_array(&input_ref, ctx)?;
         let input: ExtensionArray = input_ref.execute(ctx)?;
         let validity = input.as_ref().validity()?;
 
@@ -283,7 +286,10 @@ fn execute_normalized_vector_norms(
     row_count: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let input: ExtensionArray = input_ref.clone().execute(ctx)?;
+    // `NormalizedVector` storage is `Extension(Vector(FSL))`; drill to the inner `Vector` to
+    // reach the underlying FSL.
+    let vector_ref = crate::types::normalized_vector::inner_vector_array(input_ref, ctx)?;
+    let input: ExtensionArray = vector_ref.execute(ctx)?;
     let validity = input.as_ref().validity()?;
     let flat = extract_flat_elements(input.storage_array(), tensor_flat_size, ctx)?;
 

@@ -8,12 +8,13 @@ use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
 use crate::types::normalized_vector::NormalizedVector;
+use crate::types::vector::Vector;
 use crate::types::vector::VectorMatcherMetadata;
 
 /// Matcher that accepts only the [`NormalizedVector`] extension type.
 ///
-/// Use this when a consumer must reject plain [`Vector`](crate::vector::Vector) inputs. Callers
-/// that can accept either should use [`AnyVector`](crate::vector::AnyVector) instead.
+/// Use this when a consumer requires the unit-norm guarantee. Callers that accept any
+/// vector-shaped extension should use [`AnyTensor`](crate::matcher::AnyTensor).
 pub struct AnyNormalizedVector;
 
 impl Matcher for AnyNormalizedVector {
@@ -24,9 +25,26 @@ impl Matcher for AnyNormalizedVector {
             return None;
         }
 
-        let DType::FixedSizeList(element_dtype, list_size, _) = ext_dtype.storage_dtype() else {
+        // `NormalizedVector` is a refinement of `Vector`, so its storage dtype is
+        // `DType::Extension(Vector(FixedSizeList<float, dim>))`. Drill into the inner `Vector`
+        // to recover the dimension and element dtype.
+        let DType::Extension(inner_ext) = ext_dtype.storage_dtype() else {
             vortex_panic!(
-                "`NormalizedVector` type somehow did not have a `FixedSizeList` storage type"
+                "`NormalizedVector` storage must be `DType::Extension(Vector)`, \
+                 got {}",
+                ext_dtype.storage_dtype(),
+            )
+        };
+        if !inner_ext.is::<Vector>() {
+            vortex_panic!(
+                "`NormalizedVector` inner extension must be `Vector`, got {}",
+                inner_ext.id(),
+            )
+        }
+        let DType::FixedSizeList(element_dtype, list_size, _) = inner_ext.storage_dtype() else {
+            vortex_panic!(
+                "inner `Vector` storage must be `FixedSizeList`, got {}",
+                inner_ext.storage_dtype(),
             )
         };
         assert!(element_dtype.is_float(), "element dtype must be float");
@@ -35,8 +53,8 @@ impl Matcher for AnyNormalizedVector {
             "element dtype must be non-nullable"
         );
 
-        let metadata = VectorMatcherMetadata::try_new(element_dtype.as_ptype(), *list_size, true)
-            .vortex_expect("`NormalizedVector` type somehow did not have float elements");
+        let metadata = VectorMatcherMetadata::try_new(element_dtype.as_ptype(), *list_size)
+            .vortex_expect("`NormalizedVector` inner Vector did not have float elements");
 
         Some(metadata)
     }
@@ -57,7 +75,7 @@ mod tests {
     use crate::types::vector::AnyVector;
     use crate::types::vector::Vector;
 
-    fn storage_dtype(element_ptype: PType, dimensions: u32) -> DType {
+    fn fsl_storage(element_ptype: PType, dimensions: u32) -> DType {
         DType::FixedSizeList(
             Arc::new(DType::Primitive(element_ptype, Nullability::NonNullable)),
             dimensions,
@@ -65,38 +83,43 @@ mod tests {
         )
     }
 
+    fn nv_storage(element_ptype: PType, dimensions: u32) -> VortexResult<DType> {
+        let vector =
+            ExtDType::<Vector>::try_new(EmptyMetadata, fsl_storage(element_ptype, dimensions))?
+                .erased();
+        Ok(DType::Extension(vector))
+    }
+
     #[test]
     fn matches_normalized_vector_dtype() -> VortexResult<()> {
         let ext_dtype =
-            ExtDType::<NormalizedVector>::try_new(EmptyMetadata, storage_dtype(PType::F32, 128))?
+            ExtDType::<NormalizedVector>::try_new(EmptyMetadata, nv_storage(PType::F32, 128)?)?
                 .erased();
 
         let metadata = ext_dtype.metadata::<AnyNormalizedVector>();
         assert_eq!(metadata.element_ptype(), PType::F32);
         assert_eq!(metadata.dimensions(), 128);
-        assert!(metadata.is_normalized());
         Ok(())
     }
 
     #[test]
     fn rejects_plain_vector() -> VortexResult<()> {
         let ext_dtype =
-            ExtDType::<Vector>::try_new(EmptyMetadata, storage_dtype(PType::F32, 128))?.erased();
+            ExtDType::<Vector>::try_new(EmptyMetadata, fsl_storage(PType::F32, 128))?.erased();
 
         assert!(ext_dtype.metadata_opt::<AnyNormalizedVector>().is_none());
         Ok(())
     }
 
     #[test]
-    fn any_vector_matches_normalized_vector() -> VortexResult<()> {
+    fn any_vector_does_not_match_normalized_vector() -> VortexResult<()> {
         let ext_dtype =
-            ExtDType::<NormalizedVector>::try_new(EmptyMetadata, storage_dtype(PType::F32, 128))?
+            ExtDType::<NormalizedVector>::try_new(EmptyMetadata, nv_storage(PType::F32, 128)?)?
                 .erased();
 
-        let metadata = ext_dtype.metadata::<AnyVector>();
-        assert_eq!(metadata.element_ptype(), PType::F32);
-        assert_eq!(metadata.dimensions(), 128);
-        assert!(metadata.is_normalized());
+        // `AnyVector` is strict: it only matches plain `Vector`. Use `AnyTensor` to accept
+        // both `Vector` and `NormalizedVector`.
+        assert!(ext_dtype.metadata_opt::<AnyVector>().is_none());
         Ok(())
     }
 }

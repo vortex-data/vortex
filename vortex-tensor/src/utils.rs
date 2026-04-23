@@ -94,15 +94,12 @@ pub fn validate_tensor_float_input(input_dtype: &DType) -> VortexResult<TensorMa
 }
 
 /// Validates that two arguments of a binary tensor-like operator share the same float tensor
-/// dtype (ignoring top-level nullability), returning the shared [`TensorMatch`].
+/// dtype (ignoring top-level nullability), returning the [`TensorMatch`] of `lhs`.
 ///
-/// The plain [`Vector`](crate::vector::Vector) and the
+/// Plain [`Vector`](crate::vector::Vector) and its
 /// [`NormalizedVector`](crate::normalized_vector::NormalizedVector) refinement are treated as
-/// interchangeable for the purposes of this check, since both share the same storage shape
-/// and operators like inner product or cosine similarity ignore the unit-norm marker.
-///
-/// `op_name` is interpolated into the shape-mismatch error message so callers get a
-/// self-identifying diagnostic (e.g. "InnerProduct requires both inputs ...").
+/// interchangeable when they share element ptype and dimension, since `NormalizedVector` is a
+/// refinement of `Vector` and the per-row math ignores the unit-norm marker.
 pub fn validate_binary_tensor_float_inputs<'a>(
     lhs: &'a DType,
     rhs: &DType,
@@ -115,17 +112,20 @@ pub fn validate_binary_tensor_float_inputs<'a>(
     validate_tensor_float_input(lhs)
 }
 
-/// Returns `true` when `lhs` and `rhs` are both vector-shaped extension types (plain `Vector`
-/// or `NormalizedVector`) with the same float ptype and dimension.
+/// Returns `true` when `lhs` and `rhs` are both within the `Vector` refinement family (plain
+/// `Vector` or `NormalizedVector`) and share the same float ptype and dimension.
 fn vector_shapes_match(lhs: &DType, rhs: &DType) -> bool {
-    let lhs_match = lhs
-        .as_extension_opt()
-        .and_then(|ext| ext.metadata_opt::<crate::types::vector::AnyVector>());
-    let rhs_match = rhs
-        .as_extension_opt()
-        .and_then(|ext| ext.metadata_opt::<crate::types::vector::AnyVector>());
+    use crate::types::normalized_vector::AnyNormalizedVector;
+    use crate::types::vector::AnyVector;
+
+    fn vector_family_match(dtype: &DType) -> Option<crate::types::vector::VectorMatcherMetadata> {
+        let ext = dtype.as_extension_opt()?;
+        ext.metadata_opt::<AnyVector>()
+            .or_else(|| ext.metadata_opt::<AnyNormalizedVector>())
+    }
+
     matches!(
-        (lhs_match, rhs_match),
+        (vector_family_match(lhs), vector_family_match(rhs)),
         (Some(l), Some(r))
             if l.element_ptype() == r.element_ptype() && l.dimensions() == r.dimensions()
     )

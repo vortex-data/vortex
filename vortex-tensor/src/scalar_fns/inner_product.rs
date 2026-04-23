@@ -169,9 +169,14 @@ impl ScalarFnVTable for InnerProduct {
         // Compute combined validity.
         let validity = lhs_ref.validity()?.and(rhs_ref.validity()?)?;
 
+        // Drill past any `NormalizedVector` wrapper so we always work with the underlying
+        // `Vector` extension array.
+        let lhs_inner = crate::types::normalized_vector::inner_vector_array(&lhs_ref, ctx)?;
+        let rhs_inner = crate::types::normalized_vector::inner_vector_array(&rhs_ref, ctx)?;
+
         // Canonicalize so we can perform the math directly.
-        let lhs: ExtensionArray = lhs_ref.execute(ctx)?;
-        let rhs: ExtensionArray = rhs_ref.execute(ctx)?;
+        let lhs: ExtensionArray = lhs_inner.execute(ctx)?;
+        let rhs: ExtensionArray = rhs_inner.execute(ctx)?;
 
         // We validated that both inputs have the same type.
         let ext = lhs.dtype().as_extension();
