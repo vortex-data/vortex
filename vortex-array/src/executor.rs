@@ -333,7 +333,7 @@ fn execute_loop(
     root_done: DonePredicate,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ExecuteLoopResult> {
-    let mut current = array.optimize()?;
+    let mut current = array;
     let mut current_builder = initial_builder;
     let mut stack: Vec<StackFrame> = Vec::new();
 
