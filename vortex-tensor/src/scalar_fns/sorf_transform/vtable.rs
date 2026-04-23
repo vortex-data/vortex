@@ -120,6 +120,8 @@ impl ScalarFnVTable for SorfTransform {
             child_dtype.nullability(),
         );
 
+        // The inverse SORF transform does not preserve unit norm on the output, even when the
+        // child is a [`NormalizedVector`]. Surface the output as a plain [`Vector`].
         let _ = vector_metadata;
         let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, storage_dtype)?.erased();
 
@@ -198,9 +200,10 @@ impl ScalarFnVTable for SorfTransform {
 
 /// Metadata for a serialized [`SorfTransform`] array.
 ///
-/// Stores the full [`SorfOptions`] inline along with the child [`DType`]. Older metadata omitted
-/// this field; deserialization derives the legacy plain-`Vector` child dtype from the parent dtype
-/// in that case.
+/// Stores the full [`SorfOptions`] inline along with the child [`DType`]. The child dtype records
+/// whether the input was a plain [`Vector`] or [`NormalizedVector`](crate::normalized_vector::NormalizedVector).
+/// Older metadata omitted this field; deserialization derives the legacy plain-`Vector` child dtype
+/// from the parent dtype in that case.
 #[derive(Clone, prost::Message)]
 pub(super) struct SorfTransformMetadata {
     #[prost(uint64, tag = "1")]
