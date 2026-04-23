@@ -176,7 +176,7 @@ impl datafusion_datasource::file_format::FileFormatFactory for vortex_datafusion
 
 pub fn vortex_datafusion::VortexFormatFactory::as_any(&self) -> &dyn core::any::Any
 
-pub fn vortex_datafusion::VortexFormatFactory::create(&self, _state: &dyn datafusion_session::session::Session, format_options: &std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>) -> datafusion_common::error::Result<alloc::sync::Arc<dyn datafusion_datasource::file_format::FileFormat>>
+pub fn vortex_datafusion::VortexFormatFactory::create(&self, state: &dyn datafusion_session::session::Session, format_options: &std::collections::hash::map::HashMap<alloc::string::String, alloc::string::String>) -> datafusion_common::error::Result<alloc::sync::Arc<dyn datafusion_datasource::file_format::FileFormat>>
 
 pub fn vortex_datafusion::VortexFormatFactory::default(&self) -> alloc::sync::Arc<dyn datafusion_datasource::file_format::FileFormat>
 
@@ -232,7 +232,7 @@ pub fn vortex_datafusion::VortexSource::try_pushdown_projection(&self, projectio
 
 pub fn vortex_datafusion::VortexSource::with_batch_size(&self, batch_size: usize) -> alloc::sync::Arc<dyn datafusion_datasource::file::FileSource>
 
-pub struct vortex_datafusion::VortexTableOptions
+#[non_exhaustive] pub struct vortex_datafusion::VortexTableOptions
 
 pub vortex_datafusion::VortexTableOptions::footer_initial_read_size_bytes: usize
 
@@ -244,12 +244,6 @@ impl core::clone::Clone for vortex_datafusion::VortexTableOptions
 
 pub fn vortex_datafusion::VortexTableOptions::clone(&self) -> vortex_datafusion::VortexTableOptions
 
-impl core::cmp::Eq for vortex_datafusion::VortexTableOptions
-
-impl core::cmp::PartialEq for vortex_datafusion::VortexTableOptions
-
-pub fn vortex_datafusion::VortexTableOptions::eq(&self, other: &vortex_datafusion::VortexTableOptions) -> bool
-
 impl core::default::Default for vortex_datafusion::VortexTableOptions
 
 pub fn vortex_datafusion::VortexTableOptions::default() -> Self
@@ -258,15 +252,27 @@ impl core::fmt::Debug for vortex_datafusion::VortexTableOptions
 
 pub fn vortex_datafusion::VortexTableOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl core::marker::StructuralPartialEq for vortex_datafusion::VortexTableOptions
+impl datafusion_common::config::ConfigExtension for vortex_datafusion::VortexTableOptions
+
+pub const vortex_datafusion::VortexTableOptions::PREFIX: &'static str
 
 impl datafusion_common::config::ConfigField for vortex_datafusion::VortexTableOptions
 
-pub fn vortex_datafusion::VortexTableOptions::reset(&mut self, key: &str) -> datafusion_common::error::Result<()>
-
 pub fn vortex_datafusion::VortexTableOptions::set(&mut self, key: &str, value: &str) -> datafusion_common::error::Result<()>
 
-pub fn vortex_datafusion::VortexTableOptions::visit<V: datafusion_common::config::Visit>(&self, v: &mut V, key_prefix: &str, _description: &'static str)
+pub fn vortex_datafusion::VortexTableOptions::visit<V: datafusion_common::config::Visit>(&self, v: &mut V, _key_prefix: &str, _description: &'static str)
+
+impl datafusion_common::config::ExtensionOptions for vortex_datafusion::VortexTableOptions
+
+pub fn vortex_datafusion::VortexTableOptions::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_datafusion::VortexTableOptions::as_any_mut(&mut self) -> &mut dyn core::any::Any
+
+pub fn vortex_datafusion::VortexTableOptions::cloned(&self) -> alloc::boxed::Box<dyn datafusion_common::config::ExtensionOptions>
+
+pub fn vortex_datafusion::VortexTableOptions::entries(&self) -> alloc::vec::Vec<datafusion_common::config::ConfigEntry>
+
+pub fn vortex_datafusion::VortexTableOptions::set(&mut self, key: &str, value: &str) -> datafusion_common::error::Result<()>
 
 pub trait vortex_datafusion::ExpressionConvertor: core::marker::Send + core::marker::Sync
 
