@@ -47,7 +47,7 @@ use super::ptype_to_tag;
 use super::tag_to_ptype;
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
-use crate::kernel::load_patches_sync;
+use crate::kernel::load_patches_to_gpu;
 
 /// A plan whose source buffers have been copied to the device, ready for kernel launch.
 pub struct MaterializedPlan {
@@ -325,7 +325,7 @@ impl FusedPlan {
     }
 
     /// Copy source buffers to the device, producing a [`MaterializedPlan`].
-    pub fn materialize(self, ctx: &mut CudaExecutionCtx) -> VortexResult<MaterializedPlan> {
+    pub async fn materialize(self, ctx: &mut CudaExecutionCtx) -> VortexResult<MaterializedPlan> {
         let shared_mem_bytes = self.dynamic_shared_mem_bytes();
 
         let mut device_buffers = Vec::new();
@@ -358,7 +358,7 @@ impl FusedPlan {
 
             // Upload source patches (e.g. BitPacked exceptions).
             if let Some(patches) = &stage.source_patches {
-                let (ptr, bufs) = load_patches_sync(patches, ctx)?;
+                let (ptr, bufs) = load_patches_to_gpu(patches, ctx).await?;
                 source.params.bitunpack.patches_ptr = ptr;
                 device_buffers.extend(bufs);
             }
@@ -367,7 +367,7 @@ impl FusedPlan {
             let mut scalar_ops: Vec<ScalarOp> = Vec::with_capacity(stage.scalar_ops.len());
             for (mut op, patches) in stage.scalar_ops.clone() {
                 if let Some(patches) = &patches {
-                    let (ptr, bufs) = load_patches_sync(patches, ctx)?;
+                    let (ptr, bufs) = load_patches_to_gpu(patches, ctx).await?;
                     op.params.alp.patches_ptr = ptr;
                     device_buffers.extend(bufs);
                 }
@@ -397,7 +397,7 @@ impl FusedPlan {
     ///
     /// `subtree_buffers` must correspond 1:1 (in DFS order) to the
     /// `pending_subtrees` returned by `build`.
-    pub fn materialize_with_subtrees(
+    pub async fn materialize_with_subtrees(
         mut self,
         subtree_buffers: Vec<BufferHandle>,
         ctx: &mut CudaExecutionCtx,
@@ -408,7 +408,7 @@ impl FusedPlan {
         ) {
             *slot = Some(buf);
         }
-        self.materialize(ctx)
+        self.materialize(ctx).await
     }
 
     /// Walk the encoding tree, producing a [`Stage`] for the root.

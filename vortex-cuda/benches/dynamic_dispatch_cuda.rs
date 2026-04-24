@@ -17,6 +17,7 @@ use cudarc::driver::DevicePtr;
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::sys::CUevent_flags;
+use futures::executor::block_on;
 use vortex::array::IntoArray;
 use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
@@ -133,7 +134,7 @@ impl BenchRunner {
             device_buffers,
             shared_mem_bytes,
             ..
-        } = plan.materialize(cuda_ctx).vortex_expect("materialize plan");
+        } = block_on(plan.materialize(cuda_ctx)).vortex_expect("materialize plan");
 
         let device_plan = Arc::new(
             cuda_ctx
