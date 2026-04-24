@@ -84,7 +84,9 @@ impl ColumnExporter for ValidityExporter {
             offset + len <= self.mask.len(),
             "cannot access outside of array"
         );
-        if unsafe { vector.set_validity(&self.mask, offset, len, self.zero_copy.as_ref()) } {
+        if unsafe {
+            vector.set_validity_zero_copy(&self.mask, offset, len, self.zero_copy.as_ref())
+        } {
             // All values are null, so no point copying the data.
             return Ok(());
         }

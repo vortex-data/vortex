@@ -103,9 +103,9 @@ extern "C" void duckdb_vx_vector_set_validity_data(duckdb_vector ffi_vector,
                                                    duckdb_vx_vector_buffer buffer) {
     auto dvector = reinterpret_cast<vortex::DataVector *>(ffi_vector);
     auto &validity = dvector->GetValidity();
-    // ExternalValidityMask adds no members, so this reinterpret_cast is a safe
-    // "downcast" that only exposes access to ValidityMask's protected fields.
-    auto ext_validity = reinterpret_cast<vortex::ExternalValidityMask *>(&validity);
+    // ExternalValidityMask adds no members, so this downcast only exposes
+    // access to ValidityMask's protected fields.
+    auto ext_validity = static_cast<vortex::ExternalValidityMask *>(&validity);
 
     // Use the shared_ptr aliasing constructor: the control block ref-counts the
     // ExternalVectorBuffer (preventing the Rust buffer from being freed),

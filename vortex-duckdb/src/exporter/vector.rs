@@ -16,6 +16,19 @@ impl VectorRef {
         mask: &Mask,
         offset: usize,
         len: usize,
+    ) -> bool {
+        unsafe { self.set_validity_zero_copy(mask, offset, len, None) }
+    }
+
+    /// Like [`set_validity`](Self::set_validity), but attempts a zero-copy path when
+    /// `zero_copy` is provided and the offset is u64-aligned.
+    ///
+    /// Returns true if all values are null (caller can skip data export).
+    pub(super) unsafe fn set_validity_zero_copy(
+        &mut self,
+        mask: &Mask,
+        offset: usize,
+        len: usize,
         zero_copy: Option<&ZeroCopyValidity>,
     ) -> bool {
         match mask {

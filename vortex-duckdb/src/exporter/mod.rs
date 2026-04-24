@@ -230,7 +230,7 @@ mod tests {
         let mut vector = Vector::with_capacity(&logical_type, 100);
 
         let mask = Mask::AllTrue(10);
-        let all_null = unsafe { vector.set_validity(&mask, 0, 10, None) };
+        let all_null = unsafe { vector.set_validity(&mask, 0, 10) };
 
         assert!(!all_null);
     }
@@ -242,7 +242,7 @@ mod tests {
         let len = 10;
 
         let mask = Mask::AllFalse(len);
-        let all_null = unsafe { vector.set_validity(&mask, 0, len, None) };
+        let all_null = unsafe { vector.set_validity(&mask, 0, len) };
 
         assert!(all_null);
 
@@ -260,7 +260,7 @@ mod tests {
 
         let mask = Mask::from(BitBuffer::from(vec![true; 10]));
 
-        let all_null = unsafe { vector.set_validity(&mask, 0, 10, None) };
+        let all_null = unsafe { vector.set_validity(&mask, 0, 10) };
 
         assert!(!all_null);
 
@@ -280,7 +280,7 @@ mod tests {
         let bits = vec![false; LEN];
         let mask = Mask::from(BitBuffer::from(bits));
 
-        let all_null = unsafe { vector.set_validity(&mask, 0, LEN, None) };
+        let all_null = unsafe { vector.set_validity(&mask, 0, LEN) };
 
         assert!(all_null);
 
@@ -300,7 +300,7 @@ mod tests {
         ];
         let mask = Mask::from(BitBuffer::from(bits.as_slice()));
 
-        let all_null = unsafe { vector.set_validity(&mask, 0, 10, None) };
+        let all_null = unsafe { vector.set_validity(&mask, 0, 10) };
 
         assert!(!all_null);
 
@@ -320,7 +320,7 @@ mod tests {
         ];
         let mask = Mask::from(BitBuffer::from(bits.as_slice()));
 
-        let all_null = unsafe { vector.set_validity(&mask, 2, 8, None) };
+        let all_null = unsafe { vector.set_validity(&mask, 2, 8) };
 
         assert!(!all_null);
 
@@ -341,7 +341,7 @@ mod tests {
         ];
         let mask = Mask::from(BitBuffer::from(bits.as_slice()));
 
-        let all_null = unsafe { vector.set_validity(&mask, 3, 5, None) };
+        let all_null = unsafe { vector.set_validity(&mask, 3, 5) };
 
         assert!(!all_null);
 
@@ -359,7 +359,7 @@ mod tests {
         let bits = (0..70).map(|i| i % 3 == 0).collect::<Vec<_>>();
         let mask = Mask::from(BitBuffer::from(bits.as_slice()));
 
-        let all_null = unsafe { vector.set_validity(&mask, 5, 60, None) };
+        let all_null = unsafe { vector.set_validity(&mask, 5, 60) };
 
         assert!(!all_null);
 
