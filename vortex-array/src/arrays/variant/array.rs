@@ -17,18 +17,17 @@ use crate::ArrayRef;
 use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::IntoArray;
 use crate::array::TypedArrayRef;
 use crate::arrays::Dict;
 use crate::arrays::Filter;
 use crate::arrays::Masked;
-use crate::arrays::MaskedArray;
 use crate::arrays::Slice;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::filter::FilterArrayExt;
 use crate::arrays::masked::MaskedArrayExt;
 use crate::arrays::masked::MaskedArraySlotsExt;
 use crate::arrays::slice::SliceArrayExt;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 
 pub(crate) const CORE_STORAGE_SLOT: usize = 0;
@@ -140,8 +139,8 @@ pub(crate) fn try_derived_shredded_from_core_storage(
     if let Some(masked) = core_storage.as_opt::<Masked>() {
         return try_derived_shredded_from_core_storage(masked.child(), slot_name)?
             .map(|child| {
-                MaskedArray::try_new(child, masked.masked_validity())
-                    .map(|masked| masked.into_array())
+                let len = child.len();
+                child.mask(masked.masked_validity().to_array(len))
             })
             .transpose();
     }

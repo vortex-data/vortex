@@ -111,6 +111,10 @@ impl VTable for Variant {
             "VariantArray expects {NUM_SLOTS} slots, got {}",
             slots.len()
         );
+        vortex_ensure!(
+            slots[CORE_STORAGE_SLOT].is_some(),
+            "VariantArray core_storage slot must be present"
+        );
         let core_storage = slots[CORE_STORAGE_SLOT]
             .as_ref()
             .vortex_expect("validated core storage slot presence");
@@ -460,6 +464,21 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_rejects_missing_core_storage_slot() {
+        let result = Array::<Variant>::try_from_parts(
+            ArrayParts::new(
+                Variant,
+                DType::Variant(Nullability::NonNullable),
+                3,
+                VariantMetadata::None,
+            )
+            .with_slots(vec![None, None]),
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_serde_roundtrip_preserves_shredded_child() {
         let core_storage = ConstantArray::new(Scalar::variant(Scalar::from(42i32)), 3).into_array();
         let shredded = buffer![1i32, 2, 3].into_array();
@@ -606,6 +625,26 @@ mod tests {
         .unwrap()
         .into_array();
         assert_arrays_eq!(variant.shredded().unwrap(), expected);
+    }
+
+    #[test]
+    fn test_derived_shredded_through_masked_wrapper_preserves_child_nulls() {
+        let core_storage = make_delegating_core_storage(
+            PrimitiveArray::from_option_iter([Some(10i32), None, Some(12), Some(13)]).into_array(),
+        );
+        let masked_core_storage =
+            MaskedArray::try_new(core_storage, Validity::from_iter([true, true, false, true]))
+                .unwrap()
+                .into_array();
+        let array = VariantArray::try_new_derived(masked_core_storage, "delegated")
+            .unwrap()
+            .into_array();
+
+        let variant = array.as_opt::<Variant>().unwrap();
+        assert_arrays_eq!(
+            variant.shredded().unwrap(),
+            PrimitiveArray::from_option_iter([Some(10i32), None, None, Some(13)])
+        );
     }
 
     #[test]

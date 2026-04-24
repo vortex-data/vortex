@@ -67,6 +67,7 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetExecuteParent {
             .collect::<Vec<_>>();
         let inner: Arc<dyn ArrowArray> = Arc::new(arrow_variant.into_inner());
         let mut arrow_options = GetOptions::new_with_path(VariantPath::new(path));
+
         if let Some(as_dtype) = parent.options.effective_as_dtype() {
             arrow_options = arrow_options.with_as_type(Some(FieldRef::new(Field::new(
                 "result",
@@ -90,10 +91,17 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetExecuteParent {
         )
         .map_err(|e| vortex_err!("failed to create VariantArray from result: {e}"))?;
 
+        // Untyped `variant_get` always returns `Variant(Nullable)`. Arrow may omit the
+        // top-level null buffer for all-valid batches, which `from_arrow_variant` would
+        // otherwise interpret as `Variant(NonNullable)`.
         force_nullable_result(ParquetVariantData::from_arrow_variant(&result_variant)?).map(Some)
     }
 }
 
+/// Preserves `Variant(Nullable)` for untyped `variant_get` results.
+///
+/// Arrow may return an all-valid batch without a top-level null buffer; without this fix-up,
+/// `from_arrow_variant` would infer `Variant(NonNullable)`.
 fn force_nullable_result(result: ArrayRef) -> VortexResult<ArrayRef> {
     if result.dtype().is_nullable() {
         return Ok(result);
