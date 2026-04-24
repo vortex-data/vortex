@@ -69,6 +69,7 @@ use super::sink::VortexSink;
 use super::source::VortexSource;
 use crate::PrecisionExt as _;
 use crate::convert::TryToDataFusion;
+use crate::convert::stats::is_constant_to_distinct_count;
 
 const DEFAULT_FOOTER_INITIAL_READ_SIZE_BYTES: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE;
 
@@ -502,7 +503,10 @@ impl FileFormat for VortexFormat {
                             .vortex_expect("Row count overflow"),
                     ),
                     total_byte_size: Precision::Absent,
-                    column_statistics: vec![ColumnStatistics::default(); struct_dtype.nfields()],
+                    column_statistics: vec![
+                        ColumnStatistics::default();
+                        table_schema.fields().len()
+                    ],
                 });
             };
 
@@ -543,11 +547,12 @@ impl FileFormat for VortexFormat {
                     min_value: min.to_df(),
                     max_value: max.to_df(),
                     sum_value: Precision::Absent,
-                    distinct_count: stats_set
-                        .get_as::<bool>(Stat::IsConstant, &DType::Bool(Nullability::NonNullable))
-                        .and_then(|is_constant| is_constant.as_exact().map(|_| Precision::Exact(1)))
-                        .unwrap_or(Precision::Absent),
-                    // TODO(connor): Is this correct?
+                    distinct_count: is_constant_to_distinct_count(
+                        stats_set.get_as::<bool>(
+                            Stat::IsConstant,
+                            &DType::Bool(Nullability::NonNullable),
+                        ),
+                    ),
                     byte_size: column_size.to_df(),
                 })
             }
