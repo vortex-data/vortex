@@ -20,6 +20,8 @@ use vortex_array::stats::stats_from_bitset_bytes;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
@@ -118,6 +120,11 @@ impl VTable for Zoned {
         children: &dyn LayoutChildren,
         _ctx: &ReadContext,
     ) -> VortexResult<Self::Layout> {
+        vortex_ensure_eq!(
+            children.nchildren(),
+            2,
+            "ZonedLayout expects exactly 2 children (data, zones)"
+        );
         Ok(ZonedLayout {
             dtype: dtype.clone(),
             children: children.to_arc(),
@@ -194,8 +201,18 @@ impl DeserializeMetadata for ZonedMetadata {
     type Output = Self;
 
     fn deserialize(metadata: &[u8]) -> VortexResult<Self::Output> {
+        vortex_ensure!(
+            metadata.len() >= 4,
+            "Zoned metadata must contain at least 4 bytes for zone length, got {}",
+            metadata.len()
+        );
+
+        // Backward compat: older files may encode `zone_len == 0`. Preserve the raw metadata on
+        // read and let the reader disable zoned pruning for those layouts instead of rejecting
+        // deserialization outright.
         let zone_len = u32::try_from_le_bytes(&metadata[0..4])?;
         let present_stats: Arc<[Stat]> = stats_from_bitset_bytes(&metadata[4..]).into();
+
         Ok(Self {
             zone_len,
             present_stats,
@@ -216,18 +233,24 @@ impl SerializeMetadata for ZonedMetadata {
 
 #[cfg(test)]
 mod tests {
+    use std::panic;
+
     use rstest::rstest;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_session::registry::ReadContext;
 
     use super::*;
+    use crate::IntoLayout;
+    use crate::children::OwnedLayoutChildren;
+    use crate::layouts::flat::FlatLayout;
+    use crate::segments::SegmentId;
 
     #[rstest]
     #[case(ZonedMetadata {
             zone_len: u32::MAX,
             present_stats: Arc::new([]),
-        })]
-    #[case(ZonedMetadata {
-            zone_len: 0,
-            present_stats: Arc::new([Stat::IsConstant]),
         })]
     #[case::all_sorted(ZonedMetadata {
             zone_len: 314,
@@ -257,5 +280,85 @@ mod tests {
             metadata.present_stats.len()
         );
         assert_ne!(deserialized.present_stats, metadata.present_stats);
+    }
+
+    #[rstest]
+    #[case(vec![])]
+    #[case(vec![0])]
+    #[case(vec![0, 0])]
+    #[case(vec![0, 0, 0])]
+    fn test_deserialize_short_metadata_errors(#[case] metadata: Vec<u8>) {
+        assert!(ZonedMetadata::deserialize(&metadata).is_err());
+    }
+
+    #[test]
+    fn test_deserialize_short_metadata_returns_error_not_panic() {
+        let result = panic::catch_unwind(|| ZonedMetadata::deserialize(&[]));
+        assert!(
+            result.is_ok(),
+            "deserialize should return an error, not panic"
+        );
+        assert!(result.unwrap().is_err());
+    }
+
+    #[test]
+    fn test_deserialize_zero_zone_len_is_allowed_for_backcompat() {
+        let metadata = 0u32.to_le_bytes();
+        let deserialized = ZonedMetadata::deserialize(&metadata).unwrap();
+        assert_eq!(deserialized.zone_len, 0);
+        assert!(deserialized.present_stats.is_empty());
+    }
+
+    #[test]
+    fn test_build_allows_zero_zone_len_for_backcompat() -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let read_ctx = ReadContext::new([]);
+        let children = OwnedLayoutChildren::layout_children(vec![
+            FlatLayout::new(0, dtype.clone(), SegmentId::from(0), read_ctx.clone()).into_layout(),
+            FlatLayout::new(
+                0,
+                ZoneMap::dtype_for_stats_table(&dtype, &[]),
+                SegmentId::from(1),
+                read_ctx,
+            )
+            .into_layout(),
+        ]);
+
+        let layout = <Zoned as VTable>::build(
+            &ZonedLayoutEncoding,
+            &dtype,
+            0,
+            &ZonedMetadata {
+                zone_len: 0,
+                present_stats: Arc::new([]),
+            },
+            vec![],
+            children.as_ref(),
+            &ReadContext::new([]),
+        )?;
+
+        assert_eq!(layout.zone_len, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_build_rejects_invalid_child_count() {
+        let metadata = ZonedMetadata {
+            zone_len: 3,
+            present_stats: Arc::new([]),
+        };
+        let children = OwnedLayoutChildren::layout_children(vec![]);
+
+        let result = <Zoned as VTable>::build(
+            &ZonedLayoutEncoding,
+            &DType::Primitive(PType::I32, Nullability::NonNullable),
+            0,
+            &metadata,
+            vec![],
+            children.as_ref(),
+            &ReadContext::new([]),
+        );
+
+        assert!(result.is_err());
     }
 }
