@@ -455,8 +455,8 @@ impl Array<Struct> {
         self.remove_column(name)
     }
 
-    pub fn try_concat(value: &[Array<Struct>]) -> VortexResult<Self> {
-        let dtype = unique_dtype_or_bail(value.iter().map(|x| x.dtype()))?;
+    pub fn try_concat(chunks: &[Array<Struct>]) -> VortexResult<Self> {
+        let dtype = unique_dtype_or_bail(chunks.iter().map(|x| x.dtype()))?;
         let fields = dtype.as_struct_fields().clone();
         let field_arrays = fields
             .names()
@@ -464,7 +464,7 @@ impl Array<Struct> {
             .zip(fields.fields())
             .map(|(name, dtype)| {
                 (
-                    value
+                    chunks
                         .iter()
                         .map(|array| {
                             array
@@ -481,9 +481,9 @@ impl Array<Struct> {
                 unsafe { ChunkedArray::new_unchecked(arrays, dtype) }.into_array()
             })
             .collect::<Vec<_>>();
-        let len = value.iter().map(|x| x.len()).sum();
+        let len = chunks.iter().map(|x| x.len()).sum();
         let validity = Validity::concat(
-            value
+            chunks
                 .iter()
                 .map(|x| x.validity().map(|v| (v, x.len())))
                 .try_collect()?,
