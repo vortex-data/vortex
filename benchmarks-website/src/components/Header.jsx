@@ -1,3 +1,4 @@
+import React from 'react';
 
 export default function Header({
   sidebarOpen,
@@ -24,8 +25,8 @@ export default function Header({
           </button>
           <a href="/" className="logo-link">
             <picture>
-                <source srcSet="/vortex_black_nobg.svg" media="(prefers-color-scheme: light)"/>
-                <source srcSet="/vortex_white_nobg.svg" media="(prefers-color-scheme: dark)"/>
+                <source srcset="/vortex_black_nobg.svg" media="(prefers-color-scheme: light)"/>
+                <source srcset="/vortex_white_nobg.svg" media="(prefers-color-scheme: dark)"/>
                 <img src="/vortex_black_nobg.svg" alt="Vortex" className="site-logo"/>
             </picture>
           </a>
