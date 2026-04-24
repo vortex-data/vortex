@@ -21,13 +21,6 @@ extern "C" duckdb_vx_vector_buffer duckdb_vx_vector_buffer_create(duckdb_vx_data
     return reinterpret_cast<duckdb_vx_vector_buffer>(shared_buffer);
 }
 
-extern "C" duckdb_vx_vector_buffer duckdb_vx_vector_buffer_create_with_data_ptr(duckdb_vx_data buffer,
-                                                                                 void *data_ptr) {
-    auto data = reinterpret_cast<vortex::CData *>(buffer);
-    auto *shared_buffer = new duckdb::shared_ptr<vortex::ExternalVectorBuffer>(
-        duckdb::make_shared_ptr<vortex::ExternalVectorBuffer>(unique_ptr<vortex::CData>(data), data_ptr));
-    return reinterpret_cast<duckdb_vx_vector_buffer>(shared_buffer);
-}
 
 extern "C" void duckdb_vx_vector_buffer_destroy(duckdb_vx_vector_buffer *buffer) {
     if (buffer != nullptr && *buffer != nullptr) {

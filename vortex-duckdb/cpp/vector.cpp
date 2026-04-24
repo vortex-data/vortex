@@ -100,7 +100,8 @@ extern "C" void duckdb_vx_vector_set_data_ptr(duckdb_vector ffi_vector, void *pt
 extern "C" void duckdb_vx_vector_set_validity_data(duckdb_vector ffi_vector,
                                                    idx_t u64_offset,
                                                    idx_t capacity,
-                                                   duckdb_vx_vector_buffer buffer) {
+                                                   duckdb_vx_vector_buffer buffer,
+                                                   void *data_ptr) {
     auto dvector = reinterpret_cast<vortex::DataVector *>(ffi_vector);
     auto &validity = dvector->GetValidity();
     // ExternalValidityMask adds no members, so this downcast only exposes
@@ -109,12 +110,11 @@ extern "C" void duckdb_vx_vector_set_validity_data(duckdb_vector ffi_vector,
 
     // Use the shared_ptr aliasing constructor: the control block ref-counts the
     // ExternalVectorBuffer (preventing the Rust buffer from being freed),
-    // while the stored pointer points to the buffer's data so that validity_mask
-    // can be derived from validity_data.
+    // while the stored pointer points to the explicit data_ptr.
     auto ext_buf = reinterpret_cast<shared_ptr<vortex::ExternalVectorBuffer> *>(buffer);
     auto keeper = shared_ptr<TemplatedValidityData<validity_t>>(
         *ext_buf,
-        reinterpret_cast<TemplatedValidityData<validity_t> *>((*ext_buf)->DataPtr()));
+        reinterpret_cast<TemplatedValidityData<validity_t> *>(data_ptr));
 
     // Set validity_data, derive validity_mask from it at u64_offset, and set capacity.
     ext_validity->SetExternal(u64_offset, capacity, std::move(keeper));

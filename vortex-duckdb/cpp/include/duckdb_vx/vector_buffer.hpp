@@ -19,22 +19,11 @@ namespace vortex {
 class ExternalVectorBuffer : public duckdb::VectorBuffer {
 public:
     explicit ExternalVectorBuffer(duckdb::unique_ptr<CData> data)
-        : data(std::move(data)), data_ptr_override(nullptr) {
-    }
-
-    ExternalVectorBuffer(duckdb::unique_ptr<CData> data, void *data_ptr)
-        : data(std::move(data)), data_ptr_override(data_ptr) {
-    }
-
-    void *DataPtr() const {
-        return data_ptr_override ? data_ptr_override : data->DataPtr();
+        : data(std::move(data)) {
     }
 
 private:
     duckdb::unique_ptr<CData> data;
-    // When set, DataPtr() returns this instead of data->DataPtr().
-    // Used when the keep-alive object is not the raw data itself (e.g. a Rust ByteBuffer).
-    void *data_ptr_override;
 };
 
 } // namespace vortex

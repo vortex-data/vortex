@@ -7,7 +7,7 @@ use crate::cpp::duckdb_vx_vector_set_all_valid;
 use crate::duckdb::Value;
 use crate::duckdb::VectorRef;
 use crate::exporter::copy_from_slice;
-use crate::exporter::validity::ZeroCopyValidity;
+use crate::duckdb::ValidityData;
 
 impl VectorRef {
     /// Returns true if all values are null (caller can skip data export).
@@ -29,7 +29,7 @@ impl VectorRef {
         mask: &Mask,
         offset: usize,
         len: usize,
-        zero_copy: Option<&ZeroCopyValidity>,
+        zero_copy: Option<&ValidityData>,
     ) -> bool {
         match mask {
             Mask::AllTrue(_) => {
@@ -50,8 +50,8 @@ impl VectorRef {
                     let u64_offset = offset / 64;
                     // SAFETY: the underlying buffer is u64-aligned (checked in
                     // can_zero_copy_validity) and the VectorBuffer keeps the data alive.
-                    // The C++ side derives the validity pointer from DataPtr() at u64_offset.
-                    unsafe { self.set_validity_data(u64_offset, len, &zc.shared_buffer) };
+                    // data_ptr points into the buffer at the start of the validity bitmap.
+                    unsafe { self.set_validity_data(u64_offset, len, zc) };
                 } else {
                     // If zero_copy is available and offset is aligned, we should
                     // have taken the branch above. Assert this invariant.

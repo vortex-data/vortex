@@ -22,10 +22,6 @@ typedef struct duckdb_vx_vector_buffer_ *duckdb_vx_vector_buffer;
 // the buffer.
 duckdb_vx_vector_buffer duckdb_vx_vector_buffer_create(duckdb_vx_data buffer);
 
-// Create an external vector buffer where DataPtr() returns data_ptr instead of the buffer's
-// own pointer. The buffer still keeps the underlying data alive.
-duckdb_vx_vector_buffer duckdb_vx_vector_buffer_create_with_data_ptr(duckdb_vx_data buffer, void *data_ptr);
-
 // Destroy the vector buffer.
 void duckdb_vx_vector_buffer_destroy(duckdb_vx_vector_buffer *buffer);
 

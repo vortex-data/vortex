@@ -7,21 +7,16 @@ use vortex::mask::Mask;
 
 use crate::duckdb::VectorBuffer;
 use crate::duckdb::VectorRef;
+use crate::duckdb::ValidityData;
 use crate::exporter::ColumnExporter;
 
 struct ValidityExporter {
     mask: Mask,
     /// If the mask's bit buffer is u64-aligned with no sub-byte offset,
-    /// we can zero-copy it into DuckDB. We hold the VectorBuffer to keep
+    /// we can zero-copy it into DuckDB. We hold the ValidityData to keep
     /// the underlying memory alive via DuckDB's ref-counting.
-    zero_copy: Option<ZeroCopyValidity>,
+    zero_copy: Option<ValidityData>,
     exporter: Box<dyn ColumnExporter>,
-}
-
-pub(super) struct ZeroCopyValidity {
-    /// VectorBuffer whose `DataPtr()` returns the raw validity bitmap pointer.
-    /// The buffer also keeps the underlying memory alive via DuckDB's ref-counting.
-    pub(super) shared_buffer: VectorBuffer,
 }
 
 /// Returns true if the bit buffer can be zero-copied as a DuckDB validity mask.
@@ -59,9 +54,9 @@ pub(crate) fn new_exporter(
             };
             let buffer = values.bit_buffer().inner().clone();
             let data_ptr = buffer.as_slice().as_ptr();
-            ZeroCopyValidity {
-                // SAFETY: data_ptr is derived from buffer and remains valid for its lifetime.
-                shared_buffer: unsafe { VectorBuffer::with_data_ptr(buffer, data_ptr) },
+            ValidityData {
+                shared_buffer: VectorBuffer::new(buffer),
+                data_ptr,
             }
         });
         Box::new(ValidityExporter {
