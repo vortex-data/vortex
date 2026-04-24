@@ -64,6 +64,9 @@ struct Args {
     #[arg(long, default_value_t = false)]
     hide_progress_bar: bool,
 
+    #[arg(long, default_value = "unknown")]
+    runner: String,
+
     #[arg(long, value_delimiter = ',', value_parser = value_parser!(Format))]
     formats: Vec<Format>,
 
@@ -142,6 +145,7 @@ fn main() -> anyhow::Result<()> {
     let mut runner = SqlBenchmarkRunner::new(
         &*benchmark,
         Engine::DuckDB,
+        args.runner.clone(),
         args.formats.clone(),
         args.track_memory,
         args.hide_progress_bar,

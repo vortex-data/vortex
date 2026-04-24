@@ -377,6 +377,7 @@ jobs:
             --targets-json '${{ steps.targets.outputs.targets_json }}' \
             --output results.json \
             --no-build \
+            --runner "ec2_${{ inputs.machine_type }}" \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
@@ -395,6 +396,7 @@ jobs:
             --targets-json '${{ steps.targets.outputs.targets_json }}' \
             --output results.json \
             --no-build \
+            --runner "ec2_${{ inputs.machine_type }}" \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
             --opt remote-data-dir=${{ matrix.remote_storage }} \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
