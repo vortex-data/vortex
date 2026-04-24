@@ -453,15 +453,22 @@ impl Validity {
     ///
     /// Returns None if the vector is empty.
     pub fn concat(validities: Vec<(Validity, usize)>) -> Option<Self> {
-        let (first, _) = validities.first()?;
-
-        if !matches!(first, Validity::Array(_)) {
-            let target = std::mem::discriminant(first);
-            if validities
-                .iter()
-                .all(|(v, _)| std::mem::discriminant(v) == target)
-            {
-                return Some(first.clone());
+        let mut validity_kinds = validities
+            .iter()
+            .map(|v| std::mem::discriminant(v))
+            .unique();
+        let validity_kind = validity_kinds.next()?;
+        if validity_kinds.next().is_none() {
+            // If there is only one kind of validity and its not Validity::Array, avoid constructing
+            // a Validity::Array.
+            if validity_kind == std::mem::discriminant(Validity::AllValid) {
+                return Some(Validity::AllValid);
+            }
+            if validity_kind == std::mem::discriminant(Validity::AllInvalid) {
+                return Some(Validity::AllInvalid);
+            }
+            if validity_kind == std::mem::discriminant(Validity::NonNullable) {
+                return Some(Validity::NonNullable);
             }
         }
 
