@@ -23,7 +23,7 @@ impl CastReduce for List {
 
         let Some(validity) = array
             .validity()?
-            .trivial_cast_nullability(dtype.nullability(), array.len())?
+            .trivially_cast_nullability(dtype.nullability(), array.len())?
         else {
             return Ok(None);
         };

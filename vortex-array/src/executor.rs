@@ -15,6 +15,7 @@
 use std::env::VarError;
 use std::fmt;
 use std::fmt::Display;
+use std::ops::Deref;
 use std::sync::LazyLock;
 
 use vortex_error::VortexExpect;
@@ -22,6 +23,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
+use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 
 use crate::AnyCanonical;
@@ -36,6 +38,7 @@ use crate::matcher::Matcher;
 use crate::memory::HostAllocatorRef;
 use crate::memory::MemorySessionExt;
 use crate::optimizer::ArrayOptimizer;
+use crate::optimizer::kernels::ArrayKernels;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSet;
 
@@ -418,9 +421,14 @@ impl Executable for ArrayRef {
             }
         }
 
+        let kernels = ctx
+            .session()
+            .get_opt::<ArrayKernels>()
+            .map(|v| v.map(|i| i.clone()));
+
         for (slot_idx, slot) in array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
-            if let Some(executed_parent) = child.execute_parent(&array, slot_idx, ctx)? {
+            if let Some(executed_parent) = execute_parent_for_child(&array, child, slot_idx, kernels, ctx)? {
                 ctx.log(format_args!(
                     "execute_parent: slot[{}]({}) rewrote {} -> {}",
                     slot_idx,
@@ -527,13 +535,35 @@ fn finalize_done(
     Ok((output, None))
 }
 
+fn execute_parent_for_child(
+    parent: &ArrayRef,
+    child: &ArrayRef,
+    slot_idx: usize,
+    kernels: Option<&ArrayKernels>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    if let Some(kernels) = ctx
+        .session()
+        .get_opt::<ArrayKernels>()
+        .map(|v| v.deref().clone())
+        && let Some(plugins) =
+            kernels.find_execute_parent(parent.encoding_id(), child.encoding_id())
+    {
+        for plugin in plugins.as_ref() {
+            if let Some(result) = plugin(child, parent, slot_idx, ctx)? {
+                return Ok(Some(result));
+            }
+        }
+    }
+
+    child.execute_parent(parent, slot_idx, ctx)
+}
+
 /// Try execute_parent on each occupied slot of the array.
 fn try_execute_parent(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<ArrayRef>> {
     for (slot_idx, slot) in array.slots().iter().enumerate() {
-        let Some(child) = slot else {
-            continue;
-        };
-        if let Some(result) = child.execute_parent(array, slot_idx, ctx)? {
+        let Some(child) = slot else { continue };
+        if let Some(result) = execute_parent_for_child(array, child, slot_idx, ctx)? {
             result.statistics().inherit_from(array.statistics());
             return Ok(Some(result));
         }

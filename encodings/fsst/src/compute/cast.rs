@@ -50,7 +50,7 @@ impl CastReduce for FSST {
         let codes = array.codes();
         let Some(new_codes_validity) = codes
             .validity()?
-            .trivial_cast_nullability(dtype.nullability(), codes.len())?
+            .trivially_cast_nullability(dtype.nullability(), codes.len())?
         else {
             return Ok(None);
         };

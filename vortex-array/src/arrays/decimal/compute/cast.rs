@@ -40,7 +40,7 @@ impl CastReduce for Decimal {
 
         let Some(new_validity) = array
             .validity()?
-            .trivial_cast_nullability(*to_nullability, array.len())?
+            .trivially_cast_nullability(*to_nullability, array.len())?
         else {
             return Ok(None);
         };

@@ -14,85 +14,91 @@ use crate::arrays::StructArray;
 use crate::arrays::dict::TakeReduceAdaptor;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
-use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::arrays::struct_::StructArrayExt;
 use crate::builtins::ArrayBuiltins;
-use crate::dtype::DType;
+use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
-use crate::scalar_fn::EmptyOptions;
-use crate::scalar_fn::fns::cast::CastReduce;
-use crate::scalar_fn::fns::cast::CastReduceAdaptor;
+use crate::scalar::Scalar;
+use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::get_item::GetItem;
-use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::validity::Validity;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Struct> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&CastReduceAdaptor(Struct)),
     ParentRuleSet::lift(&StructGetItemRule),
     ParentRuleSet::lift(&MaskReduceAdaptor(Struct)),
     ParentRuleSet::lift(&SliceReduceAdaptor(Struct)),
     ParentRuleSet::lift(&TakeReduceAdaptor(Struct)),
 ]);
 
-/// Push the cast into struct fields without execution.
-///
-/// Supports schema evolution by allowing new nullable fields to be added during the cast,
-/// filled with null values. For nullability changes, only handles the cheap path
-/// (`try_cast_nullability`); when statistics computation is required to determine whether
-/// the array contains invalid values, returns `Ok(None)` so [`CastKernel`] can run instead.
-///
-/// [`CastKernel`]: crate::scalar_fn::fns::cast::CastKernel
-impl CastReduce for Struct {
-    fn cast(array: ArrayView<'_, Struct>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        let Some(target_fields) = dtype.as_struct_fields_opt() else {
-            return Ok(None);
-        };
+pub(crate) fn struct_cast_reduce_parent(
+    child: &ArrayRef,
+    parent: &ArrayRef,
+    _child_idx: usize,
+) -> VortexResult<Option<ArrayRef>> {
+    let Some(array) = child.as_opt::<Struct>() else {
+        return Ok(None);
+    };
+    let Some(parent) = ExactScalarFn::<Cast>::try_match(parent) else {
+        return Ok(None);
+    };
 
-        let Some(validity) = array
-            .validity()?
-            .trivial_cast_nullability(dtype.nullability(), array.len())?
-        else {
-            return Ok(None);
-        };
+    if array.dtype() == parent.options {
+        return Ok(Some(array.array().clone()));
+    }
 
-        let mut new_fields = Vec::with_capacity(target_fields.nfields());
+    reduce_struct_cast(array, parent)
+}
 
-        for (target_name, target_dtype) in target_fields.names().iter().zip(target_fields.fields())
-        {
-            match array.unmasked_field_by_name(target_name).ok() {
-                Some(field) => {
-                    new_fields.push(field.cast(target_dtype)?);
-                }
-                None => {
-                    // Not found - create NULL array (schema evolution)
-                    vortex_ensure!(
-                        target_dtype.is_nullable(),
-                        "Cannot add non-nullable field '{}' during struct cast",
-                        target_name
-                    );
-                    new_fields.push(
-                        ConstantArray::new(crate::scalar::Scalar::null(target_dtype), array.len())
-                            .into_array(),
-                    );
-                }
+fn reduce_struct_cast(
+    array: ArrayView<'_, Struct>,
+    parent: ScalarFnArrayView<'_, Cast>,
+) -> VortexResult<Option<ArrayRef>> {
+    let Some(target_fields) = parent.options.as_struct_fields_opt() else {
+        return Ok(None);
+    };
+
+    let Some(validity) = array
+        .validity()?
+        .trivially_cast_nullability(parent.options.nullability(), array.len())?
+    else {
+        return Ok(None);
+    };
+
+    let mut new_fields = Vec::with_capacity(target_fields.nfields());
+
+    for (target_name, target_dtype) in target_fields.names().iter().zip(target_fields.fields()) {
+        match array.unmasked_field_by_name(target_name).ok() {
+            Some(field) => {
+                new_fields.push(field.cast(target_dtype)?);
+            }
+            None => {
+                // Not found - create NULL array (schema evolution)
+                vortex_ensure!(
+                    target_dtype.is_nullable(),
+                    "Cannot add non-nullable field '{}' during struct cast",
+                    target_name
+                );
+                new_fields
+                    .push(ConstantArray::new(Scalar::null(target_dtype), array.len()).into_array());
             }
         }
-
-        Ok(Some(
-            unsafe {
-                StructArray::new_unchecked(new_fields, target_fields.clone(), array.len(), validity)
-            }
-            .into_array(),
-        ))
     }
+
+    Ok(Some(
+        unsafe {
+            StructArray::new_unchecked(new_fields, target_fields.clone(), array.len(), validity)
+        }
+        .into_array(),
+    ))
 }
 
 /// Rule to flatten get_item from struct by field name
 #[derive(Debug)]
 pub(crate) struct StructGetItemRule;
+
 impl ArrayParentReduceRule<Struct> for StructGetItemRule {
     type Parent = ExactScalarFn<GetItem>;
 
@@ -121,17 +127,13 @@ impl ArrayParentReduceRule<Struct> for StructGetItemRule {
             Validity::AllInvalid => {
                 // If everything is invalid, the field is also all invalid
                 Ok(Some(
-                    ConstantArray::new(
-                        crate::scalar::Scalar::null(field.dtype().clone()),
-                        field.len(),
-                    )
-                    .into_array(),
+                    ConstantArray::new(Scalar::null(field.dtype().clone()), field.len())
+                        .into_array(),
                 ))
             }
             Validity::Array(mask) => {
                 // If the validity is an array, we need to combine it with the field's validity
-                Mask.try_new_array(field.len(), EmptyOptions, [field.clone(), mask])
-                    .map(Some)
+                field.clone().mask(mask).map(Some)
             }
         }
     }
@@ -142,10 +144,14 @@ mod tests {
     use std::sync::LazyLock;
 
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::VortexSessionExecute;
+    use crate::array::ArrayPlugin;
+    use crate::arrays::ScalarFn;
+    use crate::arrays::Struct;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::struct_::StructArrayExt;
@@ -157,12 +163,24 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
+    use crate::optimizer::ArrayOptimizer;
+    use crate::optimizer::kernels::ArrayKernels;
+    use crate::optimizer::kernels::ReduceParentFn;
     use crate::scalar::Scalar;
-    use crate::session::ArraySession;
+    use crate::scalar_fn::ScalarFnVTable;
+    use crate::scalar_fn::fns::cast::Cast;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+        LazyLock::new(|| VortexSession::empty().with::<ArrayKernels>());
+
+    fn no_struct_cast_plugin(
+        _child: &ArrayRef,
+        _parent: &ArrayRef,
+        _child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        Ok(None)
+    }
 
     #[test]
     fn test_struct_cast_field_reorder() {
@@ -209,8 +227,67 @@ mod tests {
         );
     }
 
+    #[test]
+    fn struct_cast_is_not_static_parent_rule() {
+        let source = StructArray::try_new(
+            FieldNames::from(["a", "b"]),
+            vec![
+                VarBinViewArray::from_iter_str(["A"]).into_array(),
+                VarBinViewArray::from_iter_str(["B"]).into_array(),
+            ],
+            1,
+            Validity::NonNullable,
+        )
+        .unwrap()
+        .into_array();
+
+        let utf8_null = DType::Utf8(Nullability::Nullable);
+        let target = DType::Struct(
+            StructFields::new(FieldNames::from(["c", "b", "a"]), vec![utf8_null; 3]),
+            Nullability::NonNullable,
+        );
+
+        let cast = source.cast(target).unwrap();
+        let optimized = cast.optimize().unwrap();
+        assert!(optimized.is::<ScalarFn>());
+    }
+
+    #[test]
+    fn struct_cast_plugin_can_be_overridden() {
+        let source = StructArray::try_new(
+            FieldNames::from(["a", "b"]),
+            vec![
+                VarBinViewArray::from_iter_str(["A"]).into_array(),
+                VarBinViewArray::from_iter_str(["B"]).into_array(),
+            ],
+            1,
+            Validity::NonNullable,
+        )
+        .unwrap()
+        .into_array();
+
+        let utf8_null = DType::Utf8(Nullability::Nullable);
+        let target = DType::Struct(
+            StructFields::new(FieldNames::from(["c", "b", "a"]), vec![utf8_null; 3]),
+            Nullability::NonNullable,
+        );
+
+        let cast = source.cast(target).unwrap();
+        let kernels = ArrayKernels::empty();
+        kernels.register_reduce_parent(
+            Cast.id(),
+            Struct.id(),
+            &[no_struct_cast_plugin as ReduceParentFn],
+        );
+        let session = VortexSession::empty().with_some(kernels);
+
+        let optimized = cast.optimize_ctx(&session).unwrap();
+        assert!(optimized.is::<ScalarFn>());
+    }
+
     /// Regression test: casting a struct to a non-struct DType must not panic. Previously,
-    /// `StructCastPushDownRule` called `as_struct_fields()` which panics on non-struct types.
+    /// the Struct/Cast reduce-parent rewrite called `as_struct_fields()` which panics on
+    /// non-struct types.
     #[test]
     fn cast_struct_to_non_struct_does_not_panic() {
         let source = StructArray::try_new(
@@ -222,10 +299,12 @@ mod tests {
         .unwrap();
 
         // Casting a struct to a primitive type should not panic. Before the fix,
-        // `StructCastPushDownRule` would panic via `as_struct_fields()` on the non-struct target.
+        // the reduce-parent rewrite would panic via `as_struct_fields()` on the non-struct target.
         let result = source
             .into_array()
-            .cast(DType::Primitive(PType::I32, Nullability::NonNullable));
+            .cast(DType::Primitive(PType::I32, Nullability::NonNullable))
+            .and_then(|arr| arr.optimize_ctx(&SESSION));
+
         // Whether this errors or succeeds depends on execution, but the key invariant is that the
         // optimizer rule does not panic.
         if let Ok(arr) = &result {
@@ -336,6 +415,10 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        assert!(source.into_array().cast(target).is_err());
+        let arr = source
+            .into_array()
+            .cast(target)
+            .and_then(|arr| arr.optimize_ctx(&SESSION));
+        assert!(arr.is_err());
     }
 }
