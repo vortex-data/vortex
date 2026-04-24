@@ -1,0 +1,23 @@
+name: "Build and verify rebuild is a no-op"
+description: "Run a cargo command, then re-run it to verify all artifacts are cached"
+inputs:
+  command:
+    description: "The cargo build command to run and verify (--message-format json is appended on the verification run)"
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: "Build"
+      shell: bash
+      run: ${{ inputs.command }}
+    - name: "Verify rebuild is a no-op"
+      shell: bash
+      run: |
+        stale=$(${{ inputs.command }} \
+          --message-format json 2>/dev/null \
+          | jq -r 'select(.reason == "compiler-artifact" and .fresh == false) | .target.name')
+        if [ -n "$stale" ]; then
+          echo "ERROR: Rebuild recompiled crates that should have been cached:"
+          echo "$stale"
+          exit 1
+        fi

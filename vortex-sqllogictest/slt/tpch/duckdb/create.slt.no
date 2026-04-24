@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+statement ok
+CREATE TABLE supplier AS SELECT * FROM read_vortex('${PWD}/vortex-sqllogictest/slt/tpch/data/supplier.vortex');
+
+statement ok
+CREATE TABLE part AS SELECT * FROM read_vortex('${PWD}/vortex-sqllogictest/slt/tpch/data/part.vortex');
+
+statement ok
+CREATE TABLE partsupp AS SELECT * FROM read_vortex('${PWD}/vortex-sqllogictest/slt/tpch/data/partsupp.vortex');
+
+statement ok
+CREATE TABLE customer AS SELECT * FROM read_vortex('${PWD}/vortex-sqllogictest/slt/tpch/data/customer.vortex');
+
+statement ok
+CREATE TABLE orders AS SELECT * FROM read_vortex('${PWD}/vortex-sqllogictest/slt/tpch/data/orders.vortex');
+
+statement ok
+CREATE TABLE lineitem AS SELECT * FROM read_vortex('${PWD}/vortex-sqllogictest/slt/tpch/data/lineitem.vortex');
+
+statement ok
+CREATE TABLE nation AS SELECT * FROM read_vortex('${PWD}/vortex-sqllogictest/slt/tpch/data/nation.vortex');
+
+statement ok
+CREATE TABLE region AS SELECT * FROM read_vortex('${PWD}/vortex-sqllogictest/slt/tpch/data/region.vortex');

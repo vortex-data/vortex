@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Dictionary column filter tests - derived from vortex-datafusion schema_evolution.rs
+# These tests filter on columns that would typically be dictionary-encoded
+
+include ./setup.slt
+
+# Create test data simulating dictionary-encoded columns
+query I
+COPY (SELECT * FROM (VALUES
+    ('agent', 'samples', 1),
+    ('agent', 'samples', 2),
+    ('agent', 'samples', 3)
+) AS t(producer, sample_type, val)) TO '$__TEST_DIR__/dict_filter.vortex';
+----
+3
+
+# Test filtering on dictionary-like columns
+query I
+SELECT val FROM '$__TEST_DIR__/dict_filter.vortex'
+WHERE producer = 'agent' AND sample_type = 'samples'
+ORDER BY val;
+----
+1
+2
+3

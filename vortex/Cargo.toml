@@ -1,0 +1,104 @@
+[package]
+name = "vortex"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Vortex file format with all builtin codecs and a sampling compressor."
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lints]
+workspace = true
+
+[dependencies]
+vortex-alp = { workspace = true }
+vortex-array = { workspace = true }
+vortex-btrblocks = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-bytebool = { workspace = true }
+vortex-datetime-parts = { workspace = true }
+vortex-decimal-byte-parts = { workspace = true }
+vortex-error = { workspace = true }
+vortex-fastlanes = { workspace = true }
+vortex-file = { workspace = true, optional = true, default-features = true }
+vortex-flatbuffers = { workspace = true }
+vortex-fsst = { workspace = true }
+vortex-io = { workspace = true }
+vortex-ipc = { workspace = true }
+vortex-layout = { workspace = true }
+vortex-mask = { workspace = true }
+vortex-metrics = { workspace = true }
+vortex-pco = { workspace = true }
+vortex-proto = { workspace = true, default-features = true }
+vortex-runend = { workspace = true, features = ["arrow"] }
+vortex-scan = { workspace = true }
+vortex-sequence = { workspace = true }
+vortex-session = { workspace = true }
+vortex-sparse = { workspace = true }
+vortex-tensor = { workspace = true, optional = true }
+vortex-utils = { workspace = true }
+vortex-zigzag = { workspace = true }
+vortex-zstd = { workspace = true, optional = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+arrow-array = { workspace = true }
+divan = { workspace = true }
+fastlanes = { workspace = true }
+futures = { workspace = true }
+mimalloc = { workspace = true }
+parquet = { workspace = true }
+paste = { workspace = true }
+rand = { workspace = true }
+rand_distr = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+vortex = { path = ".", features = ["tokio"] }
+vortex-bench = { workspace = true, features = ["unstable_encodings"] }
+vortex-tensor = { workspace = true }
+
+[features]
+default = ["files", "zstd"]
+files = ["dep:vortex-file"]
+memmap2 = ["vortex-buffer/memmap2"]
+object_store = ["vortex-file/object_store", "vortex-io/object_store"]
+tokio = ["vortex-file/tokio"]
+zstd = ["dep:vortex-zstd", "vortex-file/zstd"]
+pretty = ["vortex-array/table-display"]
+serde = ["vortex-array/serde", "vortex-buffer/serde", "vortex-mask/serde"]
+# This feature enabled unstable encodings for which we don't guarantee stability.
+unstable_encodings = [
+    "dep:vortex-tensor",
+    "vortex-btrblocks/unstable_encodings",
+    "vortex-file?/unstable_encodings",
+    "vortex-zstd?/unstable_encodings",
+]
+
+[[example]]
+name = "turboquant_vector_search"
+required-features = ["files", "tokio", "unstable_encodings"]
+
+[[bench]]
+name = "single_encoding_throughput"
+harness = false
+test = false
+
+[[bench]]
+name = "common_encoding_tree_throughput"
+harness = false
+test = false
+
+[[bench]]
+name = "pipeline"
+harness = false

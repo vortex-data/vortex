@@ -1,0 +1,39 @@
+[package]
+name = "vortex-jni"
+description = "Java Native Interface bindings for Vortex"
+readme = "README.md"
+# This crate is not meant to be consumed by other Rust code but rather produces a static binary
+# that can be linked to by other languages.
+publish = false
+version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+keywords = { workspace = true }
+include = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+categories = { workspace = true }
+
+[dependencies]
+arrow-array = { workspace = true, features = ["ffi"] }
+arrow-schema = { workspace = true }
+futures = { workspace = true }
+jni = { workspace = true }
+object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
+parking_lot = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true, features = ["std", "log"] }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+url = { workspace = true }
+vortex = { workspace = true, features = ["object_store", "files"] }
+
+[dev-dependencies]
+jni = { workspace = true, features = ["invocation"] }
+
+[lib]
+crate-type = ["staticlib", "cdylib"]
+
+[lints]
+workspace = true

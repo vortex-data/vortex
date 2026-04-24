@@ -1,0 +1,32 @@
+[package]
+name = "vortex-sequence"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Vortex run end encoded array"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+num-traits = { workspace = true }
+prost = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-mask = { workspace = true }
+vortex-proto = { workspace = true }
+vortex-session = { workspace = true }
+
+[dev-dependencies]
+itertools = { workspace = true }
+rstest = { workspace = true }
+vortex-array = { path = "../../vortex-array", features = ["_test-harness"] }
+
+[lints]
+workspace = true

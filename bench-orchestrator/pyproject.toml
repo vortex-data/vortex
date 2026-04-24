@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+[project]
+name = "bench-orchestrator"
+version = "0.1.0"
+description = "Benchmark orchestration tool for Vortex"
+requires-python = ">=3.11"
+classifiers = ["Private :: Do Not Upload"]
+
+dependencies = ["pandas>=2", "rich>=14", "typer>=0.20"]
+
+[project.scripts]
+vx-bench = "bench_orchestrator.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["bench_orchestrator"]
+
+[dependency-groups]
+dev = ["pandas-stubs>=2.3.3.251201"]

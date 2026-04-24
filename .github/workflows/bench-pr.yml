@@ -1,0 +1,139 @@
+# Runs all benchmarks once for a pull request.
+# Called from bench-dispatch.yml when the `action/benchmark` label is added.
+
+name: PR Benchmarks
+
+concurrency:
+  # The group causes runs to queue instead of running in parallel.
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  # Don't cancel benchmarks that are already running, instead just queue them up.
+  cancel-in-progress: false
+
+on:
+  workflow_call: { }
+  workflow_dispatch: { }
+
+permissions:
+  contents: read
+  pull-requests: write  # for commenting on PRs
+  id-token: write  # enables AWS-GitHub OIDC
+
+jobs:
+  bench:
+    timeout-minutes: 120
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=bench-dedicated/tag={1}{2}', github.run_id, matrix.benchmark.id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
+          || 'ubuntu-latest' }}
+    strategy:
+      matrix:
+        benchmark:
+          - id: random-access-bench
+            name: Random Access
+            build_args: "--features lance"
+          - id: compress-bench
+            name: Compression
+    steps:
+      - uses: runs-on/action@v2
+        if: github.event.pull_request.head.repo.fork == false
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Setup benchmark environment
+        run: sudo bash scripts/setup-benchmark.sh
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install DuckDB
+        run: |
+          wget -qO- https://github.com/duckdb/duckdb/releases/download/v1.5.2/duckdb_cli-linux-amd64.zip | funzip > duckdb
+          chmod +x duckdb
+          echo "$PWD" >> $GITHUB_PATH
+
+      - uses: ./.github/actions/system-info
+
+      - name: Build binary
+        shell: bash
+        env:
+          RUSTFLAGS: "-C target-cpu=native"
+        run: |
+          cargo build --package ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }} --features unstable_encodings
+
+      - name: Setup Polar Signals
+        if: github.event.pull_request.head.repo.fork == false
+        uses: polarsignals/gh-actions-ps-profiling@v0.8.1
+        with:
+          polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+          labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.benchmark.id }}"
+          project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+          profiling_frequency: 199
+          extra_args: "--off-cpu-threshold=0.03"  # Personally tuned by @brancz
+
+      - name: Run ${{ matrix.benchmark.name }} benchmark
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+          VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
+          FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+        run: |
+          bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} -d gh-json -o results.json
+
+      - name: Setup AWS CLI
+        if: github.event.pull_request.head.repo.fork == false
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
+        with:
+          sync: false
+
+      - name: Compare results
+        shell: bash
+        run: |
+          set -Eeu -o pipefail -x
+
+          base_commit_sha=$(\
+            curl -L \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              https://api.github.com/repos/vortex-data/vortex/actions/workflows/bench.yml/runs\?branch\=develop\&status\=success\&per_page\=1 \
+            | jq -r '.workflow_runs[].head_sha' \
+          )
+
+          python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz data.json.gz --no-sign-request
+          gzip -d -c data.json.gz | grep $base_commit_sha > base.json
+
+          echo '# Benchmarks: ${{ matrix.benchmark.name }}' > comment.md
+          echo '' >> comment.md
+          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.benchmark.name }}" \
+            >> comment.md
+          cat comment.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Comment PR
+        if: github.event.pull_request.head.repo.fork == false
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          file-path: comment.md
+          comment-tag: bench-pr-comment-${{ matrix.benchmark.id }}
+
+      - name: Comment PR on failure
+        if: failure() && github.event.pull_request.head.repo.fork == false
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          message: |
+            # BENCHMARK FAILED
+
+            Benchmark `${{ matrix.benchmark.name }}` failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
+          comment-tag: bench-pr-comment-${{ matrix.benchmark.id }}
+
+  sql:
+    uses: ./.github/workflows/sql-benchmarks.yml
+    secrets: inherit
+    with:
+      mode: "pr"

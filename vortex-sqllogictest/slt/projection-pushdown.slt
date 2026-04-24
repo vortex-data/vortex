@@ -1,0 +1,157 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Check projection pushdowns with different sets of pre- and
+# post-filter column set
+
+include ./setup.slt
+
+query I
+COPY (SELECT 0 AS i) TO '$__TEST_DIR__/projection-pushdown.vortex';
+----
+1
+
+query II
+SELECT i, 0 AS t FROM '$__TEST_DIR__/projection-pushdown.vortex';
+----
+0 0
+
+query I
+SELECT i FROM (SELECT i, 8 AS t FROM '$__TEST_DIR__/projection-pushdown.vortex');
+----
+0
+
+query I
+SELECT t FROM (SELECT i, 8 AS t FROM '$__TEST_DIR__/projection-pushdown.vortex');
+----
+8
+
+query I
+SELECT 0 FROM '$__TEST_DIR__/projection-pushdown.vortex';
+----
+0
+
+query I
+COPY (SELECT 'ololo' AS id) TO '$__TEST_DIR__/projection-pushdown-id.vortex';
+----
+1
+
+onlyif duckdb
+query I
+SELECT first(const) FROM (
+    SELECT id, 0 AS const FROM '$__TEST_DIR__/projection-pushdown-id.vortex'
+    UNION ALL SELECT id, 0 AS const FROM '$__TEST_DIR__/projection-pushdown-id.vortex'
+)
+GROUP BY id;
+----
+0
+
+query TI
+SELECT * FROM (
+    SELECT id, 0 AS const FROM '$__TEST_DIR__/projection-pushdown-id.vortex'
+    UNION ALL SELECT id, 0 AS const FROM '$__TEST_DIR__/projection-pushdown-id.vortex'
+)
+----
+ololo 0
+ololo 0
+
+onlyif duckdb
+query TI
+SELECT * FROM (
+    SELECT id, 0 AS const FROM '$__TEST_DIR__/projection-pushdown-id.vortex'
+    UNION ALL SELECT 'd', 0 AS const
+)
+----
+ololo 0
+d 0
+
+onlyif datafusion
+query TI
+SELECT * FROM (
+    SELECT id, 0 AS const FROM '$__TEST_DIR__/projection-pushdown-id.vortex'
+    UNION ALL SELECT '', 0 AS const
+)
+ORDER BY id;
+----
+(empty) 0
+ololo 0
+
+onlyif duckdb
+query I
+SELECT first(t) AS sales
+FROM (
+    SELECT id, 0 AS t FROM '$__TEST_DIR__/projection-pushdown-id.vortex'
+    UNION ALL SELECT id, 0 AS t FROM '$__TEST_DIR__/projection-pushdown-id.vortex'
+)
+GROUP BY id;
+----
+0
+
+query I
+COPY (SELECT 'ololo' AS id, '' AS id2) TO '$__TEST_DIR__/projection-pushdown-id2.vortex';
+----
+1
+
+query I
+SELECT 0 FROM '$__TEST_DIR__/projection-pushdown-id2.vortex';
+----
+0
+
+onlyif duckdb
+query TTI
+SELECT * FROM (
+    SELECT id, id2, 0 AS const FROM '$__TEST_DIR__/projection-pushdown-id2.vortex'
+    UNION ALL SELECT '' AS id, '' AS id2, 0 AS const
+)
+----
+ololo (empty) 0
+(empty) (empty) 0
+
+onlyif datafusion
+query TTI
+SELECT * FROM (
+    SELECT id, id2, 0 AS const FROM '$__TEST_DIR__/projection-pushdown-id2.vortex'
+    UNION ALL SELECT '' AS id, '' AS id2, 0 AS const
+)
+ORDER BY id;
+----
+(empty) (empty) 0
+ololo (empty) 0
+
+query I
+SELECT count(*) FROM (
+    SELECT id, id2, 0 AS const FROM '$__TEST_DIR__/projection-pushdown-id2.vortex'
+    UNION ALL SELECT '' AS id, '' AS id2, 0 AS const
+)
+----
+2
+
+query TI
+SELECT id, count(*) FROM (
+    SELECT id, id2, 0 AS const FROM '$__TEST_DIR__/projection-pushdown-id2.vortex'
+    UNION ALL SELECT 'a', '', 0 AS const
+)
+GROUP BY id
+ORDER BY id;
+----
+a 1
+ololo 1
+
+query T
+SELECT id FROM (
+    SELECT id, id2, 0 AS const FROM '$__TEST_DIR__/projection-pushdown-id2.vortex'
+    UNION ALL SELECT 'a', '', 0 AS const
+)
+ORDER BY id
+----
+a
+ololo
+
+query T
+SELECT id FROM (
+    SELECT id, id2, 0 AS const FROM '$__TEST_DIR__/projection-pushdown-id2.vortex'
+        WHERE id2 != ''
+    UNION ALL SELECT 'a', '', 0 AS const
+)
+----
+a

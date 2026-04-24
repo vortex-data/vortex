@@ -1,0 +1,67 @@
+name: Codspeed Benchmarking
+
+# Concurrency control:
+# - PRs: new commits on a feature branch will cancel in-progress (outdated) runs.
+# - Push to develop: runs queue sequentially, never cancelled. This allows us to have benchmarks
+#   run on every commit for our benchmarks website.
+# - `workflow_dispatch`: groups by branch and queues if run on develop.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
+on:
+  push:
+    branches: [develop]
+  pull_request: { }
+  workflow_dispatch: { }
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  NIGHTLY_TOOLCHAIN: nightly-2026-02-05
+
+jobs:
+  bench-codspeed:
+    strategy:
+      matrix:
+        include:
+          - { shard: 1, name: "Core foundation", packages: "vortex-buffer vortex-error" }
+          - { shard: 2, name: "Arrays", packages: "vortex-array", features: "--features _test-harness" }
+          - { shard: 3, name: "Main library", packages: "vortex" }
+          - { shard: 4, name: "Encodings 1", packages: "vortex-alp vortex-bytebool vortex-datetime-parts" }
+          - { shard: 5, name: "Encodings 2", packages: "vortex-decimal-byte-parts vortex-fastlanes vortex-fsst", features: "--features _test-harness" }
+          - { shard: 6, name: "Encodings 3", packages: "vortex-pco vortex-runend vortex-sequence" }
+          - { shard: 7, name: "Encodings 4", packages: "vortex-sparse vortex-zigzag vortex-zstd" }
+          - { shard: 8, name: "Storage formats", packages: "vortex-flatbuffers vortex-proto vortex-btrblocks" }
+    name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
+    timeout-minutes: 30
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=bench-codspeed-{1}', github.run_id, matrix.shard)
+          || 'ubuntu-latest' }}
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+      - name: Setup benchmark environment
+        run: sudo bash scripts/setup-benchmark.sh
+      - uses: ./.github/actions/setup-prebuild
+      - uses: ./.github/actions/system-info
+      - name: Install Codspeed
+        uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
+        with:
+          tool: cargo-codspeed
+      - name: Build benchmarks
+        env:
+          RUSTFLAGS: "-C target-feature=+avx2"
+        run: cargo codspeed build ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
+      - name: Run benchmarks
+        uses: CodSpeedHQ/action@d872884a306dd4853acf0f584f4b706cf0cc72a2
+        with:
+          run: bash scripts/bench-taskset.sh cargo codspeed run
+          token: ${{ secrets.CODSPEED_TOKEN }}
+          mode: "simulation"

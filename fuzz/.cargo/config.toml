@@ -1,0 +1,20 @@
+# Configuration for wasmfuzz builds
+# These flags are based on wasmfuzz's build-rust-harness.py
+
+[target.wasm32-wasip1]
+rustflags = [
+    # Embed source for coverage reports
+    "-Zembed-source=yes",
+    "-Zdwarf-version=5",
+    "-g",
+    # Static linking
+    "-Ctarget-feature=+crt-static",
+    # lime1 CPU for wasmfuzz compatibility
+    "-Ctarget-cpu=lime1",
+    # Reactor mode for persistent fuzzing
+    "-Zwasi-exec-model=reactor",
+]
+
+[unstable]
+# Required for building std to wasm32-wasip1
+build-std = ["std", "panic_abort"]

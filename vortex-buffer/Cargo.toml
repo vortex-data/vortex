@@ -1,0 +1,50 @@
+[package]
+name = "vortex-buffer"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "A byte buffer implementation for Vortex"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = "README.md"
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+arrow = []
+memmap2 = ["dep:memmap2"]
+serde = ["dep:serde", "serde/serde_derive"]
+warn-copy = ["dep:tracing"]
+
+[dependencies]
+arrow-buffer = { workspace = true }
+bitvec = { workspace = true }
+bytes = { workspace = true }
+itertools = { workspace = true }
+memmap2 = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+simdutf8 = { workspace = true }
+tracing = { workspace = true, optional = true }
+vortex-error = { workspace = true }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+divan = { workspace = true }
+num-traits = { workspace = true }
+rstest = { workspace = true }
+
+[[bench]]
+name = "vortex_buffer"
+harness = false
+
+[[bench]]
+name = "vortex_bitbuffer"
+harness = false

@@ -1,0 +1,32 @@
+[package]
+name = "vortex-scan"
+authors.workspace = true
+description = "Scanning operations for Vortex"
+edition = { workspace = true }
+homepage = { workspace = true }
+categories = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = "README.md"
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-mask = { workspace = true }
+vortex-session = { workspace = true }
+
+async-trait = { workspace = true }
+futures = { workspace = true }
+roaring = { workspace = true }
+tracing = { workspace = true }
+
+[lints]
+workspace = true

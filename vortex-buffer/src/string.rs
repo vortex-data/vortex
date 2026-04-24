@@ -1,0 +1,150 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::fmt::Debug;
+use std::fmt::Formatter;
+use std::ops::Deref;
+
+use vortex_error::VortexError;
+use vortex_error::vortex_err;
+
+use crate::ByteBuffer;
+
+/// A wrapper around a [`ByteBuffer`] that guarantees that the buffer contains valid UTF-8.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct BufferString(ByteBuffer);
+
+impl BufferString {
+    /// Creates a new `BufferString` from a [`ByteBuffer`].
+    ///
+    /// # Safety
+    /// Assumes that the buffer contains valid UTF-8.
+    pub const unsafe fn new_unchecked(buffer: ByteBuffer) -> Self {
+        Self(buffer)
+    }
+
+    /// Creates an empty `BufferString`.
+    pub fn empty() -> Self {
+        Self(ByteBuffer::from(vec![]))
+    }
+
+    /// Return a view of the contents of BufferString as an immutable `&str`.
+    pub fn as_str(&self) -> &str {
+        // SAFETY: We have already validated that the buffer is valid UTF-8
+        unsafe { std::str::from_utf8_unchecked(self.0.as_ref()) }
+    }
+
+    /// Returns the inner [`ByteBuffer`].
+    pub fn into_inner(self) -> ByteBuffer {
+        self.0
+    }
+
+    /// Returns reference to the inner [`ByteBuffer`].
+    pub fn inner(&self) -> &ByteBuffer {
+        &self.0
+    }
+}
+
+impl Debug for BufferString {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BufferString")
+            .field("string", &self.as_str())
+            .finish()
+    }
+}
+
+impl From<BufferString> for ByteBuffer {
+    fn from(value: BufferString) -> Self {
+        value.0
+    }
+}
+
+impl From<String> for BufferString {
+    fn from(value: String) -> Self {
+        Self(ByteBuffer::from(value.into_bytes()))
+    }
+}
+
+impl From<&str> for BufferString {
+    fn from(value: &str) -> Self {
+        Self(ByteBuffer::from(String::from(value).into_bytes()))
+    }
+}
+
+impl TryFrom<ByteBuffer> for BufferString {
+    type Error = VortexError;
+
+    fn try_from(value: ByteBuffer) -> Result<Self, Self::Error> {
+        simdutf8::basic::from_utf8(value.as_ref()).map_err(|_| {
+            #[expect(
+                clippy::unwrap_used,
+                reason = "unwrap is intentional - the error was already detected"
+            )]
+            // run validation using `compat` package to get more detailed error message
+            let err = simdutf8::compat::from_utf8(value.as_ref()).unwrap_err();
+            vortex_err!("invalid utf-8: {err}")
+        })?;
+
+        Ok(Self(value))
+    }
+}
+
+impl TryFrom<&[u8]> for BufferString {
+    type Error = VortexError;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        simdutf8::basic::from_utf8(value).map_err(|_| {
+            #[expect(
+                clippy::unwrap_used,
+                reason = "unwrap is intentional - the error was already detected"
+            )]
+            // run validation using `compat` package to get more detailed error message
+            let err = simdutf8::compat::from_utf8(value).unwrap_err();
+            vortex_err!("invalid utf-8: {err}")
+        })?;
+
+        Ok(Self(ByteBuffer::from(value.to_vec())))
+    }
+}
+
+impl Deref for BufferString {
+    type Target = str;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self.as_str()
+    }
+}
+
+impl AsRef<str> for BufferString {
+    #[inline]
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl AsRef<[u8]> for BufferString {
+    #[inline]
+    fn as_ref(&self) -> &[u8] {
+        self.as_str().as_bytes()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::Alignment;
+    use crate::BufferString;
+    use crate::buffer;
+
+    #[test]
+    fn buffer_string() {
+        let buf = BufferString::from("hello");
+        assert_eq!(buf.len(), 5);
+        assert_eq!(buf.into_inner().alignment(), Alignment::of::<u8>());
+    }
+
+    #[test]
+    fn buffer_string_non_ut8() {
+        assert!(BufferString::try_from(buffer![0u8, 255]).is_err());
+    }
+}

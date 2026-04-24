@@ -1,0 +1,62 @@
+name: Minimize All Fuzz Corpora
+
+concurrency:
+  group: fuzz
+  cancel-in-progress: false
+
+on:
+  schedule:
+    - cron: "0 0 * * 0"  # every Sunday at midnight UTC
+  workflow_dispatch: { }
+
+jobs:
+  # ============================================================================
+  # IO Fuzzer
+  # ============================================================================
+  io_fuzz_minimize:
+    name: "Minimize IO Fuzz Corpus"
+    uses: ./.github/workflows/minimize_fuzz_corpus_workflow.yml
+    with:
+      fuzz_target: file_io
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
+  # ============================================================================
+  # Array Operations Fuzzer
+  # ============================================================================
+  ops_fuzz_minimize:
+    name: "Minimize Array Ops Fuzz Corpus"
+    uses: ./.github/workflows/minimize_fuzz_corpus_workflow.yml
+    with:
+      fuzz_target: array_ops
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
+  # ============================================================================
+  # Compress Roundtrip Fuzzer
+  # ============================================================================
+  compress_fuzz_minimize:
+    name: "Minimize Compress Roundtrip Fuzz Corpus"
+    uses: ./.github/workflows/minimize_fuzz_corpus_workflow.yml
+    with:
+      fuzz_target: compress_roundtrip
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
+  # ============================================================================
+  # GPU Compress Fuzzer (CUDA)
+  # ============================================================================
+  gpu_compress_fuzz_minimize:
+    name: "Minimize GPU Compress Fuzz Corpus"
+    uses: ./.github/workflows/minimize_fuzz_corpus_workflow.yml
+    with:
+      fuzz_target: compress_gpu
+      family: "g4dn"
+      image: "ubuntu24-gpu-x64"
+      extra_features: "cuda"
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}

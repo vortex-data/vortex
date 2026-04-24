@@ -1,0 +1,122 @@
+name: Publish
+
+concurrency:
+  group: publish
+  cancel-in-progress: true
+
+env:
+  NIGHTLY_TOOLCHAIN: nightly-2026-02-05
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  package:
+    uses: ./.github/workflows/package.yml
+    with:
+      version: ${{ github.event.release.tag_name }}
+    secrets: inherit
+
+  publish-rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [package]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "false"
+      - name: Install cargo-edit
+        uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
+        with:
+          tool: cargo-edit
+
+      - name: Cargo Set Version
+        run: |
+          cargo set-version --workspace ${{ github.event.release.tag_name }}
+
+      - name: Release
+        run: |
+          cargo +$NIGHTLY_TOOLCHAIN publish -Zpublish-timeout --no-verify --allow-dirty --workspace
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  publish-python:
+    needs: [package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      id-token: write  # IMPORTANT: mandatory for trusted publishing
+      deployments: write
+    environment:
+      name: push-to-pypi
+      url: https://pypi.org/p/vortex-data
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: wheels-*.zip
+          # https://github.com/actions/download-artifact?tab=readme-ov-file#download-all-artifacts
+          # "To download them to the same directory:"
+          path: dist/
+          merge-multiple: true
+      - name: Display structure of downloaded files
+        run: ls -R dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true
+          verbose: true
+          skip-existing: true  # Idempotent releases
+
+  publish-java:
+    needs: [package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Picked up by gradle-git-version
+      GIT_VERSION: ${{ github.event.release.tag_name }}
+    defaults:
+      run:
+        working-directory: ./java
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: "corretto"
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: libvortex_jni_*.zip
+      - name: Copy native JNI libs
+        run: |
+          mkdir -p vortex-jni/src/main/resources/native/darwin-aarch64
+          mkdir -p vortex-jni/src/main/resources/native/linux-aarch64
+          mkdir -p vortex-jni/src/main/resources/native/linux-amd64
+          cp ../libvortex_jni_aarch64-apple-darwin.zip/libvortex_jni.dylib ./vortex-jni/src/main/resources/native/darwin-aarch64
+          cp ../libvortex_jni_aarch64-unknown-linux-gnu.zip/libvortex_jni.so ./vortex-jni/src/main/resources/native/linux-aarch64
+          cp ../libvortex_jni_x86_64-unknown-linux-gnu.zip/libvortex_jni.so ./vortex-jni/src/main/resources/native/linux-amd64
+      - name: Build Java
+        run: ./gradlew shadowJar
+      - name: Publish to Maven Central
+        run: ./gradlew -i publishAndReleaseToMavenCentral --no-configuration-cache
+        env:
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.ORG_GRADLE_PROJECT_SIGNINGINMEMORYKEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.ORG_GRADLE_PROJECT_SIGNINGINMEMORYKEYPASSWORD }}
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.ORG_GRADLE_PROJECT_MAVENCENTRALUSERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.ORG_GRADLE_PROJECT_MAVENCENTRALPASSWORD }}
+
+  compat-upload:
+    uses: ./.github/workflows/compat-gen-upload.yml
+    with:
+      git_ref: ${{ github.event.release.tag_name }}
+      confirm_upload: "yes"
+    secrets: inherit
+    permissions:
+      id-token: write
+      contents: read

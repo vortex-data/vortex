@@ -1,0 +1,18 @@
+[package]
+name = "wasm-test"
+description = "Small integration smoketest for wasm32-unknown-unknown target support"
+repository = "https://github.com/spiraldb/vortex"
+authors = ["Vortex Authors <hello@vortex.dev>"]
+license = "Apache-2.0"
+version = "0.0.1"
+publish = false
+edition = "2024"
+rust-version = "1.86"
+
+[dependencies]
+vortex = { path = "../vortex", default-features = false }
+
+[profile.ci]
+inherits = "dev"
+debug = "line-tables-only"
+incremental = false

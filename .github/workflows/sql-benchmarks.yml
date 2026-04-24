@@ -1,0 +1,519 @@
+name: "SQL-related benchmarks"
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        required: true
+        type: string
+      machine_type:
+        required: false
+        type: string
+        default: c6id.8xlarge
+      benchmark_matrix:
+        required: false
+        type: string
+        description: "JSON string containing the matrix configuration"
+        default: |
+          [
+            {
+              "id": "clickbench-nvme",
+              "subcommand": "clickbench",
+              "name": "Clickbench on NVME",
+              "data_formats": ["parquet", "vortex", "vortex-compact", "duckdb"],
+              "pr_targets": [
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"},
+                {"engine": "duckdb", "format": "duckdb"}
+              ],
+              "develop_targets": [
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "datafusion", "format": "vortex-compact"},
+                {"engine": "datafusion", "format": "lance"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"},
+                {"engine": "duckdb", "format": "vortex-compact"},
+                {"engine": "duckdb", "format": "duckdb"}
+              ]
+            },
+            {
+              "id": "tpch-nvme",
+              "subcommand": "tpch",
+              "name": "TPC-H SF=1 on NVME",
+              "data_formats": ["parquet", "vortex", "vortex-compact", "duckdb"],
+              "pr_targets": [
+                {"engine": "datafusion", "format": "arrow"},
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "datafusion", "format": "vortex-compact"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"},
+                {"engine": "duckdb", "format": "vortex-compact"},
+                {"engine": "duckdb", "format": "duckdb"}
+              ],
+              "develop_targets": [
+                {"engine": "datafusion", "format": "arrow"},
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "datafusion", "format": "vortex-compact"},
+                {"engine": "datafusion", "format": "lance"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"},
+                {"engine": "duckdb", "format": "vortex-compact"},
+                {"engine": "duckdb", "format": "duckdb"}
+              ],
+              "scale_factor": "1.0",
+              "iterations": "10"
+            },
+            {
+              "id": "tpch-s3",
+              "subcommand": "tpch",
+              "name": "TPC-H SF=1 on S3",
+              "local_dir": "vortex-bench/data/tpch/1.0",
+              "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/tpch/1.0/",
+              "data_formats": ["parquet", "vortex", "vortex-compact"],
+              "pr_targets": [
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "datafusion", "format": "vortex-compact"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"},
+                {"engine": "duckdb", "format": "vortex-compact"}
+              ],
+              "develop_targets": [
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "datafusion", "format": "vortex-compact"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"},
+                {"engine": "duckdb", "format": "vortex-compact"}
+              ],
+              "scale_factor": "1.0",
+              "iterations": "10"
+            },
+            {
+              "id": "tpch-nvme-10",
+              "subcommand": "tpch",
+              "name": "TPC-H SF=10 on NVME",
+              "data_formats": ["parquet", "vortex", "vortex-compact", "duckdb"],
+              "pr_targets": [
+                {"engine": "datafusion", "format": "arrow"},
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "datafusion", "format": "vortex-compact"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"},
+                {"engine": "duckdb", "format": "vortex-compact"},
+                {"engine": "duckdb", "format": "duckdb"}
+              ],
+              "develop_targets": [
+                {"engine": "datafusion", "format": "arrow"},
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "datafusion", "format": "vortex-compact"},
+                {"engine": "datafusion", "format": "lance"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"},
+                {"engine": "duckdb", "format": "vortex-compact"},
+                {"engine": "duckdb", "format": "duckdb"}
+              ],
+              "scale_factor": "10.0",
+              "iterations": "10"
+            },
+            {
+              "id": "tpch-s3-10",
+              "subcommand": "tpch",
+              "name": "TPC-H SF=10 on S3",
+              "local_dir": "vortex-bench/data/tpch/10.0",
+              "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/tpch/10.0/",
+              "data_formats": ["parquet", "vortex", "vortex-compact"],
+              "pr_targets": [
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "datafusion", "format": "vortex-compact"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"},
+                {"engine": "duckdb", "format": "vortex-compact"}
+              ],
+              "develop_targets": [
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "datafusion", "format": "vortex-compact"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"},
+                {"engine": "duckdb", "format": "vortex-compact"}
+              ],
+              "scale_factor": "10.0",
+              "iterations": "10"
+            },
+            {
+              "id": "tpcds-nvme",
+              "subcommand": "tpcds",
+              "name": "TPC-DS SF=1 on NVME",
+              "data_formats": ["parquet", "vortex", "vortex-compact", "duckdb"],
+              "pr_targets": [
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "datafusion", "format": "vortex-compact"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"},
+                {"engine": "duckdb", "format": "vortex-compact"},
+                {"engine": "duckdb", "format": "duckdb"}
+              ],
+              "develop_targets": [
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "datafusion", "format": "vortex-compact"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"},
+                {"engine": "duckdb", "format": "vortex-compact"},
+                {"engine": "duckdb", "format": "duckdb"}
+              ],
+              "scale_factor": "1.0"
+            },
+            {
+              "id": "statpopgen",
+              "subcommand": "statpopgen",
+              "name": "Statistical and Population Genetics",
+              "local_dir": "vortex-bench/data/statpopgen",
+              "data_formats": ["parquet", "vortex", "vortex-compact"],
+              "pr_targets": [
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"},
+                {"engine": "duckdb", "format": "vortex-compact"}
+              ],
+              "develop_targets": [
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"},
+                {"engine": "duckdb", "format": "vortex-compact"}
+              ],
+              "scale_factor": "100"
+            },
+            {
+              "id": "fineweb",
+              "subcommand": "fineweb",
+              "name": "FineWeb NVMe",
+              "data_formats": ["parquet", "vortex", "vortex-compact"],
+              "pr_targets": [
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "datafusion", "format": "vortex-compact"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"},
+                {"engine": "duckdb", "format": "vortex-compact"}
+              ],
+              "develop_targets": [
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "datafusion", "format": "vortex-compact"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"},
+                {"engine": "duckdb", "format": "vortex-compact"}
+              ],
+              "scale_factor": "100"
+            },
+            {
+              "id": "fineweb-s3",
+              "subcommand": "fineweb",
+              "name": "FineWeb S3",
+              "local_dir": "vortex-bench/data/fineweb",
+              "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/fineweb/",
+              "data_formats": ["parquet", "vortex", "vortex-compact"],
+              "pr_targets": [
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "datafusion", "format": "vortex-compact"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"},
+                {"engine": "duckdb", "format": "vortex-compact"}
+              ],
+              "develop_targets": [
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "datafusion", "format": "vortex-compact"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"},
+                {"engine": "duckdb", "format": "vortex-compact"}
+              ],
+              "scale_factor": "100"
+            },
+            {
+              "id": "polarsignals",
+              "subcommand": "polarsignals",
+              "name": "PolarSignals Profiling",
+              "data_formats": ["vortex"],
+              "pr_targets": [
+                {"engine": "datafusion", "format": "vortex"}
+              ],
+              "develop_targets": [
+                {"engine": "datafusion", "format": "vortex"}
+              ],
+              "scale_factor": "1"
+            }
+          ]
+
+jobs:
+  bench:
+    timeout-minutes: 120
+    env:
+      VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
+      FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+      # Makes python output nicer
+      COLUMNS: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.benchmark_matrix) }}
+
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=bench-dedicated/tag={1}{2}', github.run_id, matrix.id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
+          || 'ubuntu-latest' }}
+    steps:
+      - uses: runs-on/action@v2
+        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+        if: inputs.mode == 'pr'
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/checkout@v6
+        if: inputs.mode != 'pr'
+      - name: Setup benchmark environment
+        run: sudo bash scripts/setup-benchmark.sh
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
+        with:
+          sync: false
+
+      - name: Install DuckDB
+        run: |
+          wget -qO- https://github.com/duckdb/duckdb/releases/download/v1.5.2/duckdb_cli-linux-amd64.zip | funzip > duckdb
+          chmod +x duckdb
+          echo "$PWD" >> $GITHUB_PATH
+
+      - uses: ./.github/actions/system-info
+
+      - name: Resolve benchmark targets
+        id: targets
+        shell: bash
+        run: |
+          if [ "${{ inputs.mode }}" = "pr" ]; then
+            targets='${{ toJSON(matrix.pr_targets) }}'
+          else
+            targets='${{ toJSON(matrix.develop_targets) }}'
+          fi
+          {
+            echo 'targets_json<<__TARGETS_JSON__'
+            echo "$targets"
+            echo '__TARGETS_JSON__'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build binaries
+        shell: bash
+        env:
+          RUSTFLAGS: "-C target-cpu=native"
+        run: |
+          packages="--bin data-gen --bin datafusion-bench --bin duckdb-bench"
+          if [ "${{ inputs.mode }}" != "pr" ]; then
+            packages="$packages --bin lance-bench"
+          fi
+          cargo build $packages --profile release_debug --features unstable_encodings
+
+      - name: Generate data
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+        run: |
+          uv run --project bench-orchestrator vx-bench prepare-data "${{ matrix.subcommand }}" \
+            --formats-json '${{ toJSON(matrix.data_formats) }}' \
+            ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
+
+      - name: Setup AWS CLI
+        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+
+      - name: Upload data
+        if: matrix.remote_storage != null && (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false)
+        shell: bash
+        env:
+          AWS_REGION: "us-east-1"
+        run: |
+          aws s3 rm --recursive ${{ matrix.remote_storage }}
+          aws s3 cp --recursive ${{matrix.local_dir}} ${{ matrix.remote_storage }}
+
+      - name: Setup Polar Signals
+        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
+        uses: polarsignals/gh-actions-ps-profiling@v0.8.1
+        with:
+          polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+          labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.id }}"
+          project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+          profiling_frequency: 199
+          extra_args: "--off-cpu-threshold=0.03"  # Personally tuned by @brancz
+
+      - name: Run ${{ matrix.name }} benchmark
+        if: matrix.remote_storage == null || github.event.pull_request.head.repo.fork == true
+        shell: bash
+        env:
+          OTEL_SERVICE_NAME: "vortex-bench"
+          OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+          OTEL_EXPORTER_OTLP_ENDPOINT: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_ENDPOINT || '' }}"
+          OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
+          OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
+        run: |
+          bash scripts/bench-taskset.sh uv run --project bench-orchestrator vx-bench run "${{ matrix.subcommand }}" \
+            --targets-json '${{ steps.targets.outputs.targets_json }}' \
+            --output results.json \
+            --no-build \
+            --runner "ec2_${{ inputs.machine_type }}" \
+            ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
+            ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
+
+      - name: Run ${{ matrix.name }} benchmark (remote)
+        if: matrix.remote_storage != null && (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false)
+        shell: bash
+        env:
+          AWS_REGION: "us-east-1"
+          OTEL_SERVICE_NAME: "vortex-bench"
+          OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+          OTEL_EXPORTER_OTLP_ENDPOINT: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_ENDPOINT || '' }}"
+          OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
+          OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
+        run: |
+          bash scripts/bench-taskset.sh uv run --project bench-orchestrator vx-bench run "${{ matrix.subcommand }}" \
+            --targets-json '${{ steps.targets.outputs.targets_json }}' \
+            --output results.json \
+            --no-build \
+            --runner "ec2_${{ inputs.machine_type }}" \
+            ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
+            --opt remote-data-dir=${{ matrix.remote_storage }} \
+            ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
+      - name: Compare results
+        if: inputs.mode == 'pr'
+        shell: bash
+        run: |
+          set -Eeu -o pipefail -x
+
+          base_commit_sha=$(\
+            curl -L \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              https://api.github.com/repos/vortex-data/vortex/actions/workflows/bench.yml/runs\?branch\=develop\&status\=success\&per_page\=1 \
+            | jq -r '.workflow_runs[].head_sha' \
+          )
+
+          python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz data.json.gz --no-sign-request
+          gzip -d -c data.json.gz | grep $base_commit_sha > base.json
+
+          echo '# Benchmarks: ${{ matrix.name }}' > comment.md
+          echo '' >> comment.md
+          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.name }}" \
+            >> comment.md
+          cat comment.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Comment PR
+        if: inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          file-path: comment.md
+          # There is exactly one comment per comment-tag. If a comment with this tag already exists,
+          # this action will *update* the comment instead of posting a new comment. Therefore, each
+          # unique benchmark configuration must have a unique comment-tag.
+          comment-tag: bench-pr-comment-${{ matrix.id }}
+
+      - name: Compare file sizes
+        if: inputs.mode == 'pr' && matrix.remote_storage == null
+        shell: bash
+        run: |
+          set -Eeu -o pipefail -x
+
+          # Capture HEAD file sizes (vortex formats only)
+          uv run --no-project scripts/capture-file-sizes.py \
+            vortex-bench/data \
+            --benchmark ${{ matrix.subcommand }} \
+            --commit ${{ github.event.pull_request.head.sha }} \
+            -o head-sizes.json
+
+          # Get base commit SHA (same as benchmark comparison)
+          base_commit_sha=$(\
+            curl -L \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              https://api.github.com/repos/vortex-data/vortex/actions/workflows/bench.yml/runs\?branch\=develop\&status\=success\&per_page\=1 \
+            | jq -r '.workflow_runs[].head_sha' \
+          )
+
+          # Download file sizes baseline (per-benchmark file)
+          python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/file-sizes-${{ matrix.id }}.json.gz file-sizes.json.gz --no-sign-request || true
+
+          # Generate comparison report
+          echo '# File Sizes: ${{ matrix.name }}' > sizes-comment.md
+          echo '' >> sizes-comment.md
+
+          if [ -f file-sizes.json.gz ]; then
+            gzip -d -c file-sizes.json.gz | grep $base_commit_sha > base-sizes.json || true
+            if [ -s base-sizes.json ]; then
+              uv run --no-project scripts/compare-file-sizes.py base-sizes.json head-sizes.json \
+                >> sizes-comment.md
+            else
+              echo '_No baseline file sizes found for base commit._' >> sizes-comment.md
+            fi
+          else
+            echo '_No baseline file sizes available yet._' >> sizes-comment.md
+          fi
+
+          cat sizes-comment.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Comment PR with file sizes
+        if: inputs.mode == 'pr' && matrix.remote_storage == null && github.event.pull_request.head.repo.fork == false
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          file-path: sizes-comment.md
+          comment-tag: file-sizes-${{ matrix.id }}
+
+      - name: Comment PR on failure
+        if: failure() && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          message: |
+            # 🚨🚨🚨❌❌❌ SQL BENCHMARK FAILED ❌❌❌🚨🚨🚨
+
+            Benchmark `${{ matrix.name }}` failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
+          comment-tag: bench-pr-comment-${{ matrix.id }}
+
+      - name: Upload Benchmark Results
+        if: inputs.mode == 'develop'
+        shell: bash
+        run: |
+          bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
+
+      - name: Upload File Sizes
+        if: inputs.mode == 'develop' && matrix.remote_storage == null
+        shell: bash
+        run: |
+          uv run --no-project scripts/capture-file-sizes.py \
+            vortex-bench/data \
+            --benchmark ${{ matrix.subcommand }} \
+            --commit ${{ github.sha }} \
+            -o sizes.json
+          bash scripts/cat-s3.sh vortex-ci-benchmark-results file-sizes-${{ matrix.id }}.json.gz sizes.json
+
+      - name: Alert incident.io
+        if: failure() && inputs.mode == 'develop'
+        uses: ./.github/actions/alert-incident-io
+        with:
+          api-key: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
+          alert-title: "${{ matrix.name }} SQL benchmark failed on develop"
+          deduplication-key: ci-sql-bench-${{ matrix.id }}-failure

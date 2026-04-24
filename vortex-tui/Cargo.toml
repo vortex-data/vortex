@@ -1,0 +1,103 @@
+[package]
+name = "vortex-tui"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "a small but mighty tool for working with Vortex files"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = "README.md"
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[features]
+default = ["native"]
+native = [
+    "dep:arrow-array",
+    "dep:arrow-schema",
+    "dep:clap",
+    "dep:crossterm",
+    "dep:datafusion",
+    "dep:env_logger",
+    "dep:indicatif",
+    "dep:parquet",
+    "dep:tokio",
+    "dep:vortex-datafusion",
+    "ratatui/crossterm",
+    "vortex/tokio",
+    "vortex/zstd",
+]
+unstable_encodings = ["vortex/unstable_encodings"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "vx"
+path = "src/main.rs"
+required-features = ["native"]
+
+[dependencies]
+# Shared dependencies
+anyhow = { workspace = true }
+flatbuffers = { workspace = true }
+futures = { workspace = true }
+fuzzy-matcher = { workspace = true }
+humansize = { workspace = true }
+itertools = { workspace = true }
+ratatui = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+taffy = { workspace = true }
+vortex = { version = "0.1.0", path = "../vortex", default-features = false, features = [
+    "files",
+] }
+
+# Native-only dependencies (gated behind "native" feature)
+arrow-array = { workspace = true, optional = true }
+arrow-schema = { workspace = true, optional = true }
+clap = { workspace = true, features = ["derive"], optional = true }
+crossterm = { workspace = true, features = ["event-stream"], optional = true }
+datafusion = { workspace = true, optional = true }
+env_logger = { workspace = true, optional = true }
+indicatif = { workspace = true, features = ["futures"], optional = true }
+parquet = { workspace = true, features = ["arrow", "async"], optional = true }
+tokio = { workspace = true, features = [
+    "rt-multi-thread",
+    "macros",
+], optional = true }
+vortex-datafusion = { workspace = true, optional = true }
+
+# WASM-only dependencies
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1.7"
+js-sys = "0.3.81"
+ratzilla = "0.3"
+wasm-bindgen = "0.2.104"
+wasm-bindgen-futures = { workspace = true }
+web-sys = { version = "0.3.81", features = [
+    "console",
+    "DataTransfer",
+    "Document",
+    "DragEvent",
+    "Element",
+    "File",
+    "FileReader",
+    "HtmlElement",
+    "HtmlInputElement",
+    "Window",
+] }
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/{ version }/vx-{ target }{ archive-suffix }"
+bin-dir = "{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.'cfg(target_os = "windows")']
+pkg-fmt = "zip"
+
+[lints]
+workspace = true

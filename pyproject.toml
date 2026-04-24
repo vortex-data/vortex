@@ -1,0 +1,67 @@
+[project]
+name = "workspace"
+version = "0.1.0"
+description = "Add your description here"
+authors = [{ name = "Nicholas Gates", email = "nick@nickgates.com" }]
+requires-python = ">= 3.11"
+dependencies = ["bench-orchestrator", "vortex-data", "docs"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["dummy"] # Required for workspace project
+
+[dependency-groups]
+# Shared dev tooling. Member-specific dev deps live in each member's pyproject.toml.
+# `uv sync --all-packages` picks up dev groups from all workspace members.
+dev = [
+    "basedpyright>=1.31",
+    "ipython>=8.26.0",
+    "pip>=23.3.2",
+    "pytest>=7.4.0",
+    "ruff>=0.7.1",
+    # forced transitive bumps
+    "urllib3>=2.6.3",
+    "filelock>=3.20.3",
+]
+
+[tool.uv]
+managed = true
+required-version = ">=0.8.0"
+
+[tool.uv.workspace]
+members = ["bench-orchestrator", "vortex-python", "docs"]
+
+[tool.uv.sources]
+bench-orchestrator = { workspace = true }
+vortex-data = { workspace = true }
+docs = { workspace = true }
+
+[tool.ruff]
+line-length = 120
+extend-exclude = [".venv", "vortex-duckdb/duckdb/**"]
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "UP", "I"]
+# Do not auto-fix unused variables. This is really annoying when IntelliJ runs autofix while editing.
+unfixable = ["F841"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "vortex.scan",
+    "vortex.file",
+    "vortex.expr",
+    "vortex.ray",
+    "vortex.type_aliases",
+    "vortex.polars_",
+]
+
+[tool.pytest.ini_options]
+log_cli = true
+log_cli_level = "INFO"
+xfail_strict = true
+
+[tool.basedpyright]
+exclude = ["vortex-python/python/vortex/_lib/store/**.pyi"]

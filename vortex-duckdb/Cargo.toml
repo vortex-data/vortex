@@ -1,0 +1,60 @@
+[package]
+name = "vortex-duckdb"
+version = { workspace = true }
+description = "Vortex DuckDB extension"
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+publish = false
+keywords = { workspace = true }
+include = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+categories = { workspace = true }
+readme = { workspace = true }
+
+# The `links` key enables DEP_DUCKDB_* environment variables in dependent build scripts.
+# See: https://doc.rust-lang.org/cargo/reference/build-scripts.html#the-links-manifest-key
+links = "duckdb"
+
+[lib]
+name = "vortex_duckdb"
+path = "src/lib.rs"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+async-fs = { workspace = true }
+async-trait = { workspace = true }
+bitvec = { workspace = true }
+custom-labels = { workspace = true }
+futures = { workspace = true }
+itertools = { workspace = true }
+kanal = { workspace = true }
+num-traits = { workspace = true }
+object_store = { workspace = true, features = ["aws"] }
+parking_lot = { workspace = true }
+paste = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+vortex = { workspace = true, features = ["files", "tokio", "object_store"] }
+vortex-utils = { workspace = true, features = ["dashmap"] }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+jiff = { workspace = true }
+rstest = { workspace = true }
+tempfile = { workspace = true }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-runend = { workspace = true }
+vortex-sequence = { workspace = true }
+
+[lints]
+workspace = true
+
+[build-dependencies]
+bindgen = { workspace = true }
+cbindgen = { workspace = true }
+cc = { workspace = true }
+reqwest = { workspace = true }
+zip = { workspace = true }

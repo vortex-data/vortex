@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+[package]
+name = "vortex-proto"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Protocol buffer definitions for Vortex types"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = "README.md"
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+prost = { workspace = true }
+prost-types = { workspace = true }
+
+[features]
+default = ["expr"]
+dtype = []
+expr = ["dtype", "scalar"]
+scalar = ["dtype"]
+
+[lints]
+workspace = true

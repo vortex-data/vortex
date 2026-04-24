@@ -1,0 +1,90 @@
+[project]
+name = "vortex-data"
+# Maturin copies these, at build time, from Cargo.toml.
+# https://github.com/PyO3/maturin/blob/main/src/metadata.rs#L127-L129
+dynamic = ["version", "description", "authors"]
+readme = "README.md"
+dependencies = [
+    "pyarrow>=17.0.0",
+    "substrait>=0.23.0,<0.29.0",
+    "typing-extensions>=4.5.0",
+]
+requires-python = ">= 3.11"
+classifiers = [
+    # How mature is this project? Common values are
+    #   3 - Alpha
+    #   4 - Beta
+    #   5 - Production/Stable
+    "Development Status :: 4 - Beta",
+    # Indicate who your project is intended for
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    # Specify the Python versions you support here.
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    # Pick your license as you wish
+    "License :: OSI Approved :: Apache Software License",
+    # Topics
+    "Topic :: Database",
+    "Topic :: File Formats",
+    "Topic :: Scientific/Engineering",
+]
+
+[project.scripts]
+vx = "vortex.cli:main"
+
+[project.optional-dependencies]
+polars = ["polars>=1.31.0"]
+pandas = ["pandas>=2.2.0"]
+numpy = ["numpy>=1.26.0"]
+duckdb = ["duckdb>=1.1.2"]
+ray = ["ray>=2.48"]
+
+[project.urls]
+Documentation = "https://docs.vortex.dev"
+Changelog = "https://github.com/vortex-data/vortex/blob/develop/CHANGELOG.md"
+Issues = "https://github.com/vortex-data/vortex/issues"
+Benchmarks = "https://bench.vortex.dev"
+
+[build-system]
+requires = ["maturin>=1.10.2,<2.0"]
+build-backend = "maturin"
+
+[tool.uv]
+managed = true
+
+[tool.maturin]
+profile = "release"
+editable-profile = "dev"
+python-source = "python"
+module-name = "vortex._lib"
+features = ["pyo3/extension-module", "mimalloc"]
+compatibility = "manylinux2014"
+include = [
+    { path = "rust-toolchain.toml", format = "sdist" },
+    { path = "README.md", format = "sdist" },
+    { path = "python/vortex/py.typed", format = "sdist" },
+]
+
+[dependency-groups]
+dev = [
+    "duckdb>=1.1.2",
+    "maturin>=1.10.2",
+    "numpy>=2.2.2",
+    "pandas-stubs>=2.2.3.241126",
+    "pandas[output-formatting]>=2.2.3",
+    "pcodec>=0.3.3",
+    "polars>=1.9.0",
+    "pyarrow-stubs>=17.16",
+    "pytest-benchmark>=5.1.0",
+    "pytest-xdist>=3.5.0",
+    "ray>=2.48",
+    # forced transitive bumps
+    "protobuf>=6.33.5",
+]
+
+[tool.basedpyright]
+exclude = ["python/vortex/_lib/store/**.pyi"]

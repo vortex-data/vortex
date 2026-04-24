@@ -1,0 +1,39 @@
+[package]
+name = "vortex-tensor"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Vortex tensor extension type"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-compressor = { workspace = true }
+vortex-error = { workspace = true }
+vortex-fastlanes = { workspace = true }
+vortex-session = { workspace = true }
+vortex-utils = { workspace = true }
+
+half = { workspace = true }
+itertools = { workspace = true }
+num-traits = { workspace = true }
+prost = { workspace = true }
+
+[dev-dependencies]
+divan = { workspace = true }
+mimalloc = { workspace = true }
+rand = { workspace = true }
+rand_distr = { workspace = true }
+rstest = { workspace = true }
+vortex-btrblocks = { path = "../vortex-btrblocks" }

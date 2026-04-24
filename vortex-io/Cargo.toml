@@ -1,0 +1,68 @@
+[package]
+name = "vortex-io"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Core async and blocking IO traits and implementations, used by IPC and file format"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+async-fs = { workspace = true }
+async-stream = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true, features = ["std", "executor"] }
+glob = { workspace = true }
+kanal = { workspace = true }
+object_store = { workspace = true, optional = true, features = ["fs"] }
+oneshot = { workspace = true }
+parking_lot = { workspace = true }
+pin-project-lite = { workspace = true }
+tokio = { workspace = true, features = [
+    "io-util",
+    "rt",
+    "sync",
+] } # this is the maximum subset of fetaures that is safe for wasm32 targets
+tracing = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-metrics = { workspace = true }
+vortex-session = { workspace = true }
+vortex-utils = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+custom-labels = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Smol is our default impl, so we don't want it to be optional, but it cannot be part of wasm
+smol = { workspace = true }
+
+# target_os = "unknown" matches wasm32-unknown-unknown (browser), excluding WASI targets
+# where wasm-bindgen's JS interop is not available.
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+wasm-bindgen-futures = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+itertools = { workspace = true }
+rstest = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+
+[features]
+object_store = ["dep:object_store", "vortex-error/object_store"]
+tokio = ["tokio/fs", "tokio/rt-multi-thread"]
+
+[lints]
+workspace = true

@@ -1,0 +1,226 @@
+name: Fuzz
+
+concurrency:
+  # The group causes runs to queue instead of running in parallel.
+  group: fuzz
+  # This ensures each run builds on the previous run's corpus discoveries rather than losing them to
+  # failed compare-and-swap uploads.
+  cancel-in-progress: false
+
+on:
+  schedule:
+    - cron: "0 * * * *"  # every hour
+  workflow_dispatch: { }
+
+jobs:
+  # ============================================================================
+  # IO Fuzzer
+  # ============================================================================
+  io_fuzz:
+    name: "IO Fuzz"
+    uses: ./.github/workflows/run-fuzzer.yml
+    with:
+      fuzz_target: file_io
+      jobs: 16
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
+  report-io-fuzz-failures:
+    name: "Report IO Fuzz Failures"
+    needs: io_fuzz
+    if: always() && needs.io_fuzz.outputs.crashes_found == 'true'
+    permissions:
+      issues: write
+      contents: read
+      id-token: write
+      pull-requests: read
+    uses: ./.github/workflows/report-fuzz-crash.yml
+    with:
+      fuzz_target: file_io
+      crash_file: ${{ needs.io_fuzz.outputs.first_crash_name }}
+      artifact_url: ${{ needs.io_fuzz.outputs.artifact_url }}
+      artifact_name: file_io-crash-artifacts
+      logs_artifact_name: file_io-logs
+      branch: ${{ github.ref_name }}
+      commit: ${{ github.sha }}
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      gh_token: ${{ secrets.GITHUB_TOKEN }}
+      incident_io_alert_token: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
+
+  attempt-fix-io:
+    name: "Attempt Fix for IO Fuzz Crash"
+    needs: report-io-fuzz-failures
+    if: needs.report-io-fuzz-failures.outputs.issue_number != ''
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+    uses: ./.github/workflows/fuzzer-fix-automation.yml
+    with:
+      issue_number: ${{ needs.report-io-fuzz-failures.outputs.issue_number }}
+    secrets: inherit
+
+  # ============================================================================
+  # Array Operations Fuzzer
+  # ============================================================================
+  ops_fuzz:
+    name: "Array Operations Fuzz"
+    uses: ./.github/workflows/run-fuzzer.yml
+    with:
+      fuzz_target: array_ops
+      jobs: 16
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
+  report-ops-fuzz-failures:
+    name: "Report Array Operations Fuzz Failures"
+    needs: ops_fuzz
+    if: always() && needs.ops_fuzz.outputs.crashes_found == 'true'
+    permissions:
+      issues: write
+      contents: read
+      id-token: write
+      pull-requests: read
+    uses: ./.github/workflows/report-fuzz-crash.yml
+    with:
+      fuzz_target: array_ops
+      crash_file: ${{ needs.ops_fuzz.outputs.first_crash_name }}
+      artifact_url: ${{ needs.ops_fuzz.outputs.artifact_url }}
+      artifact_name: array_ops-crash-artifacts
+      logs_artifact_name: array_ops-logs
+      branch: ${{ github.ref_name }}
+      commit: ${{ github.sha }}
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      gh_token: ${{ secrets.GITHUB_TOKEN }}
+      incident_io_alert_token: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
+
+  # ============================================================================
+  # Array Operations Fuzzer (unstable encodings)
+  # ============================================================================
+  ops_fuzz_unstable:
+    name: "Array Operations Fuzz (unstable)"
+    uses: ./.github/workflows/run-fuzzer.yml
+    with:
+      fuzz_target: array_ops
+      fuzz_name: array_ops_unstable_encodings
+      extra_features: "vortex/unstable_encodings"
+      extra_env: "VORTEX_EXPERIMENTAL_PATCHED_ARRAY=1"
+      jobs: 16
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
+  report-ops-unstable-fuzz-failures:
+    name: "Report Array Ops (unstable) Fuzz Failures"
+    needs: ops_fuzz_unstable
+    if: always() && needs.ops_fuzz_unstable.outputs.crashes_found == 'true'
+    permissions:
+      issues: write
+      contents: read
+      id-token: write
+      pull-requests: read
+    uses: ./.github/workflows/report-fuzz-crash.yml
+    with:
+      fuzz_target: array_ops
+      fuzz_name: array_ops_unstable_encodings
+      crash_file: ${{ needs.ops_fuzz_unstable.outputs.first_crash_name }}
+      artifact_url: ${{ needs.ops_fuzz_unstable.outputs.artifact_url }}
+      artifact_name: array_ops_unstable_encodings-crash-artifacts
+      logs_artifact_name: array_ops_unstable_encodings-logs
+      branch: ${{ github.ref_name }}
+      commit: ${{ github.sha }}
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      gh_token: ${{ secrets.GITHUB_TOKEN }}
+      incident_io_alert_token: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
+
+  # ============================================================================
+  # FSST LIKE Fuzzer
+  # ============================================================================
+  fsst_like_fuzz:
+    name: "FSST LIKE Fuzz"
+    uses: ./.github/workflows/run-fuzzer.yml
+    with:
+      fuzz_target: fsst_like
+      jobs: 16
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
+  report-fsst-like-fuzz-failures:
+    name: "Report FSST LIKE Fuzz Failures"
+    needs: fsst_like_fuzz
+    if: always() && needs.fsst_like_fuzz.outputs.crashes_found == 'true'
+    permissions:
+      issues: write
+      contents: read
+      id-token: write
+      pull-requests: read
+    uses: ./.github/workflows/report-fuzz-crash.yml
+    with:
+      fuzz_target: fsst_like
+      crash_file: ${{ needs.fsst_like_fuzz.outputs.first_crash_name }}
+      artifact_url: ${{ needs.fsst_like_fuzz.outputs.artifact_url }}
+      artifact_name: fsst_like-crash-artifacts
+      logs_artifact_name: fsst_like-logs
+      branch: ${{ github.ref_name }}
+      commit: ${{ github.sha }}
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      gh_token: ${{ secrets.GITHUB_TOKEN }}
+      incident_io_alert_token: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
+
+  # ============================================================================
+  # Compress Roundtrip Fuzzer
+  # ============================================================================
+  compress_fuzz:
+    name: "Compress Roundtrip Fuzz"
+    uses: ./.github/workflows/run-fuzzer.yml
+    with:
+      fuzz_target: compress_roundtrip
+      jobs: 16
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
+  # ============================================================================
+  # GPU Compress Fuzzer (CUDA)
+  # ============================================================================
+  gpu_compress_fuzz:
+    name: "GPU Compress Fuzz"
+    uses: ./.github/workflows/run-fuzzer.yml
+    with:
+      fuzz_target: compress_gpu
+      runner: gpu
+      extra_features: "cuda"
+      jobs: 8
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
+#  report-gpu-compress-fuzz-failures:
+#    name: "Report GPU Compress Fuzz Failures"
+#    needs: gpu_compress_fuzz
+#    if: always() && needs.gpu_compress_fuzz.outputs.crashes_found == 'true'
+#    permissions:
+#      issues: write
+#      contents: read
+#      id-token: write
+#      pull-requests: read
+#    uses: ./.github/workflows/report-fuzz-crash.yml
+#    with:
+#      fuzz_target: compress_gpu
+#      crash_file: ${{ needs.gpu_compress_fuzz.outputs.first_crash_name }}
+#      artifact_url: ${{ needs.gpu_compress_fuzz.outputs.artifact_url }}
+#      artifact_name: compress_gpu-crash-artifacts
+#      logs_artifact_name: compress_gpu-logs
+#      branch: ${{ github.ref_name }}
+#      commit: ${{ github.sha }}
+#    secrets:
+#      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+#      gh_token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
+use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::fns::fill_null::FillNullReduce;
+use vortex_error::VortexResult;
+
+use crate::RunEnd;
+use crate::array::RunEndArrayExt;
+
+impl FillNullReduce for RunEnd {
+    fn fill_null(
+        array: ArrayView<'_, Self>,
+        fill_value: &Scalar,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let new_values = array.values().fill_null(fill_value.clone())?;
+        // TODO(ctx): trait fixes - FillNullReduce::fill_null has a fixed signature.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        // SAFETY: modifying values only, does not affect ends
+        Ok(Some(
+            unsafe {
+                RunEnd::new_unchecked(
+                    array.ends().clone(),
+                    new_values,
+                    array.offset(),
+                    array.len(),
+                    &mut ctx,
+                )
+            }
+            .into_array(),
+        ))
+    }
+}

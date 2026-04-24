@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# String operations tests - derived from vortex-duckdb vortex_scan_test.rs
+
+include ./setup.slt
+
+# Create a file with string data
+query I
+COPY (SELECT * FROM (VALUES ('Hello'), ('Hi'), ('Hey')) AS t(str)) TO '$__TEST_DIR__/strings.vortex';
+----
+3
+
+# Test string aggregation
+query T
+SELECT string_agg(str, ',') FROM '$__TEST_DIR__/strings.vortex';
+----
+Hello,Hi,Hey
+
+# Test string filtering with LIKE
+query T
+SELECT string_agg(str, ',') FROM '$__TEST_DIR__/strings.vortex' WHERE str LIKE '%He%';
+----
+Hello,Hey

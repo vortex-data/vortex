@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use pyo3::pyclass;
+use vortex::scalar::BinaryScalar;
+
+use crate::scalar::PyScalar;
+use crate::scalar::ScalarSubclass;
+
+/// Concrete class for binary scalars.
+#[pyclass(name = "BinaryScalar", module = "vortex", extends=PyScalar, frozen)]
+pub(crate) struct PyBinaryScalar;
+
+// TODO(ngates): implement buffer protocol
+impl ScalarSubclass for PyBinaryScalar {
+    type Scalar<'a> = BinaryScalar<'a>;
+}

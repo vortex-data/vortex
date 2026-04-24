@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ./setup.slt
+
+# Write timestamp with timezone
+query I
+COPY (SELECT TIMESTAMP WITH TIME ZONE '2025-05-03 16:19:14.338895+03:00' AS tstz) TO '$__TEST_DIR__/timestamps.vortex';
+----
+1
+
+# Read back the timestamp
+# note that result drops the tz info due to this issue https://github.com/apache/datafusion/issues/12218
+onlyif datafusion
+query P
+SELECT * FROM '$__TEST_DIR__/timestamps.vortex';
+----
+2025-05-03T13:19:14.338895
+
+onlyif duckdb
+query P
+SELECT tstz FROM '$__TEST_DIR__/timestamps.vortex';
+----
+2025-05-03 13:19:14.338895+00

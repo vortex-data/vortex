@@ -1,0 +1,25 @@
+[package]
+name = "vortex-array-macros"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Proc macros for slot-oriented Vortex array helpers"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = { workspace = true }
+quote = { workspace = true }
+syn = { workspace = true }

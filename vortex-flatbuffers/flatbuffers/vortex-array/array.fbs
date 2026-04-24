@@ -1,0 +1,60 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+/// An Array describes the hierarchy of an array as well as the locations of the data buffers that appear
+/// immediately after the message in the byte stream.
+table Array {
+    /// The array's hierarchical definition.
+    root: ArrayNode;
+    /// The locations of the data buffers of the array
+    buffers: [Buffer];
+}
+
+/// The compression mechanism used to compress the buffer.
+enum Compression: uint8 {
+    None = 0,
+    LZ4 = 1,
+}
+
+/// A Buffer describes the location of a data buffer in the byte stream as a packed 64-bit struct.
+struct Buffer {
+    /// The length of any padding bytes written immediately before the buffer.
+    padding: uint16;
+    /// The minimum alignment of the buffer, stored as an exponent of 2.
+    alignment_exponent: uint8;
+    /// The compression algorithm used to compress the buffer.
+    compression: Compression;
+    /// The length of the buffer in bytes.
+    length: uint32;
+}
+
+
+table ArrayNode {
+    encoding: uint16;
+    metadata: [ubyte];
+    children: [ArrayNode];
+    buffers: [uint16];
+    stats: ArrayStats;
+}
+
+enum Precision: uint8 {
+    Inexact = 0,
+    Exact = 1,
+}
+
+table ArrayStats {
+    /// Protobuf serialized ScalarValue
+    min: [ubyte];
+    min_precision: Precision;
+    max: [ubyte];
+    max_precision: Precision;
+    sum: [ubyte];
+    is_sorted: bool = null;
+    is_strict_sorted: bool = null;
+    is_constant: bool = null;
+    null_count: uint64 = null;
+    uncompressed_size_in_bytes: uint64 = null;
+    nan_count: uint64 = null;
+}
+
+root_type Array;

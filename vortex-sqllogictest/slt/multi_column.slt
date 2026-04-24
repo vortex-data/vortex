@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Multi-column operations tests - derived from vortex-duckdb vortex_scan_test.rs
+
+include ./setup.slt
+
+# Create a file with multiple columns: bool, int, int
+query I
+COPY (SELECT * FROM (VALUES
+    (true, 0, 100),
+    (false, 1, 101),
+    (true, 2, 102),
+    (true, 3, 103),
+    (false, 4, 104)
+) AS t(f1, f2, f3)) TO '$__TEST_DIR__/multi_column.vortex';
+----
+5
+
+# Test multi-column filtering (f1 = true AND f2 >= 2)
+query I
+SELECT f2 FROM '$__TEST_DIR__/multi_column.vortex' WHERE f1 = true AND f2 >= 2 ORDER BY f2;
+----
+2
+3

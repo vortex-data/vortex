@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Aggregation tests - derived from vortex-duckdb tests
+
+include ./setup.slt
+
+# Create test data for aggregations
+query I
+COPY (SELECT * FROM (VALUES
+    ('apple', 10),
+    ('banana', 20),
+    ('apple', 30),
+    ('cherry', 40),
+    ('banana', 50)
+) AS t(name, val)) TO '$__TEST_DIR__/agg.vortex';
+----
+5
+
+# Test COUNT
+query I
+SELECT COUNT(*) FROM '$__TEST_DIR__/agg.vortex';
+----
+5
+
+# Test COUNT with filter
+query I
+SELECT COUNT(*) FROM '$__TEST_DIR__/agg.vortex' WHERE val > 20;
+----
+3
+
+# Test SUM
+query I
+SELECT SUM(val) FROM '$__TEST_DIR__/agg.vortex';
+----
+150
+
+# Test MIN/MAX
+query II
+SELECT MIN(val), MAX(val) FROM '$__TEST_DIR__/agg.vortex';
+----
+10 50

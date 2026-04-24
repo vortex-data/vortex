@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include "vortex-array/array.fbs";
+include "vortex-dtype/dtype.fbs";
+
+enum MessageVersion: uint8 {
+    V0 = 0,
+}
+
+/// Indicates the message body contains a flatbuffer Array message, followed by array buffers.
+table ArrayMessage {
+    /// The row count of the array.
+    row_count: uint32;
+    /// The encodings referenced by the array.
+    encodings: [string];
+}
+
+/// Indicates the body contains a regular byte buffer.
+table BufferMessage {
+    alignment_exponent: uint8;
+}
+
+/// Indicates the body contains a flatbuffer DType message.
+table DTypeMessage {}
+
+union MessageHeader {
+    ArrayMessage,
+    BufferMessage,
+    DTypeMessage,
+}
+
+table Message {
+    version: MessageVersion = V0;
+    header: MessageHeader;
+    body_size: uint64;
+}
+
+root_type Message;

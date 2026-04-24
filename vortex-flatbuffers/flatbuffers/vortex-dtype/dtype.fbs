@@ -1,0 +1,88 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+enum PType: uint8 {
+    U8,
+    U16,
+    U32,
+    U64,
+    I8,
+    I16,
+    I32,
+    I64,
+    F16,
+    F32,
+    F64,
+}
+
+table Null {}
+
+table Bool {
+    nullable: bool;
+}
+
+table Primitive {
+    ptype: PType;
+    nullable: bool;
+}
+
+table Decimal {
+    precision: uint8;
+    scale: int8;
+    nullable: bool;
+}
+
+table Utf8 {
+    nullable: bool;
+}
+
+table Binary {
+    nullable: bool;
+}
+
+table Struct_ {
+    names: [string];
+    dtypes: [DType];
+    nullable: bool;
+}
+
+table List {
+    element_type: DType;
+    nullable: bool;
+}
+
+table FixedSizeList {
+    element_type: DType;
+    size: uint32;
+    nullable: bool;
+}
+
+table Extension {
+    id: string;
+    storage_dtype: DType;
+    metadata: [ubyte];
+}
+
+table Variant {
+    nullable: bool;
+}
+
+union Type {
+    Null = 1,
+    Bool = 2,
+    Primitive = 3,
+    Decimal = 4,
+    Utf8 = 5,
+    Binary = 6,
+    Struct_ = 7,
+    List = 8,
+    Extension = 9,
+    FixedSizeList = 10, // This is after `Extension` for backwards compatibility.
+    Variant = 11,
+}
+
+table DType {
+  type: Type;
+}
+
+root_type DType;

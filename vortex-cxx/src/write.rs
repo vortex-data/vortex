@@ -1,0 +1,70 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use anyhow::Result;
+use arrow_array::RecordBatchReader;
+use arrow_array::ffi_stream::ArrowArrayStreamReader;
+use arrow_array::ffi_stream::FFI_ArrowArrayStream;
+use vortex::array::ArrayRef;
+use vortex::array::arrow::FromArrowArray;
+use vortex::array::iter::ArrayIteratorAdapter;
+use vortex::array::iter::ArrayIteratorExt;
+use vortex::array::stream::ArrayStream;
+use vortex::dtype::DType;
+use vortex::dtype::arrow::FromArrowType;
+use vortex::error::VortexError;
+use vortex::file::VortexWriteOptions as WriteOptions;
+use vortex::file::WriteOptionsSessionExt;
+use vortex::io::VortexWrite;
+use vortex::io::runtime::BlockingRuntime;
+
+use crate::RUNTIME;
+use crate::SESSION;
+
+pub(crate) struct VortexWriteOptions {
+    inner: WriteOptions,
+}
+
+pub(crate) fn write_options_new() -> Box<VortexWriteOptions> {
+    Box::new(VortexWriteOptions {
+        inner: SESSION.write_options(),
+    })
+}
+
+/// Convert an ArrowArrayStreamReader to a Vortex ArrayStream
+fn arrow_stream_to_vortex_stream(reader: ArrowArrayStreamReader) -> Result<impl ArrayStream> {
+    let array_iter = ArrayIteratorAdapter::new(
+        DType::from_arrow(reader.schema()),
+        reader.map(|result| {
+            result
+                .map_err(VortexError::from)
+                .and_then(|record_batch| ArrayRef::from_arrow(record_batch, false))
+        }),
+    );
+
+    Ok(array_iter.into_array_stream())
+}
+
+/// # Safety
+///
+/// input_stream should be valid FFI_ArrowArrayStream.
+/// See [`FFI_ArrowArrayStream::from_raw`]
+pub(crate) unsafe fn write_array_stream(
+    options: Box<VortexWriteOptions>,
+    input_stream: *mut u8,
+    path: &str,
+) -> Result<()> {
+    let path = path.to_string();
+
+    let stream_reader =
+        unsafe { ArrowArrayStreamReader::from_raw(input_stream as *mut FFI_ArrowArrayStream) }?;
+
+    let vortex_stream = arrow_stream_to_vortex_stream(stream_reader)?;
+
+    RUNTIME.block_on(async {
+        let mut file = async_fs::File::create(path).await?;
+        options.inner.write(&mut file, vortex_stream).await?;
+        file.shutdown().await?;
+        Ok(())
+    })
+}

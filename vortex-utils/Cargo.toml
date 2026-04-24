@@ -1,0 +1,26 @@
+[package]
+name = "vortex-utils"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Common definitions across crates"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+dashmap = { workspace = true, optional = true }
+hashbrown = { workspace = true }
+parking_lot = { workspace = true, optional = true }
+vortex-error = { workspace = true }
+
+[lints]
+workspace = true
+
+[features]
+dyn-traits = []

@@ -1,0 +1,154 @@
+name: CUDA
+
+# Concurrency control:
+# - PRs: new commits on a feature branch will cancel in-progress (outdated) runs.
+# - Push to develop: runs queue sequentially, never cancelled.
+# - `workflow_dispatch`: groups by branch and queues if run on develop.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
+on:
+  push:
+    branches: [develop]
+  pull_request: { }
+  workflow_dispatch: { }
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  cuda-build-lint:
+    if: github.repository == 'vortex-data/vortex'
+    name: "CUDA build & lint"
+    timeout-minutes: 30
+    runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-build
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/check-rebuild
+        with:
+          command: >-
+            cargo build --profile ci --locked --all-features --all-targets
+            -p vortex-cuda -p vortex-cub -p vortex-nvcomp
+            -p gpu-scan-cli -p vortex-test-e2e-cuda
+      - name: Clippy CUDA crates
+        run: |
+          cargo clippy --profile ci --locked --all-features --all-targets \
+            -p vortex-cuda \
+            -p vortex-cub \
+            -p vortex-nvcomp \
+            -p gpu-scan-cli \
+            -p vortex-test-e2e-cuda \
+            -- -D warnings
+
+  cuda-test:
+    if: github.repository == 'vortex-data/vortex'
+    name: "CUDA tests"
+    timeout-minutes: 30
+    runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-tests
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - name: Display NVIDIA SMI details
+        run: |
+          nvidia-smi
+          nvidia-smi -L
+          nvidia-smi -q -d Memory
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+      - name: Rust Tests
+        env:
+          FLAT_LAYOUT_INLINE_ARRAY_NODE: true
+        run: |
+          cargo nextest run \
+            --cargo-profile ci \
+            --locked \
+            -p vortex-file \
+            -p vortex-cuda \
+            -p vortex-cub \
+            -p vortex-nvcomp \
+            -p vortex-test-e2e-cuda \
+            --all-features \
+            --no-fail-fast \
+            --target x86_64-unknown-linux-gnu \
+            --verbose
+
+  cuda-test-sanitizer:
+    if: github.repository == 'vortex-data/vortex'
+    name: "CUDA tests (${{ matrix.sanitizer }})"
+    timeout-minutes: 30
+    runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-test-sanitizer
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - sanitizer: memcheck
+            runner_flags: "--tool memcheck --leak-check=full --error-exitcode 1"
+          # TODO(joe): try to re-enable racecheck, it is hanging in CI.
+          # - sanitizer: racecheck
+          #   runner_flags: "--tool racecheck --error-exitcode 1"
+          - sanitizer: synccheck
+            runner_flags: "--tool synccheck --error-exitcode 1"
+          - sanitizer: initcheck
+            runner_flags: "--tool initcheck --error-exitcode 1"
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - name: Display NVIDIA SMI details
+        run: |
+          nvidia-smi
+          nvidia-smi -L
+          nvidia-smi -q -d Memory
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build tests
+        run: cargo test --profile ci --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu --no-run
+      - name: "CUDA - ${{ matrix.sanitizer }}"
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: "compute-sanitizer ${{ matrix.runner_flags }}"
+        run: cargo test --profile ci --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
+
+  cuda-test-cudf:
+    if: github.repository == 'vortex-data/vortex'
+    name: "CUDA tests (cudf)"
+    timeout-minutes: 30
+    runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-test-cudf
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - name: Display NVIDIA SMI details
+        run: |
+          nvidia-smi
+          nvidia-smi -L
+          nvidia-smi -q -d Memory
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build cudf test library
+        run: cargo build --profile ci --locked -p vortex-test-e2e-cuda --target x86_64-unknown-linux-gnu
+      - name: Download and run cudf-test-harness
+        run: |
+          curl -fsSL https://github.com/vortex-data/cudf-test-harness/releases/latest/download/cudf-test-harness-x86_64.tar.gz | tar -xz
+          cd cudf-test-harness-x86_64
+          compute-sanitizer --tool memcheck --error-exitcode 1 ./cudf-test-harness check $GITHUB_WORKSPACE/target/x86_64-unknown-linux-gnu/ci/libvortex_test_e2e_cuda.so

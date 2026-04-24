@@ -1,0 +1,52 @@
+[package]
+name = "datafusion-bench"
+description = "Datafusion benchmarks"
+authors = { workspace = true }
+categories = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+custom-labels = { workspace = true }
+datafusion = { workspace = true, features = [
+    "parquet",
+    "datetime_expressions",
+    "nested_expressions",
+    "unicode_expressions",
+] }
+datafusion-common = { workspace = true }
+datafusion-physical-plan = { workspace = true }
+futures.workspace = true
+itertools.workspace = true
+object_store = { workspace = true, features = ["aws", "gcp"] }
+opentelemetry.workspace = true
+opentelemetry-otlp.workspace = true
+opentelemetry_sdk.workspace = true
+parking_lot = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+url = { workspace = true }
+vortex = { workspace = true, features = ["object_store", "files", "tokio"] }
+vortex-bench = { workspace = true }
+vortex-cuda = { workspace = true, optional = true }
+vortex-datafusion = { workspace = true }
+vortex-metrics = { workspace = true }
+
+[build-dependencies]
+custom-labels = { workspace = true }
+
+[features]
+cuda = ["dep:vortex-cuda"]
+unstable_encodings = ["vortex/unstable_encodings"]
+
+[lints]
+workspace = true

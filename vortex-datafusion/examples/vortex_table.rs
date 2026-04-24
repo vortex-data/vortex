@@ -1,0 +1,99 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::sync::Arc;
+
+use datafusion::datasource::listing::ListingOptions;
+use datafusion::datasource::listing::ListingTable;
+use datafusion::datasource::listing::ListingTableConfig;
+use datafusion::datasource::listing::ListingTableUrl;
+use datafusion::prelude::SessionContext;
+use tempfile::tempdir;
+use tokio::fs::OpenOptions;
+use vortex::VortexSessionDefault;
+use vortex::array::IntoArray;
+use vortex::array::arrays::ChunkedArray;
+use vortex::array::arrays::StructArray;
+use vortex::array::arrays::VarBinArray;
+use vortex::array::validity::Validity;
+use vortex::buffer::buffer;
+use vortex::error::vortex_err;
+use vortex::file::WriteOptionsSessionExt;
+use vortex::io::session::RuntimeSessionExt;
+use vortex::session::VortexSession;
+use vortex_datafusion::VortexFormat;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let session = VortexSession::default().with_tokio();
+
+    let temp_dir = tempdir()?;
+    let strings = ChunkedArray::from_iter([
+        VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
+        VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
+    ])
+    .into_array();
+
+    let numbers = ChunkedArray::from_iter([
+        buffer![1u32, 2, 3, 4].into_array(),
+        buffer![5u32, 6, 7, 8].into_array(),
+    ])
+    .into_array();
+
+    let st = StructArray::try_new(
+        ["strings", "numbers"].into(),
+        vec![strings, numbers],
+        8,
+        Validity::NonNullable,
+    )?;
+
+    let filepath = temp_dir.path().join("a.vortex");
+
+    let mut f = OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .create(true)
+        .open(&filepath)
+        .await?;
+
+    session
+        .write_options()
+        .write(&mut f, st.into_array().to_array_stream())
+        .await?;
+
+    // [register]
+    let ctx = SessionContext::new();
+    let format = Arc::new(VortexFormat::new(session));
+    let table_url = ListingTableUrl::parse(
+        filepath
+            .to_str()
+            .ok_or_else(|| vortex_err!("Path is not valid UTF-8"))?,
+    )?;
+    let config = ListingTableConfig::new(table_url)
+        .with_listing_options(
+            ListingOptions::new(format).with_session_config_options(ctx.state().config()),
+        )
+        .infer_schema(&ctx.state())
+        .await?;
+
+    let listing_table = Arc::new(ListingTable::try_new(config)?);
+    ctx.register_table("vortex_tbl", listing_table as _)?;
+    // [register]
+
+    run_query(&ctx, "SELECT * FROM vortex_tbl").await?;
+
+    Ok(())
+}
+
+async fn run_query(ctx: &SessionContext, query_string: impl AsRef<str>) -> anyhow::Result<()> {
+    let query_string = query_string.as_ref();
+
+    ctx.sql(&format!("EXPLAIN {query_string}"))
+        .await?
+        .show()
+        .await?;
+
+    ctx.sql(query_string).await?.show().await?;
+
+    Ok(())
+}

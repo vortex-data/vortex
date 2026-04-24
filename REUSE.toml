@@ -1,0 +1,48 @@
+version = 1
+
+# Docs are licensed under CC-BY-4.0.
+[[annotations]]
+path = "docs/**"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+# BtrBlocks diagram is licensed under CC-BY-4.0.
+[[annotations]]
+path = "vortex-btrblocks/decision-tree.*"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = "benchmarks-website/**"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+# Golden files are licensed under CC-BY-4.0.
+[[annotations]]
+path = "**/goldenfiles/**"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+# Utility code.
+
+[[annotations]]
+path = ["**/README.md", "AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md", "STYLE.md", "tsc/**.md"]
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ".agents/skills/**"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["**/.gitignore", ".gitmodules", ".python-version", "**/*.lock", "**/*.lockfile", "**/*.toml", "**/*.json", ".idea/**", ".github/**", "codecov.yml", "java/gradle/wrapper/gradle-wrapper.properties"]
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = ["vortex-cuda/kernels/src/bit_unpack_*"]
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"

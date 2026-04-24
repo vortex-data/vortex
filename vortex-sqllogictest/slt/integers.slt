@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Integer operations tests - derived from vortex-duckdb vortex_scan_test.rs
+
+include ./setup.slt
+
+# Create a file with integer data
+query I
+COPY (SELECT * FROM (VALUES (1), (42), (100), (-5), (0)) AS t(num)) TO '$__TEST_DIR__/integers.vortex';
+----
+5
+
+# Test integer sum
+query I
+SELECT SUM(num) FROM '$__TEST_DIR__/integers.vortex';
+----
+138
+
+# Test IN clause filtering
+query I
+SELECT SUM(num) FROM '$__TEST_DIR__/integers.vortex' WHERE num IN (1, 42, -5);
+----
+38
+
+# Test range filtering with AND
+query I
+SELECT SUM(num) FROM '$__TEST_DIR__/integers.vortex' WHERE num > 0 AND num < 100;
+----
+43
+
+# Test NOT IN filtering (issue 5927)
+query I
+SELECT SUM(num) FROM '$__TEST_DIR__/integers.vortex' WHERE num NOT IN (42, 100);
+----
+-4

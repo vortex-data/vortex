@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../../setup.slt
+
+
+include ./create.slt.no
+
+include ../results/*.slt.no
+# include ../drop.slt.no

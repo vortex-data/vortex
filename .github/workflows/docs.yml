@@ -1,0 +1,85 @@
+name: Vortex Docs
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch: { }
+
+permissions:
+  # Weirdly, we need write permissions to see draft releases.
+  # See https://github.com/cli/cli/issues/3037
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "false"
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: "17"
+          distribution: "temurin"
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
+        with:
+          sync: false
+          prune-cache: false
+      - name: Generate changelog from GitHub releases
+        run: uv run --no-project docs/generate_changelog.py
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Doxygen
+        uses: ssciwr/doxygen-install@v2
+      - name: Generate Javadoc for Java projects
+        run: |
+          cd java
+          ./gradlew javadoc -x makeTestFiles
+      - name: Copy Javadoc to docs directory
+        run: |
+          mkdir -p docs/_static/vortex-jni
+          mkdir -p docs/_static/vortex-spark
+          cp -r java/vortex-jni/build/docs/javadoc/* docs/_static/vortex-jni/
+          cp -r java/vortex-spark/build/vortex-spark_2.13/docs/javadoc/* docs/_static/vortex-spark/
+      - name: build Python and Rust docs
+        run: |
+          uv run --all-packages make -C docs html
+      - name: Upload static files as artifact
+        id: deployment
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs/_build/html
+
+  deploy:
+    permissions:
+      deployments: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: build
+    steps:
+      # Note, since we provide the job with a CloudFlare scoped API token, we run it in a separate job that doesn't
+      # execute any repository code.
+      - uses: actions/download-artifact@v8
+        with:
+          name: github-pages
+      - name: Extract Pages Artifact
+        run: mkdir docs && tar -xvf artifact.tar -C docs
+        shell: bash
+      - name: Upload artifacts to CloudFlare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy docs/ --project-name=vortex-docs --branch=${{ github.head_ref || github.ref_name }}

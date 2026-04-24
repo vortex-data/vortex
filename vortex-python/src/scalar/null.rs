@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use pyo3::pyclass;
+
+use crate::scalar::PyScalar;
+use crate::scalar::ScalarSubclass;
+
+#[pyclass(name = "NullScalar", module = "vortex", extends=PyScalar, frozen)]
+pub(crate) struct PyNullScalar;
+
+/// Concrete class for null scalars.
+impl ScalarSubclass for PyNullScalar {
+    type Scalar<'a> = ();
+}

@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use pyo3::pyclass;
+use vortex::scalar::BoolScalar;
+
+use crate::scalar::PyScalar;
+use crate::scalar::ScalarSubclass;
+
+/// Concrete class for boolean scalars.
+#[pyclass(name = "BoolScalar", module = "vortex", extends=PyScalar, frozen)]
+pub(crate) struct PyBoolScalar;
+
+impl ScalarSubclass for PyBoolScalar {
+    type Scalar<'a> = BoolScalar<'a>;
+}

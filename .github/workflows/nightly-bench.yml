@@ -1,0 +1,75 @@
+name: Nightly Benchmarks
+
+concurrency:
+  # The group causes runs to queue instead of running in parallel.
+  group: nightly-bench
+  # This queues manual triggers to run after scheduled benchmarks complete.
+  cancel-in-progress: false
+
+on:
+  schedule:
+    - cron: "0 0 * * *"  # daily
+  workflow_dispatch: { }
+
+permissions:
+  id-token: write  # enables AWS-GitHub OIDC
+  actions: read
+  contents: write
+
+jobs:
+  sql:
+    uses: ./.github/workflows/sql-benchmarks.yml
+    secrets: inherit
+    with:
+      mode: "develop"
+      machine_type: ${{ matrix.machine_type.instance_name }}
+      benchmark_matrix: |
+        [
+          {
+            "id": "tpch-nvme",
+            "subcommand": "tpch",
+            "name": "TPC-H on NVME",
+            "data_formats": ["parquet", "vortex"],
+            "pr_targets": [
+              {"engine": "datafusion", "format": "parquet"},
+              {"engine": "datafusion", "format": "vortex"},
+              {"engine": "duckdb", "format": "parquet"},
+              {"engine": "duckdb", "format": "vortex"}
+            ],
+            "develop_targets": [
+              {"engine": "datafusion", "format": "parquet"},
+              {"engine": "datafusion", "format": "vortex"},
+              {"engine": "duckdb", "format": "parquet"},
+              {"engine": "duckdb", "format": "vortex"}
+            ],
+            "scale_factor": "100"
+          },
+          {
+            "id": "tpch-s3",
+            "subcommand": "tpch",
+            "name": "TPC-H on S3",
+            "local_dir": "vortex-bench/data/tpch/100.0",
+            "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/tpch/100.0/",
+            "data_formats": ["parquet", "vortex"],
+            "pr_targets": [
+              {"engine": "datafusion", "format": "parquet"},
+              {"engine": "datafusion", "format": "vortex"},
+              {"engine": "duckdb", "format": "parquet"},
+              {"engine": "duckdb", "format": "vortex"}
+            ],
+            "develop_targets": [
+              {"engine": "datafusion", "format": "parquet"},
+              {"engine": "datafusion", "format": "vortex"},
+              {"engine": "duckdb", "format": "parquet"},
+              {"engine": "duckdb", "format": "vortex"}
+            ],
+            "scale_factor": "100.0"
+          }
+        ]
+    strategy:
+      # A single run not should kill the others
+      fail-fast: false
+      matrix:
+        machine_type:
+          - id: x86
+            instance_name: c6id.8xlarge

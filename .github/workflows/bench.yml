@@ -1,0 +1,120 @@
+# Runs after every commit to `develop` (or in other words, _after_ every pull request merges).
+
+name: Benchmarks
+
+on:
+  push:
+    branches: [develop]
+
+permissions:
+  id-token: write  # enables AWS-GitHub OIDC
+  actions: read
+  contents: write
+
+jobs:
+  commit-metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+      - name: Upload Commit Metadata
+        shell: bash
+        run: |
+          set -Eeu -o pipefail -x
+
+          sudo apt-get update && sudo apt-get install -y jq
+          bash scripts/commit-json.sh > new-commit.json
+          bash scripts/cat-s3.sh vortex-ci-benchmark-results commits.json new-commit.json
+
+  bench:
+    timeout-minutes: 120
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=bench-dedicated/extras=s3-cache/tag={1}', github.run_id, matrix.benchmark.id)
+          || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        benchmark:
+          - id: random-access-bench
+            name: Random Access
+            build_args: "--features lance"
+            formats: "parquet,lance,vortex"
+          - id: compress-bench
+            name: Compression
+            build_args: "--features lance"
+            formats: "parquet,lance,vortex"
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+      - name: Setup benchmark environment
+        run: sudo bash scripts/setup-benchmark.sh
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install DuckDB
+        run: |
+          wget -qO- https://github.com/duckdb/duckdb/releases/download/v1.5.2/duckdb_cli-linux-amd64.zip | funzip > duckdb
+          chmod +x duckdb
+          echo "$PWD" >> $GITHUB_PATH
+
+      - uses: ./.github/actions/system-info
+
+      - name: Build binary
+        shell: bash
+        env:
+          RUSTFLAGS: "-C target-cpu=native"
+        run: |
+          cargo build --bin ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }} --features unstable_encodings
+
+      - name: Setup Polar Signals
+        uses: polarsignals/gh-actions-ps-profiling@v0.8.1
+        with:
+          polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+          labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.benchmark.id }}"
+          project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+          profiling_frequency: 199
+          extra_args: "--off-cpu-threshold=0.03"  # Personally tuned by @brancz
+
+      - name: Run ${{ matrix.benchmark.name }} benchmark
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+          VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
+          FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+        run: |
+          bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} --formats ${{ matrix.benchmark.formats }} -d gh-json -o results.json
+
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+
+      - name: Upload Benchmark Results
+        shell: bash
+        run: |
+          bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
+
+      - name: Alert incident.io
+        if: failure()
+        uses: ./.github/actions/alert-incident-io
+        with:
+          api-key: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
+          alert-title: "${{ matrix.benchmark.name }} benchmark failed on develop"
+          deduplication-key: ci-bench-${{ matrix.benchmark.id }}-failure
+
+  sql:
+    uses: ./.github/workflows/sql-benchmarks.yml
+    secrets: inherit
+    with:
+      mode: "develop"

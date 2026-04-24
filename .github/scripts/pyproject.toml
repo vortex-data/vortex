@@ -1,0 +1,21 @@
+[project]
+name = "fuzz-report"
+version = "0.1.0"
+description = "Fuzzer crash reporting utilities for Vortex CI"
+requires-python = ">=3.11"
+dependencies = [
+    "jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+    "ruff>=0.4",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
