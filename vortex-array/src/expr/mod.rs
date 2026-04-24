@@ -127,7 +127,9 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
+    use crate::dtype::extension::ExtDType;
     use crate::expr::and;
+    use crate::expr::checked_add;
     use crate::expr::col;
     use crate::expr::eq;
     use crate::expr::get_item;
@@ -142,6 +144,8 @@ mod tests {
     use crate::expr::root;
     use crate::expr::select;
     use crate::expr::select_exclude;
+    use crate::extension::tests::divisible_int::DivisibleInt;
+    use crate::extension::tests::divisible_int::Divisor;
     use crate::scalar::Scalar;
 
     #[test]
@@ -258,6 +262,36 @@ mod tests {
             ))
             .to_string(),
             "{dog: 32u32, cat: \"rufus\"}"
+        );
+    }
+
+    fn divisible_int_dtype(divisor: u64) -> DType {
+        DType::Extension(
+            ExtDType::<DivisibleInt>::try_new(
+                Divisor(divisor),
+                DType::Primitive(PType::U64, Nullability::NonNullable),
+            )
+            .unwrap()
+            .erased(),
+        )
+    }
+
+    #[test]
+    fn return_dtype_peels_refinement_root_and_literal() {
+        let scope = divisible_int_dtype(3);
+
+        assert_eq!(
+            checked_add(root(), root()).return_dtype(&scope).unwrap(),
+            DType::Primitive(PType::U64, Nullability::NonNullable),
+        );
+
+        let ext_dtype = scope.as_extension().clone();
+        let refined_literal = Scalar::extension_ref(ext_dtype, Scalar::from(3u64));
+        assert_eq!(
+            checked_add(root(), lit(refined_literal))
+                .return_dtype(&scope)
+                .unwrap(),
+            DType::Primitive(PType::U64, Nullability::NonNullable),
         );
     }
 }

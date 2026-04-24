@@ -472,7 +472,16 @@ mod test {
     use vortex_array::dtype::FieldMask;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtId;
+    use vortex_array::dtype::extension::ExtVTable;
     use vortex_array::expr::Expression;
+    use vortex_array::expr::checked_add;
+    use vortex_array::expr::fill_null;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::root;
+    use vortex_array::extension::EmptyMetadata;
+    use vortex_array::scalar::ScalarValue;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_io::runtime::BlockingRuntime;
@@ -482,6 +491,59 @@ mod test {
     use super::ScanBuilder;
     use crate::ArrayFuture;
     use crate::LayoutReader;
+
+    #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+    struct TestRefinement;
+
+    impl ExtVTable for TestRefinement {
+        type Metadata = EmptyMetadata;
+        type NativeValue<'a> = u64;
+
+        fn id(&self) -> ExtId {
+            ExtId::new("test.scan_builder_refinement")
+        }
+
+        fn is_refinement(&self) -> bool {
+            true
+        }
+
+        fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+            Ok(vec![])
+        }
+
+        fn deserialize_metadata(&self, _metadata: &[u8]) -> VortexResult<Self::Metadata> {
+            Ok(EmptyMetadata)
+        }
+
+        fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+            assert_eq!(
+                ext_dtype.storage_dtype(),
+                &DType::Primitive(PType::U64, Nullability::NonNullable)
+            );
+            Ok(())
+        }
+
+        fn unpack_native<'a>(
+            _ext_dtype: &'a ExtDType<Self>,
+            storage_value: &'a ScalarValue,
+        ) -> VortexResult<Self::NativeValue<'a>> {
+            let ScalarValue::Primitive(value) = storage_value else {
+                unreachable!("storage dtype is validated to primitive u64");
+            };
+            value.cast::<u64>()
+        }
+    }
+
+    fn test_refinement_dtype() -> DType {
+        DType::Extension(
+            ExtDType::<TestRefinement>::try_new(
+                EmptyMetadata,
+                DType::Primitive(PType::U64, Nullability::NonNullable),
+            )
+            .unwrap()
+            .erased(),
+        )
+    }
 
     #[derive(Debug)]
     struct CountingLayoutReader {
@@ -493,9 +555,16 @@ mod test {
 
     impl CountingLayoutReader {
         fn new(register_splits_calls: Arc<AtomicUsize>) -> Self {
+            Self::new_with_dtype(
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+                register_splits_calls,
+            )
+        }
+
+        fn new_with_dtype(dtype: DType, register_splits_calls: Arc<AtomicUsize>) -> Self {
             Self {
                 name: Arc::from("counting"),
-                dtype: DType::Primitive(PType::I32, Nullability::NonNullable),
+                dtype,
                 row_count: 1,
                 register_splits_calls,
             }
@@ -570,6 +639,22 @@ mod test {
         let _stream = ScanBuilder::new(session, reader).into_stream().unwrap();
 
         assert_eq!(calls.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn prepare_accepts_refinement_projection_in_planning_paths() -> VortexResult<()> {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(CountingLayoutReader::new_with_dtype(
+            test_refinement_dtype(),
+            Arc::clone(&calls),
+        ));
+        let session = crate::scan::test::SCAN_SESSION.clone();
+
+        ScanBuilder::new(session, reader)
+            .with_projection(fill_null(checked_add(root(), root()), lit(0u64)))
+            .prepare()?;
+
+        Ok(())
     }
 
     #[derive(Debug)]

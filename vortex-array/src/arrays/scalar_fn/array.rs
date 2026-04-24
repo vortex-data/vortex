@@ -19,7 +19,9 @@ use crate::arrays::Extension;
 use crate::arrays::ScalarFn;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::dtype::DType;
+use crate::scalar_fn::RefinementFallbackArg;
 use crate::scalar_fn::ScalarFnRef;
+use crate::scalar_fn::resolve_return_dtype_with_refinement_fallback;
 
 // ScalarFnArray has a variable number of slots (one per child)
 
@@ -164,37 +166,21 @@ pub(crate) fn peel_refinements_and_resolve_dtype(
     scalar_fn: &ScalarFnRef,
     children: &mut [ArrayRef],
 ) -> VortexResult<DType> {
-    loop {
-        let children_dtypes: Vec<_> = children.iter().map(|c| c.dtype().clone()).collect();
-
-        match scalar_fn.return_dtype(&children_dtypes) {
-            Ok(dtype) => return Ok(dtype),
-            Err(err) => {
-                let any_peeled = peel_refinement_layers(children);
-                if !any_peeled {
-                    return Err(err);
-                }
-            }
-        }
-    }
+    resolve_return_dtype_with_refinement_fallback(scalar_fn, children)
 }
 
-// TODO(connor): Is it correct/ok to peel away refinement on all children at once? Do we need
-// small-step semantics here?
-/// Peels one layer of refinement extensions from all `children`.
-///
-/// Returns a flag indicating whether any child was actually peeled.
-fn peel_refinement_layers(children: &mut [ArrayRef]) -> bool {
-    let mut any_peeled = false;
-
-    for child in children.iter_mut() {
-        if let Some(peeled) = peel_refinement_child(child) {
-            *child = peeled;
-            any_peeled = true;
-        }
+impl RefinementFallbackArg for ArrayRef {
+    fn current_dtype(&self) -> &DType {
+        self.dtype()
     }
 
-    any_peeled
+    fn peel_one_refinement_layer(&mut self) -> bool {
+        let Some(peeled) = peel_refinement_child(self) else {
+            return false;
+        };
+        *self = peeled;
+        true
+    }
 }
 
 /// Peel exactly one refinement wrapper when the array is a real representation wrapper.

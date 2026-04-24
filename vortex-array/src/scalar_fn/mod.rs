@@ -24,6 +24,9 @@ pub use typed::*;
 mod erased;
 pub use erased::*;
 
+mod refinement;
+pub(crate) use refinement::*;
+
 mod options;
 pub use options::*;
 

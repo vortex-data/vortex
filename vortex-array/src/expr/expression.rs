@@ -17,8 +17,11 @@ use crate::dtype::DType;
 use crate::expr::StatsCatalog;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::stats::Stat;
+use crate::scalar_fn::RefinementFallbackArg;
 use crate::scalar_fn::ScalarFnRef;
+use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::root::Root;
+use crate::scalar_fn::resolve_return_dtype_with_refinement_fallback;
 
 /// A node in a Vortex expression tree.
 ///
@@ -94,16 +97,27 @@ impl Expression {
 
     /// Computes the return dtype of this expression given the input dtype.
     pub fn return_dtype(&self, scope: &DType) -> VortexResult<DType> {
+        Ok(self.return_dtype_info(scope)?.dtype)
+    }
+
+    pub(crate) fn return_dtype_info(&self, scope: &DType) -> VortexResult<ExprReturnInfo> {
         if self.is::<Root>() {
-            return Ok(scope.clone());
+            return Ok(ExprReturnInfo::storage_chain_repr_wrapper(scope.clone()));
         }
 
-        let dtypes: Vec<_> = self
+        if let Some(literal) = self.as_opt::<Literal>() {
+            return Ok(ExprReturnInfo::storage_chain_repr_wrapper(
+                literal.dtype().clone(),
+            ));
+        }
+
+        let mut children: Vec<_> = self
             .children
             .iter()
-            .map(|c| c.return_dtype(scope))
+            .map(|c| c.return_dtype_info(scope))
             .try_collect()?;
-        self.scalar_fn.return_dtype(&dtypes)
+
+        expr_return_dtype_info(&self.scalar_fn, &mut children)
     }
 
     /// Returns a new expression representing the validity mask output of this expression.
@@ -242,4 +256,67 @@ impl Drop for Expression {
             }
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ExprReturnInfo {
+    pub(crate) dtype: DType,
+    peel_strategy: ExprPeelStrategy,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+enum ExprPeelStrategy {
+    #[default]
+    None,
+    StorageChainRepresentationWrapper,
+}
+
+impl ExprReturnInfo {
+    pub(crate) fn opaque(dtype: DType) -> Self {
+        Self {
+            dtype,
+            peel_strategy: ExprPeelStrategy::None,
+        }
+    }
+
+    pub(crate) fn storage_chain_repr_wrapper(dtype: DType) -> Self {
+        Self {
+            dtype,
+            peel_strategy: ExprPeelStrategy::StorageChainRepresentationWrapper,
+        }
+    }
+}
+
+impl RefinementFallbackArg for ExprReturnInfo {
+    fn current_dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn peel_one_refinement_layer(&mut self) -> bool {
+        if !matches!(
+            self.peel_strategy,
+            ExprPeelStrategy::StorageChainRepresentationWrapper
+        ) {
+            return false;
+        }
+
+        let DType::Extension(ext_dtype) = &self.dtype else {
+            return false;
+        };
+        if !ext_dtype.is_refinement() {
+            return false;
+        }
+
+        self.dtype = ext_dtype.storage_dtype().clone();
+        true
+    }
+}
+
+pub(crate) fn expr_return_dtype_info(
+    scalar_fn: &ScalarFnRef,
+    children: &mut [ExprReturnInfo],
+) -> VortexResult<ExprReturnInfo> {
+    Ok(ExprReturnInfo::opaque(
+        resolve_return_dtype_with_refinement_fallback(scalar_fn, children)?,
+    ))
 }

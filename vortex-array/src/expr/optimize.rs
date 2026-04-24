@@ -3,7 +3,6 @@
 
 use std::any::Any;
 use std::cell::RefCell;
-use std::ops::Deref;
 use std::sync::Arc;
 
 use itertools::Itertools;
@@ -13,12 +12,15 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::dtype::DType;
 use crate::expr::Expression;
+use crate::expr::expression::ExprReturnInfo;
+use crate::expr::expression::expr_return_dtype_info;
 use crate::expr::transform::match_between::find_between;
 use crate::scalar_fn::ReduceCtx;
 use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ReduceNodeRef;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::SimplifyCtx;
+use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::root::Root;
 
 impl Expression {
@@ -206,14 +208,21 @@ impl Expression {
 
 struct SimplifyCache<'a> {
     scope: &'a DType,
-    dtype_cache: RefCell<HashMap<Expression, DType>>,
+    dtype_cache: RefCell<HashMap<Expression, ExprReturnInfo>>,
 }
 
-impl SimplifyCtx for SimplifyCache<'_> {
-    fn return_dtype(&self, expr: &Expression) -> VortexResult<DType> {
-        // If the expression is "root", return the scope dtype
+impl SimplifyCache<'_> {
+    fn return_dtype_info(&self, expr: &Expression) -> VortexResult<ExprReturnInfo> {
         if expr.is::<Root>() {
-            return Ok(self.scope.clone());
+            return Ok(ExprReturnInfo::storage_chain_repr_wrapper(
+                self.scope.clone(),
+            ));
+        }
+
+        if let Some(literal) = expr.as_opt::<Literal>() {
+            return Ok(ExprReturnInfo::storage_chain_repr_wrapper(
+                literal.dtype().clone(),
+            ));
         }
 
         if let Some(dtype) = self.dtype_cache.borrow().get(expr) {
@@ -221,17 +230,23 @@ impl SimplifyCtx for SimplifyCache<'_> {
         }
 
         // Otherwise, compute dtype from children
-        let input_dtypes: Vec<_> = expr
+        let mut input_dtypes: Vec<_> = expr
             .children()
             .iter()
-            .map(|c| self.return_dtype(c))
+            .map(|c| self.return_dtype_info(c))
             .try_collect()?;
-        let dtype = expr.deref().return_dtype(&input_dtypes)?;
+        let dtype = expr_return_dtype_info(expr.scalar_fn(), &mut input_dtypes)?;
         self.dtype_cache
             .borrow_mut()
             .insert(expr.clone(), dtype.clone());
 
         Ok(dtype)
+    }
+}
+
+impl SimplifyCtx for SimplifyCache<'_> {
+    fn return_dtype(&self, expr: &Expression) -> VortexResult<DType> {
+        Ok(self.return_dtype_info(expr)?.dtype)
     }
 }
 
@@ -292,5 +307,45 @@ impl ReduceCtx for ExpressionReduceCtx {
             expression,
             scope: self.scope.clone(),
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::extension::ExtDType;
+    use crate::expr::checked_add;
+    use crate::expr::fill_null;
+    use crate::expr::lit;
+    use crate::expr::root;
+    use crate::extension::tests::divisible_int::DivisibleInt;
+    use crate::extension::tests::divisible_int::Divisor;
+
+    fn divisible_int_dtype(divisor: u64) -> DType {
+        DType::Extension(
+            ExtDType::<DivisibleInt>::try_new(
+                Divisor(divisor),
+                DType::Primitive(PType::U64, Nullability::NonNullable),
+            )
+            .unwrap()
+            .erased(),
+        )
+    }
+
+    #[test]
+    fn optimize_recursive_uses_refinement_fallback_for_typed_simplify() {
+        let scope = divisible_int_dtype(3);
+        let add = checked_add(root(), root());
+        let expr = fill_null(add.clone(), lit(0u64));
+
+        let optimized = expr.optimize_recursive(&scope).unwrap();
+
+        assert_eq!(optimized, add);
+        assert_eq!(
+            optimized.return_dtype(&scope).unwrap(),
+            DType::Primitive(PType::U64, Nullability::NonNullable),
+        );
     }
 }
