@@ -35,7 +35,6 @@ use datafusion_datasource::sink::DataSinkExec;
 use datafusion_datasource::source::DataSourceExec;
 use datafusion_execution::cache::cache_manager::CachedFileMetadataEntry;
 use datafusion_expr::dml::InsertOp;
-use datafusion_physical_expr::LexOrdering;
 use datafusion_physical_expr::LexRequirement;
 use datafusion_physical_plan::ExecutionPlan;
 use futures::FutureExt;
@@ -507,7 +506,6 @@ impl FileFormat for VortexFormat {
                 });
             };
 
-            let mut sum_of_column_byte_sizes = stats::Precision::exact(0_usize);
             let mut column_statistics = Vec::with_capacity(table_schema.fields().len());
 
             for field in table_schema.fields().iter() {
@@ -523,10 +521,6 @@ impl FileFormat for VortexFormat {
                 // Update the total size in bytes.
                 let column_size =
                     stats_set.get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into());
-
-                sum_of_column_byte_sizes = sum_of_column_byte_sizes
-                    .zip(column_size.unwrap_or_else(|| stats::Precision::inexact(0_usize)))
-                    .map(|(acc, size)| acc + size);
 
                 let target_dtype = DType::from_arrow(field.as_ref());
                 let min = scalar_stat_to_df(
@@ -558,7 +552,9 @@ impl FileFormat for VortexFormat {
                 })
             }
 
-            let total_byte_size = sum_of_column_byte_sizes.to_df();
+            let total_byte_size = column_statistics
+                .iter()
+                .fold(Precision::Exact(0), |acc, cs| acc.add(&cs.byte_size));
 
             Ok(Statistics {
                 num_rows: Precision::Exact(
