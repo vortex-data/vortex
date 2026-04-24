@@ -1,9 +1,10 @@
+//! Runtime view of a zoned layout's auxiliary per-zone statistics table.
+
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
 
-use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -14,23 +15,17 @@ use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::dtype::StructFields;
 use vortex_array::expr::Expression;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
-use vortex_array::expr::stats::StatsProvider;
 use vortex_array::stats::StatsSet;
-use vortex_array::validity::Validity;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
-use crate::layouts::zoned::builder::MAX_IS_TRUNCATED;
-use crate::layouts::zoned::builder::MIN_IS_TRUNCATED;
-use crate::layouts::zoned::builder::StatsArrayBuilder;
-use crate::layouts::zoned::builder::stats_builder_with_capacity;
+pub use crate::layouts::zoned::builder::StatsAccumulator;
+use crate::layouts::zoned::schema::stats_table_dtype;
 
 /// A zone map containing statistics for a column.
 /// Each row of the zone map corresponds to a chunk of the column.
@@ -52,12 +47,12 @@ impl ZoneMap {
         array: StructArray,
         stats: Arc<[Stat]>,
     ) -> VortexResult<Self> {
-        let expected_dtype = Self::dtype_for_stats_table(&column_dtype, &stats);
+        let expected_dtype = stats_table_dtype(&column_dtype, &stats);
         if &expected_dtype != array.dtype() {
             vortex_bail!("Array dtype does not match expected zone map dtype: {expected_dtype}");
         }
 
-        // SAFETY: We checked that the
+        // SAFETY: We checked that the array matches the expected stats-table schema.
         Ok(unsafe { Self::new_unchecked(array, stats) })
     }
 
@@ -66,45 +61,17 @@ impl ZoneMap {
     /// # Safety
     ///
     /// Assumes that the input struct array has the correct statistics as fields. Or in other words,
-    /// the [`DType`] of the input array is equal to the result of [`Self::dtype_for_stats_table`].
+    /// the [`DType`] of the input array is equal to the result of `stats_table_dtype`.
     pub unsafe fn new_unchecked(array: StructArray, stats: Arc<[Stat]>) -> Self {
         Self { array, stats }
     }
 
     /// Returns the [`DType`] of the statistics table given a set of statistics and column [`DType`].
+    ///
+    /// This remains as a compatibility wrapper around the zoned schema helper.
+    #[deprecated(note = "use `stats_table_dtype` from `crate::layouts::zoned::schema` instead")]
     pub fn dtype_for_stats_table(column_dtype: &DType, present_stats: &[Stat]) -> DType {
-        assert!(present_stats.is_sorted(), "Stats must be sorted");
-        DType::Struct(
-            StructFields::from_iter(
-                present_stats
-                    .iter()
-                    .filter_map(|stat| {
-                        stat.dtype(column_dtype)
-                            .or_else(|| {
-                                // Backward compat: older files may have stored stats (e.g. Sum)
-                                // for extension types by resolving through the storage dtype.
-                                if let DType::Extension(ext) = column_dtype {
-                                    stat.dtype(ext.storage_dtype())
-                                } else {
-                                    None
-                                }
-                            })
-                            .map(|dtype| (stat, dtype.as_nullable()))
-                    })
-                    .flat_map(|(s, dt)| match s {
-                        Stat::Max => vec![
-                            (s.name(), dt),
-                            (MAX_IS_TRUNCATED, DType::Bool(Nullability::NonNullable)),
-                        ],
-                        Stat::Min => vec![
-                            (s.name(), dt),
-                            (MIN_IS_TRUNCATED, DType::Bool(Nullability::NonNullable)),
-                        ],
-                        _ => vec![(s.name(), dt)],
-                    }),
-            ),
-            Nullability::NonNullable,
-        )
+        stats_table_dtype(column_dtype, present_stats)
     }
 
     /// Returns the underlying [`StructArray`] backing the zone map
@@ -174,121 +141,17 @@ impl ZoneMap {
     }
 }
 
-// TODO(ngates): we should make it such that the zone map stores a mirror of the DType
-//  underneath each stats column. For example, `min: i32` for an `i32` array.
-//  Or `min: {a: i32, b: i32}` for a struct array of type `{a: i32, b: i32}`.
-//  See: <https://github.com/vortex-data/vortex/issues/1835>
-/// Accumulates statistics for a column.
-pub struct StatsAccumulator {
-    builders: Vec<Box<dyn StatsArrayBuilder>>,
-    length: usize,
-}
-
-impl StatsAccumulator {
-    pub fn new(dtype: &DType, stats: &[Stat], max_variable_length_statistics_size: usize) -> Self {
-        let builders = stats
-            .iter()
-            .filter_map(|&s| {
-                s.dtype(dtype).map(|stat_dtype| {
-                    stats_builder_with_capacity(
-                        s,
-                        &stat_dtype.as_nullable(),
-                        1024,
-                        max_variable_length_statistics_size,
-                    )
-                })
-            })
-            .collect::<Vec<_>>();
-
-        Self {
-            builders,
-            length: 0,
-        }
-    }
-
-    pub fn push_chunk_without_compute(&mut self, array: &ArrayRef) -> VortexResult<()> {
-        for builder in self.builders.iter_mut() {
-            if let Some(Precision::Exact(v)) = array.statistics().get(builder.stat()) {
-                builder.append_scalar(v.cast(&v.dtype().as_nullable())?)?;
-            } else {
-                builder.append_null();
-            }
-        }
-        self.length += 1;
-        Ok(())
-    }
-
-    pub fn push_chunk(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
-        for builder in self.builders.iter_mut() {
-            if let Some(v) = array.statistics().compute_stat(builder.stat(), ctx)? {
-                builder.append_scalar(v.cast(&v.dtype().as_nullable())?)?;
-            } else {
-                builder.append_null();
-            }
-        }
-        self.length += 1;
-        Ok(())
-    }
-
-    /// Finishes the accumulator into a [`ZoneMap`].
-    ///
-    /// Returns `None` if none of the requested statistics can be computed, for example they are
-    /// not applicable to the column's data type.
-    pub fn as_stats_table(&mut self) -> VortexResult<Option<ZoneMap>> {
-        let mut names = Vec::new();
-        let mut fields = Vec::new();
-        let mut stats = Vec::new();
-
-        for builder in self
-            .builders
-            .iter_mut()
-            // We sort the stats so the DType is deterministic based on which stats are present.
-            .sorted_unstable_by_key(|b| b.stat())
-        {
-            let values = builder.finish();
-
-            // We drop any all-null stats columns
-            if values.all_invalid()? {
-                continue;
-            }
-
-            stats.push(builder.stat());
-            names.extend(values.names);
-            fields.extend(values.arrays);
-        }
-
-        if names.is_empty() {
-            return Ok(None);
-        }
-
-        Ok(Some(ZoneMap {
-            array: StructArray::try_new(names.into(), fields, self.length, Validity::NonNullable)
-                .vortex_expect("Failed to create zone map"),
-            stats: stats.into(),
-        }))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
-    use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
-    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
-    use vortex_array::arrays::bool::BoolArrayExt;
-    use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::builders::ArrayBuilder;
-    use vortex_array::builders::VarBinViewBuilder;
-    use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldPath;
     use vortex_array::dtype::FieldPathSet;
-    use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::expr::gt;
     use vortex_array::expr::gt_eq;
@@ -298,106 +161,12 @@ mod tests {
     use vortex_array::expr::root;
     use vortex_array::expr::stats::Stat;
     use vortex_array::validity::Validity;
-    use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
-    use vortex_error::VortexExpect;
 
-    use crate::layouts::zoned::MAX_IS_TRUNCATED;
-    use crate::layouts::zoned::MIN_IS_TRUNCATED;
-    use crate::layouts::zoned::zone_map::StatsAccumulator;
     use crate::layouts::zoned::zone_map::ZoneMap;
     use crate::test::SESSION;
 
-    #[rstest]
-    #[case(DType::Utf8(Nullability::NonNullable))]
-    #[case(DType::Binary(Nullability::NonNullable))]
-    fn truncates_accumulated_stats(#[case] dtype: DType) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let mut builder = VarBinViewBuilder::with_capacity(dtype.clone(), 2);
-        builder.append_value("Value to be truncated");
-        builder.append_value("untruncated");
-        let mut builder2 = VarBinViewBuilder::with_capacity(dtype, 2);
-        builder2.append_value("Another");
-        builder2.append_value("wait a minute");
-        let mut acc =
-            StatsAccumulator::new(builder.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
-        acc.push_chunk(&builder.finish(), &mut ctx)
-            .vortex_expect("push_chunk should succeed for test data");
-        acc.push_chunk(&builder2.finish(), &mut ctx)
-            .vortex_expect("push_chunk should succeed for test data");
-        let stats_table = acc
-            .as_stats_table()
-            .unwrap()
-            .expect("Must have stats table");
-        assert_eq!(
-            stats_table.array.names().as_ref(),
-            &[
-                Stat::Max.name(),
-                MAX_IS_TRUNCATED,
-                Stat::Min.name(),
-                MIN_IS_TRUNCATED,
-            ]
-        );
-        let field1_bool = stats_table
-            .array
-            .unmasked_field(1)
-            .clone()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap();
-        assert_eq!(
-            field1_bool.to_bit_buffer(),
-            BitBuffer::from(vec![false, true])
-        );
-        let field3_bool = stats_table
-            .array
-            .unmasked_field(3)
-            .clone()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap();
-        assert_eq!(
-            field3_bool.to_bit_buffer(),
-            BitBuffer::from(vec![true, false])
-        );
-    }
-
     #[test]
-    fn always_adds_is_truncated_column() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let array = buffer![0, 1, 2].into_array();
-        let mut acc = StatsAccumulator::new(array.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
-        acc.push_chunk(&array, &mut ctx)
-            .vortex_expect("push_chunk should succeed for test array");
-        let stats_table = acc
-            .as_stats_table()
-            .unwrap()
-            .expect("Must have stats table");
-        assert_eq!(
-            stats_table.array.names().as_ref(),
-            &[
-                Stat::Max.name(),
-                MAX_IS_TRUNCATED,
-                Stat::Min.name(),
-                MIN_IS_TRUNCATED,
-                Stat::Sum.name(),
-            ]
-        );
-        let field1_bool = stats_table
-            .array
-            .unmasked_field(1)
-            .clone()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap();
-        assert_eq!(field1_bool.to_bit_buffer(), BitBuffer::from(vec![false]));
-        let field3_bool = stats_table
-            .array
-            .unmasked_field(3)
-            .clone()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap();
-        assert_eq!(field3_bool.to_bit_buffer(), BitBuffer::from(vec![false]));
-    }
-
-    #[rstest]
     fn test_zone_map_prunes() {
         // All stats that are known at pruning time.
         let stats = FieldPathSet::from_iter([
