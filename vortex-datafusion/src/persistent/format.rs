@@ -14,6 +14,7 @@ use datafusion_common::ColumnStatistics;
 use datafusion_common::DataFusionError;
 use datafusion_common::GetExt;
 use datafusion_common::Result as DFResult;
+use datafusion_common::ScalarValue as DFScalarValue;
 use datafusion_common::Statistics;
 use datafusion_common::config::ConfigField;
 use datafusion_common::config_namespace;
@@ -34,6 +35,7 @@ use datafusion_datasource::sink::DataSinkExec;
 use datafusion_datasource::source::DataSourceExec;
 use datafusion_execution::cache::cache_manager::CachedFileMetadataEntry;
 use datafusion_expr::dml::InsertOp;
+use datafusion_physical_expr::LexOrdering;
 use datafusion_physical_expr::LexRequirement;
 use datafusion_physical_plan::ExecutionPlan;
 use futures::FutureExt;
@@ -60,6 +62,7 @@ use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::io::object_store::ObjectStoreReadAt;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::scalar::Scalar;
+use vortex::scalar::ScalarValue as VortexScalarValue;
 use vortex::session::VortexSession;
 
 use super::cache::CachedVortexMetadata;
@@ -518,55 +521,26 @@ impl FileFormat for VortexFormat {
                 let (stats_set, stats_dtype) = file_stats.get(col_idx);
 
                 // Update the total size in bytes.
-                let column_size = stats_set
-                    .get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into())
-                    .unwrap_or_else(|| stats::Precision::inexact(0_usize));
+                let column_size =
+                    stats_set.get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into());
+
                 sum_of_column_byte_sizes = sum_of_column_byte_sizes
-                    .zip(column_size)
+                    .zip(column_size.unwrap_or_else(|| stats::Precision::inexact(0_usize)))
                     .map(|(acc, size)| acc + size);
 
-                // TODO(connor): There's a lot that can go wrong here, should probably handle this
-                // more gracefully...
-                // Find the min statistic.
-                let min = stats_set.get(Stat::Min).and_then(|pstat_val| {
-                    pstat_val
-                        .map(|stat_val| {
-                            // Because of DataFusion's Schema evolution, it is possible that the
-                            // type of the min/max stat has changed. Thus we construct the stat as
-                            // the file datatype first and only then do we cast accordingly.
-                            Scalar::try_new(
-                                Stat::Min
-                                    .dtype(stats_dtype)
-                                    .vortex_expect("must have a valid dtype"),
-                                Some(stat_val),
-                            )
-                            .vortex_expect("`Stat::Min` somehow had an incompatible `DType`")
-                            .cast(&DType::from_arrow(field.as_ref()))
-                            .vortex_expect("Unable to cast to target type that DataFusion wants")
-                            .try_to_df()
-                            .ok()
-                        })
-                        .transpose()
-                });
-
-                // Find the max statistic.
-                let max = stats_set.get(Stat::Max).and_then(|pstat_val| {
-                    pstat_val
-                        .map(|stat_val| {
-                            Scalar::try_new(
-                                Stat::Max
-                                    .dtype(stats_dtype)
-                                    .vortex_expect("must have a valid dtype"),
-                                Some(stat_val),
-                            )
-                            .vortex_expect("`Stat::Max` somehow had an incompatible `DType`")
-                            .cast(&DType::from_arrow(field.as_ref()))
-                            .vortex_expect("Unable to cast to target type that DataFusion wants")
-                            .try_to_df()
-                            .ok()
-                        })
-                        .transpose()
-                });
+                let target_dtype = DType::from_arrow(field.as_ref());
+                let min = scalar_stat_to_df(
+                    Stat::Min,
+                    stats_set.get(Stat::Min),
+                    stats_dtype,
+                    &target_dtype,
+                );
+                let max = scalar_stat_to_df(
+                    Stat::Max,
+                    stats_set.get(Stat::Max),
+                    stats_dtype,
+                    &target_dtype,
+                );
 
                 let null_count = stats_set.get_as::<usize>(Stat::NullCount, &PType::U64.into());
 
@@ -649,6 +623,23 @@ impl FileFormat for VortexFormat {
 
         Arc::new(source) as _
     }
+}
+
+fn scalar_stat_to_df(
+    stat: Stat,
+    value: Option<stats::Precision<VortexScalarValue>>,
+    stats_dtype: &DType,
+    target_dtype: &DType,
+) -> Option<stats::Precision<DFScalarValue>> {
+    let stat_dtype = stat.dtype(stats_dtype)?;
+
+    value?
+        .try_map(|stat_value| {
+            Scalar::try_new(stat_dtype, Some(stat_value))?
+                .cast(target_dtype)?
+                .try_to_df()
+        })
+        .ok()
 }
 
 #[cfg(test)]
