@@ -30,7 +30,9 @@ use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::dtype::FieldPath;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
+use vortex_btrblocks::schemes::float::FloatDictScheme;
 use vortex_btrblocks::schemes::integer::IntDictScheme;
+use vortex_btrblocks::schemes::string::StringDictScheme;
 use vortex_bytebool::ByteBool;
 use vortex_datetime_parts::DateTimeParts;
 use vortex_decimal_byte_parts::DecimalByteParts;
@@ -124,8 +126,8 @@ pub static ALLOWED_ENCODINGS: LazyLock<HashSet<ArrayId>> = LazyLock::new(|| {
 /// How the compressor was configured on [`WriteStrategyBuilder`].
 enum CompressorConfig {
     /// A [`BtrBlocksCompressorBuilder`] that [`WriteStrategyBuilder::build`] will finalize.
-    /// `IntDictScheme` is automatically excluded from the data compressor to prevent recursive
-    /// dictionary encoding.
+    /// The builder is specialized into separate compressors so dict-encoded arrays do not pay for
+    /// a second dictionary pass on their codes or values children.
     BtrBlocks(BtrBlocksCompressorBuilder),
     /// An opaque compressor used as-is for both data and stats compression.
     Opaque(Arc<dyn CompressorPlugin>),
@@ -194,8 +196,8 @@ impl WriteStrategyBuilder {
 
     /// Override the default [`BtrBlocksCompressorBuilder`] used for compression.
     ///
-    /// The builder is finalized during [`build`](Self::build), producing two compressors: one for
-    /// data (with `IntDictScheme` excluded) and one for stats.
+    /// The builder is finalized during [`build`](Self::build), producing separate compressors for
+    /// row data, dict values, and stats.
     pub fn with_btrblocks_builder(mut self, builder: BtrBlocksCompressorBuilder) -> Self {
         self.compressor = CompressorConfig::BtrBlocks(builder);
         self
@@ -240,6 +242,26 @@ impl WriteStrategyBuilder {
         };
         let compressing = CompressingStrategy::new(buffered, data_compressor);
 
+        // 3.1. compress dictionary values.
+        // DictStrategy emits a deduplicated values array for each dictionary run. A second dict
+        // pass on that values child is structurally redundant for every supported dict dtype: the
+        // values are already unique, so another dict layer can only add codes overhead.
+        let dict_values_compressor: Arc<dyn CompressorPlugin> = match &self.compressor {
+            CompressorConfig::BtrBlocks(builder) => Arc::new(
+                builder
+                    .clone()
+                    .exclude_schemes([
+                        IntDictScheme.id(),
+                        FloatDictScheme.id(),
+                        StringDictScheme.id(),
+                    ])
+                    .build(),
+            ),
+            CompressorConfig::Opaque(compressor) => Arc::clone(compressor),
+        };
+        let compress_dict_values_then_flat =
+            CompressingStrategy::new(Arc::clone(&flat), dict_values_compressor);
+
         // 4. prior to compression, coalesce up to a minimum size
         let coalescing = RepartitionStrategy::new(
             compressing,
@@ -267,7 +289,7 @@ impl WriteStrategyBuilder {
         // 3. apply dict encoding or fallback
         let dict = DictStrategy::new(
             coalescing.clone(),
-            compress_then_flat.clone(),
+            compress_dict_values_then_flat,
             coalescing,
             Default::default(),
         );

@@ -10,14 +10,18 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinView;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::dict::DictArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::builders::dict::dict_encode;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::CascadingCompressor;
 use crate::builtins::IntDictScheme;
@@ -54,6 +58,37 @@ const STRING_DICT_PREFLIGHT_MIN_THRESHOLD: f64 = 2.0;
 /// result. The callback multiplies that raw ratio by this factor to get an intentionally generous
 /// upper bound before deciding to skip sampled compression.
 const STRING_DICT_RAW_SAMPLE_RATIO_UPLIFT: f64 = 3.0;
+
+/// Maximum average string length for the aggressive near-unique veto.
+///
+/// Short structured strings such as `t_time_id`, `d_date_id`, and ISO-like timestamp text can
+/// share a tiny set of `(length, prefix)` signatures while still being almost fully unique. Those
+/// columns are exactly where the permissive prefix-only dict gate misfires: dictionary encoding
+/// sees the shared structure, but the extra codes layer adds overhead that direct FSST avoids.
+///
+/// We therefore let the sample preflight reject dictionary encoding outright when the sampled
+/// strings are both short and mostly unique. The short-string cutoff is intentionally conservative:
+/// URL and file-path columns are much longer, so they do not hit this veto.
+const STRING_DICT_NEAR_UNIQUE_SHORT_AVG_LEN_MAX: f64 = 32.0;
+
+/// Distinct-density threshold for the aggressive short-string veto.
+///
+/// Once roughly three quarters of sampled short strings are exact-value distinct, dict is rarely a
+/// good trade. The values child stays large, and the codes layer becomes almost pure overhead.
+const STRING_DICT_NEAR_UNIQUE_SHORT_DISTINCT_DENSITY: f64 = 0.75;
+
+/// Maximum average string length for the softer near-unique veto.
+///
+/// Medium-length strings can still be bad dict candidates when they are almost entirely unique,
+/// but we keep this band separate from the short-string rule so that long URL/path-like values are
+/// still decided by the normal raw-dictionary upper bound and sampled comparison.
+const STRING_DICT_NEAR_UNIQUE_MEDIUM_AVG_LEN_MAX: f64 = 64.0;
+
+/// Distinct-density threshold for the softer medium-length veto.
+///
+/// This band only rejects samples that are extremely close to fully unique. Anything less clear
+/// still falls through to the existing preflight and, if needed, normal sampled evaluation.
+const STRING_DICT_NEAR_UNIQUE_MEDIUM_DISTINCT_DENSITY: f64 = 0.9;
 
 impl Scheme for StringDictScheme {
     fn scheme_name(&self) -> &'static str {
@@ -166,10 +201,14 @@ impl Scheme for StringDictScheme {
 /// cheap upper-bound check first:
 ///
 /// 1. Reuse the same sample that normal ratio estimation would use.
-/// 2. Dictionary-encode that sample without recursively compressing the children.
-/// 3. Treat the resulting raw sample ratio as a floor, then inflate it by
+/// 2. Compute the sample's exact full-value distinct density and average length.
+/// 3. Immediately reject dictionary encoding for short or medium-length samples that are nearly
+///    fully unique. This catches structured IDs and date strings whose coarse prefix stats look
+///    dictionary-friendly even though their exact values are not.
+/// 4. Dictionary-encode the sample without recursively compressing the children.
+/// 5. Treat the resulting raw sample ratio as a floor, then inflate it by
 ///    [`STRING_DICT_RAW_SAMPLE_RATIO_UPLIFT`] to get a generous "best plausible" ratio.
-/// 4. If that optimistic ratio still cannot beat the current best scheme, skip dictionary
+/// 6. If that optimistic ratio still cannot beat the current best scheme, skip dictionary
 ///    sampling entirely. Otherwise, let the compressor run the normal sampled compression path.
 ///
 /// This keeps the actual sample compression logic centralized in the compressor instead of
@@ -181,6 +220,15 @@ fn string_dict_sample_preflight(
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<SamplePreflightVerdict> {
     let sample_array = estimation_sample_array(data.array(), &compress_ctx, exec_ctx)?;
+    let sample_utf8 = sample_array
+        .as_opt::<VarBinView>()
+        .vortex_expect("string dict preflight only runs on canonical UTF-8 samples")
+        .into_owned();
+
+    if should_skip_string_dict_for_near_unique_sample(&sample_utf8)? {
+        return Ok(SamplePreflightVerdict::Skip);
+    }
+
     let threshold = best_so_far.and_then(EstimateScore::finite_ratio);
 
     if let Some(threshold) = threshold.filter(|&t| t >= STRING_DICT_PREFLIGHT_MIN_THRESHOLD) {
@@ -191,6 +239,71 @@ fn string_dict_sample_preflight(
     }
 
     Ok(SamplePreflightVerdict::Sample)
+}
+
+/// Exact sample-level distinctness stats used only by the string dict preflight.
+struct SampleStringValueStats {
+    /// Number of exact distinct non-null sample values.
+    exact_distinct_count: u32,
+    /// Total byte length of all non-null sample values.
+    total_value_bytes: u64,
+    /// Number of non-null sample values.
+    value_count: u32,
+}
+
+/// Returns whether sampled strings are too unique for dictionary encoding to be competitive.
+///
+/// The prefix-only dict gate is intentionally permissive so that repeated long URLs and file paths
+/// stay eligible. That same permissiveness admits structured strings that are almost entirely
+/// unique, such as surrogate IDs and timestamp text. This helper uses the sampled strings'
+/// full-byte identity, not the coarse `(length, prefix)` sketch, to veto those near-unique cases
+/// before dictionary sampling pays for raw dict construction or recursive child compression.
+fn should_skip_string_dict_for_near_unique_sample(
+    sample_utf8: &VarBinViewArray,
+) -> VortexResult<bool> {
+    let sample_stats = sampled_string_value_stats(sample_utf8)?;
+
+    if sample_stats.value_count == 0 {
+        return Ok(false);
+    }
+
+    let value_count = f64::from(sample_stats.value_count);
+    let avg_value_len = sample_stats.total_value_bytes as f64 / value_count;
+    let exact_distinct_density = f64::from(sample_stats.exact_distinct_count) / value_count;
+
+    Ok((avg_value_len <= STRING_DICT_NEAR_UNIQUE_SHORT_AVG_LEN_MAX
+        && exact_distinct_density >= STRING_DICT_NEAR_UNIQUE_SHORT_DISTINCT_DENSITY)
+        || (avg_value_len <= STRING_DICT_NEAR_UNIQUE_MEDIUM_AVG_LEN_MAX
+            && exact_distinct_density >= STRING_DICT_NEAR_UNIQUE_MEDIUM_DISTINCT_DENSITY))
+}
+
+/// Computes exact distinctness stats for a sampled UTF-8 array.
+///
+/// This is intentionally narrower than global `StringStats`: it only runs inside the dict
+/// preflight after the scheme has already cleared the cheap prefix gate, and it hashes the full
+/// sampled strings rather than a sketch. Borrowed byte slices are inserted directly into the hash
+/// set so we can count exact sample distinctness without copying string payloads.
+fn sampled_string_value_stats(
+    sample_utf8: &VarBinViewArray,
+) -> VortexResult<SampleStringValueStats> {
+    sample_utf8.with_iterator(|iter| {
+        let mut distinct_values = HashSet::<&[u8]>::with_capacity(sample_utf8.len() / 2);
+        let mut value_count = 0usize;
+        let mut total_value_bytes = 0u64;
+
+        for value in iter.flatten() {
+            distinct_values.insert(value);
+            value_count += 1;
+            total_value_bytes +=
+                u64::try_from(value.len()).vortex_expect("usize string lengths must fit in u64");
+        }
+
+        Ok(SampleStringValueStats {
+            exact_distinct_count: u32::try_from(distinct_values.len())?,
+            total_value_bytes,
+            value_count: u32::try_from(value_count)?,
+        })
+    })
 }
 
 /// Returns the exact sample array the compressor would use for sampled ratio estimation.
@@ -311,6 +424,66 @@ mod tests {
         )?;
 
         assert!(matches!(verdict, SamplePreflightVerdict::Skip));
+        Ok(())
+    }
+
+    #[test]
+    fn string_dict_preflight_skips_near_unique_short_structured_strings() -> VortexResult<()> {
+        let strings = VarBinViewArray::from_iter(
+            (0..4096).map(|idx| Some(format!("TIME-{idx:08}"))),
+            DType::Utf8(Nullability::NonNullable),
+        );
+        let data = ArrayAndStats::new(
+            strings.into_array(),
+            GenerateStatsOptions {
+                count_distinct_values: true,
+            },
+        );
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let estimate =
+            StringDictScheme.expected_compression_ratio(&data, CompressorContext::new(), &mut ctx);
+        let CompressionEstimate::Deferred(DeferredEstimate::PreflightThenSample(preflight)) =
+            estimate
+        else {
+            panic!("expected deferred preflight");
+        };
+
+        let verdict = preflight(&data, None, CompressorContext::new(), &mut ctx)?;
+
+        assert!(matches!(verdict, SamplePreflightVerdict::Skip));
+        Ok(())
+    }
+
+    #[test]
+    fn string_dict_preflight_keeps_repeated_long_paths_in_play() -> VortexResult<()> {
+        let values = [
+            "https://example.com/articles/releases/2025/01/0001/index.html",
+            "https://example.com/articles/releases/2025/01/0002/index.html",
+            "https://example.com/articles/releases/2025/01/0003/index.html",
+            "https://example.com/articles/releases/2025/01/0004/index.html",
+        ];
+        let strings = VarBinViewArray::from_iter(
+            (0..4096).map(|idx| Some(values[idx % values.len()])),
+            DType::Utf8(Nullability::NonNullable),
+        );
+        let data = ArrayAndStats::new(
+            strings.into_array(),
+            GenerateStatsOptions {
+                count_distinct_values: true,
+            },
+        );
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let estimate =
+            StringDictScheme.expected_compression_ratio(&data, CompressorContext::new(), &mut ctx);
+        let CompressionEstimate::Deferred(DeferredEstimate::PreflightThenSample(preflight)) =
+            estimate
+        else {
+            panic!("expected deferred preflight");
+        };
+
+        let verdict = preflight(&data, None, CompressorContext::new(), &mut ctx)?;
+
+        assert!(matches!(verdict, SamplePreflightVerdict::Sample));
         Ok(())
     }
 }

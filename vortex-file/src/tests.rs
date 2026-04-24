@@ -20,11 +20,13 @@ use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::Shared;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
+use vortex_array::arrays::shared::SharedArrayExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
@@ -1402,6 +1404,43 @@ async fn test_array_stream_no_double_dict_encode() -> VortexResult<()> {
     assert!(
         !dict.codes().is::<Dict>(),
         "dictionary codes should not be dictionary encoded"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_array_stream_no_double_dict_encode_string_values() -> VortexResult<()> {
+    let distinct_paths = 4096usize;
+    let values = (0..8192usize)
+        .map(|idx| {
+            format!(
+                "https://example.com/articles/releases/2025/04/{:04}/section/{:04}/index.html",
+                idx % distinct_paths,
+                idx % distinct_paths
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let array = VarBinArray::from(values).into_array();
+    let mut buf = Vec::new();
+    SESSION
+        .write_options()
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let read_array = file.scan()?.into_array_stream()?.read_all().await?;
+
+    let dict = read_array
+        .as_opt::<Dict>()
+        .expect("expected root to be dictionary");
+    let shared_values = dict
+        .values()
+        .as_opt::<Shared>()
+        .expect("expected dictionary values to be shared");
+
+    assert!(
+        !shared_values.source().is::<Dict>(),
+        "dictionary values should not be dictionary encoded again"
     );
     Ok(())
 }
