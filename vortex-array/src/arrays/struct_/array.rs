@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::borrow::Borrow;
 use std::iter::once;
 use std::sync::Arc;
 
@@ -455,22 +456,24 @@ impl Array<Struct> {
         self.remove_column(name)
     }
 
-    pub fn try_concat<'a>(
-        chunks: impl IntoIterator<Item = &'a Array<Struct>>,
-    ) -> VortexResult<Self> {
+    pub fn try_concat<T>(chunks: impl IntoIterator<Item = T>) -> VortexResult<Self>
+    where
+        T: Borrow<Array<Struct>>,
+    {
         let mut it = chunks.into_iter();
         // .map(|chunk| (chunk.dtype(), chunk, chunk.len(), chunk.validity()));
         let Some(first) = it.next() else {
             vortex_bail!("cannot concat empty iterator of arrays");
         };
-        let first_dtype = first.dtype();
+        let first_dtype = first.borrow().dtype().clone();
         let struct_fields = first_dtype.as_struct_fields().clone();
         let names = struct_fields.names();
 
         let it = [first].into_iter().chain(it);
         let (field_arrays_per_chunk, validities) = it
             .map(|chunk| {
-                if first_dtype != chunk.dtype() {
+                let chunk = chunk.borrow();
+                if &first_dtype != chunk.dtype() {
                     vortex_bail!(
                         "cannot concatenate struct arrays with differing dtypes: {}, {}",
                         first_dtype,
@@ -484,6 +487,7 @@ impl Array<Struct> {
                         chunk
                             .unmasked_field_by_name(name)
                             .vortex_expect("field exists because it is in dtype")
+                            .clone()
                     })
                     .collect::<Vec<_>>();
                 let validity = chunk.validity()?;

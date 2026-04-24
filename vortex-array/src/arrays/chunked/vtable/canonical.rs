@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use itertools::Itertools as _;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -62,12 +63,10 @@ pub(super) fn _canonicalize(
 ///
 /// The caller guarantees there are at least 2 chunks.
 fn pack_struct_chunks(chunks: Vec<ArrayRef>, ctx: &mut ExecutionCtx) -> VortexResult<StructArray> {
-    let executed_chunks = chunks
+    chunks
         .into_iter()
         .map(|c| c.execute::<StructArray>(ctx))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    StructArray::try_concat(executed_chunks.as_slice())
+        .process_results(|iter| StructArray::try_concat(iter))?
 }
 
 /// Packs [`ListViewArray`]s together into a chunked `ListViewArray`.
