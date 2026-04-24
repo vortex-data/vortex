@@ -60,6 +60,10 @@ pub vortex_scan::ScanRequest::limit: core::option::Option<u64>
 
 pub vortex_scan::ScanRequest::ordered: bool
 
+pub vortex_scan::ScanRequest::partition_range: core::option::Option<core::ops::range::Range<u64>>
+
+pub vortex_scan::ScanRequest::partition_selection: vortex_scan::selection::Selection
+
 pub vortex_scan::ScanRequest::projection: vortex_array::expr::expression::Expression
 
 pub vortex_scan::ScanRequest::row_range: core::option::Option<core::ops::range::Range<u64>>
@@ -117,6 +121,8 @@ pub fn vortex_scan::Partition::as_any(&self) -> &dyn core::any::Any
 pub fn vortex_scan::Partition::byte_size(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
 
 pub fn vortex_scan::Partition::execute(self: alloc::boxed::Box<Self>) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_scan::Partition::index(&self) -> usize
 
 pub fn vortex_scan::Partition::row_count(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
 
