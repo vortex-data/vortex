@@ -39,6 +39,7 @@ vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-session = { workspace = true }
+vortex-utils = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 custom-labels = { workspace = true }
