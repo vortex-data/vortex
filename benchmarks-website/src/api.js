@@ -1,53 +1,9 @@
 const API_BASE = '';
 
-function parseRetryAfterMs(value) {
-  if (!value) return null;
-
-  const seconds = Number.parseInt(value, 10);
-  if (Number.isFinite(seconds) && seconds >= 0) {
-    return seconds * 1000;
-  }
-
-  const retryAt = Date.parse(value);
-  if (Number.isNaN(retryAt)) {
-    return null;
-  }
-
-  return Math.max(0, retryAt - Date.now());
-}
-
-async function readResponse(response) {
-  const contentType = response.headers.get('content-type') || '';
-
-  if (contentType.includes('application/json')) {
-    return response.json();
-  }
-
-  const text = await response.text();
-  return text ? { error: text } : null;
-}
-
-export async function fetchMetadata(options = {}) {
-  const response = await fetch(`${API_BASE}/api/metadata`, {
-    cache: 'no-store',
-    signal: options.signal,
-  });
-  const payload = await readResponse(response);
-
-  if (!response.ok) {
-    const message = payload?.lastRefreshError
-      ? `Failed to fetch metadata: ${payload.lastRefreshError}`
-      : payload?.error
-        ? `Failed to fetch metadata: ${payload.error}`
-        : `Failed to fetch metadata: ${response.status}`;
-    const error = new Error(message);
-    error.status = response.status;
-    error.payload = payload;
-    error.retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
-    throw error;
-  }
-
-  return payload;
+export async function fetchMetadata() {
+  const response = await fetch(`${API_BASE}/api/metadata`);
+  if (!response.ok) throw new Error(`Failed to fetch metadata: ${response.status}`);
+  return response.json();
 }
 
 export async function fetchChartData(groupName, chartName, options = {}) {
@@ -79,19 +35,7 @@ export async function fetchChartData(groupName, chartName, options = {}) {
 
   if (params.toString()) url += '?' + params.toString();
 
-  const response = await fetch(url, { cache: 'no-store' });
-  const payload = await readResponse(response);
-
-  if (!response.ok) {
-    const message = payload?.error
-      ? `Failed to fetch chart data: ${payload.error}`
-      : `Failed to fetch chart data: ${response.status}`;
-    const error = new Error(message);
-    error.status = response.status;
-    error.payload = payload;
-    error.retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
-    throw error;
-  }
-
-  return payload;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Failed to fetch chart data: ${response.status}`);
+  return response.json();
 }
