@@ -13228,13 +13228,11 @@ pub struct vortex_array::optimizer::kernels::ArrayKernels
 
 impl vortex_array::optimizer::kernels::ArrayKernels
 
-pub fn vortex_array::optimizer::kernels::ArrayKernels::contains_reduce_parent(&self, outer: vortex_session::registry::Id, child: vortex_session::registry::Id) -> bool
-
 pub fn vortex_array::optimizer::kernels::ArrayKernels::empty() -> Self
 
-pub fn vortex_array::optimizer::kernels::ArrayKernels::find_reduce_parent(&self, outer: vortex_session::registry::Id, child: vortex_session::registry::Id) -> core::option::Option<alloc::sync::Arc<vortex_array::optimizer::kernels::ReduceParentFn>>
+pub fn vortex_array::optimizer::kernels::ArrayKernels::find_reduce_parent(&self, parent: vortex_session::registry::Id, child: vortex_session::registry::Id) -> core::option::Option<alloc::sync::Arc<[vortex_array::optimizer::kernels::ReduceParentFn]>>
 
-pub fn vortex_array::optimizer::kernels::ArrayKernels::register_reduce_parent(&self, outer: vortex_session::registry::Id, child: vortex_session::registry::Id, f: vortex_array::optimizer::kernels::ReduceParentFn)
+pub fn vortex_array::optimizer::kernels::ArrayKernels::register_reduce_parent<I: core::iter::traits::collect::IntoIterator<Item = vortex_array::optimizer::kernels::ReduceParentFn>>(&self, parent: vortex_session::registry::Id, child: vortex_session::registry::Id, fns: I)
 
 impl core::default::Default for vortex_array::optimizer::kernels::ArrayKernels
 

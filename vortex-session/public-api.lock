@@ -40,26 +40,6 @@ impl<T> core::default::Default for vortex_session::registry::Context<T>
 
 pub fn vortex_session::registry::Context<T>::default() -> Self
 
-pub struct vortex_session::registry::FnRegistry(_)
-
-impl vortex_session::registry::FnRegistry
-
-pub fn vortex_session::registry::FnRegistry::contains(&self, id: u64) -> bool
-
-pub fn vortex_session::registry::FnRegistry::empty() -> Self
-
-pub fn vortex_session::registry::FnRegistry::find<F: core::any::Any + core::marker::Send + core::marker::Sync>(&self, id: u64) -> core::option::Option<alloc::sync::Arc<F>>
-
-pub fn vortex_session::registry::FnRegistry::register<F: core::any::Any + core::marker::Send + core::marker::Sync>(&self, id: u64, f: F)
-
-impl core::default::Default for vortex_session::registry::FnRegistry
-
-pub fn vortex_session::registry::FnRegistry::default() -> vortex_session::registry::FnRegistry
-
-impl core::fmt::Debug for vortex_session::registry::FnRegistry
-
-pub fn vortex_session::registry::FnRegistry::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
 pub struct vortex_session::registry::Id(_)
 
 impl vortex_session::registry::Id
