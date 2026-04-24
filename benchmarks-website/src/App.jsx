@@ -1,15 +1,13 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import BenchmarkSection from './components/BenchmarkSection';
 import Modal from './components/Modal';
-import { fetchMetadata } from './api';
 import { BENCHMARK_CONFIGS, CATEGORY_TAGS } from './config';
+import useBenchmarkMetadata from './hooks/useBenchmarkMetadata';
 
 export default function App() {
-  const [metadata, setMetadata] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const { metadata, loading, error } = useBenchmarkMetadata();
   const [expandedGroups, setExpandedGroups] = useState(new Set());
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -17,28 +15,15 @@ export default function App() {
   const [viewMode, setViewMode] = useState('grid');
   const [modalChart, setModalChart] = useState(null);
   const [showBackToTop, setShowBackToTop] = useState(false);
-  const metadataFetched = useRef(false);
 
   useEffect(() => {
-    if (metadataFetched.current) return;
-    metadataFetched.current = true;
+    if (!metadata?.groups) return;
 
-    async function loadMetadata() {
-      try {
-        const data = await fetchMetadata();
-        setMetadata(data);
-        const params = new URLSearchParams(window.location.search);
-        if (params.get('expanded') === 'true' && data?.groups) {
-          setExpandedGroups(new Set(Object.keys(data.groups)));
-        }
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('expanded') === 'true') {
+      setExpandedGroups(new Set(Object.keys(metadata.groups)));
     }
-    loadMetadata();
-  }, []);
+  }, [metadata]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -55,7 +40,6 @@ export default function App() {
     const hash = window.location.hash;
     if (hash && hash.startsWith('#group-')) {
       const groupId = hash.slice(1); // Remove the '#'
-      const groupName = groupId.replace('group-', '').replace(/-/g, ' ');
 
       // Find the matching group (case-insensitive, handle hyphenated names)
       const matchingGroup = Object.keys(metadata.groups).find(name =>

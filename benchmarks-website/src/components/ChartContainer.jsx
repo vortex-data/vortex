@@ -277,7 +277,7 @@ export default function ChartContainer({
 
     const { series, commits } = chartData;
     const datasets = [];
-    const labels = commits.map(c => formatDate(c.timestamp));
+    const labels = commits.map(c => formatDate(c?.timestamp));
 
     Object.entries(series).forEach(([seriesName, points]) => {
       // Apply removed datasets filter

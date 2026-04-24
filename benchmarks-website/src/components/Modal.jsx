@@ -95,7 +95,7 @@ export default function Modal({ chartData, onClose }) {
 
     const { series, commits } = data;
     const datasets = [];
-    const labels = commits.map(c => formatDate(c.timestamp));
+    const labels = commits.map(c => formatDate(c?.timestamp));
 
     Object.entries(series).forEach(([seriesName, points]) => {
       if (config?.removedDatasets?.has(seriesName)) return;

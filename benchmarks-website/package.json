@@ -7,12 +7,14 @@
     "vite": "vite",
     "server": "node server.js",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "export-sql": "node scripts/export-bootstrap-sql.js"
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@duckdb/node-api": "^1.5.2-r.1",
     "chart.js": "^4.4.4",
     "chartjs-plugin-zoom": "^2.0.1",
     "downsample": "^1.4.0",
