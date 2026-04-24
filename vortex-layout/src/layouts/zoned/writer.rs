@@ -12,6 +12,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::expr::stats::Stat;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
@@ -80,6 +81,11 @@ impl LayoutStrategy for ZonedStrategy {
         mut eof: SequencePointer,
         session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
+        vortex_ensure!(
+            self.options.block_size > 0,
+            "ZonedStrategy requires block_size > 0 when writing"
+        );
+
         let stats = Arc::clone(&self.options.stats);
         let session = session.clone();
         let compute_session = session.clone();
