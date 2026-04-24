@@ -44,7 +44,6 @@ fn like_pattern_str(value: &duckdb::ExpressionRef) -> VortexResult<Option<String
     }
 }
 
-#[expect(clippy::cognitive_complexity)]
 pub fn try_from_bound_expression(
     value: &duckdb::ExpressionRef,
 ) -> VortexResult<Option<Expression>> {

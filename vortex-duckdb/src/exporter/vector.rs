@@ -4,19 +4,14 @@
 use vortex::mask::Mask;
 
 use crate::cpp::duckdb_vx_vector_set_all_valid;
+use crate::duckdb::ValidityData;
 use crate::duckdb::Value;
 use crate::duckdb::VectorRef;
 use crate::exporter::copy_from_slice;
-use crate::duckdb::ValidityData;
 
 impl VectorRef {
     /// Returns true if all values are null (caller can skip data export).
-    pub(super) unsafe fn set_validity(
-        &mut self,
-        mask: &Mask,
-        offset: usize,
-        len: usize,
-    ) -> bool {
+    pub unsafe fn set_validity(&mut self, mask: &Mask, offset: usize, len: usize) -> bool {
         unsafe { self.set_validity_zero_copy(mask, offset, len, None) }
     }
 
