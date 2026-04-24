@@ -65,7 +65,6 @@ use crate::executor::CudaExecutionCtx;
 ///
 /// Returns `Ok(Canonical)` on success. Returns `Err` when the array
 /// cannot be handled (non-primitive output dtype, no registered kernel).
-#[expect(clippy::cognitive_complexity)]
 pub async fn try_gpu_dispatch(
     array: &ArrayRef,
     ctx: &mut CudaExecutionCtx,
