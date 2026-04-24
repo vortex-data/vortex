@@ -17,6 +17,12 @@ use zigzag::ZigZag as ExternalZigZag;
 
 use crate::ZigZag;
 use crate::ZigZagArray;
+
+/// ZigZag-encode a signed-integer primitive array.
+///
+/// The input must have a signed integer [`PType`]; other types return an error.
+/// See the [crate-level documentation](crate) for the ZigZag transformation and
+/// its role in cascading with downstream encodings.
 pub fn zigzag_encode(parray: ArrayView<'_, Primitive>) -> VortexResult<ZigZagArray> {
     let parray = parray.into_owned();
     let validity = parray.validity()?;
@@ -46,6 +52,12 @@ where
     )
 }
 
+/// Decodes an unsigned-integer primitive array back to signed integers. Inverse
+/// of [`zigzag_encode`].
+///
+/// # Panics
+///
+/// Panics if the input does not have an unsigned integer [`PType`].
 pub fn zigzag_decode(parray: PrimitiveArray) -> PrimitiveArray {
     let validity = parray
         .validity()
