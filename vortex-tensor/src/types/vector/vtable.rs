@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
+use crate::types::vector::ID;
 use crate::types::vector::Vector;
 
 impl ExtVTable for Vector {
@@ -20,7 +21,7 @@ impl ExtVTable for Vector {
     type NativeValue<'a> = &'a ScalarValue;
 
     fn id(&self) -> ExtId {
-        ExtId::new("vortex.tensor.vector")
+        ExtId::new(ID)
     }
 
     fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {

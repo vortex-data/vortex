@@ -6,6 +6,9 @@
 /// Vortex extension id for [`FixedShapeTensor`].
 pub(crate) const ID: &str = "vortex.tensor.fixed_shape_tensor";
 
+/// Arrow canonical extension name [`ID`] aliases to.
+pub(crate) const ARROW_EXT_NAME: &str = "arrow.fixed_shape_tensor";
+
 /// The VTable for the Tensor extension type.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct FixedShapeTensor;

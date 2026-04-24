@@ -3,6 +3,9 @@
 
 //! Vector extension type for fixed-length float vectors (e.g., embeddings).
 
+/// Vortex extension id for [`Vector`].
+pub(crate) const ID: &str = "vortex.tensor.vector";
+
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;

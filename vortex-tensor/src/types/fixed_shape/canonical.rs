@@ -1,15 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Arrow canonical [`arrow.fixed_shape_tensor`] metadata serialization.
+//! Arrow canonical [`arrow.fixed_shape_tensor`] JSON metadata serialization.
 //!
-//! The wire format is a UTF-8 JSON object placed in `ARROW:extension:metadata`, matching the
-//! Arrow specification and pyarrow / arrow-rs interop expectations.
-//!
-//! We roll our own serde rather than delegating to `arrow_schema::extension::FixedShapeTensor`
-//! because arrow-rs 58 serializes the field as `"permutations"` (plural) while the Arrow
-//! specification and pyarrow use `"permutation"` (singular). pyarrow silently ignores the
-//! misspelled key.
+//! Hand-rolled rather than reusing `arrow_schema::extension::FixedShapeTensor` because arrow-rs
+//! 58 emits `"permutations"` (plural) while the spec and pyarrow use `"permutation"`.
 //!
 //! [`arrow.fixed_shape_tensor`]: https://arrow.apache.org/docs/format/CanonicalExtensions.html#fixed-shape-tensor
 

@@ -250,9 +250,8 @@ impl FromArrowType<&Field> for DType {
     }
 }
 
-/// Convert an Arrow Field to a [`DType`] using a pre-borrowed [`DTypeSession`] for extension
-/// lookup. Used by the `&Fields` and `&Field` impls so the session handle is acquired once per
-/// schema rather than once per field.
+/// Convert an Arrow Field to a [`DType`] with `dtypes` already borrowed from the session,
+/// so the handle is acquired once per schema rather than once per field.
 fn dtype_from_field(field: &Field, dtypes: &DTypeSession) -> DType {
     let ext_name = field.extension_type_name();
 
@@ -309,11 +308,8 @@ fn dtype_from_field(field: &Field, dtypes: &DTypeSession) -> DType {
     }
 }
 
-/// Decode extension metadata bytes from a Field.
-///
-/// Canonical Arrow extensions store UTF-8 bytes directly (e.g. JSON). Non-canonical extensions
-/// store base64-encoded bytes so that arbitrary binary plugin output survives a String-typed
-/// metadata channel.
+/// Canonical extensions store UTF-8 bytes directly; non-canonical extensions base64-encode so
+/// arbitrary binary plugin output survives the String-typed metadata channel.
 fn decode_extension_metadata(field: &Field, is_canonical: bool) -> VortexResult<Vec<u8>> {
     match field.extension_type_metadata() {
         None | Some("") => Ok(Vec::new()),
@@ -493,8 +489,7 @@ fn field_from_dtype(name: &str, dtype: &DType, dtypes: &DTypeSession) -> VortexR
         let ext_meta_bytes = ext.serialize_metadata()?;
         let (ext_name, meta_str) = match dtypes.arrow_canonical_for(&ext.id()) {
             Some(canonical) => {
-                // Canonical Arrow extensions specify a UTF-8 metadata format (typically JSON),
-                // read as-is by arrow-rs / pyarrow. The plugin owns producing those bytes.
+                // Canonical wire: raw UTF-8 (typically JSON), read as-is by arrow-rs / pyarrow.
                 let s = String::from_utf8(ext_meta_bytes).map_err(|e| {
                     vortex_err!("canonical extension {canonical} metadata must be valid UTF-8: {e}")
                 })?;

@@ -18,12 +18,11 @@ use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 
 use crate::tests::SESSION;
+use crate::types::fixed_shape;
 use crate::types::fixed_shape::FixedShapeTensor;
 use crate::types::fixed_shape::FixedShapeTensorMetadata;
+use crate::types::vector;
 use crate::types::vector::Vector;
-
-const VECTOR_EXT_NAME: &str = "vortex.tensor.vector";
-const FIXED_SHAPE_EXT_NAME: &str = "arrow.fixed_shape_tensor";
 
 fn vector_dtype(len: u32) -> DType {
     let storage = DType::FixedSizeList(
@@ -57,9 +56,9 @@ fn vector_forward_carries_extension_name() {
             .metadata()
             .get(EXTENSION_TYPE_NAME_KEY)
             .map(String::as_str),
-        Some(VECTOR_EXT_NAME),
+        Some(vector::ID),
     );
-    // EmptyMetadata: no metadata key emitted.
+    // EmptyMetadata → no metadata key.
     assert!(field.metadata().get(EXTENSION_TYPE_METADATA_KEY).is_none());
 
     let DataType::FixedSizeList(element, size) = field.data_type() else {
@@ -122,11 +121,10 @@ fn fixed_shape_tensor_metadata_roundtrip() {
             .metadata()
             .get(EXTENSION_TYPE_NAME_KEY)
             .map(String::as_str),
-        Some(FIXED_SHAPE_EXT_NAME),
+        Some(fixed_shape::ARROW_EXT_NAME),
     );
 
-    // Canonical extensions put raw JSON on the wire — pyarrow / arrow-rs read it directly
-    // without base64. Parse it back to confirm the on-wire format.
+    // Canonical wire: raw JSON, not base64.
     let meta_str = field.metadata().get(EXTENSION_TYPE_METADATA_KEY).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(meta_str).unwrap();
     assert_eq!(parsed["shape"], serde_json::json!([2, 3, 4]));
