@@ -455,40 +455,57 @@ impl Array<Struct> {
         self.remove_column(name)
     }
 
-    pub fn try_concat(chunks: &[Array<Struct>]) -> VortexResult<Self> {
-        let dtype = unique_dtype_or_bail(chunks.iter().map(|x| x.dtype()))?;
-        let fields = dtype.as_struct_fields().clone();
-        let field_arrays = fields
-            .names()
-            .iter()
-            .zip(fields.fields())
-            .map(|(name, dtype)| {
-                (
-                    chunks
-                        .iter()
-                        .map(|array| {
-                            array
-                                .unmasked_field_by_name(name)
-                                .vortex_expect("field exists because it is in dtype")
-                        })
-                        .cloned()
-                        .collect(),
-                    dtype,
-                )
+    pub fn try_concat<'a>(
+        chunks: impl IntoIterator<Item = &'a Array<Struct>>,
+    ) -> VortexResult<Self> {
+        let mut it = chunks.into_iter();
+        // .map(|chunk| (chunk.dtype(), chunk, chunk.len(), chunk.validity()));
+        let Some(first) = it.next() else {
+            vortex_bail!("cannot concat empty iterator of arrays");
+        };
+        let first_dtype = first.dtype();
+        let struct_fields = first_dtype.as_struct_fields().clone();
+        let names = struct_fields.names();
+
+        let it = [first].into_iter().chain(it);
+        let (field_arrays_per_chunk, validities) = it
+            .map(|chunk| {
+                if first_dtype != chunk.dtype() {
+                    vortex_bail!(
+                        "cannot concatenate struct arrays with differing dtypes: {}, {}",
+                        first_dtype,
+                        chunk.dtype(),
+                    );
+                }
+
+                let fields = names
+                    .iter()
+                    .map(|name| {
+                        chunk
+                            .unmasked_field_by_name(name)
+                            .vortex_expect("field exists because it is in dtype")
+                    })
+                    .collect::<Vec<_>>();
+                let validity = chunk.validity()?;
+
+                Ok((fields, (validity, chunk.len())))
             })
-            .map(|(arrays, dtype)| {
+            .process_results(|iter| iter.unzip::<_, _, Vec<_>, Vec<_>>())?;
+
+        let field_arrays = struct_fields
+            .fields()
+            .enumerate()
+            .map(|(i, dtype)| {
                 // SAFETY: We establish above that every array has the same type.
-                unsafe { ChunkedArray::new_unchecked(arrays, dtype) }.into_array()
+                let chunks = field_arrays_per_chunk
+                    .iter()
+                    .map(|x| x[i].clone())
+                    .collect();
+                unsafe { ChunkedArray::new_unchecked(chunks, dtype) }.into_array()
             })
             .collect::<Vec<_>>();
-        let len = chunks.iter().map(|x| x.len()).sum();
-        let validity = Validity::concat(
-            chunks
-                .iter()
-                .map(|x| x.validity().map(|v| (v, x.len())))
-                .try_collect()?,
-        )
-        .vortex_expect("verified non-empty above");
+        let len = validities.iter().map(|(_v, len)| len).sum();
+        let validity = Validity::concat(validities).vortex_expect("verified non-empty above");
 
         // SAFETY:
         //
@@ -499,20 +516,6 @@ impl Array<Struct> {
         //
         // 3. Each Array<Struct> has a valid validity, so the concatenation of those validities has
         // the correct length and dtype harmony.
-        Ok(unsafe { Array::<Struct>::new_unchecked(field_arrays, fields, len, validity) })
+        Ok(unsafe { Array::<Struct>::new_unchecked(field_arrays, struct_fields, len, validity) })
     }
-}
-
-fn unique_dtype_or_bail<'a>(it: impl Iterator<Item = &'a DType>) -> VortexResult<&'a DType> {
-    let mut it = it.unique();
-    let Some(dtype) = it.next() else {
-        vortex_bail!("slice must not be empty")
-    };
-    if let Some(other_dtype) = it.next() {
-        vortex_bail!(
-            "cannot concatenate struct arrays with differing dtypes: {}",
-            [dtype, other_dtype].into_iter().chain(it).format(", ")
-        )
-    }
-    Ok(dtype)
 }
