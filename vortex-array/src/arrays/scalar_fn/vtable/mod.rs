@@ -28,6 +28,7 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::scalar_fn::array::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::array::ScalarFnData;
+use crate::arrays::scalar_fn::array::peel_refinements_and_resolve_dtype;
 use crate::arrays::scalar_fn::rules::PARENT_RULES;
 use crate::arrays::scalar_fn::rules::RULES;
 use crate::buffer::BufferHandle;
@@ -175,14 +176,13 @@ pub trait ScalarFnFactoryExt: scalar_fn::ScalarFnVTable {
     ) -> VortexResult<ArrayRef> {
         let scalar_fn = scalar_fn::TypedScalarFnInstance::new(self.clone(), options).erased();
 
-        let children = children.into();
+        let mut children = children.into();
         vortex_ensure!(
             children.iter().all(|c| c.len() == len),
             "All child arrays must have the same length as the scalar function array"
         );
 
-        let child_dtypes = children.iter().map(|c| c.dtype().clone()).collect_vec();
-        let dtype = scalar_fn.return_dtype(&child_dtypes)?;
+        let dtype = peel_refinements_and_resolve_dtype(&scalar_fn, &mut children)?;
 
         let data = ScalarFnData {
             scalar_fn: scalar_fn.clone(),
