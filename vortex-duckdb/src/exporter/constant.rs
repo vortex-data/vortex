@@ -71,7 +71,7 @@ impl ColumnExporter for ConstantExporter {
     ) -> VortexResult<()> {
         match self.value.as_ref() {
             None => {
-                unsafe { vector.set_all_false_validity() };
+                vector.set_all_false_validity();
             }
             Some(value) => {
                 vector.reference_value(value);
