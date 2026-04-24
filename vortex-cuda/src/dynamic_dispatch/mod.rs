@@ -1806,7 +1806,8 @@ mod tests {
     #[crate::test]
     async fn test_dict_bitpacked_u8_codes_u32_values() -> VortexResult<()> {
         // Dict with BitPacked u8 codes (narrower than u32 output) and u32 values.
-        // Codes become a pending subtree, values fuse.
+        // The kernel's bitunpack_typed decodes at the source's native width and
+        // widens to T, so this fuses into a single kernel launch.
         let dict_values: Vec<u32> = vec![100, 200, 300, 400];
         let len = 2048;
         let codes: Vec<u8> = (0..len).map(|i| (i % dict_values.len()) as u8).collect();
@@ -1825,8 +1826,8 @@ mod tests {
 
         let plan = DispatchPlan::new(&array)?;
         assert!(
-            matches!(plan, DispatchPlan::PartiallyFused { .. }),
-            "expected PartiallyFused for mixed-width Dict with BitPacked codes"
+            matches!(plan, DispatchPlan::Fused(..)),
+            "expected Fused for mixed-width Dict with BitPacked codes"
         );
 
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
@@ -1834,6 +1835,202 @@ mod tests {
         let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
 
         let expected: Vec<u32> = codes.iter().map(|&c| dict_values[c as usize]).collect();
+        let expected_arr = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
+        vortex::array::assert_arrays_eq!(expected_arr, result);
+
+        Ok(())
+    }
+
+    /// Dict with non-Primitive narrower codes (BitPacked) at various
+    /// code/value widths. These fuse into a single kernel because
+    /// bitunpack_typed decodes at the source's native width and widens to T.
+    #[rstest]
+    #[case::bp_u8_codes_u16_values(2u8, 3000usize, vec![100u16, 200, 300, 400])]
+    #[case::bp_u8_codes_u32_values(2u8, 3000usize, vec![100_000u32, 200_000, 300_000, 400_000])]
+    #[case::bp_u16_codes_u32_values(4u8, 2048usize, vec![1_000_000u32, 2_000_000, 3_000_000, 4_000_000, 5_000_000, 6_000_000, 7_000_000, 8_000_000])]
+    #[crate::test]
+    async fn test_dict_mixed_width_bitpacked_codes<V: vortex::dtype::NativePType>(
+        #[case] bit_width: u8,
+        #[case] len: usize,
+        #[case] dict_values: Vec<V>,
+    ) -> VortexResult<()> {
+        let dict_size = dict_values.len();
+        let codes: Vec<u8> = (0..len).map(|i| (i % dict_size) as u8).collect();
+
+        let codes_prim = PrimitiveArray::new(Buffer::from(codes.clone()), NonNullable);
+        let codes_bp = BitPacked::encode(
+            &codes_prim.into_array(),
+            bit_width,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .vortex_expect("bitpack codes");
+        let values_prim = PrimitiveArray::new(Buffer::from(dict_values.clone()), NonNullable);
+        let dict = DictArray::try_new(codes_bp.into_array(), values_prim.into_array())?;
+        let array = dict.into_array();
+
+        let plan = DispatchPlan::new(&array)?;
+        assert!(
+            matches!(plan, DispatchPlan::Fused(..)),
+            "expected Fused for mixed-width Dict with BitPacked codes"
+        );
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let canonical = try_gpu_dispatch(&array, &mut cuda_ctx).await?;
+        let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
+
+        let expected: Vec<V> = codes.iter().map(|&c| dict_values[c as usize]).collect();
+        let expected_arr = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
+        vortex::array::assert_arrays_eq!(expected_arr, result);
+
+        Ok(())
+    }
+
+    /// Dict with FoR(BitPacked) codes narrower than the value type.
+    /// The entire codes decode chain runs at the narrower width; the kernel
+    /// decodes at native width and widens to T, fusing everything.
+    #[rstest]
+    #[case::for_bp_u8_codes_u32_values(3u8, 3000usize, vec![100u32, 200, 300, 400, 500, 600, 700, 800])]
+    #[case::for_bp_u16_codes_u32_values(4u8, 2048usize, vec![10_000u32, 20_000, 30_000, 40_000, 50_000, 60_000, 70_000, 80_000])]
+    #[crate::test]
+    async fn test_dict_mixed_width_for_bp_codes<V: vortex::dtype::NativePType>(
+        #[case] bit_width: u8,
+        #[case] len: usize,
+        #[case] dict_values: Vec<V>,
+    ) -> VortexResult<()> {
+        let dict_size = dict_values.len();
+        let codes: Vec<u8> = (0..len).map(|i| (i % dict_size) as u8).collect();
+
+        let codes_prim = PrimitiveArray::new(Buffer::from(codes.clone()), NonNullable);
+        let codes_bp = BitPacked::encode(
+            &codes_prim.into_array(),
+            bit_width,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .vortex_expect("bitpack codes");
+        let codes_for = FoR::try_new(codes_bp.into_array(), Scalar::from(0u8))?;
+        let values_prim = PrimitiveArray::new(Buffer::from(dict_values.clone()), NonNullable);
+        let dict = DictArray::try_new(codes_for.into_array(), values_prim.into_array())?;
+        let array = dict.into_array();
+
+        let plan = DispatchPlan::new(&array)?;
+        assert!(
+            matches!(plan, DispatchPlan::Fused(..)),
+            "expected Fused for mixed-width Dict with FoR(BitPacked) codes"
+        );
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let canonical = try_gpu_dispatch(&array, &mut cuda_ctx).await?;
+        let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
+
+        let expected: Vec<V> = codes.iter().map(|&c| dict_values[c as usize]).collect();
+        let expected_arr = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
+        vortex::array::assert_arrays_eq!(expected_arr, result);
+
+        Ok(())
+    }
+
+    /// RunEnd with non-Primitive narrower ends (BitPacked) and wider output
+    /// values. The kernel decodes at the source's native width and widens
+    /// to T in shared memory, fusing everything into one launch.
+    #[rstest]
+    #[case::bp_u8_ends_u16_values(
+        vec![25u8, 50, 75, 100],
+        vec![10u16, 20, 30, 40],
+    )]
+    #[case::bp_u8_ends_u32_values(
+        vec![40u8, 80, 120],
+        vec![1000u32, 2000, 3000],
+    )]
+    #[case::bp_u16_ends_u32_values(
+        vec![500u16, 1000, 1500, 2000],
+        vec![100_000u32, 200_000, 300_000, 400_000],
+    )]
+    #[crate::test]
+    async fn test_runend_mixed_width_bitpacked_ends<
+        E: vortex::dtype::NativePType + Into<u64>,
+        V: vortex::dtype::NativePType,
+    >(
+        #[case] ends: Vec<E>,
+        #[case] values: Vec<V>,
+    ) -> VortexResult<()> {
+        let ends_u64: Vec<u64> = ends.iter().map(|e| (*e).into()).collect();
+        let len = *ends_u64.last().unwrap() as usize;
+        let bit_width = 64 - ends_u64.iter().max().unwrap().leading_zeros() as u8;
+        let ends_prim = PrimitiveArray::new(Buffer::from(ends.clone()), NonNullable);
+        let ends_bp = BitPacked::encode(
+            &ends_prim.into_array(),
+            bit_width,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .vortex_expect("bitpack ends");
+
+        let values_prim = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let re = RunEnd::new(ends_bp.into_array(), values_prim.into_array(), &mut ctx);
+        let array = re.into_array();
+
+        let plan = DispatchPlan::new(&array)?;
+        assert!(
+            matches!(plan, DispatchPlan::Fused(..)),
+            "expected Fused for mixed-width RunEnd with BitPacked ends"
+        );
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let canonical = try_gpu_dispatch(&array, &mut cuda_ctx).await?;
+        let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
+
+        let mut expected: Vec<V> = Vec::with_capacity(len);
+        let mut prev: u64 = 0;
+        for (end, val) in ends_u64.iter().zip(values.iter()) {
+            let run_len = (*end - prev) as usize;
+            expected.extend(std::iter::repeat_n(*val, run_len));
+            prev = *end;
+        }
+        let expected_arr = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
+        vortex::array::assert_arrays_eq!(expected_arr, result);
+
+        Ok(())
+    }
+
+    /// RunEnd with FoR(BitPacked) narrower ends: the full decode chain for
+    /// ends runs at a narrower width; the kernel's bitunpack_typed decodes
+    /// at native width and widens to T, fusing everything.
+    #[crate::test]
+    async fn test_runend_mixed_width_for_bp_u16_ends_u32_values() -> VortexResult<()> {
+        let ends: Vec<u16> = vec![500, 1000, 1500, 2000];
+        let values: Vec<u32> = vec![100, 200, 300, 400];
+        let len = 2000usize;
+
+        let ends_prim = PrimitiveArray::new(Buffer::from(ends.clone()), NonNullable);
+        let ends_bp = BitPacked::encode(
+            &ends_prim.into_array(),
+            11,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .vortex_expect("bitpack ends");
+        let ends_for = FoR::try_new(ends_bp.into_array(), Scalar::from(0u16))?;
+
+        let values_prim = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let re = RunEnd::new(ends_for.into_array(), values_prim.into_array(), &mut ctx);
+        let array = re.into_array();
+
+        let plan = DispatchPlan::new(&array)?;
+        assert!(
+            matches!(plan, DispatchPlan::Fused(..)),
+            "expected Fused for mixed-width RunEnd with FoR(BitPacked) ends"
+        );
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let canonical = try_gpu_dispatch(&array, &mut cuda_ctx).await?;
+        let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
+
+        let mut expected: Vec<u32> = Vec::with_capacity(len);
+        let mut prev = 0u16;
+        for (&end, &val) in ends.iter().zip(values.iter()) {
+            expected.extend(std::iter::repeat_n(val, (end - prev) as usize));
+            prev = end;
+        }
         let expected_arr = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
         vortex::array::assert_arrays_eq!(expected_arr, result);
 

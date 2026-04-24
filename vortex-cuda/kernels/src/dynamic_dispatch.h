@@ -78,6 +78,27 @@ PTYPE_HOST_DEVICE constexpr PTypeTag ptype_to_unsigned(PTypeTag tag) {
         return tag;
     }
 }
+
+PTYPE_HOST_DEVICE constexpr uint8_t ptype_byte_width(PTypeTag tag) {
+    switch (tag) {
+    case PTYPE_U8:
+    case PTYPE_I8:
+        return 1;
+    case PTYPE_U16:
+    case PTYPE_I16:
+        return 2;
+    case PTYPE_U32:
+    case PTYPE_I32:
+    case PTYPE_F32:
+        return 4;
+    case PTYPE_U64:
+    case PTYPE_I64:
+    case PTYPE_F64:
+        return 8;
+    default:
+        return 0;
+    }
+}
 #endif
 
 /// Number of threads per CUDA block.

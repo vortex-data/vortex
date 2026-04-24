@@ -178,55 +178,28 @@ pub enum DispatchPlan {
 ///
 /// Stages are stored in kernel execution order. There are two phases:
 ///
-/// 1. All stages except the last run first and decode their output
-///    into shared memory (e.g. all dict values, all run-end endpoints).
-///    This data stays resident for the output stage to index into.
+/// 1. All stages except the last decode into shared memory (dict values,
+///    run-end endpoints). The kernel writes `T`-wide elements even when
+///    a stage's source ptype is narrower, widening in-place as needed.
 ///
-/// 2. The last stage (the output stage) iterates over the input in tiles
-///    of `SMEM_TILE_SIZE` (1024) elements, decoding each tile into a
-///    scratch region of shared memory, applying scalar ops (which may
-///    reference data from the earlier stages), and writing the result to
-///    global memory.
-///
-/// # Per-stage PType tracking
-///
-/// Each stage carries a `source_ptype` (`PTypeTag`) that identifies the
-/// primitive type produced by its source op (LOAD, BITUNPACK, etc.).
-/// Scalar ops may change the type (e.g. DICT transforms codes → values,
-/// ALP transforms encoded ints → floats); each `ScalarOp` declares its
-/// `output_ptype`. The kernel uses these tags to dispatch typed memory
-/// operations and cross-stage references at the correct element width.
+/// 2. The last stage (the output stage) tiles at `SMEM_TILE_SIZE` (1024)
+///    elements, decoding each tile into a scratch region, applying scalar
+///    ops (which may reference earlier stages), and streaming to global
+///    memory.
 ///
 /// # Shared memory allocation
 ///
-/// Total shared memory = `smem_byte_cursor` + `SMEM_TILE_SIZE` × `output_elem_bytes`.
+/// Total = `smem_byte_cursor` + `SMEM_TILE_SIZE × output_elem_bytes`.
 ///
-/// `smem_byte_cursor` is tracked in bytes and covers the preceding
-/// fully-decoded stages (dict values, run-end endpoints). Each stage's
-/// shared memory footprint is `len × final_ptype_byte_width`, where the
-/// final ptype is determined by the last scalar op's `output_ptype` (or
-/// `source_ptype` if there are no scalar ops).
+/// Each input stage occupies `len × max(final_width, output_elem_bytes)`
+/// bytes, where `final_width` is the byte width of the last scalar op's
+/// `output_ptype` (or `source_ptype` if none). The `max` is necessary
+/// because `execute_input_stage<T>` writes `T`-wide elements even when
+/// the stage's logical type is narrower.
 ///
-/// All shared memory offsets are byte offsets — the C ABI uses byte
-/// offsets and per-field `PTypeTag` values so that stages with different
-/// element widths can coexist in the same shared memory pool.
-///
-/// This is sufficient because:
-///
-/// - Earlier stages only originate from dict (values) and run-end (ends,
-///   values). `push_smem_stage` reserves the appropriate number of bytes
-///   in `smem_byte_cursor`, so each stage's source op has room to decode
-///   the complete input.
-///
-/// - The output stage (last) tiles at `SMEM_TILE_SIZE` (1024 elements),
-///   so its source op never writes more than 1024 elements into the
-///   scratch region, even though each block is responsible for
-///   `ELEMENTS_PER_BLOCK` (2048) output elements — it processes them in
-///   two passes through the scratch.
-///
-/// Note: `BITUNPACK` writes full FastLanes blocks (1024 elements), which can
-/// exceed `stage.len` by up to 1023 elements. This overflow is absorbed by
-/// the scratch region (`SMEM_TILE_SIZE` ≥ `FL_CHUNK_SIZE`).
+/// `BITUNPACK` writes full FastLanes blocks (1024 elements) which may
+/// exceed `stage.len` by up to 1023 elements; this overflow is absorbed
+/// by the scratch region (`SMEM_TILE_SIZE` ≥ `FL_CHUNK_SIZE`).
 pub struct FusedPlan {
     /// Stages in kernel execution order; all but the last decode into
     /// shared memory, the last decodes into global memory.
@@ -445,22 +418,7 @@ impl FusedPlan {
         pending_subtrees: &mut Vec<ArrayRef>,
     ) -> VortexResult<Stage> {
         if !is_dyn_dispatch_compatible(&array) {
-            // Subtree can't be fused — record it as a deferred LOAD source.
-            // Bail if dtype is non-primitive (can't become a LOAD stage).
-            let ptype = PType::try_from(array.dtype()).map_err(|_| {
-                vortex_err!(
-                    "unfusable subtree has non-primitive dtype {:?}, cannot partially fuse",
-                    array.dtype()
-                )
-            })?;
-            let buf_idx = self.source_buffers.len();
-            self.source_buffers.push(None); // placeholder, filled at materialize time
-            pending_subtrees.push(array);
-            return Ok(Stage::new(
-                SourceOp::load(),
-                Some(buf_idx),
-                ptype_to_tag(ptype),
-            ));
+            return self.push_subtree(array, pending_subtrees);
         }
 
         let id = array.encoding_id();
@@ -639,24 +597,53 @@ impl FusedPlan {
         Ok(pipeline)
     }
 
-    /// Handle a child array whose element width differs from the output type.
+    /// Walk a child that may have a different element width than the output.
     ///
-    /// If the child is a `Primitive`, its buffer is grabbed directly as a LOAD
-    /// source — no separate kernel launch needed, since `load_element<T>()`
-    /// handles the widening in-kernel. Otherwise, the child is recorded as a
-    /// pending subtree for separate execution.
-    fn walk_mixed_width_child(
+    /// Primitives are always handled directly (`load_element<T>()` widens
+    /// in-kernel). Non-primitive children are recursively walked; the kernel's
+    /// `bitunpack_typed` decodes at the source's native width and widens to
+    /// `T` in shared memory, and `push_smem_stage` allocates accordingly.
+    fn walk_child(
         &mut self,
-        child: ArrayRef,
+        array: ArrayRef,
         pending_subtrees: &mut Vec<ArrayRef>,
     ) -> VortexResult<Stage> {
-        let ptype = PType::try_from(child.dtype())?;
-        if child.encoding_id() == Primitive.id() {
-            return self.walk_primitive(child);
+        if array.encoding_id() == Primitive.id() {
+            return self.walk_primitive(array);
         }
+        self.walk(array, pending_subtrees)
+    }
+
+    /// Reserve a placeholder buffer slot and record the array as a pending subtree.
+    ///
+    /// Called from [`walk`] when [`is_dyn_dispatch_compatible`] rejects a child.
+    /// Cases that require a separate kernel dispatch:
+    ///
+    /// - **F16 / F64 primitives** — no reinterpret path in the kernel.
+    /// - **ALP with non-F32 dtype** — only F32 ALP is supported.
+    /// - **Dict with nullable codes** — garbage at null positions could OOB
+    ///   the DICT gather in shared memory.
+    /// - **Dict with codes wider than values** — `load_element<T>()` would
+    ///   truncate the code indices.
+    /// - **RunEnd with nullable ends** — garbage values break the binary
+    ///   search / forward-scan.
+    /// - **RunEnd with ends wider than values** — same truncation issue.
+    /// - **Unrecognized encoding** — anything outside the kernel's allow-list
+    ///   (e.g. FSST, Pco, Zstd).
+    fn push_subtree(
+        &mut self,
+        array: ArrayRef,
+        pending_subtrees: &mut Vec<ArrayRef>,
+    ) -> VortexResult<Stage> {
+        let ptype = PType::try_from(array.dtype()).map_err(|_| {
+            vortex_err!(
+                "unfusable subtree has non-primitive dtype {:?}, cannot partially fuse",
+                array.dtype()
+            )
+        })?;
         let buf_idx = self.source_buffers.len();
         self.source_buffers.push(None);
-        pending_subtrees.push(child);
+        pending_subtrees.push(array);
         Ok(Stage::new(
             SourceOp::load(),
             Some(buf_idx),
@@ -674,28 +661,12 @@ impl FusedPlan {
         let codes = dict.codes().clone();
 
         let values_ptype = PType::try_from(values.dtype())?;
-        let values_elem_bytes = values_ptype.byte_width() as u32;
-        let codes_ptype = PType::try_from(codes.dtype())?;
-        let codes_elem_bytes = codes_ptype.byte_width() as u32;
 
-        // If values have a different width than the output type, they
-        // can't be fused into the same kernel instantiation. Primitives
-        // are handled directly (just grab the buffer); other encodings
-        // become pending subtrees executed by a separate kernel.
         let values_len = values.len() as u32;
-        let values_spec = if values_elem_bytes != self.output_elem_bytes {
-            self.walk_mixed_width_child(values, pending_subtrees)?
-        } else {
-            self.walk(values, pending_subtrees)?
-        };
+        let values_spec = self.walk_child(values, pending_subtrees)?;
         let values_smem_byte_offset = self.push_smem_stage(values_spec, values_len);
 
-        // Same for codes.
-        let mut pipeline = if codes_elem_bytes != self.output_elem_bytes {
-            self.walk_mixed_width_child(codes, pending_subtrees)?
-        } else {
-            self.walk(codes, pending_subtrees)?
-        };
+        let mut pipeline = self.walk_child(codes, pending_subtrees)?;
         // DICT scalar op: pass byte offset directly (C ABI uses byte offsets).
         // output_ptype is the values' ptype — DICT transforms codes → values.
         pipeline.scalar_ops.push((
@@ -727,26 +698,10 @@ impl FusedPlan {
         let num_runs = ends.len() as u32;
         let num_values = values.len() as u32;
 
-        let ends_ptype = PType::try_from(ends.dtype())?;
-        let ends_elem_bytes = ends_ptype.byte_width() as u32;
-        let values_ptype = PType::try_from(values.dtype())?;
-        let values_elem_bytes = values_ptype.byte_width() as u32;
-
-        // If ends or values have a different width than the output type,
-        // they can't be fused into the same kernel instantiation.
-        // Primitives are handled directly; others become pending subtrees.
-        let ends_spec = if ends_elem_bytes != self.output_elem_bytes {
-            self.walk_mixed_width_child(ends, pending_subtrees)?
-        } else {
-            self.walk(ends, pending_subtrees)?
-        };
+        let ends_spec = self.walk_child(ends, pending_subtrees)?;
         let ends_smem_byte_offset = self.push_smem_stage(ends_spec, num_runs);
 
-        let values_spec = if values_elem_bytes != self.output_elem_bytes {
-            self.walk_mixed_width_child(values, pending_subtrees)?
-        } else {
-            self.walk(values, pending_subtrees)?
-        };
+        let values_spec = self.walk_child(values, pending_subtrees)?;
         let values_smem_byte_offset = self.push_smem_stage(values_spec, num_values);
 
         // Pass byte offsets and PTypeTags directly — the C ABI now uses
@@ -764,13 +719,10 @@ impl FusedPlan {
     }
 
     /// Add a stage that decodes fully into shared memory before the output
-    /// stage runs. Returns the shared memory byte offset where the data starts.
-    ///
-    /// The smem region is sized at the stage's output ptype width — i.e.
-    /// the ptype after all scalar ops have run. For stages that go through
-    /// type-changing scalar ops (e.g. dict values with FoR→ALP), the final
-    /// smem footprint is `len × final_ptype_byte_width`. If there are no
-    /// scalar ops, the source_ptype determines the width.
+    /// stage runs. Returns the shared memory byte offset where the data
+    /// starts. Allocates `len × max(final_width, output_elem_bytes)` bytes
+    /// so that narrower stages widened to `T` by `bitunpack_typed` never
+    /// overflow.
     fn push_smem_stage(&mut self, spec: Stage, len: u32) -> u32 {
         let smem_byte_offset = self.smem_byte_cursor;
         // The kernel's execute_input_stage<T> always writes T-wide elements
