@@ -11,6 +11,7 @@ use std::sync::LazyLock;
 ///
 /// Returns `None` if the underlying functions fails.
 pub fn get_available_parallelism() -> Option<usize> {
+    #[allow(clippy::disallowed_methods)]
     static PARALLELISM: LazyLock<Option<usize>> =
         LazyLock::new(|| std::thread::available_parallelism().ok().map(|n| n.get()));
 
