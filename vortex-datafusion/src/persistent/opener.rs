@@ -323,6 +323,8 @@ impl FileOpener for VortexOpener {
                         .map_err(|_| exec_datafusion_err!("Vortex file range end is negative"))?,
                 };
                 if byte_range.start != 0 || byte_range.end != file.object_meta.size {
+                    // Full-file scans already cover every natural split. Only translate the
+                    // byte range back into row boundaries when DataFusion has trimmed the file.
                     let natural_split_ranges = natural_split_ranges_for_file(
                         natural_split_ranges.as_ref(),
                         &file.object_meta.location,
@@ -478,6 +480,8 @@ fn compute_natural_split_ranges(layout_reader: &dyn LayoutReader) -> DFResult<Ar
 }
 
 /// Translate a DataFusion byte range to the contiguous natural split ranges it owns.
+/// Most splits are assigned by midpoint, but the leading split stays with the range that owns
+/// byte 0 so a tiny first byte range still claims the first rows.
 fn split_aligned_row_range(
     byte_range: Range<u64>,
     total_size: u64,
@@ -496,12 +500,8 @@ fn split_aligned_row_range(
         .iter()
         .enumerate()
         .filter_map(|(idx, split_range)| {
-            if idx == 0 && split_range.start == 0 {
-                return (byte_range.start == 0).then_some(split_range);
-            }
-
-            let midpoint_byte = split_midpoint_to_byte(split_range, row_count, total_size);
-            byte_range.contains(&midpoint_byte).then_some(split_range)
+            let assignment_byte = split_assignment_byte(idx, split_range, row_count, total_size);
+            byte_range.contains(&assignment_byte).then_some(split_range)
         });
 
     let first_split = owned_splits.next()?;
@@ -511,6 +511,21 @@ fn split_aligned_row_range(
     }
 
     Some(row_range)
+}
+
+fn split_assignment_byte(
+    idx: usize,
+    split_range: &Range<u64>,
+    row_count: u64,
+    total_size: u64,
+) -> u64 {
+    if idx == 0 && split_range.start == 0 {
+        // Byte 0 is the only stable representative for the leading split. A midpoint can fall
+        // into the next DataFusion byte range and leave the first range with no rows to read.
+        0
+    } else {
+        split_midpoint_to_byte(split_range, row_count, total_size)
+    }
 }
 
 fn split_midpoint_to_byte(split_range: &Range<u64>, row_count: u64, total_size: u64) -> u64 {
