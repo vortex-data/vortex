@@ -139,6 +139,11 @@ tasks.register("makeTestFiles") {
         }
 
         copy {
+            from("${rootProject.projectDir.absoluteFile.parentFile}/target/debug/libvortex_jni.so")
+            into("$projectDir/src/main/resources/native/linux-aarch64")
+        }
+
+        copy {
             from("${rootProject.projectDir.absoluteFile.parentFile}/target/debug/libvortex_jni.dylib")
             into("$projectDir/src/main/resources/native/darwin-aarch64")
         }

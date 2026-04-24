@@ -19,7 +19,7 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ScalarFnVTable;
+use crate::arrays::ScalarFn;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
@@ -74,7 +74,7 @@ where
         };
 
         // Get the ScalarFnArray to access children
-        let Some(scalar_fn_array) = parent.as_opt::<ScalarFnVTable>() else {
+        let Some(scalar_fn_array) = parent.as_opt::<ScalarFn>() else {
             return Ok(None);
         };
         // Normalize so `array` is always LHS, swapping the operator if needed

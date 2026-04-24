@@ -53,4 +53,6 @@ pub trait FileSystem: Debug + Send + Sync {
 
     /// Open a file for reading at the given path.
     async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>>;
+
+    async fn delete(&self, path: &str) -> VortexResult<()>;
 }

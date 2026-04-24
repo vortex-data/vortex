@@ -12,5 +12,6 @@ disallowed-types = [
 
 disallowed-methods = [
     { path = "itertools::Itertools::counts", reason = "It uses the default hasher which is slow for primitives. Just inline the loop for better performance.", allow-invalid = true },
-    { path = "std::result::Result::and", reason = "This method is a footgun, especially when working with `Result<Validity>`.", allow-invalid = true },
+    { path = "std::result::Result::and", reason = "This method is a footgun, especially when working with `Result<Validity>`." },
+    { path = "std::thread::available_parallelism", reason = "This function might do an unbounded amount of work, use `vortex_utils::parallelism::get_available_parallelism instead" },
 ]

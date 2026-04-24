@@ -312,8 +312,7 @@ mod tests {
                 version: Some(Version::Random),
             },
             uuid_storage_dtype(Nullability::NonNullable),
-        )
-        .unwrap();
+        )?;
         let storage_value = uuid_storage_scalar(&v4_uuid);
 
         let result = Uuid::unpack_native(&ext_dtype, &storage_value)?;
@@ -330,8 +329,7 @@ mod tests {
         let ext_dtype = ExtDType::try_new(
             UuidMetadata::default(),
             uuid_storage_dtype(Nullability::NonNullable),
-        )
-        .unwrap();
+        )?;
         let storage_value = uuid_storage_scalar(&v4_uuid);
 
         let result = Uuid::unpack_native(&ext_dtype, &storage_value)?;

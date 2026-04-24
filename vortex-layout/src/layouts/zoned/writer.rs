@@ -14,6 +14,7 @@ use vortex_array::stats::PRUNING_STATS;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::IntoLayout;
 use crate::LayoutRef;
@@ -44,9 +45,7 @@ impl Default for ZonedLayoutOptions {
             block_size: 8192,
             stats: PRUNING_STATS.into(),
             max_variable_length_statistics_size: 64,
-            concurrency: std::thread::available_parallelism()
-                .map(|v| v.get())
-                .unwrap_or(1),
+            concurrency: get_available_parallelism().unwrap_or(1),
         }
     }
 }

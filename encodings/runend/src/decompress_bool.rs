@@ -390,8 +390,7 @@ mod tests {
             decoded
                 .as_ref()
                 .validity()?
-                .execute_mask(decoded.as_ref().len(), &mut ctx)
-                .unwrap()
+                .execute_mask(decoded.as_ref().len(), &mut ctx)?
                 .value(0)
         );
         assert!(decoded.to_bit_buffer().value(0));
@@ -400,8 +399,7 @@ mod tests {
             !decoded
                 .as_ref()
                 .validity()?
-                .execute_mask(decoded.as_ref().len(), &mut ctx)
-                .unwrap()
+                .execute_mask(decoded.as_ref().len(), &mut ctx)?
                 .value(2000)
         );
         // Third run: valid true
@@ -409,8 +407,7 @@ mod tests {
             decoded
                 .as_ref()
                 .validity()?
-                .execute_mask(decoded.as_ref().len(), &mut ctx)
-                .unwrap()
+                .execute_mask(decoded.as_ref().len(), &mut ctx)?
                 .value(4000)
         );
         assert!(decoded.to_bit_buffer().value(4000));

@@ -123,7 +123,7 @@ where
         |b, array| {
             b.iter_custom(|iters| {
                 let timed = TimedLaunchStrategy::default();
-                let timer = Arc::clone(&timed.total_time_ns);
+                let timer = timed.timer();
 
                 let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
                     .vortex_expect("failed to create execution context")
@@ -168,7 +168,7 @@ where
             |b, array| {
                 b.iter_custom(|iters| {
                     let timed = TimedLaunchStrategy::default();
-                    let timer = Arc::clone(&timed.total_time_ns);
+                    let timer = timed.timer();
 
                     let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
                         .vortex_expect("failed to create execution context")

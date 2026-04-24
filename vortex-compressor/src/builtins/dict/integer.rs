@@ -57,7 +57,7 @@ impl Scheme for IntDictScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -103,12 +103,11 @@ impl Scheme for IntDictScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        // TODO(connor): Fight the borrow checker (needs interior mutability)!
-        let stats = data.integer_stats(exec_ctx).clone();
+        let stats = data.integer_stats(exec_ctx);
         let dict = dictionary_encode(data.array_as_primitive(), &stats)?;
 
         // Values = child 0.

@@ -21,7 +21,6 @@ use vortex::encodings::fastlanes::BitPackedArray;
 use vortex::encodings::fastlanes::BitPackedDataParts;
 use vortex::encodings::fastlanes::unpack_iter::BitPacked as BitPackedUnpack;
 use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 
@@ -29,12 +28,7 @@ use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
-use crate::kernel::patches::gpu::ChunkOffsetType;
-use crate::kernel::patches::gpu::ChunkOffsetType_CO_U8;
-use crate::kernel::patches::gpu::ChunkOffsetType_CO_U16;
-use crate::kernel::patches::gpu::ChunkOffsetType_CO_U32;
-use crate::kernel::patches::gpu::ChunkOffsetType_CO_U64;
-use crate::kernel::patches::gpu::GPUPatches;
+use crate::kernel::patches::build_gpu_patches;
 use crate::kernel::patches::types::load_patches;
 
 /// CUDA decoder for bit-packed arrays.
@@ -90,19 +84,6 @@ pub fn bitpacked_cuda_launch_config(output_width: usize, len: usize) -> VortexRe
     })
 }
 
-unsafe impl DeviceRepr for GPUPatches {}
-
-/// Convert a PType to the corresponding ChunkOffsetType for GPU patches.
-fn ptype_to_chunk_offset_type(ptype: vortex::dtype::PType) -> VortexResult<ChunkOffsetType> {
-    match ptype {
-        vortex::dtype::PType::U8 => Ok(ChunkOffsetType_CO_U8),
-        vortex::dtype::PType::U16 => Ok(ChunkOffsetType_CO_U16),
-        vortex::dtype::PType::U32 => Ok(ChunkOffsetType_CO_U32),
-        vortex::dtype::PType::U64 => Ok(ChunkOffsetType_CO_U64),
-        _ => vortex_bail!("Invalid PType for chunk_offsets: {:?}", ptype),
-    }
-}
-
 #[instrument(skip_all)]
 pub(crate) async fn decode_bitpacked<A>(
     array: BitPackedArray,
@@ -146,31 +127,7 @@ where
         None
     };
 
-    #[expect(clippy::cast_possible_truncation)]
-    let patches_arg = if let Some(p) = &device_patches {
-        GPUPatches {
-            chunk_offsets: p.chunk_offsets.cuda_device_ptr()? as _,
-            chunk_offset_type: ptype_to_chunk_offset_type(p.chunk_offset_ptype)?,
-            indices: p.indices.cuda_device_ptr()? as _,
-            values: p.values.cuda_device_ptr()? as _,
-            offset: p.offset as u32,
-            offset_within_chunk: p.offset_within_chunk as u32,
-            num_patches: p.num_patches as u32,
-            n_chunks: p.n_chunks as u32,
-        }
-    } else {
-        // NULL chunk_offsets signals no patches to the kernel
-        GPUPatches {
-            chunk_offsets: std::ptr::null_mut(),
-            chunk_offset_type: ChunkOffsetType_CO_U32,
-            indices: std::ptr::null_mut(),
-            values: std::ptr::null_mut(),
-            offset: 0,
-            offset_within_chunk: 0,
-            num_patches: 0,
-            n_chunks: 0,
-        }
-    };
+    let patches_arg = build_gpu_patches(device_patches.as_ref())?;
 
     ctx.launch_kernel_config(&cuda_function, config, len, |args| {
         args.arg(&input_view)

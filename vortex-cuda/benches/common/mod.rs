@@ -16,6 +16,13 @@ pub struct TimedLaunchStrategy {
     pub total_time_ns: Arc<AtomicU64>,
 }
 
+impl TimedLaunchStrategy {
+    /// Returns a shared handle to the accumulated kernel time, for reading after launches complete.
+    pub fn timer(&self) -> Arc<AtomicU64> {
+        Arc::clone(&self.total_time_ns)
+    }
+}
+
 impl LaunchStrategy for TimedLaunchStrategy {
     fn event_flags(&self) -> CUevent_flags {
         // using blocking_sync to make sure all events flush before we complete.

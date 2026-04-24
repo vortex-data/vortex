@@ -32,8 +32,8 @@ use vortex_error::vortex_ensure;
 use crate::encodings::turboquant::MAX_BIT_WIDTH;
 use crate::encodings::turboquant::MIN_DIMENSION;
 use crate::encodings::turboquant::centroids::compute_centroid_boundaries;
+use crate::encodings::turboquant::centroids::compute_or_get_centroids;
 use crate::encodings::turboquant::centroids::find_nearest_centroid;
-use crate::encodings::turboquant::centroids::get_centroids;
 use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 use crate::scalar_fns::sorf_transform::SorfMatrix;
@@ -48,8 +48,8 @@ use crate::utils::cast_to_f32;
 pub struct TurboQuantConfig {
     /// Bits per coordinate (1-8).
     pub bit_width: u8,
-    /// Optional seed for the rotation matrix. If None, the default seed is used.
-    pub seed: Option<u64>,
+    /// Seed for the rotation matrix.
+    pub seed: u64,
     /// Number of sign-diagonal + WHT rounds in the structured rotation (default 3).
     pub num_rounds: u8,
 }
@@ -58,7 +58,7 @@ impl Default for TurboQuantConfig {
     fn default() -> Self {
         Self {
             bit_width: MAX_BIT_WIDTH,
-            seed: Some(42),
+            seed: 42,
             num_rounds: 3,
         }
     }
@@ -141,7 +141,7 @@ pub unsafe fn turboquant_encode_unchecked(
     let vector_metadata = ext_dtype.as_extension().metadata::<AnyVector>();
     let element_ptype = vector_metadata.element_ptype();
 
-    let seed = config.seed.unwrap_or(42);
+    let seed = config.seed;
     let num_rows = fsl.len();
 
     if fsl.is_empty() {
@@ -161,7 +161,7 @@ pub unsafe fn turboquant_encode_unchecked(
         let sorf_options = SorfOptions {
             seed,
             num_rounds: config.num_rounds,
-            dimension,
+            dimensions: dimension,
             element_ptype,
         };
         return Ok(
@@ -177,7 +177,7 @@ pub unsafe fn turboquant_encode_unchecked(
     let sorf_options = SorfOptions {
         seed,
         num_rounds: config.num_rounds,
-        dimension,
+        dimensions: dimension,
         element_ptype,
     };
     Ok(SorfTransform::try_new_array(&sorf_options, padded_vector, num_rows)?.into_array())
@@ -213,7 +213,7 @@ fn turboquant_quantize_core(
     let elements_prim: PrimitiveArray = fsl.elements().clone().execute(ctx)?;
     let f32_elements = cast_to_f32(elements_prim)?;
 
-    let centroids = get_centroids(padded_dim_u32, bit_width)?;
+    let centroids = compute_or_get_centroids(padded_dim_u32, bit_width)?;
     let boundaries = compute_centroid_boundaries(&centroids);
 
     let mut all_indices = BufferMut::<u8>::with_capacity(num_rows * padded_dim);

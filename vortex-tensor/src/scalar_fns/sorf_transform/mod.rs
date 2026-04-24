@@ -47,7 +47,7 @@ use std::fmt::Formatter;
 use vortex_array::ArrayRef;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::dtype::PType;
-use vortex_array::scalar_fn::ScalarFn;
+use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -81,7 +81,7 @@ pub struct SorfOptions {
     pub num_rounds: u8,
     /// Original vector dimension (before power-of-2 padding). The output
     /// [`Vector`](crate::vector::Vector) has this dimension.
-    pub dimension: u32,
+    pub dimensions: u32,
     /// Element type of the output [`Vector`](crate::vector::Vector). The child input must always
     /// be `f32`, but the output can be any float type (`F16`, `F32`, `F64`); the final
     /// `f32 -> element_ptype` cast happens while building the output.
@@ -89,9 +89,9 @@ pub struct SorfOptions {
 }
 
 impl SorfTransform {
-    /// Creates a new [`ScalarFn`] wrapping the SORF inverse transform with the given options.
-    pub fn new(options: &SorfOptions) -> ScalarFn<SorfTransform> {
-        ScalarFn::new(SorfTransform, options.clone())
+    /// Creates a new [`TypedScalarFnInstance`] wrapping the SORF inverse transform with the given options.
+    pub fn new(options: &SorfOptions) -> TypedScalarFnInstance<SorfTransform> {
+        TypedScalarFnInstance::new(SorfTransform, options.clone())
     }
 
     /// Constructs a validated [`ScalarFnArray`] that lazily applies the inverse SORF transform.
@@ -137,7 +137,7 @@ impl fmt::Display for SorfOptions {
         write!(
             f,
             "SorfOptions(seed={}, rounds={}, dim={}, ptype={})",
-            self.seed, self.num_rounds, self.dimension, self.element_ptype
+            self.seed, self.num_rounds, self.dimensions, self.element_ptype
         )
     }
 }

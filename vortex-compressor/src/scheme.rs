@@ -211,7 +211,7 @@ pub trait Scheme: Debug + Send + Sync {
     /// that are not all-null.
     fn expected_compression_ratio(
         &self,
-        _data: &mut ArrayAndStats,
+        _data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate;
@@ -224,7 +224,7 @@ pub trait Scheme: Debug + Send + Sync {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef>;

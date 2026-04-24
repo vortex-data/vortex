@@ -114,11 +114,7 @@ public final class ArrowUtils {
             case Timestamp: {
                 ArrowType.Timestamp ts = (ArrowType.Timestamp) dt;
                 if (ts.getUnit() == TimeUnit.MICROSECOND) {
-                    if (ts.getTimezone() != null) {
-                        return DataTypes.TimestampNTZType;
-                    } else {
-                        return DataTypes.TimestampType;
-                    }
+                    return ts.getTimezone() != null ? DataTypes.TimestampType : DataTypes.TimestampNTZType;
                 } else {
                     throw new UnsupportedOperationException("Unsupported Arrow type: " + dt);
                 }

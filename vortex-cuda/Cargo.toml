@@ -84,6 +84,10 @@ name = "bitpacked_cuda"
 harness = false
 
 [[bench]]
+name = "alp_cuda"
+harness = false
+
+[[bench]]
 name = "dynamic_dispatch_cuda"
 harness = false
 

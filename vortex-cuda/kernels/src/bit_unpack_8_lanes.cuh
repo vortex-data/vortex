@@ -19,7 +19,7 @@ __device__ void _bit_unpack_8_lane<0>(const uint8_t *__restrict in, uint8_t *__r
 
 template <>
 __device__ void _bit_unpack_8_lane<1>(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 128;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint8_t>;
     uint8_t src;
     uint8_t tmp;
     src = in[lane];
@@ -43,7 +43,7 @@ __device__ void _bit_unpack_8_lane<1>(const uint8_t *__restrict in, uint8_t *__r
 
 template <>
 __device__ void _bit_unpack_8_lane<2>(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 128;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint8_t>;
     uint8_t src;
     uint8_t tmp;
     src = in[lane];
@@ -69,7 +69,7 @@ __device__ void _bit_unpack_8_lane<2>(const uint8_t *__restrict in, uint8_t *__r
 
 template <>
 __device__ void _bit_unpack_8_lane<3>(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 128;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint8_t>;
     uint8_t src;
     uint8_t tmp;
     src = in[lane];
@@ -97,7 +97,7 @@ __device__ void _bit_unpack_8_lane<3>(const uint8_t *__restrict in, uint8_t *__r
 
 template <>
 __device__ void _bit_unpack_8_lane<4>(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 128;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint8_t>;
     uint8_t src;
     uint8_t tmp;
     src = in[lane];
@@ -127,7 +127,7 @@ __device__ void _bit_unpack_8_lane<4>(const uint8_t *__restrict in, uint8_t *__r
 
 template <>
 __device__ void _bit_unpack_8_lane<5>(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 128;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint8_t>;
     uint8_t src;
     uint8_t tmp;
     src = in[lane];
@@ -159,7 +159,7 @@ __device__ void _bit_unpack_8_lane<5>(const uint8_t *__restrict in, uint8_t *__r
 
 template <>
 __device__ void _bit_unpack_8_lane<6>(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 128;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint8_t>;
     uint8_t src;
     uint8_t tmp;
     src = in[lane];
@@ -193,7 +193,7 @@ __device__ void _bit_unpack_8_lane<6>(const uint8_t *__restrict in, uint8_t *__r
 
 template <>
 __device__ void _bit_unpack_8_lane<7>(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 128;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint8_t>;
     uint8_t src;
     uint8_t tmp;
     src = in[lane];
@@ -229,7 +229,7 @@ __device__ void _bit_unpack_8_lane<7>(const uint8_t *__restrict in, uint8_t *__r
 
 template <>
 __device__ void _bit_unpack_8_lane<8>(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 128;
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint8_t>;
     #pragma unroll
     for (int row = 0; row < 8; row++) {
         out[INDEX(row, lane)] = in[LANE_COUNT * row + lane] + reference;

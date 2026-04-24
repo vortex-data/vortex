@@ -31,7 +31,7 @@ impl Scheme for FloatConstantScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -66,7 +66,7 @@ impl Scheme for FloatConstantScheme {
         // This is an expensive check, but in practice the distinct count is known because we often
         // include dictionary encoding in our set of schemes, so we rarely call this.
         CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-            |_compressor, data, _ctx, exec_ctx| {
+            |_compressor, data, _best_so_far, _ctx, exec_ctx| {
                 if is_constant(data.array(), exec_ctx)? {
                     Ok(EstimateVerdict::AlwaysUse)
                 } else {
@@ -79,7 +79,7 @@ impl Scheme for FloatConstantScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {

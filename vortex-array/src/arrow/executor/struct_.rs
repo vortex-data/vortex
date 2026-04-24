@@ -16,7 +16,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::Chunked;
-use crate::arrays::ScalarFnVTable;
+use crate::arrays::ScalarFn;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
@@ -69,7 +69,7 @@ pub(super) fn to_arrow_struct(
     };
 
     // We can also short-circuit if the array is a `pack` scalar function:
-    if let Some(array) = array.as_opt::<ScalarFnVTable>()
+    if let Some(array) = array.as_opt::<ScalarFn>()
         && let Some(_pack_options) = array.scalar_fn().as_opt::<Pack>()
     {
         let DType::Struct(struct_fields, _) = array.dtype() else {

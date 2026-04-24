@@ -83,7 +83,7 @@ impl Scheme for FloatDictScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -109,12 +109,11 @@ impl Scheme for FloatDictScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        // TODO(connor): Fight the borrow checker (needs interior mutability)!
-        let stats = data.float_stats(exec_ctx).clone();
+        let stats = data.float_stats(exec_ctx);
         let dict = dictionary_encode(data.array_as_primitive(), &stats)?;
 
         let has_all_values_referenced = dict.has_all_values_referenced();

@@ -31,7 +31,7 @@ impl Scheme for StringConstantScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -60,7 +60,7 @@ impl Scheme for StringConstantScheme {
         // This is an expensive check, but the alternative of not compressing a constant array is
         // far less preferable.
         CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-            |_compressor, data, _ctx, exec_ctx| {
+            |_compressor, data, _best_so_far, _ctx, exec_ctx| {
                 if is_constant(data.array(), exec_ctx)? {
                     Ok(EstimateVerdict::AlwaysUse)
                 } else {
@@ -73,7 +73,7 @@ impl Scheme for StringConstantScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
+        data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
