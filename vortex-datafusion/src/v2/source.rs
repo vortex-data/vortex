@@ -70,8 +70,6 @@
 use std::any::Any;
 use std::fmt;
 use std::fmt::Formatter;
-use std::num::NonZero;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use arrow_schema::DataType;
@@ -103,7 +101,6 @@ use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::dtype::DType;
 use vortex::dtype::FieldPath;
 use vortex::dtype::Nullability;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::expr::Expression;
