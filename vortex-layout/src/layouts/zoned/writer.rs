@@ -1,3 +1,5 @@
+//! Write-time assembly for zoned layouts.
+
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
@@ -20,8 +22,8 @@ use vortex_utils::parallelism::get_available_parallelism;
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::layouts::zoned::StatsAccumulator;
 use crate::layouts::zoned::ZonedLayout;
-use crate::layouts::zoned::zone_map::StatsAccumulator;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -29,6 +31,10 @@ use crate::sequence::SequentialArrayStreamExt;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt;
 
+/// Configuration for building zoned layouts.
+///
+/// The input stream is assumed to already be partitioned into one chunk per zone, except
+/// possibly the final partial zone.
 pub struct ZonedLayoutOptions {
     /// The size of a statistics block
     pub block_size: usize,
@@ -58,6 +64,7 @@ pub struct ZonedStrategy {
 }
 
 impl ZonedStrategy {
+    /// Create a writer that emits a data child plus an auxiliary per-zone stats child.
     pub fn new<Child: LayoutStrategy, Stats: LayoutStrategy>(
         child: Child,
         stats: Stats,
