@@ -158,6 +158,21 @@ pub struct DataSourceLocal {
     batch_id: Option<u64>,
 }
 
+fn sync_current_labels_from_global() {
+    unsafe {
+        use custom_labels::sys;
+
+        if sys::current().is_null() {
+            let ls = sys::new(0);
+            sys::replace(ls);
+        };
+    }
+
+    for (key, value) in get_global_labels() {
+        CURRENT_LABELSET.set(key, value);
+    }
+}
+
 /// Returns scan progress as a percentage (0.0–100.0).
 fn progress(bytes_read: &AtomicU64, bytes_total: &AtomicU64) -> f64 {
     let read = bytes_read.load(Ordering::Relaxed);
@@ -364,20 +379,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         _init: &TableInitInput<Self>,
         global: &Self::GlobalState,
     ) -> VortexResult<Self::LocalState> {
-        unsafe {
-            use custom_labels::sys;
-
-            if sys::current().is_null() {
-                let ls = sys::new(0);
-                sys::replace(ls);
-            };
-        }
-
-        let global_labels = get_global_labels();
-
-        for (key, value) in global_labels {
-            CURRENT_LABELSET.set(key, value);
-        }
+        sync_current_labels_from_global();
 
         Ok(DataSourceLocal {
             iterator: global.iterator.clone(),
@@ -393,6 +395,10 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         global_state: &Self::GlobalState,
         chunk: &mut DataChunkRef,
     ) -> VortexResult<()> {
+        // DuckDB can reuse a thread-local state across multiple benchmark queries, so refresh
+        // the thread-local labels on every callback to keep `format`/`query_idx` current.
+        sync_current_labels_from_global();
+
         loop {
             if local_state.exporter.is_none() {
                 let mut ctx = SESSION.create_execution_ctx();

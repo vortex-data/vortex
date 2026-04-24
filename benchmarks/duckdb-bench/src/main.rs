@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use clap::value_parser;
+use custom_labels::Labelset;
 use duckdb_bench::DuckClient;
 use tokio::runtime::Runtime;
 use vortex::metrics::tracing::set_global_labels;
@@ -24,6 +25,27 @@ use vortex_bench::runner::BenchmarkMode;
 use vortex_bench::runner::SqlBenchmarkRunner;
 use vortex_bench::runner::filter_queries;
 use vortex_bench::setup_logging_and_tracing;
+
+fn with_query_labels<T>(
+    benchmark_name: &str,
+    query_idx: usize,
+    format: Format,
+    f: impl FnOnce() -> T,
+) -> T {
+    let labels = vec![
+        ("format", format.to_string()),
+        ("benchmark_name", benchmark_name.to_owned()),
+        ("query_idx", query_idx.to_string()),
+    ];
+    set_global_labels(labels.clone());
+
+    let mut labelset = Labelset::clone_from_current();
+    for (key, value) in labels {
+        labelset.set(key, value);
+    }
+
+    labelset.enter(f)
+}
 
 /// Common arguments shared across benchmarks
 #[derive(Parser)]
@@ -171,17 +193,13 @@ fn main() -> anyhow::Result<()> {
             Ok(ctx)
         },
         |ctx, query_idx, format, query| {
-            set_global_labels(vec![
-                ("format", format.to_string()),
-                ("benchmark_name", benchmark_name.clone()),
-                ("query_idx", query_idx.to_string()),
-            ]);
-
-            // Make sure to reopen the duckdb connection between iterations
-            if !args.reuse {
-                ctx.reopen()?;
-            }
-            ctx.execute_query_result(query)
+            with_query_labels(&benchmark_name, query_idx, format, || {
+                // Make sure to reopen the duckdb connection between iterations
+                if !args.reuse {
+                    ctx.reopen()?;
+                }
+                ctx.execute_query_result(query)
+            })
         },
     )?;
 
