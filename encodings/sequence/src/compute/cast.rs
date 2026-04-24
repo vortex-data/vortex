@@ -54,10 +54,20 @@ impl CastReduce for Sequence {
                 Some(ScalarValue::Primitive(array.multiplier())),
             )?;
 
-            let new_base_scalar =
-                base_scalar.cast(&DType::Primitive(*target_ptype, Nullability::NonNullable))?;
-            let new_multiplier_scalar = multiplier_scalar
-                .cast(&DType::Primitive(*target_ptype, Nullability::NonNullable))?;
+            let target_scalar_dtype = DType::Primitive(*target_ptype, Nullability::NonNullable);
+
+            // If either the base or multiplier cannot be represented in the target
+            // type (e.g., a negative multiplier with an unsigned target), fall back
+            // to the canonical cast path by returning `Ok(None)`. That path decodes
+            // individual values and casts them one by one, which correctly succeeds
+            // whenever all produced values fit the target type even if the stored
+            // parameters do not.
+            let Ok(new_base_scalar) = base_scalar.cast(&target_scalar_dtype) else {
+                return Ok(None);
+            };
+            let Ok(new_multiplier_scalar) = multiplier_scalar.cast(&target_scalar_dtype) else {
+                return Ok(None);
+            };
 
             // Extract PValues from the casted scalars
             let new_base = new_base_scalar
@@ -186,11 +196,7 @@ mod tests {
     #[rstest]
     #[case::i32(Sequence::try_new_typed(0i32, 1i32, Nullability::NonNullable, 5).unwrap())]
     #[case::u64(Sequence::try_new_typed(1000u64, 100u64, Nullability::NonNullable, 4).unwrap())]
-    // TODO(DK): SequenceArray does not actually conform. You cannot cast this array to u8 even
-    // though all its values are representable therein.
-    //
-    // #[case::negative_step(Sequence::try_new_typed(100i32, -10i32, Nullability::NonNullable,
-    // 5).unwrap())]
+    #[case::negative_step(Sequence::try_new_typed(100i32, -10i32, Nullability::NonNullable, 5).unwrap())]
     #[case::single(Sequence::try_new_typed(42i64, 0i64, Nullability::NonNullable, 1).unwrap())]
     #[case::constant(Sequence::try_new_typed(
         100i32,
