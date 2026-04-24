@@ -6,6 +6,7 @@
 use std::fmt::Debug;
 use std::ops::Range;
 
+use itertools::Itertools as _;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
@@ -455,19 +456,19 @@ impl Validity {
     pub fn concat(validities: Vec<(Validity, usize)>) -> Option<Self> {
         let mut validity_kinds = validities
             .iter()
-            .map(|v| std::mem::discriminant(v))
+            .map(|(v, _)| std::mem::discriminant(v))
             .unique();
         let validity_kind = validity_kinds.next()?;
         if validity_kinds.next().is_none() {
             // If there is only one kind of validity and its not Validity::Array, avoid constructing
             // a Validity::Array.
-            if validity_kind == std::mem::discriminant(Validity::AllValid) {
+            if validity_kind == std::mem::discriminant(&Validity::AllValid) {
                 return Some(Validity::AllValid);
             }
-            if validity_kind == std::mem::discriminant(Validity::AllInvalid) {
+            if validity_kind == std::mem::discriminant(&Validity::AllInvalid) {
                 return Some(Validity::AllInvalid);
             }
-            if validity_kind == std::mem::discriminant(Validity::NonNullable) {
+            if validity_kind == std::mem::discriminant(&Validity::NonNullable) {
                 return Some(Validity::NonNullable);
             }
         }
