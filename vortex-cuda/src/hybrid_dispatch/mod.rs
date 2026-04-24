@@ -74,7 +74,7 @@ pub async fn try_gpu_dispatch(
 
     match DispatchPlan::new(array)? {
         DispatchPlan::Fused(plan) => {
-            let materialized = plan.materialize(ctx)?;
+            let materialized = plan.materialize(ctx).await?;
             let num_stages = materialized.dispatch_plan.num_stages();
             trace!(encoding = %array.encoding_id(), num_stages, "fully-fused dispatch");
             materialized.execute(array.len(), ctx)
@@ -93,7 +93,7 @@ pub async fn try_gpu_dispatch(
             }
 
             let num_subtrees = subtree_buffers.len();
-            let materialized = plan.materialize_with_subtrees(subtree_buffers, ctx)?;
+            let materialized = plan.materialize_with_subtrees(subtree_buffers, ctx).await?;
             let num_stages = materialized.dispatch_plan.num_stages();
             trace!(encoding = %array.encoding_id(), num_stages, num_subtrees, "partially-fused dispatch");
             materialized.execute(array.len(), ctx)
