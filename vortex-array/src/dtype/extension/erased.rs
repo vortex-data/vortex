@@ -42,6 +42,12 @@ impl ExtDTypeRef {
         self.0.id()
     }
 
+    /// Returns `true` when this extension type's vtable declares itself a refinement of its
+    /// storage dtype. See [`ExtVTable::is_refinement`] for the full semantics.
+    pub fn is_refinement(&self) -> bool {
+        self.0.is_refinement()
+    }
+
     /// Returns the storage dtype of the extension type.
     pub fn storage_dtype(&self) -> &DType {
         self.0.storage_dtype()

@@ -8588,6 +8588,8 @@ pub fn vortex_array::dtype::extension::ExtDTypeRef::id(&self) -> vortex_array::d
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::is_nullable(&self) -> bool
 
+pub fn vortex_array::dtype::extension::ExtDTypeRef::is_refinement(&self) -> bool
+
 pub fn vortex_array::dtype::extension::ExtDTypeRef::least_supertype(&self, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::nullability(&self) -> vortex_array::dtype::Nullability
