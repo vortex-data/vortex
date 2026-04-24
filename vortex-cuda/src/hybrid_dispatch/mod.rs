@@ -70,7 +70,20 @@ pub async fn try_gpu_dispatch(
     array: &ArrayRef,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
+    use crate::executor::CudaDispatchMode;
+
     trace!(encoding = %array.encoding_id(), dtype = ?array.dtype(), len = array.len(), "try GPU dispatch");
+
+    // Short-circuit: standalone-only skips the plan builder entirely.
+    if ctx.dispatch_mode() == CudaDispatchMode::StandaloneOnly {
+        trace!(encoding = %array.encoding_id(), "standalone-only dispatch");
+        return ctx
+            .cuda_session()
+            .kernel(&array.encoding_id())
+            .ok_or_else(|| vortex_err!("No CUDA kernel for encoding {:?}", array.encoding_id()))?
+            .execute(array.clone(), ctx)
+            .await;
+    }
 
     match DispatchPlan::new(array)? {
         DispatchPlan::Fused(plan) => {
@@ -99,6 +112,14 @@ pub async fn try_gpu_dispatch(
             materialized.execute(array.len(), ctx)
         }
         DispatchPlan::Unfused => {
+            // In dyn-dispatch-only mode, don't fall back to standalone kernels.
+            if ctx.dispatch_mode() == CudaDispatchMode::DynDispatchOnly {
+                return Err(vortex_err!(
+                    "Array with encoding {:?} is not dyn-dispatch-compatible",
+                    array.encoding_id()
+                ));
+            }
+
             // Unfused kernel dispatch fallback.
             ctx.cuda_session()
                 .kernel(&array.encoding_id())
