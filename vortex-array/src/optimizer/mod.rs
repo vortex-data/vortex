@@ -73,7 +73,7 @@ fn plugin_reduce_parent(
     session: &VortexSession,
     parent: &ArrayRef,
     child: &ArrayRef,
-) -> Option<Arc<ReduceParentFn>> {
+) -> Option<Arc<[ReduceParentFn]>> {
     session
         .get_opt::<ArrayKernels>()
         .and_then(|s| s.find_reduce_parent(parent.encoding_id(), child.encoding_id()))
@@ -107,12 +107,15 @@ fn try_optimize(
 
             // Session kernels take precedence over the child encoding's static PARENT_RULES.
             if let Some(session) = session
-                && let Some(plugin) = plugin_reduce_parent(session, &current_array, child)
-                && let Some(new_array) = plugin(child, &current_array, slot_idx)?
+                && let Some(plugins) = plugin_reduce_parent(session, &current_array, child)
             {
-                current_array = new_array;
-                any_optimizations = true;
-                continue 'outer;
+                for plugin in plugins.as_ref() {
+                    if let Some(new_array) = plugin(child, &current_array, slot_idx)? {
+                        current_array = new_array;
+                        any_optimizations = true;
+                        continue 'outer;
+                    }
+                }
             }
 
             if let Some(new_array) = child.reduce_parent(&current_array, slot_idx)? {

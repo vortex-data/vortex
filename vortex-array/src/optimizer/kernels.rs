@@ -21,12 +21,13 @@ use std::hash::BuildHasher;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
+use arc_swap::ArcSwap;
 use vortex_error::VortexResult;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
-use vortex_session::registry::FnRegistry;
 use vortex_session::registry::Id;
 use vortex_utils::aliases::DefaultHashBuilder;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
 
@@ -44,23 +45,10 @@ static FN_HASHER: LazyLock<DefaultHashBuilder> = LazyLock::new(DefaultHashBuilde
 pub type ReduceParentFn =
     fn(child: &ArrayRef, parent: &ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>>;
 
-/// Disambiguates kernel kinds that share the same `(outer, child)` id pair.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[expect(unused)]
-enum FnKind {
-    Reduce,
-    ReduceParent,
-    ExecuteParent,
-    Execute,
-}
-
 /// Session-scoped registry of optimizer kernel functions.
-///
-/// Use the typed `register_*`, `find_*`, and `contains_*` methods rather than depending on the
-/// internal hash format.
 #[derive(Debug, Default)]
 pub struct ArrayKernels {
-    registry: FnRegistry,
+    reduce_parent: ArcSwap<HashMap<u64, Arc<[ReduceParentFn]>>>,
 }
 
 impl ArrayKernels {
@@ -77,30 +65,38 @@ impl ArrayKernels {
     /// `ScalarFnArray`, it is the scalar function id, for example `Cast.id()`.
     ///
     /// Replaces any function already registered for the same pair.
-    pub fn register_reduce_parent(&self, outer: Id, child: Id, f: ReduceParentFn) {
-        self.registry
-            .register(self.hash_fn_ids(outer, child, FnKind::ReduceParent), f)
+    pub fn register_reduce_parent<I: IntoIterator<Item = ReduceParentFn>>(
+        &self,
+        parent: Id,
+        child: Id,
+        fns: I,
+    ) {
+        let registry = self.reduce_parent.load();
+        let id = self.hash_fn_ids(parent, child);
+        let mut owned_registry = registry.as_ref().clone();
+        if let Some(existing) = owned_registry.remove(&id) {
+            owned_registry.insert(id, existing.as_ref().iter().cloned().chain(fns).collect());
+        } else {
+            owned_registry.insert(id, fns.into_iter().collect());
+        }
+        self.reduce_parent.store(Arc::new(owned_registry));
     }
 
     /// Look up the [`ReduceParentFn`] registered for `(outer, child)`.
     ///
     /// Returns an owned [`Arc`] so the session-variable borrow can be dropped before invoking the
     /// function.
-    pub fn find_reduce_parent(&self, outer: Id, child: Id) -> Option<Arc<ReduceParentFn>> {
-        self.registry
-            .find(self.hash_fn_ids(outer, child, FnKind::ReduceParent))
-    }
-
-    /// Return `true` if a [`ReduceParentFn`] is registered for `(outer, child)`.
-    pub fn contains_reduce_parent(&self, outer: Id, child: Id) -> bool {
-        self.registry
-            .contains(self.hash_fn_ids(outer, child, FnKind::ReduceParent))
+    pub fn find_reduce_parent(&self, parent: Id, child: Id) -> Option<Arc<[ReduceParentFn]>> {
+        let id = self.hash_fn_ids(parent, child);
+        let map = self.reduce_parent.load();
+        let entry = map.get(&id)?;
+        Some(Arc::clone(entry))
     }
 
     /// Combine a typed kernel id tuple into the `u64` key expected by the underlying
     /// [`FnRegistry`]. All typed helpers use this path so registration and lookup agree.
-    fn hash_fn_ids(&self, outer: Id, child: Id, fn_kind: FnKind) -> u64 {
-        FN_HASHER.hash_one((outer, child, fn_kind))
+    fn hash_fn_ids(&self, parent: Id, child: Id) -> u64 {
+        FN_HASHER.hash_one((parent, child))
     }
 }
 

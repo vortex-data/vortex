@@ -4,7 +4,6 @@
 //! Many session types use a registry of objects that can be looked up by name to construct
 //! contexts. This module provides a generic registry type for that purpose.
 
-use std::any::Any;
 use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::Debug;
@@ -16,13 +15,11 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::OnceLock;
 
-use arc_swap::ArcSwap;
 use lasso::Spur;
 use lasso::ThreadedRodeo;
 use parking_lot::RwLock;
 use vortex_error::VortexExpect;
 use vortex_utils::aliases::dash_map::DashMap;
-use vortex_utils::aliases::hash_map::HashMap;
 
 /// Global string interner for [`Id`] values.
 static INTERNER: LazyLock<ThreadedRodeo> = LazyLock::new(ThreadedRodeo::new);
@@ -289,110 +286,5 @@ impl<T: Clone> Context<T> {
     /// Get the list of interned IDs.
     pub fn to_ids(&self) -> Vec<Id> {
         self.ids.read().clone()
-    }
-}
-
-/// Copy-on-write registry of type-erased function values keyed by caller-provided `u64` IDs.
-///
-/// Each entry stores an `Arc<dyn Any + Send + Sync>` wrapping a caller-supplied concrete type `F`
-/// (typically a function pointer). Callers recover the original type by passing the same `F` to
-/// [`FnRegistry::find`]; `find` returns `Some(Arc<F>)` on a type match and `None` otherwise.
-///
-/// The `u64` key is produced by the caller, usually by hashing a tuple that uniquely identifies
-/// the registered function. This lets each consumer choose its own key layout rather than
-/// committing this registry to a specific schema. For example, `ArrayKernels` hashes
-/// `(parent_encoding_id, child_encoding_id, FnKind)` so one registry can hold several kinds of
-/// pluggable kernel keyed by encoding pairs without collisions.
-///
-/// This type is intended for read-heavy registries that are populated during session setup and
-/// then shared. Reads load a snapshot through [`ArcSwap`] and do not block on writers. Writes
-/// clone the current map and swap in a new snapshot, so externally serialize concurrent
-/// [`FnRegistry::register`] calls if every write must be retained.
-#[derive(Debug, Default)]
-pub struct FnRegistry(ArcSwap<HashMap<u64, Arc<dyn Any + Send + Sync>>>);
-
-impl FnRegistry {
-    /// Create a new, empty registry.
-    pub fn empty() -> Self {
-        Self::default()
-    }
-
-    /// Register a function under `id`, replacing any existing entry with the same key.
-    ///
-    /// Intended to be called while constructing a session or under an external writer lock.
-    pub fn register<F: Any + Send + Sync>(&self, id: u64, f: F) {
-        let registry = self.0.load();
-        let mut owned_registry = registry.as_ref().clone();
-        owned_registry.insert(id, Arc::new(f));
-        self.0.store(Arc::new(owned_registry));
-    }
-
-    /// Look up a function registered under `id`, downcasting to `F`.
-    ///
-    /// Returns `None` if no function is registered for `id`, or if the registered value is not
-    /// of type `F`.
-    pub fn find<F: Any + Send + Sync>(&self, id: u64) -> Option<Arc<F>> {
-        let map = self.0.load();
-        let entry = map.get(&id)?;
-        Arc::clone(entry).downcast::<F>().ok()
-    }
-
-    /// Return `true` if any function is registered under `id`, regardless of type.
-    pub fn contains(&self, id: u64) -> bool {
-        let map = self.0.load();
-        map.contains_key(&id)
-    }
-}
-
-#[cfg(test)]
-mod fn_registry_tests {
-    use std::hash::BuildHasher;
-
-    use vortex_utils::aliases::DefaultHashBuilder;
-
-    use super::FnRegistry;
-    use super::Id;
-
-    type DoubleFn = fn(i64) -> i64;
-
-    fn double(x: i64) -> i64 {
-        x * 2
-    }
-
-    #[test]
-    fn register_and_find() {
-        let registry = FnRegistry::default();
-        let outer = Id::new("test.double");
-        let inner = Id::new("test.int");
-        let id = DefaultHashBuilder::default().hash_one((outer, inner));
-
-        assert!(!registry.contains(id));
-        registry.register::<DoubleFn>(id, double);
-
-        assert!(registry.contains(id));
-        let f = registry.find::<DoubleFn>(id).unwrap();
-        assert_eq!(f(21), 42);
-    }
-
-    #[test]
-    fn find_with_wrong_type_returns_none() {
-        let registry = FnRegistry::default();
-        let outer = Id::new("test.double");
-        let inner = Id::new("test.int");
-        let id = DefaultHashBuilder::default().hash_one((outer, inner));
-
-        registry.register::<DoubleFn>(id, double);
-
-        type OtherFn = fn(i32) -> i32;
-        assert!(registry.find::<OtherFn>(id).is_none());
-    }
-
-    #[test]
-    fn missing_entry_returns_none() {
-        let registry = FnRegistry::default();
-        let outer = Id::new("test.missing");
-        let inner = Id::new("test.int");
-        let id = DefaultHashBuilder::default().hash_one((outer, inner));
-        assert!(registry.find::<DoubleFn>(id).is_none());
     }
 }
