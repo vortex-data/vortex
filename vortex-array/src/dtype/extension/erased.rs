@@ -42,6 +42,12 @@ impl ExtDTypeRef {
         self.0.id()
     }
 
+    /// Returns `true` when this extension type's vtable declares itself a refinement of its
+    /// storage dtype. See [`ExtVTable::is_refinement`] for the full semantics.
+    pub fn is_refinement(&self) -> bool {
+        self.0.is_refinement()
+    }
+
     /// Returns the storage dtype of the extension type.
     pub fn storage_dtype(&self) -> &DType {
         self.0.storage_dtype()
@@ -136,6 +142,20 @@ impl ExtDTypeRef {
     pub fn metadata<M: Matcher>(&self) -> M::Match<'_> {
         self.metadata_opt::<M>()
             .vortex_expect("Failed to downcast ExtDTypeRef")
+    }
+
+    /// Borrow the erased dtype as a concrete [`ExtDType<V>`].
+    ///
+    /// Unlike [`try_downcast()`], this does not consume the [`ExtDTypeRef`] or its backing
+    /// [`Arc`], so the returned reference inherits the lifetime of `&self`. Useful when the
+    /// enclosing borrow must be preserved (for example, when unpacking a native value that
+    /// borrows from the enclosing storage `DType`).
+    ///
+    /// Returns `None` if the concrete type is not `V`.
+    ///
+    /// [`try_downcast()`]: Self::try_downcast
+    pub fn as_typed<V: ExtVTable>(&self) -> Option<&ExtDType<V>> {
+        self.0.as_any().downcast_ref::<ExtDType<V>>()
     }
 
     /// Downcast to the concrete [`ExtDType`].
