@@ -3,25 +3,30 @@
 
 //! A test extension type layering a refinement on top of another refinement.
 //!
-//! [`EvenDivisibleInt`] refines [`DivisibleInt`] with the additional requirement that the value
-//! is even. Its storage `DType` is therefore `DType::Extension(DivisibleInt)`, and its validation
-//! chain transitively inherits `DivisibleInt`'s divisibility check via [`ExtRefinedSource`].
+//! [`EvenDivisibleInt`] refines [`DivisibleInt`] with the additional requirement that the
+//! value is even. Its storage `DType` is therefore `DType::Extension(DivisibleInt)`, and its
+//! validation chain transitively inherits `DivisibleInt`'s divisibility check: when the
+//! outer `ExtDType` is constructed, the inner `DivisibleInt` extension already ran its own
+//! `validate_dtype`.
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 
 use super::divisible_int::DivisibleInt;
+use crate::dtype::DType;
+use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
-use crate::dtype::extension::ExtRefinedSource;
-use crate::dtype::extension::RefinementVTable;
+use crate::dtype::extension::ExtVTable;
 use crate::extension::EmptyMetadata;
+use crate::scalar::ScalarValue;
 
 /// Refinement of [`DivisibleInt`] requiring the stored value to additionally be even.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct EvenDivisibleInt;
 
-impl RefinementVTable for EvenDivisibleInt {
-    type Source = ExtRefinedSource<DivisibleInt>;
+impl ExtVTable for EvenDivisibleInt {
     type Metadata = EmptyMetadata;
     type NativeValue<'a> = u64;
 
@@ -29,12 +34,40 @@ impl RefinementVTable for EvenDivisibleInt {
         ExtId::new("test.even_divisible_int")
     }
 
-    fn refine_scalar(_metadata: &Self::Metadata, source_value: u64) -> VortexResult<u64> {
-        if source_value.is_multiple_of(2) {
-            Ok(source_value)
-        } else {
-            vortex_bail!("{} is not even", source_value)
-        }
+    fn is_refinement(&self) -> bool {
+        true
+    }
+
+    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+        let DType::Extension(inner) = ext_dtype.storage_dtype() else {
+            vortex_bail!(
+                "`EvenDivisibleInt` requires extension storage, got {}",
+                ext_dtype.storage_dtype(),
+            );
+        };
+        vortex_ensure!(
+            inner.is::<DivisibleInt>(),
+            "`EvenDivisibleInt` requires `DivisibleInt` storage, got {}",
+            inner.id(),
+        );
+        Ok(())
+    }
+
+    fn unpack_native<'a>(
+        ext_dtype: &'a ExtDType<Self>,
+        storage_value: &'a ScalarValue,
+    ) -> VortexResult<Self::NativeValue<'a>> {
+        // Compose with `DivisibleInt::unpack_native`: the inner refinement's divisibility
+        // check runs first; only values that pass reach the even-ness check here.
+        let DType::Extension(inner) = ext_dtype.storage_dtype() else {
+            vortex_bail!("unreachable: validate_dtype rejects non-extension storage");
+        };
+        let inner_typed = inner.as_typed::<DivisibleInt>().ok_or_else(|| {
+            vortex_err!("unreachable: validate_dtype rejects non-`DivisibleInt` inner extension")
+        })?;
+        let n = DivisibleInt::unpack_native(inner_typed, storage_value)?;
+        vortex_ensure!(n.is_multiple_of(2), "{n} is not even");
+        Ok(n)
     }
 
     fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
@@ -109,8 +142,8 @@ mod tests {
     #[test]
     fn unpack_accepts_even_divisible_value() -> VortexResult<()> {
         let dtype = even_dtype(3)?;
-        // 12 is divisible by 3 and even, so both the inner DivisibleInt predicate and the outer
-        // EvenDivisibleInt predicate succeed.
+        // 12 is divisible by 3 and even, so both the inner DivisibleInt predicate and the
+        // outer EvenDivisibleInt predicate succeed.
         let storage = ScalarValue::Primitive(PValue::U64(12));
         let value = EvenDivisibleInt::unpack_native(&dtype, &storage)?;
         assert_eq!(value, 12);
@@ -129,10 +162,16 @@ mod tests {
     #[test]
     fn unpack_rejects_not_divisible_value() -> VortexResult<()> {
         let dtype = even_dtype(3)?;
-        // 8 is even but not divisible by 3. The inner `DivisibleInt` predicate fires before we
-        // ever reach the outer even-ness check, proving that refinements compose.
+        // 8 is even but not divisible by 3. The inner `DivisibleInt` predicate fires before
+        // we ever reach the outer even-ness check, proving that refinements compose via
+        // nested `unpack_native` calls.
         let storage = ScalarValue::Primitive(PValue::U64(8));
         assert!(EvenDivisibleInt::unpack_native(&dtype, &storage).is_err());
         Ok(())
+    }
+
+    #[test]
+    fn is_refinement_is_true() {
+        assert!(EvenDivisibleInt.is_refinement());
     }
 }

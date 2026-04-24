@@ -8620,70 +8620,6 @@ impl core::hash::Hash for vortex_array::dtype::extension::ExtDTypeRef
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::hash<H: core::hash::Hasher>(&self, state: &mut H)
 
-pub struct vortex_array::dtype::extension::ExtRefinedSource<V: vortex_array::dtype::extension::ExtVTable>(_)
-
-impl<V: core::clone::Clone + vortex_array::dtype::extension::ExtVTable> core::clone::Clone for vortex_array::dtype::extension::ExtRefinedSource<V>
-
-pub fn vortex_array::dtype::extension::ExtRefinedSource<V>::clone(&self) -> vortex_array::dtype::extension::ExtRefinedSource<V>
-
-impl<V: core::cmp::Eq + vortex_array::dtype::extension::ExtVTable> core::cmp::Eq for vortex_array::dtype::extension::ExtRefinedSource<V>
-
-impl<V: core::cmp::PartialEq + vortex_array::dtype::extension::ExtVTable> core::cmp::PartialEq for vortex_array::dtype::extension::ExtRefinedSource<V>
-
-pub fn vortex_array::dtype::extension::ExtRefinedSource<V>::eq(&self, other: &vortex_array::dtype::extension::ExtRefinedSource<V>) -> bool
-
-impl<V: core::fmt::Debug + vortex_array::dtype::extension::ExtVTable> core::fmt::Debug for vortex_array::dtype::extension::ExtRefinedSource<V>
-
-pub fn vortex_array::dtype::extension::ExtRefinedSource<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl<V: core::hash::Hash + vortex_array::dtype::extension::ExtVTable> core::hash::Hash for vortex_array::dtype::extension::ExtRefinedSource<V>
-
-pub fn vortex_array::dtype::extension::ExtRefinedSource<V>::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl<V: core::marker::Copy + vortex_array::dtype::extension::ExtVTable> core::marker::Copy for vortex_array::dtype::extension::ExtRefinedSource<V>
-
-impl<V: vortex_array::dtype::extension::ExtVTable> core::marker::StructuralPartialEq for vortex_array::dtype::extension::ExtRefinedSource<V>
-
-impl<V: vortex_array::dtype::extension::ExtVTable> vortex_array::dtype::extension::RefinedSource for vortex_array::dtype::extension::ExtRefinedSource<V>
-
-pub type vortex_array::dtype::extension::ExtRefinedSource<V>::Value<'a> = <V as vortex_array::dtype::extension::ExtVTable>::NativeValue
-
-pub fn vortex_array::dtype::extension::ExtRefinedSource<V>::matches(storage_dtype: &vortex_array::dtype::DType) -> bool
-
-pub fn vortex_array::dtype::extension::ExtRefinedSource<V>::unpack<'a>(storage_dtype: &'a vortex_array::dtype::DType, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<<V as vortex_array::dtype::extension::ExtVTable>::NativeValue>
-
-pub struct vortex_array::dtype::extension::PrimitiveRefinedSource<T: vortex_array::dtype::NativePType>(_)
-
-impl<T: core::clone::Clone + vortex_array::dtype::NativePType> core::clone::Clone for vortex_array::dtype::extension::PrimitiveRefinedSource<T>
-
-pub fn vortex_array::dtype::extension::PrimitiveRefinedSource<T>::clone(&self) -> vortex_array::dtype::extension::PrimitiveRefinedSource<T>
-
-impl<T: core::cmp::Eq + vortex_array::dtype::NativePType> core::cmp::Eq for vortex_array::dtype::extension::PrimitiveRefinedSource<T>
-
-impl<T: core::cmp::PartialEq + vortex_array::dtype::NativePType> core::cmp::PartialEq for vortex_array::dtype::extension::PrimitiveRefinedSource<T>
-
-pub fn vortex_array::dtype::extension::PrimitiveRefinedSource<T>::eq(&self, other: &vortex_array::dtype::extension::PrimitiveRefinedSource<T>) -> bool
-
-impl<T: core::fmt::Debug + vortex_array::dtype::NativePType> core::fmt::Debug for vortex_array::dtype::extension::PrimitiveRefinedSource<T>
-
-pub fn vortex_array::dtype::extension::PrimitiveRefinedSource<T>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl<T: core::hash::Hash + vortex_array::dtype::NativePType> core::hash::Hash for vortex_array::dtype::extension::PrimitiveRefinedSource<T>
-
-pub fn vortex_array::dtype::extension::PrimitiveRefinedSource<T>::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl<T: core::marker::Copy + vortex_array::dtype::NativePType> core::marker::Copy for vortex_array::dtype::extension::PrimitiveRefinedSource<T>
-
-impl<T: vortex_array::dtype::NativePType> core::marker::StructuralPartialEq for vortex_array::dtype::extension::PrimitiveRefinedSource<T>
-
-impl<T: vortex_array::dtype::NativePType> vortex_array::dtype::extension::RefinedSource for vortex_array::dtype::extension::PrimitiveRefinedSource<T>
-
-pub type vortex_array::dtype::extension::PrimitiveRefinedSource<T>::Value<'a> = T
-
-pub fn vortex_array::dtype::extension::PrimitiveRefinedSource<T>::matches(storage_dtype: &vortex_array::dtype::DType) -> bool
-
-pub fn vortex_array::dtype::extension::PrimitiveRefinedSource<T>::unpack<'a>(_storage_dtype: &'a vortex_array::dtype::DType, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<T>
-
 pub trait vortex_array::dtype::extension::ExtDTypePlugin: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
 
 pub fn vortex_array::dtype::extension::ExtDTypePlugin::deserialize(&self, data: &[u8], storage_dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::extension::ExtDTypeRef>
@@ -8710,6 +8646,8 @@ pub fn vortex_array::dtype::extension::ExtVTable::deserialize_metadata(&self, me
 
 pub fn vortex_array::dtype::extension::ExtVTable::id(&self) -> vortex_array::dtype::extension::ExtId
 
+pub fn vortex_array::dtype::extension::ExtVTable::is_refinement(&self) -> bool
+
 pub fn vortex_array::dtype::extension::ExtVTable::least_supertype(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::dtype::extension::ExtVTable::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
@@ -8733,6 +8671,8 @@ pub fn vortex_array::extension::datetime::Date::can_coerce_to(ext_dtype: &vortex
 pub fn vortex_array::extension::datetime::Date::deserialize_metadata(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_array::extension::datetime::Date::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::extension::datetime::Date::is_refinement(&self) -> bool
 
 pub fn vortex_array::extension::datetime::Date::least_supertype(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
@@ -8758,6 +8698,8 @@ pub fn vortex_array::extension::datetime::Time::deserialize_metadata(&self, data
 
 pub fn vortex_array::extension::datetime::Time::id(&self) -> vortex_array::dtype::extension::ExtId
 
+pub fn vortex_array::extension::datetime::Time::is_refinement(&self) -> bool
+
 pub fn vortex_array::extension::datetime::Time::least_supertype(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::extension::datetime::Time::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
@@ -8781,6 +8723,8 @@ pub fn vortex_array::extension::datetime::Timestamp::can_coerce_to(ext_dtype: &v
 pub fn vortex_array::extension::datetime::Timestamp::deserialize_metadata(&self, data: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_array::extension::datetime::Timestamp::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::extension::datetime::Timestamp::is_refinement(&self) -> bool
 
 pub fn vortex_array::extension::datetime::Timestamp::least_supertype(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
@@ -8806,6 +8750,8 @@ pub fn vortex_array::extension::uuid::Uuid::deserialize_metadata(&self, metadata
 
 pub fn vortex_array::extension::uuid::Uuid::id(&self) -> vortex_array::dtype::extension::ExtId
 
+pub fn vortex_array::extension::uuid::Uuid::is_refinement(&self) -> bool
+
 pub fn vortex_array::extension::uuid::Uuid::least_supertype(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::extension::uuid::Uuid::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
@@ -8815,30 +8761,6 @@ pub fn vortex_array::extension::uuid::Uuid::unpack_native<'a>(ext_dtype: &vortex
 pub fn vortex_array::extension::uuid::Uuid::validate_dtype(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::extension::uuid::Uuid::validate_scalar_value(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
-
-impl<R: vortex_array::dtype::extension::RefinementVTable> vortex_array::dtype::extension::ExtVTable for R
-
-pub type R::Metadata = <R as vortex_array::dtype::extension::RefinementVTable>::Metadata
-
-pub type R::NativeValue<'a> = <R as vortex_array::dtype::extension::RefinementVTable>::NativeValue
-
-pub fn R::can_coerce_from(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
-
-pub fn R::can_coerce_to(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
-
-pub fn R::deserialize_metadata(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
-
-pub fn R::id(&self) -> vortex_array::dtype::extension::ExtId
-
-pub fn R::least_supertype(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
-
-pub fn R::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
-
-pub fn R::unpack_native<'a>(ext_dtype: &'a vortex_array::dtype::extension::ExtDType<Self>, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
-
-pub fn R::validate_dtype(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> vortex_error::VortexResult<()>
-
-pub fn R::validate_scalar_value(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
 
 pub trait vortex_array::dtype::extension::Matcher
 
@@ -8863,50 +8785,6 @@ pub type V::Match<'a> = &'a <V as vortex_array::dtype::extension::ExtVTable>::Me
 pub fn V::matches(ext_dtype: &vortex_array::dtype::extension::ExtDTypeRef) -> bool
 
 pub fn V::try_match<'a>(ext_dtype: &'a vortex_array::dtype::extension::ExtDTypeRef) -> core::option::Option<<V as vortex_array::dtype::extension::Matcher>::Match>
-
-pub trait vortex_array::dtype::extension::RefinedSource: 'static + core::marker::Send + core::marker::Sync
-
-pub type vortex_array::dtype::extension::RefinedSource::Value<'a>
-
-pub fn vortex_array::dtype::extension::RefinedSource::matches(storage_dtype: &vortex_array::dtype::DType) -> bool
-
-pub fn vortex_array::dtype::extension::RefinedSource::unpack<'a>(storage_dtype: &'a vortex_array::dtype::DType, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::Value>
-
-impl<T: vortex_array::dtype::NativePType> vortex_array::dtype::extension::RefinedSource for vortex_array::dtype::extension::PrimitiveRefinedSource<T>
-
-pub type vortex_array::dtype::extension::PrimitiveRefinedSource<T>::Value<'a> = T
-
-pub fn vortex_array::dtype::extension::PrimitiveRefinedSource<T>::matches(storage_dtype: &vortex_array::dtype::DType) -> bool
-
-pub fn vortex_array::dtype::extension::PrimitiveRefinedSource<T>::unpack<'a>(_storage_dtype: &'a vortex_array::dtype::DType, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<T>
-
-impl<V: vortex_array::dtype::extension::ExtVTable> vortex_array::dtype::extension::RefinedSource for vortex_array::dtype::extension::ExtRefinedSource<V>
-
-pub type vortex_array::dtype::extension::ExtRefinedSource<V>::Value<'a> = <V as vortex_array::dtype::extension::ExtVTable>::NativeValue
-
-pub fn vortex_array::dtype::extension::ExtRefinedSource<V>::matches(storage_dtype: &vortex_array::dtype::DType) -> bool
-
-pub fn vortex_array::dtype::extension::ExtRefinedSource<V>::unpack<'a>(storage_dtype: &'a vortex_array::dtype::DType, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<<V as vortex_array::dtype::extension::ExtVTable>::NativeValue>
-
-pub trait vortex_array::dtype::extension::RefinementVTable: 'static + core::marker::Sized + core::marker::Send + core::marker::Sync + core::clone::Clone + core::fmt::Debug + core::cmp::Eq + core::hash::Hash
-
-pub type vortex_array::dtype::extension::RefinementVTable::Metadata: 'static + core::marker::Send + core::marker::Sync + core::clone::Clone + core::fmt::Debug + core::fmt::Display + core::cmp::Eq + core::hash::Hash
-
-pub type vortex_array::dtype::extension::RefinementVTable::NativeValue<'a>: core::fmt::Display
-
-pub type vortex_array::dtype::extension::RefinementVTable::Source: vortex_array::dtype::extension::RefinedSource
-
-pub fn vortex_array::dtype::extension::RefinementVTable::deserialize_metadata(&self, bytes: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
-
-pub fn vortex_array::dtype::extension::RefinementVTable::id(&self) -> vortex_array::dtype::extension::ExtId
-
-pub fn vortex_array::dtype::extension::RefinementVTable::refine_scalar<'a>(metadata: &'a Self::Metadata, source_value: <Self::Source as vortex_array::dtype::extension::RefinedSource>::Value) -> vortex_error::VortexResult<Self::NativeValue>
-
-pub fn vortex_array::dtype::extension::RefinementVTable::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
-
-pub fn vortex_array::dtype::extension::RefinementVTable::validate_array(metadata: &Self::Metadata, source_array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::dtype::extension::refine_array_scalar_default<R: vortex_array::dtype::extension::RefinementVTable>(metadata: &<R as vortex_array::dtype::extension::RefinementVTable>::Metadata, source_array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<()>
 
 pub type vortex_array::dtype::extension::ExtDTypePluginRef = alloc::sync::Arc<dyn vortex_array::dtype::extension::ExtDTypePlugin>
 
@@ -12736,6 +12614,8 @@ pub fn vortex_array::extension::datetime::Date::deserialize_metadata(&self, meta
 
 pub fn vortex_array::extension::datetime::Date::id(&self) -> vortex_array::dtype::extension::ExtId
 
+pub fn vortex_array::extension::datetime::Date::is_refinement(&self) -> bool
+
 pub fn vortex_array::extension::datetime::Date::least_supertype(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::extension::datetime::Date::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
@@ -12791,6 +12671,8 @@ pub fn vortex_array::extension::datetime::Time::can_coerce_to(ext_dtype: &vortex
 pub fn vortex_array::extension::datetime::Time::deserialize_metadata(&self, data: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_array::extension::datetime::Time::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::extension::datetime::Time::is_refinement(&self) -> bool
 
 pub fn vortex_array::extension::datetime::Time::least_supertype(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
@@ -12849,6 +12731,8 @@ pub fn vortex_array::extension::datetime::Timestamp::can_coerce_to(ext_dtype: &v
 pub fn vortex_array::extension::datetime::Timestamp::deserialize_metadata(&self, data: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_array::extension::datetime::Timestamp::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::extension::datetime::Timestamp::is_refinement(&self) -> bool
 
 pub fn vortex_array::extension::datetime::Timestamp::least_supertype(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
@@ -12931,6 +12815,8 @@ pub fn vortex_array::extension::uuid::Uuid::can_coerce_to(ext_dtype: &vortex_arr
 pub fn vortex_array::extension::uuid::Uuid::deserialize_metadata(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_array::extension::uuid::Uuid::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::extension::uuid::Uuid::is_refinement(&self) -> bool
 
 pub fn vortex_array::extension::uuid::Uuid::least_supertype(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 

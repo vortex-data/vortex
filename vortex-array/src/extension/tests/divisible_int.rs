@@ -3,9 +3,10 @@
 
 //! A test extension type representing unsigned integers divisible by a given divisor.
 //!
-//! This serves as the canonical-source reference implementation of [`RefinementVTable`]. The
-//! source is a [`PrimitiveRefinedSource<u64>`], and the predicate checks that the integer is
-//! divisible by the metadata-provided [`Divisor`].
+//! `DivisibleInt` is a refinement of `Primitive(U64)`: every valid value is a `u64`, with the
+//! additional invariant that it is divisible by the metadata-provided [`Divisor`]. Its
+//! `ExtVTable::is_refinement` returns `true` so that generic scalar-fn dispatch can peel it
+//! to its storage dtype automatically.
 
 use std::fmt;
 
@@ -13,9 +14,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
+use crate::dtype::DType;
+use crate::dtype::PType;
+use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
-use crate::dtype::extension::PrimitiveRefinedSource;
-use crate::dtype::extension::RefinementVTable;
+use crate::dtype::extension::ExtVTable;
+use crate::scalar::ScalarValue;
 
 /// The divisor stored as extension metadata.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -31,8 +35,7 @@ impl fmt::Display for Divisor {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct DivisibleInt;
 
-impl RefinementVTable for DivisibleInt {
-    type Source = PrimitiveRefinedSource<u64>;
+impl ExtVTable for DivisibleInt {
     type Metadata = Divisor;
     type NativeValue<'a> = u64;
 
@@ -40,11 +43,31 @@ impl RefinementVTable for DivisibleInt {
         ExtId::new("test.divisible_int")
     }
 
-    fn refine_scalar(metadata: &Self::Metadata, source_value: u64) -> VortexResult<u64> {
-        if !source_value.is_multiple_of(metadata.0) {
-            vortex_bail!("{} is not divisible by {}", source_value, metadata.0);
+    fn is_refinement(&self) -> bool {
+        true
+    }
+
+    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+        match ext_dtype.storage_dtype() {
+            DType::Primitive(PType::U64, _) => Ok(()),
+            other => vortex_bail!("`DivisibleInt` requires `U64` storage, got {other}"),
         }
-        Ok(source_value)
+    }
+
+    fn unpack_native<'a>(
+        ext_dtype: &'a ExtDType<Self>,
+        storage_value: &'a ScalarValue,
+    ) -> VortexResult<Self::NativeValue<'a>> {
+        let ScalarValue::Primitive(pv) = storage_value else {
+            vortex_bail!("`DivisibleInt` expected a primitive scalar, got {storage_value:?}");
+        };
+        let n = pv.cast::<u64>()?;
+        let divisor = ext_dtype.metadata().0;
+        vortex_ensure!(
+            n.is_multiple_of(divisor),
+            "{n} is not divisible by {divisor}",
+        );
+        Ok(n)
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
@@ -64,25 +87,15 @@ impl RefinementVTable for DivisibleInt {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::atomic::Ordering;
-
-    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
     use super::DivisibleInt;
     use super::Divisor;
-    use crate::IntoArray;
-    use crate::array::ArrayRef;
-    use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::extension::ExtDType;
-    use crate::dtype::extension::ExtId;
-    use crate::dtype::extension::PrimitiveRefinedSource;
-    use crate::dtype::extension::RefinementVTable;
-    use crate::validity::Validity;
+    use crate::dtype::extension::ExtVTable;
 
     #[test]
     fn metadata_roundtrip() -> VortexResult<()> {
@@ -127,74 +140,7 @@ mod tests {
     }
 
     #[test]
-    fn default_validate_array_accepts_all_multiples() -> VortexResult<()> {
-        // Every value is a multiple of 3.
-        let arr: ArrayRef =
-            PrimitiveArray::new(buffer![0u64, 3, 6, 9, 12], Validity::NonNullable).into_array();
-        DivisibleInt::validate_array(&Divisor(3), &arr)?;
-        Ok(())
-    }
-
-    #[test]
-    fn default_validate_array_rejects_nonmultiple() {
-        // 7 is not a multiple of 3.
-        let arr: ArrayRef =
-            PrimitiveArray::new(buffer![0u64, 3, 7, 9], Validity::NonNullable).into_array();
-        assert!(DivisibleInt::validate_array(&Divisor(3), &arr).is_err());
-    }
-
-    // A toy refinement whose `validate_array` override always succeeds and bumps a counter.
-    // Its `refine_scalar` always fails, so if the override is NOT taken, the default
-    // scalar-iteration fallback would return `Err`. Counter plus `Ok` together prove the override
-    // ran.
-    static OVERRIDE_CALLS: AtomicUsize = AtomicUsize::new(0);
-
-    #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
-    struct AlwaysAcceptedArray;
-
-    impl RefinementVTable for AlwaysAcceptedArray {
-        type Source = PrimitiveRefinedSource<u64>;
-        type Metadata = Divisor;
-        type NativeValue<'a> = u64;
-
-        fn id(&self) -> ExtId {
-            ExtId::new("test.always_accepted_array")
-        }
-
-        fn refine_scalar(_metadata: &Divisor, _source_value: u64) -> VortexResult<u64> {
-            vortex_error::vortex_bail!("refine_scalar should not be reached when override runs")
-        }
-
-        fn validate_array(
-            _metadata: &Self::Metadata,
-            _source_array: &ArrayRef,
-        ) -> VortexResult<()> {
-            OVERRIDE_CALLS.fetch_add(1, Ordering::SeqCst);
-            Ok(())
-        }
-
-        fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-            DivisibleInt.serialize_metadata(metadata)
-        }
-
-        fn deserialize_metadata(&self, bytes: &[u8]) -> VortexResult<Self::Metadata> {
-            DivisibleInt.deserialize_metadata(bytes)
-        }
-    }
-
-    #[test]
-    fn validate_array_override_is_invoked() -> VortexResult<()> {
-        let before = OVERRIDE_CALLS.load(Ordering::SeqCst);
-        // The content would fail `refine_scalar`, so only the override can produce `Ok` here.
-        let arr: ArrayRef =
-            PrimitiveArray::new(buffer![1u64, 2, 3, 4], Validity::NonNullable).into_array();
-        AlwaysAcceptedArray::validate_array(&Divisor(1), &arr)?;
-        let after = OVERRIDE_CALLS.load(Ordering::SeqCst);
-        assert_eq!(
-            after,
-            before + 1,
-            "override must have been invoked exactly once"
-        );
-        Ok(())
+    fn is_refinement_is_true() {
+        assert!(DivisibleInt.is_refinement());
     }
 }

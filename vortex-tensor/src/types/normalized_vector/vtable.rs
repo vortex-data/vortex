@@ -1,45 +1,57 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::ArrayRef;
-use vortex_array::VortexSessionExecute;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtId;
-use vortex_array::dtype::extension::ExtRefinedSource;
-use vortex_array::dtype::extension::RefinementVTable;
+use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::extension::EmptyMetadata;
 use vortex_array::scalar::ScalarValue;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 
 use crate::types::normalized_vector::NormalizedVector;
-use crate::types::normalized_vector::validate_unit_norm_rows;
 use crate::types::vector::Vector;
 
-impl RefinementVTable for NormalizedVector {
-    type Source = ExtRefinedSource<Vector>;
+impl ExtVTable for NormalizedVector {
     type Metadata = EmptyMetadata;
-
-    // TODO(connor): This is just a placeholder for now. The per-scalar refinement is a
-    // no-op; unit-norm is enforced at array construction via [`validate_array`].
     type NativeValue<'a> = &'a ScalarValue;
 
     fn id(&self) -> ExtId {
         ExtId::new("vortex.tensor.normalized_vector")
     }
 
-    fn refine_scalar<'a>(
-        _metadata: &'a Self::Metadata,
-        source_value: &'a ScalarValue,
-    ) -> VortexResult<Self::NativeValue<'a>> {
-        // Per-scalar refinement is a no-op: unit-norm is enforced at array construction via
-        // [`validate_array`], matching how L2Denorm validates up front rather than on each
-        // scalar access.
-        Ok(source_value)
+    fn is_refinement(&self) -> bool {
+        true
     }
 
-    fn validate_array(_metadata: &Self::Metadata, source_array: &ArrayRef) -> VortexResult<()> {
-        // `source_array` is a `Vector` extension array (`ExtRefinedSource<Vector>::Value`).
-        let mut ctx = vortex_array::LEGACY_SESSION.create_execution_ctx();
-        validate_unit_norm_rows(source_array, &mut ctx)
+    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+        // Storage must be an extension-wrapped `Vector`. The inner `Vector` vtable's
+        // `validate_dtype` already ran when the inner `ExtDType` was constructed, so we
+        // only need to confirm the storage is in fact a `Vector` extension.
+        let DType::Extension(inner) = ext_dtype.storage_dtype() else {
+            vortex_bail!(
+                "`NormalizedVector` storage must be an extension type, got {}",
+                ext_dtype.storage_dtype(),
+            );
+        };
+        vortex_ensure!(
+            inner.is::<Vector>(),
+            "`NormalizedVector` storage must be a `Vector` extension, got {}",
+            inner.id(),
+        );
+        Ok(())
+    }
+
+    fn unpack_native<'a>(
+        _ext_dtype: &'a ExtDType<Self>,
+        storage_value: &'a ScalarValue,
+    ) -> VortexResult<Self::NativeValue<'a>> {
+        // Per-scalar refinement is a no-op: unit-norm is enforced in bulk by
+        // `validate_unit_norm_rows` at array construction, matching how `L2Denorm`
+        // validates up front rather than on each scalar access.
+        Ok(storage_value)
     }
 
     fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
@@ -107,6 +119,11 @@ mod tests {
             Nullability::NonNullable,
         );
         assert!(ExtDType::<NormalizedVector>::try_new(EmptyMetadata, storage).is_err());
+    }
+
+    #[test]
+    fn is_refinement_is_true() {
+        assert!(NormalizedVector.is_refinement());
     }
 
     #[test]
