@@ -4,3 +4,4 @@
 //! Test extension types for exercising the [`ExtVTable`] contract.
 
 mod divisible_int;
+mod even_divisible_int;

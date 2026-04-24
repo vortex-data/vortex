@@ -137,6 +137,7 @@ impl<V: ExtVTable> ExtDType<V> {
 pub(super) trait DynExtDType: 'static + Send + Sync + super::sealed::Sealed {
     fn as_any(&self) -> &dyn Any;
     fn id(&self) -> ExtId;
+    fn is_refinement(&self) -> bool;
     fn storage_dtype(&self) -> &DType;
     fn metadata_any(&self) -> &dyn Any;
     fn metadata_debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
@@ -164,6 +165,10 @@ impl<V: ExtVTable> DynExtDType for ExtDType<V> {
 
     fn id(&self) -> ExtId {
         self.id()
+    }
+
+    fn is_refinement(&self) -> bool {
+        self.vtable.is_refinement()
     }
 
     fn storage_dtype(&self) -> &DType {
