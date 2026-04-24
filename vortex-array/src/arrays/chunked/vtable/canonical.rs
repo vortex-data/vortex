@@ -67,7 +67,7 @@ fn pack_struct_chunks(chunks: Vec<ArrayRef>, ctx: &mut ExecutionCtx) -> VortexRe
         .map(|c| c.execute::<StructArray>(ctx))
         .collect::<Result<Vec<_>, _>>()?;
 
-    StructArray::try_from(executed_chunks.as_slice())
+    StructArray::try_concat(executed_chunks.as_slice())
 }
 
 /// Packs [`ListViewArray`]s together into a chunked `ListViewArray`.

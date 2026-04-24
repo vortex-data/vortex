@@ -5,7 +5,6 @@ use std::iter::once;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -455,12 +454,8 @@ impl Array<Struct> {
     pub fn remove_column_owned(&self, name: impl Into<FieldName>) -> Option<(Self, ArrayRef)> {
         self.remove_column(name)
     }
-}
 
-impl TryFrom<&[Array<Struct>]> for Array<Struct> {
-    type Error = VortexError;
-
-    fn try_from(value: &[Array<Struct>]) -> Result<Self, Self::Error> {
+    pub fn try_concat(value: &[Array<Struct>]) -> VortexResult<Self> {
         let dtype = unique_dtype_or_bail(value.iter().map(|x| x.dtype()))?;
         let fields = dtype.as_struct_fields().clone();
         let field_arrays = fields
