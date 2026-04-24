@@ -142,6 +142,50 @@ pub(crate) fn validate_unit_norm_rows(
     Ok(())
 }
 
+/// Returns the underlying `FixedSizeList` storage dtype for a vector-shaped extension dtype.
+///
+/// For a plain [`Vector`], this is the direct storage dtype. For a [`NormalizedVector`]
+/// refinement it drills through one extra extension layer.
+pub(crate) fn vector_fsl_storage_dtype(
+    ext: &vortex_array::dtype::extension::ExtDTypeRef,
+) -> Option<vortex_array::dtype::DType> {
+    use vortex_array::dtype::DType;
+    if ext.is::<Vector>() {
+        Some(ext.storage_dtype().clone())
+    } else if ext.is::<NormalizedVector>() {
+        let DType::Extension(inner) = ext.storage_dtype() else {
+            return None;
+        };
+        if !inner.is::<Vector>() {
+            return None;
+        }
+        Some(inner.storage_dtype().clone())
+    } else {
+        None
+    }
+}
+
+/// Returns the underlying `Vector` extension array inside a vector-shaped extension array.
+///
+/// For a [`NormalizedVector`] array, this executes the outer extension and returns its
+/// `Vector` storage child. For a plain [`Vector`] array, it returns the array itself (after
+/// canonicalizing to an `ExtensionArray`).
+pub(crate) fn inner_vector_array(
+    array: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let is_normalized = array
+        .dtype()
+        .as_extension_opt()
+        .is_some_and(|ext| ext.is::<NormalizedVector>());
+    if is_normalized {
+        let ext: ExtensionArray = array.clone().execute(ctx)?;
+        Ok(ext.storage_array().clone())
+    } else {
+        Ok(array.clone())
+    }
+}
+
 mod matcher;
 mod vtable;
 

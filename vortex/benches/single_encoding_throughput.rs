@@ -504,7 +504,7 @@ mod turboquant_benches {
     use vortex_array::VortexSessionExecute;
     use vortex_buffer::BufferMut;
     use vortex_tensor::encodings::turboquant::TurboQuantConfig;
-    use vortex_tensor::encodings::turboquant::turboquant_encode_unchecked;
+    use vortex_tensor::encodings::turboquant::turboquant_encode_normalized;
     use vortex_tensor::scalar_fns::l2_denorm::normalize_as_l2_denorm;
     use vortex_tensor::vector::Vector;
 
@@ -573,10 +573,9 @@ mod turboquant_benches {
                                 .as_ref()
                                 .as_opt::<Extension>()
                                 .expect("normalized benchmark input should be an Extension array");
-                            // SAFETY: Benchmark inputs are normalized once up front so the timed
-                            // region measures only TurboQuant encoding.
-                            unsafe { turboquant_encode_unchecked(normalized, &config, ctx) }
-                                .unwrap()
+                            // Benchmark inputs are normalized once up front so the timed region
+                            // measures only TurboQuant encoding.
+                            turboquant_encode_normalized(normalized, &config, ctx).unwrap()
                         });
                 }
             }
@@ -588,10 +587,9 @@ mod turboquant_benches {
                     let normalized_ext = setup_normalized_vector_ext($dim);
                     let config = turboquant_config($bits);
                     let mut ctx = SESSION.create_execution_ctx();
-                    let compressed = unsafe {
-                        turboquant_encode_unchecked(normalized_ext.as_view(), &config, &mut ctx)
-                    }
-                    .unwrap();
+                    let compressed =
+                        turboquant_encode_normalized(normalized_ext.as_view(), &config, &mut ctx)
+                            .unwrap();
                     with_byte_counter(bencher, (NUM_VECTORS * $dim * 4) as u64)
                         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
                         .bench_refs(|(a, ctx)| {

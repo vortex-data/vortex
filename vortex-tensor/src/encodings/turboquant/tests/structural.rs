@@ -13,7 +13,7 @@ use vortex_error::VortexResult;
 
 use super::*;
 
-/// Verify that the centroids stored in the DictArray match what `compute_or_get_centroids()` computes.
+/// Verify that the centroids stored in the DictArray match what `get_centroids()` computes.
 #[test]
 fn stored_centroids_match_computed() -> VortexResult<()> {
     let fsl = make_fsl(10, 128, 42);

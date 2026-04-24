@@ -50,7 +50,7 @@ use super::SorfOptions;
 use super::SorfTransform;
 use super::rotation::SorfMatrix;
 use super::validate_sorf_options;
-use crate::types::vector::AnyVector;
+use crate::matcher::AnyTensor;
 use crate::types::vector::Vector;
 
 impl ScalarFnVTable for SorfTransform {
@@ -88,14 +88,17 @@ impl ScalarFnVTable for SorfTransform {
         let child_dtype = &arg_dtypes[0];
         let vector_metadata = child_dtype
             .as_extension_opt()
-            .and_then(|ext| ext.metadata_opt::<AnyVector>())
+            .and_then(|ext| ext.metadata_opt::<AnyTensor>())
             .ok_or_else(|| {
-                vortex_err!("SorfTransform child must be a Vector extension, got {child_dtype}")
+                vortex_err!(
+                    "SorfTransform child must be a Vector or NormalizedVector extension, got \
+                     {child_dtype}"
+                )
             })?;
 
         let expected_padded = options.dimensions.next_power_of_two();
         vortex_ensure_eq!(
-            vector_metadata.dimensions(),
+            vector_metadata.list_size(),
             expected_padded,
             "SorfTransform child Vector must have dimension {expected_padded} (next power of two \
              for dimension {})",
@@ -120,6 +123,8 @@ impl ScalarFnVTable for SorfTransform {
             child_dtype.nullability(),
         );
 
+        // The inverse SORF transform does not preserve unit norm on the output, even when the
+        // child is a [`NormalizedVector`]. Surface the output as a plain [`Vector`].
         let _ = vector_metadata;
         let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, storage_dtype)?.erased();
 
@@ -151,10 +156,12 @@ impl ScalarFnVTable for SorfTransform {
             });
         }
 
-        // Execute the child to get the Vector extension wrapping an FSL of f32 coordinates. The
-        // `return_dtype` check guarantees the child is a `Vector<padded_dim, f32>`, so the
-        // materialized FSL elements are always f32.
-        let child_ext: ExtensionArray = args.get(0)?.execute(ctx)?;
+        // Execute the child to get either a `Vector` extension or a `NormalizedVector`
+        // refinement wrapping an FSL of f32 coordinates. The `return_dtype` check guarantees
+        // the shape is `Vector<padded_dim, f32>` at the FSL level, so drill past any
+        // `NormalizedVector` wrapper before unpacking.
+        let child_ref = crate::types::normalized_vector::inner_vector_array(&args.get(0)?, ctx)?;
+        let child_ext: ExtensionArray = child_ref.execute(ctx)?;
         let child_validity = child_ext.as_ref().validity()?;
         let child_fsl: FixedSizeListArray = child_ext.storage_array().clone().execute(ctx)?;
         let padded_dim =
@@ -198,9 +205,10 @@ impl ScalarFnVTable for SorfTransform {
 
 /// Metadata for a serialized [`SorfTransform`] array.
 ///
-/// Stores the full [`SorfOptions`] inline along with the child [`DType`]. Older metadata omitted
-/// this field; deserialization derives the legacy plain-`Vector` child dtype from the parent dtype
-/// in that case.
+/// Stores the full [`SorfOptions`] inline along with the child [`DType`]. The child dtype records
+/// whether the input was a plain [`Vector`] or [`NormalizedVector`](crate::normalized_vector::NormalizedVector).
+/// Older metadata omitted this field; deserialization derives the legacy plain-`Vector` child dtype
+/// from the parent dtype in that case.
 #[derive(Clone, prost::Message)]
 pub(super) struct SorfTransformMetadata {
     #[prost(uint64, tag = "1")]
