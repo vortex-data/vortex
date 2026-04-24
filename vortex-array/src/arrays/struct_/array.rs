@@ -4,8 +4,11 @@
 use std::iter::once;
 use std::sync::Arc;
 
+use itertools::Itertools;
+use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
@@ -16,6 +19,7 @@ use crate::array::EmptyArrayData;
 use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
+use crate::arrays::ChunkedArray;
 use crate::arrays::Struct;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
@@ -430,9 +434,7 @@ impl Array<Struct> {
         };
         Some((new_array, field))
     }
-}
 
-impl Array<Struct> {
     pub fn with_column(&self, name: impl Into<FieldName>, array: ArrayRef) -> VortexResult<Self> {
         let name = name.into();
         let struct_dtype = self.struct_fields();
@@ -453,4 +455,69 @@ impl Array<Struct> {
     pub fn remove_column_owned(&self, name: impl Into<FieldName>) -> Option<(Self, ArrayRef)> {
         self.remove_column(name)
     }
+}
+
+impl TryFrom<&[Array<Struct>]> for Array<Struct> {
+    type Error = VortexError;
+
+    fn try_from(value: &[Array<Struct>]) -> Result<Self, Self::Error> {
+        let dtype = unique_dtype_or_bail(value.iter().map(|x| x.dtype()))?;
+        let fields = dtype.as_struct_fields().clone();
+        let field_arrays = fields
+            .names()
+            .iter()
+            .zip(fields.fields())
+            .map(|(name, dtype)| {
+                (
+                    value
+                        .iter()
+                        .map(|array| {
+                            array
+                                .unmasked_field_by_name(name)
+                                .vortex_expect("field exists because it is in dtype")
+                        })
+                        .cloned()
+                        .collect(),
+                    dtype,
+                )
+            })
+            .map(|(arrays, dtype)| {
+                // SAFETY: We establish above that every array has the same type.
+                unsafe { ChunkedArray::new_unchecked(arrays, dtype) }.into_array()
+            })
+            .collect::<Vec<_>>();
+        let len = value.iter().map(|x| x.len()).sum();
+        let validity = Validity::concat(
+            value
+                .iter()
+                .map(|x| x.validity().map(|v| (v, x.len())))
+                .try_collect()?,
+        )
+        .vortex_expect("verified non-empty above");
+
+        // SAFETY:
+        //
+        // 1. The field arrays, by construction, have the type specified in fields.
+        //
+        // 2. Each Array<Struct> has a valid len, therefore the sum of those lens should be valid
+        // for the concatenation of each field.
+        //
+        // 3. Each Array<Struct> has a valid validity, so the concatenation of those validities has
+        // the correct length and dtype harmony.
+        Ok(unsafe { Array::<Struct>::new_unchecked(field_arrays, fields, len, validity) })
+    }
+}
+
+fn unique_dtype_or_bail<'a>(it: impl Iterator<Item = &'a DType>) -> VortexResult<&'a DType> {
+    let mut it = it.unique();
+    let Some(dtype) = it.next() else {
+        vortex_bail!("slice must not be empty")
+    };
+    if let Some(other_dtype) = it.next() {
+        vortex_bail!(
+            "cannot concatenate struct arrays with differing dtypes: {}",
+            [dtype, other_dtype].into_iter().chain(it).format(", ")
+        )
+    }
+    Ok(dtype)
 }

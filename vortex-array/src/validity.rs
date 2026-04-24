@@ -22,6 +22,7 @@ use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
+use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::builtins::ArrayBuiltins;
@@ -444,6 +445,38 @@ impl From<&Nullability> for Validity {
             Nullability::NonNullable => Validity::NonNullable,
             Nullability::Nullable => Validity::AllValid,
         }
+    }
+}
+
+impl Validity {
+    /// Concatenate one or more validities together.
+    ///
+    /// Returns None if the vector is empty.
+    pub fn concat(validities: Vec<(Validity, usize)>) -> Option<Self> {
+        let (first, _) = validities.first()?;
+
+        if !matches!(first, Validity::Array(_)) {
+            let target = std::mem::discriminant(first);
+            if validities
+                .iter()
+                .all(|(v, _)| std::mem::discriminant(v) == target)
+            {
+                return Some(first.clone());
+            }
+        }
+
+        Some(Validity::Array(
+            unsafe {
+                ChunkedArray::new_unchecked(
+                    validities
+                        .into_iter()
+                        .map(|(v, len)| v.to_array(len))
+                        .collect(),
+                    DType::Bool(Nullability::NonNullable),
+                )
+            }
+            .into_array(),
+        ))
     }
 }
 
