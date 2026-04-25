@@ -27,7 +27,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 SCHEMA_VERSION = 1
@@ -92,9 +92,7 @@ def read_records(path: Path) -> list[dict]:
             try:
                 records.append(json.loads(line))
             except json.JSONDecodeError as exc:
-                raise SystemExit(
-                    f"{path}:{line_no}: invalid JSON: {exc}"
-                ) from exc
+                raise SystemExit(f"{path}:{line_no}: invalid JSON: {exc}") from exc
     return records
 
 
@@ -173,7 +171,7 @@ def main() -> int:
         "run_meta": {
             "benchmark_id": args.benchmark_id,
             "schema_version": SCHEMA_VERSION,
-            "started_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "started_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         },
         "commit": commit,
         "records": records,
