@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
+use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
@@ -93,7 +94,14 @@ impl LayoutStrategy for ZonedStrategy {
             "ZonedStrategy requires block_size > 0 when writing"
         );
 
-        let stats = Arc::clone(&self.options.stats);
+        let stats: Arc<[Stat]> = self
+            .options
+            .stats
+            .as_ref()
+            .iter()
+            .cloned()
+            .sorted_unstable()
+            .collect();
         let session = session.clone();
         let compute_session = session.clone();
         let handle = session.handle();
