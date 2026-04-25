@@ -511,6 +511,9 @@ impl FileFormat for VortexFormat {
             };
 
             let mut column_statistics = Vec::with_capacity(table_schema.fields().len());
+            let num_rows = usize::try_from(row_count)
+                .map_err(|_| vortex_err!("Row count overflow"))
+                .vortex_expect("Row count overflow");
 
             for field in table_schema.fields().iter() {
                 // If the column does not exist, continue. This can happen if the schema has evolved
@@ -523,8 +526,15 @@ impl FileFormat for VortexFormat {
                 let (stats_set, stats_dtype) = file_stats.get(col_idx);
 
                 // Update the total size in bytes.
-                let column_size =
-                    stats_set.get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into());
+
+                let column_size = stats_set
+                    .get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into())
+                    .or_else(|| {
+                        field
+                            .data_type()
+                            .primitive_width()
+                            .map(|width| stats::Precision::Exact(width * num_rows))
+                    });
 
                 let target_dtype = DType::from_arrow(field.as_ref());
                 let min = scalar_stat_to_df(
@@ -562,11 +572,7 @@ impl FileFormat for VortexFormat {
                 .fold(Precision::Exact(0), |acc, cs| acc.add(&cs.byte_size));
 
             Ok(Statistics {
-                num_rows: Precision::Exact(
-                    usize::try_from(row_count)
-                        .map_err(|_| vortex_err!("Row count overflow"))
-                        .vortex_expect("Row count overflow"),
-                ),
+                num_rows: Precision::Exact(num_rows),
                 total_byte_size,
                 column_statistics,
             })
