@@ -195,10 +195,14 @@ fn collect_query_groups(conn: &Connection) -> Result<Vec<Group>> {
             query_idx,
         }
         .to_slug();
-        groups.last_mut().expect("just pushed").charts.push(ChartLink {
-            name: format!("Q{query_idx}"),
-            slug,
-        });
+        groups
+            .last_mut()
+            .expect("just pushed")
+            .charts
+            .push(ChartLink {
+                name: format!("Q{query_idx}"),
+                slug,
+            });
     }
     Ok(groups)
 }
@@ -250,14 +254,20 @@ fn collect_compression_time_group(conn: &Connection) -> Result<Option<Group>> {
                     name.push('/');
                     name.push_str(v);
                 }
-                ChartLink { name, slug: key.to_slug() }
+                ChartLink {
+                    name,
+                    slug: key.to_slug(),
+                }
             })
         })
         .collect::<Result<_, _>>()?;
     if charts.is_empty() {
         Ok(None)
     } else {
-        Ok(Some(Group { name: "Compression".into(), charts }))
+        Ok(Some(Group {
+            name: "Compression".into(),
+            charts,
+        }))
     }
 }
 
@@ -287,14 +297,20 @@ fn collect_compression_size_group(conn: &Connection) -> Result<Option<Group>> {
                     name.push('/');
                     name.push_str(v);
                 }
-                ChartLink { name, slug: key.to_slug() }
+                ChartLink {
+                    name,
+                    slug: key.to_slug(),
+                }
             })
         })
         .collect::<Result<_, _>>()?;
     if charts.is_empty() {
         Ok(None)
     } else {
-        Ok(Some(Group { name: "Compression Size".into(), charts }))
+        Ok(Some(Group {
+            name: "Compression Size".into(),
+            charts,
+        }))
     }
 }
 
@@ -318,7 +334,10 @@ fn collect_random_access_group(conn: &Connection) -> Result<Option<Group>> {
     if charts.is_empty() {
         Ok(None)
     } else {
-        Ok(Some(Group { name: "Random Access".into(), charts }))
+        Ok(Some(Group {
+            name: "Random Access".into(),
+            charts,
+        }))
     }
 }
 
@@ -357,10 +376,14 @@ fn collect_vector_search_groups(conn: &Connection) -> Result<Vec<Group>> {
             threshold,
         }
         .to_slug();
-        groups.last_mut().expect("just pushed").charts.push(ChartLink {
-            name: format!("threshold={threshold}"),
-            slug,
-        });
+        groups
+            .last_mut()
+            .expect("just pushed")
+            .charts
+            .push(ChartLink {
+                name: format!("threshold={threshold}"),
+                slug,
+            });
     }
     Ok(groups)
 }
@@ -373,17 +396,28 @@ fn collect_chart(conn: &Connection, key: &ChartKey) -> Result<Option<ChartRespon
             scale_factor,
             storage,
             query_idx,
-        } => collect_query_chart(conn, dataset, dataset_variant, scale_factor, storage, *query_idx),
-        ChartKey::CompressionTime { dataset, dataset_variant } => {
-            collect_compression_time_chart(conn, dataset, dataset_variant)
-        }
-        ChartKey::CompressionSize { dataset, dataset_variant } => {
-            collect_compression_size_chart(conn, dataset, dataset_variant)
-        }
+        } => collect_query_chart(
+            conn,
+            dataset,
+            dataset_variant,
+            scale_factor,
+            storage,
+            *query_idx,
+        ),
+        ChartKey::CompressionTime {
+            dataset,
+            dataset_variant,
+        } => collect_compression_time_chart(conn, dataset, dataset_variant),
+        ChartKey::CompressionSize {
+            dataset,
+            dataset_variant,
+        } => collect_compression_size_chart(conn, dataset, dataset_variant),
         ChartKey::RandomAccess { dataset } => collect_random_access_chart(conn, dataset),
-        ChartKey::VectorSearch { dataset, layout, threshold } => {
-            collect_vector_search_chart(conn, dataset, layout, *threshold)
-        }
+        ChartKey::VectorSearch {
+            dataset,
+            layout,
+            threshold,
+        } => collect_vector_search_chart(conn, dataset, layout, *threshold),
     }
 }
 
@@ -391,7 +425,7 @@ fn collect_chart(conn: &Connection, key: &ChartKey) -> Result<Option<ChartRespon
 /// reshaped into the `commits[] / series{}` response shape.
 struct SeriesAccumulator {
     commits: Vec<CommitPoint>,
-    commit_index: std::collections::HashMap<String, usize>,
+    commit_index: std::collections::BTreeMap<String, usize>,
     series: std::collections::BTreeMap<String, Vec<Option<f64>>>,
 }
 
@@ -399,18 +433,12 @@ impl SeriesAccumulator {
     fn new() -> Self {
         Self {
             commits: Vec::new(),
-            commit_index: std::collections::HashMap::new(),
+            commit_index: std::collections::BTreeMap::new(),
             series: std::collections::BTreeMap::new(),
         }
     }
 
-    fn ensure_commit(
-        &mut self,
-        sha: &str,
-        timestamp: &str,
-        message: &str,
-        url: &str,
-    ) -> usize {
+    fn ensure_commit(&mut self, sha: &str, timestamp: &str, message: &str, url: &str) -> usize {
         if let Some(&idx) = self.commit_index.get(sha) {
             return idx;
         }
@@ -542,20 +570,17 @@ fn collect_compression_time_chart(
         "#,
     )?;
     let mut acc = SeriesAccumulator::new();
-    let rows = stmt.query_map(
-        params![dataset, dataset_variant.as_deref()],
-        |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, i64>(6)?,
-            ))
-        },
-    )?;
+    let rows = stmt.query_map(params![dataset, dataset_variant.as_deref()], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, String>(4)?,
+            row.get::<_, String>(5)?,
+            row.get::<_, i64>(6)?,
+        ))
+    })?;
     let mut any = false;
     for row in rows {
         any = true;
@@ -593,19 +618,16 @@ fn collect_compression_size_chart(
         "#,
     )?;
     let mut acc = SeriesAccumulator::new();
-    let rows = stmt.query_map(
-        params![dataset, dataset_variant.as_deref()],
-        |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, i64>(5)?,
-            ))
-        },
-    )?;
+    let rows = stmt.query_map(params![dataset, dataset_variant.as_deref()], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, String>(4)?,
+            row.get::<_, i64>(5)?,
+        ))
+    })?;
     let mut any = false;
     for row in rows {
         any = true;
@@ -624,10 +646,7 @@ fn collect_compression_size_chart(
     Ok(Some(acc.finish(name, "bytes")))
 }
 
-fn collect_random_access_chart(
-    conn: &Connection,
-    dataset: &str,
-) -> Result<Option<ChartResponse>> {
+fn collect_random_access_chart(conn: &Connection, dataset: &str) -> Result<Option<ChartResponse>> {
     let mut stmt = conn.prepare(
         r#"
         SELECT r.commit_sha,

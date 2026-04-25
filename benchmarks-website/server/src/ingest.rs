@@ -17,13 +17,11 @@ use serde_json::Value;
 
 use crate::app::AppState;
 use crate::db::{
-    self, measurement_id_compression_size, measurement_id_compression_time,
-    measurement_id_query, measurement_id_random_access, measurement_id_vector_search,
+    self, measurement_id_compression_size, measurement_id_compression_time, measurement_id_query,
+    measurement_id_random_access, measurement_id_vector_search,
 };
 use crate::error::IngestError;
-use crate::records::{
-    CommitInfo, Envelope, QueryMeasurement, Record, VectorSearchRun,
-};
+use crate::records::{CommitInfo, Envelope, QueryMeasurement, Record, VectorSearchRun};
 use crate::schema::SCHEMA_VERSION;
 
 /// Successful ingest response body.
@@ -40,8 +38,8 @@ pub async fn handle(
     body: Json<Value>,
 ) -> Result<impl IntoResponse, IngestError> {
     let Json(value) = body;
-    let envelope: Envelope = serde_json::from_value(value)
-        .map_err(|e| IngestError::Malformed(e.to_string()))?;
+    let envelope: Envelope =
+        serde_json::from_value(value).map_err(|e| IngestError::Malformed(e.to_string()))?;
     validate_envelope(&envelope)?;
 
     let response = db::run_blocking(&state.db, move |conn| apply_envelope(conn, envelope))
@@ -97,11 +95,14 @@ fn apply_envelope(conn: &mut Connection, env: Envelope) -> Result<IngestResponse
                 }
             }
             Err(RecordError::Validation(msg)) => {
-                return Err(IngestError::Record { index: idx, message: msg }.into());
+                return Err(IngestError::Record {
+                    index: idx,
+                    message: msg,
+                }
+                .into());
             }
             Err(RecordError::Internal(err)) => {
-                return Err(err
-                    .context(format!("applying record at index {idx}")));
+                return Err(err.context(format!("applying record at index {idx}")));
             }
         }
     }
