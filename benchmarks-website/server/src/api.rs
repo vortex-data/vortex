@@ -7,11 +7,14 @@
 //! `benchmarks-website/planning/01-schema.md`. Slugs round-trip through
 //! [`crate::slug::ChartKey`].
 
-use anyhow::{Context as _, Result};
+use anyhow::Context as _;
+use anyhow::Result;
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::Path;
+use axum::extract::State;
 use axum::response::IntoResponse;
-use duckdb::{Connection, params};
+use duckdb::Connection;
+use duckdb::params;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 

@@ -6,7 +6,8 @@
 //! The token is read from `INGEST_BEARER_TOKEN` at startup and compared with
 //! constant-time equality.
 
-use axum::extract::{Request, State};
+use axum::extract::Request;
+use axum::extract::State;
 use axum::http::header::AUTHORIZATION;
 use axum::middleware::Next;
 use axum::response::Response;

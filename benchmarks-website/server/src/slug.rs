@@ -11,10 +11,13 @@
 //! source fact table and the JSON encodes the chart key. Round-tripping the
 //! slug back gives a strongly-typed [`ChartKey`].
 
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::Context as _;
+use anyhow::Result;
+use anyhow::anyhow;
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 const PREFIX_QUERY: &str = "qm";
 const PREFIX_COMPRESSION_TIME: &str = "ct";

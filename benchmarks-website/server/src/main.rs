@@ -6,7 +6,8 @@
 use std::env;
 use std::path::PathBuf;
 
-use anyhow::{Context as _, Result};
+use anyhow::Context as _;
+use anyhow::Result;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]

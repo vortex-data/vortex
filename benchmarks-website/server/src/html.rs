@@ -10,7 +10,9 @@
 
 use axum::Router;
 use axum::routing::get;
-use maud::{DOCTYPE, Markup, html};
+use maud::DOCTYPE;
+use maud::Markup;
+use maud::html;
 
 use crate::app::AppState;
 

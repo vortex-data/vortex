@@ -14,14 +14,17 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::{Context as _, Result};
+use anyhow::Context as _;
+use anyhow::Result;
 use duckdb::Connection;
 use tokio::sync::Mutex;
 use twox_hash::XxHash64;
 
-use crate::records::{
-    CompressionSize, CompressionTime, QueryMeasurement, RandomAccessTime, VectorSearchRun,
-};
+use crate::records::CompressionSize;
+use crate::records::CompressionTime;
+use crate::records::QueryMeasurement;
+use crate::records::RandomAccessTime;
+use crate::records::VectorSearchRun;
 use crate::schema::SCHEMA_DDL;
 
 /// A connection guard the rest of the crate hands around.

@@ -7,21 +7,29 @@
 //! transaction or none of them are. The reported `inserted`/`updated` counts
 //! aggregate across all five fact tables.
 
-use anyhow::{Context as _, Result};
+use anyhow::Context as _;
+use anyhow::Result;
 use axum::Json;
 use axum::extract::State;
 use axum::response::IntoResponse;
-use duckdb::{Connection, params};
+use duckdb::Connection;
+use duckdb::params;
 use serde::Serialize;
 use serde_json::Value;
 
 use crate::app::AppState;
-use crate::db::{
-    self, measurement_id_compression_size, measurement_id_compression_time, measurement_id_query,
-    measurement_id_random_access, measurement_id_vector_search,
-};
+use crate::db::measurement_id_compression_size;
+use crate::db::measurement_id_compression_time;
+use crate::db::measurement_id_query;
+use crate::db::measurement_id_random_access;
+use crate::db::measurement_id_vector_search;
+use crate::db::{self};
 use crate::error::IngestError;
-use crate::records::{CommitInfo, Envelope, QueryMeasurement, Record, VectorSearchRun};
+use crate::records::CommitInfo;
+use crate::records::Envelope;
+use crate::records::QueryMeasurement;
+use crate::records::Record;
+use crate::records::VectorSearchRun;
 use crate::schema::SCHEMA_VERSION;
 
 /// Successful ingest response body.

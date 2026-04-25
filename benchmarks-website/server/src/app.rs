@@ -8,16 +8,19 @@
 //! - `/api/ingest` (gated by [`crate::auth::require_bearer`])
 //! - HTML routes contributed by [`crate::html::router`]
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
 use axum::Router;
-use axum::routing::{get, post};
+use axum::routing::get;
+use axum::routing::post;
 
 use crate::api;
 use crate::auth::require_bearer;
-use crate::db::{self, DbHandle};
+use crate::db::DbHandle;
+use crate::db::{self};
 use crate::html;
 use crate::ingest;
 
