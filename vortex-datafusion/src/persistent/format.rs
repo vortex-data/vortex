@@ -530,10 +530,9 @@ impl FileFormat for VortexFormat {
                 let column_size = stats_set
                     .get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into())
                     .or_else(|| {
-                        field
-                            .data_type()
-                            .primitive_width()
-                            .map(|width| stats::Precision::Exact(width * num_rows))
+                        field.data_type().primitive_width().and_then(|width| {
+                            width.checked_mul(num_rows).map(stats::Precision::Exact)
+                        })
                     });
 
                 let target_dtype = DType::from_arrow(field.as_ref());
