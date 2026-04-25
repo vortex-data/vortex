@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
-use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
@@ -94,14 +93,7 @@ impl LayoutStrategy for ZonedStrategy {
             "ZonedStrategy requires block_size > 0 when writing"
         );
 
-        let stats: Arc<[Stat]> = self
-            .options
-            .stats
-            .as_ref()
-            .iter()
-            .cloned()
-            .sorted_unstable()
-            .collect();
+        let stats = Arc::clone(&self.options.stats);
         let session = session.clone();
         let compute_session = session.clone();
         let handle = session.handle();
@@ -113,13 +105,12 @@ impl LayoutStrategy for ZonedStrategy {
             self.options.max_variable_length_statistics_size,
         )));
 
-        let stats2 = Arc::clone(&stats);
         // We can compute per-chunk statistics in parallel, so we spawn tasks for each chunk
         let stream = SequentialStreamAdapter::new(
             stream.dtype().clone(),
             stream
                 .map(move |chunk| {
-                    let stats = Arc::clone(&stats2);
+                    let stats = Arc::clone(&stats);
                     let session = compute_session.clone();
                     handle2.spawn_cpu(move || {
                         let (sequence_id, chunk) = chunk?;
@@ -164,7 +155,7 @@ impl LayoutStrategy for ZonedStrategy {
             )
             .await?;
 
-        let Some(stats_table) = stats_accumulator.lock().as_array()? else {
+        let Some((stats_array, stats)) = stats_accumulator.lock().as_array()? else {
             // If we have no stats (e.g. the DType doesn't support them), then we just return the
             // child layout.
             return Ok(data_layout);
@@ -172,7 +163,7 @@ impl LayoutStrategy for ZonedStrategy {
 
         // We must defer creating the stats table LayoutWriter until now, because the DType of
         // the table depends on which stats were successfully computed.
-        let stats_stream = stats_table
+        let stats_stream = stats_array
             .into_array()
             .to_array_stream()
             .sequenced(eof.split_off());

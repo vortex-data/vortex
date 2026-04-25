@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::ArrayRef;
@@ -90,9 +91,10 @@ impl StatsAccumulator {
         Ok(())
     }
 
-    pub fn as_array(&mut self) -> VortexResult<Option<StructArray>> {
+    pub fn as_array(&mut self) -> VortexResult<Option<(StructArray, Arc<[Stat]>)>> {
         let mut names = Vec::new();
         let mut fields = Vec::new();
+        let mut stats = Vec::new();
 
         for builder in self
             .builders
@@ -107,6 +109,7 @@ impl StatsAccumulator {
                 continue;
             }
 
+            stats.push(builder.stat());
             names.extend(values.names);
             fields.extend(values.arrays);
         }
@@ -115,7 +118,8 @@ impl StatsAccumulator {
             return Ok(None);
         }
 
-        StructArray::try_new(names.into(), fields, self.length, Validity::NonNullable).map(Some)
+        let array = StructArray::try_new(names.into(), fields, self.length, Validity::NonNullable)?;
+        Ok(Some((array, stats.into())))
     }
 
     /// Returns an aggregated stats set for the table.
@@ -125,7 +129,7 @@ impl StatsAccumulator {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<StatsSet> {
         let mut stats_set = StatsSet::default();
-        let Some(array) = self.as_array()? else {
+        let Some((array, _)) = self.as_array()? else {
             return Ok(stats_set);
         };
 
@@ -415,7 +419,7 @@ mod tests {
             .vortex_expect("push_chunk should succeed for test data");
         acc.push_chunk(&builder2.finish(), &mut ctx)
             .vortex_expect("push_chunk should succeed for test data");
-        let stats_table = acc.as_array().unwrap().expect("Must have stats table");
+        let (stats_table, _) = acc.as_array().unwrap().expect("Must have stats table");
         assert_eq!(
             stats_table.names().as_ref(),
             &[
@@ -452,7 +456,7 @@ mod tests {
         let mut acc = StatsAccumulator::new(array.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
         acc.push_chunk(&array, &mut ctx)
             .vortex_expect("push_chunk should succeed for test array");
-        let stats_table = acc.as_array().unwrap().expect("Must have stats table");
+        let (stats_table, _) = acc.as_array().unwrap().expect("Must have stats table");
         assert_eq!(
             stats_table.names().as_ref(),
             &[
