@@ -260,6 +260,24 @@ impl SqlBenchmarkRunner {
         }
     }
 
+    /// Build v3 `query_measurement` records from the runner's collected results.
+    ///
+    /// Each [`QueryMeasurement`] is paired with its matching [`MemoryMeasurement`]
+    /// (matched on `(query_idx, target)`); pairs collapse into one record. If
+    /// `--track-memory` was off, no memory pair exists and the memory fields are
+    /// omitted from the record.
+    pub fn v3_records(&self) -> Vec<crate::v3::V3Record> {
+        let mut records = Vec::with_capacity(self.query_measurements.len());
+        for qm in &self.query_measurements {
+            let memory = self
+                .memory_measurements
+                .iter()
+                .find(|m| m.query_idx == qm.query_idx && m.target == qm.target);
+            records.push(crate::v3::query_measurement_record(qm, memory));
+        }
+        records
+    }
+
     /// Run (or explain) all queries for all formats synchronously.
     ///
     /// In `Run` mode, executes each query `iterations` times, collecting timing.

@@ -67,5 +67,8 @@ tracing-subscriber = { workspace = true, features = [
 url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 
+[dev-dependencies]
+insta = { workspace = true }
+
 [features]
 unstable_encodings = ["vortex/unstable_encodings"]
