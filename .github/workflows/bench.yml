@@ -92,7 +92,7 @@ jobs:
           VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
-          bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} --formats ${{ matrix.benchmark.formats }} -d gh-json -o results.json
+          bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} --formats ${{ matrix.benchmark.formats }} -d gh-json -o results.json --gh-json-v3 results.v3.jsonl
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v6
@@ -104,6 +104,19 @@ jobs:
         shell: bash
         run: |
           bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
+
+      - name: Ingest results to v3 server
+        if: vars.V3_INGEST_URL != ''
+        continue-on-error: true
+        shell: bash
+        env:
+          INGEST_BEARER_TOKEN: ${{ secrets.INGEST_BEARER_TOKEN }}
+        run: |
+          python3 scripts/post-ingest.py results.v3.jsonl \
+            --server "${{ vars.V3_INGEST_URL }}" \
+            --commit-sha "${{ github.sha }}" \
+            --benchmark-id "${{ matrix.benchmark.id }}" \
+            --repo-url "${{ github.server_url }}/${{ github.repository }}"
 
       - name: Alert incident.io
         if: failure()
