@@ -67,4 +67,4 @@
   #        sudo vi /etc/vortex-bench/secrets.env
   #        cd /opt/benchmarks-website
   #        docker compose up -d --force-recreate vortex-bench-server
-  #   d. Verify with `curl` against /healthz and a token-gated endpoint.
+  #   d. Verify with `curl` against /health and a token-gated endpoint.

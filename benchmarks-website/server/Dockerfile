@@ -22,7 +22,7 @@ RUN cargo build --release -p vortex-bench-server --bin vortex-bench-server
 FROM debian:bookworm-slim
 
 # Keep this in lockstep with libduckdb-sys in Cargo.lock.
-ARG DUCKDB_VERSION=1.4.1
+ARG DUCKDB_VERSION=1.5.2
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
