@@ -131,7 +131,9 @@ fn collect_health(conn: &Connection, db_path: String) -> Result<HealthResponse> 
     })
 }
 
-fn collect_groups(conn: &Connection) -> Result<Vec<Group>> {
+/// Collect every group + chart link derivable from the data. Used by both
+/// `GET /api/groups` and the HTML landing page.
+pub(crate) fn collect_groups(conn: &Connection) -> Result<Vec<Group>> {
     let mut groups: Vec<Group> = Vec::new();
 
     let qm_groups = collect_query_groups(conn).context("collect_query_groups")?;
@@ -391,7 +393,9 @@ fn collect_vector_search_groups(conn: &Connection) -> Result<Vec<Group>> {
     Ok(groups)
 }
 
-fn collect_chart(conn: &Connection, key: &ChartKey) -> Result<Option<ChartResponse>> {
+/// Collect the data for one chart by key. Used by both `GET /api/chart/:slug`
+/// and the HTML chart page.
+pub(crate) fn collect_chart(conn: &Connection, key: &ChartKey) -> Result<Option<ChartResponse>> {
     match key {
         ChartKey::QueryMeasurement {
             dataset,
