@@ -40,9 +40,11 @@ worked on in parallel**.
 ## Working branches
 
 - `develop` - the v2 site, in production. **Do not touch.**
-- `claude/review-benchmarks-redesign-BO3la` - this planning branch.
-- Component branches above - one per workstream, branched from
-  `develop`.
+- `ct/benchmarks-v3` - the integration branch carrying the
+  planning commit and any landed component PRs. All component
+  branches start here.
+- Component branches (one per workstream, see "Components" above),
+  each branched from `ct/benchmarks-v3` and PR'd back to it.
 
 ## What this plan is not
 

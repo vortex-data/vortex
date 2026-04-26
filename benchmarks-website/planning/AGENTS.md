@@ -11,12 +11,13 @@ detail belongs in component plans.
 ## What you're working on
 
 The **alpha** of v3 of `bench.vortex.dev`. Target: a single Rust
-binary with **DuckDB on local disk**. The smallest end-to-end loop
-that proves the design.
+binary (axum + maud + duckdb-rs) with **DuckDB on local disk**.
+The smallest end-to-end loop that proves the design.
 
-The v2 site at `benchmarks-website/` is in production and stays
-running unchanged. v3 lives alongside in a new crate under
-`benchmarks-website/` (path is the server agent's call).
+The v2 site (top-level files in `benchmarks-website/`:
+`server.js`, `src/`, `package.json`, etc.) is in production and
+stays running unchanged. v3 lives alongside in
+`vortex-bench-server` at `benchmarks-website/server/`.
 
 Anything not listed in [`README.md`](./README.md) under
 "Components" is **deferred**. See [`deferred.md`](./deferred.md).
@@ -43,8 +44,8 @@ You **don't** need to read other components' plans.
 See the root [`CLAUDE.md`](/CLAUDE.md) for Rust style, test layout,
 and CI norms. Project-specific:
 
-- New crates go under `benchmarks-website/`. Add to root
-  `Cargo.toml` workspace members.
+- The v3 server crate lives at `benchmarks-website/server/` and is
+  registered in the root `Cargo.toml` `members` list.
 - All commits need a `Signed-off-by:` trailer.
 - Run `cargo +nightly fmt --all` and narrow clippy on what you
   changed.
@@ -70,10 +71,8 @@ and CI norms. Project-specific:
 | Branch | Purpose |
 |---|---|
 | `develop` | Live v2 site. Don't break. |
-| `claude/review-benchmarks-redesign-BO3la` | This planning branch. |
-| `claude/benchmarks-v3-<component>` | Per-workstream feature branches. |
-
-Component branches start from `develop`.
+| `ct/benchmarks-v3` | Integration branch carrying the planning commit + landed component PRs. All component branches start here. |
+| `claude/benchmarks-v3-<component>` | Per-workstream feature branches, each branched from `ct/benchmarks-v3` and PR'd back to it. |
 
 ## How to update this file
 
