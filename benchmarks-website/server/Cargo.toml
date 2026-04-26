@@ -26,7 +26,8 @@ path = "src/main.rs"
 anyhow = { workspace = true }
 axum = "0.8"
 base64 = "0.22"
-duckdb = { version = "1.4", features = ["bundled"] }
+# track vortex-duckdb's bundled engine version (build.rs)
+duckdb = { version = "1.10502", features = ["bundled"] }
 maud = { version = "0.27", features = ["axum"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
