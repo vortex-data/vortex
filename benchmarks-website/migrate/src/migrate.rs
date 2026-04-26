@@ -12,6 +12,8 @@
 use std::collections::BTreeMap;
 use std::io::BufRead;
 use std::path::Path;
+use std::time::Duration;
+use std::time::Instant;
 
 use anyhow::Context as _;
 use anyhow::Result;
@@ -19,6 +21,7 @@ use duckdb::Connection;
 use duckdb::Statement;
 use duckdb::Transaction;
 use duckdb::params;
+use tracing::info;
 use tracing::warn;
 use vortex_bench_server::db::measurement_id_compression_size;
 use vortex_bench_server::db::measurement_id_compression_time;
@@ -92,12 +95,21 @@ pub fn run(source: &Source, target: &Path) -> Result<MigrationSummary> {
     let mut conn = open_target_db(target)?;
     let mut summary = MigrationSummary::default();
 
+    info!(source = %source.describe(), "Reading commits.json");
     let commits = read_commits(source)?;
+    info!(commits = commits.len(), "Loaded commits");
     summary.commits_inserted = upsert_all_commits(&mut conn, &commits, &mut summary)?;
 
+    info!("Migrating data.json.gz");
     migrate_data_jsonl(&mut conn, source, &commits, &mut summary)?;
+    info!(
+        records = summary.records_read,
+        inserted = summary.total_inserted(),
+        "data.json.gz done",
+    );
 
     for name in source.list_file_sizes()? {
+        info!(name = %name, "Migrating file-sizes");
         if let Err(e) = migrate_file_sizes(&mut conn, source, &name, &commits, &mut summary) {
             warn!("file-sizes file {name} failed: {e:#}");
         }
@@ -149,9 +161,11 @@ fn migrate_data_jsonl(
     summary: &mut MigrationSummary,
 ) -> Result<()> {
     let reader = source.open_data_jsonl()?;
-    let mut lines = reader.lines();
+    let mut lines = reader.lines().peekable();
+    let started = Instant::now();
+    let mut last_log = Instant::now();
     const BATCH: u64 = 10_000;
-    loop {
+    while lines.peek().is_some() {
         let tx = conn.transaction().context("begin data tx")?;
         let mut stmts = DataStatements::prepare(&tx)?;
         let mut in_batch = 0u64;
@@ -172,12 +186,23 @@ fn migrate_data_jsonl(
             };
             apply_v2_record(&mut stmts, &record, commits, summary)?;
             in_batch += 1;
+            if last_log.elapsed() >= Duration::from_secs(5) {
+                let elapsed = started.elapsed().as_secs_f64();
+                let rate = summary.records_read as f64 / elapsed.max(0.001);
+                info!(
+                    records = summary.records_read,
+                    rate = format!("{rate:.0}/s"),
+                    query = summary.query_inserted,
+                    compression_time = summary.compression_time_inserted,
+                    compression_size = summary.compression_size_inserted,
+                    random_access = summary.random_access_inserted,
+                    "migration progress",
+                );
+                last_log = Instant::now();
+            }
         }
         drop(stmts);
         tx.commit().context("commit data batch")?;
-        if in_batch == 0 {
-            break;
-        }
     }
     Ok(())
 }
@@ -448,9 +473,11 @@ fn migrate_file_sizes(
         .and_then(|s| s.strip_suffix(".json.gz"))
         .unwrap_or(name)
         .to_string();
-    let mut lines = reader.lines();
+    let mut lines = reader.lines().peekable();
+    let started = Instant::now();
+    let mut last_log = Instant::now();
     const BATCH: u64 = 10_000;
-    loop {
+    while lines.peek().is_some() {
         let tx = conn.transaction().context("begin file-sizes tx")?;
         let mut stmt = tx.prepare(SQL_UPSERT_FILE_SIZE)?;
         let mut in_batch = 0u64;
@@ -480,12 +507,20 @@ fn migrate_file_sizes(
             upsert_file_size_row(&mut stmt, &sz, &dataset)?;
             summary.file_size_inserted += 1;
             in_batch += 1;
+            if last_log.elapsed() >= Duration::from_secs(5) {
+                let elapsed = started.elapsed().as_secs_f64();
+                let rate = summary.file_size_inserted as f64 / elapsed.max(0.001);
+                info!(
+                    name = %name,
+                    file_sizes = summary.file_size_inserted,
+                    rate = format!("{rate:.0}/s"),
+                    "file-sizes progress",
+                );
+                last_log = Instant::now();
+            }
         }
         drop(stmt);
         tx.commit().context("commit file-sizes batch")?;
-        if in_batch == 0 {
-            break;
-        }
     }
     Ok(())
 }
