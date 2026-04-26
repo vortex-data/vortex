@@ -10353,6 +10353,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-bench-migrate"
+version = "0.1.0-alpha.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "duckdb",
+ "flate2",
+ "reqwest 0.13.2",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "vortex-bench-server",
+]
+
+[[package]]
 name = "vortex-bench-server"
 version = "0.1.0-alpha.0"
 dependencies = [
