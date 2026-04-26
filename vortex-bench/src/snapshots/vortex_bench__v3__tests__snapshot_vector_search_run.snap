@@ -1,0 +1,23 @@
+---
+source: vortex-bench/src/v3.rs
+expression: render(&record)
+---
+{
+  "kind": "vector_search_run",
+  "commit_sha": "<commit-sha>",
+  "dataset": "cohere-large-10m",
+  "layout": "partitioned",
+  "flavor": "vortex-turboquant",
+  "threshold": 0.85,
+  "value_ns": 42000000,
+  "all_runtimes_ns": [
+    45000000,
+    42000000,
+    41000000
+  ],
+  "matches": 123,
+  "rows_scanned": 10000000,
+  "bytes_scanned": 512000000,
+  "iterations": 3,
+  "env_triple": "<env-triple>"
+}
