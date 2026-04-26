@@ -7,9 +7,12 @@
 //! [`tokio::sync::Mutex`]. All DB work runs inside `spawn_blocking` so the
 //! Tokio runtime is never blocked on synchronous DuckDB calls.
 //!
-//! `measurement_id` is a server-internal xxhash64 over each table's
-//! dimensional tuple. The hash never crosses a process boundary, so the
-//! exact byte layout below is private to this server.
+//! `measurement_id` is a server-internal xxhash64 over `commit_sha` plus
+//! each table's dimensional tuple. Including `commit_sha` makes every
+//! (commit, dim) pair a distinct row, which is what the chart pages render
+//! as a time series; re-ingest of the same pair is the upsert case. The
+//! hash never crosses a process boundary, so the exact byte layout below
+//! is private to this server.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -99,10 +102,12 @@ fn hasher_for(tag: &'static str) -> XxHash64 {
     h
 }
 
-/// Hash for `query_measurements` rows. Matches the dim columns marked NOT NULL
-/// in `01-schema.md` plus the optional dimensions that distinguish rows.
+/// Hash for `query_measurements` rows. Includes `commit_sha` so each
+/// (commit, dim tuple) pair gets a distinct row; re-emission of the same
+/// pair is the upsert case.
 pub fn measurement_id_query(r: &QueryMeasurement) -> i64 {
     let mut h = hasher_for("query_measurements");
+    write_str(&mut h, &r.commit_sha);
     write_str(&mut h, &r.dataset);
     write_opt_str(&mut h, r.dataset_variant.as_deref());
     write_opt_str(&mut h, r.scale_factor.as_deref());
@@ -116,6 +121,7 @@ pub fn measurement_id_query(r: &QueryMeasurement) -> i64 {
 /// Hash for `compression_times` rows.
 pub fn measurement_id_compression_time(r: &CompressionTime) -> i64 {
     let mut h = hasher_for("compression_times");
+    write_str(&mut h, &r.commit_sha);
     write_str(&mut h, &r.dataset);
     write_opt_str(&mut h, r.dataset_variant.as_deref());
     write_str(&mut h, &r.format);
@@ -126,6 +132,7 @@ pub fn measurement_id_compression_time(r: &CompressionTime) -> i64 {
 /// Hash for `compression_sizes` rows.
 pub fn measurement_id_compression_size(r: &CompressionSize) -> i64 {
     let mut h = hasher_for("compression_sizes");
+    write_str(&mut h, &r.commit_sha);
     write_str(&mut h, &r.dataset);
     write_opt_str(&mut h, r.dataset_variant.as_deref());
     write_str(&mut h, &r.format);
@@ -135,6 +142,7 @@ pub fn measurement_id_compression_size(r: &CompressionSize) -> i64 {
 /// Hash for `random_access_times` rows.
 pub fn measurement_id_random_access(r: &RandomAccessTime) -> i64 {
     let mut h = hasher_for("random_access_times");
+    write_str(&mut h, &r.commit_sha);
     write_str(&mut h, &r.dataset);
     write_str(&mut h, &r.format);
     finish(h)
@@ -144,6 +152,7 @@ pub fn measurement_id_random_access(r: &RandomAccessTime) -> i64 {
 /// of the dim tuple per `01-schema.md`.
 pub fn measurement_id_vector_search(r: &VectorSearchRun) -> i64 {
     let mut h = hasher_for("vector_search_runs");
+    write_str(&mut h, &r.commit_sha);
     write_str(&mut h, &r.dataset);
     write_str(&mut h, &r.layout);
     write_str(&mut h, &r.flavor);
