@@ -6,12 +6,15 @@
 
 use std::net::SocketAddr;
 
-use anyhow::{Context as _, Result};
-use serde_json::{Value, json};
+use anyhow::Context as _;
+use anyhow::Result;
+use serde_json::Value;
+use serde_json::json;
 use tempfile::TempDir;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
-use vortex_bench_server::app::{AppState, router};
+use vortex_bench_server::app::AppState;
+use vortex_bench_server::app::router;
 
 const TOKEN: &str = "test-bearer-token";
 
