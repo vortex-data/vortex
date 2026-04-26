@@ -42,7 +42,7 @@
   docker compose pull vortex-bench-server
   docker compose up -d vortex-bench-server
   # Smoke-check on the host:
-  curl -sf http://127.0.0.1:3001/healthz || echo "v3 not responding"
+  curl -sf http://127.0.0.1:3001/health || echo "v3 not responding"
 
   7. Install the daily DuckDB backup cron
   # Copy the backup script from the repo checkout to a stable location.
