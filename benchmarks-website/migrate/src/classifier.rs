@@ -408,8 +408,12 @@ fn bin_random_access(cls: &V2Classification, record: &V2Record) -> Option<V3Bin>
     // legacy). After stripping the `-tokio-local-disk` suffix, map the
     // v2 random-access ext label (`vortex`, from `Format::ext()`) to
     // the canonical name (`vortex-file-compressed`, from
-    // `Format::name()`). `parquet`, `lance`, and `vortex-compact`
-    // already match between ext and name.
+    // `Format::name()`). `parquet` and `lance` match between ext and
+    // name. The `vortex` ext is shared by both `OnDiskVortex` (name
+    // `vortex-file-compressed`) and `VortexCompact` (name
+    // `vortex-compact`), but v2's random-access bench only emitted
+    // `OnDiskVortex`, so mapping to `vortex-file-compressed` is
+    // correct for all historical data.
     let parts: Vec<&str> = record.name.split('/').collect();
     let raw = match parts.len() {
         4 => parts[3],

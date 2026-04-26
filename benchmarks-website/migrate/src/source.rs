@@ -23,6 +23,7 @@ use std::path::PathBuf;
 use anyhow::Context as _;
 use anyhow::Result;
 use flate2::read::GzDecoder;
+use tracing::info;
 
 /// Public S3 bucket the live v2 server reads from.
 pub const PUBLIC_BUCKET_BASE: &str = "https://vortex-ci-benchmark-results.s3.amazonaws.com";
@@ -39,6 +40,14 @@ pub enum Source {
 }
 
 impl Source {
+    /// Short human-readable description for log messages.
+    pub fn describe(&self) -> String {
+        match self {
+            Source::PublicS3 => "public S3 bucket".to_string(),
+            Source::Local(p) => format!("local dir {}", p.display()),
+        }
+    }
+
     /// Open `data.json.gz` for streaming, decompressing on the fly.
     pub fn open_data_jsonl(&self) -> Result<Box<dyn BufRead>> {
         let stream = self.open_raw("data.json.gz")?;
@@ -102,6 +111,7 @@ fn open_local(path: &Path) -> Result<Box<dyn Read + Send>> {
 
 fn open_s3(name: &str) -> Result<Box<dyn Read + Send>> {
     let url = format!("{PUBLIC_BUCKET_BASE}/{name}");
+    info!(url = %url, "GET");
     let resp = reqwest::blocking::get(&url).with_context(|| format!("GET {url}"))?;
     if !resp.status().is_success() {
         anyhow::bail!("GET {url} returned {}", resp.status());
