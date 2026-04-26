@@ -54,7 +54,7 @@ fn record_with_storage_and_sf(name: &str, storage: &str, suite: &str, sf: &str) 
         query_idx: 12,
         storage: "nvme".into(),
         engine: "datafusion".into(),
-        format: "vortex".into(),
+        format: "vortex-file-compressed".into(),
     },
 )]
 #[case::statpopgen(
@@ -114,7 +114,7 @@ fn non_fan_out_query_records(#[case] name: &str, #[case] expected: V3Bin) {
         query_idx: 22,
         storage: "nvme".into(),
         engine: "duckdb".into(),
-        format: "vortex".into(),
+        format: "vortex-file-compressed".into(),
     },
 )]
 #[case::tpcds_nvme_sf10(
@@ -129,7 +129,7 @@ fn non_fan_out_query_records(#[case] name: &str, #[case] expected: V3Bin) {
         query_idx: 5,
         storage: "nvme".into(),
         engine: "datafusion".into(),
-        format: "vortex".into(),
+        format: "vortex-file-compressed".into(),
     },
 )]
 fn fan_out_query_records(
@@ -148,21 +148,28 @@ fn fan_out_query_records(
     "random-access/taxi/take/parquet-tokio-local-disk",
     V3Bin::RandomAccess {
         dataset: "taxi/take".into(),
-        format: "parquet-nvme".into(),
+        format: "parquet".into(),
     },
 )]
 #[case::random_access_4_part_vortex(
     "random-access/chimp/take/vortex-tokio-local-disk",
     V3Bin::RandomAccess {
         dataset: "chimp/take".into(),
-        format: "vortex-nvme".into(),
+        format: "vortex-file-compressed".into(),
     },
 )]
 #[case::random_access_2_part_legacy(
     "random-access/parquet-tokio-local-disk",
     V3Bin::RandomAccess {
         dataset: "random access".into(),
-        format: "parquet-nvme".into(),
+        format: "parquet".into(),
+    },
+)]
+#[case::random_access_4_part_lance(
+    "random-access/taxi/take/lance-tokio-local-disk",
+    V3Bin::RandomAccess {
+        dataset: "taxi/take".into(),
+        format: "lance".into(),
     },
 )]
 fn random_access_records(#[case] name: &str, #[case] expected: V3Bin) {
