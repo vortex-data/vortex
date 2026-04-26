@@ -15,6 +15,8 @@ decisions deliberately stay open until we get there - see
 - **Single binary**: server is one Rust process - HTTP API + HTML
   routes + DuckDB owner. No separate ingester service, no S3
   coordination layer for writes, no client-side WASM.
+- **Server crate**: `vortex-bench-server` at `benchmarks-website/server/`,
+  registered as a workspace member.
 - **Server-side classifier**: there isn't one. The emitter writes
   v3-shape records directly.
 - **Fact-table layout**: one fact table per measurement family
