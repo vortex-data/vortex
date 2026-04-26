@@ -72,15 +72,18 @@ decisions deliberately stay open until we get there - see
   `/api/groups` as opaque strings and feeds them back unmodified
   into `/api/chart/:slug`. The server picks the slug format.
 
-## Recommended (not pinned)
+## In use (locked in by the server PR)
 
-These are starting points, not contracts. If the server agent has
-a stronger preference, change them.
+These were "recommended" before the server PR landed; they are now
+the actual stack in `benchmarks-website/server/Cargo.toml`. The
+web-ui agent inherits them by working in the same crate.
 
 - HTTP framework: `axum`.
-- Compile-time HTML templates: `maud` (`askama` is fine).
-- DuckDB driver: `duckdb-rs`. Pin a version that supports
-  `INSERT ... ON CONFLICT (...) DO UPDATE`.
+- Compile-time HTML templates: `maud`.
+- DuckDB driver: `duckdb-rs`, version pinned in the server crate's
+  `Cargo.toml`.
+- Snapshot tests: `insta` (workspace dep).
+- Logging: `tracing` (workspace dep).
 
 ## Open
 
