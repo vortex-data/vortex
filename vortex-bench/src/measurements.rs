@@ -244,7 +244,7 @@ pub struct QueryMeasurement {
     pub target: Target,
     pub benchmark_dataset: BenchmarkDataset,
     pub benchmark_runner: String,
-    /// The storage backend against which this test was run. One of: s3, gcs, nvme.
+    /// The storage backend against which this test was run. One of: s3, nvme.
     pub storage: String,
     pub runs: Vec<Duration>,
 }
