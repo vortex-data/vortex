@@ -376,6 +376,7 @@ jobs:
           bash scripts/bench-taskset.sh uv run --project bench-orchestrator vx-bench run "${{ matrix.subcommand }}" \
             --targets-json '${{ steps.targets.outputs.targets_json }}' \
             --output results.json \
+            --gh-json-v3 results.v3.jsonl \
             --no-build \
             --runner "ec2_${{ inputs.machine_type }}" \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
@@ -395,6 +396,7 @@ jobs:
           bash scripts/bench-taskset.sh uv run --project bench-orchestrator vx-bench run "${{ matrix.subcommand }}" \
             --targets-json '${{ steps.targets.outputs.targets_json }}' \
             --output results.json \
+            --gh-json-v3 results.v3.jsonl \
             --no-build \
             --runner "ec2_${{ inputs.machine_type }}" \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
@@ -498,6 +500,19 @@ jobs:
         shell: bash
         run: |
           bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
+
+      - name: Ingest results to v3 server
+        if: inputs.mode == 'develop' && vars.V3_INGEST_URL != ''
+        continue-on-error: true
+        shell: bash
+        env:
+          INGEST_BEARER_TOKEN: ${{ secrets.INGEST_BEARER_TOKEN }}
+        run: |
+          python3 scripts/post-ingest.py results.v3.jsonl \
+            --server "${{ vars.V3_INGEST_URL }}" \
+            --commit-sha "${{ github.sha }}" \
+            --benchmark-id "${{ matrix.id }}" \
+            --repo-url "${{ github.server_url }}/${{ github.repository }}"
 
       - name: Upload File Sizes
         if: inputs.mode == 'develop' && matrix.remote_storage == null

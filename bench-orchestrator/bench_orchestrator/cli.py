@@ -210,6 +210,10 @@ def run(
         Path | None,
         typer.Option("--output", help="Optional path for compatibility JSONL output"),
     ] = None,
+    gh_json_v3: Annotated[
+        Path | None,
+        typer.Option("--gh-json-v3", help="Optional path for v3 JSONL records emitted by the benchmark binary"),
+    ] = None,
     options: Annotated[list[str] | None, typer.Option("--opt", help="Engine or benchmark specific options")] = None,
 ) -> None:
     """Run benchmarks with specified configuration."""
@@ -294,6 +298,7 @@ def run(
                         sample_rate=sample_rate,
                         tracing=tracing,
                         runner=runner,
+                        gh_json_v3=gh_json_v3,
                         on_result=lambda line, store_writer=ctx.write_raw_json, compatibility=compatibility_file: (
                             write_result_line(
                                 line,
