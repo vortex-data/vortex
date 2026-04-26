@@ -32,6 +32,7 @@ use vortex_bench::random_access::RandomAccessor;
 use vortex_bench::random_access::VortexRandomAccessor;
 use vortex_bench::setup_logging_and_tracing;
 use vortex_bench::utils::constants::STORAGE_NVME;
+use vortex_bench::v3;
 
 // ---------------------------------------------------------------------------
 // Access patterns
@@ -173,6 +174,10 @@ struct Args {
     display_format: DisplayFormat,
     #[arg(short)]
     output_path: Option<PathBuf>,
+    /// Additionally write v3 JSONL records to this path. See
+    /// `benchmarks-website/planning/02-contracts.md`.
+    #[arg(long)]
+    gh_json_v3: Option<PathBuf>,
     /// Which datasets to benchmark random access on.
     #[arg(
         long,
@@ -205,6 +210,7 @@ async fn main() -> Result<()> {
         args.open_mode,
         args.display_format,
         args.output_path,
+        args.gh_json_v3,
     )
     .await
 }
@@ -340,6 +346,7 @@ async fn run_random_access(
     open_mode: OpenMode,
     display_format: DisplayFormat,
     output_path: Option<PathBuf>,
+    gh_json_v3: Option<PathBuf>,
 ) -> Result<()> {
     let reopen_variants: &[bool] = match open_mode {
         OpenMode::Cached => &[false],
@@ -358,6 +365,7 @@ async fn run_random_access(
 
     let mut targets = Vec::new();
     let mut measurements = Vec::new();
+    let mut v3_records: Vec<v3::V3Record> = Vec::new();
 
     for dataset in datasets {
         for format in &formats {
@@ -380,6 +388,7 @@ async fn run_random_access(
                     )
                     .await?;
 
+                    v3_records.push(v3::random_access_record(&measurement, dataset.name()));
                     targets.push(measurement.target);
                     measurements.push(measurement);
                     progress.inc(1);
@@ -406,6 +415,7 @@ async fn run_random_access(
                     )
                     .await?;
 
+                    v3_records.push(v3::random_access_record(&measurement, dataset.name()));
                     targets.push(measurement.target);
                     measurements.push(measurement);
                     progress.inc(1);
@@ -415,6 +425,10 @@ async fn run_random_access(
     }
 
     progress.finish();
+
+    if let Some(path) = gh_json_v3 {
+        v3::write_jsonl_to_path(&path, &v3_records)?;
+    }
 
     let mut writer = create_output_writer(&display_format, output_path, BENCHMARK_ID)?;
 
