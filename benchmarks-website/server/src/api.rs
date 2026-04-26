@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Read-side API: `/api/groups`, `/api/chart/:slug`, `/health`.
+//! Read-side API: `/api/groups`, `/api/chart/{slug}`, `/health`.
 //!
 //! Group / chart / series fit follows
 //! `benchmarks-website/planning/01-schema.md`. Slugs round-trip through
@@ -81,7 +81,7 @@ pub async fn groups(State(state): State<AppState>) -> Result<impl IntoResponse, 
     Ok(Json(GroupsResponse { groups }))
 }
 
-/// Handler for `GET /api/chart/:slug`.
+/// Handler for `GET /api/chart/{slug}`.
 pub async fn chart(
     State(state): State<AppState>,
     Path(slug): Path<String>,

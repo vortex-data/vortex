@@ -37,7 +37,7 @@ async fn placeholder() -> Markup {
                 }
                 ul {
                     li { code { "GET /api/groups" } }
-                    li { code { "GET /api/chart/:slug" } }
+                    li { code { "GET /api/chart/{slug}" } }
                     li { code { "GET /health" } }
                     li { code { "POST /api/ingest" } " (bearer auth)" }
                 }

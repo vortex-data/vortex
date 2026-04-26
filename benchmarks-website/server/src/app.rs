@@ -4,7 +4,7 @@
 //! Axum [`Router`] composition and shared [`AppState`].
 //!
 //! The router mounts:
-//! - `/api/groups`, `/api/chart/:slug`, `/health` (read API)
+//! - `/api/groups`, `/api/chart/{slug}`, `/health` (read API)
 //! - `/api/ingest` (gated by [`crate::auth::require_bearer`])
 //! - HTML routes contributed by [`crate::html::router`]
 
@@ -57,7 +57,7 @@ pub fn router(state: AppState) -> Router {
 
     let read_routes = Router::new()
         .route("/api/groups", get(api::groups))
-        .route("/api/chart/:slug", get(api::chart))
+        .route("/api/chart/{slug}", get(api::chart))
         .route("/health", get(api::health));
 
     Router::new()
