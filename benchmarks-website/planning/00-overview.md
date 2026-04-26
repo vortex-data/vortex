@@ -8,14 +8,14 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 ## What we're building
 
 A replacement for the current `bench.vortex.dev` site. The new
-stack is a **single Rust binary** that owns a **DuckDB database**
-on local disk and serves the website plus an `/api/ingest` route.
-CI eventually POSTs new benchmark results there. There is no
-separate ingester service, no S3 coordination layer for writes, no
-client-side WASM.
+stack is a **single Rust binary** (axum + maud + duckdb-rs) that
+owns a **DuckDB database** on local disk and serves the website
+plus an `/api/ingest` route. CI eventually POSTs new benchmark
+results there. There is no separate ingester service, no S3
+coordination layer for writes, no client-side WASM.
 
-HTTP framework, templating engine, and module layout are the
-server agent's call.
+The server crate is `vortex-bench-server` at
+`benchmarks-website/server/`.
 
 ## Phasing
 
@@ -98,6 +98,7 @@ alpha; they come back in phase 2.
 ## Status of v2 during alpha
 
 v2 stays in production untouched. Do not edit
-`benchmarks-website/server.js` or `benchmarks-website/src/`. v3
-lives alongside under `benchmarks-website/` in a new Cargo crate
-(path is the server agent's call).
+`benchmarks-website/server.js`, `benchmarks-website/src/`, or any
+other v2 files at `benchmarks-website/` top level. v3 lives in the
+sibling subdirectory at `benchmarks-website/server/`
+(`vortex-bench-server` crate).
