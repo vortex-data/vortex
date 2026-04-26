@@ -21,8 +21,11 @@ migration framework; those are deferred (see
    columns. Adding a nullable column is cheap; the readability win
    is worth it.
 4. **Hashed primary key per table.** Each fact table has a
-   `measurement_id` that is a deterministic 64-bit hash of that
-   table's dimensional tuple. Server-internal; not on the wire.
+   `measurement_id` that is a deterministic 64-bit hash of
+   `commit_sha` plus that table's dimensional tuple. Including
+   `commit_sha` makes every (commit, dim) pair a distinct row -
+   that's what the chart pages render as a time series.
+   Server-internal; not on the wire.
 5. **`commits` is the only dim table.** Engine, format, dataset,
    etc. stay as inline strings; DuckDB's dictionary encoding makes
    a lookup table pointless.
@@ -184,12 +187,15 @@ on read.
 
 ## `measurement_id` hash
 
-Per-table xxhash64 over each table's dimensional tuple. The hash is
-**server-internal** - the wire never carries it. The server's INSERT
-path computes it before each `INSERT ... ON CONFLICT DO UPDATE`,
-which gives idempotent upsert on re-emission of the same dim tuple.
-Encoding details (input order, NULL handling, byte layout) are the
-server's call, since the value never crosses a process boundary.
+Per-table xxhash64 over `commit_sha` plus that table's dimensional
+tuple. Including `commit_sha` makes every (commit, dim) pair a
+distinct row, which is what the chart pages render as a time
+series. The hash is **server-internal** - the wire never carries
+it. The server's INSERT path computes it before each
+`INSERT ... ON CONFLICT DO UPDATE`, which gives idempotent upsert
+on re-emission of the same (commit, dim) pair. Encoding details
+(input order, NULL handling, byte layout) are the server's call,
+since the value never crosses a process boundary.
 
 When the historical migrator lands (deferred), it reuses the
 server's hash function via a shared crate.
