@@ -1,0 +1,17 @@
+---
+source: vortex-bench/src/v3.rs
+expression: render(&record)
+---
+{
+  "kind": "random_access_time",
+  "commit_sha": "<commit-sha>",
+  "dataset": "taxi",
+  "format": "parquet",
+  "value_ns": 850000,
+  "all_runtimes_ns": [
+    800000,
+    900000,
+    850000
+  ],
+  "env_triple": "<env-triple>"
+}

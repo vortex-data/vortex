@@ -28,6 +28,7 @@ use vector_search_bench::scan::ScanConfig;
 use vector_search_bench::scan::ScanTiming;
 use vector_search_bench::scan::run_search_scan;
 use vortex_bench::setup_logging_and_tracing;
+use vortex_bench::v3;
 use vortex_bench::vector_dataset;
 use vortex_bench::vector_dataset::TrainLayout;
 use vortex_bench::vector_dataset::VectorDataset;
@@ -70,6 +71,11 @@ struct Args {
     /// Optional path to write the rendered table to instead of stdout.
     #[arg(long)]
     output_path: Option<PathBuf>,
+
+    /// Additionally write v3 JSONL records to this path. See
+    /// `benchmarks-website/planning/02-contracts.md`.
+    #[arg(long)]
+    gh_json_v3: Option<PathBuf>,
 
     /// Emit verbose tracing.
     #[arg(short, long)]
@@ -142,6 +148,36 @@ async fn main() -> Result<()> {
         dataset_name: dataset.name(),
         vortex_results: &pairs,
     };
+
+    // Emit v3 JSONL if requested. The records carry the per-scan dimensions that
+    // ScanTiming itself does not (dataset, layout, threshold).
+    if let Some(path) = args.gh_json_v3.as_ref() {
+        let records: Vec<v3::V3Record> = scan_timings
+            .iter()
+            .map(|scan| {
+                let all_runs_ns: Vec<u64> = scan
+                    .all_runs
+                    .iter()
+                    .map(|d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
+                    .collect();
+                let median_ns = u64::try_from(scan.median.as_nanos()).unwrap_or(u64::MAX);
+                v3::vector_search_record(
+                    v3::VectorSearchDims {
+                        dataset: dataset.name(),
+                        layout: layout.label(),
+                        flavor: scan.flavor.label(),
+                        threshold: f64::from(args.threshold),
+                    },
+                    median_ns,
+                    all_runs_ns,
+                    scan.matches,
+                    scan.rows_scanned,
+                    scan.bytes_scanned,
+                )
+            })
+            .collect();
+        v3::write_jsonl_to_path(path, &records)?;
+    }
 
     // Print the results.
     if let Some(path) = args.output_path {
