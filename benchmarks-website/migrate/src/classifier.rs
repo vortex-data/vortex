@@ -50,6 +50,14 @@ pub const QUERY_SUITES: &[QuerySuite] = &[
         skip: false,
     },
     QuerySuite {
+        prefix: "gharchive",
+        display_name: "GhArchive",
+        query_prefix: "GHARCHIVE",
+        dataset_key: None,
+        fan_out: false,
+        skip: false,
+    },
+    QuerySuite {
         prefix: "tpch",
         display_name: "TPC-H",
         query_prefix: "TPC-H",
@@ -71,7 +79,7 @@ pub const QUERY_SUITES: &[QuerySuite] = &[
         query_prefix: "FINEWEB",
         dataset_key: None,
         fan_out: false,
-        skip: true,
+        skip: false,
     },
 ];
 
@@ -221,6 +229,7 @@ pub fn get_group(record: &V2Record) -> Option<V2Group> {
     if lower.starts_with("vortex size/")
         || lower.starts_with("vortex-file-compressed size/")
         || lower.starts_with("parquet size/")
+        || lower.starts_with("parquet-zstd size/")
         || lower.starts_with("lance size/")
         || lower.contains(":raw size/")
         || lower.contains(":parquet-zstd size/")
@@ -237,6 +246,10 @@ pub fn get_group(record: &V2Record) -> Option<V2Group> {
         || lower.starts_with("lance decompress")
         || lower.starts_with("vortex:lance ratio")
         || lower.starts_with("vortex:parquet-zstd ratio")
+        // Typo'd v2 emitter wrote `parquet-zst` (no `d`) for some
+        // ratio records; match both spellings so they classify as
+        // derived ratios instead of falling through to Unknown.
+        || lower.starts_with("vortex:parquet-zst ratio")
         || lower.starts_with("vortex:raw ratio")
     {
         return Some(V2Group::Compression);
@@ -392,6 +405,132 @@ pub fn classify(record: &V2Record) -> Option<V3Bin> {
     }
 }
 
+/// Reason the classifier dropped a record. Intentional skips (v2
+/// patterns v3 deliberately doesn't store) are NOT errors; they don't
+/// count against the uncategorized gate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Skip {
+    /// `vortex:* ratio …` and `vortex:* size` — derived in v3 from
+    /// `compression_sizes` joined to itself.
+    DerivedRatio,
+    /// `throughput` records — v2 derived these from latencies.
+    Throughput,
+    /// A v2 query suite marked `skip: true` in QUERY_SUITES.
+    SkippedSuite,
+    /// random-access record with an unsupported part count.
+    UnsupportedShape,
+    /// Record had no `value` field.
+    NoValue,
+    /// Dim outside the v3 emitter's allowlist (e.g. `parquet-zstd`,
+    /// historical-only suites no longer in CI).
+    Deprecated,
+}
+
+/// Engines the v3 emitter produces today. Anything else is historical
+/// and gets bucketed as `Skip::Deprecated`.
+///
+/// ORCHESTRATOR NOTE: confirm against `vortex-bench`'s `Engine` enum
+/// before handing off; edit if the live set differs.
+const V3_ENGINES: &[&str] = &["datafusion", "duckdb", "vortex", "arrow"];
+
+/// Formats the v3 emitter produces today (`Format::name()` values).
+///
+/// ORCHESTRATOR NOTE: confirm against `vortex-bench/src/lib.rs`
+/// `Format::name()` before handing off.
+const V3_FORMATS: &[&str] = &[
+    "vortex-file-compressed",
+    "vortex-compact",
+    "parquet",
+    "lance",
+    "csv",
+    "arrow",
+    "duckdb",
+];
+
+/// Query suites the v3 CI runs today. Suites outside this list still
+/// classify (so historical analyses stay coherent) but get bucketed
+/// as `Skip::Deprecated` so they don't render as orphan charts in v3.
+///
+/// ORCHESTRATOR NOTE: add `fineweb` and/or `gharchive` here if a CI
+/// grep shows v3 still emits them.
+const V3_QUERY_SUITES: &[&str] = &["clickbench", "tpch", "tpcds", "statpopgen", "polarsignals"];
+
+/// Returns true if every dim that v3 stores as a column is on the
+/// emitter's current allowlist. Dim values outside the allowlist mean
+/// historical-only formats / engines that the v3 UI has nothing to
+/// render against.
+fn is_v3_dim(bin: &V3Bin) -> bool {
+    match bin {
+        V3Bin::Query { engine, format, .. } => {
+            V3_ENGINES.contains(&engine.as_str()) && V3_FORMATS.contains(&format.as_str())
+        }
+        V3Bin::CompressionTime { format, .. }
+        | V3Bin::CompressionSize { format, .. }
+        | V3Bin::RandomAccess { format, .. } => V3_FORMATS.contains(&format.as_str()),
+    }
+}
+
+/// Outcome of running the classifier on a v2 record. Distinguishes
+/// "we know we don't want this" (`Skip`) from "we don't recognize this"
+/// (`Unknown`); the migrator's 5% gate fires only on the latter.
+#[derive(Debug, Clone)]
+pub enum Outcome {
+    Bin(V3Bin),
+    Skip(Skip),
+    Unknown,
+}
+
+/// Like [`classify`], but reports *why* a record was dropped. Intended
+/// for the migrator so the 5% uncategorized gate doesn't trip on
+/// records v2 deliberately doesn't render (ratios, throughput,
+/// skipped suites).
+pub fn classify_outcome(record: &V2Record) -> Outcome {
+    if record.name.contains(" throughput") {
+        return Outcome::Skip(Skip::Throughput);
+    }
+    let Some(group) = get_group(record) else {
+        return Outcome::Unknown;
+    };
+    if let V2Group::Query { suite_index, .. } = &group
+        && QUERY_SUITES[*suite_index].skip
+    {
+        return Outcome::Skip(Skip::SkippedSuite);
+    }
+    let Some(cls) = classify_v2(record) else {
+        // get_group succeeded but classify_v2 didn't — shape mismatch.
+        return Outcome::Skip(Skip::UnsupportedShape);
+    };
+    let derived = match &cls.group {
+        V2Group::Compression => {
+            let lc = cls.chart.to_lowercase();
+            lc.contains("ratio") || lc.contains(':')
+        }
+        V2Group::CompressionSize => cls.chart.to_lowercase().contains(':'),
+        _ => false,
+    };
+    if derived {
+        return Outcome::Skip(Skip::DerivedRatio);
+    }
+    let bin = match &cls.group {
+        V2Group::RandomAccess => bin_random_access(&cls, record),
+        V2Group::Compression => bin_compression_time(&cls, record),
+        V2Group::CompressionSize => bin_compression_size(&cls, record),
+        V2Group::Query { .. } => bin_query(&cls, record),
+    };
+    let Some(bin) = bin else {
+        return Outcome::Unknown;
+    };
+    if !is_v3_dim(&bin) {
+        return Outcome::Skip(Skip::Deprecated);
+    }
+    if let V2Group::Query { suite_index, .. } = &group
+        && !V3_QUERY_SUITES.contains(&QUERY_SUITES[*suite_index].prefix)
+    {
+        return Outcome::Skip(Skip::Deprecated);
+    }
+    Outcome::Bin(bin)
+}
+
 fn bin_random_access(cls: &V2Classification, record: &V2Record) -> Option<V3Bin> {
     // v2 chart name shape: "RANDOM ACCESS" or "DATASET/PATTERN" (uppercase).
     // We store it as the v3 dataset value verbatim, lowercased so
@@ -482,8 +621,15 @@ fn bin_compression_size(cls: &V2Classification, _record: &V2Record) -> Option<V3
     if lc.contains(':') {
         return None;
     }
+    // `parquet-zstd size` shares a leading "parquet" with `parquet size`,
+    // so check the more specific prefix first. `format_query` upper-cases
+    // and replaces `-`/`_` with spaces, so the chart we match against is
+    // `"PARQUET ZSTD SIZE"` (no hyphen) — same convention as the existing
+    // `"parquet rs zstd compress time"` branches above.
     let format = if lc.starts_with("vortex size") {
         "vortex-file-compressed"
+    } else if lc.starts_with("parquet zstd size") {
+        "parquet-zstd"
     } else if lc.starts_with("parquet size") {
         "parquet"
     } else if lc.starts_with("lance size") {
@@ -523,8 +669,14 @@ fn bin_query(cls: &V2Classification, record: &V2Record) -> Option<V3Bin> {
     // `vortex-file-compressed`) that match what the v3 live emitter
     // writes. `cls.series` has been through v2's `ENGINE_RENAMES` for
     // UI display and is not appropriate for v3 columns.
+    //
+    // Older v2 records emitted display-case engines (e.g. `DataFusion`,
+    // `DuckDB`); newer ones emit lowercase. Lowercase here so dedup
+    // collapses both spellings into a single canonical row.
     let raw_series = record.name.split('/').nth(1)?;
     let (engine, format) = split_engine_format(raw_series)?;
+    let engine = engine.to_lowercase();
+    let format = format.to_lowercase();
 
     let storage_v3 = match storage.as_deref() {
         Some("S3") => "s3".to_string(),

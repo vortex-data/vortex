@@ -6,8 +6,11 @@
 
 use rstest::rstest;
 use serde_json::json;
+use vortex_bench_migrate::classifier::Outcome;
+use vortex_bench_migrate::classifier::Skip;
 use vortex_bench_migrate::classifier::V3Bin;
 use vortex_bench_migrate::classifier::classify;
+use vortex_bench_migrate::classifier::classify_outcome;
 use vortex_bench_migrate::classifier::format_query;
 use vortex_bench_migrate::classifier::rename_engine;
 use vortex_bench_migrate::v2::V2Record;
@@ -263,7 +266,6 @@ fn compression_size_records(#[case] name: &str, #[case] expected: V3Bin) {
 #[case::ratio_size_vortex_parquet("vortex:parquet-zstd size/clickbench")]
 #[case::ratio_size_vortex_raw("vortex:raw size/clickbench")]
 #[case::throughput("compress throughput/clickbench")]
-#[case::fineweb_skipped("fineweb_q01/datafusion:parquet")]
 #[case::nonsense_prefix("not-a-known-bench/series")]
 fn unmapped_records_yield_none(#[case] name: &str) {
     let r = record(name);
@@ -272,6 +274,94 @@ fn unmapped_records_yield_none(#[case] name: &str) {
         None,
         "expected {name:?} to classify as None (drop)",
     );
+}
+
+#[test]
+fn parquet_zstd_size_is_deprecated() {
+    // `parquet-zstd` is not on the v3 emitter's format allowlist, so
+    // historical `parquet-zstd size/...` records bucket under
+    // Skip::Deprecated and don't render as orphan charts in v3.
+    let r = record("parquet-zstd size/clickbench");
+    assert!(matches!(
+        classify_outcome(&r),
+        Outcome::Skip(Skip::Deprecated)
+    ));
+}
+
+#[test]
+fn vortex_parquet_zstd_ratio_is_intentional_skip() {
+    let r = record("vortex:parquet-zstd ratio compress time/clickbench");
+    assert!(matches!(
+        classify_outcome(&r),
+        Outcome::Skip(Skip::DerivedRatio)
+    ));
+}
+
+#[test]
+fn vortex_parquet_zst_typo_ratio_is_intentional_skip() {
+    // `parquet-zst` (no trailing `d`) was emitted by some v2 runs.
+    // Both spellings should classify as derived ratios.
+    for name in [
+        "vortex:parquet-zst ratio compress time/clickbench",
+        "vortex:parquet-zst ratio decompress time/clickbench",
+    ] {
+        let r = record(name);
+        assert!(
+            matches!(classify_outcome(&r), Outcome::Skip(Skip::DerivedRatio)),
+            "{name:?} should be DerivedRatio",
+        );
+    }
+}
+
+#[test]
+fn throughput_is_intentional_skip() {
+    let r = record("compress throughput/clickbench");
+    assert!(matches!(
+        classify_outcome(&r),
+        Outcome::Skip(Skip::Throughput)
+    ));
+}
+
+#[test]
+fn unknown_prefix_is_unknown() {
+    let r = record("not-a-known-bench/series");
+    assert!(matches!(classify_outcome(&r), Outcome::Unknown));
+}
+
+#[test]
+fn gharchive_q00_is_deprecated() {
+    // gharchive isn't on the v3 query-suite allowlist, so historical
+    // gharchive query records bucket as Skip::Deprecated.
+    let r = record("gharchive_q00/datafusion:parquet");
+    assert!(matches!(
+        classify_outcome(&r),
+        Outcome::Skip(Skip::Deprecated)
+    ));
+}
+
+#[test]
+fn fineweb_q00_is_deprecated() {
+    // fineweb isn't on the v3 query-suite allowlist, so historical
+    // fineweb query records bucket as Skip::Deprecated.
+    let r = record("fineweb_q00/datafusion:parquet");
+    assert!(matches!(
+        classify_outcome(&r),
+        Outcome::Skip(Skip::Deprecated)
+    ));
+}
+
+#[test]
+fn engine_casing_lowercased() {
+    // Older v2 records emitted display-case engines like `DataFusion`
+    // and `DuckDB`. The classifier lowercases at push time so dedup
+    // collapses display-case rows into the canonical lowercase ones.
+    let r = record("clickbench_q07/DataFusion:parquet");
+    let outcome = classify_outcome(&r);
+    let Outcome::Bin(V3Bin::Query { engine, format, .. }) = outcome else {
+        panic!("expected Bin(Query), got {outcome:?}");
+    };
+    assert_eq!(engine, "datafusion");
+    assert_eq!(format, "parquet");
 }
 
 #[test]

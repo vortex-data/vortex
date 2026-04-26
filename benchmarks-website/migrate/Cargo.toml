@@ -20,9 +20,12 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
+arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
+arrow-schema = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 # track vortex-duckdb's bundled engine version (build.rs)
-duckdb = { version = "1.10502", features = ["bundled"] }
+duckdb = { version = "1.10502", features = ["bundled", "appender-arrow"] }
 flate2 = "1.1"
 reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true, features = ["derive"] }

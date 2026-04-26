@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Inline JSONL fixture exercising 1 record per kind through the full
-//! migration into a tempdir DuckDB. No live S3.
+//! Inline JSONL fixtures driven through the full migration into a
+//! tempdir DuckDB. No live S3.
 
 use std::fs::File;
 use std::io::Write;
+use std::path::Path;
 
 use duckdb::Connection;
 use flate2::Compression;
@@ -23,25 +24,34 @@ const DATA_JSONL: &str = r#"{"name":"clickbench_q07/datafusion:parquet","commit_
 {"name":"random-access/taxi/take/parquet-tokio-local-disk","commit_id":"deadbeef","unit":"ns","value":777,"all_runtimes":[700,777,800]}
 "#;
 
-fn write_local_dir() -> TempDir {
+/// Build a local-source fixture directory. Caller supplies the contents
+/// of `commits.json`, `data.json.gz`, and any number of
+/// `file-sizes-*.json.gz` files (name → contents).
+fn build_fixture(commits: &str, data: &str, file_sizes: &[(&str, &str)]) -> TempDir {
     let dir = TempDir::new().expect("tempdir");
-    {
-        let mut f = File::create(dir.path().join("commits.json")).unwrap();
-        f.write_all(COMMITS_JSONL.as_bytes()).unwrap();
+    write_text(&dir.path().join("commits.json"), commits);
+    write_gz(&dir.path().join("data.json.gz"), data);
+    for (name, body) in file_sizes {
+        write_gz(&dir.path().join(name), body);
     }
-    {
-        let f = File::create(dir.path().join("data.json.gz")).unwrap();
-        let mut gz = GzEncoder::new(f, Compression::default());
-        gz.write_all(DATA_JSONL.as_bytes()).unwrap();
-        gz.finish().unwrap();
-    }
-    // No file-sizes-*.json.gz to keep the fixture minimal.
     dir
+}
+
+fn write_text(path: &Path, body: &str) {
+    let mut f = File::create(path).unwrap();
+    f.write_all(body.as_bytes()).unwrap();
+}
+
+fn write_gz(path: &Path, body: &str) {
+    let f = File::create(path).unwrap();
+    let mut gz = GzEncoder::new(f, Compression::default());
+    gz.write_all(body.as_bytes()).unwrap();
+    gz.finish().unwrap();
 }
 
 #[test]
 fn migrate_inline_fixture_populates_each_table() {
-    let src_dir = write_local_dir();
+    let src_dir = build_fixture(COMMITS_JSONL, DATA_JSONL, &[]);
     let target_dir = TempDir::new().unwrap();
     let target = target_dir.path().join("v3.duckdb");
 
@@ -108,4 +118,67 @@ fn migrate_inline_fixture_populates_each_table() {
         .unwrap();
     assert_eq!(dataset, "taxi/take");
     assert_eq!(format, "parquet");
+}
+
+#[test]
+fn dedup_collision_keeps_one_row() {
+    // Two data.json.gz lines whose query-measurement dim columns are
+    // identical (same commit / dataset / engine / format / query_idx,
+    // and `storage` collapses to "nvme" since `storage` is unset).
+    // Different `value`s. The accumulator's HashSet<measurement_id>
+    // should drop the second one and bump `summary.deduped`.
+    const DATA: &str = r#"{"name":"clickbench_q07/datafusion:parquet","commit_id":"deadbeef","unit":"ns","value":111}
+{"name":"clickbench_q07/datafusion:parquet","commit_id":"deadbeef","unit":"ns","value":222}
+"#;
+
+    let src_dir = build_fixture(COMMITS_JSONL, DATA, &[]);
+    let target_dir = TempDir::new().unwrap();
+    let target = target_dir.path().join("v3.duckdb");
+
+    let summary = migrate::run(&Source::Local(src_dir.path().into()), &target).unwrap();
+
+    assert_eq!(summary.records_read, 2, "summary={summary}");
+    assert_eq!(summary.query_inserted, 1, "summary={summary}");
+    assert_eq!(summary.deduped, 1, "summary={summary}");
+
+    let conn = Connection::open(&target).unwrap();
+    let n: i64 = conn
+        .query_row("SELECT COUNT(*) FROM query_measurements", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(n, 1);
+}
+
+#[test]
+fn file_sizes_sum_into_one_row() {
+    // Two file-sizes rows sharing (commit, benchmark, format,
+    // scale_factor) and value_bytes 100 + 200 must collapse to a
+    // single compression_sizes row with 300.
+    const FILE_SIZES: &str = r#"{"commit_id":"deadbeef","benchmark":"clickbench","scale_factor":"1.0","format":"vortex-file-compressed","file":"part-0.vortex","size_bytes":100}
+{"commit_id":"deadbeef","benchmark":"clickbench","scale_factor":"1.0","format":"vortex-file-compressed","file":"part-1.vortex","size_bytes":200}
+"#;
+
+    let src_dir = build_fixture(
+        COMMITS_JSONL,
+        "",
+        &[("file-sizes-clickbench.json.gz", FILE_SIZES)],
+    );
+    let target_dir = TempDir::new().unwrap();
+    let target = target_dir.path().join("v3.duckdb");
+
+    let summary = migrate::run(&Source::Local(src_dir.path().into()), &target).unwrap();
+
+    assert_eq!(summary.file_size_inserted, 2, "summary={summary}");
+    assert_eq!(summary.compression_size_inserted, 1, "summary={summary}");
+
+    let conn = Connection::open(&target).unwrap();
+    let n: i64 = conn
+        .query_row("SELECT COUNT(*) FROM compression_sizes", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(n, 1);
+    let value_bytes: i64 = conn
+        .query_row("SELECT value_bytes FROM compression_sizes", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(value_bytes, 300);
 }
