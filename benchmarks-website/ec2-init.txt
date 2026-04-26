@@ -15,3 +15,56 @@
   sudo cp docker-compose.yml /opt/benchmarks-website/
   cd /opt/benchmarks-website
   docker compose up -d
+
+  ====================================================================
+  v3 (vortex-bench-server) — additive setup, runs alongside v2
+  ====================================================================
+
+  v2 stays on port 80 until DNS is flipped. v3 runs on port 3001 from
+  the same docker-compose.yml on this host.
+
+  4. Create the bearer-token env file (root:root, mode 600)
+  sudo mkdir -p /etc/vortex-bench
+  sudo install -m 600 -o root -g root /dev/null /etc/vortex-bench/secrets.env
+  # Edit and set INGEST_BEARER_TOKEN=<token from GH Actions Environment secret>:
+  sudo vi /etc/vortex-bench/secrets.env
+  # File contents:
+  #   INGEST_BEARER_TOKEN=<token>
+
+  5. Create the EBS-backed DuckDB data directory
+  # Assumes an EBS volume is already mounted at /opt/benchmarks-website/data.
+  sudo mkdir -p /opt/benchmarks-website/data
+  sudo chown root:root /opt/benchmarks-website/data
+  sudo chmod 755 /opt/benchmarks-website/data
+
+  6. Pull and start v3 (watchtower already polls ghcr.io for refreshes)
+  cd /opt/benchmarks-website
+  docker compose pull vortex-bench-server
+  docker compose up -d vortex-bench-server
+  # Smoke-check on the host:
+  curl -sf http://127.0.0.1:3001/health || echo "v3 not responding"
+
+  7. Install the daily DuckDB backup cron
+  # Copy the backup script from the repo checkout to a stable location.
+  sudo install -m 755 -o root -g root \
+      benchmarks-website/server/scripts/backup.sh \
+      /usr/local/bin/vortex-bench-backup.sh
+  # Cron entry: 06:00 UTC daily, after the nightly bench finishes.
+  sudo tee /etc/cron.d/vortex-bench-backup >/dev/null <<'CRON'
+  0 6 * * * root /usr/local/bin/vortex-bench-backup.sh >> /var/log/vortex-bench-backup.log 2>&1
+  CRON
+  sudo chmod 644 /etc/cron.d/vortex-bench-backup
+  # The instance IAM role already permits writes to
+  # s3://vortex-ci-benchmark-results/ (same role v2's cat-s3.sh uses).
+
+  8. Bearer-token rotation procedure
+  # When rotating INGEST_BEARER_TOKEN:
+  #   a. Generate a new token (e.g. `openssl rand -hex 32`).
+  #   b. Update the GitHub Actions Environment secret INGEST_BEARER_TOKEN
+  #      so CI dual-writes use the new value.
+  #   c. On this EC2 host, edit the env file and restart only the v3
+  #      container so v2 traffic on port 80 is unaffected:
+  #        sudo vi /etc/vortex-bench/secrets.env
+  #        cd /opt/benchmarks-website
+  #        docker compose up -d --force-recreate vortex-bench-server
+  #   d. Verify with `curl` against /health and a token-gated endpoint.
