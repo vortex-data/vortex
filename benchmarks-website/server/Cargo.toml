@@ -40,6 +40,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 twox-hash = "2.1"
 
 [dev-dependencies]
+insta = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
