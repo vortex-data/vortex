@@ -10555,6 +10555,7 @@ dependencies = [
  "axum",
  "base64",
  "duckdb",
+ "insta",
  "maud",
  "reqwest 0.13.2",
  "serde",
