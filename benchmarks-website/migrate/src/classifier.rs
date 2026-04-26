@@ -12,6 +12,13 @@
 //! factor for TPC-H/TPC-DS). This module reproduces that logic and
 //! then hops to a v3 fact-table bin, since v3 stores dim values as
 //! columns instead of name fragments.
+//!
+//! Engine and format strings stored in v3 columns are pulled from the
+//! raw, pre-rename v2 record name. v2's `ENGINE_RENAMES` was a v2
+//! read-time UI concern (e.g. `vortex-file-compressed` rendered as
+//! `vortex` and `parquet-tokio-local-disk` rendered as `parquet-nvme`).
+//! v3 stores canonical `Format::name()` strings to match what the v3
+//! live emitter writes, so historical and live records share series.
 
 use crate::v2::V2Record;
 use crate::v2::dataset_scale_factor;
@@ -393,21 +400,30 @@ fn bin_random_access(cls: &V2Classification, record: &V2Record) -> Option<V3Bin>
     if dataset.is_empty() {
         return None;
     }
-    let mut format = cls.series.clone();
-    if format.is_empty() {
+    // Pull format from the raw, pre-rename v2 name so v3 stores the
+    // canonical `Format::name()` string (matching what the v3 live
+    // emitter writes). Raw shape is
+    // `random-access/<dataset>/<pattern>/<format>-tokio-local-disk`
+    // (4-part) or `random-access/<format>-tokio-local-disk` (2-part
+    // legacy). After stripping the `-tokio-local-disk` suffix, map the
+    // v2 random-access ext label (`vortex`, from `Format::ext()`) to
+    // the canonical name (`vortex-file-compressed`, from
+    // `Format::name()`). `parquet`, `lance`, and `vortex-compact`
+    // already match between ext and name.
+    let parts: Vec<&str> = record.name.split('/').collect();
+    let raw = match parts.len() {
+        4 => parts[3],
+        2 => parts[1],
+        _ => return None,
+    };
+    if raw.is_empty() || raw == "default" {
         return None;
     }
-    // v2 emits a "default" placeholder when parts[1] is empty; treat
-    // that as missing and skip the row instead of inserting "default"
-    // as a format.
-    if format == "default" {
-        return None;
-    }
-    // The v2 random-access bench used to emit `parquet`-suffixed names;
-    // strip an "ns" unit guard later.
-    let _ = record; // record is unused here; kept for parity with siblings.
-    // Lower-case the format too so v3 series names are canonical.
-    format = format.to_lowercase();
+    let stripped = raw.strip_suffix("-tokio-local-disk").unwrap_or(raw);
+    let format = match stripped {
+        "vortex" => "vortex-file-compressed".to_string(),
+        other => other.to_lowercase(),
+    };
     Some(V3Bin::RandomAccess { dataset, format })
 }
 
@@ -498,8 +514,13 @@ fn bin_query(cls: &V2Classification, record: &V2Record) -> Option<V3Bin> {
     let raw_first = record.name.split('/').next().unwrap_or("");
     let query_idx = parse_query_index_from_first(raw_first)?;
 
-    // Series for non-RA records is "engine:format" after rename.
-    let (engine, format) = split_engine_format(&cls.series)?;
+    // Pull engine:format from the raw, pre-rename second segment so v3
+    // stores canonical `Format::name()` strings (e.g.
+    // `vortex-file-compressed`) that match what the v3 live emitter
+    // writes. `cls.series` has been through v2's `ENGINE_RENAMES` for
+    // UI display and is not appropriate for v3 columns.
+    let raw_series = record.name.split('/').nth(1)?;
+    let (engine, format) = split_engine_format(raw_series)?;
 
     let storage_v3 = match storage.as_deref() {
         Some("S3") => "s3".to_string(),

@@ -107,5 +107,5 @@ fn migrate_inline_fixture_populates_each_table() {
         })
         .unwrap();
     assert_eq!(dataset, "taxi/take");
-    assert_eq!(format, "parquet-nvme");
+    assert_eq!(format, "parquet");
 }

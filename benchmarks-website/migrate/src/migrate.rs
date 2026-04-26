@@ -16,6 +16,7 @@ use std::path::Path;
 use anyhow::Context as _;
 use anyhow::Result;
 use duckdb::Connection;
+use duckdb::Statement;
 use duckdb::Transaction;
 use duckdb::params;
 use tracing::warn;
@@ -148,37 +149,119 @@ fn migrate_data_jsonl(
     summary: &mut MigrationSummary,
 ) -> Result<()> {
     let reader = source.open_data_jsonl()?;
-    let mut tx = conn.transaction().context("begin data tx")?;
+    let mut lines = reader.lines();
     const BATCH: u64 = 10_000;
-    let mut in_batch = 0u64;
-    for line in reader.lines() {
-        let line = line?;
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        summary.records_read += 1;
-        let record: V2Record = match serde_json::from_str(trimmed) {
-            Ok(r) => r,
-            Err(e) => {
-                warn!("skipping malformed data.json line: {e}");
+    loop {
+        let tx = conn.transaction().context("begin data tx")?;
+        let mut stmts = DataStatements::prepare(&tx)?;
+        let mut in_batch = 0u64;
+        while in_batch < BATCH {
+            let Some(line) = lines.next() else { break };
+            let line = line?;
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
                 continue;
             }
-        };
-        apply_v2_record(&tx, &record, commits, summary)?;
-        in_batch += 1;
-        if in_batch >= BATCH {
-            tx.commit().context("commit data batch")?;
-            tx = conn.transaction().context("begin data tx")?;
-            in_batch = 0;
+            summary.records_read += 1;
+            let record: V2Record = match serde_json::from_str(trimmed) {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!("skipping malformed data.json line: {e}");
+                    continue;
+                }
+            };
+            apply_v2_record(&mut stmts, &record, commits, summary)?;
+            in_batch += 1;
+        }
+        drop(stmts);
+        tx.commit().context("commit data batch")?;
+        if in_batch == 0 {
+            break;
         }
     }
-    tx.commit().context("commit final data batch")?;
     Ok(())
 }
 
+/// Prepared INSERT statements for the four v2-derived fact tables. Tied
+/// to a single transaction's lifetime; re-prepare after each commit.
+struct DataStatements<'tx> {
+    query: Statement<'tx>,
+    compression_time: Statement<'tx>,
+    compression_size: Statement<'tx>,
+    random_access: Statement<'tx>,
+}
+
+impl<'tx> DataStatements<'tx> {
+    fn prepare(tx: &'tx Transaction<'_>) -> Result<Self> {
+        Ok(Self {
+            query: tx.prepare(SQL_INSERT_QUERY)?,
+            compression_time: tx.prepare(SQL_INSERT_COMPRESSION_TIME)?,
+            compression_size: tx.prepare(SQL_INSERT_COMPRESSION_SIZE)?,
+            random_access: tx.prepare(SQL_INSERT_RANDOM_ACCESS)?,
+        })
+    }
+}
+
+const SQL_INSERT_QUERY: &str = r#"
+INSERT INTO query_measurements (
+    measurement_id, commit_sha, dataset, dataset_variant, scale_factor,
+    query_idx, storage, engine, format,
+    value_ns, all_runtimes_ns,
+    peak_physical, peak_virtual, physical_delta, virtual_delta,
+    env_triple
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS BIGINT[]), ?, ?, ?, ?, ?)
+ON CONFLICT (measurement_id) DO UPDATE SET
+    commit_sha      = excluded.commit_sha,
+    value_ns        = excluded.value_ns,
+    all_runtimes_ns = excluded.all_runtimes_ns,
+    env_triple      = excluded.env_triple
+"#;
+
+const SQL_INSERT_COMPRESSION_TIME: &str = r#"
+INSERT INTO compression_times (
+    measurement_id, commit_sha, dataset, dataset_variant,
+    format, op, value_ns, all_runtimes_ns, env_triple
+) VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS BIGINT[]), ?)
+ON CONFLICT (measurement_id) DO UPDATE SET
+    commit_sha      = excluded.commit_sha,
+    value_ns        = excluded.value_ns,
+    all_runtimes_ns = excluded.all_runtimes_ns,
+    env_triple      = excluded.env_triple
+"#;
+
+const SQL_INSERT_COMPRESSION_SIZE: &str = r#"
+INSERT INTO compression_sizes (
+    measurement_id, commit_sha, dataset, dataset_variant,
+    format, value_bytes
+) VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (measurement_id) DO UPDATE SET
+    commit_sha   = excluded.commit_sha,
+    value_bytes  = excluded.value_bytes
+"#;
+
+const SQL_INSERT_RANDOM_ACCESS: &str = r#"
+INSERT INTO random_access_times (
+    measurement_id, commit_sha, dataset, format,
+    value_ns, all_runtimes_ns, env_triple
+) VALUES (?, ?, ?, ?, ?, CAST(? AS BIGINT[]), ?)
+ON CONFLICT (measurement_id) DO UPDATE SET
+    commit_sha      = excluded.commit_sha,
+    value_ns        = excluded.value_ns,
+    all_runtimes_ns = excluded.all_runtimes_ns,
+    env_triple      = excluded.env_triple
+"#;
+
+const SQL_UPSERT_FILE_SIZE: &str = r#"
+INSERT INTO compression_sizes (
+    measurement_id, commit_sha, dataset, dataset_variant,
+    format, value_bytes
+) VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (measurement_id) DO UPDATE SET
+    value_bytes = compression_sizes.value_bytes + excluded.value_bytes
+"#;
+
 fn apply_v2_record(
-    tx: &Transaction<'_>,
+    stmts: &mut DataStatements<'_>,
     record: &V2Record,
     commits: &BTreeMap<String, V2Commit>,
     summary: &mut MigrationSummary,
@@ -240,7 +323,25 @@ fn apply_v2_record(
                 virtual_delta: None,
                 env_triple,
             };
-            insert_query(tx, &qm)?;
+            let mid = measurement_id_query(&qm);
+            stmts.query.execute(params![
+                mid,
+                qm.commit_sha,
+                qm.dataset,
+                qm.dataset_variant,
+                qm.scale_factor,
+                qm.query_idx,
+                qm.storage,
+                qm.engine,
+                qm.format,
+                qm.value_ns,
+                runtimes_literal(&qm.all_runtimes_ns),
+                qm.peak_physical,
+                qm.peak_virtual,
+                qm.physical_delta,
+                qm.virtual_delta,
+                qm.env_triple,
+            ])?;
             summary.query_inserted += 1;
         }
         V3Bin::CompressionTime {
@@ -259,7 +360,18 @@ fn apply_v2_record(
                 all_runtimes_ns: runtimes,
                 env_triple,
             };
-            insert_compression_time(tx, &ct)?;
+            let mid = measurement_id_compression_time(&ct);
+            stmts.compression_time.execute(params![
+                mid,
+                ct.commit_sha,
+                ct.dataset,
+                ct.dataset_variant,
+                ct.format,
+                ct.op,
+                ct.value_ns,
+                runtimes_literal(&ct.all_runtimes_ns),
+                ct.env_triple,
+            ])?;
             summary.compression_time_inserted += 1;
         }
         V3Bin::CompressionSize {
@@ -274,7 +386,15 @@ fn apply_v2_record(
                 format,
                 value_bytes: value_f64 as i64,
             };
-            insert_compression_size(tx, &cs)?;
+            let mid = measurement_id_compression_size(&cs);
+            stmts.compression_size.execute(params![
+                mid,
+                cs.commit_sha,
+                cs.dataset,
+                cs.dataset_variant,
+                cs.format,
+                cs.value_bytes,
+            ])?;
             summary.compression_size_inserted += 1;
         }
         V3Bin::RandomAccess { dataset, format } => {
@@ -286,129 +406,19 @@ fn apply_v2_record(
                 all_runtimes_ns: runtimes,
                 env_triple,
             };
-            insert_random_access(tx, &ra)?;
+            let mid = measurement_id_random_access(&ra);
+            stmts.random_access.execute(params![
+                mid,
+                ra.commit_sha,
+                ra.dataset,
+                ra.format,
+                ra.value_ns,
+                runtimes_literal(&ra.all_runtimes_ns),
+                ra.env_triple,
+            ])?;
             summary.random_access_inserted += 1;
         }
     }
-    Ok(())
-}
-
-fn insert_query(tx: &Transaction<'_>, r: &QueryMeasurement) -> Result<()> {
-    let mid = measurement_id_query(r);
-    tx.execute(
-        r#"
-        INSERT INTO query_measurements (
-            measurement_id, commit_sha, dataset, dataset_variant, scale_factor,
-            query_idx, storage, engine, format,
-            value_ns, all_runtimes_ns,
-            peak_physical, peak_virtual, physical_delta, virtual_delta,
-            env_triple
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS BIGINT[]), ?, ?, ?, ?, ?)
-        ON CONFLICT (measurement_id) DO UPDATE SET
-            commit_sha      = excluded.commit_sha,
-            value_ns        = excluded.value_ns,
-            all_runtimes_ns = excluded.all_runtimes_ns,
-            env_triple      = excluded.env_triple
-        "#,
-        params![
-            mid,
-            r.commit_sha,
-            r.dataset,
-            r.dataset_variant,
-            r.scale_factor,
-            r.query_idx,
-            r.storage,
-            r.engine,
-            r.format,
-            r.value_ns,
-            runtimes_literal(&r.all_runtimes_ns),
-            r.peak_physical,
-            r.peak_virtual,
-            r.physical_delta,
-            r.virtual_delta,
-            r.env_triple,
-        ],
-    )?;
-    Ok(())
-}
-
-fn insert_compression_time(tx: &Transaction<'_>, r: &CompressionTime) -> Result<()> {
-    let mid = measurement_id_compression_time(r);
-    tx.execute(
-        r#"
-        INSERT INTO compression_times (
-            measurement_id, commit_sha, dataset, dataset_variant,
-            format, op, value_ns, all_runtimes_ns, env_triple
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS BIGINT[]), ?)
-        ON CONFLICT (measurement_id) DO UPDATE SET
-            commit_sha      = excluded.commit_sha,
-            value_ns        = excluded.value_ns,
-            all_runtimes_ns = excluded.all_runtimes_ns,
-            env_triple      = excluded.env_triple
-        "#,
-        params![
-            mid,
-            r.commit_sha,
-            r.dataset,
-            r.dataset_variant,
-            r.format,
-            r.op,
-            r.value_ns,
-            runtimes_literal(&r.all_runtimes_ns),
-            r.env_triple,
-        ],
-    )?;
-    Ok(())
-}
-
-fn insert_compression_size(tx: &Transaction<'_>, r: &CompressionSize) -> Result<()> {
-    let mid = measurement_id_compression_size(r);
-    tx.execute(
-        r#"
-        INSERT INTO compression_sizes (
-            measurement_id, commit_sha, dataset, dataset_variant,
-            format, value_bytes
-        ) VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT (measurement_id) DO UPDATE SET
-            commit_sha   = excluded.commit_sha,
-            value_bytes  = excluded.value_bytes
-        "#,
-        params![
-            mid,
-            r.commit_sha,
-            r.dataset,
-            r.dataset_variant,
-            r.format,
-            r.value_bytes,
-        ],
-    )?;
-    Ok(())
-}
-
-fn insert_random_access(tx: &Transaction<'_>, r: &RandomAccessTime) -> Result<()> {
-    let mid = measurement_id_random_access(r);
-    tx.execute(
-        r#"
-        INSERT INTO random_access_times (
-            measurement_id, commit_sha, dataset, format,
-            value_ns, all_runtimes_ns, env_triple
-        ) VALUES (?, ?, ?, ?, ?, CAST(? AS BIGINT[]), ?)
-        ON CONFLICT (measurement_id) DO UPDATE SET
-            commit_sha      = excluded.commit_sha,
-            value_ns        = excluded.value_ns,
-            all_runtimes_ns = excluded.all_runtimes_ns,
-            env_triple      = excluded.env_triple
-        "#,
-        params![
-            mid,
-            r.commit_sha,
-            r.dataset,
-            r.format,
-            r.value_ns,
-            runtimes_literal(&r.all_runtimes_ns),
-            r.env_triple,
-        ],
-    )?;
     Ok(())
 }
 
@@ -438,46 +448,50 @@ fn migrate_file_sizes(
         .and_then(|s| s.strip_suffix(".json.gz"))
         .unwrap_or(name)
         .to_string();
-    let mut tx = conn.transaction().context("begin file-sizes tx")?;
+    let mut lines = reader.lines();
     const BATCH: u64 = 10_000;
-    let mut in_batch = 0u64;
-    for line in reader.lines() {
-        let line = line?;
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let sz: V2FileSize = match serde_json::from_str(trimmed) {
-            Ok(r) => r,
-            Err(e) => {
-                warn!("skipping malformed {name} line: {e}");
+    loop {
+        let tx = conn.transaction().context("begin file-sizes tx")?;
+        let mut stmt = tx.prepare(SQL_UPSERT_FILE_SIZE)?;
+        let mut in_batch = 0u64;
+        while in_batch < BATCH {
+            let Some(line) = lines.next() else { break };
+            let line = line?;
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
                 continue;
             }
-        };
-        if !commits.contains_key(&sz.commit_id) {
-            summary.missing_commit += 1;
-            continue;
+            let sz: V2FileSize = match serde_json::from_str(trimmed) {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!("skipping malformed {name} line: {e}");
+                    continue;
+                }
+            };
+            if !commits.contains_key(&sz.commit_id) {
+                summary.missing_commit += 1;
+                continue;
+            }
+            // file-sizes-*.json.gz captures per-file sizes inside one
+            // benchmark/format/scale_factor combo. We aggregate to one
+            // (commit, dataset, dataset_variant, format) row by summing,
+            // since v3's compression_sizes is a single bytes value per
+            // (dim) tuple. Use ON CONFLICT to accumulate.
+            upsert_file_size_row(&mut stmt, &sz, &dataset)?;
+            summary.file_size_inserted += 1;
+            in_batch += 1;
         }
-        // file-sizes-*.json.gz captures per-file sizes inside one
-        // benchmark/format/scale_factor combo. We aggregate to one
-        // (commit, dataset, dataset_variant, format) row by summing,
-        // since v3's compression_sizes is a single bytes value per
-        // (dim) tuple. Use ON CONFLICT to accumulate.
-        upsert_file_size_row(&tx, &sz, &dataset)?;
-        summary.file_size_inserted += 1;
-        in_batch += 1;
-        if in_batch >= BATCH {
-            tx.commit().context("commit file-sizes batch")?;
-            tx = conn.transaction().context("begin file-sizes tx")?;
-            in_batch = 0;
+        drop(stmt);
+        tx.commit().context("commit file-sizes batch")?;
+        if in_batch == 0 {
+            break;
         }
     }
-    tx.commit().context("commit final file-sizes batch")?;
     Ok(())
 }
 
 fn upsert_file_size_row(
-    tx: &Transaction<'_>,
+    stmt: &mut Statement<'_>,
     sz: &V2FileSize,
     dataset_fallback: &str,
 ) -> Result<()> {
@@ -499,26 +513,14 @@ fn upsert_file_size_row(
         value_bytes: sz.size_bytes,
     };
     let mid = measurement_id_compression_size(&cs);
-    // Multiple files within the same dataset/format/scale_factor sum
-    // into one row by adding to whatever is already there.
-    tx.execute(
-        r#"
-        INSERT INTO compression_sizes (
-            measurement_id, commit_sha, dataset, dataset_variant,
-            format, value_bytes
-        ) VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT (measurement_id) DO UPDATE SET
-            value_bytes = compression_sizes.value_bytes + excluded.value_bytes
-        "#,
-        params![
-            mid,
-            cs.commit_sha,
-            cs.dataset,
-            cs.dataset_variant,
-            cs.format,
-            cs.value_bytes,
-        ],
-    )?;
+    stmt.execute(params![
+        mid,
+        cs.commit_sha,
+        cs.dataset,
+        cs.dataset_variant,
+        cs.format,
+        cs.value_bytes,
+    ])?;
     Ok(())
 }
 
