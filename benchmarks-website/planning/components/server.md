@@ -22,8 +22,8 @@ production deploy. Production deploy, backups, admin tooling, and
 historical data import are deferred (see
 [`../deferred.md`](../deferred.md)).
 
-The server crate lives at a path of the agent's choosing under
-`benchmarks-website/`, registered as a workspace member.
+The server crate is `vortex-bench-server`, living at
+`benchmarks-website/server/`, registered as a workspace member.
 
 ## In scope
 
