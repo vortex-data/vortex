@@ -218,6 +218,7 @@ async fn run_benchmark_for_dataset(
     dataset_handle: &dyn Dataset,
 ) -> anyhow::Result<(CompressMeasurements, Vec<v3::V3Record>)> {
     let bench_name = dataset_handle.name();
+    let (v3_dataset, v3_variant) = dataset_handle.v3_dataset_dims();
     tracing::info!("Running {bench_name} benchmark");
 
     // Get the parquet file path for this dataset
@@ -250,14 +251,14 @@ async fn run_benchmark_for_dataset(
                         .collect();
                     v3_records.push(v3::compression_time_record(
                         &result.timing,
-                        bench_name,
-                        None,
+                        v3_dataset,
+                        v3_variant,
                         CompressOp::Compress,
                         all_runs_ns,
                     ));
                     v3_records.push(v3::compression_size_record(
-                        bench_name,
-                        None,
+                        v3_dataset,
+                        v3_variant,
                         *format,
                         result.compressed_size,
                     ));
@@ -280,8 +281,8 @@ async fn run_benchmark_for_dataset(
                         .collect();
                     v3_records.push(v3::compression_time_record(
                         &result.timing,
-                        bench_name,
-                        None,
+                        v3_dataset,
+                        v3_variant,
                         CompressOp::Decompress,
                         all_runs_ns,
                     ));

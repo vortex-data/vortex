@@ -416,13 +416,13 @@ mod tests {
             .replace(GIT_COMMIT_ID.as_str(), "<commit-sha>")
     }
 
-    fn render(record: &V3Record) -> String {
-        let json = serde_json::to_string_pretty(record).expect("serialize record");
-        redact_env(&json)
+    fn render(record: &V3Record) -> anyhow::Result<String> {
+        let json = serde_json::to_string_pretty(record)?;
+        Ok(redact_env(&json))
     }
 
     #[test]
-    fn snapshot_query_measurement_with_memory() {
+    fn snapshot_query_measurement_with_memory() -> anyhow::Result<()> {
         let qm = QueryMeasurement {
             query_idx: 3,
             target: Target::new(Engine::DataFusion, Format::OnDiskVortex),
@@ -451,13 +451,15 @@ mod tests {
             },
         );
         let record = query_measurement_record(&qm, Some(&mm));
+        let rendered = render(&record)?;
         with_settings!({snapshot_suffix => "with_memory"}, {
-            assert_snapshot!(render(&record));
+            assert_snapshot!(rendered);
         });
+        Ok(())
     }
 
     #[test]
-    fn snapshot_query_measurement_clickbench_no_memory() {
+    fn snapshot_query_measurement_clickbench_no_memory() -> anyhow::Result<()> {
         let qm = QueryMeasurement {
             query_idx: 1,
             target: Target::new(Engine::DuckDB, Format::Parquet),
@@ -469,13 +471,15 @@ mod tests {
             runs: vec![Duration::from_nanos(2_000_000)],
         };
         let record = query_measurement_record(&qm, None);
+        let rendered = render(&record)?;
         with_settings!({snapshot_suffix => "clickbench"}, {
-            assert_snapshot!(render(&record));
+            assert_snapshot!(rendered);
         });
+        Ok(())
     }
 
     #[test]
-    fn snapshot_compression_time_encode() {
+    fn snapshot_compression_time_encode() -> anyhow::Result<()> {
         let timing = CompressionTimingMeasurement {
             name: "compress time/taxi".to_string(),
             format: Format::OnDiskVortex,
@@ -488,17 +492,37 @@ mod tests {
             CompressOp::Compress,
             vec![5_500_000, 5_000_000, 5_200_000],
         );
-        assert_snapshot!(render(&record));
+        assert_snapshot!(render(&record)?);
+        Ok(())
     }
 
     #[test]
-    fn snapshot_compression_size() {
+    fn snapshot_compression_size() -> anyhow::Result<()> {
         let record = compression_size_record("taxi", None, Format::Lance, 12_345_678);
-        assert_snapshot!(render(&record));
+        assert_snapshot!(render(&record)?);
+        Ok(())
     }
 
     #[test]
-    fn snapshot_random_access_time() {
+    fn snapshot_compression_time_public_bi_variant() -> anyhow::Result<()> {
+        let timing = CompressionTimingMeasurement {
+            name: "compress time/cms-provider".to_string(),
+            format: Format::OnDiskVortex,
+            time: Duration::from_nanos(5_000_000),
+        };
+        let record = compression_time_record(
+            &timing,
+            "public-bi",
+            Some("cms-provider"),
+            CompressOp::Compress,
+            vec![5_500_000, 5_000_000, 5_200_000],
+        );
+        assert_snapshot!(render(&record)?);
+        Ok(())
+    }
+
+    #[test]
+    fn snapshot_random_access_time() -> anyhow::Result<()> {
         let timing = TimingMeasurement {
             name: "random-access/taxi/uniform/parquet-tokio-local-disk".to_string(),
             target: Target::new(Engine::Arrow, Format::Parquet),
@@ -510,11 +534,12 @@ mod tests {
             ],
         };
         let record = random_access_record(&timing, "taxi");
-        assert_snapshot!(render(&record));
+        assert_snapshot!(render(&record)?);
+        Ok(())
     }
 
     #[test]
-    fn snapshot_vector_search_run() {
+    fn snapshot_vector_search_run() -> anyhow::Result<()> {
         let dims = VectorSearchDims {
             dataset: "cohere-large-10m",
             layout: "partitioned",
@@ -529,7 +554,8 @@ mod tests {
             10_000_000,
             512_000_000,
         );
-        assert_snapshot!(render(&record));
+        assert_snapshot!(render(&record)?);
+        Ok(())
     }
 
     #[test]
