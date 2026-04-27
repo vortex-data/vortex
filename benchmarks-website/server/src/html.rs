@@ -409,7 +409,7 @@ fn toolbar(ui: &UiQuery) -> Markup {
                         href=(ui.with_override("n", opt))
                         data-scope=(opt) { (opt) }
                 }
-                input #scope-slider type="range" min="10" max="500" step="10"
+                input #scope-slider type="range" min="5" max="500" step="5"
                     value=(slider_value(active_scope.as_str()))
                     aria-label="Custom commit window";
                 span #scope-slider-label.toolbar-slider-label { (active_scope) }
