@@ -191,6 +191,7 @@ impl<T: TypedArrayRef<Dict>> DictArrayExt for T {}
 
 /// Concrete parts of a [`DictArray`] after iterative execution.
 pub struct DictParts {
+    pub dtype: DType,
     pub codes: ArrayRef,
     pub values: ArrayRef,
 }
@@ -205,6 +206,7 @@ impl DictOwnedExt for Array<Dict> {
             Ok(array_parts) => {
                 let slots = DictSlots::from_slots(array_parts.slots);
                 DictParts {
+                    dtype: array_parts.dtype,
                     codes: slots.codes,
                     values: slots.values,
                 }
@@ -212,6 +214,7 @@ impl DictOwnedExt for Array<Dict> {
             Err(array) => {
                 let slots = DictSlotsView::from_slots(array.slots());
                 DictParts {
+                    dtype: array.dtype().clone(),
                     codes: slots.codes.clone(),
                     values: slots.values.clone(),
                 }

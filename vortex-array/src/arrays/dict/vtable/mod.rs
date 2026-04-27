@@ -16,6 +16,7 @@ use vortex_session::registry::CachedId;
 use super::DictData;
 use super::DictMetadata;
 use super::DictOwnedExt;
+use super::DictParts;
 use super::array::DictSlots;
 use super::array::DictSlotsView;
 use crate::AnyCanonical;
@@ -186,11 +187,11 @@ impl VTable for Dict {
 
         let array = require_child!(array, array.values(), DictSlots::VALUES => AnyCanonical);
 
-        let parts = array.into_parts();
+        let DictParts { values, codes, .. } = array.into_parts();
 
         Ok(ExecutionResult::done(take_canonical(
-            parts.values.as_::<AnyCanonical>(),
-            &parts.codes.downcast::<Primitive>(),
+            values.as_::<AnyCanonical>(),
+            &codes.downcast::<Primitive>(),
             ctx,
         )?))
     }
