@@ -161,6 +161,9 @@ impl VTable for Masked {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.child(), CHILD_SLOT => AnyCanonical);
+        require_validity!(array, VALIDITY_SLOT);
+
         let validity_mask = array.masked_validity().execute_mask(array.len(), ctx)?;
 
         // Fast path: all masked means result is all nulls.
@@ -176,9 +179,6 @@ impl VTable for Masked {
         // invariant). Simply returning the child's canonical would cause a dtype mismatch.
         // While we could manually convert the dtype, `mask_validity_canonical` is already O(1) for
         // `AllTrue` masks (no data copying), so there's no benefit.
-
-        let array = require_child!(array, array.child(), CHILD_SLOT => AnyCanonical);
-        require_validity!(array, VALIDITY_SLOT);
 
         let child = Canonical::from(array.child().as_::<AnyCanonical>());
         Ok(ExecutionResult::done(
