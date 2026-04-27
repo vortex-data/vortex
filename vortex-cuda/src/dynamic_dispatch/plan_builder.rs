@@ -47,6 +47,7 @@ use super::ptype_to_tag;
 use super::tag_to_ptype;
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
+use crate::executor::CudaDispatchMode;
 use crate::kernel::load_patches_to_gpu;
 
 /// A plan whose source buffers have been copied to the device, ready for kernel launch.
@@ -121,6 +122,33 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
         || id == Sequence.id()
 }
 
+/// Returns `true` if a registered standalone kernel can decode the entire
+/// `array` tree in a single launch without recursing into `execute_cuda`
+/// for child encodings.
+pub fn has_standalone_kernel(array: &ArrayRef) -> bool {
+    let id = array.encoding_id();
+
+    // Leaf encodings: no children to recurse into.
+    if id == BitPacked.id() || id == Sequence.id() {
+        return true;
+    }
+
+    // FoR fuses with BitPacked (FFOR) and Slice(BitPacked) in one launch.
+    if id == FoR.id() {
+        let for_arr = array.as_::<FoR>();
+        let child = for_arr.encoded();
+        if child.encoding_id() == BitPacked.id() {
+            return true;
+        }
+        if let Some(slice) = child.as_opt::<Slice>() {
+            return slice.child().encoding_id() == BitPacked.id();
+        }
+        return false;
+    }
+
+    false
+}
+
 /// An unmaterialized stage: a source op, scalar ops, and optional source buffer reference.
 ///
 /// Patches are tied to their owning ops, mirroring the CUDA side where
@@ -160,6 +188,9 @@ type OutputLen = u32;
 /// Constructed by [`DispatchPlan::new`], which inspects the encoding tree
 /// and determines whether it can be fully fused, partially fused, or not fused at all.
 pub enum DispatchPlan {
+    /// A registered standalone kernel can decode the entire tree in a single
+    /// launch without recursing into child encodings.
+    Standalone,
     /// Entire encoding tree is fusable into a single kernel launch.
     Fused(FusedPlan),
     /// Some subtrees need separate execution before the fused plan can run.
@@ -227,7 +258,11 @@ impl DispatchPlan {
     ///   nullable ends are rejected to guard against out-of-bounds access.
     /// - `BitPackedArray` and `ALPArray` with patches are supported.
     /// - Only f32 ALP is supported (kernel stores multipliers as `float`).
-    pub fn new(array: &ArrayRef) -> VortexResult<Self> {
+    pub fn new(array: &ArrayRef, mode: CudaDispatchMode) -> VortexResult<Self> {
+        if mode == CudaDispatchMode::Auto && has_standalone_kernel(array) {
+            return Ok(Self::Standalone);
+        }
+
         if PType::try_from(array.dtype()).is_err() || !is_dyn_dispatch_compatible(array) {
             return Ok(Self::Unfused);
         }
