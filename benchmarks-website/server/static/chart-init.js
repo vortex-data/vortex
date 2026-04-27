@@ -86,10 +86,15 @@
     };
   }
 
+  // `|` cannot appear in our series labels (which are
+  // "engine:format"-shaped today), unlike `,`/`/` which could plausibly
+  // sneak in via dataset variants. URLSearchParams handles `|` as-is.
+  var HIDDEN_DELIM = "|";
+
   function parseHiddenParam(s) {
     if (!s) return Object.create(null);
     var out = Object.create(null);
-    s.split(",").forEach(function (k) {
+    s.split(HIDDEN_DELIM).forEach(function (k) {
       if (k) out[k] = true;
     });
     return out;
@@ -98,7 +103,7 @@
   function serializeHidden(set) {
     var keys = Object.keys(set).filter(function (k) { return set[k]; });
     keys.sort();
-    return keys.join(",");
+    return keys.join(HIDDEN_DELIM);
   }
 
   function rewriteHiddenInUrl(set) {

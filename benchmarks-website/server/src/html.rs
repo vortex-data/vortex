@@ -154,12 +154,13 @@ impl UiQuery {
 /// inside an `application/x-www-form-urlencoded` value are touched; the
 /// alphanumeric plus a few path-safe symbols pass through verbatim. We avoid
 /// pulling in a crate for this — values are short (`100`, `log`, `rel`,
-/// `engine:format,engine:format`).
+/// `engine:format|engine:format`). `|` is the `?hidden=` series delimiter
+/// (see `chart-init.js`); kept unescaped so URLs stay readable in the bar.
 fn urlencode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b':' | b',' => {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b':' | b'|' => {
                 out.push(b as char)
             }
             _ => out.push_str(&format!("%{b:02X}")),
@@ -535,7 +536,9 @@ mod tests {
 
     #[test]
     fn url_encode_keeps_safe_chars() {
-        assert_eq!(urlencode("engine:format,parquet"), "engine:format,parquet");
+        assert_eq!(urlencode("engine:format|parquet"), "engine:format|parquet");
+        // `,` is no longer in the allowlist — it gets percent-encoded.
+        assert_eq!(urlencode("a,b"), "a%2Cb");
         assert_eq!(urlencode("hello world"), "hello%20world");
     }
 
@@ -572,5 +575,26 @@ mod tests {
         assert!(s.contains("last 50 commits"));
         assert!(s.contains("log"));
         assert!(s.contains("rel"));
+    }
+
+    #[test]
+    fn ui_query_with_override_preserves_pipe_delimited_hidden() {
+        // `?hidden=` uses `|` as its delimiter (see chart-init.js). A
+        // permalink that arrives at the server with multiple hidden series
+        // must round-trip through `with_override` without the pipe being
+        // percent-encoded — that pins server and client agreement on the
+        // wire shape.
+        let ui = UiQuery {
+            n: None,
+            y: None,
+            mode: None,
+            hidden: Some("a:b|c:d".into()),
+        };
+        let qs = ui.with_override("__noop", "");
+        assert!(
+            qs.contains("hidden=a:b|c:d"),
+            "expected literal pipe in {qs}",
+        );
+        assert!(!qs.contains("%7C"), "pipe should not be percent-encoded");
     }
 }
