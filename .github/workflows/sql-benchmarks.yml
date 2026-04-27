@@ -277,12 +277,12 @@ jobs:
         if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
         with:
           sccache: s3
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         if: inputs.mode == 'pr'
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         if: inputs.mode != 'pr'
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
@@ -339,7 +339,7 @@ jobs:
 
       - name: Setup AWS CLI
         if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37  # v6
         with:
           role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
           aws-region: us-east-1
@@ -355,7 +355,7 @@ jobs:
 
       - name: Setup Polar Signals
         if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
-        uses: polarsignals/gh-actions-ps-profiling@v0.8.1
+        uses: polarsignals/gh-actions-ps-profiling@68ae857e375a826606352016e5b90f01a2a7ff7a  # v0.8.1
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
           labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.id }}"
@@ -425,7 +425,7 @@ jobs:
 
       - name: Comment PR
         if: inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
-        uses: thollander/actions-comment-pull-request@v3
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
         with:
           file-path: comment.md
           # There is exactly one comment per comment-tag. If a comment with this tag already exists,
@@ -478,14 +478,14 @@ jobs:
 
       - name: Comment PR with file sizes
         if: inputs.mode == 'pr' && matrix.remote_storage == null && github.event.pull_request.head.repo.fork == false
-        uses: thollander/actions-comment-pull-request@v3
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
         with:
           file-path: sizes-comment.md
           comment-tag: file-sizes-${{ matrix.id }}
 
       - name: Comment PR on failure
         if: failure() && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
-        uses: thollander/actions-comment-pull-request@v3
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
         with:
           message: |
             # 🚨🚨🚨❌❌❌ SQL BENCHMARK FAILED ❌❌❌🚨🚨🚨
