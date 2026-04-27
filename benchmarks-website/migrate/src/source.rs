@@ -126,7 +126,7 @@ fn open_s3(name: &str) -> Result<Box<dyn Read + Send>> {
 /// The post-bench `file-sizes` step uploads `file-sizes-${{ matrix.id
 /// }}.json.gz`, so this list must match those IDs verbatim. Adding a
 /// new matrix entry to that workflow means adding the same ID here.
-const KNOWN_FILE_SIZES_SUITES: &[&str] = &[
+pub(crate) const KNOWN_FILE_SIZES_SUITES: &[&str] = &[
     "clickbench-nvme",
     "tpch-nvme",
     "tpch-s3",

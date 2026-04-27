@@ -228,6 +228,193 @@ fn compression_size_data_and_file_sizes_merge() {
 }
 
 #[test]
+fn empty_author_email_stored_as_null() {
+    // v2 sometimes wrote `""` for blank author/email/message. The
+    // migrator normalizes those to None so DuckDB stores SQL NULL,
+    // letting the UI distinguish "missing metadata" from "empty
+    // string". Here author.email is "" — verify the column is NULL,
+    // not the empty string.
+    const COMMITS: &str = r#"{"id":"deadbeef","timestamp":"2026-04-25T00:00:00Z","message":"fixture","author":{"name":"A","email":""},"committer":{"name":"C","email":"c@example.com"},"tree_id":"abcd0001","url":"https://example.com/commit/deadbeef"}
+"#;
+
+    let src_dir = build_fixture(COMMITS, "", &[]);
+    let target_dir = TempDir::new().unwrap();
+    let target = target_dir.path().join("v3.duckdb");
+
+    migrate::run(&Source::Local(src_dir.path().into()), &target).unwrap();
+
+    let conn = Connection::open(&target).unwrap();
+    let is_null: bool = conn
+        .query_row(
+            "SELECT author_email IS NULL FROM commits WHERE commit_sha = 'deadbeef'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(is_null, "empty author.email must store as SQL NULL");
+
+    // Non-empty fields still round-trip as strings.
+    let committer_email: String = conn
+        .query_row(
+            "SELECT committer_email FROM commits WHERE commit_sha = 'deadbeef'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(committer_email, "c@example.com");
+}
+
+#[test]
+fn open_target_db_removes_orphan_wal() {
+    // A `.wal` left from a previous crash with no main file present
+    // must still be removed so the next run starts from a known-empty
+    // state. Otherwise DuckDB can replay stale WAL into the fresh DB
+    // and corrupt subsequent inserts.
+    let target_dir = TempDir::new().unwrap();
+    let target = target_dir.path().join("v3.duckdb");
+    let wal = target_dir.path().join("v3.duckdb.wal");
+    std::fs::write(&wal, b"orphan-wal-bytes").unwrap();
+    assert!(wal.exists(), "precondition: orphan wal staged");
+    assert!(!target.exists(), "precondition: no main db file");
+
+    let _conn = migrate::open_target_db(&target).unwrap();
+
+    // The migrator opens the DB after sweeping the WAL; DuckDB may
+    // recreate its own wal under load, but our pre-existing orphan
+    // bytes must not survive the sweep. We assert by content: either
+    // the path is missing, or its contents differ from the orphan we
+    // staged.
+    if wal.exists() {
+        let now = std::fs::read(&wal).unwrap();
+        assert_ne!(
+            now, b"orphan-wal-bytes",
+            "orphan wal bytes must not survive open_target_db"
+        );
+    }
+}
+
+#[test]
+fn file_sizes_unknown_id_falls_back_to_unknown_prefix() {
+    // A file-sizes-*.json.gz whose id isn't in
+    // `KNOWN_FILE_SIZES_SUITES`, with an empty `benchmark` field, used
+    // to surface as a bare id like `mystery-suite` and render as a
+    // dataset name. The migrator now prefixes those with `unknown:`
+    // so the UI can flag them.
+    const FILE_SIZES: &str = r#"{"commit_id":"deadbeef","benchmark":"","scale_factor":"","format":"vortex-file-compressed","file":"part-0.vortex","size_bytes":1000}
+"#;
+
+    let src_dir = build_fixture(
+        COMMITS_JSONL,
+        "",
+        &[("file-sizes-mystery-suite.json.gz", FILE_SIZES)],
+    );
+    let target_dir = TempDir::new().unwrap();
+    let target = target_dir.path().join("v3.duckdb");
+
+    migrate::run(&Source::Local(src_dir.path().into()), &target).unwrap();
+
+    let conn = Connection::open(&target).unwrap();
+    let dataset: String = conn
+        .query_row("SELECT dataset FROM compression_sizes", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(dataset, "unknown:mystery-suite");
+}
+
+#[test]
+fn file_sizes_known_id_uses_id_directly() {
+    // For a KNOWN_FILE_SIZES_SUITES id, the fallback path keeps the
+    // raw id (no `unknown:` prefix). `clickbench-nvme` is on the list.
+    const FILE_SIZES: &str = r#"{"commit_id":"deadbeef","benchmark":"","scale_factor":"","format":"vortex-file-compressed","file":"part-0.vortex","size_bytes":1000}
+"#;
+
+    let src_dir = build_fixture(
+        COMMITS_JSONL,
+        "",
+        &[("file-sizes-clickbench-nvme.json.gz", FILE_SIZES)],
+    );
+    let target_dir = TempDir::new().unwrap();
+    let target = target_dir.path().join("v3.duckdb");
+
+    migrate::run(&Source::Local(src_dir.path().into()), &target).unwrap();
+
+    let conn = Connection::open(&target).unwrap();
+    let dataset: String = conn
+        .query_row("SELECT dataset FROM compression_sizes", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(dataset, "clickbench-nvme");
+}
+
+#[test]
+fn compression_size_data_and_file_sizes_merge_with_canonical_sf() {
+    // Same logical SF written as `"10"` on the data.json.gz side and
+    // `"10.0"` on the file-sizes side. Both paths must canonicalize
+    // to `"10"` so the rows share a `measurement_id` and merge into
+    // one compression_sizes row.
+    const DATA: &str = r#"{"name":"vortex size/tpch","commit_id":"deadbeef","unit":"bytes","value":200,"dataset":{"tpch":{"scale_factor":"10"}}}
+"#;
+    const FILE_SIZES: &str = r#"{"commit_id":"deadbeef","benchmark":"tpch","scale_factor":"10.0","format":"vortex-file-compressed","file":"part-0.vortex","size_bytes":100}
+"#;
+
+    let src_dir = build_fixture(
+        COMMITS_JSONL,
+        DATA,
+        &[("file-sizes-tpch-nvme-10.json.gz", FILE_SIZES)],
+    );
+    let target_dir = TempDir::new().unwrap();
+    let target = target_dir.path().join("v3.duckdb");
+
+    let summary = migrate::run(&Source::Local(src_dir.path().into()), &target).unwrap();
+
+    assert_eq!(summary.compression_size_inserted, 1, "summary={summary}");
+    let conn = Connection::open(&target).unwrap();
+    let (n, value_bytes, dataset_variant): (i64, i64, String) = conn
+        .query_row(
+            "SELECT COUNT(*), SUM(value_bytes), MAX(dataset_variant) FROM compression_sizes",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(n, 1);
+    // data.json.gz seeds 200, file-sizes adds 100.
+    assert_eq!(value_bytes, 300);
+    assert_eq!(dataset_variant, "10");
+}
+
+#[test]
+fn summary_counts_match_actual_rows_on_success() {
+    // Sister test to migrate::tests::flush_all_does_not_overcount_on_failure.
+    // On a fully successful run, the post-flush summary counters must
+    // equal `SELECT COUNT(*)` from each fact table. This is the
+    // invariant the flush-after-count refactor preserves.
+    let src_dir = build_fixture(COMMITS_JSONL, DATA_JSONL, &[]);
+    let target_dir = TempDir::new().unwrap();
+    let target = target_dir.path().join("v3.duckdb");
+
+    let summary = migrate::run(&Source::Local(src_dir.path().into()), &target).unwrap();
+
+    let conn = Connection::open(&target).unwrap();
+    let actual = |table: &str| -> u64 {
+        let n: i64 = conn
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap();
+        n as u64
+    };
+    assert_eq!(summary.query_inserted, actual("query_measurements"));
+    assert_eq!(
+        summary.compression_time_inserted,
+        actual("compression_times")
+    );
+    assert_eq!(
+        summary.compression_size_inserted,
+        actual("compression_sizes")
+    );
+    assert_eq!(
+        summary.random_access_inserted,
+        actual("random_access_times")
+    );
+}
+
+#[test]
 fn file_sizes_sum_into_one_row() {
     // Two file-sizes rows sharing (commit, benchmark, format,
     // scale_factor) and value_bytes 100 + 200 must collapse to a
