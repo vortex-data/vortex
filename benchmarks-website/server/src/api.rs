@@ -17,7 +17,8 @@ use axum::extract::Query;
 use axum::extract::State;
 use axum::response::IntoResponse;
 use duckdb::Connection;
-use duckdb::params;
+use duckdb::ToSql;
+use duckdb::params_from_iter;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
@@ -73,16 +74,25 @@ impl CommitWindow {
     }
 
     /// SQL fragment to splice into chart queries that filters `commits c` to
-    /// just the most recent `n` commits. Empty for `All`. The integer is
-    /// server-clamped, so direct interpolation is safe.
-    fn sql_filter(&self) -> String {
+    /// just the most recent `n` commits. Empty for `All`. The placeholder is
+    /// satisfied by [`Self::limit_param`] so the LIMIT value travels as a
+    /// bound parameter rather than an interpolated integer.
+    fn sql_filter(&self) -> &'static str {
         match self {
-            Self::All => String::new(),
-            Self::Last(n) => format!(
+            Self::All => "",
+            Self::Last(_) => {
                 " AND c.commit_sha IN \
-                 (SELECT commit_sha FROM commits ORDER BY timestamp DESC LIMIT {})",
-                n.get()
-            ),
+                 (SELECT commit_sha FROM commits ORDER BY timestamp DESC LIMIT ?)"
+            }
+        }
+    }
+
+    /// Bound parameter for the `LIMIT ?` placeholder produced by
+    /// [`Self::sql_filter`]. `None` for [`Self::All`] (no extra `?` to bind).
+    fn limit_param(&self) -> Option<i64> {
+        match self {
+            Self::All => None,
+            Self::Last(n) => Some(i64::from(n.get())),
         }
     }
 
@@ -702,26 +712,27 @@ fn collect_query_chart(
     );
     let mut stmt = conn.prepare(&sql)?;
     let mut acc = SeriesAccumulator::new();
-    let rows = stmt.query_map(
-        params![
-            dataset,
-            dataset_variant.as_deref(),
-            scale_factor.as_deref(),
-            storage,
-            query_idx,
-        ],
-        |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, i64>(6)?,
-            ))
-        },
-    )?;
+    let mut binds: Vec<Box<dyn ToSql>> = vec![
+        Box::new(dataset.to_string()),
+        Box::new(dataset_variant.clone()),
+        Box::new(scale_factor.clone()),
+        Box::new(storage.to_string()),
+        Box::new(query_idx),
+    ];
+    if let Some(limit) = window.limit_param() {
+        binds.push(Box::new(limit));
+    }
+    let rows = stmt.query_map(params_from_iter(binds.iter()), |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, String>(4)?,
+            row.get::<_, String>(5)?,
+            row.get::<_, i64>(6)?,
+        ))
+    })?;
     let mut any = false;
     for row in rows {
         any = true;
@@ -767,7 +778,14 @@ fn collect_compression_time_chart(
     );
     let mut stmt = conn.prepare(&sql)?;
     let mut acc = SeriesAccumulator::new();
-    let rows = stmt.query_map(params![dataset, dataset_variant.as_deref()], |row| {
+    let mut binds: Vec<Box<dyn ToSql>> = vec![
+        Box::new(dataset.to_string()),
+        Box::new(dataset_variant.clone()),
+    ];
+    if let Some(limit) = window.limit_param() {
+        binds.push(Box::new(limit));
+    }
+    let rows = stmt.query_map(params_from_iter(binds.iter()), |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
@@ -818,7 +836,14 @@ fn collect_compression_size_chart(
     );
     let mut stmt = conn.prepare(&sql)?;
     let mut acc = SeriesAccumulator::new();
-    let rows = stmt.query_map(params![dataset, dataset_variant.as_deref()], |row| {
+    let mut binds: Vec<Box<dyn ToSql>> = vec![
+        Box::new(dataset.to_string()),
+        Box::new(dataset_variant.clone()),
+    ];
+    if let Some(limit) = window.limit_param() {
+        binds.push(Box::new(limit));
+    }
+    let rows = stmt.query_map(params_from_iter(binds.iter()), |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
@@ -866,7 +891,11 @@ fn collect_random_access_chart(
     );
     let mut stmt = conn.prepare(&sql)?;
     let mut acc = SeriesAccumulator::new();
-    let rows = stmt.query_map(params![dataset], |row| {
+    let mut binds: Vec<Box<dyn ToSql>> = vec![Box::new(dataset.to_string())];
+    if let Some(limit) = window.limit_param() {
+        binds.push(Box::new(limit));
+    }
+    let rows = stmt.query_map(params_from_iter(binds.iter()), |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
@@ -913,7 +942,15 @@ fn collect_vector_search_chart(
     );
     let mut stmt = conn.prepare(&sql)?;
     let mut acc = SeriesAccumulator::new();
-    let rows = stmt.query_map(params![dataset, layout, threshold], |row| {
+    let mut binds: Vec<Box<dyn ToSql>> = vec![
+        Box::new(dataset.to_string()),
+        Box::new(layout.to_string()),
+        Box::new(threshold),
+    ];
+    if let Some(limit) = window.limit_param() {
+        binds.push(Box::new(limit));
+    }
+    let rows = stmt.query_map(params_from_iter(binds.iter()), |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
@@ -1011,7 +1048,19 @@ mod tests {
             panic!()
         };
         let f = CommitWindow::Last(n).sql_filter();
-        assert!(f.contains("LIMIT 42"));
+        // Bound placeholder, not an interpolated integer.
+        assert!(f.contains("LIMIT ?"));
+        assert!(!f.contains("42"));
         assert!(CommitWindow::All.sql_filter().is_empty());
+    }
+
+    #[test]
+    fn commit_window_limit_param() {
+        let CommitWindow::Last(n) = CommitWindow::parse(Some("42")) else {
+            panic!()
+        };
+        assert_eq!(CommitWindow::Last(n).limit_param(), Some(42));
+        assert_eq!(CommitWindow::All.limit_param(), None);
+        assert_eq!(CommitWindow::default().limit_param(), Some(100));
     }
 }
