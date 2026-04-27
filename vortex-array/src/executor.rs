@@ -127,7 +127,6 @@ enum ResumeAction {
         slot_idx: usize,
         done: DonePredicate,
     },
-    AppendIntoParent,
 }
 
 struct StackFrame {
@@ -330,7 +329,6 @@ fn execute_loop(
     for _ in 0..max_iterations() {
         let is_done = stack.last().map_or(root_done, |frame| match frame.resume {
             ResumeAction::RestoreSlot { done, .. } => done,
-            ResumeAction::AppendIntoParent => AnyCanonical::matches,
         });
 
         if is_done(&current.array) || AnyCanonical::matches(&current.array) {
@@ -344,7 +342,7 @@ fn execute_loop(
                     return Ok(current.array);
                 }
                 Some(frame) => {
-                    current = pop_frame(frame, current, ctx)?;
+                    current = pop_frame(frame, current)?;
                     continue;
                 }
             }
@@ -394,7 +392,7 @@ fn execute_loop(
                     original_dtype: child.dtype().clone(),
                     original_len: child.len(),
                 });
-                current = Activation::new(child.optimize_ctx(ctx.session())?);
+                current = Activation::new(child);
             }
             ExecutionStep::AppendChild(i) => {
                 if current_builder.is_none() {
@@ -406,19 +404,21 @@ fn execute_loop(
                 }
                 let (parent, child) = unsafe { array.take_slot_unchecked(i) }?;
                 ctx.log(format_args!(
-                    "AppendChild({i}): pushing {}, focusing on {}",
-                    parent, child
+                    "AppendChild({i}): appending {} into builder",
+                    child
                 ));
-                stack.push(StackFrame {
-                    parent: Activation {
-                        array: parent,
-                        builder: current_builder.take(),
-                    },
-                    resume: ResumeAction::AppendIntoParent,
-                    original_dtype: child.dtype().clone(),
-                    original_len: child.len(),
-                });
-                current = Activation::new(child.optimize_ctx(ctx.session())?);
+                // TODO(perf): replace with a builder kernel registry so we don't
+                // need to go through the VTable append_to_builder indirection.
+                child.append_to_builder(
+                    current_builder
+                        .as_deref_mut()
+                        .vortex_expect("builder must exist"),
+                    ctx,
+                )?;
+                current = Activation {
+                    array: parent,
+                    builder: current_builder.take(),
+                };
             }
             ExecutionStep::Done => {
                 ctx.log(format_args!("Done: {}", array));
@@ -441,11 +441,7 @@ fn execute_loop(
 }
 
 /// Pop a stack frame, updating `current` accordingly.
-fn pop_frame(
-    frame: StackFrame,
-    current: Activation,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Activation> {
+fn pop_frame(frame: StackFrame, current: Activation) -> VortexResult<Activation> {
     debug_assert_eq!(
         current.array.dtype(),
         &frame.original_dtype,
@@ -460,18 +456,6 @@ fn pop_frame(
     match frame.resume {
         ResumeAction::RestoreSlot { slot_idx, .. } => {
             parent.array = unsafe { parent.array.put_slot_unchecked(slot_idx, current.array) }?;
-        }
-        ResumeAction::AppendIntoParent => {
-            // TODO(perf): replace with a proper builder kernel registry so encodings
-            // like FSST can append directly without materializing an intermediate array.
-            current.array.append_to_builder(
-                parent
-                    .builder
-                    .as_mut()
-                    .vortex_expect("AppendIntoParent requires a parent builder")
-                    .as_mut(),
-                ctx,
-            )?;
         }
     }
     Ok(parent)
