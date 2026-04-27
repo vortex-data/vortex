@@ -14,12 +14,12 @@ impl OperationsVTable<FixedSizeList> for FixedSizeList {
     fn scalar_at(
         array: ArrayView<'_, FixedSizeList>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         // By the preconditions we know that the list scalar is not null.
         let list = array.fixed_size_list_elements_at(index)?;
         let children_elements: Vec<Scalar> = (0..list.len())
-            .map(|i| list.scalar_at(i))
+            .map(|i| list.execute_scalar(i, ctx))
             .collect::<VortexResult<_>>()?;
 
         debug_assert_eq!(children_elements.len(), array.list_size() as usize);

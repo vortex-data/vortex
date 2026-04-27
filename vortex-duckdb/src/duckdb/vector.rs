@@ -328,7 +328,7 @@ impl ValidityRef<'_> {
     }
 
     /// Creates a mask directly from the DuckDB validity mask for optimal performance.
-    pub fn to_mask(&self) -> Mask {
+    pub fn execute_mask(&self) -> Mask {
         let Some(validity) = self.validity else {
             // All values are valid
             return Mask::AllTrue(self.len);
@@ -341,7 +341,7 @@ impl ValidityRef<'_> {
     }
 
     pub fn to_validity(&self) -> Validity {
-        Validity::from_mask(self.to_mask(), Nullability::Nullable)
+        Validity::from_mask(self.execute_mask(), Nullability::Nullable)
     }
 }
 

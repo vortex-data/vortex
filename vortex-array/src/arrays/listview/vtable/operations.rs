@@ -16,12 +16,12 @@ impl OperationsVTable<ListView> for ListView {
     fn scalar_at(
         array: ArrayView<'_, ListView>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         // By the preconditions we know that the list scalar is not null.
         let list = array.list_elements_at(index)?;
         let children: Vec<Scalar> = (0..list.len())
-            .map(|i| list.scalar_at(i))
+            .map(|i| list.execute_scalar(i, ctx))
             .collect::<VortexResult<_>>()?;
 
         Ok(Scalar::list(

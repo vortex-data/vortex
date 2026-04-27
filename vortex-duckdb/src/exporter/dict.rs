@@ -48,13 +48,13 @@ pub(crate) fn new_exporter_with_flatten(
     if let Some(constant) = values.as_opt::<Constant>() {
         return constant::new_exporter_with_mask(
             ConstantArray::new(constant.scalar().clone(), codes_len),
-            codes.validity()?.to_mask(codes_len, ctx)?,
+            codes.validity()?.execute_mask(codes_len, ctx)?,
             cache,
             ctx,
         );
     }
 
-    let codes_mask = codes.validity()?.to_mask(codes_len, ctx)?;
+    let codes_mask = codes.validity()?.execute_mask(codes_len, ctx)?;
 
     match codes_mask {
         Mask::AllTrue(_) => {}
@@ -77,7 +77,7 @@ pub(crate) fn new_exporter_with_flatten(
         let canonical = match canonical {
             Some(c) => c,
             None => {
-                let canonical = values.to_canonical()?;
+                let canonical = values.clone().execute::<Canonical>(ctx)?;
                 cache
                     .canonical_cache
                     .insert(values_key, (values.clone(), canonical.clone()));
@@ -192,15 +192,12 @@ mod tests {
 
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
-        new_exporter(&arr, &ConversionCache::default())
-            .unwrap()
-            .export(
-                0,
-                2,
-                chunk.get_vector_mut(0),
-                &mut SESSION.create_execution_ctx(),
-            )
-            .unwrap();
+        new_exporter(&arr, &ConversionCache::default())?.export(
+            0,
+            2,
+            chunk.get_vector_mut(0),
+            &mut SESSION.create_execution_ctx(),
+        )?;
         chunk.set_len(2);
 
         assert_eq!(
@@ -223,10 +220,12 @@ mod tests {
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
         let mut ctx = ExecutionCtx::new(VortexSession::default());
-        new_exporter_with_flatten(&arr, &ConversionCache::default(), &mut ctx, false)
-            .unwrap()
-            .export(0, 2, chunk.get_vector_mut(0), &mut ctx)
-            .unwrap();
+        new_exporter_with_flatten(&arr, &ConversionCache::default(), &mut ctx, false)?.export(
+            0,
+            2,
+            chunk.get_vector_mut(0),
+            &mut ctx,
+        )?;
         chunk.set_len(2);
 
         assert_eq!(
@@ -248,15 +247,12 @@ mod tests {
 
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
-        new_exporter(&arr, &ConversionCache::default())
-            .unwrap()
-            .export(
-                0,
-                3,
-                chunk.get_vector_mut(0),
-                &mut SESSION.create_execution_ctx(),
-            )
-            .unwrap();
+        new_exporter(&arr, &ConversionCache::default())?.export(
+            0,
+            3,
+            chunk.get_vector_mut(0),
+            &mut SESSION.create_execution_ctx(),
+        )?;
         chunk.set_len(3);
 
         // some-invalid codes cannot be exported as a dictionary.
@@ -271,10 +267,12 @@ mod tests {
             DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
         let mut ctx = SESSION.create_execution_ctx();
 
-        new_array_exporter(arr.into_array(), &ConversionCache::default(), &mut ctx)
-            .unwrap()
-            .export(0, 3, flat_chunk.get_vector_mut(0), &mut ctx)
-            .unwrap();
+        new_array_exporter(arr.into_array(), &ConversionCache::default(), &mut ctx)?.export(
+            0,
+            3,
+            flat_chunk.get_vector_mut(0),
+            &mut ctx,
+        )?;
         flat_chunk.set_len(3);
 
         assert_eq!(
@@ -297,15 +295,12 @@ mod tests {
 
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
-        new_exporter(&arr, &ConversionCache::default())
-            .unwrap()
-            .export(
-                0,
-                0,
-                chunk.get_vector_mut(0),
-                &mut SESSION.create_execution_ctx(),
-            )
-            .unwrap();
+        new_exporter(&arr, &ConversionCache::default())?.export(
+            0,
+            0,
+            chunk.get_vector_mut(0),
+            &mut SESSION.create_execution_ctx(),
+        )?;
         chunk.set_len(0);
 
         assert_eq!(

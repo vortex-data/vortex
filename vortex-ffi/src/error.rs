@@ -28,6 +28,7 @@ pub(crate) fn write_error(error: *mut *mut vx_error, message: &str) {
     unsafe { error.write(err) };
 }
 
+#[inline]
 pub fn try_or_default<T: Default>(
     error_out: *mut *mut vx_error,
     function: impl FnOnce() -> VortexResult<T>,
@@ -38,11 +39,25 @@ pub fn try_or_default<T: Default>(
             value
         }
         Err(err) => {
-            let err = vx_error::new(VortexError {
-                message: err.to_string().into(),
-            });
-            unsafe { error_out.write(err) };
+            write_error(error_out, &err.to_string());
             T::default()
+        }
+    }
+}
+
+pub fn try_or<T>(
+    error_out: *mut *mut vx_error,
+    error_value: T,
+    function: impl FnOnce() -> VortexResult<T>,
+) -> T {
+    match function() {
+        Ok(value) => {
+            unsafe { error_out.write(ptr::null_mut()) };
+            value
+        }
+        Err(err) => {
+            write_error(error_out, &err.to_string());
+            error_value
         }
     }
 }

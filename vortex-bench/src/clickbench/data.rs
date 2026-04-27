@@ -6,31 +6,22 @@ use std::fmt::Display;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::LazyLock;
-use std::time::Duration;
 
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Schema;
 use arrow_schema::TimeUnit;
-use bytes::Bytes;
 use clap::ValueEnum;
-use futures::StreamExt;
-use indicatif::ProgressBar;
-use indicatif::ProgressStyle;
-use reqwest::IntoUrl;
 use serde::Deserialize;
 use serde::Serialize;
-use tokio::fs::File;
-use tokio::io::AsyncWriteExt;
-use tokio::task::JoinSet;
 use tracing::info;
-use tracing::warn;
 use vortex::error::VortexExpect;
 
 use crate::Format;
 // Re-export for use by clickbench_benchmark
 pub use crate::conversions::convert_parquet_directory_to_vortex;
-use crate::idempotent_async;
+use crate::datasets::data_downloads::download_data;
+use crate::datasets::data_downloads::download_many;
 
 pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
     use DataType::*;
@@ -190,110 +181,28 @@ impl Display for Flavor {
 
 impl Flavor {
     // TODO(joe): move these elsewhere.
-    pub async fn download(
-        &self,
-        client: reqwest::Client,
-        basepath: impl AsRef<Path>,
-    ) -> anyhow::Result<()> {
+    pub async fn download(&self, basepath: impl AsRef<Path>) -> anyhow::Result<()> {
         let basepath = basepath.as_ref();
         match self {
             Flavor::Single => {
                 let output_path = basepath.join(Format::Parquet.name()).join("hits.parquet");
-                idempotent_async(output_path.as_path(), |output_path| async move {
-                    info!("Downloading single clickbench file");
-                    let url = "https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_single/hits.parquet";
-                    download_large_file(&client, url, &output_path).await?;
-                    anyhow::Ok(())
-                })
-                .await?;
+                info!("Downloading single clickbench file");
+                let url = "https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_single/hits.parquet";
+                download_data(output_path, url).await?;
             }
             Flavor::Partitioned => {
                 // The clickbench-provided file is missing some higher-level type info, so we reprocess it
                 // to add that info, see https://github.com/ClickHouse/ClickBench/issues/7.
-
-                let mut tasks = (0_u32..100).map(|idx| {
-                    let output_path = basepath.join(Format::Parquet.name()).join(format!("hits_{idx}.parquet"));
-                    let client = client.clone();
-
-                    idempotent_async(output_path,  move|output_path| async move {
-                        info!("Downloading file {idx}");
-                        let url = format!("https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_{idx}.parquet");
-                        let  body = retry_get(&client, url).await?;
-                        let mut file = File::create(output_path).await?;
-                        file.write_all(&body).await?;
-
-                        anyhow::Ok(())
-                    })
-                }).collect::<JoinSet<_>>();
-
-                while let Some(task) = tasks.join_next().await {
-                    task??;
-                }
+                info!("Downloading 100 ClickBench parquet shards");
+                let parquet_dir = basepath.join(Format::Parquet.name());
+                let downloads = (0_u32..100).map(|idx| {
+                    let output_path = parquet_dir.join(format!("hits_{idx}.parquet"));
+                    let url = format!("https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_{idx}.parquet");
+                    (output_path, url)
+                });
+                download_many(downloads).await?;
             }
         }
         Ok(())
-    }
-}
-
-/// Downloads a large file with streaming and progress indication.
-async fn download_large_file(
-    client: &reqwest::Client,
-    url: &str,
-    output_path: &Path,
-) -> anyhow::Result<()> {
-    let response = client.get(url).send().await?.error_for_status()?;
-
-    let total_size = response.content_length().unwrap_or(0);
-
-    let progress = ProgressBar::new(total_size);
-    progress.set_style(
-        ProgressStyle::with_template(
-            "[{elapsed_precise}] {bar:40.cyan/blue} {bytes}/{total_bytes} ({bytes_per_sec})",
-        )
-        .expect("valid template"),
-    );
-
-    let mut file = File::create(output_path).await?;
-    let mut stream = response.bytes_stream();
-
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        file.write_all(&chunk).await?;
-        progress.inc(chunk.len() as u64);
-    }
-
-    progress.finish();
-    Ok(())
-}
-
-async fn retry_get(client: &reqwest::Client, url: impl IntoUrl) -> anyhow::Result<Bytes> {
-    let url = url.as_str();
-    let make_req = || async { client.get(url).send().await };
-
-    let mut body = None;
-
-    for attempt in 0..3 {
-        match make_req().await.and_then(|r| r.error_for_status()) {
-            Ok(r) => match r.bytes().await {
-                Ok(b) => {
-                    body = Some(b);
-                    break;
-                }
-                Err(e) => {
-                    warn!("Request errored with {e}, retying for the {attempt} time");
-                }
-            },
-            Err(e) => {
-                warn!("Request errored with {e}, retying for the {attempt} time");
-            }
-        }
-
-        // Very basic backoff mechanism
-        tokio::time::sleep(Duration::from_secs(attempt + 1)).await;
-    }
-
-    match body {
-        Some(v) => Ok(v),
-        None => anyhow::bail!("Exahusted retry attempts for {url}"),
     }
 }

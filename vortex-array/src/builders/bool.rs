@@ -20,7 +20,8 @@ use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
-use crate::canonical::ToCanonical;
+#[expect(deprecated)]
+use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::scalar::Scalar;
@@ -115,6 +116,7 @@ impl ArrayBuilder for BoolBuilder {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
+        #[expect(deprecated)]
         let bool_array = array.to_bool();
 
         self.inner.append_buffer(&bool_array.to_bit_buffer());
@@ -123,7 +125,7 @@ impl ArrayBuilder for BoolBuilder {
                 .as_ref()
                 .validity()
                 .vortex_expect("validity_mask")
-                .to_mask(
+                .execute_mask(
                     bool_array.as_ref().len(),
                     &mut LEGACY_SESSION.create_execution_ctx(),
                 )
@@ -168,7 +170,8 @@ mod tests {
     use crate::builders::BoolBuilder;
     use crate::builders::bool::BoolArray;
     use crate::builders::builder_with_capacity;
-    use crate::canonical::ToCanonical;
+    #[expect(deprecated)]
+    use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
@@ -202,7 +205,9 @@ mod tests {
             .clone()
             .append_to_builder(builder.as_mut(), &mut ctx)?;
 
+        #[expect(deprecated)]
         let canon_into = builder.finish().to_bool();
+        #[expect(deprecated)]
         let into_canon = chunk.to_bool();
 
         assert!(

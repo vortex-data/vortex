@@ -180,7 +180,7 @@ impl VTable for Dict {
         // TODO(joe): use stat get instead computing.
         // Also not the check to do here it take value validity using code validity, but this approx
         // is correct.
-        if array.codes().all_invalid()? {
+        if array.codes().all_invalid(ctx)? {
             return Ok(ExecutionResult::done(ConstantArray::new(
                 Scalar::null(array.dtype().as_nullable()),
                 array.codes().len(),
@@ -198,7 +198,7 @@ impl VTable for Dict {
         let values = array.values().clone();
         debug_assert!(values.is_canonical());
         // TODO: add canonical owned cast.
-        let values = values.to_canonical()?;
+        let values = values.execute::<Canonical>(ctx)?;
 
         Ok(ExecutionResult::done(take_canonical(values, &codes, ctx)?))
     }

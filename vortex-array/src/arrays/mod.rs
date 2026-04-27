@@ -75,8 +75,8 @@ pub use primitive::Primitive;
 pub use primitive::PrimitiveArray;
 
 pub mod scalar_fn;
+pub use scalar_fn::ScalarFn;
 pub use scalar_fn::ScalarFnArray;
-pub use scalar_fn::ScalarFnVTable;
 
 pub mod shared;
 pub use shared::Shared;

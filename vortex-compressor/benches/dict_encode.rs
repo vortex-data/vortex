@@ -5,6 +5,8 @@
 
 use divan::Bencher;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::dict::dict_encode;
@@ -40,7 +42,7 @@ fn encode_generic(bencher: Bencher) {
 #[divan::bench]
 fn encode_specialized(bencher: Bencher) {
     let array = make_array();
-    let stats = IntegerStats::generate(&array);
+    let stats = IntegerStats::generate(&array, &mut LEGACY_SESSION.create_execution_ctx());
     bencher
         .with_inputs(|| &stats)
         .bench_refs(|stats| integer_dictionary_encode(array.as_view(), stats));

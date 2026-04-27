@@ -20,7 +20,9 @@ use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::Precision;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
@@ -147,7 +149,11 @@ impl VTable for Masked {
         };
 
         let validity_slot = validity_to_child(&validity, len);
-        let data = MaskedData::try_new(len, child.all_valid()?, validity)?;
+        let data = MaskedData::try_new(
+            len,
+            child.all_valid(&mut LEGACY_SESSION.create_execution_ctx())?,
+            validity,
+        )?;
         Ok(
             crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data)
                 .with_slots(vec![Some(child), validity_slot]),
@@ -155,7 +161,7 @@ impl VTable for Masked {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let validity_mask = array.masked_validity().to_mask(array.len(), ctx)?;
+        let validity_mask = array.masked_validity().execute_mask(array.len(), ctx)?;
 
         // Fast path: all masked means result is all nulls.
         if validity_mask.all_false() {

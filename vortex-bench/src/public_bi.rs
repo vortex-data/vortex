@@ -26,6 +26,7 @@ use tracing::info;
 use tracing::trace;
 use url::Url;
 use vortex::array::ArrayRef;
+use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::error::VortexResult;
@@ -43,7 +44,7 @@ use crate::TableSpec;
 use crate::conversions::parquet_to_vortex_chunks;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::decompress_bz2;
-use crate::datasets::data_downloads::download_data;
+use crate::datasets::data_downloads::download_many;
 use crate::idempotent_async;
 use crate::workspace_root;
 
@@ -289,16 +290,13 @@ pub struct PBIData {
 
 impl PBIData {
     async fn download_bzips(&self) -> anyhow::Result<()> {
-        let download_futures = self.tables.iter().map(|table| {
-            download_data(
+        let downloads = self.tables.iter().map(|table| {
+            (
                 self.get_file_path(&table.name, FileType::CsvBzip2),
-                table.data_url.as_str(),
+                table.data_url.as_str().to_owned(),
             )
         });
-        let results = join_all(download_futures).await;
-        for result in results {
-            result?;
-        }
+        download_many(downloads).await?;
         Ok(())
     }
 
@@ -455,7 +453,7 @@ impl Dataset for PBIBenchmark {
         &self.name
     }
 
-    async fn to_vortex_array(&self) -> anyhow::Result<ArrayRef> {
+    async fn to_vortex_array(&self, _ctx: &mut ExecutionCtx) -> anyhow::Result<ArrayRef> {
         let dataset = self.dataset()?;
         dataset.write_as_vortex().await?;
         // reading only the first table, each table in a PBI benchmark

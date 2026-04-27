@@ -23,8 +23,10 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
 use vortex_array::TypedArrayRef;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::varbin::VarBinArrayExt;
@@ -113,7 +115,9 @@ impl VTable for FSST {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        data.validate(dtype, len, slots)
+        // TODO(ctx): trait fixes - VTable::validate has a fixed signature.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        data.validate(dtype, len, slots, &mut ctx)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -233,6 +237,8 @@ impl VTable for FSST {
                 vortex_bail!("Expected 2 or 3 children, got {}", children.len());
             };
 
+            // TODO(ctx): trait fixes - VTable::deserialize has a fixed signature.
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
             FSSTData::validate_parts(
                 &symbols,
                 &symbol_lengths,
@@ -242,6 +248,7 @@ impl VTable for FSST {
                 &uncompressed_lengths,
                 dtype,
                 len,
+                &mut ctx,
             )?;
             let slots = vec![
                 Some(uncompressed_lengths),
@@ -294,7 +301,7 @@ impl VTable for FSST {
             array
                 .array()
                 .validity()?
-                .to_mask(array.array().len(), ctx)?,
+                .execute_mask(array.array().len(), ctx)?,
         );
         Ok(())
     }
@@ -383,6 +390,7 @@ impl FSST {
         symbol_lengths: Buffer<u8>,
         codes: VarBinArray,
         uncompressed_lengths: ArrayRef,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<FSSTArray> {
         let len = codes.len();
         FSSTData::validate_parts_from_codes(
@@ -392,6 +400,7 @@ impl FSST {
             &uncompressed_lengths,
             &dtype,
             len,
+            ctx,
         )?;
         let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
         let codes_bytes = codes.bytes_handle().clone();
@@ -435,6 +444,8 @@ impl FSST {
             len,
         )?;
 
+        // TODO(ctx): trait fixes - VTable::deserialize has a fixed signature.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         FSSTData::validate_parts_from_codes(
             symbols,
             symbol_lengths,
@@ -442,6 +453,7 @@ impl FSST {
             &uncompressed_lengths,
             dtype,
             len,
+            &mut ctx,
         )?;
         let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
         let codes_bytes = codes.bytes_handle().clone();
@@ -514,6 +526,7 @@ impl FSSTData {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let codes_offsets = slots[CODES_OFFSETS_SLOT]
             .as_ref()
@@ -527,6 +540,7 @@ impl FSSTData {
             uncompressed_lengths_from_slots(slots),
             dtype,
             len,
+            ctx,
         )
     }
 
@@ -541,6 +555,7 @@ impl FSSTData {
         uncompressed_lengths: &ArrayRef,
         dtype: &DType,
         len: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         vortex_ensure!(
             matches!(dtype, DType::Binary(_) | DType::Utf8(_)),
@@ -580,7 +595,7 @@ impl FSSTData {
         // Validate that last offset doesn't exceed bytes length (when host-resident).
         if codes_bytes.is_on_host() && codes_offsets.is_host() && !codes_offsets.is_empty() {
             let last_offset: usize = (&codes_offsets
-                .scalar_at(codes_offsets.len() - 1)
+                .execute_scalar(codes_offsets.len() - 1, ctx)
                 .vortex_expect("offsets must support scalar_at"))
                 .try_into()
                 .vortex_expect("Failed to convert offset to usize");
@@ -603,6 +618,7 @@ impl FSSTData {
         uncompressed_lengths: &ArrayRef,
         dtype: &DType,
         len: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         Self::validate_parts(
             symbols,
@@ -613,6 +629,7 @@ impl FSSTData {
             uncompressed_lengths,
             dtype,
             len,
+            ctx,
         )
     }
 
@@ -787,11 +804,13 @@ mod test {
         let symbol_lengths = Buffer::<u8>::copy_from([3, 8]);
 
         let compressor = Compressor::rebuild_from(symbols.as_slice(), symbol_lengths.as_slice());
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let fsst_array = fsst_compress_iter(
             [Some(b"abcabcab".as_ref()), Some(b"defghijk".as_ref())].into_iter(),
             2,
             DType::Utf8(Nullability::NonNullable),
             &compressor,
+            &mut ctx,
         );
 
         let compressed_codes = fsst_array.codes();

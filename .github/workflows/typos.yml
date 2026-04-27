@@ -16,8 +16,9 @@ jobs:
   spelling:
     name: Spell Check with Typos
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout Actions Repository
         uses: actions/checkout@v6
       - name: Spell Check Repo
-        uses: crate-ci/typos@v1.44.0
+        uses: crate-ci/typos@v1.45.1

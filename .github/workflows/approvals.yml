@@ -3,10 +3,14 @@ name: PR Approval Check
 on:
   pull_request_review:
     types: [submitted, dismissed]
+  pull_request:
+    branches:
+      - "develop"
 
 jobs:
   check-approvals:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check required approvals
         uses: actions/github-script@450193c5abd4cdb17ba9f3ffcfe8f635c4bb6c2a
@@ -32,13 +36,15 @@ jobs:
             const authorType = pr.user.type;        // 'Bot' vs 'User'
             const authorLogin = pr.user.login;       // e.g. 'github-actions[bot]'
             const isBot = authorType === 'Bot' || authorLogin.endsWith('[bot]');
+            const oneApprovalBotAuthors = new Set(['renovate[bot]']);
 
-            const required = isBot ? 2 : 1;
+            const required = isBot && !oneApprovalBotAuthors.has(authorLogin) ? 2 : 1;
 
             console.log(`PR author: ${authorLogin} (${authorType}), isBot: ${isBot}`);
+            console.log(`One-approval bot allowlist: ${oneApprovalBotAuthors.has(authorLogin)}`);
             console.log(`Approvals: ${approvalCount} / ${required} required`);
 
-            if (approvalCount < required) {
+            if (isBot && (approvalCount < required))  {
               core.setFailed(
                 `This PR needs ${required} human approval(s) but has ${approvalCount}. ` +
                 `(Author is ${isBot ? 'a bot' : 'human'})`

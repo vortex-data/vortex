@@ -35,6 +35,6 @@ impl DynAggregateKernel for DecimalBytePartsIsConstantKernel {
         };
 
         let result = is_constant(array.msp(), ctx)?;
-        Ok(Some(IsConstant::make_partial(batch, result)?))
+        Ok(Some(IsConstant::make_partial(batch, result, ctx)?))
     }
 }

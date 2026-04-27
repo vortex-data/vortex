@@ -39,15 +39,10 @@ mod slice;
 mod struct_;
 mod varbinview;
 
-/// Reconstruct a [`Mask`] from an [`Arc<MaskValues>`].
-fn values_to_mask(values: &Arc<MaskValues>) -> Mask {
-    Mask::Values(Arc::clone(values))
-}
-
 /// A helper function that lazily filters a [`Validity`] with selection mask values.
 fn filter_validity(validity: Validity, mask: &Arc<MaskValues>) -> Validity {
     validity
-        .filter(&values_to_mask(mask))
+        .filter(&Mask::Values(Arc::clone(mask)))
         .vortex_expect("Somehow unable to wrap filter around a validity array")
 }
 
@@ -73,7 +68,7 @@ pub(super) fn execute_filter_fast_paths(
     let child_arr = array.array();
     if child_arr
         .validity()?
-        .to_mask(child_arr.len(), ctx)?
+        .execute_mask(child_arr.len(), ctx)?
         .true_count()
         == 0
     {
@@ -101,14 +96,14 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Ca
         Canonical::Extension(a) => {
             let filtered_storage = a
                 .storage_array()
-                .filter(values_to_mask(mask))
+                .filter(Mask::Values(Arc::clone(mask)))
                 .vortex_expect("ExtensionArray storage type somehow could not be filtered");
             Canonical::Extension(ExtensionArray::new(a.ext_dtype().clone(), filtered_storage))
         }
         Canonical::Variant(a) => {
             let filtered_child = a
                 .child()
-                .filter(values_to_mask(mask))
+                .filter(Mask::Values(Arc::clone(mask)))
                 .vortex_expect("VariantArray child could not be filtered");
             Canonical::Variant(VariantArray::new(filtered_child))
         }

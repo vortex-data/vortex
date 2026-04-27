@@ -6,6 +6,8 @@
 use std::fmt;
 
 use divan::Bencher;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
@@ -208,9 +210,15 @@ fn decode_bool(bencher: Bencher, args: BoolBenchArgs) {
     } = args;
     let (ends, values) = create_bool_test_data(total_length, avg_run_length, distribution);
     bencher
-        .with_inputs(|| (ends.clone(), values.clone()))
-        .bench_refs(|(ends, values)| {
-            runend_decode_bools(ends.clone(), values.clone(), 0, total_length)
+        .with_inputs(|| {
+            (
+                ends.clone(),
+                values.clone(),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(ends, values, ctx)| {
+            runend_decode_bools(ends.clone(), values.clone(), 0, total_length, ctx)
         });
 }
 
@@ -371,8 +379,14 @@ fn decode_bool_nullable(bencher: Bencher, args: NullableBoolBenchArgs) {
     let (ends, values) =
         create_nullable_bool_test_data(total_length, avg_run_length, distribution, validity);
     bencher
-        .with_inputs(|| (ends.clone(), values.clone()))
-        .bench_refs(|(ends, values)| {
-            runend_decode_bools(ends.clone(), values.clone(), 0, total_length)
+        .with_inputs(|| {
+            (
+                ends.clone(),
+                values.clone(),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(ends, values, ctx)| {
+            runend_decode_bools(ends.clone(), values.clone(), 0, total_length, ctx)
         });
 }

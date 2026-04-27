@@ -32,6 +32,8 @@ mod tests {
     use rstest::rstest;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::NullArray;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
@@ -64,7 +66,12 @@ mod tests {
 
         // Verify all values are null
         for i in 0..5 {
-            assert!(result.scalar_at(i).unwrap().is_null());
+            assert!(
+                result
+                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap()
+                    .is_null()
+            );
         }
     }
 

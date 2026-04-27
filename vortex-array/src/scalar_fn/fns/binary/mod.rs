@@ -142,24 +142,24 @@ impl ScalarFnVTable for Binary {
         &self,
         op: &Operator,
         args: &dyn ExecutionArgs,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let lhs = args.get(0)?;
         let rhs = args.get(1)?;
 
         match op {
-            Operator::Eq => execute_compare(&lhs, &rhs, CompareOperator::Eq),
-            Operator::NotEq => execute_compare(&lhs, &rhs, CompareOperator::NotEq),
-            Operator::Lt => execute_compare(&lhs, &rhs, CompareOperator::Lt),
-            Operator::Lte => execute_compare(&lhs, &rhs, CompareOperator::Lte),
-            Operator::Gt => execute_compare(&lhs, &rhs, CompareOperator::Gt),
-            Operator::Gte => execute_compare(&lhs, &rhs, CompareOperator::Gte),
-            Operator::And => execute_boolean(&lhs, &rhs, Operator::And),
-            Operator::Or => execute_boolean(&lhs, &rhs, Operator::Or),
-            Operator::Add => execute_numeric(&lhs, &rhs, NumericOperator::Add),
-            Operator::Sub => execute_numeric(&lhs, &rhs, NumericOperator::Sub),
-            Operator::Mul => execute_numeric(&lhs, &rhs, NumericOperator::Mul),
-            Operator::Div => execute_numeric(&lhs, &rhs, NumericOperator::Div),
+            Operator::Eq => execute_compare(&lhs, &rhs, CompareOperator::Eq, ctx),
+            Operator::NotEq => execute_compare(&lhs, &rhs, CompareOperator::NotEq, ctx),
+            Operator::Lt => execute_compare(&lhs, &rhs, CompareOperator::Lt, ctx),
+            Operator::Lte => execute_compare(&lhs, &rhs, CompareOperator::Lte, ctx),
+            Operator::Gt => execute_compare(&lhs, &rhs, CompareOperator::Gt, ctx),
+            Operator::Gte => execute_compare(&lhs, &rhs, CompareOperator::Gte, ctx),
+            Operator::And => execute_boolean(&lhs, &rhs, Operator::And, ctx),
+            Operator::Or => execute_boolean(&lhs, &rhs, Operator::Or, ctx),
+            Operator::Add => execute_numeric(&lhs, &rhs, NumericOperator::Add, ctx),
+            Operator::Sub => execute_numeric(&lhs, &rhs, NumericOperator::Sub, ctx),
+            Operator::Mul => execute_numeric(&lhs, &rhs, NumericOperator::Mul, ctx),
+            Operator::Div => execute_numeric(&lhs, &rhs, NumericOperator::Div, ctx),
         }
     }
 
@@ -314,6 +314,8 @@ mod tests {
     use vortex_error::VortexExpect;
 
     use super::*;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
@@ -494,7 +496,9 @@ mod tests {
         // Test using binary method directly
         let result_equal = lhs_struct.binary(rhs_struct_equal, Operator::Eq).unwrap();
         assert_eq!(
-            result_equal.scalar_at(0).vortex_expect("value"),
+            result_equal
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("value"),
             Scalar::bool(true, Nullability::NonNullable),
             "Equal structs should be equal"
         );
@@ -503,7 +507,9 @@ mod tests {
             .binary(rhs_struct_different, Operator::Eq)
             .unwrap();
         assert_eq!(
-            result_different.scalar_at(0).vortex_expect("value"),
+            result_different
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("value"),
             Scalar::bool(false, Nullability::NonNullable),
             "Different structs should not be equal"
         );

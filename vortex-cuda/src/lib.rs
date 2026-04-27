@@ -27,6 +27,7 @@ pub use canonical::CanonicalCudaExt;
 pub use device_buffer::CudaBufferExt;
 pub use device_buffer::CudaDeviceBuffer;
 pub use device_read_at::CopyDeviceReadAt;
+pub use executor::CudaDispatchMode;
 pub use executor::CudaExecutionCtx;
 pub use executor::CudaKernelEvents;
 use kernel::ALPExecutor;
@@ -47,7 +48,6 @@ use kernel::ZigZagExecutor;
 use kernel::ZstdBuffersExecutor;
 use kernel::ZstdExecutor;
 pub use kernel::ZstdKernelPrep;
-pub use kernel::transpose_patches;
 pub use kernel::zstd_kernel_prepare;
 pub use pinned::PinnedByteBufferPool;
 pub use pinned::PinnedPoolStats;
@@ -82,6 +82,18 @@ pub use vortex_nvcomp as nvcomp;
 
 use crate::kernel::SequenceExecutor;
 use crate::kernel::SliceExecutor;
+
+#[cfg(test)]
+pub(crate) fn canonicalize_cpu(
+    array: impl vortex::array::IntoArray,
+) -> vortex::error::VortexResult<vortex::array::Canonical> {
+    use vortex::array::LEGACY_SESSION;
+    use vortex::array::VortexSessionExecute;
+
+    array
+        .into_array()
+        .execute::<vortex::array::Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+}
 
 /// Checks if CUDA is available on the system by looking for nvcc.
 pub fn cuda_available() -> bool {

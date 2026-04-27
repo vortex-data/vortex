@@ -35,7 +35,7 @@ pub fn canonical_varbinview_to_arrow<T: ByteViewType>(
         array
             .as_ref()
             .validity()?
-            .to_mask(array.as_ref().len(), ctx)?,
+            .execute_mask(array.as_ref().len(), ctx)?,
     );
 
     // SAFETY: our own VarBinView array is considered safe.

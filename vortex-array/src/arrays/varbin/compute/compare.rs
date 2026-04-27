@@ -80,10 +80,10 @@ impl CompareKernel for VarBin {
                 ));
             }
 
-            let lhs = Datum::try_new(lhs.array())?;
+            let lhs = Datum::try_new(lhs.array(), ctx)?;
 
             // Use StringViewArray/BinaryViewArray to match the Utf8View/BinaryView types
-            // produced by Datum::try_new (which uses into_arrow_preferred())
+            // produced by Datum::try_new (which uses execute_arrow(None, ctx))
             let arrow_rhs: &dyn arrow_array::Datum = match rhs_const.dtype() {
                 DType::Utf8(_) => &rhs_const
                     .as_utf8()
@@ -146,7 +146,8 @@ mod test {
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
@@ -164,6 +165,7 @@ mod test {
             [Some(b"abc".to_vec()), None, Some(b"def".to_vec())],
             DType::Binary(Nullability::Nullable),
         );
+        #[expect(deprecated)]
         let result = array
             .into_array()
             .binary(
@@ -182,7 +184,7 @@ mod test {
                 .as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(
+                .execute_mask(
                     result.as_ref().len(),
                     &mut LEGACY_SESSION.create_execution_ctx()
                 )
@@ -206,6 +208,7 @@ mod test {
             [None, None, Some(b"def".to_vec())],
             DType::Binary(Nullability::Nullable),
         );
+        #[expect(deprecated)]
         let result = array
             .into_array()
             .binary(vbv.into_array(), Operator::Eq)
@@ -217,7 +220,7 @@ mod test {
                 .as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(
+                .execute_mask(
                     result.as_ref().len(),
                     &mut LEGACY_SESSION.create_execution_ctx()
                 )

@@ -3,157 +3,148 @@
 
 package dev.vortex.spark.read;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
-import dev.vortex.api.File;
-import dev.vortex.api.Files;
+import dev.vortex.api.DataSource;
+import dev.vortex.api.Expression;
+import dev.vortex.api.Partition;
+import dev.vortex.api.Scan;
 import dev.vortex.api.ScanOptions;
+import dev.vortex.api.Session;
+import dev.vortex.arrow.ArrowAllocation;
+import dev.vortex.relocated.org.apache.arrow.memory.BufferAllocator;
+import dev.vortex.relocated.org.apache.arrow.vector.VectorSchemaRoot;
+import dev.vortex.relocated.org.apache.arrow.vector.ipc.ArrowReader;
 import dev.vortex.spark.VortexFilePartition;
-import java.util.*;
-import org.apache.spark.sql.connector.catalog.Column;
+import dev.vortex.spark.VortexSparkSession;
+import java.io.IOException;
+import java.util.List;
+import java.util.Map;
 import org.apache.spark.sql.connector.read.PartitionReader;
+import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.vectorized.ColumnVector;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 
 /**
- * A {@link PartitionReader} that reads columnar batches out of a Vortex file into
- * Vortex memory format.
- * <p>
- * When reading from partitioned directories, partition column values are extracted from the
- * Hive-style file path and materialized as Spark
- * {@link org.apache.spark.sql.execution.vectorized.ConstantColumnVector} instances that are
- * spliced into each output batch.
+ * Per-{@link VortexFilePartition} columnar reader.
+ *
+ * <p>Opens a single Vortex {@link Session}, {@link DataSource} and {@link Scan} spanning
+ * all of {@link VortexFilePartition#paths()} and streams every Vortex partition's record
+ * batches through the {@link PartitionReader} interface.
  */
 final class VortexPartitionReader implements PartitionReader<ColumnarBatch> {
-    private final VortexFilePartition partition;
+    private final VortexFilePartition spark;
+    private final BufferAllocator allocator;
 
-    private File file;
-    private VortexColumnarBatchIterator batches;
+    // Held so the DataSource/Scan stay reachable even if the JVM-wide singleton is
+    // ever reset during a task; the actual native session is owned by
+    // {@link VortexSparkSession} and is not released when this reader closes.
+    private Session session;
+    private DataSource dataSource;
+    private Scan scan;
 
-    /** Names of columns whose values come from the partition path rather than the data file. */
-    private Set<String> partitionColumnNames;
+    private Partition currentPartition;
+    private ArrowReader currentReader;
+    private boolean currentBatchLoaded;
+    private boolean exhausted;
 
-    /** Tracks the last data batch so its native memory can be freed properly. */
-    private ColumnarBatch lastDataBatch;
+    VortexPartitionReader(VortexFilePartition spark, List<String> dataColumnNames, Map<String, String> formatOptions) {
+        this.spark = spark;
+        this.allocator = ArrowAllocation.rootAllocator();
 
-    VortexPartitionReader(VortexFilePartition partition) {
-        this.partition = partition;
-        initNativeResources();
+        session = VortexSparkSession.get(formatOptions);
+        dataSource = DataSource.open(session, spark.paths(), formatOptions);
+
+        var options = ScanOptions.builder();
+        if (!dataColumnNames.isEmpty()) {
+            Expression projection = Expression.select(dataColumnNames.toArray(new String[0]), Expression.root());
+            options.projection(projection);
+        }
+        scan = dataSource.scan(options.build());
     }
 
     @Override
     public boolean next() {
-        checkNotNull(batches, "batches");
-        return batches.hasNext();
+        if (exhausted) {
+            return false;
+        }
+        while (true) {
+            if (currentReader != null) {
+                try {
+                    if (currentReader.loadNextBatch()) {
+                        currentBatchLoaded = true;
+                        return true;
+                    }
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+                closeCurrentReader();
+            }
+            if (!scan.hasNext()) {
+                exhausted = true;
+                return false;
+            }
+            currentPartition = scan.next();
+            currentReader = currentPartition.scanArrow(allocator);
+        }
     }
 
     @Override
     public ColumnarBatch get() {
-        checkNotNull(batches, "closed ArrayStream");
+        if (!currentBatchLoaded) {
+            throw new IllegalStateException("no batch loaded; call next() first");
+        }
+        currentBatchLoaded = false;
 
-        // Free previous data batch native memory
-        if (lastDataBatch != null) {
-            lastDataBatch.close();
-            lastDataBatch = null;
+        VectorSchemaRoot root;
+        try {
+            root = currentReader.getVectorSchemaRoot();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
 
-        ColumnarBatch dataBatch = batches.next();
-
-        if (partitionColumnNames.isEmpty()) {
-            return dataBatch;
+        int rowCount = root.getRowCount();
+        Map<String, String> partVals = spark.partitionValues();
+        if (partVals.isEmpty()) {
+            ColumnVector[] vectors = new ColumnVector[root.getFieldVectors().size()];
+            for (int i = 0; i < vectors.length; i++) {
+                vectors[i] = new VortexArrowColumnVector(root.getFieldVectors().get(i));
+            }
+            return new ColumnarBatch(vectors, rowCount);
         }
 
-        // Track the data batch for lifecycle management
-        lastDataBatch = dataBatch;
-        return buildCombinedBatch(dataBatch);
-    }
-
-    /**
-     * Builds a combined batch with data columns from the file and constant partition columns
-     * in the order expected by the full table schema.
-     */
-    private ColumnarBatch buildCombinedBatch(ColumnarBatch dataBatch) {
-        int rowCount = dataBatch.numRows();
-        Map<String, String> partVals = partition.getPartitionValues();
-        List<Column> allColumns = partition.getColumns();
-        ColumnVector[] combined = new ColumnVector[allColumns.size()];
-
+        StructField[] fields = spark.readSchema().fields();
+        ColumnVector[] combined = new ColumnVector[fields.length];
         int dataIdx = 0;
-        for (int i = 0; i < allColumns.size(); i++) {
-            Column col = allColumns.get(i);
-            String partValue = partVals.get(col.name());
+        for (int i = 0; i < fields.length; i++) {
+            StructField field = fields[i];
+            String partValue = partVals.get(field.name());
             if (partValue != null) {
-                combined[i] = PartitionPathUtils.createConstantVector(rowCount, col.dataType(), partValue);
+                combined[i] = PartitionPathUtils.createConstantVector(rowCount, field.dataType(), partValue);
             } else {
-                combined[i] = dataBatch.column(dataIdx++);
+                combined[i] = new VortexArrowColumnVector(root.getFieldVectors().get(dataIdx++));
             }
         }
-
-        return new CombinedColumnarBatch(combined, rowCount);
-    }
-
-    /**
-     * Initialize the Vortex File and ArrayStream resources.
-     * <p>
-     * Partition columns are identified by matching requested column names against the
-     * partition values from the file path. Only non-partition columns are pushed down
-     * to the Vortex scan.
-     */
-    void initNativeResources() {
-        Map<String, String> partVals = partition.getPartitionValues();
-        this.partitionColumnNames = new HashSet<>();
-
-        List<String> dataColumnNames = new ArrayList<>();
-        for (Column col : partition.getColumns()) {
-            if (partVals.containsKey(col.name())) {
-                partitionColumnNames.add(col.name());
-            } else {
-                dataColumnNames.add(col.name());
-            }
-        }
-
-        file = Files.open(partition.getPath(), partition.getFormatOptions());
-        batches = new VortexColumnarBatchIterator(
-                file.newScan(ScanOptions.builder().columns(dataColumnNames).build()));
+        return new ColumnarBatch(combined, rowCount);
     }
 
     @Override
     public void close() {
-        if (lastDataBatch != null) {
-            lastDataBatch.close();
-            lastDataBatch = null;
-        }
-
-        checkNotNull(file, "File was closed");
-        checkNotNull(batches, "ArrayStream was closed");
-
-        batches.close();
-        batches = null;
-
-        file.close();
-        file = null;
+        closeCurrentReader();
+        // Scan and DataSource native resources are released by VortexCleaner once
+        // references are dropped. Session is the JVM-wide singleton and outlives this reader.
+        scan = null;
+        dataSource = null;
+        session = null;
     }
 
-    /**
-     * A ColumnarBatch that does not close its column vectors on {@link #close()}.
-     * <p>
-     * The data column vectors are owned by the underlying {@link VortexColumnarBatch}
-     * (tracked via {@link #lastDataBatch}), and the constant partition vectors have trivial
-     * lifecycle. Neither should be closed by this wrapper.
-     */
-    private static final class CombinedColumnarBatch extends ColumnarBatch {
-        CombinedColumnarBatch(ColumnVector[] columns, int numRows) {
-            super(columns, numRows);
+    private void closeCurrentReader() {
+        if (currentReader != null) {
+            try {
+                currentReader.close();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+            currentReader = null;
         }
-
-        @Override
-        public void close() {
-            // Intentionally empty: lifecycle is managed by VortexPartitionReader
-        }
-
-        @Override
-        public void closeIfFreeable() {
-            // Intentionally empty
-        }
+        currentPartition = null;
     }
 }

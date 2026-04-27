@@ -33,7 +33,7 @@ impl CompareKernel for DecimalByteParts {
         lhs: ArrayView<'_, Self>,
         rhs: &ArrayRef,
         operator: CompareOperator,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let Some(rhs_const) = rhs.as_constant() else {
             return Ok(None);
@@ -65,7 +65,7 @@ impl CompareKernel for DecimalByteParts {
                 // (depending on the `sign`) than all values in MSP.
                 // If the LHS or the RHS contain nulls, then we must fallback to the canonicalized
                 // implementation which does null-checking instead.
-                if lhs.array().all_valid()? && rhs.all_valid()? {
+                if lhs.array().all_valid(ctx)? && rhs.all_valid(ctx)? {
                     Ok(Some(
                         ConstantArray::new(
                             unconvertible_value(sign, operator, nullability),

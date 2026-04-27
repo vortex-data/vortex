@@ -13,12 +13,15 @@ use std::time::Instant;
 
 use indicatif::ProgressBar;
 use vortex::error::vortex_panic;
+use vortex::utils::aliases::hash_set::HashSet;
 
 use crate::Benchmark;
 use crate::BenchmarkDataset;
 use crate::Engine;
 use crate::Format;
 use crate::Target;
+use crate::datasets::DEFAULT_BENCHMARK_RUNNER_ID;
+use crate::datasets::normalize_benchmark_runner_id;
 
 /// Controls whether queries are benchmarked or explained.
 pub enum BenchmarkMode {
@@ -65,8 +68,10 @@ pub struct BenchmarkResults {
 pub struct SqlBenchmarkRunner {
     engine: Engine,
     benchmark_dataset: BenchmarkDataset,
+    benchmark_runner: String,
     storage: String,
     expected_row_counts: Option<Vec<usize>>,
+    /// Deduplicated, preserving insertion order.
     formats: Vec<Format>,
     memory_tracker: Option<BenchmarkMemoryTracker>,
     hide_progress_bar: bool,
@@ -79,17 +84,23 @@ impl SqlBenchmarkRunner {
     pub fn new<B: Benchmark + ?Sized>(
         benchmark: &B,
         engine: Engine,
-        formats: Vec<Format>,
+        benchmark_runner: String,
+        formats: impl IntoIterator<Item = Format>,
         track_memory: bool,
         hide_progress_bar: bool,
     ) -> anyhow::Result<Self> {
+        let mut seen = HashSet::new();
+        let formats: Vec<Format> = formats.into_iter().filter(|f| seen.insert(*f)).collect();
         let storage = url_scheme_to_storage(benchmark.data_url())?;
+        let benchmark_runner = normalize_benchmark_runner_id(&benchmark_runner);
+        validate_benchmark_runner_id(&benchmark_runner, is_ci())?;
 
         let memory_tracker = track_memory.then(BenchmarkMemoryTracker::new);
 
         Ok(Self {
             engine,
             benchmark_dataset: benchmark.dataset(),
+            benchmark_runner,
             storage,
             expected_row_counts: benchmark.expected_row_counts().map(|s| s.to_vec()),
             formats,
@@ -164,6 +175,7 @@ impl SqlBenchmarkRunner {
             query_idx,
             target,
             benchmark_dataset: self.benchmark_dataset.clone(),
+            benchmark_runner: self.benchmark_runner.clone(),
             storage: self.storage.clone(),
             runs,
         });
@@ -188,6 +200,7 @@ impl SqlBenchmarkRunner {
                 query_idx,
                 target,
                 self.benchmark_dataset.clone(),
+                self.benchmark_runner.clone(),
                 self.storage.clone(),
                 memory_result,
             ));
@@ -407,6 +420,18 @@ impl SqlBenchmarkRunner {
     }
 }
 
+fn is_ci() -> bool {
+    matches!(std::env::var("CI").as_deref(), Ok("true"))
+}
+
+fn validate_benchmark_runner_id(benchmark_runner: &str, is_ci: bool) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !is_ci || benchmark_runner != DEFAULT_BENCHMARK_RUNNER_ID,
+        "benchmark runner must not be unknown in CI; pass --runner"
+    );
+    Ok(())
+}
+
 pub fn export_results<W: Write>(
     queries: Vec<QueryMeasurement>,
     memory: Vec<MemoryMeasurement>,
@@ -455,4 +480,24 @@ pub fn filter_queries(
                     .is_none_or(|excluded| !excluded.contains(query_idx))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ci_rejects_unknown_benchmark_runner() {
+        assert!(validate_benchmark_runner_id("unknown", true).is_err());
+    }
+
+    #[test]
+    fn ci_accepts_explicit_benchmark_runner() {
+        assert!(validate_benchmark_runner_id("ec2_c6id.8xlarge", true).is_ok());
+    }
+
+    #[test]
+    fn local_accepts_unknown_benchmark_runner() {
+        assert!(validate_benchmark_runner_id("unknown", false).is_ok());
+    }
 }

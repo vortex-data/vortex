@@ -17,6 +17,14 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
+vortex = { workspace = true, features = [
+    "object_store",
+    "files",
+    "tokio",
+    "zstd",
+] }
+vortex-tensor = { workspace = true } # TODO(connor): In the future, this might be inside vortex.
+
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
@@ -53,16 +61,11 @@ tracing = { workspace = true }
 tracing-perfetto = { workspace = true }
 tracing-subscriber = { workspace = true, features = [
     "env-filter",
+    "json",
     "tracing-log",
 ] }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
-vortex = { workspace = true, features = [
-    "object_store",
-    "files",
-    "tokio",
-    "zstd",
-] }
 
 [features]
 unstable_encodings = ["vortex/unstable_encodings"]

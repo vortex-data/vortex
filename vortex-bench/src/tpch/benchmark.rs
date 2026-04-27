@@ -139,7 +139,7 @@ impl Benchmark for TpcHBenchmark {
         ]
     }
 
-    #[expect(clippy::expect_used, clippy::unwrap_in_result)]
+    #[expect(clippy::expect_used)]
     fn pattern(&self, table_name: &str, format: Format) -> Option<Pattern> {
         Some(
             format!("{}_*.{}", table_name, format.ext())

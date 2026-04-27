@@ -52,7 +52,7 @@ pub(super) const FIELDS_OFFSET: usize = 1;
 /// use vortex_array::arrays::{StructArray, BoolArray};
 /// use vortex_array::validity::Validity;
 /// use vortex_array::dtype::FieldNames;
-/// use vortex_array::IntoArray;
+/// use vortex_array::{IntoArray, LEGACY_SESSION, VortexSessionExecute};
 /// use vortex_buffer::buffer;
 ///
 /// // Create struct with all non-null fields but struct-level nulls
@@ -66,13 +66,14 @@ pub(super) const FIELDS_OFFSET: usize = 1;
 ///     2,
 ///     Validity::Array(BoolArray::from_iter([true, false]).into_array()), // row 1 is null
 /// ).unwrap();
+/// let mut ctx = LEGACY_SESSION.create_execution_ctx();
 ///
 /// // Row 0 is valid - returns a struct scalar with field values
-/// let row0 = struct_array.scalar_at(0).unwrap();
+/// let row0 = struct_array.execute_scalar(0, &mut ctx).unwrap();
 /// assert!(!row0.is_null());
 ///
 /// // Row 1 is null at struct level - returns null even though fields have values
-/// let row1 = struct_array.scalar_at(1).unwrap();
+/// let row1 = struct_array.execute_scalar(1, &mut ctx).unwrap();
 /// assert!(row1.is_null());
 /// ```
 ///
@@ -86,7 +87,7 @@ pub(super) const FIELDS_OFFSET: usize = 1;
 /// use vortex_array::arrays::struct_::StructArrayExt;
 /// use vortex_array::validity::Validity;
 /// use vortex_array::dtype::FieldNames;
-/// use vortex_array::IntoArray;
+/// use vortex_array::{IntoArray, LEGACY_SESSION, VortexSessionExecute};
 /// use vortex_buffer::buffer;
 ///
 /// // Create struct with duplicate "data" field names
@@ -102,7 +103,8 @@ pub(super) const FIELDS_OFFSET: usize = 1;
 ///
 /// // field_by_name returns the FIRST "data" field
 /// let first_data = struct_array.unmasked_field_by_name("data").unwrap();
-/// assert_eq!(first_data.scalar_at(0).unwrap(), 1i32.into());
+/// let mut ctx = LEGACY_SESSION.create_execution_ctx();
+/// assert_eq!(first_data.execute_scalar(0, &mut ctx).unwrap(), 1i32.into());
 /// ```
 ///
 /// ## Field Operations

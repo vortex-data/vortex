@@ -3,8 +3,7 @@
 
 //! Bool compression statistics.
 
-use vortex_array::LEGACY_SESSION;
-use vortex_array::VortexSessionExecute;
+use vortex_array::ExecutionCtx;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_error::VortexResult;
@@ -27,7 +26,7 @@ impl BoolStats {
     /// # Errors
     ///
     /// Returns an error if getting validity mask fails or values exceed `u32` bounds.
-    pub fn generate(input: &BoolArray) -> VortexResult<Self> {
+    pub fn generate(input: &BoolArray, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         if input.is_empty() {
             return Ok(Self {
                 null_count: 0,
@@ -36,7 +35,7 @@ impl BoolStats {
             });
         }
 
-        if input.all_invalid()? {
+        if input.all_invalid(ctx)? {
             return Ok(Self {
                 null_count: u32::try_from(input.len())?,
                 value_count: 0,
@@ -44,10 +43,10 @@ impl BoolStats {
             });
         }
 
-        let validity = input.as_ref().validity()?.to_mask(
-            input.as_ref().len(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )?;
+        let validity = input
+            .as_ref()
+            .validity()?
+            .execute_mask(input.as_ref().len(), ctx)?;
         let null_count = validity.false_count();
         let value_count = validity.true_count();
 
@@ -93,6 +92,8 @@ impl BoolStats {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
@@ -102,11 +103,12 @@ mod tests {
 
     #[test]
     fn test_all_true() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = BoolArray::new(
             BitBuffer::from(vec![true, true, true]),
             Validity::NonNullable,
         );
-        let stats = BoolStats::generate(&array)?;
+        let stats = BoolStats::generate(&array, &mut ctx)?;
         assert_eq!(stats.value_count, 3);
         assert_eq!(stats.null_count, 0);
         assert_eq!(stats.true_count, 3);
@@ -116,11 +118,12 @@ mod tests {
 
     #[test]
     fn test_all_false() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = BoolArray::new(
             BitBuffer::from(vec![false, false, false]),
             Validity::NonNullable,
         );
-        let stats = BoolStats::generate(&array)?;
+        let stats = BoolStats::generate(&array, &mut ctx)?;
         assert_eq!(stats.value_count, 3);
         assert_eq!(stats.null_count, 0);
         assert_eq!(stats.true_count, 0);
@@ -130,11 +133,12 @@ mod tests {
 
     #[test]
     fn test_mixed() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = BoolArray::new(
             BitBuffer::from(vec![true, false, true]),
             Validity::NonNullable,
         );
-        let stats = BoolStats::generate(&array)?;
+        let stats = BoolStats::generate(&array, &mut ctx)?;
         assert_eq!(stats.value_count, 3);
         assert_eq!(stats.null_count, 0);
         assert_eq!(stats.true_count, 2);
@@ -144,11 +148,12 @@ mod tests {
 
     #[test]
     fn test_with_nulls() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = BoolArray::new(
             BitBuffer::from(vec![true, false, true]),
             Validity::from_iter([true, false, true]),
         );
-        let stats = BoolStats::generate(&array)?;
+        let stats = BoolStats::generate(&array, &mut ctx)?;
         assert_eq!(stats.value_count, 2);
         assert_eq!(stats.null_count, 1);
         assert_eq!(stats.true_count, 2);

@@ -4,12 +4,12 @@
 use std::sync::Arc;
 
 use vortex_error::VortexExpect;
+use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 
 use crate::ArrayRef;
 use crate::arrays::StructArray;
 use crate::arrays::filter::execute::filter_validity;
-use crate::arrays::filter::execute::values_to_mask;
 use crate::arrays::struct_::StructArrayExt;
 
 pub fn filter_struct(array: &StructArray, mask: &Arc<MaskValues>) -> StructArray {
@@ -20,7 +20,7 @@ pub fn filter_struct(array: &StructArray, mask: &Arc<MaskValues>) -> StructArray
         mask,
     );
 
-    let mask_for_filter = values_to_mask(mask);
+    let mask_for_filter = Mask::Values(Arc::clone(mask));
     let fields: Vec<ArrayRef> = array
         .iter_unmasked_fields()
         .map(|field| {

@@ -208,7 +208,8 @@ impl CudaExecute for ZstdExecutor {
                     dtype = %_other,
                     "Only Binary/Utf8 ZSTD arrays supported on GPU, falling back to CPU"
                 );
-                Zstd::decompress(&zstd, ctx.execution_ctx())?.to_canonical()
+                Zstd::decompress(&zstd, ctx.execution_ctx())?
+                    .execute::<Canonical>(ctx.execution_ctx())
             }
         }
     }
@@ -376,9 +377,10 @@ mod tests {
             "baz",
         ]);
 
-        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0)?;
+        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0, cuda_ctx.execution_ctx())?;
 
-        let cpu_result = Zstd::decompress(&zstd_array, cuda_ctx.execution_ctx())?.to_canonical()?;
+        let cpu_result = Zstd::decompress(&zstd_array, cuda_ctx.execution_ctx())?
+            .execute::<Canonical>(cuda_ctx.execution_ctx())?;
         let gpu_result = ZstdExecutor
             .execute(zstd_array.into_array(), &mut cuda_ctx)
             .await?;
@@ -411,9 +413,10 @@ mod tests {
 
         // Compress with ZSTD using values_per_frame=3 to create multiple frames.
         // 14 strings and 3 values per frame = ceil(14/3) = 5 frames.
-        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 3)?;
+        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 3, cuda_ctx.execution_ctx())?;
 
-        let cpu_result = Zstd::decompress(&zstd_array, cuda_ctx.execution_ctx())?.to_canonical()?;
+        let cpu_result = Zstd::decompress(&zstd_array, cuda_ctx.execution_ctx())?
+            .execute::<Canonical>(cuda_ctx.execution_ctx())?;
         let gpu_result = ZstdExecutor
             .execute(zstd_array.into_array(), &mut cuda_ctx)
             .await?;
@@ -440,12 +443,12 @@ mod tests {
             "final test string",
         ]);
 
-        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0)?;
+        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0, cuda_ctx.execution_ctx())?;
 
         // Slice the array to get a subset (indices 2..7)
         let sliced_zstd = zstd_array.slice(2..7)?;
 
-        let cpu_result = sliced_zstd.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(sliced_zstd.clone())?;
         let gpu_result = ZstdExecutor
             .execute(sliced_zstd.clone(), &mut cuda_ctx)
             .await?;
@@ -471,9 +474,9 @@ mod tests {
             Some("another string"),
         ]);
 
-        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0)?;
+        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0, cuda_ctx.execution_ctx())?;
 
-        let cpu_result = zstd_array.to_canonical()?.into_array();
+        let cpu_result = crate::canonicalize_cpu(zstd_array.clone())?.into_array();
 
         // execute_cuda should fall back to CPU and still produce the correct result.
         let gpu_result = zstd_array

@@ -8,6 +8,7 @@ use std::fmt::Formatter;
 
 pub use kernel::*;
 use prost::Message;
+use vortex_array::expr::and;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_proto::expr as pb;
@@ -106,16 +107,6 @@ pub(super) fn precondition(
         return Ok(Some(Canonical::empty(&return_dtype).into_array()));
     }
 
-    // A quick check to see if either bound is a null constant array.
-    if (lower.is_invalid(0)? || upper.is_invalid(0)?)
-        && let (Some(c_lower), Some(c_upper)) = (lower.as_constant(), upper.as_constant())
-        && (c_lower.is_null() || c_upper.is_null())
-    {
-        return Ok(Some(
-            ConstantArray::new(Scalar::null(return_dtype), arr.len()).into_array(),
-        ));
-    }
-
     if lower.as_constant().is_some_and(|v| v.is_null())
         || upper.as_constant().is_some_and(|v| v.is_null())
     {
@@ -164,7 +155,7 @@ fn between_canonical(
         upper.clone(),
         Operator::from(options.upper_strict.to_compare_operator()),
     )?;
-    execute_boolean(&lower_cmp, &upper_cmp, Operator::And)
+    execute_boolean(&lower_cmp, &upper_cmp, Operator::And, ctx)
 }
 
 /// An optimized scalar expression to compute whether values fall between two bounds.
@@ -318,9 +309,18 @@ impl ScalarFnVTable for Between {
         let lhs = Binary.new_expr(options.lower_strict.to_operator(), [lower, arr.clone()]);
         let rhs = Binary.new_expr(options.upper_strict.to_operator(), [arr, upper]);
 
-        Binary
-            .new_expr(Operator::And, [lhs, rhs])
-            .stat_falsification(catalog)
+        and(lhs, rhs).stat_falsification(catalog)
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        let arr = expression.child(0).validity()?;
+        let lower = expression.child(1).validity()?;
+        let upper = expression.child(2).validity()?;
+        Ok(Some(and(and(arr, lower), upper)))
     }
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
@@ -334,13 +334,13 @@ impl ScalarFnVTable for Between {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::buffer;
 
     use super::*;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
-    use crate::ToCanonical;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::DecimalArray;
@@ -355,8 +355,12 @@ mod tests {
     use crate::expr::root;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
+    use crate::session::ArraySession;
     use crate::test_harness::to_int_indices;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn test_display() {
@@ -405,10 +409,11 @@ mod tests {
                 lower_strict,
                 upper_strict,
             },
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
-        .to_bool();
+        .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
+        .unwrap();
 
         let indices = to_int_indices(matches).unwrap();
         assert_eq!(indices, expected);
@@ -434,10 +439,11 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::NonStrict,
             },
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
-        .to_bool();
+        .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
+        .unwrap();
 
         let indices = to_int_indices(matches).unwrap();
         assert!(indices.is_empty());
@@ -452,10 +458,11 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::NonStrict,
             },
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
-        .to_bool();
+        .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
+        .unwrap();
         let indices = to_int_indices(matches).unwrap();
         assert_eq!(indices, vec![0, 1, 3]);
 
@@ -470,10 +477,11 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::NonStrict,
             },
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
-        .to_bool();
+        .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
+        .unwrap();
         let indices = to_int_indices(matches).unwrap();
         assert_eq!(indices, vec![0, 1, 2, 3, 4]);
     }
@@ -512,7 +520,7 @@ mod tests {
                 lower_strict: StrictComparison::Strict,
                 upper_strict: StrictComparison::NonStrict,
             },
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
         assert_arrays_eq!(
@@ -529,7 +537,7 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::Strict,
             },
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
         assert_arrays_eq!(

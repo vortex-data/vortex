@@ -32,7 +32,7 @@ jobs:
       github.event_name == 'workflow_dispatch'
 
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     permissions:
       contents: write

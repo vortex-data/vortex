@@ -20,7 +20,7 @@ pub(super) fn accumulate_primitive(
     p: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
-    let mask = p.as_ref().validity()?.to_mask(p.as_ref().len(), ctx)?;
+    let mask = p.as_ref().validity()?.execute_mask(p.as_ref().len(), ctx)?;
     match mask.bit_buffer() {
         AllOr::None => Ok(false),
         AllOr::All => accumulate_primitive_all(inner, p),

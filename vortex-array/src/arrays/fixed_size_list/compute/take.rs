@@ -10,8 +10,8 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::array::ArrayView;
+use crate::arrays::BoolArray;
 use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::Primitive;
@@ -153,7 +153,7 @@ fn take_nullable_fsl<I: IntegerPType, E: IntegerPType>(
 
     let array_validity = array
         .fixed_size_list_validity()
-        .to_mask(array.as_ref().len(), ctx)
+        .execute_mask(array.as_ref().len(), ctx)
         .vortex_expect("Failed to compute validity mask");
     let indices_len = indices_array.as_ref().len();
     let indices_validity = match indices_array
@@ -162,7 +162,7 @@ fn take_nullable_fsl<I: IntegerPType, E: IntegerPType>(
     {
         Validity::NonNullable | Validity::AllValid => Mask::new_true(indices_len),
         Validity::AllInvalid => Mask::new_false(indices_len),
-        Validity::Array(a) => a.to_bool().to_mask(),
+        Validity::Array(a) => a.execute::<BoolArray>(ctx)?.execute_mask(ctx),
     };
 
     // We must use placeholder zeros for null lists to maintain the array length without

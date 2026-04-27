@@ -20,7 +20,9 @@ use pyo3::prelude::*;
 use pyo3::types::PyIterator;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
-use vortex::array::arrow::IntoArrowArray;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
+use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::array::iter::ArrayIterator;
 use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
@@ -126,7 +128,8 @@ impl PyArrayIterator {
             Box::new(RecordBatchIterator::new(
                 iter.map(move |chunk| {
                     let data_type = data_type.clone();
-                    chunk?.into_arrow(&data_type)
+                    chunk?
+                        .execute_arrow(Some(&data_type), &mut LEGACY_SESSION.create_execution_ctx())
                 })
                 .map(|chunk| chunk.map_err(|e| ArrowError::ExternalError(Box::new(e))))
                 .map(|array| array.map(|a| RecordBatch::from(a.as_struct().clone()))),

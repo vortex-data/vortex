@@ -25,4 +25,8 @@ impl<F: FileSystem> FileSystem for Compat<F> {
         let read_at = Compat::new(self.inner().open_read(path)).await?;
         Ok(Arc::new(Compat::new(read_at)))
     }
+
+    async fn delete(&self, path: &str) -> VortexResult<()> {
+        Compat::new(self.inner().delete(path)).await
+    }
 }

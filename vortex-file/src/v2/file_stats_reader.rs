@@ -102,9 +102,13 @@ impl FileStatsLayoutReader {
             .execute::<Canonical>(&mut ctx)?
             .into_bool()
             .into_array()
-            .scalar_at(0)?;
+            .execute_scalar(0, &mut ctx)?;
 
         Ok(result.as_bool().value() == Some(true))
+    }
+
+    pub fn file_stats(&self) -> &FileStatistics {
+        &self.file_stats
     }
 }
 
@@ -122,7 +126,10 @@ impl StatsCatalog for FileStatsLayoutReader {
 
         let stat_value = field_stats.get(stat)?.as_exact()?;
         let field_dtype = self.struct_fields.field_by_index(field_idx)?;
-        let stat_scalar = Scalar::try_new(field_dtype, Some(stat_value)).ok()?;
+        // Use the stat's own dtype rather than the field dtype. For example,
+        // NullCount is always u64 regardless of the column type.
+        let stat_dtype = stat.dtype(&field_dtype)?;
+        let stat_scalar = Scalar::try_new(stat_dtype, Some(stat_value)).ok()?;
 
         Some(lit(stat_scalar))
     }
@@ -192,6 +199,10 @@ impl LayoutReader for FileStatsLayoutReader {
     ) -> VortexResult<ArrayFuture> {
         self.child.projection_evaluation(row_range, expr, mask)
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[cfg(test)]
@@ -201,16 +212,20 @@ mod tests {
 
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray as _;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::datetime::TemporalData;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::expr::get_item;
     use vortex_array::expr::gt;
+    use vortex_array::expr::is_null;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
     use vortex_array::expr::stats::Precision;
     use vortex_array::expr::stats::Stat;
+    use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::scalar::ScalarValue;
     use vortex_array::scalar_fn::session::ScalarFnSession;
     use vortex_array::session::ArraySession;
@@ -224,6 +239,7 @@ mod tests {
     use vortex_layout::LayoutStrategy;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_layout::layouts::table::TableStrategy;
+    use vortex_layout::segments::SegmentSink;
     use vortex_layout::segments::TestSegments;
     use vortex_layout::sequence::SequenceId;
     use vortex_layout::sequence::SequentialArrayStreamExt;
@@ -325,6 +341,61 @@ mod tests {
             let result = reader.pruning_evaluation(&(0..5), &expr, mask)?.await?;
             // Should delegate to child, which returns the mask unchanged (struct reader doesn't prune).
             assert_eq!(result, Mask::new_true(5));
+
+            Ok(())
+        })
+    }
+
+    /// Regression test: `IS NULL` on a nullable timestamp column must not fail with a
+    /// dtype mismatch. The bug was that `stats_ref` used the *field* dtype (timestamp)
+    /// for the `NullCount` stat scalar instead of the stat's own dtype (u64).
+    #[test]
+    fn is_null_pruning_on_nullable_timestamp_column() -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
+            let ctx = ArrayContext::empty();
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+
+            // Build a struct with a nullable timestamp column containing some nulls.
+            let prim_array =
+                PrimitiveArray::from_option_iter([Some(1_000_000i64), None, Some(3_000_000)])
+                    .into_array();
+            let ts_data = TemporalData::new_timestamp(prim_array, TimeUnit::Microseconds, None);
+            let ts_dtype = ts_data.dtype().clone();
+            let ts_array = ts_data.into_array();
+
+            let struct_array = StructArray::from_fields([("deleted_at", ts_array)].as_slice())?;
+
+            let strategy = TableStrategy::new(
+                Arc::new(FlatLayoutStrategy::default()),
+                Arc::new(FlatLayoutStrategy::default()),
+            );
+            let layout = strategy
+                .write_stream(
+                    ctx,
+                    Arc::clone(&segments) as Arc<dyn SegmentSink>,
+                    struct_array.into_array().to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+
+            let child = layout.new_reader("".into(), segments, &SESSION)?;
+
+            // File-level stats: 1 null in deleted_at.
+            let mut stats = StatsSet::default();
+            stats.set(Stat::NullCount, Precision::exact(ScalarValue::from(1u64)));
+            let file_stats = FileStatistics::new(Arc::from([stats]), Arc::from([ts_dtype]));
+
+            let reader = FileStatsLayoutReader::new(child, file_stats, SESSION.clone());
+
+            // `is_null(deleted_at)` — should NOT panic or error due to dtype mismatch.
+            let expr = is_null(get_item("deleted_at", root()));
+            let mask = Mask::new_true(3);
+            let result = reader.pruning_evaluation(&(0..3), &expr, mask)?.await?;
+            // null_count is 1 (non-zero), so is_null is not falsified => not pruned.
+            assert_eq!(result, Mask::new_true(3));
 
             Ok(())
         })

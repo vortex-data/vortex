@@ -23,7 +23,7 @@ impl TakeReduce for Constant {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let result = match indices
             .validity()?
-            .to_mask(indices.len(), &mut ctx)?
+            .execute_mask(indices.len(), &mut ctx)?
             .bit_buffer()
         {
             AllOr::All => {
@@ -72,7 +72,8 @@ mod tests {
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
@@ -100,6 +101,7 @@ mod tests {
             taken.dtype()
         );
         assert_arrays_eq!(
+            #[expect(deprecated)]
             taken.to_primitive(),
             PrimitiveArray::new(
                 buffer![42i32, 42, 42],
@@ -110,7 +112,7 @@ mod tests {
             taken
                 .validity()
                 .unwrap()
-                .to_mask(taken.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(taken.len(), &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .indices(),
             AllOr::Some(valid_indices)
@@ -128,6 +130,7 @@ mod tests {
             taken.dtype()
         );
         assert_arrays_eq!(
+            #[expect(deprecated)]
             taken.to_primitive(),
             PrimitiveArray::new(buffer![42i32, 42, 42], Validity::AllValid)
         );
@@ -135,7 +138,7 @@ mod tests {
             taken
                 .validity()
                 .unwrap()
-                .to_mask(taken.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(taken.len(), &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .indices(),
             AllOr::All

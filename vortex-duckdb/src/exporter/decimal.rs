@@ -149,7 +149,7 @@ mod tests {
     pub(crate) fn new_zero_copy_exporter(
         array: &DecimalArray,
     ) -> VortexResult<Box<dyn ColumnExporter>> {
-        let validity = array.as_ref().validity()?.to_mask(
+        let validity = array.as_ref().validity()?.execute_mask(
             array.as_ref().len(),
             &mut LEGACY_SESSION.create_execution_ctx(),
         )?;

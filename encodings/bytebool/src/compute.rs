@@ -8,11 +8,13 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_array::scalar_fn::fns::mask::MaskReduce;
 use vortex_array::validity::Validity;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 
 use super::ByteBool;
@@ -58,23 +60,25 @@ impl TakeExecute for ByteBool {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
-        let bools = array.as_slice();
+        let values = array.truthy_bytes();
 
         // This handles combining validity from both source array and nullable indices
         let validity = array.validity()?.take(&indices.clone().into_array())?;
 
-        let taken_bools = match_each_integer_ptype!(indices.ptype(), |I| {
+        let taken = match_each_integer_ptype!(indices.ptype(), |I| {
             indices
                 .as_slice::<I>()
                 .iter()
                 .map(|&idx| {
                     let idx: usize = idx.as_();
-                    bools[idx]
+                    values[idx]
                 })
-                .collect::<Vec<bool>>()
+                .collect::<ByteBuffer>()
         });
 
-        Ok(Some(ByteBool::from_vec(taken_bools, validity).into_array()))
+        Ok(Some(
+            ByteBool::new(BufferHandle::new_host(taken), validity).into_array(),
+        ))
     }
 }
 

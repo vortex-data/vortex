@@ -48,6 +48,8 @@ pub const ALL_VECTOR_DATASETS: &[VectorDataset] = &[
     VectorDataset::LaionLarge100m,
 ];
 
+// NB: We can't do `#[clap(rename_all = "kebab-case")]` here because it won't put a dash in front of
+// any numbers.
 /// The publicly hosted vector benchmark datasets.
 ///
 /// Variants are named `<source><size><rowcount>`, kebab-cased on the CLI (e.g. `cohere-large-10m`).
@@ -55,47 +57,62 @@ pub const ALL_VECTOR_DATASETS: &[VectorDataset] = &[
 /// The static metadata for each variant (dimensionality, row count, hosted layouts, etc.) is
 /// exposed via the inherent methods below; the full table is reachable via [`ALL_VECTOR_DATASETS`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ValueEnum)]
-#[clap(rename_all = "kebab-case")]
 pub enum VectorDataset {
     /// Cohere wiki-22-12, 100K × 768 f32, cosine. Single + SingleShuffled.
+    #[clap(name = "cohere-small-100k")]
     CohereSmall100k,
     /// Cohere wiki-22-12, 1M × 768 f32, cosine. Single + SingleShuffled.
+    #[clap(name = "cohere-medium-1m")]
     CohereMedium1m,
     /// Cohere wiki-22-12, 10M × 768 f32, cosine. Partitioned + PartitionedShuffled (10 shards).
+    #[clap(name = "cohere-large-10m")]
     CohereLarge10m,
 
     /// OpenAI embeddings on C4, 50K × 1536 f64, cosine. Single + SingleShuffled.
+    #[clap(name = "openai-small-50k")]
     OpenaiSmall50k,
     /// OpenAI embeddings on C4, 500K × 1536 f64, cosine. Single + SingleShuffled.
+    #[clap(name = "openai-medium-500k")]
     OpenaiMedium500k,
     /// OpenAI embeddings on C4, 5M × 1536 f64, cosine. Partitioned + PartitionedShuffled (10
     /// shards).
+    #[clap(name = "openai-large-5m")]
     OpenaiLarge5m,
 
     /// Bioasq biomedical, 1M × 1024 f32, cosine. SingleShuffled only.
+    #[clap(name = "bioasq-medium-1m")]
     BioasqMedium1m,
     /// Bioasq biomedical, 10M × 1024 f32, cosine. PartitionedShuffled only (10 shards).
+    #[clap(name = "bioasq-large-10m")]
     BioasqLarge10m,
 
     /// GloVe word vectors, 100K × 200 f32, cosine. Single only. No neighbors / labels.
+    #[clap(name = "glove-small-100k")]
     GloveSmall100k,
     /// GloVe word vectors, 1M × 200 f32, cosine. Single only. No neighbors / labels.
+    #[clap(name = "glove-medium-1m")]
     GloveMedium1m,
 
     /// GIST image features, 100K × 960 f32, L2. Single only. No neighbors / labels.
+    #[clap(name = "gist-small-100k")]
     GistSmall100k,
     /// GIST image features, 1M × 960 f32, L2. Single only. No neighbors / labels.
+    #[clap(name = "gist-medium-1m")]
     GistMedium1m,
 
     /// SIFT image features, 500K × 128 f32, L2. Single only. No neighbors / labels.
+    #[clap(name = "sift-small-500k")]
     SiftSmall500k,
     /// SIFT image features, 5M × 128 f32, L2. Single only. No neighbors / labels.
+    #[clap(name = "sift-medium-5m")]
     SiftMedium5m,
     /// SIFT image features, 50M × 128 f32, L2. Partitioned only (50 shards). No labels.
+    #[clap(name = "sift-large-50m")]
     SiftLarge50m,
 
     /// LAION image embeddings, 100M × 768 f32, L2. Partitioned only (100 shards).
     /// Has `neighbors.parquet` and `scalar_labels.parquet`.
+    #[clap(name = "laion-large-100m")]
     LaionLarge100m,
 }
 
@@ -304,12 +321,6 @@ impl VectorDataset {
                 );
             }
         }
-    }
-
-    /// Pick the default layout for this dataset — the first entry in [`Self::layouts`].
-    /// Stable across runs since the catalog table is statically ordered.
-    pub fn default_layout(&self) -> LayoutSpec {
-        self.layouts()[0]
     }
 }
 

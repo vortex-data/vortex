@@ -7,6 +7,7 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::prelude::StdRng;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -20,7 +21,12 @@ use crate::FSSTArray;
 use crate::fsst_compress;
 use crate::fsst_train_compressor;
 
-pub fn gen_fsst_test_data(len: usize, avg_str_len: usize, unique_chars: u8) -> ArrayRef {
+pub fn gen_fsst_test_data(
+    len: usize,
+    avg_str_len: usize,
+    unique_chars: u8,
+    ctx: &mut ExecutionCtx,
+) -> ArrayRef {
     let mut rng = StdRng::seed_from_u64(0);
     let mut strings = Vec::with_capacity(len);
 
@@ -45,7 +51,7 @@ pub fn gen_fsst_test_data(len: usize, avg_str_len: usize, unique_chars: u8) -> A
 
     let len = varbin.len();
     let dtype = varbin.dtype().clone();
-    fsst_compress(varbin, len, &dtype, &compressor).into_array()
+    fsst_compress(varbin, len, &dtype, &compressor, ctx).into_array()
 }
 
 pub fn gen_dict_fsst_test_data<T: NativePType>(
@@ -53,8 +59,9 @@ pub fn gen_dict_fsst_test_data<T: NativePType>(
     unique_values: usize,
     str_len: usize,
     unique_char_count: u8,
+    ctx: &mut ExecutionCtx,
 ) -> DictArray {
-    let values = gen_fsst_test_data(len, str_len, unique_char_count);
+    let values = gen_fsst_test_data(len, str_len, unique_char_count, ctx);
     let mut rng = StdRng::seed_from_u64(0);
     let codes = (0..len)
         .map(|_| T::from(rng.random_range(0..unique_values)).unwrap())
@@ -136,12 +143,12 @@ pub fn generate_url_data_n(n: usize) -> VarBinArray {
     VarBinArray::from_iter(urls, DType::Utf8(Nullability::NonNullable))
 }
 
-pub fn make_fsst_urls(n: usize) -> FSSTArray {
+pub fn make_fsst_urls(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray {
     let varbin = generate_url_data_n(n);
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
     let dtype = varbin.dtype().clone();
-    fsst_compress(varbin, len, &dtype, &compressor)
+    fsst_compress(varbin, len, &dtype, &compressor, ctx)
 }
 
 // ---------------------------------------------------------------------------
@@ -228,7 +235,7 @@ pub fn generate_clickbench_urls(n: usize) -> Vec<String> {
         .collect()
 }
 
-pub fn make_fsst_clickbench_urls(n: usize) -> FSSTArray {
+pub fn make_fsst_clickbench_urls(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray {
     let urls = generate_clickbench_urls(n);
     let varbin = VarBinArray::from_iter(
         urls.iter().map(|s| Some(s.as_str())),
@@ -237,7 +244,7 @@ pub fn make_fsst_clickbench_urls(n: usize) -> FSSTArray {
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
     let dtype = varbin.dtype().clone();
-    fsst_compress(varbin, len, &dtype, &compressor)
+    fsst_compress(varbin, len, &dtype, &compressor, ctx)
 }
 
 // ---------------------------------------------------------------------------
@@ -296,7 +303,7 @@ pub fn generate_short_urls(n: usize) -> Vec<String> {
         .collect()
 }
 
-pub fn make_fsst_short_urls(n: usize) -> FSSTArray {
+pub fn make_fsst_short_urls(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray {
     let urls = generate_short_urls(n);
     let varbin = VarBinArray::from_iter(
         urls.iter().map(|s| Some(s.as_str())),
@@ -305,7 +312,7 @@ pub fn make_fsst_short_urls(n: usize) -> FSSTArray {
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
     let dtype = varbin.dtype().clone();
-    fsst_compress(varbin, len, &dtype, &compressor)
+    fsst_compress(varbin, len, &dtype, &compressor, ctx)
 }
 
 // ---------------------------------------------------------------------------
@@ -368,7 +375,7 @@ pub fn generate_log_lines(n: usize) -> Vec<String> {
         .collect()
 }
 
-pub fn make_fsst_log_lines(n: usize) -> FSSTArray {
+pub fn make_fsst_log_lines(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray {
     let lines = generate_log_lines(n);
     let varbin = VarBinArray::from_iter(
         lines.iter().map(|s| Some(s.as_str())),
@@ -377,7 +384,7 @@ pub fn make_fsst_log_lines(n: usize) -> FSSTArray {
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
     let dtype = varbin.dtype().clone();
-    fsst_compress(varbin, len, &dtype, &compressor)
+    fsst_compress(varbin, len, &dtype, &compressor, ctx)
 }
 
 // ---------------------------------------------------------------------------
@@ -427,7 +434,7 @@ pub fn generate_json_strings(n: usize) -> Vec<String> {
         .collect()
 }
 
-pub fn make_fsst_json_strings(n: usize) -> FSSTArray {
+pub fn make_fsst_json_strings(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray {
     let jsons = generate_json_strings(n);
     let varbin = VarBinArray::from_iter(
         jsons.iter().map(|s| Some(s.as_str())),
@@ -436,7 +443,7 @@ pub fn make_fsst_json_strings(n: usize) -> FSSTArray {
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
     let dtype = varbin.dtype().clone();
-    fsst_compress(varbin, len, &dtype, &compressor)
+    fsst_compress(varbin, len, &dtype, &compressor, ctx)
 }
 
 // ---------------------------------------------------------------------------
@@ -499,7 +506,7 @@ pub fn generate_file_paths(n: usize) -> Vec<String> {
         .collect()
 }
 
-pub fn make_fsst_file_paths(n: usize) -> FSSTArray {
+pub fn make_fsst_file_paths(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray {
     let paths = generate_file_paths(n);
     let varbin = VarBinArray::from_iter(
         paths.iter().map(|s| Some(s.as_str())),
@@ -508,7 +515,7 @@ pub fn make_fsst_file_paths(n: usize) -> FSSTArray {
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
     let dtype = varbin.dtype().clone();
-    fsst_compress(varbin, len, &dtype, &compressor)
+    fsst_compress(varbin, len, &dtype, &compressor, ctx)
 }
 
 // ---------------------------------------------------------------------------
@@ -552,7 +559,7 @@ pub fn generate_emails(n: usize) -> Vec<String> {
         .collect()
 }
 
-pub fn make_fsst_emails(n: usize) -> FSSTArray {
+pub fn make_fsst_emails(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray {
     let emails = generate_emails(n);
     let varbin = VarBinArray::from_iter(
         emails.iter().map(|s| Some(s.as_str())),
@@ -561,7 +568,7 @@ pub fn make_fsst_emails(n: usize) -> FSSTArray {
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
     let dtype = varbin.dtype().clone();
-    fsst_compress(varbin, len, &dtype, &compressor)
+    fsst_compress(varbin, len, &dtype, &compressor, ctx)
 }
 
 // ---------------------------------------------------------------------------
@@ -591,7 +598,7 @@ pub fn generate_rare_match_strings(n: usize, match_rate: f64) -> Vec<String> {
         .collect()
 }
 
-pub fn make_fsst_rare_match(n: usize) -> FSSTArray {
+pub fn make_fsst_rare_match(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray {
     let strings = generate_rare_match_strings(n, 0.00001);
     let varbin = VarBinArray::from_iter(
         strings.iter().map(|s| Some(s.as_str())),
@@ -600,5 +607,5 @@ pub fn make_fsst_rare_match(n: usize) -> FSSTArray {
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
     let dtype = varbin.dtype().clone();
-    fsst_compress(varbin, len, &dtype, &compressor)
+    fsst_compress(varbin, len, &dtype, &compressor, ctx)
 }

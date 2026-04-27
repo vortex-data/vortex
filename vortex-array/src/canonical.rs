@@ -425,94 +425,105 @@ impl IntoArray for Canonical {
 /// # Canonicalization
 ///
 /// This trait has a blanket implementation for all types implementing [ToCanonical].
+#[deprecated(note = "use `array.execute::<T>(ctx)` instead")]
 pub trait ToCanonical {
     /// Canonicalize into a [`NullArray`] if the target is [`Null`](DType::Null) typed.
+    #[deprecated(note = "use `array.execute::<NullArray>(ctx)` instead")]
     fn to_null(&self) -> NullArray;
 
     /// Canonicalize into a [`BoolArray`] if the target is [`Bool`](DType::Bool) typed.
+    #[deprecated(note = "use `array.execute::<BoolArray>(ctx)` instead")]
     fn to_bool(&self) -> BoolArray;
 
     /// Canonicalize into a [`PrimitiveArray`] if the target is [`Primitive`](DType::Primitive)
     /// typed.
+    #[deprecated(note = "use `array.execute::<PrimitiveArray>(ctx)` instead")]
     fn to_primitive(&self) -> PrimitiveArray;
 
     /// Canonicalize into a [`DecimalArray`] if the target is [`Decimal`](DType::Decimal)
     /// typed.
+    #[deprecated(note = "use `array.execute::<DecimalArray>(ctx)` instead")]
     fn to_decimal(&self) -> DecimalArray;
 
     /// Canonicalize into a [`StructArray`] if the target is [`Struct`](DType::Struct) typed.
+    #[deprecated(note = "use `array.execute::<StructArray>(ctx)` instead")]
     fn to_struct(&self) -> StructArray;
 
     /// Canonicalize into a [`ListViewArray`] if the target is [`List`](DType::List) typed.
+    #[deprecated(note = "use `array.execute::<ListViewArray>(ctx)` instead")]
     fn to_listview(&self) -> ListViewArray;
 
     /// Canonicalize into a [`FixedSizeListArray`] if the target is [`List`](DType::FixedSizeList)
     /// typed.
+    #[deprecated(note = "use `array.execute::<FixedSizeListArray>(ctx)` instead")]
     fn to_fixed_size_list(&self) -> FixedSizeListArray;
 
     /// Canonicalize into a [`VarBinViewArray`] if the target is [`Utf8`](DType::Utf8)
     /// or [`Binary`](DType::Binary) typed.
+    #[deprecated(note = "use `array.execute::<VarBinViewArray>(ctx)` instead")]
     fn to_varbinview(&self) -> VarBinViewArray;
 
     /// Canonicalize into an [`ExtensionArray`] if the array is [`Extension`](DType::Extension)
     /// typed.
+    #[deprecated(note = "use `array.execute::<ExtensionArray>(ctx)` instead")]
     fn to_extension(&self) -> ExtensionArray;
 }
 
 // Blanket impl for all Array encodings.
+#[expect(deprecated)]
 impl ToCanonical for ArrayRef {
     fn to_null(&self) -> NullArray {
-        self.to_canonical()
-            .vortex_expect("to_canonical failed")
-            .into_null()
+        #[expect(deprecated)]
+        let result = self.to_canonical().vortex_expect("to_canonical failed");
+        result.into_null()
     }
 
     fn to_bool(&self) -> BoolArray {
-        self.to_canonical()
-            .vortex_expect("to_canonical failed")
-            .into_bool()
+        #[expect(deprecated)]
+        let result = self.to_canonical().vortex_expect("to_canonical failed");
+        result.into_bool()
     }
 
     fn to_primitive(&self) -> PrimitiveArray {
-        self.to_canonical()
-            .vortex_expect("to_canonical failed")
-            .into_primitive()
+        #[expect(deprecated)]
+        let result = self.to_canonical().vortex_expect("to_canonical failed");
+        result.into_primitive()
     }
 
     fn to_decimal(&self) -> DecimalArray {
-        self.to_canonical()
-            .vortex_expect("to_canonical failed")
-            .into_decimal()
+        #[expect(deprecated)]
+        let result = self.to_canonical().vortex_expect("to_canonical failed");
+        result.into_decimal()
     }
 
     fn to_struct(&self) -> StructArray {
-        self.to_canonical()
-            .vortex_expect("to_canonical failed")
-            .into_struct()
+        #[expect(deprecated)]
+        let result = self.to_canonical().vortex_expect("to_canonical failed");
+        result.into_struct()
     }
 
     fn to_listview(&self) -> ListViewArray {
-        self.to_canonical()
-            .vortex_expect("to_canonical failed")
-            .into_listview()
+        #[expect(deprecated)]
+        let result = self.to_canonical().vortex_expect("to_canonical failed");
+        result.into_listview()
     }
 
     fn to_fixed_size_list(&self) -> FixedSizeListArray {
-        self.to_canonical()
-            .vortex_expect("to_canonical failed")
-            .into_fixed_size_list()
+        #[expect(deprecated)]
+        let result = self.to_canonical().vortex_expect("to_canonical failed");
+        result.into_fixed_size_list()
     }
 
     fn to_varbinview(&self) -> VarBinViewArray {
-        self.to_canonical()
-            .vortex_expect("to_canonical failed")
-            .into_varbinview()
+        #[expect(deprecated)]
+        let result = self.to_canonical().vortex_expect("to_canonical failed");
+        result.into_varbinview()
     }
 
     fn to_extension(&self) -> ExtensionArray {
-        self.to_canonical()
-            .vortex_expect("to_canonical failed")
-            .into_extension()
+        #[expect(deprecated)]
+        let result = self.to_canonical().vortex_expect("to_canonical failed");
+        result.into_extension()
     }
 }
 
@@ -1056,13 +1067,16 @@ mod test {
 
     use crate::ArrayRef;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
+    use crate::arrow::ArrowArrayExecutor;
     use crate::arrow::FromArrowArray;
-    use crate::arrow::IntoArrowArray;
     use crate::canonical::StructArray;
 
     #[test]
     fn test_canonicalize_nested_struct() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create a struct array with multiple internal components.
         let nested_struct_array = StructArray::from_fields(&[
             ("a", buffer![1u64].into_array()),
@@ -1084,7 +1098,7 @@ mod test {
 
         let arrow_struct = nested_struct_array
             .into_array()
-            .into_arrow_preferred()
+            .execute_arrow(None, &mut ctx)
             .unwrap()
             .as_any()
             .downcast_ref::<ArrowStructArray>()
@@ -1119,6 +1133,7 @@ mod test {
 
     #[test]
     fn roundtrip_struct() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut nulls = NullBufferBuilder::new(6);
         nulls.append_n_non_nulls(4);
         nulls.append_null();
@@ -1154,12 +1169,16 @@ mod test {
 
         assert_eq!(
             &arrow_struct,
-            vortex_struct.into_arrow_preferred().unwrap().as_struct()
+            vortex_struct
+                .execute_arrow(None, &mut ctx)
+                .unwrap()
+                .as_struct()
         );
     }
 
     #[test]
     fn roundtrip_list() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let names = Arc::new(StringArray::from_iter(vec![
             Some("Joseph"),
             Some("Angela"),
@@ -1176,7 +1195,9 @@ mod test {
 
         let vortex_list = ArrayRef::from_arrow(&arrow_list, true).unwrap();
 
-        let rt_arrow_list = vortex_list.into_arrow(list_data_type).unwrap();
+        let rt_arrow_list = vortex_list
+            .execute_arrow(Some(list_data_type), &mut ctx)
+            .unwrap();
 
         assert_eq!(
             (Arc::new(arrow_list.clone()) as ArrowArrayRef).as_ref(),

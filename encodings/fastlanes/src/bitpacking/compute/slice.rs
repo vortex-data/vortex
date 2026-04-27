@@ -46,6 +46,8 @@ impl SliceReduce for BitPacked {
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::SliceArray;
     use vortex_error::VortexResult;
@@ -55,8 +57,9 @@ mod tests {
 
     #[test]
     fn test_reduce_parent_returns_bitpacked_slice() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_iter(0u32..2048);
-        let bitpacked = bitpack_encode(&values, 11, None)?;
+        let bitpacked = bitpack_encode(&values, 11, None, &mut ctx)?;
 
         let slice_array = SliceArray::new(bitpacked.clone().into_array(), 500..1500);
 

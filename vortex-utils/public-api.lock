@@ -83,3 +83,7 @@ impl<I: core::iter::traits::iterator::Iterator + core::marker::Sized> vortex_uti
 pub fn I::reduce_balanced<F>(self, combine: F) -> core::option::Option<Self::Item> where Self::Item: core::clone::Clone, F: core::ops::function::Fn(Self::Item, Self::Item) -> Self::Item
 
 pub fn I::try_reduce_balanced<F, E>(self, combine: F) -> core::result::Result<core::option::Option<Self::Item>, E> where Self::Item: core::clone::Clone, F: core::ops::function::Fn(Self::Item, Self::Item) -> core::result::Result<Self::Item, E>
+
+pub mod vortex_utils::parallelism
+
+pub fn vortex_utils::parallelism::get_available_parallelism() -> core::option::Option<usize>

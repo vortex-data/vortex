@@ -16,7 +16,8 @@ mod test {
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::arrays::NullArray;
     use crate::compute::conformance::consistency::test_array_consistency;
@@ -28,6 +29,7 @@ mod test {
     #[test]
     fn test_slice_nulls() {
         let nulls = NullArray::new(10);
+        #[expect(deprecated)]
         let sliced = nulls.slice(0..4).unwrap().to_null();
 
         assert_eq!(sliced.len(), 4);
@@ -36,7 +38,7 @@ mod test {
             sliced_arr
                 .validity()
                 .unwrap()
-                .to_mask(sliced_arr.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(sliced_arr.len(), &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Mask::AllFalse(4)
         ));
@@ -45,6 +47,7 @@ mod test {
     #[test]
     fn test_take_nulls() {
         let nulls = NullArray::new(10);
+        #[expect(deprecated)]
         let taken = nulls
             .take(buffer![0u64, 2, 4, 6, 8].into_array())
             .unwrap()
@@ -56,7 +59,7 @@ mod test {
             taken_arr
                 .validity()
                 .unwrap()
-                .to_mask(taken_arr.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(taken_arr.len(), &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Mask::AllFalse(5)
         ));
@@ -66,7 +69,9 @@ mod test {
     fn test_scalar_at_nulls() {
         let nulls = NullArray::new(10);
 
-        let scalar = nulls.scalar_at(0).unwrap();
+        let scalar = nulls
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         assert!(scalar.is_null());
         assert_eq!(scalar.dtype().clone(), DType::Null);
     }

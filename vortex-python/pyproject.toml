@@ -50,13 +50,15 @@ Issues = "https://github.com/vortex-data/vortex/issues"
 Benchmarks = "https://bench.vortex.dev"
 
 [build-system]
-requires = ["maturin>=1.7.2,<2.0"]
+requires = ["maturin>=1.10.2,<2.0"]
 build-backend = "maturin"
 
 [tool.uv]
 managed = true
 
 [tool.maturin]
+profile = "release"
+editable-profile = "dev"
 python-source = "python"
 module-name = "vortex._lib"
 features = ["pyo3/extension-module", "mimalloc"]
@@ -70,7 +72,7 @@ include = [
 [dependency-groups]
 dev = [
     "duckdb>=1.1.2",
-    "maturin>=1.7.2",
+    "maturin>=1.10.2",
     "numpy>=2.2.2",
     "pandas-stubs>=2.2.3.241126",
     "pandas[output-formatting]>=2.2.3",

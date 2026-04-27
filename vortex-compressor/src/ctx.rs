@@ -3,8 +3,11 @@
 
 //! Compression context for recursive compression.
 
+use std::fmt;
+
 use vortex_error::VortexExpect;
 
+use crate::compressor::ROOT_SCHEME_ID;
 use crate::scheme::SchemeId;
 use crate::stats::GenerateStatsOptions;
 
@@ -27,6 +30,7 @@ pub struct CompressorContext {
     /// Merged stats options from all eligible schemes at this compression site.
     merged_stats_options: GenerateStatsOptions,
 
+    // TODO(connor): Replace this with an `im::Vector`
     /// The cascade chain: `(scheme_id, child_index)` pairs from root to current depth.
     /// Used for self-exclusion, push rules ([`descendant_exclusions`]), and pull rules
     /// ([`ancestor_exclusions`]).
@@ -73,6 +77,16 @@ impl CompressorContext {
         &self.cascade_history
     }
 
+    /// Returns a display wrapper for the current cascade ancestry.
+    pub(crate) fn cascade_path(&self) -> impl fmt::Display + '_ {
+        CascadePath(&self.cascade_history)
+    }
+
+    /// Returns the current cascade ancestry depth.
+    pub(crate) fn cascade_depth(&self) -> usize {
+        self.cascade_history.len()
+    }
+
     /// Whether cascading is exhausted (no further cascade levels allowed).
     ///
     /// This should only be used in the implementation of a [`Scheme`](crate::scheme::Scheme) if the
@@ -111,5 +125,30 @@ impl CompressorContext {
             .vortex_expect("cannot descend: cascade depth exhausted");
         self.cascade_history.push((id, child_index));
         self
+    }
+}
+
+/// Display wrapper for a cascade ancestry path.
+struct CascadePath<'a>(&'a [(SchemeId, usize)]);
+
+impl fmt::Display for CascadePath<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0.is_empty() {
+            return f.write_str("root");
+        }
+
+        for (index, (scheme_id, child_index)) in self.0.iter().enumerate() {
+            if index > 0 {
+                f.write_str(" > ")?;
+            }
+
+            if *scheme_id == ROOT_SCHEME_ID {
+                write!(f, "root[{child_index}]")?;
+            } else {
+                write!(f, "{scheme_id}[{child_index}]")?;
+            }
+        }
+
+        Ok(())
     }
 }

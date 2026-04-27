@@ -95,16 +95,12 @@
 //! use vortex_array::arrays::ExtensionArray;
 //! use vortex_array::arrays::FixedSizeListArray;
 //! use vortex_array::arrays::PrimitiveArray;
-//! use vortex_array::arrays::Extension;
-//! use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
-//! use vortex_array::dtype::extension::ExtDType;
 //! use vortex_array::extension::EmptyMetadata;
+//! use vortex_array::session::ArraySession;
 //! use vortex_array::validity::Validity;
 //! use vortex_buffer::BufferMut;
-//! use vortex_array::session::ArraySession;
 //! use vortex_session::VortexSession;
-//! use vortex_tensor::encodings::turboquant::{TurboQuantConfig, turboquant_encode_unchecked};
-//! use vortex_tensor::scalar_fns::l2_denorm::normalize_as_l2_denorm;
+//! use vortex_tensor::encodings::turboquant::{TurboQuantConfig, turboquant_encode};
 //! use vortex_tensor::vector::Vector;
 //!
 //! // Create a Vector extension array of 100 random 128-d vectors.
@@ -118,22 +114,15 @@
 //! let fsl = FixedSizeListArray::try_new(
 //!     elements.into_array(), dim, Validity::NonNullable, num_rows,
 //! ).unwrap();
-//! let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())
-//!     .unwrap().erased();
-//! let ext = ExtensionArray::new(ext_dtype, fsl.into_array());
+//! let vector = ExtensionArray::try_new_from_vtable(Vector, EmptyMetadata, fsl.into_array())
+//!     .map(|ext| ext.into_array())
+//!     .unwrap();
 //!
-//! // Normalize, then quantize the normalized child at 2 bits per coordinate.
+//! // Normalize and quantize at 2 bits per coordinate in one pass.
 //! let session = VortexSession::empty().with::<ArraySession>();
 //! let mut ctx = session.create_execution_ctx();
-//! let l2_denorm = normalize_as_l2_denorm(ext.into_array(), &mut ctx).unwrap();
-//! let normalized = l2_denorm.child_at(0).clone();
-//!
-//! let normalized_ext = normalized.as_opt::<Extension>().unwrap();
-//! let config = TurboQuantConfig { bit_width: 2, seed: Some(42), num_rounds: 3 };
-//! // SAFETY: We just normalized the input.
-//! let tq = unsafe {
-//!     turboquant_encode_unchecked(normalized_ext, &config, &mut ctx).unwrap()
-//! };
+//! let config = TurboQuantConfig { bit_width: 2, seed: 42, num_rounds: 3 };
+//! let tq = turboquant_encode(vector, &config, &mut ctx).unwrap();
 //!
 //! // Verify compression: 100 vectors x 128 dims x 4 bytes = 51200 bytes input.
 //! assert!(tq.nbytes() < 51200);
@@ -165,8 +154,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
-use crate::vector::AnyVector;
-use crate::vector::VectorMatcherMetadata;
+use crate::types::vector::AnyVector;
+use crate::types::vector::VectorMatcherMetadata;
 
 /// Validates that `dtype` is a [`Vector`](crate::vector::Vector) extension type with
 /// dimension >= [`MIN_DIMENSION`].

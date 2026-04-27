@@ -14,24 +14,12 @@
 //! `test.parquet` and (when present) `neighbors.parquet` live alongside the train files.
 
 use std::path::PathBuf;
-use std::time::Duration;
 
 use anyhow::Context;
 use anyhow::Result;
-use bytes::Bytes;
-use futures::StreamExt;
-use indicatif::ProgressBar;
-use indicatif::ProgressStyle;
-use reqwest::Client;
-use reqwest::IntoUrl;
-use tokio::fs::File;
-use tokio::io::AsyncWriteExt;
-use tokio::task::JoinSet;
-use tracing::info;
-use tracing::warn;
 
 use crate::datasets::data_downloads::download_data;
-use crate::utils::file::idempotent_async;
+use crate::datasets::data_downloads::download_many;
 use crate::vector_dataset::catalog::VectorDataset;
 use crate::vector_dataset::layout::LayoutSpec;
 use crate::vector_dataset::layout::TrainLayout;
@@ -105,39 +93,23 @@ pub struct DatasetPaths {
 /// This has idempotent semantics, so files already present on disk are skipped, and re-runs only
 /// pay for new files.
 ///
-/// Train shards download in parallel using a shared HTTP client; the small `test.parquet` and
-/// `neighbors.parquet` files use the simple [`download_data`] helper.
+/// Train shards download via [`download_many`] with adaptive parallelism; the small
+/// `test.parquet` and `neighbors.parquet` files use the simple [`download_data`] helper.
+/// All HTTP requests share a single pooled client.
 pub async fn download(ds: VectorDataset, layout: TrainLayout) -> Result<DatasetPaths> {
     let spec = ds.validate_layout(layout)?;
     let urls = train_urls(ds, spec);
     let train_targets = paths::train_files(ds, layout, spec.num_files());
     debug_assert_eq!(urls.len(), train_targets.len());
 
-    let client = Client::builder()
-        .timeout(Duration::from_secs(60 * 60))
-        .build()
-        .context("build reqwest client")?;
-
-    let mut tasks: JoinSet<Result<()>> = JoinSet::new();
-    for (url, target) in urls.into_iter().zip(train_targets.iter().cloned()) {
-        let client = client.clone();
-        tasks.spawn(async move {
-            idempotent_async(target, |tmp| async move {
-                info!("downloading {}", url);
-                if spec.layout().is_partitioned() {
-                    download_with_retry(&client, &url, &tmp).await?;
-                } else {
-                    download_with_progress(&client, &url, &tmp).await?;
-                }
-                Ok(())
-            })
-            .await?;
-            Ok(())
-        });
-    }
-    while let Some(joined) = tasks.join_next().await {
-        joined.context("train download task panicked")??;
-    }
+    let train_downloads: Vec<(PathBuf, String)> = train_targets
+        .iter()
+        .cloned()
+        .zip(urls.into_iter())
+        .collect();
+    download_many(train_downloads)
+        .await
+        .with_context(|| format!("download train shards for {}", ds.name()))?;
 
     let test = download_data(paths::test_path(ds, layout), &test_url(ds))
         .await
@@ -158,68 +130,4 @@ pub async fn download(ds: VectorDataset, layout: TrainLayout) -> Result<DatasetP
         test,
         neighbors,
     })
-}
-
-/// Stream a large file to disk with a byte-progress bar.
-async fn download_with_progress(client: &Client, url: &str, output: &PathBuf) -> Result<()> {
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .with_context(|| format!("GET {url}"))?
-        .error_for_status()?;
-    let total = response.content_length().unwrap_or(0);
-
-    let progress = ProgressBar::new(total);
-    progress.set_style(
-        ProgressStyle::with_template(
-            "[{elapsed_precise}] {bar:40.cyan/blue} {bytes}/{total_bytes} ({bytes_per_sec})",
-        )
-        .expect("valid template"),
-    );
-
-    let mut file = File::create(output).await?;
-    let mut stream = response.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        file.write_all(&chunk).await?;
-        progress.inc(chunk.len() as u64);
-    }
-    progress.finish_and_clear();
-    file.flush().await?;
-    Ok(())
-}
-
-/// Buffer-the-whole-body download with simple exponential backoff. Used for partitioned
-/// shards because we already have download concurrency at the shard granularity.
-async fn download_with_retry(client: &Client, url: &str, output: &PathBuf) -> Result<()> {
-    let body = retry_get(client, url).await?;
-    let mut file = File::create(output).await?;
-    file.write_all(&body).await?;
-    file.flush().await?;
-    Ok(())
-}
-
-async fn retry_get(client: &Client, url: impl IntoUrl + Clone) -> Result<Bytes> {
-    const MAX_ATTEMPTS: u32 = 4;
-    let mut last_err: Option<anyhow::Error> = None;
-    for attempt in 0..MAX_ATTEMPTS {
-        let outcome: Result<Bytes> = async {
-            let resp = client.get(url.clone()).send().await?.error_for_status()?;
-            Ok(resp.bytes().await?)
-        }
-        .await;
-        match outcome {
-            Ok(b) => return Ok(b),
-            Err(e) => last_err = Some(e),
-        }
-        let backoff = Duration::from_secs(1u64 << attempt);
-        warn!(
-            "download attempt {} failed; retrying in {:?}",
-            attempt + 1,
-            backoff
-        );
-        tokio::time::sleep(backoff).await;
-    }
-    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("retry_get exhausted with no recorded error")))
 }

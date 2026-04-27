@@ -121,7 +121,8 @@ mod test {
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
-    use crate::canonical::ToCanonical;
+    #[expect(deprecated)]
+    use crate::canonical::ToCanonical as _;
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -133,11 +134,13 @@ mod test {
         let arr = buffer![0u32, 10, 200].into_array();
 
         // cast from u32 to u8
+        #[expect(deprecated)]
         let p = arr.cast(PType::U8.into()).unwrap().to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]));
         assert!(matches!(p.validity(), Ok(Validity::NonNullable)));
 
         // to nullable
+        #[expect(deprecated)]
         let p = p
             .into_array()
             .cast(DType::Primitive(PType::U8, Nullability::Nullable))
@@ -150,6 +153,7 @@ mod test {
         assert!(matches!(p.validity(), Ok(Validity::AllValid)));
 
         // back to non-nullable
+        #[expect(deprecated)]
         let p = p
             .into_array()
             .cast(DType::Primitive(PType::U8, Nullability::NonNullable))
@@ -159,6 +163,7 @@ mod test {
         assert!(matches!(p.validity(), Ok(Validity::NonNullable)));
 
         // to nullable u32
+        #[expect(deprecated)]
         let p = p
             .into_array()
             .cast(DType::Primitive(PType::U32, Nullability::Nullable))
@@ -171,6 +176,7 @@ mod test {
         assert!(matches!(p.validity(), Ok(Validity::AllValid)));
 
         // to non-nullable u8
+        #[expect(deprecated)]
         let p = p
             .into_array()
             .cast(DType::Primitive(PType::U8, Nullability::NonNullable))
@@ -183,6 +189,7 @@ mod test {
     #[test]
     fn cast_u32_f32() {
         let arr = buffer![0u32, 10, 200].into_array();
+        #[expect(deprecated)]
         let u8arr = arr.cast(PType::F32.into()).unwrap().to_primitive();
         assert_arrays_eq!(u8arr, PrimitiveArray::from_iter([0.0f32, 10., 200.]));
     }
@@ -190,6 +197,7 @@ mod test {
     #[test]
     fn cast_i32_u32() {
         let arr = buffer![-1i32].into_array();
+        #[expect(deprecated)]
         let error = arr
             .cast(PType::U32.into())
             .and_then(|a| a.to_canonical().map(|c| c.into_array()))
@@ -201,6 +209,7 @@ mod test {
     #[test]
     fn cast_array_with_nulls_to_nonnullable() {
         let arr = PrimitiveArray::from_option_iter([Some(-1i32), None, Some(10)]);
+        #[expect(deprecated)]
         let err = arr
             .into_array()
             .cast(PType::I32.into())
@@ -220,6 +229,7 @@ mod test {
             buffer![-1i32, 0, 10],
             Validity::from_iter([false, true, true]),
         );
+        #[expect(deprecated)]
         let p = arr
             .into_array()
             .cast(DType::Primitive(PType::U32, Nullability::Nullable))
@@ -233,7 +243,7 @@ mod test {
             p.as_ref()
                 .validity()
                 .unwrap()
-                .to_mask(p.as_ref().len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(p.as_ref().len(), &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Mask::from(BitBuffer::from(vec![false, true, true]))
         );
@@ -246,6 +256,7 @@ mod test {
         let src = PrimitiveArray::from_iter([0u32, 10, 100]);
         let src_ptr = src.as_slice::<u32>().as_ptr();
 
+        #[expect(deprecated)]
         let dst = src.into_array().cast(PType::I32.into())?.to_primitive();
         let dst_ptr = dst.as_slice::<i32>().as_ptr();
 
@@ -260,6 +271,7 @@ mod test {
     #[test]
     fn cast_same_width_int_out_of_range_errors() {
         let arr = buffer![u32::MAX].into_array();
+        #[expect(deprecated)]
         let err = arr
             .cast(PType::I32.into())
             .and_then(|a| a.to_canonical().map(|c| c.into_array()))
@@ -272,6 +284,7 @@ mod test {
     #[test]
     fn cast_same_width_all_null() -> vortex_error::VortexResult<()> {
         let arr = PrimitiveArray::new(buffer![0xFFu8, 0xFF], Validity::AllInvalid);
+        #[expect(deprecated)]
         let casted = arr
             .into_array()
             .cast(DType::Primitive(PType::I8, Nullability::Nullable))?
@@ -291,6 +304,7 @@ mod test {
             buffer![u32::MAX, 0u32, 42u32],
             Validity::from_iter([false, true, true]),
         );
+        #[expect(deprecated)]
         let casted = arr
             .into_array()
             .cast(DType::Primitive(PType::I32, Nullability::Nullable))?
@@ -308,6 +322,7 @@ mod test {
             buffer![1000u32, 10u32, 42u32],
             Validity::from_iter([false, true, true]),
         );
+        #[expect(deprecated)]
         let casted = arr
             .into_array()
             .cast(DType::Primitive(PType::U8, Nullability::Nullable))?

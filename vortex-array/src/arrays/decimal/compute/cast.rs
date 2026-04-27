@@ -150,7 +150,8 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::DecimalArray;
     use crate::builtins::ArrayBuiltins;
-    use crate::canonical::ToCanonical;
+    #[expect(deprecated)]
+    use crate::canonical::ToCanonical as _;
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
@@ -169,6 +170,7 @@ mod tests {
 
         // Cast to nullable
         let nullable_dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
+        #[expect(deprecated)]
         let casted = array
             .into_array()
             .cast(nullable_dtype.clone())
@@ -189,6 +191,7 @@ mod tests {
 
         // Cast to non-nullable
         let non_nullable_dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
+        #[expect(deprecated)]
         let casted = array
             .into_array()
             .cast(non_nullable_dtype.clone())
@@ -209,11 +212,12 @@ mod tests {
 
         // Attempt to cast to non-nullable should fail
         let non_nullable_dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
-        array
+        #[expect(deprecated)]
+        let result = array
             .into_array()
             .cast(non_nullable_dtype)
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
-            .unwrap();
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+        result.unwrap();
     }
 
     #[test]
@@ -226,6 +230,7 @@ mod tests {
 
         // Try to cast to different scale - not supported
         let different_dtype = DType::Decimal(DecimalDType::new(15, 3), Nullability::NonNullable);
+        #[expect(deprecated)]
         let result = array
             .into_array()
             .cast(different_dtype)
@@ -250,6 +255,7 @@ mod tests {
 
         // Try to downcast precision - not supported
         let smaller_dtype = DType::Decimal(DecimalDType::new(10, 2), Nullability::NonNullable);
+        #[expect(deprecated)]
         let result = array
             .into_array()
             .cast(smaller_dtype)
@@ -274,6 +280,7 @@ mod tests {
 
         // Cast to higher precision with same scale - should succeed
         let wider_dtype = DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable);
+        #[expect(deprecated)]
         let casted = array.into_array().cast(wider_dtype).unwrap().to_decimal();
 
         assert_eq!(casted.precision(), 38);
@@ -292,6 +299,7 @@ mod tests {
         );
 
         // Try to cast to non-decimal type - should fail since no kernel can handle it
+        #[expect(deprecated)]
         let result = array
             .into_array()
             .cast(DType::Utf8(Nullability::NonNullable))
@@ -389,7 +397,7 @@ mod tests {
             .as_ref()
             .validity()
             .unwrap()
-            .to_mask(
+            .execute_mask(
                 casted.as_ref().len(),
                 &mut LEGACY_SESSION.create_execution_ctx(),
             )

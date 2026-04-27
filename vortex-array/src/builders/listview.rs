@@ -21,7 +21,8 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::LEGACY_SESSION;
-use crate::ToCanonical;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::array::IntoArray;
 use crate::arrays::ListViewArray;
@@ -293,6 +294,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
+        #[expect(deprecated)]
         let listview = array.to_listview();
         if listview.is_empty() {
             return;
@@ -309,7 +311,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
             array
                 .validity()
                 .vortex_expect("validity_mask in extend_from_array_unchecked")
-                .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("Failed to compute validity mask"),
         );
 
@@ -341,6 +343,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         let uninit_range = self.offsets_builder.uninit_range(extend_length);
 
         // This should be cheap because we didn't compress after rebuilding.
+        #[expect(deprecated)]
         let new_offsets = listview.offsets().to_primitive();
 
         match_each_integer_ptype!(new_offsets.ptype(), |A| {

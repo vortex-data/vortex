@@ -21,7 +21,8 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
-use crate::ToCanonical;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
@@ -186,6 +187,7 @@ impl VTable for Chunked {
             &DType::Primitive(PType::U64, Nullability::NonNullable),
             nchunks + 1,
         )?;
+        #[expect(deprecated)]
         let chunk_offsets_buf = chunk_offsets.to_primitive().to_buffer::<u64>();
         let chunk_offsets_usize = chunk_offsets_buf
             .iter()

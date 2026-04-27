@@ -5,6 +5,8 @@ use arrow_array::RunArray;
 use arrow_array::types::RunEndIndexType;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrow::FromArrowArray;
@@ -53,7 +55,9 @@ where
         };
 
         // SAFETY: arrow-rs enforces the RunEndArray invariants, we inherit their guarantees.
-        RunEndData::validate_parts(&ends_slice, &values_slice, offset, len)?;
+        // TODO(ctx): trait fixes - FromArrowArray::from_arrow has a fixed signature.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        RunEndData::validate_parts(&ends_slice, &values_slice, offset, len, &mut ctx)?;
         Ok(unsafe { RunEndData::new_unchecked(offset) })
     }
 }
@@ -76,6 +80,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray as _;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute as _;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::primitive::PrimitiveArrayExt;
@@ -152,7 +157,7 @@ mod tests {
         // Values: [10, 20, 30] means values 10, 10, 10, 20, 20, 30, 30, 30
         let run_ends = Int32Array::from(vec![3i32, 5, 8]);
         let values = Int32Array::from(vec![10, 20, 30]);
-        let arrow_run_array = RunArray::<Int32Type>::try_new(&run_ends, &values).unwrap();
+        let arrow_run_array = RunArray::<Int32Type>::try_new(&run_ends, &values)?;
 
         // Convert to Vortex
         let vortex_array = decode_run_array(&arrow_run_array, false)?;
@@ -169,7 +174,7 @@ mod tests {
         // Create an Arrow RunArray with nullable values
         let run_ends = Int32Array::from(vec![2i32, 4, 6]);
         let values = Int32Array::from(vec![Some(100), None, Some(300)]);
-        let arrow_run_array = RunArray::<Int32Type>::try_new(&run_ends, &values).unwrap();
+        let arrow_run_array = RunArray::<Int32Type>::try_new(&run_ends, &values)?;
 
         // Convert to Vortex with nullable=true
         let vortex_array = decode_run_array(&arrow_run_array, true)?;
@@ -193,7 +198,7 @@ mod tests {
         // Test with UInt64 run ends and Float64 values
         let run_ends = Int64Array::from(vec![1i64, 3, 4]);
         let values = Float64Array::from(vec![1.5, 2.5, 3.5]);
-        let arrow_run_array = RunArray::<Int64Type>::try_new(&run_ends, &values).unwrap();
+        let arrow_run_array = RunArray::<Int64Type>::try_new(&run_ends, &values)?;
 
         // Convert to Vortex
         let vortex_array = decode_run_array(&arrow_run_array, false)?;
@@ -209,7 +214,7 @@ mod tests {
         // Values: [100, 200, 300, 400] means: 100, 100, 200, 200, 200, 300, 300, 300, 400, 400
         let run_ends = Int32Array::from(vec![2i32, 5, 8, 10]);
         let values = Int32Array::from(vec![100, 200, 300, 400]);
-        let arrow_run_array = RunArray::<Int32Type>::try_new(&run_ends, &values).unwrap();
+        let arrow_run_array = RunArray::<Int32Type>::try_new(&run_ends, &values)?;
 
         // Slice the array from index 1 to 7 (length 6)
         // This should give us: 100, 200, 200, 200, 300, 300
@@ -231,7 +236,7 @@ mod tests {
         // Values: [Some(10), None, Some(30), Some(40)]
         let run_ends = Int64Array::from(vec![3i64, 6, 9, 12]);
         let values = Int64Array::from(vec![Some(10), None, Some(30), Some(40)]);
-        let arrow_run_array = RunArray::<Int64Type>::try_new(&run_ends, &values).unwrap();
+        let arrow_run_array = RunArray::<Int64Type>::try_new(&run_ends, &values)?;
 
         // Slice from index 4 to 10 (length 6)
         // Original: 10, 10, 10, null, null, null, 30, 30, 30, 40, 40, 40
@@ -262,7 +267,7 @@ mod tests {
         // Values: [Some(10), None, Some(30), Some(40)]
         let run_ends = Int64Array::from(vec![3i64, 6, 9, 12]);
         let values = Int64Array::from(vec![Some(10), None, Some(30), Some(40)]);
-        let arrow_run_array = RunArray::<Int64Type>::try_new(&run_ends, &values).unwrap();
+        let arrow_run_array = RunArray::<Int64Type>::try_new(&run_ends, &values)?;
 
         // Slice from index 4 to 4 (length 0)
         // Original: 10, 10, 10, null, null, null, 30, 30, 30, 40, 40, 40
@@ -331,7 +336,11 @@ mod tests {
         #[case] expected_ends: &[i32],
         #[case] expected_values: &[i32],
     ) -> VortexResult<()> {
-        let array = RunEnd::encode(PrimitiveArray::from_iter(input.iter().copied()).into_array())?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let array = RunEnd::encode(
+            PrimitiveArray::from_iter(input.iter().copied()).into_array(),
+            &mut ctx,
+        )?;
         let sliced = array.into_array().slice(slice_range.clone())?;
         let target = ree_type(DataType::Int32, DataType::Int32);
         let result = execute(sliced, &target)?;

@@ -36,7 +36,8 @@ impl CastReduce for Sparse {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
@@ -52,6 +53,7 @@ mod tests {
 
     #[test]
     fn test_cast_sparse_i32_to_i64() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let sparse = Sparse::try_new(
             buffer![2u64, 5, 8].into_array(),
             buffer![100i32, 200, 300].into_array(),
@@ -70,7 +72,8 @@ mod tests {
         );
 
         let expected = PrimitiveArray::from_iter([0i64, 0, 100, 0, 0, 200, 0, 0, 300, 0]);
-        assert_arrays_eq!(casted.to_primitive(), expected);
+        let casted_primitive = casted.execute::<PrimitiveArray>(&mut ctx).unwrap();
+        assert_arrays_eq!(casted_primitive, expected);
     }
 
     #[test]
@@ -124,6 +127,7 @@ mod tests {
 
     #[test]
     fn test_cast_sparse_null_fill_all_patched_to_non_nullable() -> vortex_error::VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Regression test for https://github.com/vortex-data/vortex/issues/6932
         //
         // When all positions are patched the null fill is unused, so a cast to
@@ -146,7 +150,8 @@ mod tests {
         );
 
         let expected = PrimitiveArray::from_iter([10u64, 20, 30, 40, 50]);
-        assert_arrays_eq!(casted.to_primitive(), expected);
+        let casted_primitive = casted.execute::<PrimitiveArray>(&mut ctx)?;
+        assert_arrays_eq!(casted_primitive, expected);
         Ok(())
     }
 

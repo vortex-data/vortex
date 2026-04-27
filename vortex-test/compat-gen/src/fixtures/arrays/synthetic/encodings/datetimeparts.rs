@@ -5,6 +5,8 @@ use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
@@ -22,7 +24,7 @@ pub struct DateTimePartsFixture;
 
 fn encode_temporal(temporal: TemporalArray) -> VortexResult<ArrayRef> {
     let dtype = temporal.dtype().clone();
-    let parts = split_temporal(temporal)?;
+    let parts = split_temporal(temporal, &mut LEGACY_SESSION.create_execution_ctx())?;
     Ok(DateTimeParts::try_new(dtype, parts.days, parts.seconds, parts.subseconds)?.into_array())
 }
 

@@ -1,3 +1,5 @@
+//! Write-time assembly for zoned layouts.
+
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
@@ -8,17 +10,20 @@ use futures::StreamExt as _;
 use parking_lot::Mutex;
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::expr::stats::Stat;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::layouts::zoned::StatsAccumulator;
 use crate::layouts::zoned::ZonedLayout;
-use crate::layouts::zoned::zone_map::StatsAccumulator;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -26,6 +31,10 @@ use crate::sequence::SequentialArrayStreamExt;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt;
 
+/// Configuration for building zoned layouts.
+///
+/// The input stream is assumed to already be partitioned into one chunk per zone, except
+/// possibly the final partial zone.
 pub struct ZonedLayoutOptions {
     /// The size of a statistics block
     pub block_size: usize,
@@ -43,9 +52,7 @@ impl Default for ZonedLayoutOptions {
             block_size: 8192,
             stats: PRUNING_STATS.into(),
             max_variable_length_statistics_size: 64,
-            concurrency: std::thread::available_parallelism()
-                .map(|v| v.get())
-                .unwrap_or(1),
+            concurrency: get_available_parallelism().unwrap_or(1),
         }
     }
 }
@@ -57,6 +64,7 @@ pub struct ZonedStrategy {
 }
 
 impl ZonedStrategy {
+    /// Create a writer that emits a data child plus an auxiliary per-zone stats child.
     pub fn new<Child: LayoutStrategy, Stats: LayoutStrategy>(
         child: Child,
         stats: Stats,
@@ -80,7 +88,14 @@ impl LayoutStrategy for ZonedStrategy {
         mut eof: SequencePointer,
         session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
+        vortex_ensure!(
+            self.options.block_size > 0,
+            "ZonedStrategy requires block_size > 0 when writing"
+        );
+
         let stats = Arc::clone(&self.options.stats);
+        let session = session.clone();
+        let compute_session = session.clone();
         let handle = session.handle();
         let handle2 = handle.clone();
 
@@ -96,9 +111,12 @@ impl LayoutStrategy for ZonedStrategy {
             stream
                 .map(move |chunk| {
                     let stats = Arc::clone(&stats);
+                    let session = compute_session.clone();
                     handle2.spawn_cpu(move || {
                         let (sequence_id, chunk) = chunk?;
-                        chunk.statistics().compute_all(&stats)?;
+                        chunk
+                            .statistics()
+                            .compute_all(&stats, &mut session.create_execution_ctx())?;
                         VortexResult::Ok((sequence_id, chunk))
                     })
                 })
@@ -133,7 +151,7 @@ impl LayoutStrategy for ZonedStrategy {
                 Arc::clone(&segment_sink),
                 stream,
                 data_eof,
-                session,
+                &session,
             )
             .await?;
 
@@ -153,7 +171,7 @@ impl LayoutStrategy for ZonedStrategy {
             .sequenced(eof.split_off());
         let zones_layout = self
             .stats
-            .write_stream(ctx, Arc::clone(&segment_sink), stats_stream, eof, session)
+            .write_stream(ctx, Arc::clone(&segment_sink), stats_stream, eof, &session)
             .await?;
 
         Ok(ZonedLayout::new(

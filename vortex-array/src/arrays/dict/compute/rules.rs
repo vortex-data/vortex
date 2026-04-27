@@ -13,8 +13,8 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::DictArray;
+use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
-use crate::arrays::ScalarFnVTable;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::scalar_fn::AnyScalarFn;
@@ -29,6 +29,7 @@ use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::like::LikeReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::scalar_fn::fns::pack::Pack;
+use crate::validity::Validity;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Dict> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&FilterReduceAdaptor(Dict)),
@@ -50,7 +51,7 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, Dict>,
-        parent: ArrayView<'_, ScalarFnVTable>,
+        parent: ArrayView<'_, ScalarFn>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // Check that the scalar function can actually be pushed down.
@@ -99,7 +100,10 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
         // If the scalar function is null-sensitive, then we cannot push it down to values if
         // we have any nulls in the codes.
         if array.codes().dtype().is_nullable()
-            && !array.codes().all_valid()?
+            && !matches!(
+                array.codes().validity()?,
+                Validity::NonNullable | Validity::AllValid
+            )
             && sig.is_null_sensitive()
         {
             tracing::trace!(
@@ -152,7 +156,7 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnCodesPullUpRule {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, Dict>,
-        parent: ArrayView<'_, ScalarFnVTable>,
+        parent: ArrayView<'_, ScalarFn>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // Don't attempt to pull up if there are less than 2 siblings.

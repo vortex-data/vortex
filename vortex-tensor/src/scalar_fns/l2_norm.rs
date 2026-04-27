@@ -10,10 +10,12 @@ use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Constant;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::ScalarFn as ScalarFnArrayEncoding;
 use vortex_array::arrays::ScalarFnArray;
-use vortex_array::arrays::ScalarFnVTable as ScalarFnArrayEncoding;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
@@ -26,13 +28,14 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::proto::dtype as pb;
 use vortex_array::expr::Expression;
 use vortex_array::match_each_float_ptype;
+use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
-use vortex_array::scalar_fn::ScalarFn;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_array::serde::ArrayChildren;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
@@ -44,6 +47,7 @@ use vortex_session::VortexSession;
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::utils::extract_flat_elements;
+use crate::utils::extract_l2_denorm_children;
 use crate::utils::validate_tensor_float_input;
 
 /// L2 norm (Euclidean norm) of a tensor or vector column.
@@ -61,9 +65,9 @@ use crate::utils::validate_tensor_float_input;
 pub struct L2Norm;
 
 impl L2Norm {
-    /// Creates a new [`ScalarFn`] wrapping the L2 norm operation.
-    pub fn new() -> ScalarFn<L2Norm> {
-        ScalarFn::new(L2Norm, EmptyOptions)
+    /// Creates a new [`TypedScalarFnInstance`] wrapping the L2 norm operation.
+    pub fn new() -> TypedScalarFnInstance<L2Norm> {
+        TypedScalarFnInstance::new(L2Norm, EmptyOptions)
     }
 
     /// Constructs a [`ScalarFnArray`] that lazily computes the L2 norm over `child`.
@@ -81,7 +85,7 @@ impl ScalarFnVTable for L2Norm {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.tensor.l2_norm")
+        ScalarFnId::new("vortex.tensor.l2_norm")
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
@@ -128,22 +132,43 @@ impl ScalarFnVTable for L2Norm {
         let tensor_match = ext
             .metadata_opt::<AnyTensor>()
             .vortex_expect("we already validated this in `return_dtype`");
-        let tensor_flat_size = tensor_match.list_size();
+        let tensor_flat_size = tensor_match.list_size() as usize;
         let element_ptype = tensor_match.element_ptype();
+
+        let norm_dtype = DType::Primitive(element_ptype, ext.nullability());
 
         // L2Norm(L2Denorm(normalized, norms)) is defined to read back the authoritative stored
         // norms. Exact callers of lossy encodings like TurboQuant opt into that storage semantics
         // instead of forcing a decode-and-recompute path here.
-        if let Some(sfn) = input_ref.as_opt::<ExactScalarFn<L2Denorm>>() {
-            let norms = sfn
-                .nth_child(1)
-                .vortex_expect("L2Denom must have at 2 children");
+        if input_ref.is::<ExactScalarFn<L2Denorm>>() {
+            let (_, norms) = extract_l2_denorm_children(&input_ref);
+            vortex_ensure_eq!(norms.dtype(), &norm_dtype);
+            return Ok(norms);
+        }
 
-            vortex_ensure_eq!(
-                norms.dtype(),
-                &DType::Primitive(element_ptype, input_ref.dtype().nullability())
-            );
+        // Optimize for the constant array case.
+        if let Some(array) = input_ref.as_opt::<Constant>() {
+            let scalar = array.scalar().as_extension().to_storage_scalar();
 
+            let Some(elements) = scalar.as_list().elements() else {
+                return Ok(ConstantArray::new(Scalar::null(norm_dtype), row_count).into_array());
+            };
+
+            let norm_scalar = match_each_float_ptype!(element_ptype, |T| {
+                let values: Vec<T> = elements
+                    .iter()
+                    .map(|s| {
+                        s.as_primitive()
+                            .as_::<T>()
+                            .vortex_expect("element was somehow not the correct float")
+                    })
+                    .collect();
+                let norm = l2_norm_row::<T>(&values);
+
+                Scalar::try_new(norm_dtype, Some(norm.into()))
+            })?;
+
+            let norms = ConstantArray::new(norm_scalar, row_count).into_array();
             return Ok(norms);
         }
 
@@ -244,16 +269,26 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::Constant;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::MaskedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::ScalarFnArray;
     use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::extension::EmptyMetadata;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
 
     use crate::scalar_fns::l2_norm::L2Norm;
     use crate::tests::SESSION;
+    use crate::types::vector::Vector;
     use crate::utils::test_helpers::assert_close;
+    use crate::utils::test_helpers::literal_vector_array;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
 
@@ -320,15 +355,71 @@ mod tests {
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
 
         // Row 0: norm = 5.0, row 1: null.
-        assert!(prim.is_valid(0)?);
-        assert!(!prim.is_valid(1)?);
+        assert!(prim.is_valid(0, &mut ctx)?);
+        assert!(!prim.is_valid(1, &mut ctx)?);
         assert_close(&[prim.as_slice::<f64>()[0]], &[5.0]);
         Ok(())
     }
 
+    /// A constant input whose scalar is a non-null tensor should short-circuit to a
+    /// [`ConstantArray`] output whose scalar is the precomputed norm. Uses [`execute_until`] so
+    /// execution stops at the [`Constant`] encoding instead of canonicalizing into a
+    /// [`PrimitiveArray`].
+    #[test]
+    fn constant_non_null_input_yields_constant_output() -> VortexResult<()> {
+        let input = literal_vector_array(&[3.0f64, 4.0], 4);
+
+        let scalar_fn = L2Norm::new().erased();
+        let result = ScalarFnArray::try_new(scalar_fn, vec![input], 4)?.into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let output = result.execute_until::<Constant>(&mut ctx)?;
+
+        let constant = output
+            .as_opt::<Constant>()
+            .expect("L2Norm over a constant input must produce a constant output");
+        assert_eq!(constant.len(), 4);
+        let norm = constant
+            .scalar()
+            .as_primitive()
+            .as_::<f64>()
+            .expect("norm scalar must be a non-null primitive");
+        assert_close(&[norm], &[5.0]);
+        Ok(())
+    }
+
+    /// A constant input whose scalar is null should short-circuit to a null [`ConstantArray`] of
+    /// the correct primitive dtype and length.
+    #[test]
+    fn constant_null_input_yields_null_constant_output() -> VortexResult<()> {
+        let storage_dtype = DType::FixedSizeList(
+            DType::Primitive(PType::F64, Nullability::NonNullable).into(),
+            2,
+            Nullability::Nullable,
+        );
+        let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, storage_dtype)?.erased();
+        let null_scalar = Scalar::null(DType::Extension(ext_dtype));
+        let input = ConstantArray::new(null_scalar, 3).into_array();
+
+        let scalar_fn = L2Norm::new().erased();
+        let result = ScalarFnArray::try_new(scalar_fn, vec![input], 3)?.into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let output = result.execute_until::<Constant>(&mut ctx)?;
+
+        let constant = output
+            .as_opt::<Constant>()
+            .expect("null constant input must produce a constant output");
+        assert_eq!(constant.len(), 3);
+        assert!(constant.scalar().is_null());
+        assert_eq!(
+            constant.dtype(),
+            &DType::Primitive(PType::F64, Nullability::Nullable)
+        );
+        Ok(())
+    }
+
     #[rstest]
-    #[case::fixed_shape_tensor(tensor_array(&[3], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap(), 2)]
-    #[case::vector(vector_array(3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap(), 2)]
+    #[case::fixed_shape_tensor(l2_norm_tensor_child(), 2)]
+    #[case::vector(l2_norm_vector_child(), 2)]
     fn serde_round_trip(#[case] child: ArrayRef, #[case] len: usize) -> VortexResult<()> {
         let original = L2Norm::try_new_array(child.clone(), len)?.into_array();
 
@@ -351,5 +442,13 @@ mod tests {
         assert_eq!(recovered.len(), original.len());
         assert_eq!(recovered.encoding_id(), original.encoding_id());
         Ok(())
+    }
+
+    fn l2_norm_tensor_child() -> ArrayRef {
+        tensor_array(&[3], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).expect("valid tensor array")
+    }
+
+    fn l2_norm_vector_child() -> ArrayRef {
+        vector_array(3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).expect("valid vector array")
     }
 }

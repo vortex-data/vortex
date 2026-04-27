@@ -7,11 +7,14 @@ use async_trait::async_trait;
 use futures::StreamExt as _;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::VortexSessionExecute;
 use vortex_array::expr::stats::Stat;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -25,27 +28,27 @@ use crate::sequence::SequentialStreamExt;
 ///
 /// API consumers are free to implement this trait to provide new plugin compressors.
 pub trait CompressorPlugin: Send + Sync + 'static {
-    fn compress_chunk(&self, chunk: &ArrayRef) -> VortexResult<ArrayRef>;
+    fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
 }
 
 impl CompressorPlugin for Arc<dyn CompressorPlugin> {
-    fn compress_chunk(&self, chunk: &ArrayRef) -> VortexResult<ArrayRef> {
-        self.as_ref().compress_chunk(chunk)
+    fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        self.as_ref().compress_chunk(chunk, ctx)
     }
 }
 
 impl<F> CompressorPlugin for F
 where
-    F: Fn(&ArrayRef) -> VortexResult<ArrayRef> + Send + Sync + 'static,
+    F: Fn(&ArrayRef, &mut ExecutionCtx) -> VortexResult<ArrayRef> + Send + Sync + 'static,
 {
-    fn compress_chunk(&self, chunk: &ArrayRef) -> VortexResult<ArrayRef> {
-        self(chunk)
+    fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        self(chunk, ctx)
     }
 }
 
 impl CompressorPlugin for BtrBlocksCompressor {
-    fn compress_chunk(&self, chunk: &ArrayRef) -> VortexResult<ArrayRef> {
-        self.compress(chunk)
+    fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        self.compress(chunk, ctx)
     }
 }
 
@@ -65,9 +68,7 @@ impl CompressingStrategy {
             child: Arc::new(child),
             compressor: Arc::new(compressor),
             stats: Stat::all().collect(),
-            concurrency: std::thread::available_parallelism()
-                .map(|v| v.get())
-                .unwrap_or(1),
+            concurrency: get_available_parallelism().unwrap_or(1),
         }
     }
 
@@ -97,17 +98,21 @@ impl LayoutStrategy for CompressingStrategy {
         let dtype = stream.dtype().clone();
         let compressor = Arc::clone(&self.compressor);
         let stats = Arc::clone(&self.stats);
+        let session = session.clone();
+        let compute_session = session.clone();
 
         let handle = session.handle();
         let stream = stream
             .map(move |chunk| {
                 let compressor = Arc::clone(&compressor);
                 let stats = Arc::clone(&stats);
+                let session = compute_session.clone();
                 handle.spawn_cpu(move || {
                     let (sequence_id, chunk) = chunk?;
+                    let mut ctx = session.create_execution_ctx();
                     // Compute the stats for the chunk prior to compression
-                    chunk.statistics().compute_all(&stats)?;
-                    Ok((sequence_id, compressor.compress_chunk(&chunk)?))
+                    chunk.statistics().compute_all(&stats, &mut ctx)?;
+                    Ok((sequence_id, compressor.compress_chunk(&chunk, &mut ctx)?))
                 })
             })
             .buffered(self.concurrency);
@@ -118,7 +123,7 @@ impl LayoutStrategy for CompressingStrategy {
                 segment_sink,
                 SequentialStreamAdapter::new(dtype, stream).sendable(),
                 eof,
-                session,
+                &session,
             )
             .await
     }

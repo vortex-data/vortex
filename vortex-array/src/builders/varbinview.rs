@@ -28,7 +28,8 @@ use crate::arrays::varbinview::compact::BufferUtilization;
 use crate::builders::ArrayBuilder;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
-use crate::canonical::ToCanonical;
+#[expect(deprecated)]
+use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 
@@ -294,6 +295,7 @@ impl ArrayBuilder for VarBinViewBuilder {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
+        #[expect(deprecated)]
         let array = array.to_varbinview();
         self.flush_in_progress();
 
@@ -302,7 +304,7 @@ impl ArrayBuilder for VarBinViewBuilder {
                 .as_ref()
                 .validity()
                 .vortex_expect("validity_mask")
-                .to_mask(
+                .execute_mask(
                     array.as_ref().len(),
                     &mut LEGACY_SESSION.create_execution_ctx(),
                 )
@@ -328,7 +330,7 @@ impl ArrayBuilder for VarBinViewBuilder {
                     .as_ref()
                     .validity()
                     .vortex_expect("validity_mask")
-                    .to_mask(
+                    .execute_mask(
                         array.as_ref().len(),
                         &mut LEGACY_SESSION.create_execution_ctx(),
                     )
@@ -1058,7 +1060,7 @@ mod tests {
 
         // Verify the value was stored correctly
         let retrieved = array
-            .scalar_at(0)
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .as_binary()
             .value()

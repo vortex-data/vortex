@@ -13,7 +13,8 @@ use vortex_mask::AllOr;
 
 use crate::ArrayRef;
 use crate::LEGACY_SESSION;
-use crate::ToCanonical;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -144,7 +145,8 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
         let codes = self.codes();
         let codes_validity = codes
             .validity()?
-            .to_mask(codes.len(), &mut LEGACY_SESSION.create_execution_ctx())?;
+            .execute_mask(codes.len(), &mut LEGACY_SESSION.create_execution_ctx())?;
+        #[expect(deprecated)]
         let codes_primitive = self.codes().to_primitive();
         let values_len = self.values().len();
 
@@ -270,7 +272,8 @@ mod test {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::arrays::ChunkedArray;
     use crate::arrays::DictArray;
@@ -299,7 +302,7 @@ mod test {
             .as_ref()
             .validity()
             .unwrap()
-            .to_mask(
+            .execute_mask(
                 dict.as_ref().len(),
                 &mut LEGACY_SESSION.create_execution_ctx(),
             )
@@ -325,7 +328,7 @@ mod test {
             .as_ref()
             .validity()
             .unwrap()
-            .to_mask(
+            .execute_mask(
                 dict.as_ref().len(),
                 &mut LEGACY_SESSION.create_execution_ctx(),
             )
@@ -355,7 +358,7 @@ mod test {
             .as_ref()
             .validity()
             .unwrap()
-            .to_mask(
+            .execute_mask(
                 dict.as_ref().len(),
                 &mut LEGACY_SESSION.create_execution_ctx(),
             )
@@ -381,7 +384,7 @@ mod test {
             .as_ref()
             .validity()
             .unwrap()
-            .to_mask(
+            .execute_mask(
                 dict.as_ref().len(),
                 &mut LEGACY_SESSION.create_execution_ctx(),
             )
@@ -433,6 +436,7 @@ mod test {
         );
         array.append_to_builder(builder.as_mut(), &mut LEGACY_SESSION.create_execution_ctx())?;
 
+        #[expect(deprecated)]
         let into_prim = array.to_primitive();
         let prim_into = builder.finish_into_canonical().into_primitive();
 
