@@ -10,11 +10,14 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_session::registry::CachedId;
 
 use crate::types::fixed_shape::FixedShapeTensor;
 use crate::types::fixed_shape::FixedShapeTensorMetadata;
-use crate::types::fixed_shape::ID;
 use crate::types::fixed_shape::canonical;
+
+/// Vortex extension id for [`FixedShapeTensor`].
+pub(crate) static ID: CachedId = CachedId::new("vortex.tensor.fixed_shape_tensor");
 
 impl ExtVTable for FixedShapeTensor {
     type Metadata = FixedShapeTensorMetadata;
@@ -23,7 +26,7 @@ impl ExtVTable for FixedShapeTensor {
     type NativeValue<'a> = &'a ScalarValue;
 
     fn id(&self) -> ExtId {
-        ExtId::new(ID)
+        *ID
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {

@@ -56,7 +56,7 @@ fn vector_forward_carries_extension_name() {
             .metadata()
             .get(EXTENSION_TYPE_NAME_KEY)
             .map(String::as_str),
-        Some(vector::ID),
+        Some(vector::ID.as_str()),
     );
     // EmptyMetadata → no metadata key.
     assert!(field.metadata().get(EXTENSION_TYPE_METADATA_KEY).is_none());

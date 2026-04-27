@@ -6,7 +6,6 @@
 //! similarity.
 
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
-use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_array::session::ArraySessionExt;
@@ -46,7 +45,7 @@ pub fn initialize(session: &VortexSession) {
     let dtypes = session.dtypes();
     dtypes.register(Vector);
     dtypes.register(FixedShapeTensor);
-    dtypes.register_arrow_canonical(ExtId::new(fixed_shape::ID), fixed_shape::ARROW_EXT_NAME);
+    dtypes.register_arrow_canonical(*fixed_shape::ID, fixed_shape::ARROW_EXT_NAME);
     drop(dtypes);
 
     let session_fns = session.scalar_fns();
