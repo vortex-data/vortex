@@ -14,13 +14,15 @@ from .test_file import record
 
 @pytest.fixture(scope="module")
 def ray_init():
-    # https://github.com/ray-project/ray/issues/53848#issuecomment-3056271943
-    ray.init(  # pyright: ignore[reportUnknownMemberType]
-        runtime_env={
-            "working_dir": None,
-            "excludes": [".git", ".venv"],
-        }
-    )
+    # Ray's uv_runtime_env_hook would auto-upload the working directory to
+    # workers, but vortex-python's compiled _lib extension exceeds Ray's
+    # 512 MiB upload limit. Disable the hook for these local-mode tests.
+    # (Ray 2.55 added a string-type validation that broke the previous
+    # `working_dir: None` workaround from ray-project/ray#53848.)
+    import ray._private.ray_constants as ray_constants
+
+    ray_constants.RAY_ENABLE_UV_RUN_RUNTIME_ENV = False
+    ray.init()  # pyright: ignore[reportUnknownMemberType]
     yield None
     ray.shutdown()  # pyright: ignore[reportUnknownMemberType]
 

@@ -133,7 +133,7 @@ def _read_task(
         num_rows=num_rows,
         size_bytes=None,
         exec_stats=None,
-        input_files=paths,
+        input_files=tuple(paths),
     )
 
     def read() -> Iterable[pandas.DataFrame]:
