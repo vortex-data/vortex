@@ -27,6 +27,7 @@ pub use canonical::CanonicalCudaExt;
 pub use device_buffer::CudaBufferExt;
 pub use device_buffer::CudaDeviceBuffer;
 pub use device_read_at::CopyDeviceReadAt;
+pub use executor::CudaDispatchMode;
 pub use executor::CudaExecutionCtx;
 pub use executor::CudaKernelEvents;
 use kernel::ALPExecutor;

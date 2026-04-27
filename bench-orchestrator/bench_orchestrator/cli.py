@@ -202,6 +202,10 @@ def run(
         str | None,
         typer.Option("--targets-json", help="Exact benchmark targets as a JSON array"),
     ] = None,
+    runner: Annotated[
+        str | None,
+        typer.Option("--runner", help="Benchmark runner ID (e.g., ec2_c6id.8xlarge)"),
+    ] = None,
     output: Annotated[
         Path | None,
         typer.Option("--output", help="Optional path for compatibility JSONL output"),
@@ -289,6 +293,7 @@ def run(
                         samply=samply,
                         sample_rate=sample_rate,
                         tracing=tracing,
+                        runner=runner,
                         on_result=lambda line, store_writer=ctx.write_raw_json, compatibility=compatibility_file: (
                             write_result_line(
                                 line,

@@ -31,6 +31,7 @@ use vortex::encodings::fastlanes::BitPackedData;
 use vortex::encodings::fastlanes::unpack_iter::BitPacked;
 use vortex::error::VortexExpect;
 use vortex::session::VortexSession;
+use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
@@ -127,6 +128,7 @@ where
 
                 let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
                     .vortex_expect("failed to create execution context")
+                    .with_dispatch_mode(CudaDispatchMode::StandaloneOnly)
                     .with_launch_strategy(Arc::new(timed));
 
                 for _ in 0..iters {
@@ -172,6 +174,7 @@ where
 
                     let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
                         .vortex_expect("failed to create execution context")
+                        .with_dispatch_mode(CudaDispatchMode::StandaloneOnly)
                         .with_launch_strategy(Arc::new(timed));
 
                     for _ in 0..iters {
