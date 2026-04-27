@@ -189,6 +189,37 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
 }
 impl<T: TypedArrayRef<Dict>> DictArrayExt for T {}
 
+/// Concrete parts of a [`DictArray`] after iterative execution.
+pub struct DictParts {
+    pub codes: ArrayRef,
+    pub values: ArrayRef,
+}
+
+pub trait DictOwnedExt {
+    fn into_parts(self) -> DictParts;
+}
+
+impl DictOwnedExt for Array<Dict> {
+    fn into_parts(self) -> DictParts {
+        match self.try_into_parts() {
+            Ok(array_parts) => {
+                let slots = DictSlots::from_slots(array_parts.slots);
+                DictParts {
+                    codes: slots.codes,
+                    values: slots.values,
+                }
+            }
+            Err(array) => {
+                let slots = DictSlotsView::from_slots(array.slots());
+                DictParts {
+                    codes: slots.codes.clone(),
+                    values: slots.values.clone(),
+                }
+            }
+        }
+    }
+}
+
 impl Array<Dict> {
     /// Build a new `DictArray` from its components, `codes` and `values`.
     pub fn new(codes: ArrayRef, values: ArrayRef) -> Self {
@@ -255,8 +286,6 @@ impl Array<Dict> {
 
 #[cfg(test)]
 mod test {
-    #[expect(unused_imports)]
-    use itertools::Itertools;
     use rand::RngExt;
     use rand::SeedableRng;
     use rand::distr::Distribution;
