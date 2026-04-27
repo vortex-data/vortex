@@ -10409,6 +10409,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "vortex-bench-server",
+ "vortex-utils",
 ]
 
 [[package]]

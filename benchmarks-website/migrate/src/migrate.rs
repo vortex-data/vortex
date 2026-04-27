@@ -4,10 +4,9 @@
 //! End-to-end migration of one v2 dataset into a v3 DuckDB file.
 //!
 //! Streams `data.json.gz` line-by-line, runs each record through the
-//! [classifier][crate::classifier], and writes one row per record into
-//! the appropriate v3 fact table. Every row's `measurement_id` is
-//! computed via the server's `measurement_id_*` functions so the result
-//! is byte-compatible with what fresh `/api/ingest` would have produced.
+//! [`classifier`], and writes one row per record into the appropriate v3 fact table.
+//! Every row's `measurement_id` is computed via the server's `measurement_id_*` functions so the
+//! result is byte-compatible with what fresh `/api/ingest` would have produced.
 //!
 //! Bulk-load shape: rows are accumulated in memory as parallel column
 //! vectors, deduplicated by `measurement_id`, then flushed to DuckDB
@@ -15,8 +14,6 @@
 //! fact table.
 
 use std::collections::BTreeMap;
-use std::collections::HashMap;
-use std::collections::HashSet;
 use std::io::BufRead;
 use std::path::Path;
 use std::sync::Arc;
@@ -47,6 +44,7 @@ use vortex_bench_server::records::CompressionTime;
 use vortex_bench_server::records::QueryMeasurement;
 use vortex_bench_server::records::RandomAccessTime;
 use vortex_bench_server::schema::SCHEMA_DDL;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::classifier;
 use crate::classifier::V3Bin;
@@ -76,6 +74,10 @@ pub struct MigrationSummary {
     pub skipped_intentional: u64,
     pub commits_inserted: u64,
     pub deduped: u64,
+    /// Number of records dropped by dedup whose `value_ns` (or
+    /// `value_bytes` for compression_sizes' replace path) differed
+    /// from the kept row's. Non-zero is a smell worth investigating.
+    pub deduped_with_conflict: u64,
 }
 
 impl MigrationSummary {
@@ -382,7 +384,7 @@ fn apply_v2_record(
                 value_bytes: value_f64 as i64,
             };
             let mid = measurement_id_compression_size(&csr);
-            cs.push_replace(mid, csr);
+            cs.push_replace(mid, csr, summary);
         }
         V3Bin::RandomAccess { dataset, format } => {
             let rar = RandomAccessTime {
@@ -495,15 +497,22 @@ struct QueryAccum {
     physical_delta: Vec<Option<i64>>,
     virtual_delta: Vec<Option<i64>>,
     env_triple: Vec<Option<String>>,
-    seen: HashSet<i64>,
+    /// `mid` -> index in the parallel column vecs. Lets us look up the
+    /// kept row's `value_ns` on collision so we can flag conflicts.
+    seen: HashMap<i64, usize>,
 }
 
 impl QueryAccum {
     fn push(&mut self, mid: i64, r: QueryMeasurement, summary: &mut MigrationSummary) {
-        if !self.seen.insert(mid) {
+        if let Some(&idx) = self.seen.get(&mid) {
             summary.deduped += 1;
+            if self.value_ns[idx] != r.value_ns {
+                summary.deduped_with_conflict += 1;
+            }
             return;
         }
+        let idx = self.measurement_id.len();
+        self.seen.insert(mid, idx);
         self.measurement_id.push(mid);
         self.commit_sha.push(r.commit_sha);
         self.dataset.push(r.dataset);
@@ -534,15 +543,20 @@ struct CompressionTimeAccum {
     value_ns: Vec<i64>,
     all_runtimes_ns: Vec<Vec<i64>>,
     env_triple: Vec<Option<String>>,
-    seen: HashSet<i64>,
+    seen: HashMap<i64, usize>,
 }
 
 impl CompressionTimeAccum {
     fn push(&mut self, mid: i64, r: CompressionTime, summary: &mut MigrationSummary) {
-        if !self.seen.insert(mid) {
+        if let Some(&idx) = self.seen.get(&mid) {
             summary.deduped += 1;
+            if self.value_ns[idx] != r.value_ns {
+                summary.deduped_with_conflict += 1;
+            }
             return;
         }
+        let idx = self.measurement_id.len();
+        self.seen.insert(mid, idx);
         self.measurement_id.push(mid);
         self.commit_sha.push(r.commit_sha);
         self.dataset.push(r.dataset);
@@ -564,15 +578,20 @@ struct RandomAccessAccum {
     value_ns: Vec<i64>,
     all_runtimes_ns: Vec<Vec<i64>>,
     env_triple: Vec<Option<String>>,
-    seen: HashSet<i64>,
+    seen: HashMap<i64, usize>,
 }
 
 impl RandomAccessAccum {
     fn push(&mut self, mid: i64, r: RandomAccessTime, summary: &mut MigrationSummary) {
-        if !self.seen.insert(mid) {
+        if let Some(&idx) = self.seen.get(&mid) {
             summary.deduped += 1;
+            if self.value_ns[idx] != r.value_ns {
+                summary.deduped_with_conflict += 1;
+            }
             return;
         }
+        let idx = self.measurement_id.len();
+        self.seen.insert(mid, idx);
         self.measurement_id.push(mid);
         self.commit_sha.push(r.commit_sha);
         self.dataset.push(r.dataset);
@@ -594,7 +613,15 @@ struct CompressionSizeAccum {
 impl CompressionSizeAccum {
     /// data.json.gz path: latest write wins, mirroring the prior
     /// `ON CONFLICT DO UPDATE SET value_bytes = excluded.value_bytes`.
-    fn push_replace(&mut self, mid: i64, r: CompressionSize) {
+    /// Bumps `deduped_with_conflict` when an existing row's
+    /// `value_bytes` differs from the incoming row's, so silent
+    /// value-corruption is observable.
+    fn push_replace(&mut self, mid: i64, r: CompressionSize, summary: &mut MigrationSummary) {
+        if let Some(existing) = self.rows.get(&mid)
+            && existing.value_bytes != r.value_bytes
+        {
+            summary.deduped_with_conflict += 1;
+        }
         self.rows.insert(mid, r);
     }
 
@@ -789,6 +816,7 @@ impl std::fmt::Display for MigrationSummary {
         writeln!(f, "Skipped (no value):     {}", self.skipped_no_value)?;
         writeln!(f, "Skipped (intentional):  {}", self.skipped_intentional)?;
         writeln!(f, "Deduplicated:           {}", self.deduped)?;
+        writeln!(f, "Dedup w/ value diff:    {}", self.deduped_with_conflict)?;
         writeln!(
             f,
             "Uncategorized:          {} ({:.2}%)",

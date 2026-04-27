@@ -120,7 +120,21 @@ fn open_s3(name: &str) -> Result<Box<dyn Read + Send>> {
 }
 
 /// Suite IDs we know publish a `file-sizes-{id}.json.gz` to S3.
-/// Matches the `matrix.id` values in `.github/workflows/sql-benchmarks.yml`
-/// at the time of writing. New suites mean a new entry here.
-const KNOWN_FILE_SIZES_SUITES: &[&str] =
-    &["clickbench", "tpch", "tpcds", "statpopgen", "polarsignals"];
+///
+/// Source of truth: the `matrix.id` values in
+/// `.github/workflows/sql-benchmarks.yml`'s `benchmark_matrix` default.
+/// The post-bench `file-sizes` step uploads `file-sizes-${{ matrix.id
+/// }}.json.gz`, so this list must match those IDs verbatim. Adding a
+/// new matrix entry to that workflow means adding the same ID here.
+const KNOWN_FILE_SIZES_SUITES: &[&str] = &[
+    "clickbench-nvme",
+    "tpch-nvme",
+    "tpch-s3",
+    "tpch-nvme-10",
+    "tpch-s3-10",
+    "tpcds-nvme",
+    "statpopgen",
+    "fineweb",
+    "fineweb-s3",
+    "polarsignals",
+];

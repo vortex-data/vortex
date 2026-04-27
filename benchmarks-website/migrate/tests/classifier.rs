@@ -340,14 +340,65 @@ fn gharchive_q00_is_deprecated() {
 }
 
 #[test]
-fn fineweb_q00_is_deprecated() {
-    // fineweb isn't on the v3 query-suite allowlist, so historical
-    // fineweb query records bucket as Skip::Deprecated.
+fn fineweb_q00_classifies() {
+    // fineweb is on V3_QUERY_SUITES (still emitted by v3 CI per
+    // .github/workflows/sql-benchmarks.yml's `fineweb` matrix entry),
+    // so historical fineweb records ingest like any other suite.
     let r = record("fineweb_q00/datafusion:parquet");
     assert!(matches!(
         classify_outcome(&r),
-        Outcome::Skip(Skip::Deprecated)
+        Outcome::Bin(V3Bin::Query { .. })
     ));
+}
+
+#[test]
+fn memory_record_is_historical_memory_skip() {
+    // v2 emitted `<suite>_q<NN>_memory/<engine>:<format>` records that
+    // carry top-level memory fields V2Record doesn't deserialize.
+    // Skip them with a known variant so they don't trip the 5% gate.
+    let r = record("clickbench_q07_memory/datafusion:parquet");
+    assert!(matches!(
+        classify_outcome(&r),
+        Outcome::Skip(Skip::HistoricalMemory)
+    ));
+}
+
+#[test]
+fn tpch_compression_size_carries_scale_factor() {
+    // The data.json.gz "vortex size/tpch" path needs to derive
+    // dataset_variant from the v2 record's `dataset` object, the same
+    // way the file-sizes path does. Otherwise SF=10 rows from the two
+    // sources never collide on `mid` and produce duplicate rows.
+    let mut r = record("vortex size/tpch");
+    r.dataset = Some(serde_json::json!({ "tpch": { "scale_factor": "10" } }));
+    let outcome = classify_outcome(&r);
+    let Outcome::Bin(V3Bin::CompressionSize {
+        dataset,
+        dataset_variant,
+        format,
+    }) = outcome
+    else {
+        panic!("expected Bin(CompressionSize), got {outcome:?}");
+    };
+    assert_eq!(dataset, "tpch");
+    assert_eq!(dataset_variant, Some("10".into()));
+    assert_eq!(format, "vortex-file-compressed");
+}
+
+#[test]
+fn tpch_compression_size_drops_default_scale_factor() {
+    // SF "1.0" matches the file-sizes path's filter and collapses to
+    // dataset_variant: None.
+    let mut r = record("vortex size/tpch");
+    r.dataset = Some(serde_json::json!({ "tpch": { "scale_factor": "1.0" } }));
+    let outcome = classify_outcome(&r);
+    let Outcome::Bin(V3Bin::CompressionSize {
+        dataset_variant, ..
+    }) = outcome
+    else {
+        panic!("expected Bin(CompressionSize), got {outcome:?}");
+    };
+    assert_eq!(dataset_variant, None);
 }
 
 #[test]

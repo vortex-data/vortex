@@ -424,6 +424,12 @@ pub enum Skip {
     /// Dim outside the v3 emitter's allowlist (e.g. `parquet-zstd`,
     /// historical-only suites no longer in CI).
     Deprecated,
+    /// v2 memory measurements (`*_memory/*` records). Carry top-level
+    /// `peak_physical_memory` / `peak_virtual_memory` /
+    /// `physical_memory_delta` / `virtual_memory_delta` fields that
+    /// `V2Record` doesn't deserialize. Not migrated for alpha; merging
+    /// into the corresponding QueryMeasurement row is future work.
+    HistoricalMemory,
 }
 
 /// Engines the v3 emitter produces today. Anything else is historical
@@ -451,9 +457,18 @@ const V3_FORMATS: &[&str] = &[
 /// classify (so historical analyses stay coherent) but get bucketed
 /// as `Skip::Deprecated` so they don't render as orphan charts in v3.
 ///
-/// ORCHESTRATOR NOTE: add `fineweb` and/or `gharchive` here if a CI
-/// grep shows v3 still emits them.
-const V3_QUERY_SUITES: &[&str] = &["clickbench", "tpch", "tpcds", "statpopgen", "polarsignals"];
+/// `fineweb` is included because `.github/workflows/sql-benchmarks.yml`
+/// still has `fineweb` and `fineweb-s3` matrix entries. `gharchive`
+/// stays excluded — it's defined in `vortex-bench` but no current
+/// workflow runs it.
+const V3_QUERY_SUITES: &[&str] = &[
+    "clickbench",
+    "tpch",
+    "tpcds",
+    "statpopgen",
+    "polarsignals",
+    "fineweb",
+];
 
 /// Returns true if every dim that v3 stores as a column is on the
 /// emitter's current allowlist. Dim values outside the allowlist mean
@@ -487,6 +502,16 @@ pub enum Outcome {
 pub fn classify_outcome(record: &V2Record) -> Outcome {
     if record.name.contains(" throughput") {
         return Outcome::Skip(Skip::Throughput);
+    }
+    // v2 memory records: e.g. "clickbench_q07_memory/datafusion:parquet".
+    // Match the `_memory/` infix BEFORE the engine/format split, so they
+    // route to a known Skip variant instead of slipping through to
+    // Outcome::Unknown and tripping the 5% gate.
+    let lower = record.name.to_lowercase();
+    if let Some((head, _)) = lower.split_once('/')
+        && head.ends_with("_memory")
+    {
+        return Outcome::Skip(Skip::HistoricalMemory);
     }
     let Some(group) = get_group(record) else {
         return Outcome::Unknown;
@@ -613,7 +638,7 @@ fn bin_compression_time(cls: &V2Classification, _record: &V2Record) -> Option<V3
     })
 }
 
-fn bin_compression_size(cls: &V2Classification, _record: &V2Record) -> Option<V3Bin> {
+fn bin_compression_size(cls: &V2Classification, record: &V2Record) -> Option<V3Bin> {
     let lc = cls.chart.to_lowercase();
     // Ratios like "VORTEX:PARQUET ZSTD SIZE" / "VORTEX:LANCE SIZE" /
     // "VORTEX:RAW SIZE" are derived from compression_sizes at read
@@ -641,9 +666,20 @@ fn bin_compression_size(cls: &V2Classification, _record: &V2Record) -> Option<V3
     if dataset.is_empty() || dataset == "default" {
         return None;
     }
+    // Mirror the file-sizes ingest path's dataset_variant derivation
+    // (see `migrate::migrate_file_sizes`): pull the SF out of the v2
+    // record's `dataset` object when present, drop empty / "1.0".
+    // Without this both code paths produce the same `mid` only by
+    // accident, so SF=10 file-sizes rows wouldn't merge with the
+    // matching data.json.gz "vortex size/tpch" rows.
+    let dataset_variant = record
+        .dataset
+        .as_ref()
+        .and_then(|d| crate::v2::dataset_scale_factor(d, dataset.as_str()))
+        .filter(|s| !s.is_empty() && s.as_str() != "1.0");
     Some(V3Bin::CompressionSize {
         dataset,
-        dataset_variant: None,
+        dataset_variant,
         format: format.to_string(),
     })
 }

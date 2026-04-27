@@ -149,6 +149,85 @@ fn dedup_collision_keeps_one_row() {
 }
 
 #[test]
+fn dedup_with_conflicting_value_ns_is_counted() {
+    // Same dim columns, different `value`s. Dedup keeps the first
+    // and bumps `deduped_with_conflict` because the dropped row's
+    // value_ns differed from the kept row's. This is the signal we
+    // care about when watching for silent value-corruption across
+    // duplicated v2 emissions.
+    const DATA: &str = r#"{"name":"clickbench_q07/datafusion:parquet","commit_id":"deadbeef","unit":"ns","value":111}
+{"name":"clickbench_q07/datafusion:parquet","commit_id":"deadbeef","unit":"ns","value":222}
+"#;
+
+    let src_dir = build_fixture(COMMITS_JSONL, DATA, &[]);
+    let target_dir = TempDir::new().unwrap();
+    let target = target_dir.path().join("v3.duckdb");
+
+    let summary = migrate::run(&Source::Local(src_dir.path().into()), &target).unwrap();
+
+    assert_eq!(summary.deduped, 1, "summary={summary}");
+    assert_eq!(summary.deduped_with_conflict, 1, "summary={summary}");
+}
+
+#[test]
+fn dedup_with_matching_value_ns_does_not_count_conflict() {
+    // Same dim columns AND identical `value`s. Dedup still drops the
+    // duplicate, but `deduped_with_conflict` stays 0.
+    const DATA: &str = r#"{"name":"clickbench_q07/datafusion:parquet","commit_id":"deadbeef","unit":"ns","value":111}
+{"name":"clickbench_q07/datafusion:parquet","commit_id":"deadbeef","unit":"ns","value":111}
+"#;
+
+    let src_dir = build_fixture(COMMITS_JSONL, DATA, &[]);
+    let target_dir = TempDir::new().unwrap();
+    let target = target_dir.path().join("v3.duckdb");
+
+    let summary = migrate::run(&Source::Local(src_dir.path().into()), &target).unwrap();
+
+    assert_eq!(summary.deduped, 1, "summary={summary}");
+    assert_eq!(summary.deduped_with_conflict, 0, "summary={summary}");
+}
+
+#[test]
+fn compression_size_data_and_file_sizes_merge() {
+    // A `vortex size/tpch` record from data.json.gz and a
+    // file-sizes-tpch-nvme.json.gz row covering the same (commit,
+    // dataset, format, SF) tuple should produce the *same*
+    // measurement_id so the in-memory accumulator merges them into
+    // one row instead of two.
+    //
+    // Both sources use scale_factor "1.0", which both code paths
+    // filter out → dataset_variant: None on both sides → matching mid.
+    const DATA: &str = r#"{"name":"vortex size/tpch","commit_id":"deadbeef","unit":"bytes","value":200,"dataset":{"tpch":{"scale_factor":"1.0"}}}
+"#;
+    const FILE_SIZES: &str = r#"{"commit_id":"deadbeef","benchmark":"tpch","scale_factor":"1.0","format":"vortex-file-compressed","file":"part-0.vortex","size_bytes":100}
+"#;
+
+    let src_dir = build_fixture(
+        COMMITS_JSONL,
+        DATA,
+        &[("file-sizes-tpch-nvme.json.gz", FILE_SIZES)],
+    );
+    let target_dir = TempDir::new().unwrap();
+    let target = target_dir.path().join("v3.duckdb");
+
+    let summary = migrate::run(&Source::Local(src_dir.path().into()), &target).unwrap();
+
+    assert_eq!(summary.compression_size_inserted, 1, "summary={summary}");
+
+    let conn = Connection::open(&target).unwrap();
+    let (n, value_bytes): (i64, i64) = conn
+        .query_row(
+            "SELECT COUNT(*), SUM(value_bytes) FROM compression_sizes",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(n, 1);
+    // data.json.gz seeds value_bytes=200, file-sizes adds 100.
+    assert_eq!(value_bytes, 300);
+}
+
+#[test]
 fn file_sizes_sum_into_one_row() {
     // Two file-sizes rows sharing (commit, benchmark, format,
     // scale_factor) and value_bytes 100 + 200 must collapse to a

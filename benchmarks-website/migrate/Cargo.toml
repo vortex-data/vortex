@@ -34,6 +34,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing = { workspace = true, features = ["std"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 vortex-bench-server = { path = "../server" }
+vortex-utils = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
