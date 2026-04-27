@@ -21,4 +21,5 @@ pub use metadata::FixedShapeTensorMetadata;
 mod canonical;
 mod proto;
 mod vtable;
-pub(crate) use canonical::{json_to_proto, proto_to_json};
+pub(crate) use canonical::json_to_proto;
+pub(crate) use canonical::proto_to_json;
