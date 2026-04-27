@@ -16,10 +16,15 @@ header = """
 //
 
 // https://arrow.apache.org/docs/format/CDataInterface.html#structure-definitions
-// We don't want to bundle nanoarrow or similar just for these two definitions.
-// If you use your own Arrow library, define this macro and
-// typedef FFI_ArrowSchema ArrowSchema;
-// typedef FFI_ArrowArrayStream ArrowArrayStream;
+// If you want to use your own Arrow library like nanoarrow, define this macro
+// and typedef your types:
+//
+// #include "nanoarrow/common/inline_types.h"
+// #define USE_OWN_ARROW
+// typedef struct ArrowSchema FFI_ArrowSchema;
+// typedef struct ArrowArrayStream FFI_ArrowArrayStream;
+// #include "vortex.h"
+//
 #ifndef USE_OWN_ARROW
 struct ArrowSchema {
     const char* format;

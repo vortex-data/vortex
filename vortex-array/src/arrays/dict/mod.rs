@@ -17,8 +17,6 @@ pub use array::*;
 pub(crate) mod compute;
 mod execute;
 
-pub use execute::take_canonical;
-
 mod take;
 pub use take::*;
 

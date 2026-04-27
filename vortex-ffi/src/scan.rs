@@ -49,7 +49,11 @@ pub enum VxScan {
     Started(PartitionStream),
     Finished,
 }
-crate::box_wrapper!(VxScan, vx_scan);
+crate::box_wrapper!(
+    /// A scan is a single traversal of a data source with projections and
+    /// filters. A scan can be consumed only once.
+    VxScan,
+    vx_scan);
 
 pub enum VxPartitionScan {
     Pending(Box<dyn Partition>),
@@ -114,8 +118,10 @@ pub struct vx_scan_options {
 }
 
 #[repr(C)]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq, Default))]
 pub enum vx_estimate_type {
     /// No estimate is available.
+    #[cfg_attr(test, default)]
     VX_ESTIMATE_UNKNOWN = 0,
     /// The value in vx_estimate.estimate is exact.
     VX_ESTIMATE_EXACT = 1,
@@ -126,10 +132,11 @@ pub enum vx_estimate_type {
 /// Used for estimating number of partitions in a data source or number of rows
 /// in a partition.
 #[repr(C)]
+#[cfg_attr(test, derive(Default))]
 pub struct vx_estimate {
-    r#type: vx_estimate_type,
+    pub r#type: vx_estimate_type,
     /// Set only when "type" is not VX_ESTIMATE_UNKNOWN.
-    estimate: u64,
+    pub estimate: u64,
 }
 
 fn scan_request(opts: *const vx_scan_options) -> VortexResult<ScanRequest> {
@@ -325,15 +332,15 @@ pub unsafe extern "C-unwind" fn vx_partition_row_count(
     })
 }
 
-// Scan partition to ArrowArrayStream.
-// Consumes partition fully: subsequent calls to vx_partition_scan_arrow or
-// vx_partition_next are undefined behaviour.
-// This call blocks current thread until underlying stream is fully consumed.
-//
-// Caller must not free partition after calling this function.
-//
-// On success, sets "stream" and returns 0.
-// On error, sets "err" and returns 1, freeing the partition.
+/// Scan partition to ArrowArrayStream.
+/// Consumes partition fully: subsequent calls to vx_partition_scan_arrow or
+/// vx_partition_next are undefined behaviour.
+/// This call blocks current thread until underlying stream is fully consumed.
+///
+/// Caller must not free partition after calling this function.
+///
+/// On success, sets "stream" and returns 0.
+/// On error, sets "err" and returns 1, freeing the partition.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_partition_scan_arrow(
     session: *const vx_session,
