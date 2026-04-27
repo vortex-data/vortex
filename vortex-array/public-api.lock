@@ -17532,6 +17532,58 @@ pub trait vortex_array::scalar_fn::fns::zip::ZipReduce: vortex_array::VTable
 
 pub fn vortex_array::scalar_fn::fns::zip::ZipReduce::zip(array: vortex_array::ArrayView<'_, Self>, if_false: &vortex_array::ArrayRef, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
+pub mod vortex_array::scalar_fn::internal
+
+pub mod vortex_array::scalar_fn::internal::row_count
+
+pub struct vortex_array::scalar_fn::internal::row_count::RowCount
+
+impl core::clone::Clone for vortex_array::scalar_fn::internal::row_count::RowCount
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::clone(&self) -> vortex_array::scalar_fn::internal::row_count::RowCount
+
+impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::internal::row_count::RowCount
+
+pub type vortex_array::scalar_fn::internal::row_count::RowCount::Options = vortex_array::scalar_fn::EmptyOptions
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::arity(&self, _options: &Self::Options) -> vortex_array::scalar_fn::Arity
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::child_name(&self, _options: &Self::Options, _child_idx: usize) -> vortex_array::scalar_fn::ChildName
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::coerce_args(&self, options: &Self::Options, args: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::execute(&self, _options: &Self::Options, _args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::fmt_sql(&self, _options: &Self::Options, _expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::is_fallible(&self, _options: &Self::Options) -> bool
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::is_null_sensitive(&self, _options: &Self::Options) -> bool
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::reduce(&self, options: &Self::Options, node: &dyn vortex_array::scalar_fn::ReduceNode, ctx: &dyn vortex_array::scalar_fn::ReduceCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar_fn::ReduceNodeRef>>
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::return_dtype(&self, _options: &Self::Options, _args: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::simplify(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, ctx: &dyn vortex_array::scalar_fn::SimplifyCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::simplify_untyped(&self, options: &Self::Options, expr: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::stat_expression(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, stat: vortex_array::expr::stats::Stat, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::stat_falsification(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::validity(&self, options: &Self::Options, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::internal::row_count::contains_row_count(array: &vortex_array::ArrayRef) -> bool
+
+pub fn vortex_array::scalar_fn::internal::row_count::substitute_row_count(array: vortex_array::ArrayRef, replacement: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
 pub mod vortex_array::scalar_fn::session
 
 pub struct vortex_array::scalar_fn::session::ScalarFnSession
@@ -18679,6 +18731,44 @@ pub fn vortex_array::scalar_fn::fns::zip::Zip::stat_expression(&self, options: &
 pub fn vortex_array::scalar_fn::fns::zip::Zip::stat_falsification(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
 
 pub fn vortex_array::scalar_fn::fns::zip::Zip::validity(&self, options: &Self::Options, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::internal::row_count::RowCount
+
+pub type vortex_array::scalar_fn::internal::row_count::RowCount::Options = vortex_array::scalar_fn::EmptyOptions
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::arity(&self, _options: &Self::Options) -> vortex_array::scalar_fn::Arity
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::child_name(&self, _options: &Self::Options, _child_idx: usize) -> vortex_array::scalar_fn::ChildName
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::coerce_args(&self, options: &Self::Options, args: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::execute(&self, _options: &Self::Options, _args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::fmt_sql(&self, _options: &Self::Options, _expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::is_fallible(&self, _options: &Self::Options) -> bool
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::is_null_sensitive(&self, _options: &Self::Options) -> bool
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::reduce(&self, options: &Self::Options, node: &dyn vortex_array::scalar_fn::ReduceNode, ctx: &dyn vortex_array::scalar_fn::ReduceCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar_fn::ReduceNodeRef>>
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::return_dtype(&self, _options: &Self::Options, _args: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::simplify(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, ctx: &dyn vortex_array::scalar_fn::SimplifyCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::simplify_untyped(&self, options: &Self::Options, expr: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::stat_expression(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, stat: vortex_array::expr::stats::Stat, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::stat_falsification(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::validity(&self, options: &Self::Options, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
 pub trait vortex_array::scalar_fn::ScalarFnVTableExt: vortex_array::scalar_fn::ScalarFnVTable
 

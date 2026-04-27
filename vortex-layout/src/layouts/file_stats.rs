@@ -130,14 +130,8 @@ impl FileStatsAccumulator {
             .lock()
             .iter_mut()
             .map(|acc| {
-                acc.as_stats_table()
+                acc.as_stats_set(&self.stats, &mut ctx)
                     .vortex_expect("as_stats_table should not fail")
-                    .map(|table| {
-                        table
-                            .to_stats_set(&self.stats, &mut ctx)
-                            .vortex_expect("shouldn't fail to convert table we just created")
-                    })
-                    .unwrap_or_default()
             })
             .collect()
     }
