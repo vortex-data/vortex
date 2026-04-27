@@ -8,10 +8,15 @@
 //
 
 // https://arrow.apache.org/docs/format/CDataInterface.html#structure-definitions
-// We don't want to bundle nanoarrow or similar just for these two definitions.
-// If you use your own Arrow library, define this macro and
-// typedef FFI_ArrowSchema ArrowSchema;
-// typedef FFI_ArrowArrayStream ArrowArrayStream;
+// If you want to use your own Arrow library like nanoarrow, define this macro
+// and typedef your types:
+//
+// #include "nanoarrow/common/inline_types.h"
+// #define USE_OWN_ARROW
+// typedef struct ArrowSchema FFI_ArrowSchema;
+// typedef struct ArrowArrayStream FFI_ArrowArrayStream;
+// #include "vortex.h"
+//
 #ifndef USE_OWN_ARROW
 struct ArrowSchema {
     const char *format;
@@ -175,10 +180,19 @@ typedef enum {
 } vx_validity_type;
 
 typedef enum {
-    VX_CARD_UNKNOWN = 0,
-    VX_CARD_ESTIMATE = 1,
-    VX_CARD_MAXIMUM = 2,
-} vx_cardinality;
+    /**
+     * No estimate is available.
+     */
+    VX_ESTIMATE_UNKNOWN = 0,
+    /**
+     * The value in vx_estimate.estimate is exact.
+     */
+    VX_ESTIMATE_EXACT = 1,
+    /**
+     * The value in vx_estimate.estimate is an upper bound.
+     */
+    VX_ESTIMATE_INEXACT = 2,
+} vx_estimate_type;
 
 /**
  * Equalities, inequalities, and boolean operations over possibly null values.
@@ -281,21 +295,6 @@ typedef enum {
      */
     VX_SELECTION_EXCLUDE_RANGE = 2,
 } vx_scan_selection_include;
-
-typedef enum {
-    /**
-     * No estimate is available.
-     */
-    VX_ESTIMATE_UNKNOWN = 0,
-    /**
-     * The value in vx_estimate.estimate is exact.
-     */
-    VX_ESTIMATE_EXACT = 1,
-    /**
-     * The value in vx_estimate.estimate is an upper bound.
-     */
-    VX_ESTIMATE_INEXACT = 2,
-} vx_estimate_type;
 
 /**
  * Physical type enum, represents the in-memory physical layout but might represent a different logical type.
@@ -490,6 +489,10 @@ typedef struct vx_file vx_file;
  */
 typedef struct vx_partition vx_partition;
 
+/**
+ * A scan is a single traversal of a data source with projections and
+ * filters. A scan can be consumed only once.
+ */
 typedef struct vx_scan vx_scan;
 
 /**
@@ -537,13 +540,17 @@ typedef struct {
     const char *paths;
 } vx_data_source_options;
 
+/**
+ * Used for estimating number of partitions in a data source or number of rows
+ * in a partition.
+ */
 typedef struct {
-    vx_cardinality cardinality;
+    vx_estimate_type type;
     /**
-     * Set only when "cardinality" is not VX_CARD_UNKNOWN
+     * Set only when "type" is not VX_ESTIMATE_UNKNOWN.
      */
-    uint64_t rows;
-} vx_data_source_row_count;
+    uint64_t estimate;
+} vx_estimate;
 
 /**
  * Options supplied for opening a file.
@@ -661,18 +668,6 @@ typedef struct {
      */
     bool ordered;
 } vx_scan_options;
-
-/**
- * Used for estimating number of partitions in a data source or number of rows
- * in a partition.
- */
-typedef struct {
-    vx_estimate_type type;
-    /**
-     * Set only when "type" is not VX_ESTIMATE_UNKNOWN.
-     */
-    uint64_t estimate;
-} vx_estimate;
 
 #ifdef __cplusplus
 extern "C" {
@@ -921,7 +916,7 @@ const vx_dtype *vx_data_source_dtype(const vx_data_source *ds);
 /**
  * Write data source's row count estimate into "row_count".
  */
-void vx_data_source_get_row_count(const vx_data_source *ds, vx_data_source_row_count *row_count);
+void vx_data_source_get_row_count(const vx_data_source *ds, vx_estimate *row_count);
 
 /**
  * Clone a borrowed [`vx_dtype`], returning an owned [`vx_dtype`].
@@ -1319,6 +1314,17 @@ vx_partition *vx_scan_next_partition(vx_scan *scan, vx_error **err);
  */
 int vx_partition_row_count(const vx_partition *partition, vx_estimate *count, vx_error **err);
 
+/**
+ * Scan partition to ArrowArrayStream.
+ * Consumes partition fully: subsequent calls to vx_partition_scan_arrow or
+ * vx_partition_next are undefined behaviour.
+ * This call blocks current thread until underlying stream is fully consumed.
+ *
+ * Caller must not free partition after calling this function.
+ *
+ * On success, sets "stream" and returns 0.
+ * On error, sets "err" and returns 1, freeing the partition.
+ */
 int vx_partition_scan_arrow(const vx_session *session,
                             vx_partition *partition,
                             FFI_ArrowArrayStream *stream,

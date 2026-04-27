@@ -20,6 +20,8 @@ use crate::RUNTIME;
 use crate::dtype::vx_dtype;
 use crate::error::try_or;
 use crate::error::vx_error;
+use crate::scan::vx_estimate;
+use crate::scan::vx_estimate_type;
 use crate::session::vx_session;
 use crate::to_string;
 
@@ -106,39 +108,24 @@ pub unsafe extern "C-unwind" fn vx_data_source_dtype(ds: *const vx_data_source) 
     vx_dtype::new_ref(vx_data_source::as_ref(ds).dtype())
 }
 
-#[repr(C)]
-#[cfg_attr(test, derive(PartialEq, Debug))]
-enum vx_cardinality {
-    VX_CARD_UNKNOWN = 0,
-    VX_CARD_ESTIMATE = 1,
-    VX_CARD_MAXIMUM = 2,
-}
-
-#[repr(C)]
-pub struct vx_data_source_row_count {
-    cardinality: vx_cardinality,
-    /// Set only when "cardinality" is not VX_CARD_UNKNOWN
-    rows: u64,
-}
-
 /// Write data source's row count estimate into "row_count".
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_data_source_get_row_count(
     ds: *const vx_data_source,
-    row_count: *mut vx_data_source_row_count,
+    row_count: *mut vx_estimate,
 ) {
     let rc = unsafe { &mut *row_count };
     match vx_data_source::as_ref(ds).row_count() {
         Some(Exact(rows)) => {
-            rc.cardinality = vx_cardinality::VX_CARD_MAXIMUM;
-            rc.rows = rows;
+            rc.r#type = vx_estimate_type::VX_ESTIMATE_EXACT;
+            rc.estimate = rows;
         }
         Some(Inexact(rows)) => {
-            rc.cardinality = vx_cardinality::VX_CARD_ESTIMATE;
-            rc.rows = rows;
+            rc.r#type = vx_estimate_type::VX_ESTIMATE_INEXACT;
+            rc.estimate = rows;
         }
         None => {
-            rc.cardinality = vx_cardinality::VX_CARD_UNKNOWN;
+            rc.r#type = vx_estimate_type::VX_ESTIMATE_UNKNOWN;
         }
     }
 }
@@ -152,14 +139,14 @@ mod tests {
     use std::ffi::CString;
     use std::ptr;
 
-    use crate::data_source::vx_cardinality;
     use crate::data_source::vx_data_source_dtype;
     use crate::data_source::vx_data_source_free;
     use crate::data_source::vx_data_source_get_row_count;
     use crate::data_source::vx_data_source_new;
     use crate::data_source::vx_data_source_options;
-    use crate::data_source::vx_data_source_row_count;
     use crate::dtype::vx_dtype;
+    use crate::scan::vx_estimate;
+    use crate::scan::vx_estimate_type;
     use crate::session::vx_session_free;
     use crate::session::vx_session_new;
     use crate::tests::SAMPLE_ROWS;
@@ -221,13 +208,10 @@ mod tests {
             let dtype = vx_dtype::as_ref(vx_data_source_dtype(ds));
             assert_eq!(dtype, struct_array.dtype());
 
-            let mut row_count = vx_data_source_row_count {
-                cardinality: vx_cardinality::VX_CARD_UNKNOWN,
-                rows: 0,
-            };
+            let mut row_count = vx_estimate::default();
             vx_data_source_get_row_count(ds, &raw mut row_count);
-            assert_eq!(row_count.cardinality, vx_cardinality::VX_CARD_MAXIMUM);
-            assert_eq!(row_count.rows, SAMPLE_ROWS as u64);
+            assert_eq!(row_count.r#type, vx_estimate_type::VX_ESTIMATE_EXACT);
+            assert_eq!(row_count.estimate, SAMPLE_ROWS as u64);
 
             vx_data_source_free(ds);
             vx_session_free(session);
