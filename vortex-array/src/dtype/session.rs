@@ -126,40 +126,40 @@ mod tests {
         assert_eq!(session.vortex_id_for_arrow_canonical("arrow.foo"), None);
     }
 
-    /// `(a → b, b → a)` then `register(a, c)` should leave `(a → c, c → a)` only.
+    /// `(vid → old, old → vid)` then `register(vid, new)` should leave `(vid → new, new → vid)`.
     #[test]
     fn rebind_vortex_id_to_new_arrow_name() {
         let session = DTypeSession::default();
-        let a = ExtId::new("vortex.a");
-        let b = ExtId::new("arrow.b");
-        let c = ExtId::new("arrow.c");
+        let vid = ExtId::new("vortex.a");
+        let old = ExtId::new("arrow.b");
+        let new = ExtId::new("arrow.c");
 
-        session.register_arrow_canonical(a, "arrow.b");
-        assert_eq!(session.arrow_canonical_for(&a), Some(b));
-        assert_eq!(session.vortex_id_for_arrow_canonical("arrow.b"), Some(a));
+        session.register_arrow_canonical(vid, "arrow.b");
+        assert_eq!(session.arrow_canonical_for(&vid), Some(old));
+        assert_eq!(session.vortex_id_for_arrow_canonical("arrow.b"), Some(vid));
 
-        session.register_arrow_canonical(a, "arrow.c");
+        session.register_arrow_canonical(vid, "arrow.c");
 
-        assert_eq!(session.arrow_canonical_for(&a), Some(c));
-        assert_eq!(session.vortex_id_for_arrow_canonical("arrow.c"), Some(a));
+        assert_eq!(session.arrow_canonical_for(&vid), Some(new));
+        assert_eq!(session.vortex_id_for_arrow_canonical("arrow.c"), Some(vid));
         assert_eq!(session.vortex_id_for_arrow_canonical("arrow.b"), None);
     }
 
-    /// `(a → b, b → a)` then `register(c, b)` should leave `(c → b, b → c)` only.
+    /// `(old → name, name → old)` then `register(new, name)` should leave `(new → name, name → new)`.
     #[test]
     fn steal_arrow_name_from_another_vortex_id() {
         let session = DTypeSession::default();
-        let a = ExtId::new("vortex.a");
-        let b = ExtId::new("arrow.b");
-        let c = ExtId::new("vortex.c");
+        let old = ExtId::new("vortex.a");
+        let name = ExtId::new("arrow.b");
+        let new = ExtId::new("vortex.c");
 
-        session.register_arrow_canonical(a, "arrow.b");
-        assert_eq!(session.arrow_canonical_for(&a), Some(b));
+        session.register_arrow_canonical(old, "arrow.b");
+        assert_eq!(session.arrow_canonical_for(&old), Some(name));
 
-        session.register_arrow_canonical(c, "arrow.b");
+        session.register_arrow_canonical(new, "arrow.b");
 
-        assert_eq!(session.arrow_canonical_for(&c), Some(b));
-        assert_eq!(session.vortex_id_for_arrow_canonical("arrow.b"), Some(c));
-        assert_eq!(session.arrow_canonical_for(&a), None);
+        assert_eq!(session.arrow_canonical_for(&new), Some(name));
+        assert_eq!(session.vortex_id_for_arrow_canonical("arrow.b"), Some(new));
+        assert_eq!(session.arrow_canonical_for(&old), None);
     }
 }
