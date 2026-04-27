@@ -161,13 +161,6 @@ fn fan_out_query_records(
         format: "vortex-file-compressed".into(),
     },
 )]
-#[case::random_access_2_part_legacy(
-    "random-access/parquet-tokio-local-disk",
-    V3Bin::RandomAccess {
-        dataset: "random access".into(),
-        format: "parquet".into(),
-    },
-)]
 #[case::random_access_4_part_lance(
     "random-access/taxi/take/lance-tokio-local-disk",
     V3Bin::RandomAccess {
@@ -267,6 +260,8 @@ fn compression_size_records(#[case] name: &str, #[case] expected: V3Bin) {
 #[case::ratio_size_vortex_raw("vortex:raw size/clickbench")]
 #[case::throughput("compress throughput/clickbench")]
 #[case::nonsense_prefix("not-a-known-bench/series")]
+#[case::random_access_2_part_legacy("random-access/parquet-tokio-local-disk")]
+#[case::random_access_3_part("random-access/taxi/parquet-tokio-local-disk")]
 fn unmapped_records_yield_none(#[case] name: &str) {
     let r = record(name);
     assert_eq!(
@@ -399,6 +394,33 @@ fn tpch_compression_size_drops_default_scale_factor() {
         panic!("expected Bin(CompressionSize), got {outcome:?}");
     };
     assert_eq!(dataset_variant, None);
+}
+
+#[rstest]
+// SF=1 is the implicit default; both spellings must drop to None so
+// `bin_compression_size` and `migrate_file_sizes` agree.
+#[case::int_one("1", None)]
+#[case::float_one("1.0", None)]
+// SF=10 must produce the same canonical string regardless of spelling.
+#[case::int_ten("10", Some("10".into()))]
+#[case::float_ten("10.0", Some("10".into()))]
+#[case::float_fractional("0.1", Some("0.1".into()))]
+#[case::whitespace("  10  ", Some("10".into()))]
+#[case::empty("", None)]
+fn compression_size_scale_factor_canonicalizes(
+    #[case] raw_sf: &str,
+    #[case] expected: Option<String>,
+) {
+    let mut r = record("vortex size/tpch");
+    r.dataset = Some(serde_json::json!({ "tpch": { "scale_factor": raw_sf } }));
+    let outcome = classify_outcome(&r);
+    let Outcome::Bin(V3Bin::CompressionSize {
+        dataset_variant, ..
+    }) = outcome
+    else {
+        panic!("expected Bin(CompressionSize) for sf={raw_sf:?}, got {outcome:?}");
+    };
+    assert_eq!(dataset_variant, expected, "sf={raw_sf:?}");
 }
 
 #[test]

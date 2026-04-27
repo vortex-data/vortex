@@ -49,10 +49,12 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::classifier;
 use crate::classifier::V3Bin;
 use crate::commits::upsert_commit;
+use crate::source::KNOWN_FILE_SIZES_SUITES;
 use crate::source::Source;
 use crate::v2::V2Commit;
 use crate::v2::V2FileSize;
 use crate::v2::V2Record;
+use crate::v2::canonical_scale_factor;
 use crate::v2::index_commits;
 use crate::v2::runtime_as_i64;
 use crate::v2::value_as_f64;
@@ -171,25 +173,44 @@ pub fn run(source: &Source, target: &Path) -> Result<MigrationSummary> {
     }
 
     info!("Flushing accumulators to DuckDB");
-    summary.query_inserted = q.measurement_id.len() as u64;
-    summary.compression_time_inserted = ct.measurement_id.len() as u64;
-    summary.random_access_inserted = ra.measurement_id.len() as u64;
-    summary.compression_size_inserted = cs.rows.len() as u64;
-
-    flush(&conn, "query_measurements", build_query_batch(q)?)?;
-    flush(
-        &conn,
-        "compression_times",
-        build_compression_time_batch(ct)?,
-    )?;
-    flush(&conn, "random_access_times", build_random_access_batch(ra)?)?;
-    flush(
-        &conn,
-        "compression_sizes",
-        build_compression_size_batch(cs)?,
-    )?;
+    flush_all(&conn, q, ct, ra, cs, &mut summary)?;
 
     Ok(summary)
+}
+
+/// Flush each accumulator's batch and bump the matching per-fact
+/// summary counter only AFTER the flush succeeds. This way a flush
+/// failure leaves the counter at zero (or its previous value) rather
+/// than reporting rows that never landed in DuckDB.
+fn flush_all(
+    conn: &Connection,
+    q: QueryAccum,
+    ct: CompressionTimeAccum,
+    ra: RandomAccessAccum,
+    cs: CompressionSizeAccum,
+    summary: &mut MigrationSummary,
+) -> Result<()> {
+    let batch = build_query_batch(q)?;
+    let n = batch.num_rows() as u64;
+    flush(conn, "query_measurements", batch)?;
+    summary.query_inserted = n;
+
+    let batch = build_compression_time_batch(ct)?;
+    let n = batch.num_rows() as u64;
+    flush(conn, "compression_times", batch)?;
+    summary.compression_time_inserted = n;
+
+    let batch = build_random_access_batch(ra)?;
+    let n = batch.num_rows() as u64;
+    flush(conn, "random_access_times", batch)?;
+    summary.random_access_inserted = n;
+
+    let batch = build_compression_size_batch(cs)?;
+    let n = batch.num_rows() as u64;
+    flush(conn, "compression_sizes", batch)?;
+    summary.compression_size_inserted = n;
+
+    Ok(())
 }
 
 fn read_commits(source: &Source) -> Result<BTreeMap<String, V2Commit>> {
@@ -409,11 +430,19 @@ fn migrate_file_sizes(
     cs: &mut CompressionSizeAccum,
 ) -> Result<()> {
     let reader = source.open_file_sizes(name)?;
-    let dataset_fallback = name
-        .strip_prefix("file-sizes-")
-        .and_then(|s| s.strip_suffix(".json.gz"))
-        .unwrap_or(name)
-        .to_string();
+    // Prefix unknown-id fallbacks with `unknown:` so they're clearly
+    // labeled in the UI rather than masquerading as a dataset name.
+    let dataset_fallback = {
+        let stripped = name
+            .strip_prefix("file-sizes-")
+            .and_then(|s| s.strip_suffix(".json.gz"))
+            .unwrap_or(name);
+        if KNOWN_FILE_SIZES_SUITES.contains(&stripped) {
+            stripped.to_string()
+        } else {
+            format!("unknown:{stripped}")
+        }
+    };
     let started = Instant::now();
     let mut last_log = Instant::now();
     for line in reader.lines() {
@@ -438,11 +467,10 @@ fn migrate_file_sizes(
         } else {
             sz.benchmark.clone()
         };
-        let dataset_variant = sz
-            .scale_factor
-            .as_ref()
-            .filter(|s| !s.is_empty() && s.as_str() != "1.0")
-            .cloned();
+        // Run SF through canonical_scale_factor so `"1"`, `"1.0"`, `"10"`
+        // and `"10.0"` collapse to one form, matching what
+        // `bin_compression_size` writes for the data.json.gz path.
+        let dataset_variant = canonical_scale_factor(sz.scale_factor.as_deref());
         let csr = CompressionSize {
             commit_sha: sz.commit_id.clone(),
             dataset,
@@ -832,5 +860,76 @@ impl std::fmt::Display for MigrationSummary {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_bench_server::records::QueryMeasurement;
+
+    use super::*;
+
+    fn open_db_without(table: &str) -> (tempfile::TempDir, Connection) {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("v3.duckdb");
+        let conn = open_target_db(&path).unwrap();
+        conn.execute_batch(&format!("DROP TABLE {table}")).unwrap();
+        (dir, conn)
+    }
+
+    fn one_query_row() -> QueryMeasurement {
+        QueryMeasurement {
+            commit_sha: "deadbeef".into(),
+            dataset: "clickbench".into(),
+            dataset_variant: None,
+            scale_factor: None,
+            query_idx: 7,
+            storage: "nvme".into(),
+            engine: "datafusion".into(),
+            format: "parquet".into(),
+            value_ns: 100,
+            all_runtimes_ns: vec![100],
+            peak_physical: None,
+            peak_virtual: None,
+            physical_delta: None,
+            virtual_delta: None,
+            env_triple: None,
+        }
+    }
+
+    #[test]
+    fn flush_all_does_not_overcount_on_failure() {
+        // Drop `compression_times` before flushing so the second
+        // flush in `flush_all` fails. The first (queries) succeeded,
+        // so its counter must be set; the failed table's counter and
+        // every later table's counter must stay at zero.
+        let (_dir, conn) = open_db_without("compression_times");
+
+        let mut summary = MigrationSummary::default();
+        let mut q = QueryAccum::default();
+        let qm = one_query_row();
+        let mid = vortex_bench_server::db::measurement_id_query(&qm);
+        q.push(mid, qm, &mut summary);
+
+        let ct = CompressionTimeAccum::default();
+        let ra = RandomAccessAccum::default();
+        let cs = CompressionSizeAccum::default();
+
+        let result = flush_all(&conn, q, ct, ra, cs, &mut summary);
+        assert!(result.is_err(), "expected flush to fail on missing table");
+
+        assert_eq!(
+            summary.query_inserted, 1,
+            "query flushed before the failure must be counted"
+        );
+        assert_eq!(
+            summary.compression_time_inserted, 0,
+            "failed flush must not bump the counter"
+        );
+        assert_eq!(summary.random_access_inserted, 0, "later flushes never ran");
+        assert_eq!(
+            summary.compression_size_inserted, 0,
+            "later flushes never ran"
+        );
     }
 }
