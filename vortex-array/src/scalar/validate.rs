@@ -74,8 +74,8 @@ impl Scalar {
                 );
             }
             DType::List(elem_dtype, _) => {
-                let ScalarValue::List(elements) = value else {
-                    vortex_bail!("list dtype expected List value, got {value}");
+                let ScalarValue::Tuple(elements) = value else {
+                    vortex_bail!("list dtype expected Tuple value, got {value}");
                 };
 
                 for (i, element) in elements.iter().enumerate() {
@@ -84,8 +84,8 @@ impl Scalar {
                 }
             }
             DType::FixedSizeList(elem_dtype, size, _) => {
-                let ScalarValue::List(elements) = value else {
-                    vortex_bail!("fixed-size list dtype expected List value, got {value}",);
+                let ScalarValue::Tuple(elements) = value else {
+                    vortex_bail!("fixed-size list dtype expected Tuple value, got {value}",);
                 };
 
                 let len = elements.len();
@@ -102,8 +102,8 @@ impl Scalar {
                 }
             }
             DType::Struct(fields, _) => {
-                let ScalarValue::List(values) = value else {
-                    vortex_bail!("struct dtype expected List value, got {value}");
+                let ScalarValue::Tuple(values) = value else {
+                    vortex_bail!("struct dtype expected Tuple value, got {value}");
                 };
 
                 let nfields = fields.nfields();

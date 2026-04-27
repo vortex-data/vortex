@@ -207,7 +207,7 @@ impl<'a> ListScalar<'a> {
 
         Scalar::try_new(
             dtype.clone(),
-            Some(ScalarValue::List(
+            Some(ScalarValue::Tuple(
                 self.elements
                     .ok_or_else(|| vortex_err!("nullness should be handled in Scalar::cast"))?
                     .iter()

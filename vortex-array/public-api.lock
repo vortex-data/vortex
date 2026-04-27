@@ -13960,9 +13960,9 @@ pub vortex_array::scalar::ScalarValue::Bool(bool)
 
 pub vortex_array::scalar::ScalarValue::Decimal(vortex_array::scalar::DecimalValue)
 
-pub vortex_array::scalar::ScalarValue::List(alloc::vec::Vec<core::option::Option<vortex_array::scalar::ScalarValue>>)
-
 pub vortex_array::scalar::ScalarValue::Primitive(vortex_array::scalar::PValue)
+
+pub vortex_array::scalar::ScalarValue::Tuple(alloc::vec::Vec<core::option::Option<vortex_array::scalar::ScalarValue>>)
 
 pub vortex_array::scalar::ScalarValue::Utf8(vortex_buffer::string::BufferString)
 

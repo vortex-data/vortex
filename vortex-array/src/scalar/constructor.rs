@@ -166,7 +166,7 @@ impl Scalar {
             ListKind::FixedSize => DType::FixedSizeList(element_dtype, size, nullability),
         };
 
-        Self::try_new(dtype, Some(ScalarValue::List(children)))
+        Self::try_new(dtype, Some(ScalarValue::Tuple(children)))
             .vortex_expect("unable to construct a list `Scalar`")
     }
 

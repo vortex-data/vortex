@@ -311,7 +311,7 @@ mod tests {
                 Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
                 Nullability::Nullable,
             ),
-            Some(ScalarValue::List(vec![
+            Some(ScalarValue::Tuple(vec![
                 Some(ScalarValue::Primitive(PValue::U16(6))),
                 Some(ScalarValue::Primitive(PValue::U16(100))),
             ])),
@@ -350,7 +350,7 @@ mod tests {
                 Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
                 Nullability::Nullable,
             ),
-            Some(ScalarValue::List(vec![
+            Some(ScalarValue::Tuple(vec![
                 Some(ScalarValue::Primitive(PValue::U16(100))),
                 Some(ScalarValue::Primitive(PValue::U16(256))), // Too large for U8
                 Some(ScalarValue::Primitive(PValue::U16(1000))), // Too large for U8

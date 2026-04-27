@@ -236,7 +236,7 @@ impl<'a> StructScalar<'a> {
                     .map(|s| s.into_value())
                 })
                 .collect::<VortexResult<Vec<_>>>()?;
-            Scalar::try_new(dtype.clone(), Some(ScalarValue::List(fields)))
+            Scalar::try_new(dtype.clone(), Some(ScalarValue::Tuple(fields)))
         } else {
             Ok(Scalar::null(dtype.clone()))
         }
@@ -261,7 +261,7 @@ impl<'a> StructScalar<'a> {
             return Ok(Scalar::null(projected_dtype));
         };
 
-        let new_fields = ScalarValue::List(
+        let new_fields = ScalarValue::Tuple(
             projection
                 .iter()
                 .map(|name| {
@@ -306,7 +306,7 @@ impl Scalar {
         }
 
         let value_children: Vec<_> = children.into_iter().map(|x| x.into_value()).collect();
-        Self::try_new(dtype, Some(ScalarValue::List(value_children)))
+        Self::try_new(dtype, Some(ScalarValue::Tuple(value_children)))
             .vortex_expect("unable to construct a struct `Scalar`")
     }
 
@@ -323,7 +323,7 @@ impl Scalar {
         children: impl IntoIterator<Item = Scalar>,
     ) -> Self {
         let value_children: Vec<_> = children.into_iter().map(|s| s.into_value()).collect();
-        unsafe { Self::new_unchecked(dtype, Some(ScalarValue::List(value_children))) }
+        unsafe { Self::new_unchecked(dtype, Some(ScalarValue::Tuple(value_children))) }
     }
 }
 
