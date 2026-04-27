@@ -19,6 +19,6 @@ pub mod not;
 pub mod operators;
 pub mod pack;
 pub mod root;
+pub mod row_count;
 pub mod select;
-pub mod stats_expression;
 pub mod zip;

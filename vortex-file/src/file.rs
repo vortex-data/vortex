@@ -14,7 +14,6 @@ use vortex_array::ArrayRef;
 use vortex_array::Columnar;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::aggregate_fn::fns::row_count::RowCount;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Field;
@@ -23,7 +22,7 @@ use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::FieldPathSet;
 use vortex_array::expr::Expression;
 use vortex_array::expr::pruning::checked_pruning_expr;
-use vortex_array::scalar_fn::fns::stats_expression::substitute_stats_fn_array;
+use vortex_array::scalar_fn::fns::row_count::substitute_row_count;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
@@ -175,7 +174,7 @@ impl VortexFile {
         let applied = file_stats.apply(&predicate)?;
         let row_count_replacement =
             ConstantArray::new(self.footer.row_count(), applied.len()).into_array();
-        let applied = substitute_stats_fn_array::<RowCount>(applied, &row_count_replacement)?;
+        let applied = substitute_row_count(applied, &row_count_replacement)?;
 
         let mut ctx = self.session.create_execution_ctx();
         Ok(match applied.execute::<Columnar>(&mut ctx)? {

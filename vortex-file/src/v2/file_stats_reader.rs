@@ -15,7 +15,6 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
-use vortex_array::aggregate_fn::fns::row_count::RowCount;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::NullArray;
 use vortex_array::dtype::DType;
@@ -28,7 +27,7 @@ use vortex_array::expr::lit;
 use vortex_array::expr::stats::Stat;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::literal::Literal;
-use vortex_array::scalar_fn::fns::stats_expression::substitute_stats_fn_array;
+use vortex_array::scalar_fn::fns::row_count::substitute_row_count;
 use vortex_error::VortexResult;
 use vortex_layout::ArrayFuture;
 use vortex_layout::LayoutReader;
@@ -103,7 +102,7 @@ impl FileStatsLayoutReader {
         let pruning = NullArray::new(1).into_array().apply(&pruning_expr)?;
         let row_count_replacement =
             ConstantArray::new(self.child.row_count(), pruning.len()).into_array();
-        let pruning = substitute_stats_fn_array::<RowCount>(pruning, &row_count_replacement)?;
+        let pruning = substitute_row_count(pruning, &row_count_replacement)?;
 
         let mut ctx = self.session.create_execution_ctx();
         let result = pruning

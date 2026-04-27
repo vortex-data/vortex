@@ -8,5 +8,4 @@ pub mod is_sorted;
 pub mod last;
 pub mod min_max;
 pub mod nan_count;
-pub mod row_count;
 pub mod sum;
