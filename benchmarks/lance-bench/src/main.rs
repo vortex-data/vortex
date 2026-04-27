@@ -65,6 +65,9 @@ struct Args {
     #[arg(long, default_value_t = false)]
     track_memory: bool,
 
+    #[arg(long, default_value = "unknown")]
+    runner: String,
+
     #[arg(long = "opt", value_delimiter = ',', value_parser = value_parser!(Opt))]
     options: Vec<Opt>,
 }
@@ -93,6 +96,7 @@ async fn main() -> anyhow::Result<()> {
     let mut runner = SqlBenchmarkRunner::new(
         &*benchmark,
         Engine::DataFusion,
+        args.runner.clone(),
         vec![Format::Lance],
         args.track_memory,
         args.hide_progress_bar,

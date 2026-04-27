@@ -94,6 +94,9 @@ struct Args {
     #[arg(long, default_value_t = false)]
     track_memory: bool,
 
+    #[arg(long, default_value = "unknown")]
+    runner: String,
+
     #[arg(long, default_value_t = false)]
     explain: bool,
 
@@ -149,6 +152,7 @@ async fn main() -> anyhow::Result<()> {
     let mut runner = SqlBenchmarkRunner::new(
         &*benchmark,
         Engine::DataFusion,
+        args.runner.clone(),
         args.formats.clone(),
         args.track_memory,
         args.hide_progress_bar,
