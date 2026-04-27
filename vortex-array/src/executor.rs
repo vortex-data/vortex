@@ -46,14 +46,14 @@ use crate::stats::ArrayStats;
 use crate::stats::StatsSet;
 
 /// Returns the maximum number of iterations to attempt when executing an array before giving up and returning
-/// an error, can be by the `VORTEX_MAX_ITERATIONS` env variables, otherwise defaults to 128.
+/// an error, can be by the `VORTEX_MAX_ITERATIONS` env variables, otherwise defaults to 2^22.
 pub(crate) fn max_iterations() -> usize {
     static MAX_ITERATIONS: LazyLock<usize> =
         LazyLock::new(|| match std::env::var("VORTEX_MAX_ITERATIONS") {
             Ok(val) => val.parse::<usize>().unwrap_or_else(|e| {
                 vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid usize: {e}")
             }),
-            Err(VarError::NotPresent) => 8_192 * 8_192 * 8_192,
+            Err(VarError::NotPresent) => 2 << 21, // 2 ^ 22
             Err(VarError::NotUnicode(_)) => {
                 vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid unicode string")
             }
@@ -104,34 +104,11 @@ impl ArrayRef {
     }
 }
 
-/// A stack frame for the iterative executor.
-///
-/// Each frame records a suspended parent activation and how to resume it once the current child
-/// finishes.
-struct Activation {
-    array: ArrayRef,
-    builder: Option<Box<dyn ArrayBuilder>>,
-}
-
-impl Activation {
-    fn new(array: ArrayRef) -> Self {
-        Self {
-            array,
-            builder: None,
-        }
-    }
-}
-
-enum ResumeAction {
-    RestoreSlot {
-        slot_idx: usize,
-        done: DonePredicate,
-    },
-}
-
 struct StackFrame {
-    parent: Activation,
-    resume: ResumeAction,
+    parent_array: ArrayRef,
+    parent_builder: Option<Box<dyn ArrayBuilder>>,
+    slot_idx: usize,
+    done: DonePredicate,
     original_dtype: DType,
     original_len: usize,
 }
@@ -323,26 +300,26 @@ fn execute_loop(
     root_done: DonePredicate,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let mut current = Activation::new(array);
+    let mut current_array = array;
+    let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
     let mut stack: Vec<StackFrame> = Vec::new();
+    let max_iterations = max_iterations();
 
-    for _ in 0..max_iterations() {
-        let is_done = stack.last().map_or(root_done, |frame| match frame.resume {
-            ResumeAction::RestoreSlot { done, .. } => done,
-        });
+    for _ in 0..max_iterations {
+        let is_done = stack.last().map_or(root_done, |frame| frame.done);
 
-        if is_done(&current.array) || AnyCanonical::matches(&current.array) {
+        if is_done(&current_array) || AnyCanonical::matches(&current_array) {
             match stack.pop() {
                 None => {
                     debug_assert!(
-                        current.builder.is_none(),
+                        current_builder.is_none(),
                         "root activation should not retain a builder"
                     );
-                    ctx.log(format_args!("-> {}", current.array));
-                    return Ok(current.array);
+                    ctx.log(format_args!("-> {}", current_array));
+                    return Ok(current_array);
                 }
                 Some(frame) => {
-                    current = pop_frame(frame, current)?;
+                    (current_array, current_builder) = pop_frame(frame, current_array)?;
                     continue;
                 }
             }
@@ -350,26 +327,20 @@ fn execute_loop(
 
         // ── Step 2: execute_parent ──────────────────────────────────────────
         //
-        // Once an activation has an attached builder, its parent array is executor-private
-        // suspended state with some child slots already taken out. We still run execute_parent
-        // while descending through the chosen child subtree, but we do not try to apply
-        // parent-rewrite hooks to the suspended append parent itself.
-        if current.builder.is_none()
-            && let Some(rewritten) = try_execute_parent(&current.array, ctx)?
+        // Skip execute_parent when we have a builder attached — the parent array is
+        // executor-private suspended state with child slots already taken out.
+        if current_builder.is_none()
+            && let Some(rewritten) = try_execute_parent(&current_array, ctx)?
         {
             ctx.log(format_args!(
                 "execute_parent rewrote {} -> {}",
-                current.array, rewritten
+                current_array, rewritten
             ));
-            current.array = rewritten.optimize_ctx(ctx.session())?;
+            current_array = rewritten.optimize_ctx(ctx.session())?;
             continue;
         }
 
         // ── Step 3: execute step ───────────────────────────────────────────
-        let Activation {
-            array: current_array,
-            builder: mut current_builder,
-        } = current;
         let expected_len = current_array.len();
         let expected_dtype = current_array.dtype().clone();
         let stats = current_array.statistics().to_array_stats();
@@ -384,15 +355,15 @@ fn execute_loop(
                     parent, child
                 ));
                 stack.push(StackFrame {
-                    parent: Activation {
-                        array: parent,
-                        builder: current_builder.take(),
-                    },
-                    resume: ResumeAction::RestoreSlot { slot_idx: i, done },
+                    parent_array: parent,
+                    parent_builder: current_builder.take(),
+                    slot_idx: i,
+                    done,
                     original_dtype: child.dtype().clone(),
                     original_len: child.len(),
                 });
-                current = Activation::new(child);
+                current_array = child;
+                current_builder = None;
             }
             ExecutionStep::AppendChild(i) => {
                 if current_builder.is_none() {
@@ -415,14 +386,11 @@ fn execute_loop(
                         .vortex_expect("builder must exist"),
                     ctx,
                 )?;
-                current = Activation {
-                    array: parent,
-                    builder: current_builder.take(),
-                };
+                current_array = parent;
             }
             ExecutionStep::Done => {
                 ctx.log(format_args!("Done: {}", array));
-                current = finalize_done_activation(
+                (current_array, current_builder) = finalize_done(
                     array,
                     current_builder,
                     expected_len,
@@ -436,29 +404,27 @@ fn execute_loop(
 
     vortex_bail!(
         "Exceeded maximum execution iterations ({}) while executing array",
-        max_iterations(),
+        max_iterations,
     )
 }
 
-/// Pop a stack frame, updating `current` accordingly.
-fn pop_frame(frame: StackFrame, current: Activation) -> VortexResult<Activation> {
+/// Pop a stack frame, restoring the parent with the finished child in its slot.
+fn pop_frame(
+    frame: StackFrame,
+    child: ArrayRef,
+) -> VortexResult<(ArrayRef, Option<Box<dyn ArrayBuilder>>)> {
     debug_assert_eq!(
-        current.array.dtype(),
+        child.dtype(),
         &frame.original_dtype,
         "child dtype changed during execution"
     );
     debug_assert_eq!(
-        current.array.len(),
+        child.len(),
         frame.original_len,
         "child len changed during execution"
     );
-    let mut parent = frame.parent;
-    match frame.resume {
-        ResumeAction::RestoreSlot { slot_idx, .. } => {
-            parent.array = unsafe { parent.array.put_slot_unchecked(slot_idx, current.array) }?;
-        }
-    }
-    Ok(parent)
+    let parent_array = unsafe { frame.parent_array.put_slot_unchecked(frame.slot_idx, child) }?;
+    Ok((parent_array, frame.parent_builder))
 }
 
 /// Execute a single step on an array, consuming it.
@@ -475,14 +441,14 @@ fn execute_step_unchecked(
     array.execute_encoding_unchecked(ctx)
 }
 
-fn finalize_done_activation(
+fn finalize_done(
     result: ArrayRef,
     mut builder: Option<Box<dyn ArrayBuilder>>,
     expected_len: usize,
     expected_dtype: DType,
     stats: ArrayStats,
     encoding_id: ArrayId,
-) -> VortexResult<Activation> {
+) -> VortexResult<(ArrayRef, Option<Box<dyn ArrayBuilder>>)> {
     let output = if let Some(mut builder) = builder.take() {
         builder.finish()
     } else {
@@ -505,7 +471,7 @@ fn finalize_done_activation(
     output
         .statistics()
         .set_iter(StatsSet::from(stats).into_iter());
-    Ok(Activation::new(output))
+    Ok((output, None))
 }
 
 /// Try execute_parent on each occupied slot of the array.
