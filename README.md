@@ -11,6 +11,8 @@
 
 [Join the community on Slack!](https://vortex.dev/slack) | [Documentation](https://docs.vortex.dev/) | [Performance Benchmarks](https://bench.vortex.dev)
 
+If you are interested in closer collaboration, please email info@vortex.dev
+
 ## Overview
 
 Vortex is a next-generation columnar file format and toolkit designed for high-performance data processing.
