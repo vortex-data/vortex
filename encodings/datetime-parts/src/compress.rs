@@ -2,19 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_buffer::BufferMut;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
 
-use crate::DateTimePartsData;
 use crate::timestamp;
 pub struct TemporalParts {
     pub days: ArrayRef,
@@ -26,12 +23,13 @@ pub struct TemporalParts {
 ///
 /// Splitting the components by granularity creates more small values, which enables better
 /// cascading compression.
-pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
-    #[expect(deprecated)]
-    let temporal_values = array.temporal_values().to_primitive();
+pub fn split_temporal(array: TemporalArray, ctx: &mut ExecutionCtx) -> VortexResult<TemporalParts> {
+    let temporal_values = array
+        .temporal_values()
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?;
 
     // After this operation, timestamps will be a PrimitiveArray<i64>
-    #[expect(deprecated)]
     let timestamps = temporal_values
         .clone()
         .into_array()
@@ -39,7 +37,7 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
             PType::I64,
             temporal_values.dtype().nullability(),
         ))?
-        .to_primitive();
+        .execute::<PrimitiveArray>(ctx)?;
 
     let length = timestamps.len();
     let mut days = BufferMut::with_capacity(length);
@@ -60,34 +58,11 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
     })
 }
 
-impl TryFrom<TemporalArray> for DateTimePartsData {
-    type Error = VortexError;
-
-    fn try_from(array: TemporalArray) -> Result<Self, Self::Error> {
-        let ext_dtype = array.ext_dtype();
-        let TemporalParts {
-            days,
-            seconds,
-            subseconds,
-        } = split_temporal(array)?;
-        DateTimePartsData::validate(
-            &DType::Extension(ext_dtype),
-            &days,
-            &seconds,
-            &subseconds,
-            days.len(),
-        )?;
-        Ok(DateTimePartsData {})
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
@@ -105,6 +80,7 @@ mod tests {
     #[case(Validity::AllInvalid)]
     #[case(Validity::from_iter([true, false, true]))]
     fn test_split_temporal(#[case] validity: Validity) {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let milliseconds = PrimitiveArray::new(
             buffer![
                 86_400i64,            // element with only day component
@@ -120,11 +96,9 @@ mod tests {
             days,
             seconds,
             subseconds,
-        } = split_temporal(temporal_array).unwrap();
+        } = split_temporal(temporal_array, &mut ctx).unwrap();
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        #[expect(deprecated)]
-        let days_prim = days.to_primitive();
+        let days_prim = days.execute::<PrimitiveArray>(&mut ctx).unwrap();
         assert!(
             days_prim
                 .validity()
@@ -132,16 +106,14 @@ mod tests {
                 .mask_eq(&validity, &mut ctx)
                 .unwrap()
         );
-        #[expect(deprecated)]
-        let seconds_prim = seconds.to_primitive();
+        let seconds_prim = seconds.execute::<PrimitiveArray>(&mut ctx).unwrap();
         assert!(matches!(
             seconds_prim
                 .validity()
                 .vortex_expect("seconds validity should be derivable"),
             Validity::NonNullable
         ));
-        #[expect(deprecated)]
-        let subseconds_prim = subseconds.to_primitive();
+        let subseconds_prim = subseconds.execute::<PrimitiveArray>(&mut ctx).unwrap();
         assert!(matches!(
             subseconds_prim
                 .validity()

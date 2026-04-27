@@ -10,7 +10,6 @@ use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
 use datafusion_common::exec_datafusion_err;
-use datafusion_datasource::FileRange;
 use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file_stream::FileOpenFuture;
@@ -30,16 +29,19 @@ use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
+use itertools::Itertools;
 use object_store::path::Path;
 use tracing::Instrument;
-use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowArrayExecutor;
+use vortex::dtype::FieldMask;
 use vortex::error::VortexError;
+use vortex::error::VortexExpect;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::scan_builder::ScanBuilder;
+use vortex::layout::scan::split_by::SplitBy;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
 use vortex::session::VortexSession;
@@ -88,6 +90,8 @@ pub(crate) struct VortexOpener {
     /// To save on the overhead of reparsing FlatBuffers and rebuilding the layout tree, we cache
     /// a file reader the first time we read a file.
     pub layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
+    /// Shared full-file natural split ranges keyed by file path.
+    pub natural_split_ranges: Arc<DashMap<Path, Arc<[Range<u64>]>>>,
     /// Whether the query has output ordering specified
     pub has_output_ordering: bool,
 
@@ -123,6 +127,7 @@ impl FileOpener for VortexOpener {
         let batch_size = self.batch_size;
         let limit = self.limit;
         let layout_reader = Arc::clone(&self.layout_readers);
+        let natural_split_ranges = Arc::clone(&self.natural_split_ranges);
         let has_output_ordering = self.has_output_ordering;
         let scan_concurrency = self.scan_concurrency;
 
@@ -302,7 +307,7 @@ impl FileOpener for VortexOpener {
                 }
             };
 
-            let mut scan_builder = ScanBuilder::new(session.clone(), layout_reader);
+            let mut scan_builder = ScanBuilder::new(session.clone(), Arc::clone(&layout_reader));
 
             if let Some(extensions) = file.extensions
                 && let Some(vortex_plan) = extensions.downcast_ref::<VortexAccessPlan>()
@@ -311,12 +316,31 @@ impl FileOpener for VortexOpener {
             }
 
             if let Some(file_range) = file.range {
-                scan_builder = apply_byte_range(
-                    file_range,
-                    file.object_meta.size,
-                    vxf.row_count(),
-                    scan_builder,
-                );
+                let byte_range = Range {
+                    start: u64::try_from(file_range.start)
+                        .map_err(|_| exec_datafusion_err!("Vortex file range start is negative"))?,
+                    end: u64::try_from(file_range.end)
+                        .map_err(|_| exec_datafusion_err!("Vortex file range end is negative"))?,
+                };
+                if byte_range.start != 0 || byte_range.end != file.object_meta.size {
+                    // Full-file scans already cover every natural split. Only translate the
+                    // byte range back into row boundaries when DataFusion has trimmed the file.
+                    let natural_split_ranges = natural_split_ranges_for_file(
+                        natural_split_ranges.as_ref(),
+                        &file.object_meta.location,
+                        &layout_reader,
+                    )?;
+
+                    let Some(row_range) = split_aligned_row_range(
+                        byte_range,
+                        file.object_meta.size,
+                        natural_split_ranges.as_ref(),
+                    ) else {
+                        return Ok(stream::empty().boxed());
+                    };
+
+                    scan_builder = scan_builder.with_row_range(row_range);
+                }
             }
 
             let filter = filter
@@ -421,33 +445,94 @@ impl FileOpener for VortexOpener {
     }
 }
 
-/// If the file has a [`FileRange`], we translate it into a row range in the file for the scan.
-fn apply_byte_range(
-    file_range: FileRange,
-    total_size: u64,
-    row_count: u64,
-    scan_builder: ScanBuilder<ArrayRef>,
-) -> ScanBuilder<ArrayRef> {
-    let row_range = byte_range_to_row_range(
-        file_range.start as u64..file_range.end as u64,
-        row_count,
-        total_size,
-    );
+fn natural_split_ranges_for_file(
+    natural_split_ranges: &DashMap<Path, Arc<[Range<u64>]>>,
+    path: &Path,
+    layout_reader: &Arc<dyn LayoutReader>,
+) -> DFResult<Arc<[Range<u64>]>> {
+    if let Some(split_ranges) = natural_split_ranges.get(path) {
+        return Ok(Arc::clone(split_ranges.value()));
+    }
 
-    scan_builder.with_row_range(row_range)
+    let split_ranges = compute_natural_split_ranges(layout_reader.as_ref())?;
+
+    match natural_split_ranges.entry(path.clone()) {
+        Entry::Occupied(entry) => Ok(Arc::clone(entry.get())),
+        Entry::Vacant(entry) => {
+            entry.insert(Arc::clone(&split_ranges));
+            Ok(split_ranges)
+        }
+    }
 }
 
-fn byte_range_to_row_range(byte_range: Range<u64>, row_count: u64, total_size: u64) -> Range<u64> {
-    debug_assert!(row_count > 0); // Asserted by an early exit check in VortexOpener::open
+fn compute_natural_split_ranges(layout_reader: &dyn LayoutReader) -> DFResult<Arc<[Range<u64>]>> {
+    let row_count = layout_reader.row_count();
+    let row_range = 0..row_count;
+    let split_points: Vec<_> = SplitBy::Layout
+        .splits(layout_reader, &row_range, &[FieldMask::All])
+        .map_err(|e| exec_datafusion_err!("Failed to compute Vortex natural splits: {e}"))?
+        .into_iter()
+        .tuple_windows()
+        .map(|(s, e)| s..e)
+        .collect::<Vec<_>>();
 
-    let average_row = total_size / row_count;
-    assert!(average_row > 0, "A row must always have at least one byte");
+    Ok(split_points.into())
+}
 
-    let start_row = byte_range.start / average_row;
-    let end_row = byte_range.end / average_row;
+/// Translate a DataFusion byte range to the contiguous natural split ranges it owns.
+/// Most splits are assigned by midpoint, but the leading split stays with the range that owns
+/// byte 0 so a tiny first byte range still claims the first rows.
+fn split_aligned_row_range(
+    byte_range: Range<u64>,
+    total_size: u64,
+    split_ranges: &[Range<u64>],
+) -> Option<Range<u64>> {
+    if byte_range.start >= byte_range.end {
+        return None;
+    }
 
-    // We take the min here as `end_row` might overshoot
-    start_row..u64::min(row_count, end_row)
+    let row_count = split_ranges.last().map(|split| split.end)?;
+    if row_count == 0 {
+        return None;
+    }
+
+    let mut owned_splits = split_ranges
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, split_range)| {
+            let assignment_byte = split_assignment_byte(idx, split_range, row_count, total_size);
+            byte_range.contains(&assignment_byte).then_some(split_range)
+        });
+
+    let first_split = owned_splits.next()?;
+    let mut row_range = first_split.start..first_split.end;
+    for split_range in owned_splits {
+        row_range.end = split_range.end;
+    }
+
+    Some(row_range)
+}
+
+fn split_assignment_byte(
+    idx: usize,
+    split_range: &Range<u64>,
+    row_count: u64,
+    total_size: u64,
+) -> u64 {
+    if idx == 0 && split_range.start == 0 {
+        // Byte 0 is the only stable representative for the leading split. A midpoint can fall
+        // into the next DataFusion byte range and leave the first range with no rows to read.
+        0
+    } else {
+        split_midpoint_to_byte(split_range, row_count, total_size)
+    }
+}
+
+fn split_midpoint_to_byte(split_range: &Range<u64>, row_count: u64, total_size: u64) -> u64 {
+    let midpoint_row = split_range.start + (split_range.end - split_range.start) / 2;
+    let midpoint_byte = (u128::from(midpoint_row) * u128::from(total_size)) / u128::from(row_count);
+
+    u64::try_from(midpoint_byte).vortex_expect("midpoint byte projection should fit into u64")
 }
 
 #[cfg(test)]
@@ -500,43 +585,57 @@ mod tests {
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
 
     #[rstest]
-    #[case(0..100, 100, 100, 0..100)]
-    #[case(0..105, 100, 105, 0..100)]
-    #[case(0..50, 100, 105, 0..50)]
-    #[case(50..105, 100, 105, 50..100)]
-    #[case(0..1, 4, 8, 0..0)]
-    #[case(1..8, 4, 8, 0..4)]
-    fn test_range_translation(
+    #[case(0..3, 10, vec![0..2, 2..5, 5..10], Some(0..2))]
+    #[case(3..7, 10, vec![0..2, 2..5, 5..10], Some(2..5))]
+    #[case(1..8, 10, vec![0..1, 1..9, 9..10], Some(1..9))]
+    #[case(1..4, 16, vec![0..1, 1..2, 2..3, 3..4], None)]
+    #[case(0..1, 10, vec![0..2, 2..10], Some(0..2))]
+    fn test_split_aligned_row_range(
         #[case] byte_range: Range<u64>,
-        #[case] row_count: u64,
         #[case] total_size: u64,
-        #[case] expected: Range<u64>,
+        #[case] split_ranges: Vec<Range<u64>>,
+        #[case] expected: Option<Range<u64>>,
     ) {
         assert_eq!(
-            byte_range_to_row_range(byte_range, row_count, total_size),
+            split_aligned_row_range(byte_range, total_size, &split_ranges),
             expected
         );
     }
 
     #[test]
-    fn test_consecutive_ranges() {
-        let row_count = 100;
-        let total_size = 429;
-        let bytes_a = 0..143;
-        let bytes_b = 143..286;
-        let bytes_c = 286..429;
+    fn test_split_aligned_ranges_cover_splits_exactly_once() {
+        let split_ranges = vec![0..1, 1..4, 4..10, 10..13];
+        let byte_ranges = [0..4, 4..8, 8..12, 12..16];
 
-        let rows_a = byte_range_to_row_range(bytes_a, row_count, total_size);
-        let rows_b = byte_range_to_row_range(bytes_b, row_count, total_size);
-        let rows_c = byte_range_to_row_range(bytes_c, row_count, total_size);
+        let assigned = byte_ranges
+            .into_iter()
+            .filter_map(|byte_range| split_aligned_row_range(byte_range, 16, &split_ranges))
+            .collect::<Vec<_>>();
 
-        assert_eq!(rows_a.end - rows_a.start, 35);
-        assert_eq!(rows_b.end - rows_b.start, 36);
-        assert_eq!(rows_c.end - rows_c.start, 29);
+        assert_eq!(assigned, vec![0..4, 4..10, 10..13]);
+        assert_eq!(
+            assigned
+                .iter()
+                .map(|range| range.end - range.start)
+                .sum::<u64>(),
+            13
+        );
 
-        assert_eq!(rows_a.start, 0);
-        assert_eq!(rows_c.end, 100);
-        for (left, right) in [rows_a, rows_b, rows_c].iter().tuple_windows() {
+        let split_starts = split_ranges
+            .iter()
+            .map(|range| range.start)
+            .collect::<Vec<_>>();
+        let split_ends = split_ranges
+            .iter()
+            .map(|range| range.end)
+            .collect::<Vec<_>>();
+
+        for range in &assigned {
+            assert!(split_starts.contains(&range.start));
+            assert!(split_ends.contains(&range.end));
+        }
+
+        for (left, right) in assigned.iter().tuple_windows() {
             assert_eq!(left.end, right.start);
         }
     }
@@ -577,6 +676,7 @@ mod tests {
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
+            natural_split_ranges: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -650,7 +750,7 @@ mod tests {
 
         let file_schema = data_batch.schema();
         // Parallel scans may attach a byte range even for empty files; the
-        // opener must not call byte_range_to_row_range when the row_count is 0.
+        // opener must return early before attempting split-aligned translation.
         let file =
             PartitionedFile::new_with_range(file_path.to_string(), file_size, 0, file_size as i64);
 
@@ -708,6 +808,7 @@ mod tests {
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
+            natural_split_ranges: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -794,6 +895,7 @@ mod tests {
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
+            natural_split_ranges: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -950,6 +1052,7 @@ mod tests {
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
+            natural_split_ranges: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1009,6 +1112,7 @@ mod tests {
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
+            natural_split_ranges: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1212,6 +1316,7 @@ mod tests {
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
+            natural_split_ranges: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,

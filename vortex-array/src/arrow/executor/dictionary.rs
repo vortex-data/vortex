@@ -168,6 +168,24 @@ mod tests {
         array.execute_arrow(Some(dt), &mut LEGACY_SESSION.create_execution_ctx())
     }
 
+    fn dict_basic_input() -> crate::ArrayRef {
+        DictArray::try_new(
+            buffer![0u8, 1, 0].into_array(),
+            VarBinViewArray::from_iter_str(["a", "b"]).into_array(),
+        )
+        .expect("valid dictionary input")
+        .into_array()
+    }
+
+    fn dict_with_null_codes_input() -> crate::ArrayRef {
+        DictArray::try_new(
+            PrimitiveArray::from_option_iter(vec![Some(0u8), None, Some(1)]).into_array(),
+            VarBinViewArray::from_iter_str(["a", "b"]).into_array(),
+        )
+        .expect("valid dictionary input with null codes")
+        .into_array()
+    }
+
     #[rstest]
     #[case::constant_null(
         ConstantArray::new(Scalar::null(DType::Utf8(Nullable)), 4).into_array(),
@@ -180,18 +198,12 @@ mod tests {
         Arc::new(vec![Some("hello"); 5].into_iter().collect::<ArrowDictArray<UInt32Type>>()) as arrow_array::ArrayRef,
     )]
     #[case::dict_basic(
-        DictArray::try_new(
-            buffer![0u8, 1, 0].into_array(),
-            VarBinViewArray::from_iter_str(["a", "b"]).into_array(),
-        ).unwrap().into_array(),
+        dict_basic_input(),
         dict_type(DataType::UInt8, DataType::Utf8),
         Arc::new(vec![Some("a"), Some("b"), Some("a")].into_iter().collect::<ArrowDictArray<UInt8Type>>()) as arrow_array::ArrayRef,
     )]
     #[case::dict_with_null_codes(
-        DictArray::try_new(
-            PrimitiveArray::from_option_iter(vec![Some(0u8), None, Some(1)]).into_array(),
-            VarBinViewArray::from_iter_str(["a", "b"]).into_array(),
-        ).unwrap().into_array(),
+        dict_with_null_codes_input(),
         dict_type(DataType::UInt8, DataType::Utf8),
         Arc::new(vec![Some("a"), None, Some("b")].into_iter().collect::<ArrowDictArray<UInt8Type>>()) as arrow_array::ArrayRef,
     )]

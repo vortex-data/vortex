@@ -5,9 +5,8 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use vortex_array::ArrayRef;
-use vortex_array::LEGACY_SESSION;
+use vortex_array::ExecutionCtx;
 use vortex_array::TypedArrayRef;
-use vortex_array::VortexSessionExecute;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -111,16 +110,16 @@ pub trait RLEArrayExt: TypedArrayRef<crate::RLE> {
         clippy::expect_used,
         reason = "expect is safe here as scalar_at returns a valid primitive"
     )]
-    fn values_idx_offset(&self, chunk_idx: usize) -> usize {
+    fn values_idx_offset(&self, chunk_idx: usize, ctx: &mut ExecutionCtx) -> usize {
         self.values_idx_offsets()
-            .execute_scalar(chunk_idx, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(chunk_idx, ctx)
             .expect("index must be in bounds")
             .as_primitive()
             .as_::<usize>()
             .expect("index must be of type usize")
             - self
                 .values_idx_offsets()
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, ctx)
                 .expect("index must be in bounds")
                 .as_primitive()
                 .as_::<usize>()
@@ -142,8 +141,6 @@ mod tests {
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::primitive::PrimitiveArrayExt;
@@ -237,10 +234,13 @@ mod tests {
         let rle_array = RLE::try_new(values, indices_with_validity, values_idx_offsets, 0, 5)
             .vortex_expect("RLEData is always valid");
 
-        #[expect(deprecated)]
-        let valid_slice = rle_array.slice(0..3).unwrap().to_primitive();
-        // TODO(joe): replace with compute null count
         let mut ctx = SESSION.create_execution_ctx();
+        let valid_slice = rle_array
+            .slice(0..3)
+            .unwrap()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
+        // TODO(joe): replace with compute null count
         assert!(valid_slice.all_valid(&mut ctx).unwrap());
 
         let mixed_slice = rle_array.slice(1..5).unwrap();
@@ -311,7 +311,7 @@ mod tests {
         let validity_mask = sliced_array
             .validity()
             .unwrap()
-            .to_mask(
+            .execute_mask(
                 sliced_array.len(),
                 &mut LEGACY_SESSION.create_execution_ctx(),
             )
@@ -347,6 +347,7 @@ mod tests {
 
     #[test]
     fn test_multi_chunk_two_chunks() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_iter([10u32, 20, 30, 40]).into_array();
         let indices = PrimitiveArray::from_iter([0u16, 1].repeat(1024)).into_array();
         let values_idx_offsets = PrimitiveArray::from_iter([0u64, 2]).into_array();
@@ -356,24 +357,27 @@ mod tests {
         assert_eq!(rle_array.len(), 2048);
         assert_eq!(rle_array.values().len(), 4);
 
-        assert_eq!(rle_array.values_idx_offset(0), 0);
-        assert_eq!(rle_array.values_idx_offset(1), 2);
+        assert_eq!(rle_array.values_idx_offset(0, &mut ctx), 0);
+        assert_eq!(rle_array.values_idx_offset(1, &mut ctx), 2);
     }
 
     #[test]
-    fn test_rle_serialization() {
+    fn test_rle_serialization() -> VortexResult<()> {
+        let mut exec_ctx = SESSION.create_execution_ctx();
         let primitive = PrimitiveArray::from_iter((0..2048).map(|i| (i / 100) as u32));
-        let rle_array = RLEData::encode(primitive.as_view()).unwrap();
+        let rle_array = RLEData::encode(primitive.as_view(), &mut exec_ctx)?;
         assert_eq!(rle_array.len(), 2048);
 
-        #[expect(deprecated)]
-        let original_data = rle_array.as_array().to_primitive();
+        let original_data = rle_array
+            .as_array()
+            .clone()
+            .execute::<PrimitiveArray>(&mut exec_ctx)?;
 
         let ctx = ArrayContext::empty();
-        let serialized = rle_array
-            .into_array()
-            .serialize(&ctx, &SESSION, &SerializeOptions::default())
-            .unwrap();
+        let serialized =
+            rle_array
+                .into_array()
+                .serialize(&ctx, &SESSION, &SerializeOptions::default())?;
 
         let mut concat = ByteBufferMut::empty();
         for buf in serialized {
@@ -381,26 +385,25 @@ mod tests {
         }
         let concat = concat.freeze();
 
-        let parts = SerializedArray::try_from(concat).unwrap();
-        let decoded = parts
-            .decode(
-                &DType::Primitive(PType::U32, Nullability::NonNullable),
-                2048,
-                &ReadContext::new(ctx.to_ids()),
-                &SESSION,
-            )
-            .unwrap();
+        let parts = SerializedArray::try_from(concat)?;
+        let decoded = parts.decode(
+            &DType::Primitive(PType::U32, Nullability::NonNullable),
+            2048,
+            &ReadContext::new(ctx.to_ids()),
+            &SESSION,
+        )?;
 
-        #[expect(deprecated)]
-        let decoded_data = decoded.to_primitive();
+        let decoded_data = decoded.execute::<PrimitiveArray>(&mut exec_ctx)?;
 
         assert_arrays_eq!(original_data, decoded_data);
+        Ok(())
     }
 
     #[test]
-    fn test_rle_serialization_slice() {
+    fn test_rle_serialization_slice() -> VortexResult<()> {
+        let mut exec_ctx = SESSION.create_execution_ctx();
         let primitive = PrimitiveArray::from_iter((0..2048).map(|i| (i / 100) as u32));
-        let rle_array = RLEData::encode(primitive.as_view()).unwrap();
+        let rle_array = RLEData::encode(primitive.as_view(), &mut exec_ctx)?;
 
         let sliced = RLE::try_new(
             rle_array.values().clone(),
@@ -413,11 +416,11 @@ mod tests {
         assert_eq!(sliced.len(), 100);
 
         let ctx = ArrayContext::empty();
-        let serialized = sliced
-            .clone()
-            .into_array()
-            .serialize(&ctx, &SESSION, &SerializeOptions::default())
-            .unwrap();
+        let serialized =
+            sliced
+                .clone()
+                .into_array()
+                .serialize(&ctx, &SESSION, &SerializeOptions::default())?;
 
         let mut concat = ByteBufferMut::empty();
         for buf in serialized {
@@ -425,22 +428,22 @@ mod tests {
         }
         let concat = concat.freeze();
 
-        let parts = SerializedArray::try_from(concat).unwrap();
-        let decoded = parts
-            .decode(
-                sliced.dtype(),
-                sliced.len(),
-                &ReadContext::new(ctx.to_ids()),
-                &SESSION,
-            )
-            .unwrap();
+        let parts = SerializedArray::try_from(concat)?;
+        let decoded = parts.decode(
+            sliced.dtype(),
+            sliced.len(),
+            &ReadContext::new(ctx.to_ids()),
+            &SESSION,
+        )?;
 
-        #[expect(deprecated)]
-        let original_data = sliced.as_array().to_primitive();
-        #[expect(deprecated)]
-        let decoded_data = decoded.to_primitive();
+        let original_data = sliced
+            .as_array()
+            .clone()
+            .execute::<PrimitiveArray>(&mut exec_ctx)?;
+        let decoded_data = decoded.execute::<PrimitiveArray>(&mut exec_ctx)?;
 
         assert_arrays_eq!(original_data, decoded_data);
+        Ok(())
     }
 
     /// Regression test: re-encoding RLE indices with RLE must not corrupt
@@ -453,6 +456,7 @@ mod tests {
     /// because chunk 1 only had 1 unique value and index 1 was out of bounds.
     #[test]
     fn test_recompress_indices_no_cross_chunk_leak() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let len = FL_CHUNK_SIZE + 100;
         let mut values: Vec<Option<i16>> = vec![None; len];
         // Two distinct values in chunk 0 → indices 0 and 1.
@@ -461,13 +465,16 @@ mod tests {
         // Chunk 1 (positions 1024..) is all-null.
 
         let original = PrimitiveArray::from_option_iter(values);
-        let rle = RLEData::encode(original.as_view())?;
+        let rle = RLEData::encode(original.as_view(), &mut ctx)?;
 
         // Simulate cascading compression: narrow u16->u8 then re-encode with RLE,
         // matching the path taken by the BtrBlocks compressor.
-        #[expect(deprecated)]
-        let indices_prim = rle.indices().to_primitive().narrow()?;
-        let re_encoded = RLEData::encode(indices_prim.as_view())?;
+        let indices_prim = rle
+            .indices()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?
+            .narrow()?;
+        let re_encoded = RLEData::encode(indices_prim.as_view(), &mut ctx)?;
 
         // Reconstruct the outer RLE with re-encoded indices.
         // SAFETY: we only replace the indices child; all other invariants hold.
@@ -482,8 +489,10 @@ mod tests {
         };
 
         // Decompress — panicked before the fill_forward_nulls chunk-boundary fix.
-        #[expect(deprecated)]
-        let decoded = reconstructed.as_array().to_primitive();
+        let decoded = reconstructed
+            .as_array()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         assert_arrays_eq!(decoded, original);
         Ok(())
     }

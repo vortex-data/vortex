@@ -25,7 +25,7 @@ impl ExecuteParentKernel<RunEnd> for RunEndTakeFrom {
         array: ArrayView<'_, RunEnd>,
         dict: ArrayView<'_, Dict>,
         child_idx: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         if child_idx != 0 {
             return Ok(None);
@@ -44,6 +44,7 @@ impl ExecuteParentKernel<RunEnd> for RunEndTakeFrom {
                 dict.values().take(array.values().clone())?,
                 array.offset(),
                 array.len(),
+                ctx,
             )
         };
         //
@@ -53,6 +54,7 @@ impl ExecuteParentKernel<RunEnd> for RunEndTakeFrom {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::Canonical;
     use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
     use vortex_array::arrays::DictArray;
@@ -74,8 +76,8 @@ mod tests {
     /// Dict values: `[2, 3]`
     /// Codes:       `[0, 0, 0, 1, 1, 0, 0]`
     /// RunEnd encoded codes: ends=`[3, 5, 7]`, values=`[0, 1, 0]`
-    fn make_dict_with_runend_codes() -> (RunEndArray, DictArray) {
-        let codes = RunEnd::encode(buffer![0u32, 0, 0, 1, 1, 0, 0].into_array()).unwrap();
+    fn make_dict_with_runend_codes(ctx: &mut ExecutionCtx) -> (RunEndArray, DictArray) {
+        let codes = RunEnd::encode(buffer![0u32, 0, 0, 1, 1, 0, 0].into_array(), ctx).unwrap();
         let values = buffer![2i32, 3].into_array();
         let dict = DictArray::try_new(codes.clone().into_array(), values).unwrap();
         (codes, dict)
@@ -83,23 +85,23 @@ mod tests {
 
     #[test]
     fn test_execute_parent_no_offset() -> VortexResult<()> {
-        let (codes, dict) = make_dict_with_runend_codes();
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
+        let (codes, dict) = make_dict_with_runend_codes(&mut ctx);
 
         let result = RunEndTakeFrom
             .execute_parent(codes.as_view(), dict.as_view(), 0, &mut ctx)?
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([2i32, 2, 2, 3, 3, 2, 2]);
-        #[expect(deprecated)]
-        let canonical = result.to_canonical()?.into_array();
+        let canonical = result.execute::<Canonical>(&mut ctx)?.into_array();
         assert_arrays_eq!(canonical, expected);
         Ok(())
     }
 
     #[test]
     fn test_execute_parent_with_offset() -> VortexResult<()> {
-        let (codes, dict) = make_dict_with_runend_codes();
+        let mut ctx = ExecutionCtx::new(VortexSession::empty());
+        let (codes, dict) = make_dict_with_runend_codes(&mut ctx);
         // Slice codes to positions 2..5 → logical codes [0, 1, 1] → values [2, 3, 3]
         let sliced_codes = unsafe {
             RunEnd::new_unchecked(
@@ -107,24 +109,24 @@ mod tests {
                 codes.values().clone(),
                 2, // offset
                 3, // len
+                &mut ctx,
             )
         };
-        let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
         let result = RunEndTakeFrom
             .execute_parent(sliced_codes.as_view(), dict.as_view(), 0, &mut ctx)?
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([2i32, 3, 3]);
-        #[expect(deprecated)]
-        let canonical = result.to_canonical()?.into_array();
+        let canonical = result.execute::<Canonical>(&mut ctx)?.into_array();
         assert_arrays_eq!(canonical, expected);
         Ok(())
     }
 
     #[test]
     fn test_execute_parent_offset_at_run_boundary() -> VortexResult<()> {
-        let (codes, dict) = make_dict_with_runend_codes();
+        let mut ctx = ExecutionCtx::new(VortexSession::empty());
+        let (codes, dict) = make_dict_with_runend_codes(&mut ctx);
         // Slice codes to positions 3..7 → logical codes [1, 1, 0, 0] → values [3, 3, 2, 2]
         let sliced_codes = unsafe {
             RunEnd::new_unchecked(
@@ -132,24 +134,24 @@ mod tests {
                 codes.values().clone(),
                 3, // offset at exact run boundary
                 4, // len
+                &mut ctx,
             )
         };
-        let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
         let result = RunEndTakeFrom
             .execute_parent(sliced_codes.as_view(), dict.as_view(), 0, &mut ctx)?
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([3i32, 3, 2, 2]);
-        #[expect(deprecated)]
-        let canonical = result.to_canonical()?.into_array();
+        let canonical = result.execute::<Canonical>(&mut ctx)?.into_array();
         assert_arrays_eq!(canonical, expected);
         Ok(())
     }
 
     #[test]
     fn test_execute_parent_single_element_offset() -> VortexResult<()> {
-        let (codes, dict) = make_dict_with_runend_codes();
+        let mut ctx = ExecutionCtx::new(VortexSession::empty());
+        let (codes, dict) = make_dict_with_runend_codes(&mut ctx);
         // Slice to single element at position 4 → code=1 → value=3
         let sliced_codes = unsafe {
             RunEnd::new_unchecked(
@@ -157,25 +159,24 @@ mod tests {
                 codes.values().slice(1..3)?,
                 4, // offset
                 1, // len
+                &mut ctx,
             )
         };
-        let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
         let result = RunEndTakeFrom
             .execute_parent(sliced_codes.as_view(), dict.as_view(), 0, &mut ctx)?
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([3i32]);
-        #[expect(deprecated)]
-        let canonical = result.to_canonical()?.into_array();
+        let canonical = result.execute::<Canonical>(&mut ctx)?.into_array();
         assert_arrays_eq!(canonical, expected);
         Ok(())
     }
 
     #[test]
     fn test_execute_parent_returns_none_for_non_codes_child() -> VortexResult<()> {
-        let (codes, dict) = make_dict_with_runend_codes();
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
+        let (codes, dict) = make_dict_with_runend_codes(&mut ctx);
 
         let result = RunEndTakeFrom.execute_parent(codes.as_view(), dict.as_view(), 1, &mut ctx)?;
         assert!(result.is_none());

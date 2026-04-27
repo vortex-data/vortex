@@ -5,6 +5,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
@@ -27,17 +28,18 @@ impl Scheme for BoolConstantScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &mut ArrayAndStats,
-        ctx: CompressorContext,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         // Constant detection on a sample is a false positive, since the sample being constant does
         // not mean the full array is constant.
-        if ctx.is_sample() {
+        if compress_ctx.is_sample() {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         let array_len = data.array().len();
-        let stats = data.bool_stats();
+        let stats = data.bool_stats(exec_ctx);
 
         // We want to use `Constant` if there are only nulls in the array.
         if stats.value_count() == 0 {
@@ -55,9 +57,10 @@ impl Scheme for BoolConstantScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
+        data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        compress_constant_array_with_validity(data.array())
+        compress_constant_array_with_validity(data.array(), exec_ctx)
     }
 }

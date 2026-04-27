@@ -5,6 +5,8 @@ use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::dtype::FieldNames;
@@ -32,6 +34,9 @@ impl FlatLayoutFixture for BitPackedFixture {
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
+        // NOTE: `FlatLayoutFixture::build` has a fixed `(&self)` trait signature, so we cannot
+        // plumb `ExecutionCtx` from a caller; construct one from `LEGACY_SESSION` here.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let u32_8bit: PrimitiveArray = (0..N as u32).map(|i| i % 256).collect();
         let u64_12bit: PrimitiveArray = (0..N as u64).map(|i| i % 4096).collect();
         let u16_4bit: PrimitiveArray = (0..N as u16).map(|i| i % 16).collect();
@@ -80,21 +85,21 @@ impl FlatLayoutFixture for BitPackedFixture {
                 "u16_head_tail_nulls",
             ]),
             vec![
-                bitpack_encode(&u32_8bit, 8, None)?.into_array(),
-                bitpack_encode(&u64_12bit, 12, None)?.into_array(),
-                bitpack_encode(&u16_4bit, 4, None)?.into_array(),
-                bitpack_encode(&u16_1bit, 1, None)?.into_array(),
-                bitpack_encode(&u32_nullable, 7, None)?.into_array(),
-                bitpack_encode(&u32_all_zero, 1, None)?.into_array(),
-                bitpack_encode(&u16_all_equal, 3, None)?.into_array(),
-                bitpack_encode(&u16_15bit, 15, None)?.into_array(),
-                bitpack_encode(&u32_31bit, 31, None)?.into_array(),
-                bitpack_encode(&u64_63bit, 63, None)?.into_array(),
-                bitpack_encode(&u8_3bit, 3, None)?.into_array(),
-                bitpack_encode(&u8_5bit, 5, None)?.into_array(),
-                bitpack_encode(&u16_9bit, 9, None)?.into_array(),
-                bitpack_encode(&u32_17bit, 17, None)?.into_array(),
-                bitpack_encode(&u16_head_tail_nulls, 5, None)?.into_array(),
+                bitpack_encode(&u32_8bit, 8, None, &mut ctx)?.into_array(),
+                bitpack_encode(&u64_12bit, 12, None, &mut ctx)?.into_array(),
+                bitpack_encode(&u16_4bit, 4, None, &mut ctx)?.into_array(),
+                bitpack_encode(&u16_1bit, 1, None, &mut ctx)?.into_array(),
+                bitpack_encode(&u32_nullable, 7, None, &mut ctx)?.into_array(),
+                bitpack_encode(&u32_all_zero, 1, None, &mut ctx)?.into_array(),
+                bitpack_encode(&u16_all_equal, 3, None, &mut ctx)?.into_array(),
+                bitpack_encode(&u16_15bit, 15, None, &mut ctx)?.into_array(),
+                bitpack_encode(&u32_31bit, 31, None, &mut ctx)?.into_array(),
+                bitpack_encode(&u64_63bit, 63, None, &mut ctx)?.into_array(),
+                bitpack_encode(&u8_3bit, 3, None, &mut ctx)?.into_array(),
+                bitpack_encode(&u8_5bit, 5, None, &mut ctx)?.into_array(),
+                bitpack_encode(&u16_9bit, 9, None, &mut ctx)?.into_array(),
+                bitpack_encode(&u32_17bit, 17, None, &mut ctx)?.into_array(),
+                bitpack_encode(&u16_head_tail_nulls, 5, None, &mut ctx)?.into_array(),
             ],
             N,
             Validity::NonNullable,

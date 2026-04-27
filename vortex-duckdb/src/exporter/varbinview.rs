@@ -161,7 +161,7 @@ mod tests {
         chunk.set_len(3);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk)?),
             r#"Chunk - [1 Columns]
 - CONSTANT VARCHAR: 3 = [ NULL]
 "#
@@ -181,7 +181,7 @@ mod tests {
         chunk.set_len(3);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk)?),
             r#"Chunk - [1 Columns]
 - CONSTANT VARCHAR: 3 = [ NULL]
 "#
@@ -203,7 +203,7 @@ mod tests {
         chunk.set_len(3);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk)?),
             r#"Chunk - [1 Columns]
 - FLAT VARCHAR: 3 = [ NULL, NULL, Hi]
 "#

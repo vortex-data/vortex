@@ -57,6 +57,25 @@ impl CudaKernelEvents {
     }
 }
 
+/// Controls which GPU dispatch strategy is used when executing arrays.
+///
+/// By default, `execute_cuda` tries fused dynamic dispatch first,
+/// then falls back to standalone per-encoding kernels. Benchmarks and tests
+/// can force a specific strategy to get stable, isolated measurements.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CudaDispatchMode {
+    /// Automatically choose the best strategy (current default behavior).
+    /// Tries fused → partially-fused → standalone → CPU fallback.
+    #[default]
+    Auto,
+    /// Only use standalone per-encoding `CudaExecute` kernels.
+    /// Skips the fused/partially-fused dynamic dispatch planner entirely.
+    StandaloneOnly,
+    /// Only use fused or partially-fused dynamic dispatch.
+    /// Returns an error if the array is not dyn-dispatch-compatible.
+    DynDispatchOnly,
+}
+
 /// CUDA execution context.
 ///
 /// Provides access to the CUDA context and stream for kernel execution.
@@ -66,6 +85,7 @@ pub struct CudaExecutionCtx {
     ctx: ExecutionCtx,
     cuda_session: CudaSession,
     strategy: Arc<dyn LaunchStrategy>,
+    dispatch_mode: CudaDispatchMode,
 }
 
 impl CudaExecutionCtx {
@@ -77,6 +97,7 @@ impl CudaExecutionCtx {
             ctx,
             cuda_session,
             strategy: Arc::new(DefaultLaunchStrategy),
+            dispatch_mode: CudaDispatchMode::Auto,
         }
     }
 
@@ -91,6 +112,15 @@ impl CudaExecutionCtx {
     /// a kernel execution.
     pub fn with_launch_strategy(mut self, launch_strategy: Arc<dyn LaunchStrategy>) -> Self {
         self.strategy = launch_strategy;
+        self
+    }
+
+    /// Set the dispatch mode for the execution context.
+    ///
+    /// This controls whether `execute_cuda` uses fused dynamic dispatch,
+    /// standalone per-encoding kernels, or the automatic (default) strategy.
+    pub fn with_dispatch_mode(mut self, dispatch_mode: CudaDispatchMode) -> Self {
+        self.dispatch_mode = dispatch_mode;
         self
     }
 
@@ -274,6 +304,11 @@ impl CudaExecutionCtx {
     #[cfg(feature = "unstable_encodings")]
     pub(crate) fn session(&self) -> &vortex::session::VortexSession {
         self.ctx.session()
+    }
+
+    /// Returns the current dispatch mode.
+    pub fn dispatch_mode(&self) -> CudaDispatchMode {
+        self.dispatch_mode
     }
 
     /// Returns a reference to the CUDA session.

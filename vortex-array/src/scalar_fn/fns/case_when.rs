@@ -858,9 +858,8 @@ mod tests {
         //      WHEN value = 1 THEN nullable(20) -- Nullable
         //      ELSE 0                           -- NonNullable
         // → result must be Nullable(i32)
-        let test_array = StructArray::from_fields(&[("value", buffer![0i32, 1, 2].into_array())])
-            .unwrap()
-            .into_array();
+        let test_array =
+            StructArray::from_fields(&[("value", buffer![0i32, 1, 2].into_array())])?.into_array();
 
         let nullable_20 =
             Scalar::from(20i32).cast(&DType::Primitive(PType::I32, Nullability::Nullable))?;
@@ -1117,8 +1116,7 @@ mod tests {
     fn test_evaluate_nary_string_output() -> VortexResult<()> {
         // Exercises merge_case_branches with a non-primitive (Utf8) builder.
         let test_array =
-            StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4].into_array())])
-                .unwrap()
+            StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4].into_array())])?
                 .into_array();
 
         // CASE WHEN value > 2 THEN 'high' WHEN value > 0 THEN 'low' ELSE 'none' END

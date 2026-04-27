@@ -44,6 +44,7 @@ divan = { workspace = true }
 rstest = { workspace = true }
 test-with = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-session = { workspace = true }
 
 [features]
 # This feature enabled unstable encodings for which we don't guarantee stability.

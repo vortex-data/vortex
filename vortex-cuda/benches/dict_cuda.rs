@@ -26,6 +26,7 @@ use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;
 use vortex::error::VortexExpect;
 use vortex::session::VortexSession;
+use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
@@ -92,10 +93,11 @@ where
             |b, dict_array| {
                 b.iter_custom(|iters| {
                     let timed = TimedLaunchStrategy::default();
-                    let timer = Arc::clone(&timed.total_time_ns);
+                    let timer = timed.timer();
 
                     let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
                         .vortex_expect("failed to create execution context")
+                        .with_dispatch_mode(CudaDispatchMode::StandaloneOnly)
                         .with_launch_strategy(Arc::new(timed));
 
                     for _ in 0..iters {

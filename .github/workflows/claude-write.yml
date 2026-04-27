@@ -1,0 +1,213 @@
+name: Claude Code (Write)
+
+# Setup
+# 1. Create a dedicated GitHub App and install it only on this repository.
+# 2. Grant the App only:
+#    - Contents: Read & write
+#    - Issues: Read & write
+#    - Pull requests: Read & write
+# 3. Create a GitHub Actions environment named `claude-automation`.
+# 4. Store these environment secrets in `claude-automation`:
+#    - APP_ID
+#    - APP_PRIVATE_KEY
+#    - CLAUDE_CODE_OAUTH_TOKEN
+# 5. Create a repository or organization Actions variable:
+#    - CLAUDE_APP_LOGIN
+#      Set this to the bot login for the GitHub App, usually `<app-slug>[bot]`.
+#
+# Why this workflow exists separately
+# - This is the only workflow that can read the GitHub App private key.
+# - It is primarily issue-driven. The only PR path it allows is a follow-up comment
+#   on a same-repo PR that was already opened by the Claude GitHub App.
+# - Claude uses a short-lived GitHub App installation token, not GITHUB_TOKEN, so
+#   PRs opened by Claude trigger normal `pull_request` workflows.
+# - A gate job runs before the environment is attached so untrusted events are
+#   rejected before the private key is exposed.
+# - GitHub exposes the author of an app-created PR as the app's bot login rather
+#   than the numeric App ID in the PR payload, so the gate checks `CLAUDE_APP_LOGIN`
+#   instead of comparing directly to `APP_ID`.
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.issue.number || github.run_id }}
+  cancel-in-progress: true
+
+on:
+  issues:
+    types: [opened, assigned]
+  issue_comment:
+    types: [created]
+
+jobs:
+  gate:
+    name: Gate Issue Trigger
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    outputs:
+      should_run: ${{ steps.gate.outputs.should_run }}
+      reason: ${{ steps.gate.outputs.reason }}
+      checkout_ref: ${{ steps.gate.outputs.checkout_ref }}
+    steps:
+      - name: Check whether this event is allowed to reach Claude
+        id: gate
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const sender = context.payload.sender?.login ?? '';
+            const senderType = context.payload.sender?.type ?? '';
+            const trustedClaudeLogin = process.env.CLAUDE_APP_LOGIN ?? '';
+
+            async function getPermission(username) {
+              try {
+                const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  username,
+                });
+                return data.permission;
+              } catch (error) {
+                if (error.status === 404) {
+                  return 'none';
+                }
+                throw error;
+              }
+            }
+
+            let mentioned = false;
+            let reason = '';
+            let checkoutRef = context.payload.repository?.default_branch ?? '';
+
+            if (context.eventName === 'issues') {
+              const title = context.payload.issue?.title ?? '';
+              const body = context.payload.issue?.body ?? '';
+              mentioned = title.includes('@claude') || body.includes('@claude');
+            } else if (context.eventName === 'issue_comment') {
+              const body = context.payload.comment?.body ?? '';
+              mentioned = body.includes('@claude');
+
+              if (context.payload.issue?.pull_request) {
+                const response = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: context.payload.issue.number,
+                });
+                const pr = response.data;
+
+                checkoutRef = pr.head.sha;
+
+                const headRepo = pr.head.repo;
+                const isFork = !headRepo || headRepo.fork || headRepo.full_name !== `${context.repo.owner}/${context.repo.repo}`;
+                if (isFork) {
+                  reason = 'fork_pr_refused';
+                } else if (!trustedClaudeLogin) {
+                  reason = 'missing_claude_app_login';
+                } else if ((pr.user?.login ?? '') !== trustedClaudeLogin) {
+                  reason = 'pr_not_owned_by_claude_app';
+                }
+
+                if (!reason) {
+                  const files = await github.paginate(github.rest.pulls.listFiles, {
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    pull_number: context.payload.issue.number,
+                    per_page: 100,
+                  });
+                  // Refuse workflow changes so write-capable automation never acts on
+                  // `.github/` modifications from the same pull request.
+                  if (files.some(f => f.filename.startsWith('.github/'))) {
+                    reason = 'modifies_github_dir';
+                  }
+                }
+              }
+            }
+
+            if (!reason && !mentioned) {
+              reason = 'not_mentioned';
+            }
+
+            if (!reason && senderType === 'Bot') {
+              reason = 'bot_sender_refused';
+            }
+
+            if (!reason) {
+              const permission = await getPermission(sender);
+              core.setOutput('actor_permission', permission);
+              if (!['admin', 'maintain', 'write'].includes(permission)) {
+                reason = 'actor_lacks_write';
+              }
+            }
+
+            core.setOutput('checkout_ref', checkoutRef);
+            core.setOutput('should_run', !reason ? 'true' : 'false');
+            core.setOutput('reason', reason || 'allowed');
+        env:
+          CLAUDE_APP_LOGIN: ${{ vars.CLAUDE_APP_LOGIN }}
+
+  claude:
+    name: Run Claude Code
+    needs: gate
+    if: needs.gate.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    environment:
+      # The App private key lives only in this environment so only this single job
+      # can mint a GitHub App installation token.
+      name: claude-automation
+      deployment: false
+
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      actions: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          ref: ${{ needs.gate.outputs.checkout_ref }}
+          fetch-depth: 0
+          # Do not leave the built-in GITHUB_TOKEN in git config. Claude should use
+          # only the GitHub App token generated below so its PRs trigger CI normally.
+          persist-credentials: false
+
+      - name: Generate short-lived GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+
+      - name: Setup Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          enable-sccache: "false"
+
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+        with:
+          sync: false
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@6cad158a175744eb2e76f7f5fd108ec63145598c
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ steps.app-token.outputs.token }}
+
+          # Claude may inspect CI state on related PRs, but this workflow is otherwise
+          # issue-driven and is the only place with write-capable GitHub credentials.
+          additional_permissions: |
+            actions: read
+
+          claude_args: |
+            --allowedTools "Bash(cargo nextest:*),Bash(cargo check:*),Bash(cargo clippy:*),Bash(cargo fmt:*),Bash(uv run:*)"
+            --system-prompt "You are the repository's write-capable Claude workflow. You run only from trusted issue traffic and from trusted PR conversation comments on same-repo pull requests that were previously opened by the repository's Claude GitHub App. Create or update branches and pull requests using the provided GitHub App token. Do not use fork pull request content because those runs are blocked before this job starts."

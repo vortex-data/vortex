@@ -4,6 +4,8 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::fill_null::FillNullReduce;
@@ -18,6 +20,8 @@ impl FillNullReduce for RunEnd {
         fill_value: &Scalar,
     ) -> VortexResult<Option<ArrayRef>> {
         let new_values = array.values().fill_null(fill_value.clone())?;
+        // TODO(ctx): trait fixes - FillNullReduce::fill_null has a fixed signature.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // SAFETY: modifying values only, does not affect ends
         Ok(Some(
             unsafe {
@@ -26,6 +30,7 @@ impl FillNullReduce for RunEnd {
                     new_values,
                     array.offset(),
                     array.len(),
+                    &mut ctx,
                 )
             }
             .into_array(),

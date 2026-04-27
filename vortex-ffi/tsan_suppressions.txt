@@ -5,3 +5,4 @@
 # This is likely a false positive in TSan for oneshot::channel and kanal
 # where ordering is correct but uses an explicit fence and not relaxed load
 race:oneshot-*/src/channel.rs
+race:oneshot-*/src/lib.rs

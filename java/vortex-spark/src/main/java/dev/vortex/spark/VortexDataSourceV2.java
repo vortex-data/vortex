@@ -7,9 +7,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
-import dev.vortex.api.File;
-import dev.vortex.api.Files;
-import dev.vortex.jni.NativeFileMethods;
+import dev.vortex.api.DataSource;
+import dev.vortex.jni.NativeFiles;
 import dev.vortex.spark.config.HadoopUtils;
 import dev.vortex.spark.read.PartitionPathUtils;
 import java.util.Map;
@@ -19,12 +18,13 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.spark.sql.SparkSession;
-import org.apache.spark.sql.connector.catalog.CatalogV2Util;
 import org.apache.spark.sql.connector.catalog.Table;
 import org.apache.spark.sql.connector.catalog.TableProvider;
 import org.apache.spark.sql.connector.expressions.Transform;
 import org.apache.spark.sql.sources.DataSourceRegister;
 import org.apache.spark.sql.types.DataType;
+import org.apache.spark.sql.types.Metadata;
+import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 import scala.Option;
@@ -82,20 +82,26 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
         var pathToInfer = Objects.requireNonNull(Iterables.getLast(paths));
         // If the path is a directory, scan the directory for a file and use that file
         if (!pathToInfer.endsWith(".vortex")) {
-            Optional<String> firstFile = NativeFileMethods.listVortexFiles(pathToInfer, formatOptions).stream()
-                    .findFirst();
+            Optional<String> firstFile =
+                    NativeFiles.listFiles(VortexSparkSession.get(formatOptions), pathToInfer, formatOptions).stream()
+                            .findFirst();
 
             if (firstFile.isEmpty()) {
-                return new StructType();
+                throw new RuntimeException(String.format("UNABLE_TO_INFER_SCHEMA format: %s", shortName()));
             } else {
                 pathToInfer = firstFile.get();
             }
         }
 
         StructType dataSchema;
-        try (File file = Files.open(pathToInfer, formatOptions)) {
-            var columns = SparkTypes.toColumns(file.getDType());
-            dataSchema = CatalogV2Util.v2ColumnsToStructType(columns);
+        {
+            DataSource ds = DataSource.open(VortexSparkSession.get(formatOptions), pathToInfer, formatOptions);
+            var arrowSchema = ds.arrowSchema(dev.vortex.arrow.ArrowAllocation.rootAllocator());
+            StructField[] fields = arrowSchema.getFields().stream()
+                    .map(f -> new StructField(
+                            f.getName(), ArrowUtils.fromArrowField(f), f.isNullable(), Metadata.empty()))
+                    .toArray(StructField[]::new);
+            dataSchema = new StructType(fields);
         }
 
         // Discover partition columns from Hive-style directory paths and append them.
@@ -119,9 +125,9 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
      * This method creates a VortexWritableTable that can be used to both read from and write to
      * Vortex files. The partitioning parameter is currently ignored.
      *
-     * @param schema        the table schema
+     * @param schema       the table schema
      * @param partitioning table partitioning transforms
-     * @param properties    the table properties containing file paths and other options
+     * @param properties   the table properties containing file paths and other options
      * @return a VortexTable instance for reading and writing data
      * @throws RuntimeException if required path properties are missing
      */

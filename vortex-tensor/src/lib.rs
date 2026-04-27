@@ -5,25 +5,32 @@
 //! including unit vectors, spherical coordinates, and similarity measures such as cosine
 //! similarity.
 
+#![cfg_attr(
+    test,
+    allow(clippy::unwrap_used, clippy::expect_used, clippy::unwrap_in_result)
+)]
+
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
-use crate::fixed_shape::FixedShapeTensor;
 use crate::scalar_fns::cosine_similarity::CosineSimilarity;
 use crate::scalar_fns::inner_product::InnerProduct;
 use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::scalar_fns::l2_norm::L2Norm;
 use crate::scalar_fns::sorf_transform::SorfTransform;
-use crate::vector::Vector;
+use crate::types::fixed_shape::FixedShapeTensor;
+use crate::types::vector::Vector;
 
 pub mod matcher;
 pub mod scalar_fns;
 
-pub mod fixed_shape;
-pub mod vector;
+mod types;
+
+pub use types::fixed_shape;
+pub use types::vector;
 
 pub mod encodings;
 

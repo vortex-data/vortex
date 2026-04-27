@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde::Serialize;
 use vortex::array::ArrayRef;
+use vortex::array::ExecutionCtx;
 
 use crate::clickbench::Flavor;
 
@@ -21,11 +22,22 @@ pub mod tpch_l_comment;
 
 use std::path::PathBuf;
 
+pub(crate) const DEFAULT_BENCHMARK_RUNNER_ID: &str = "unknown";
+
+pub(crate) fn normalize_benchmark_runner_id(benchmark_runner: &str) -> String {
+    let benchmark_runner = benchmark_runner.trim().replace('/', "_");
+    if benchmark_runner.is_empty() {
+        DEFAULT_BENCHMARK_RUNNER_ID.to_string()
+    } else {
+        benchmark_runner
+    }
+}
+
 #[async_trait]
 pub trait Dataset {
     fn name(&self) -> &str;
 
-    async fn to_vortex_array(&self) -> Result<ArrayRef>;
+    async fn to_vortex_array(&self, ctx: &mut ExecutionCtx) -> Result<ArrayRef>;
 
     /// Get the path to the parquet file for this dataset.
     ///

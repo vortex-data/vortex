@@ -153,7 +153,7 @@ fn take_nullable_fsl<I: IntegerPType, E: IntegerPType>(
 
     let array_validity = array
         .fixed_size_list_validity()
-        .to_mask(array.as_ref().len(), ctx)
+        .execute_mask(array.as_ref().len(), ctx)
         .vortex_expect("Failed to compute validity mask");
     let indices_len = indices_array.as_ref().len();
     let indices_validity = match indices_array
@@ -162,7 +162,7 @@ fn take_nullable_fsl<I: IntegerPType, E: IntegerPType>(
     {
         Validity::NonNullable | Validity::AllValid => Mask::new_true(indices_len),
         Validity::AllInvalid => Mask::new_false(indices_len),
-        Validity::Array(a) => a.execute::<BoolArray>(ctx)?.to_mask(ctx),
+        Validity::Array(a) => a.execute::<BoolArray>(ctx)?.execute_mask(ctx),
     };
 
     // We must use placeholder zeros for null lists to maintain the array length without

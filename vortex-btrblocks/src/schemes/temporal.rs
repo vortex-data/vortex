@@ -5,14 +5,14 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
-use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::is_constant::is_constant;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TemporalArray;
+use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::extension::Matcher;
 use vortex_array::extension::datetime::AnyTemporal;
@@ -62,8 +62,9 @@ impl Scheme for TemporalScheme {
 
     fn expected_compression_ratio(
         &self,
-        _data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         // Temporal compression (splitting into parts) is almost always beneficial.
         CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
@@ -72,26 +73,22 @@ impl Scheme for TemporalScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
-        ctx: CompressorContext,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let array = data.array().clone();
-        #[expect(deprecated)]
-        let ext_array = array.to_extension();
+        let ext_array = array.execute::<ExtensionArray>(exec_ctx)?;
         let temporal_array = TemporalArray::try_from(ext_array.clone().into_array())?;
 
         // Check for constant array and return early if so.
-        let is_constant = is_constant(
-            &ext_array.clone().into_array(),
-            &mut compressor.execution_ctx(),
-        )?;
+        let is_constant = is_constant(&ext_array.clone().into_array(), exec_ctx)?;
 
         if is_constant {
-            return Ok(ConstantArray::new(
-                ext_array.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
-                ext_array.len(),
-            )
-            .into_array());
+            return Ok(
+                ConstantArray::new(ext_array.execute_scalar(0, exec_ctx)?, ext_array.len())
+                    .into_array(),
+            );
         }
 
         let dtype = temporal_array.dtype().clone();
@@ -99,19 +96,32 @@ impl Scheme for TemporalScheme {
             days,
             seconds,
             subseconds,
-        } = split_temporal(temporal_array)?;
+        } = split_temporal(temporal_array, exec_ctx)?;
 
-        #[expect(deprecated)]
-        let days_primitive = days.to_primitive().narrow()?;
-        let days = compressor.compress_child(&days_primitive.into_array(), &ctx, self.id(), 0)?;
-        #[expect(deprecated)]
-        let seconds_primitive = seconds.to_primitive().narrow()?;
-        let seconds =
-            compressor.compress_child(&seconds_primitive.into_array(), &ctx, self.id(), 1)?;
-        #[expect(deprecated)]
-        let subseconds_primitive = subseconds.to_primitive().narrow()?;
-        let subseconds =
-            compressor.compress_child(&subseconds_primitive.into_array(), &ctx, self.id(), 2)?;
+        let days_primitive = days.execute::<PrimitiveArray>(exec_ctx)?.narrow()?;
+        let days = compressor.compress_child(
+            &days_primitive.into_array(),
+            &compress_ctx,
+            self.id(),
+            0,
+            exec_ctx,
+        )?;
+        let seconds_primitive = seconds.execute::<PrimitiveArray>(exec_ctx)?.narrow()?;
+        let seconds = compressor.compress_child(
+            &seconds_primitive.into_array(),
+            &compress_ctx,
+            self.id(),
+            1,
+            exec_ctx,
+        )?;
+        let subseconds_primitive = subseconds.execute::<PrimitiveArray>(exec_ctx)?.narrow()?;
+        let subseconds = compressor.compress_child(
+            &subseconds_primitive.into_array(),
+            &compress_ctx,
+            self.id(),
+            2,
+            exec_ctx,
+        )?;
 
         Ok(DateTimeParts::try_new(dtype, days, seconds, subseconds)?.into_array())
     }

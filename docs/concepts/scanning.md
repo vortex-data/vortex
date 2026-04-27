@@ -68,10 +68,12 @@ independently. The scan tracks the selectivity of each conjunct using a probabil
 and dynamically reorders them so that the most selective predicates are evaluated first. This
 means that as a scan progresses, it learns the most efficient evaluation order for the filter.
 
-Filters are evaluated in two stages. First, pruning evaluation uses statistics stored in
-`ZonedLayout` (such as per-zone min/max values) to eliminate entire regions without reading any
-data. Second, filter evaluation materializes only the filter-referenced columns and computes a
-row mask of matching rows.
+Filters are evaluated in two stages. First, pruning evaluation uses statistics stored in a
+`ZonedLayout` auxiliary `zones` child to eliminate entire row zones without reading the underlying
+data child. These pruning predicates are falsification checks derived from the original filter, for
+example by comparing a zone's min/max values against the requested predicate. Second, filter
+evaluation materializes only the filter-referenced columns and computes a row mask of matching
+rows.
 
 ## Projection Pushdown
 
@@ -89,4 +91,3 @@ Query engines integrate with the Scan API by translating their internal plan rep
 scan requests and consuming the resulting array stream in their preferred format. Integrations
 exist for DuckDB, DataFusion, Spark, and Trino, with each engine converting its native filter
 and projection representations into Vortex [expressions](expressions.md).
-

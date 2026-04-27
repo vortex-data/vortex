@@ -58,7 +58,7 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPackedUnpack>(
     // SAFETY: We later initialize the the uninitialized range of values with `copy_from_slice`.
     unsafe {
         // Append a dense null Mask.
-        uninit_range.append_mask(array.validity()?.to_mask(array.as_ref().len(), ctx)?);
+        uninit_range.append_mask(array.validity()?.execute_mask(array.as_ref().len(), ctx)?);
     }
 
     // SAFETY: `decode_into` will initialize all values in this range.
@@ -160,8 +160,6 @@ mod tests {
 
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::Nullability;
@@ -178,7 +176,7 @@ mod tests {
     use crate::bitpack_compress::bitpack_encode;
 
     fn encode(array: &PrimitiveArray, bit_width: u8) -> BitPackedArray {
-        bitpack_encode(array, bit_width, None).unwrap()
+        bitpack_encode(array, bit_width, None, &mut SESSION.create_execution_ctx()).unwrap()
     }
 
     static SESSION: LazyLock<VortexSession> =
@@ -189,8 +187,9 @@ mod tests {
     }
 
     fn compression_roundtrip(n: usize) {
+        let mut ctx = SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_iter((0..n).map(|i| (i % 2047) as u16));
-        let compressed = BitPackedData::encode(&values.clone().into_array(), 11).unwrap();
+        let compressed = BitPackedData::encode(&values.clone().into_array(), 11, &mut ctx).unwrap();
         assert_arrays_eq!(compressed, values);
 
         values
@@ -220,8 +219,10 @@ mod tests {
 
     #[test]
     fn test_all_zeros() -> VortexResult<()> {
-        #[expect(deprecated)]
-        let zeros = buffer![0u16, 0, 0, 0].into_array().to_primitive();
+        let mut ctx = SESSION.create_execution_ctx();
+        let zeros = buffer![0u16, 0, 0, 0]
+            .into_array()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let bitpacked = encode(&zeros, 0);
         let actual = unpack(&bitpacked)?;
         assert_arrays_eq!(actual, PrimitiveArray::from_iter([0u16, 0, 0, 0]));
@@ -230,8 +231,10 @@ mod tests {
 
     #[test]
     fn test_simple_patches() -> VortexResult<()> {
-        #[expect(deprecated)]
-        let zeros = buffer![0u16, 1, 0, 1].into_array().to_primitive();
+        let mut ctx = SESSION.create_execution_ctx();
+        let zeros = buffer![0u16, 1, 0, 1]
+            .into_array()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let bitpacked = encode(&zeros, 0);
         let actual = unpack(&bitpacked)?;
         assert_arrays_eq!(actual, PrimitiveArray::from_iter([0u16, 1, 0, 1]));
@@ -240,8 +243,10 @@ mod tests {
 
     #[test]
     fn test_one_full_chunk() -> VortexResult<()> {
-        #[expect(deprecated)]
-        let zeros = BufferMut::from_iter(0u16..1024).into_array().to_primitive();
+        let mut ctx = SESSION.create_execution_ctx();
+        let zeros = BufferMut::from_iter(0u16..1024)
+            .into_array()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let bitpacked = encode(&zeros, 10);
         let actual = unpack(&bitpacked)?;
         assert_arrays_eq!(actual, PrimitiveArray::from_iter(0u16..1024));
@@ -250,10 +255,10 @@ mod tests {
 
     #[test]
     fn test_three_full_chunks_with_patches() -> VortexResult<()> {
-        #[expect(deprecated)]
+        let mut ctx = SESSION.create_execution_ctx();
         let zeros = BufferMut::from_iter((5u16..1029).chain(5u16..1029).chain(5u16..1029))
             .into_array()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let bitpacked = encode(&zeros, 10);
         assert!(bitpacked.patches().is_some());
         let actual = unpack(&bitpacked)?;
@@ -266,8 +271,10 @@ mod tests {
 
     #[test]
     fn test_one_full_chunk_and_one_short_chunk_no_patch() -> VortexResult<()> {
-        #[expect(deprecated)]
-        let zeros = BufferMut::from_iter(0u16..1025).into_array().to_primitive();
+        let mut ctx = SESSION.create_execution_ctx();
+        let zeros = BufferMut::from_iter(0u16..1025)
+            .into_array()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let bitpacked = encode(&zeros, 11);
         assert!(bitpacked.patches().is_none());
         let actual = unpack(&bitpacked)?;
@@ -277,10 +284,10 @@ mod tests {
 
     #[test]
     fn test_one_full_chunk_and_one_short_chunk_with_patches() -> VortexResult<()> {
-        #[expect(deprecated)]
+        let mut ctx = SESSION.create_execution_ctx();
         let zeros = BufferMut::from_iter(512u16..1537)
             .into_array()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let bitpacked = encode(&zeros, 10);
         assert_eq!(bitpacked.len(), 1025);
         assert!(bitpacked.patches().is_some());
@@ -291,42 +298,30 @@ mod tests {
 
     #[test]
     fn test_offset_and_short_chunk_and_patches() -> VortexResult<()> {
-        #[expect(deprecated)]
+        let mut ctx = SESSION.create_execution_ctx();
         let zeros = BufferMut::from_iter(512u16..1537)
             .into_array()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let bitpacked = encode(&zeros, 10);
         assert_eq!(bitpacked.len(), 1025);
         assert!(bitpacked.patches().is_some());
-        let slice_ref = bitpacked.into_array().slice(1023..1025).unwrap();
-        let actual = {
-            let mut ctx = SESSION.create_execution_ctx();
-            slice_ref
-                .execute::<Canonical>(&mut ctx)
-                .unwrap()
-                .into_primitive()
-        };
+        let slice_ref = bitpacked.into_array().slice(1023..1025)?;
+        let actual = slice_ref.execute::<Canonical>(&mut ctx)?.into_primitive();
         assert_arrays_eq!(actual, PrimitiveArray::from_iter([1535u16, 1536]));
         Ok(())
     }
 
     #[test]
     fn test_offset_and_short_chunk_with_chunks_between_and_patches() -> VortexResult<()> {
-        #[expect(deprecated)]
+        let mut ctx = SESSION.create_execution_ctx();
         let zeros = BufferMut::from_iter(512u16..2741)
             .into_array()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let bitpacked = encode(&zeros, 10);
         assert_eq!(bitpacked.len(), 2229);
         assert!(bitpacked.patches().is_some());
-        let slice_ref = bitpacked.into_array().slice(1023..2049).unwrap();
-        let actual = {
-            let mut ctx = SESSION.create_execution_ctx();
-            slice_ref
-                .execute::<Canonical>(&mut ctx)
-                .unwrap()
-                .into_primitive()
-        };
+        let slice_ref = bitpacked.into_array().slice(1023..2049)?;
+        let actual = slice_ref.execute::<Canonical>(&mut ctx)?.into_primitive();
         assert_arrays_eq!(
             actual,
             PrimitiveArray::from_iter((1023u16..2049).map(|x| x + 512))
@@ -379,11 +374,11 @@ mod tests {
         // Verify the validity mask was correctly applied.
         assert_eq!(result.len(), 5);
         let mut ctx = SESSION.create_execution_ctx();
-        assert!(!result.execute_scalar(0, &mut ctx).unwrap().is_null());
-        assert!(result.execute_scalar(1, &mut ctx).unwrap().is_null());
-        assert!(!result.execute_scalar(2, &mut ctx).unwrap().is_null());
-        assert!(!result.execute_scalar(3, &mut ctx).unwrap().is_null());
-        assert!(result.execute_scalar(4, &mut ctx).unwrap().is_null());
+        assert!(!result.execute_scalar(0, &mut ctx)?.is_null());
+        assert!(result.execute_scalar(1, &mut ctx)?.is_null());
+        assert!(!result.execute_scalar(2, &mut ctx)?.is_null());
+        assert!(!result.execute_scalar(3, &mut ctx)?.is_null());
+        assert!(result.execute_scalar(4, &mut ctx)?.is_null());
         Ok(())
     }
 
@@ -503,10 +498,7 @@ mod tests {
 
             let executed = {
                 let mut ctx = SESSION.create_execution_ctx();
-                bitpacked
-                    .into_array()
-                    .execute::<Canonical>(&mut ctx)
-                    .unwrap()
+                bitpacked.into_array().execute::<Canonical>(&mut ctx)?
             };
 
             assert_eq!(
@@ -529,8 +521,7 @@ mod tests {
                 let mut ctx = SESSION.create_execution_ctx();
                 unpacked_array
                     .into_array()
-                    .execute::<Canonical>(&mut ctx)
-                    .unwrap()
+                    .execute::<Canonical>(&mut ctx)?
                     .into_primitive()
             };
             assert_eq!(
@@ -559,13 +550,12 @@ mod tests {
         // Test with sliced array (offset > 0).
         let values = PrimitiveArray::from_iter(0u32..2048);
         let bitpacked = encode(&values, 11);
-        let slice_ref = bitpacked.into_array().slice(500..1500).unwrap();
+        let slice_ref = bitpacked.into_array().slice(500..1500)?;
         let sliced = {
             let mut ctx = SESSION.create_execution_ctx();
             slice_ref
                 .clone()
-                .execute::<Canonical>(&mut ctx)
-                .unwrap()
+                .execute::<Canonical>(&mut ctx)?
                 .into_primitive()
         };
 
@@ -574,7 +564,7 @@ mod tests {
         let unpacked_array = sliced;
         let executed = {
             let mut ctx = SESSION.create_execution_ctx();
-            slice_ref.execute::<Canonical>(&mut ctx).unwrap()
+            slice_ref.execute::<Canonical>(&mut ctx)?
         };
 
         assert_eq!(

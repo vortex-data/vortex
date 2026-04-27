@@ -397,17 +397,19 @@ where
 ///
 /// ```
 /// # use vortex_array::IntoArray;
-/// # use vortex_array::arrow::IntoArrowArray as _;
+/// # use vortex_array::arrow::ArrowArrayExecutor;
+/// # use vortex_array::{LEGACY_SESSION, VortexSessionExecute};
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{checked_add, lit, root};
 /// let xs = buffer![1, 2, 3].into_array();
 /// let result = xs.apply(&checked_add(root(), lit(5))).unwrap();
 ///
+/// let mut ctx = LEGACY_SESSION.create_execution_ctx();
 /// assert_eq!(
-///     &result.into_arrow_preferred().unwrap(),
+///     &result.execute_arrow(None, &mut ctx).unwrap(),
 ///     &buffer![6, 7, 8]
 ///         .into_array()
-///         .into_arrow_preferred()
+///         .execute_arrow(None, &mut ctx)
 ///         .unwrap()
 /// );
 /// ```

@@ -383,13 +383,10 @@ mod tests {
     fn test_canonicalize_propagates_stats() -> VortexResult<()> {
         let scalar = Scalar::bool(true, Nullability::NonNullable);
         let const_array = ConstantArray::new(scalar, 4).into_array();
-        let stats = const_array
-            .statistics()
-            .compute_all(
-                &all::<Stat>().collect_vec(),
-                &mut LEGACY_SESSION.create_execution_ctx(),
-            )
-            .unwrap();
+        let stats = const_array.statistics().compute_all(
+            &all::<Stat>().collect_vec(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         #[expect(deprecated)]
         let canonical = const_array.to_canonical()?.into_array();
         let canonical_stats = canonical.statistics();

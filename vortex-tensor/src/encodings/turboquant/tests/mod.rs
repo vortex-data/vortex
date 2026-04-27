@@ -19,7 +19,7 @@ use vortex_array::arrays::Dict;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::ScalarFnVTable;
+use vortex_array::arrays::ScalarFn;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
@@ -32,7 +32,7 @@ use vortex_error::VortexResult;
 use crate::encodings::turboquant::TurboQuantConfig;
 use crate::encodings::turboquant::turboquant_encode;
 use crate::tests::SESSION;
-use crate::vector::Vector;
+use crate::types::vector::Vector;
 
 /// Create a FixedSizeListArray of random f32 vectors with the given validity.
 fn make_fsl_with_validity(
@@ -74,7 +74,7 @@ fn make_vector_ext(fsl: &FixedSizeListArray) -> ArrayRef {
 /// Unwrap an L2Denorm ScalarFnArray into (sorf_child, norms_child).
 fn unwrap_l2denorm(encoded: &ArrayRef) -> (ArrayRef, ArrayRef) {
     let sfn = encoded
-        .as_opt::<ScalarFnVTable>()
+        .as_opt::<ScalarFn>()
         .expect("expected ScalarFnArray (L2Denorm)");
     (sfn.child_at(0).clone(), sfn.child_at(1).clone())
 }
@@ -86,7 +86,7 @@ fn unwrap_codes_centroids_norms(
 ) -> VortexResult<(PrimitiveArray, PrimitiveArray, PrimitiveArray)> {
     let (sorf_child, norms_child) = unwrap_l2denorm(encoded);
     let padded_vector_child = sorf_child
-        .as_opt::<ScalarFnVTable>()
+        .as_opt::<ScalarFn>()
         .expect("expected SorfTransform ScalarFnArray")
         .child_at(0)
         .clone();

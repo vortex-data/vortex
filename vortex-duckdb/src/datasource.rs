@@ -7,7 +7,6 @@
 //! to get a blanket [`TableFunction`] implementation covering init, scan, progress, filter
 //! pushdown, cardinality, and partitioning.
 
-use std::ffi::CString;
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
@@ -21,7 +20,7 @@ use tracing::debug;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::VortexSessionExecute;
-use vortex::array::arrays::ScalarFnVTable;
+use vortex::array::arrays::ScalarFn;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::scalar_fn::ScalarFnArrayExt;
@@ -52,6 +51,7 @@ use vortex::scalar_fn::fns::pack::Pack;
 use vortex::scan::DataSource;
 use vortex::scan::ScanRequest;
 use vortex_utils::aliases::hash_set::HashSet;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::RUNTIME;
 use crate::SESSION;
@@ -64,6 +64,7 @@ use crate::duckdb::Cardinality;
 use crate::duckdb::ClientContextRef;
 use crate::duckdb::ColumnStatistics;
 use crate::duckdb::DataChunkRef;
+use crate::duckdb::DuckdbStringMapRef;
 use crate::duckdb::ExpressionRef;
 use crate::duckdb::LogicalType;
 use crate::duckdb::TableFilterSetRef;
@@ -83,7 +84,7 @@ use crate::exporter::ConversionCache;
 /// first column. As we don't want to fill the output chunk and we can leave
 /// it uninitialized in this case, we define COLUMN_IDENTIFIER_EMPTY as a
 /// virtual column.
-/// See vortex-duckdb/cpp/table_function.cpp
+/// See virtual_columns in vortex-duckdb/cpp/table_function.cpp
 static EMPTY_COLUMN_IDX: u64 = 18446744073709551614;
 
 /// A trait for table functions that resolve to a [`DataSourceRef`].
@@ -92,15 +93,8 @@ static EMPTY_COLUMN_IDX: u64 = 18446744073709551614;
 /// data source. All other [`TableFunction`] methods (init, scan, progress, filter pushdown,
 /// cardinality, partitioning) are provided by a blanket implementation.
 pub(crate) trait DataSourceTableFunction: Sized + Debug {
-    /// Returns the positional parameters of the table function.
-    fn parameters() -> Vec<LogicalType> {
-        vec![]
-    }
-
-    /// Returns the named parameters of the table function, if any.
-    fn named_parameters() -> Vec<(CString, LogicalType)> {
-        vec![]
-    }
+    /// Positional parameters
+    fn parameters() -> Vec<LogicalType>;
 
     /// Bind the table function and return a [`DataSourceRef`].
     fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<MultiLayoutDataSource>;
@@ -259,16 +253,8 @@ impl<T: DataSourceTableFunction> TableFunction for T {
     type GlobalState = DataSourceGlobal;
     type LocalState = DataSourceLocal;
 
-    const PROJECTION_PUSHDOWN: bool = true;
-    const FILTER_PUSHDOWN: bool = true;
-    const FILTER_PRUNE: bool = true;
-
     fn parameters() -> Vec<LogicalType> {
         T::parameters()
-    }
-
-    fn named_parameters() -> Vec<(CString, LogicalType)> {
-        T::named_parameters()
     }
 
     fn bind(
@@ -319,9 +305,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
 
         let scan = RUNTIME.block_on(bind_data.data_source.scan(request))?;
 
-        let num_workers = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(1);
+        let num_workers = get_available_parallelism().unwrap_or(1);
 
         // We create an async bounded channel so that all thread-local workers can pull the next
         // available array chunk regardless of which partition it came from.
@@ -415,12 +399,12 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                     return Ok(());
                 };
                 let (array_result, conversion_cache) = result?;
-                let array_result = array_result.optimize_recursive()?;
+                let array_result = array_result.optimize_recursive(ctx.session())?;
 
                 let array_result: StructArray = if let Some(array) = array_result.as_opt::<Struct>()
                 {
                     array.into_owned()
-                } else if let Some(array) = array_result.as_opt::<ScalarFnVTable>()
+                } else if let Some(array) = array_result.as_opt::<ScalarFn>()
                     && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
                 {
                     StructArray::new(
@@ -506,7 +490,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         // Otherwise we'd have to open all files eagerly which is a performance
         // regression. Duckdb's Parquet reader only gets metadata for multiple
         // files with a UNION BY NAME and we don't support it (yet)
-        // https://github.com/duckdb/duckdb/blob/471de9f0e0e157ae672e56710e8c43b132a5ddc4/src/include/duckdb/common/multi_file/multi_file_function.hpp#L691
+        // See duckdb/common/multi_file/multi_file_function.hpp#L691
         if children.len() != 1 {
             return None;
         }
@@ -540,17 +524,12 @@ impl<T: DataSourceTableFunction> TableFunction for T {
             .ok_or_else(|| vortex_err!("batch id missing, no batches exported"))
     }
 
-    fn to_string(bind_data: &Self::BindData) -> Option<Vec<(String, String)>> {
-        let mut result = Vec::new();
-
-        result.push(("Function".to_string(), "Vortex Scan".to_string()));
-
+    fn to_string(bind_data: &Self::BindData, map: &mut DuckdbStringMapRef) {
+        map.push("Function", "Vortex Scan");
         if !bind_data.filter_exprs.is_empty() {
             let mut filters = bind_data.filter_exprs.iter().map(|f| format!("{}", f));
-            result.push(("Filters".to_string(), filters.join(" /\\\n")));
+            map.push("Filters", &filters.join(" /\\\n"));
         }
-
-        Some(result)
     }
 }
 
@@ -585,7 +564,7 @@ fn extract_projection_expr(
     column_fields: &[DuckdbField],
 ) -> Expression {
     // Projection ids may be empty, in which case you need to use projection_ids
-    // https://github.com/duckdb/duckdb/blob/6e211da91657a94803c465fd0ce585f4c6754b54/src/planner/operator/logical_get.cpp#L168
+    // See duckdb/src/planner/operator/logical_get.cpp#L168
     let (projection_ids, has_projection_ids) = match projection_ids {
         Some(ids) => (ids, true),
         None => (column_ids, false),

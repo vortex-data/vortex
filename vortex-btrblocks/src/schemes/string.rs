@@ -5,9 +5,9 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::varbin::VarBinArrayExt;
@@ -73,8 +73,9 @@ impl Scheme for FSSTScheme {
 
     fn expected_compression_ratio(
         &self,
-        _data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
@@ -82,26 +83,40 @@ impl Scheme for FSSTScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
-        ctx: CompressorContext,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let utf8 = data.array_as_utf8().into_owned();
         let compressor_fsst = fsst_train_compressor(&utf8);
-        let fsst = fsst_compress(&utf8, utf8.len(), utf8.dtype(), &compressor_fsst);
+        let fsst = fsst_compress(&utf8, utf8.len(), utf8.dtype(), &compressor_fsst, exec_ctx);
 
-        #[expect(deprecated)]
-        let uncompressed_lengths_primitive = fsst.uncompressed_lengths().to_primitive().narrow()?;
+        let uncompressed_lengths_primitive = fsst
+            .uncompressed_lengths()
+            .clone()
+            .execute::<PrimitiveArray>(exec_ctx)?
+            .narrow()?;
         let compressed_original_lengths = compressor.compress_child(
             &uncompressed_lengths_primitive.into_array(),
-            &ctx,
+            &compress_ctx,
             self.id(),
             0,
+            exec_ctx,
         )?;
 
-        #[expect(deprecated)]
-        let codes_offsets_primitive = fsst.codes().offsets().to_primitive().narrow()?;
-        let compressed_codes_offsets =
-            compressor.compress_child(&codes_offsets_primitive.into_array(), &ctx, self.id(), 1)?;
+        let codes_offsets_primitive = fsst
+            .codes()
+            .offsets()
+            .clone()
+            .execute::<PrimitiveArray>(exec_ctx)?
+            .narrow()?;
+        let compressed_codes_offsets = compressor.compress_child(
+            &codes_offsets_primitive.into_array(),
+            &compress_ctx,
+            self.id(),
+            1,
+            exec_ctx,
+        )?;
         let compressed_codes = VarBinArray::try_new(
             compressed_codes_offsets,
             fsst.codes().bytes().clone(),
@@ -115,6 +130,7 @@ impl Scheme for FSSTScheme {
             fsst.symbol_lengths().clone(),
             compressed_codes,
             compressed_original_lengths,
+            exec_ctx,
         )?;
 
         Ok(fsst.into_array())
@@ -151,11 +167,12 @@ impl Scheme for NullDominatedSparseScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
+        data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         let len = data.array_len() as f64;
-        let stats = data.string_stats();
+        let stats = data.string_stats(exec_ctx);
         let value_count = stats.value_count();
 
         // All-null arrays should be compressed as constant instead anyways.
@@ -175,18 +192,28 @@ impl Scheme for NullDominatedSparseScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
-        ctx: CompressorContext,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         // We pass None as we only run this pathway for NULL-dominated string arrays.
-        let sparse_encoded = Sparse::encode(data.array(), None)?;
+        let sparse_encoded = Sparse::encode(data.array(), None, exec_ctx)?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
             // Compress the indices only (not the values for strings).
-            #[expect(deprecated)]
-            let indices = sparse.patches().indices().to_primitive().narrow()?;
-            let compressed_indices =
-                compressor.compress_child(&indices.into_array(), &ctx, self.id(), 0)?;
+            let indices = sparse
+                .patches()
+                .indices()
+                .clone()
+                .execute::<PrimitiveArray>(exec_ctx)?
+                .narrow()?;
+            let compressed_indices = compressor.compress_child(
+                &indices.into_array(),
+                &compress_ctx,
+                self.id(),
+                0,
+                exec_ctx,
+            )?;
 
             Sparse::try_new(
                 compressed_indices,
@@ -213,8 +240,9 @@ impl Scheme for ZstdScheme {
 
     fn expected_compression_ratio(
         &self,
-        _data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
@@ -222,11 +250,15 @@ impl Scheme for ZstdScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
+        data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let compacted = data.array_as_utf8().into_owned().compact_buffers()?;
-        Ok(vortex_zstd::Zstd::from_var_bin_view_without_dict(&compacted, 3, 8192)?.into_array())
+        Ok(
+            vortex_zstd::Zstd::from_var_bin_view_without_dict(&compacted, 3, 8192, exec_ctx)?
+                .into_array(),
+        )
     }
 }
 
@@ -242,8 +274,9 @@ impl Scheme for ZstdBuffersScheme {
 
     fn expected_compression_ratio(
         &self,
-        _data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
@@ -251,28 +284,34 @@ impl Scheme for ZstdBuffersScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
+        data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        Ok(
-            vortex_zstd::ZstdBuffers::compress(data.array(), 3, &vortex_array::LEGACY_SESSION)?
-                .into_array(),
-        )
+        Ok(vortex_zstd::ZstdBuffers::compress(data.array(), 3, exec_ctx.session())?.into_array())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::display::DisplayOptions;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+    use vortex_array::session::ArraySession;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::BtrBlocksCompressor;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn test_strings() -> VortexResult<()> {
@@ -287,7 +326,7 @@ mod tests {
 
         let array_ref = strings.into_array();
         let btr = BtrBlocksCompressor::default();
-        let compressed = btr.compress(&array_ref)?;
+        let compressed = btr.compress(&array_ref, &mut SESSION.create_execution_ctx())?;
         assert_eq!(compressed.len(), 2048);
 
         let display = compressed
@@ -310,7 +349,7 @@ mod tests {
 
         let array_ref = strings.into_array();
         let btr = BtrBlocksCompressor::default();
-        let compressed = btr.compress(&array_ref)?;
+        let compressed = btr.compress(&array_ref, &mut SESSION.create_execution_ctx())?;
         assert_eq!(compressed.len(), 100);
 
         let display = compressed
@@ -326,23 +365,32 @@ mod tests {
 /// Tests to verify that each string compression scheme produces the expected encoding.
 #[cfg(test)]
 mod scheme_selection_tests {
+    use std::sync::LazyLock;
+
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::Constant;
     use vortex_array::arrays::Dict;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+    use vortex_array::session::ArraySession;
     use vortex_error::VortexResult;
     use vortex_fsst::FSST;
+    use vortex_session::VortexSession;
 
     use crate::BtrBlocksCompressor;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn test_constant_compressed() -> VortexResult<()> {
         let strings: Vec<Option<&str>> = vec![Some("constant_value"); 100];
         let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
         let array_ref = array.into_array();
-        let compressed = BtrBlocksCompressor::default().compress(&array_ref)?;
+        let compressed = BtrBlocksCompressor::default()
+            .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
         assert!(compressed.is::<Constant>());
         Ok(())
     }
@@ -356,7 +404,8 @@ mod scheme_selection_tests {
         }
         let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
         let array_ref = array.into_array();
-        let compressed = BtrBlocksCompressor::default().compress(&array_ref)?;
+        let compressed = BtrBlocksCompressor::default()
+            .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
         assert!(compressed.is::<Dict>());
         Ok(())
     }
@@ -371,7 +420,8 @@ mod scheme_selection_tests {
         }
         let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
         let array_ref = array.into_array();
-        let compressed = BtrBlocksCompressor::default().compress(&array_ref)?;
+        let compressed = BtrBlocksCompressor::default()
+            .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
         assert!(compressed.is::<FSST>());
         Ok(())
     }

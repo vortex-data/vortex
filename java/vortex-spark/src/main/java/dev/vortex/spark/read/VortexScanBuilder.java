@@ -6,7 +6,6 @@ package dev.vortex.spark.read;
 import static com.google.common.base.Preconditions.checkState;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -31,7 +30,7 @@ public final class VortexScanBuilder implements ScanBuilder, SupportsPushDownReq
     public VortexScanBuilder(Map<String, String> formatOptions) {
         this.paths = ImmutableList.builder();
         this.columns = new ArrayList<>();
-        this.formatOptions = formatOptions;
+        this.formatOptions = Map.copyOf(formatOptions);
     }
 
     /**
@@ -89,14 +88,12 @@ public final class VortexScanBuilder implements ScanBuilder, SupportsPushDownReq
     @Override
     public Scan build() {
         var paths = this.paths.build();
-        var columns = ImmutableList.copyOf(this.columns);
-        var formatOptions = ImmutableMap.copyOf(this.formatOptions);
 
         checkState(!paths.isEmpty(), "paths cannot be empty");
         // Allow empty columns for operations like count() that don't need actual column data
         // If no columns are specified, we'll read the minimal schema needed
 
-        return new VortexScan(paths, columns, formatOptions);
+        return new VortexScan(paths, List.copyOf(this.columns), this.formatOptions);
     }
 
     /**

@@ -377,7 +377,7 @@ mod tests {
             "baz",
         ]);
 
-        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0)?;
+        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0, cuda_ctx.execution_ctx())?;
 
         let cpu_result = Zstd::decompress(&zstd_array, cuda_ctx.execution_ctx())?
             .execute::<Canonical>(cuda_ctx.execution_ctx())?;
@@ -413,7 +413,7 @@ mod tests {
 
         // Compress with ZSTD using values_per_frame=3 to create multiple frames.
         // 14 strings and 3 values per frame = ceil(14/3) = 5 frames.
-        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 3)?;
+        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 3, cuda_ctx.execution_ctx())?;
 
         let cpu_result = Zstd::decompress(&zstd_array, cuda_ctx.execution_ctx())?
             .execute::<Canonical>(cuda_ctx.execution_ctx())?;
@@ -443,7 +443,7 @@ mod tests {
             "final test string",
         ]);
 
-        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0)?;
+        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0, cuda_ctx.execution_ctx())?;
 
         // Slice the array to get a subset (indices 2..7)
         let sliced_zstd = zstd_array.slice(2..7)?;
@@ -474,7 +474,7 @@ mod tests {
             Some("another string"),
         ]);
 
-        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0)?;
+        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0, cuda_ctx.execution_ctx())?;
 
         let cpu_result = crate::canonicalize_cpu(zstd_array.clone())?.into_array();
 

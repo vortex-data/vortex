@@ -23,7 +23,7 @@ fn nullable_vectors_roundtrip() -> VortexResult<()> {
 
     let config = TurboQuantConfig {
         bit_width: 3,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 4,
     };
     let mut ctx = SESSION.create_execution_ctx();
@@ -84,7 +84,7 @@ fn nullable_norms_match_validity() -> VortexResult<()> {
 
     let config = TurboQuantConfig {
         bit_width: 2,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
@@ -114,7 +114,7 @@ fn nullable_l2_norm_readthrough() -> VortexResult<()> {
 
     let config = TurboQuantConfig {
         bit_width: 3,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
@@ -156,7 +156,7 @@ fn nullable_slice_preserves_validity() -> VortexResult<()> {
 
     let config = TurboQuantConfig {
         bit_width: 3,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 2,
     };
     let mut ctx = SESSION.create_execution_ctx();

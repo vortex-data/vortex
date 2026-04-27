@@ -4,7 +4,7 @@ pub struct vortex_pco::Pco
 
 impl vortex_pco::Pco
 
-pub fn vortex_pco::Pco::from_primitive(parray: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>, level: usize, values_per_page: usize) -> vortex_error::VortexResult<vortex_pco::PcoArray>
+pub fn vortex_pco::Pco::from_primitive(parray: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>, level: usize, values_per_page: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_pco::PcoArray>
 
 impl core::clone::Clone for vortex_pco::Pco
 
@@ -86,9 +86,9 @@ impl vortex_pco::PcoData
 
 pub fn vortex_pco::PcoData::decompress(&self, unsliced_validity: &vortex_array::validity::Validity, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::primitive::vtable::PrimitiveArray>
 
-pub fn vortex_pco::PcoData::from_array(array: vortex_array::array::erased::ArrayRef, level: usize, nums_per_page: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_pco::PcoData::from_array(array: vortex_array::array::erased::ArrayRef, level: usize, nums_per_page: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_pco::PcoData::from_primitive(parray: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>, level: usize, values_per_page: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_pco::PcoData::from_primitive(parray: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>, level: usize, values_per_page: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_pco::PcoData::is_empty(&self) -> bool
 

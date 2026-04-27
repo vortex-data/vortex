@@ -61,10 +61,6 @@ jobs:
     name: "Run ${{ inputs.fuzz_name || inputs.fuzz_target }}"
     env:
       FUZZ_NAME: ${{ inputs.fuzz_name || inputs.fuzz_target }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
-      AWS_REGION: "us-east-1"
-      AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
     timeout-minutes: 240  # 4 hours
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -80,7 +76,7 @@ jobs:
         with:
           sccache: s3
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
 
       - uses: ./.github/actions/setup-rust
         with:
@@ -99,6 +95,11 @@ jobs:
 
       - name: Restore corpus
         shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
         run: |
           CORPUS_KEY="${FUZZ_NAME}_corpus.tar.zst"
           CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
@@ -172,7 +173,7 @@ jobs:
       - name: Archive crash artifacts
         id: upload_artifacts
         if: steps.check.outputs.crashes_found == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
           name: ${{ env.FUZZ_NAME }}-crash-artifacts
           path: fuzz/artifacts
@@ -180,7 +181,7 @@ jobs:
 
       - name: Archive fuzzer output log
         if: steps.check.outputs.crashes_found == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
           name: ${{ env.FUZZ_NAME }}-logs
           path: fuzz_output.log
@@ -188,6 +189,11 @@ jobs:
 
       - name: Persist corpus
         shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
         run: |
           CORPUS_KEY="${FUZZ_NAME}_corpus.tar.zst"
           CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"

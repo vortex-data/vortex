@@ -11,6 +11,7 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex::array::ArrayRef;
+use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
@@ -63,7 +64,7 @@ impl Dataset for StructListOfInts {
         &self.name
     }
 
-    async fn to_vortex_array(&self) -> Result<ArrayRef> {
+    async fn to_vortex_array(&self, _ctx: &mut ExecutionCtx) -> Result<ArrayRef> {
         let names: FieldNames = (0..self.num_columns)
             .map(|col_idx| col_idx.to_string())
             .collect();
@@ -115,7 +116,8 @@ impl Dataset for StructListOfInts {
 
         idempotent_async(&parquet_path, |temp_path| async move {
             // Generate the data
-            let array = self.to_vortex_array().await?;
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
+            let array = self.to_vortex_array(&mut ctx).await?;
 
             // Convert to Arrow RecordBatches and write to parquet
             let chunked = array.as_::<vortex::array::arrays::Chunked>();

@@ -16,12 +16,14 @@ use vortex::array::arrays::Slice;
 use vortex::array::arrays::dict::DictArraySlotsExt;
 use vortex::array::arrays::slice::SliceArrayExt;
 use vortex::array::buffer::BufferHandle;
+use vortex::array::patches::Patches;
 use vortex::array::validity::Validity;
 use vortex::dtype::PType;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPArrayExt;
 use vortex::encodings::alp::ALPArraySlotsExt;
 use vortex::encodings::alp::ALPFloat;
+use vortex::encodings::alp::Exponents;
 use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::BitPackedArrayExt;
 use vortex::encodings::fastlanes::FoR;
@@ -45,6 +47,7 @@ use super::ptype_to_tag;
 use super::tag_to_ptype;
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
+use crate::kernel::load_patches_to_gpu;
 
 /// A plan whose source buffers have been copied to the device, ready for kernel launch.
 pub struct MaterializedPlan {
@@ -69,10 +72,10 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
     let id = array.encoding_id();
     if id == ALP.id() {
         let arr = array.as_::<ALP>();
-        return arr.patches().is_none() && arr.dtype().as_ptype() == PType::F32;
+        return arr.dtype().as_ptype() == PType::F32;
     }
     if id == BitPacked.id() {
-        return array.as_::<BitPacked>().patches().is_none();
+        return true;
     }
     if id == Dict.id() {
         let arr = array.as_::<Dict>();
@@ -119,9 +122,17 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
 }
 
 /// An unmaterialized stage: a source op, scalar ops, and optional source buffer reference.
+///
+/// Patches are tied to their owning ops, mirroring the CUDA side where
+/// `patches_ptr` lives on `BitunpackParams` / `AlpParams`:
+/// - `source_patches` for the source op (BitPacked exceptions)
+/// - Each scalar op carries its own `Option<Patches>` (ALP exceptions)
 struct Stage {
     source: SourceOp,
-    scalar_ops: Vec<ScalarOp>,
+    /// Patches from the source op (e.g. BitPacked overflow exceptions).
+    source_patches: Option<Patches>,
+    /// Scalar ops with optional per-op patches (e.g. ALP float exceptions).
+    scalar_ops: Vec<(ScalarOp, Option<Patches>)>,
     /// Index into `FusedPlan::source_buffers`, or `None`
     /// for sources that don't read from a device buffer.
     source_buffer_index: Option<usize>,
@@ -133,6 +144,7 @@ impl Stage {
     fn new(source: SourceOp, source_buffer_index: Option<usize>, source_ptype: PTypeTag) -> Self {
         Self {
             source,
+            source_patches: None,
             scalar_ops: vec![],
             source_buffer_index,
             source_ptype,
@@ -166,55 +178,28 @@ pub enum DispatchPlan {
 ///
 /// Stages are stored in kernel execution order. There are two phases:
 ///
-/// 1. All stages except the last run first and decode their output
-///    into shared memory (e.g. all dict values, all run-end endpoints).
-///    This data stays resident for the output stage to index into.
+/// 1. All stages except the last decode into shared memory (dict values,
+///    run-end endpoints). The kernel writes `T`-wide elements even when
+///    a stage's source ptype is narrower, widening in-place as needed.
 ///
-/// 2. The last stage (the output stage) iterates over the input in tiles
-///    of `SMEM_TILE_SIZE` (1024) elements, decoding each tile into a
-///    scratch region of shared memory, applying scalar ops (which may
-///    reference data from the earlier stages), and writing the result to
-///    global memory.
-///
-/// # Per-stage PType tracking
-///
-/// Each stage carries a `source_ptype` (`PTypeTag`) that identifies the
-/// primitive type produced by its source op (LOAD, BITUNPACK, etc.).
-/// Scalar ops may change the type (e.g. DICT transforms codes → values,
-/// ALP transforms encoded ints → floats); each `ScalarOp` declares its
-/// `output_ptype`. The kernel uses these tags to dispatch typed memory
-/// operations and cross-stage references at the correct element width.
+/// 2. The last stage (the output stage) tiles at `SMEM_TILE_SIZE` (1024)
+///    elements, decoding each tile into a scratch region, applying scalar
+///    ops (which may reference earlier stages), and streaming to global
+///    memory.
 ///
 /// # Shared memory allocation
 ///
-/// Total shared memory = `smem_byte_cursor` + `SMEM_TILE_SIZE` × `output_elem_bytes`.
+/// Total = `smem_byte_cursor` + `SMEM_TILE_SIZE × output_elem_bytes`.
 ///
-/// `smem_byte_cursor` is tracked in bytes and covers the preceding
-/// fully-decoded stages (dict values, run-end endpoints). Each stage's
-/// shared memory footprint is `len × final_ptype_byte_width`, where the
-/// final ptype is determined by the last scalar op's `output_ptype` (or
-/// `source_ptype` if there are no scalar ops).
+/// Each input stage occupies `len × max(final_width, output_elem_bytes)`
+/// bytes, where `final_width` is the byte width of the last scalar op's
+/// `output_ptype` (or `source_ptype` if none). The `max` is necessary
+/// because `execute_input_stage<T>` writes `T`-wide elements even when
+/// the stage's logical type is narrower.
 ///
-/// All shared memory offsets are byte offsets — the C ABI uses byte
-/// offsets and per-field `PTypeTag` values so that stages with different
-/// element widths can coexist in the same shared memory pool.
-///
-/// This is sufficient because:
-///
-/// - Earlier stages only originate from dict (values) and run-end (ends,
-///   values). `push_smem_stage` reserves the appropriate number of bytes
-///   in `smem_byte_cursor`, so each stage's source op has room to decode
-///   the complete input.
-///
-/// - The output stage (last) tiles at `SMEM_TILE_SIZE` (1024 elements),
-///   so its source op never writes more than 1024 elements into the
-///   scratch region, even though each block is responsible for
-///   `ELEMENTS_PER_BLOCK` (2048) output elements — it processes them in
-///   two passes through the scratch.
-///
-/// Note: `BITUNPACK` writes full FastLanes blocks (1024 elements), which can
-/// exceed `stage.len` by up to 1023 elements. This overflow is absorbed by
-/// the scratch region (`SMEM_TILE_SIZE` ≥ `FL_CHUNK_SIZE`).
+/// `BITUNPACK` writes full FastLanes blocks (1024 elements) which may
+/// exceed `stage.len` by up to 1023 elements; this overflow is absorbed
+/// by the scratch region (`SMEM_TILE_SIZE` ≥ `FL_CHUNK_SIZE`).
 pub struct FusedPlan {
     /// Stages in kernel execution order; all but the last decode into
     /// shared memory, the last decodes into global memory.
@@ -240,7 +225,7 @@ impl DispatchPlan {
     /// - Validity is propagated from the root array to the output. Nullable
     ///   arrays are supported, but Dict with nullable codes and RunEnd with
     ///   nullable ends are rejected to guard against out-of-bounds access.
-    /// - `BitPackedArray` and `ALPArray` with patches are not supported.
+    /// - `BitPackedArray` and `ALPArray` with patches are supported.
     /// - Only f32 ALP is supported (kernel stores multipliers as `float`).
     pub fn new(array: &ArrayRef) -> VortexResult<Self> {
         if PType::try_from(array.dtype()).is_err() || !is_dyn_dispatch_compatible(array) {
@@ -340,7 +325,7 @@ impl FusedPlan {
     }
 
     /// Copy source buffers to the device, producing a [`MaterializedPlan`].
-    pub fn materialize(self, ctx: &CudaExecutionCtx) -> VortexResult<MaterializedPlan> {
+    pub async fn materialize(self, ctx: &mut CudaExecutionCtx) -> VortexResult<MaterializedPlan> {
         let shared_mem_bytes = self.dynamic_shared_mem_bytes();
 
         let mut device_buffers = Vec::new();
@@ -367,20 +352,37 @@ impl FusedPlan {
         // Byte offsets are passed directly to the C ABI — the kernel now
         // indexes shared memory by byte offset and casts to the correct type
         // using source_ptype / output_ptype.
-        let stages: Vec<MaterializedStage> = self
-            .stages
-            .iter()
-            .map(|(stage, smem_byte_offset, len)| {
-                MaterializedStage::new(
-                    resolve_ptr(stage),
-                    *smem_byte_offset,
-                    *len,
-                    stage.source_ptype,
-                    stage.source,
-                    &stage.scalar_ops,
-                )
-            })
-            .collect();
+        let mut stages: Vec<MaterializedStage> = Vec::new();
+        for (stage, smem_byte_offset, len) in &self.stages {
+            let mut source = stage.source;
+
+            // Upload source patches (e.g. BitPacked exceptions).
+            if let Some(patches) = &stage.source_patches {
+                let (ptr, bufs) = load_patches_to_gpu(patches, ctx).await?;
+                source.params.bitunpack.patches_ptr = ptr;
+                device_buffers.extend(bufs);
+            }
+
+            // Upload patches for each scalar op that carries them.
+            let mut scalar_ops: Vec<ScalarOp> = Vec::with_capacity(stage.scalar_ops.len());
+            for (mut op, patches) in stage.scalar_ops.clone() {
+                if let Some(patches) = &patches {
+                    let (ptr, bufs) = load_patches_to_gpu(patches, ctx).await?;
+                    op.params.alp.patches_ptr = ptr;
+                    device_buffers.extend(bufs);
+                }
+                scalar_ops.push(op);
+            }
+
+            stages.push(MaterializedStage::new(
+                resolve_ptr(stage),
+                *smem_byte_offset,
+                *len,
+                stage.source_ptype,
+                source,
+                &scalar_ops,
+            ));
+        }
 
         Ok(MaterializedPlan {
             dispatch_plan: CudaDispatchPlan::new(stages, self.output_ptype),
@@ -395,10 +397,10 @@ impl FusedPlan {
     ///
     /// `subtree_buffers` must correspond 1:1 (in DFS order) to the
     /// `pending_subtrees` returned by `build`.
-    pub fn materialize_with_subtrees(
+    pub async fn materialize_with_subtrees(
         mut self,
         subtree_buffers: Vec<BufferHandle>,
-        ctx: &CudaExecutionCtx,
+        ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<MaterializedPlan> {
         for (slot, buf) in zip_eq(
             self.source_buffers.iter_mut().filter(|s| s.is_none()),
@@ -406,7 +408,7 @@ impl FusedPlan {
         ) {
             *slot = Some(buf);
         }
-        self.materialize(ctx)
+        self.materialize(ctx).await
     }
 
     /// Walk the encoding tree, producing a [`Stage`] for the root.
@@ -416,22 +418,7 @@ impl FusedPlan {
         pending_subtrees: &mut Vec<ArrayRef>,
     ) -> VortexResult<Stage> {
         if !is_dyn_dispatch_compatible(&array) {
-            // Subtree can't be fused — record it as a deferred LOAD source.
-            // Bail if dtype is non-primitive (can't become a LOAD stage).
-            let ptype = PType::try_from(array.dtype()).map_err(|_| {
-                vortex_err!(
-                    "unfusable subtree has non-primitive dtype {:?}, cannot partially fuse",
-                    array.dtype()
-                )
-            })?;
-            let buf_idx = self.source_buffers.len();
-            self.source_buffers.push(None); // placeholder, filled at materialize time
-            pending_subtrees.push(array);
-            return Ok(Stage::new(
-                SourceOp::load(),
-                Some(buf_idx),
-                ptype_to_tag(ptype),
-            ));
+            return self.push_subtree(array, pending_subtrees);
         }
 
         let id = array.encoding_id();
@@ -465,7 +452,8 @@ impl FusedPlan {
     /// SliceArray → resolve the slice via reduce/execute rules.
     ///
     /// When the plan builder encounters a `SliceArray`, it resolves the slice
-    /// by invoking the child's `reduce_parent`, `execute_parent`.
+    /// by invoking the child's `reduce_parent`. If that fails (e.g. ALP
+    /// doesn't implement it), we manually slice the child's sub-arrays.
     fn walk_slice(
         &mut self,
         array: ArrayRef,
@@ -476,6 +464,26 @@ impl FusedPlan {
 
         if let Some(reduced) = child.reduce_parent(&array, 0)? {
             return self.walk(reduced, pending_subtrees);
+        }
+
+        // ALP doesn't implement reduce_parent — slice encoded child and
+        // patches manually (Patches::slice adjusts offsets for the range).
+        if child.encoding_id() == ALP.id() {
+            let alp = child.as_::<ALP>();
+            let offset = slice_arr.data().slice_range().start;
+            let len = array.len();
+            let sliced_encoded = alp.encoded().clone().slice(offset..offset + len)?;
+            let sliced_patches = alp
+                .patches()
+                .map(|p| p.slice(offset..offset + len))
+                .transpose()?
+                .flatten();
+            return self.walk_alp_inner(
+                sliced_encoded,
+                sliced_patches,
+                alp.exponents(),
+                pending_subtrees,
+            );
         }
 
         vortex_bail!(
@@ -498,20 +506,18 @@ impl FusedPlan {
     fn walk_bitpacked(&mut self, array: ArrayRef) -> VortexResult<Stage> {
         let bp = array.as_::<BitPacked>();
 
-        if bp.patches().is_some() {
-            vortex_bail!("Dynamic dispatch does not support BitPackedArray with patches");
-        }
-
         let source_ptype = ptype_to_tag(PType::try_from(bp.dtype()).map_err(|_| {
             vortex_err!("BitPacked must have primitive dtype, got {:?}", bp.dtype())
         })?);
         let buf_index = self.source_buffers.len();
         self.source_buffers.push(Some(bp.packed().clone()));
-        Ok(Stage::new(
+        let mut stage = Stage::new(
             SourceOp::bitunpack(bp.bit_width(), bp.offset()),
             Some(buf_index),
             source_ptype,
-        ))
+        );
+        stage.source_patches = bp.patches();
+        Ok(stage)
     }
 
     fn walk_for(
@@ -537,7 +543,7 @@ impl FusedPlan {
             .cast::<u64>()?;
         pipeline
             .scalar_ops
-            .push(ScalarOp::frame_of_ref(ref_u64, output_ptype));
+            .push((ScalarOp::frame_of_ref(ref_u64, output_ptype), None));
         Ok(pipeline)
     }
 
@@ -553,7 +559,9 @@ impl FusedPlan {
         })?);
 
         let mut pipeline = self.walk(encoded, pending_subtrees)?;
-        pipeline.scalar_ops.push(ScalarOp::zigzag(output_ptype));
+        pipeline
+            .scalar_ops
+            .push((ScalarOp::zigzag(output_ptype), None));
         Ok(pipeline)
     }
 
@@ -563,47 +571,79 @@ impl FusedPlan {
         pending_subtrees: &mut Vec<ArrayRef>,
     ) -> VortexResult<Stage> {
         let alp = array.as_::<ALP>();
+        self.walk_alp_inner(
+            alp.encoded().clone(),
+            alp.patches(),
+            alp.exponents(),
+            pending_subtrees,
+        )
+    }
 
-        if alp.patches().is_some() {
-            vortex_bail!("Dynamic dispatch does not support ALPArray with patches");
-        }
-
-        let ptype = alp.dtype().as_ptype();
-        if ptype != PType::F32 {
-            vortex_bail!(
-                "Dynamic dispatch only supports f32 ALP, got {:?}",
-                alp.dtype()
-            );
-        }
-
-        let exponents = alp.exponents();
+    /// Shared ALP logic for both `walk_alp` and `walk_slice` (Slice(ALP)).
+    fn walk_alp_inner(
+        &mut self,
+        encoded: ArrayRef,
+        patches: Option<Patches>,
+        exponents: Exponents,
+        pending_subtrees: &mut Vec<ArrayRef>,
+    ) -> VortexResult<Stage> {
         let alp_f = <f32 as ALPFloat>::F10[exponents.f as usize];
         let alp_e = <f32 as ALPFloat>::IF10[exponents.e as usize];
-        let encoded = alp.encoded().clone();
 
         let mut pipeline = self.walk(encoded, pending_subtrees)?;
-        pipeline.scalar_ops.push(ScalarOp::alp(alp_f, alp_e));
+        pipeline
+            .scalar_ops
+            .push((ScalarOp::alp(alp_f, alp_e), patches));
         Ok(pipeline)
     }
 
-    /// Handle a child array whose element width differs from the output type.
+    /// Walk a child that may have a different element width than the output.
     ///
-    /// If the child is a `Primitive`, its buffer is grabbed directly as a LOAD
-    /// source — no separate kernel launch needed, since `load_element<T>()`
-    /// handles the widening in-kernel. Otherwise, the child is recorded as a
-    /// pending subtree for separate execution.
-    fn walk_mixed_width_child(
+    /// Primitives are always handled directly (`load_element<T>()` widens
+    /// in-kernel). Non-primitive children are recursively walked; the kernel's
+    /// `bitunpack_typed` decodes at the source's native width and widens to
+    /// `T` in shared memory, and `push_smem_stage` allocates accordingly.
+    fn walk_child(
         &mut self,
-        child: ArrayRef,
+        array: ArrayRef,
         pending_subtrees: &mut Vec<ArrayRef>,
     ) -> VortexResult<Stage> {
-        let ptype = PType::try_from(child.dtype())?;
-        if child.encoding_id() == Primitive.id() {
-            return self.walk_primitive(child);
+        if array.encoding_id() == Primitive.id() {
+            return self.walk_primitive(array);
         }
+        self.walk(array, pending_subtrees)
+    }
+
+    /// Reserve a placeholder buffer slot and record the array as a pending subtree.
+    ///
+    /// Called from [`walk`] when [`is_dyn_dispatch_compatible`] rejects a child.
+    /// Cases that require a separate kernel dispatch:
+    ///
+    /// - **F16 / F64 primitives** — no reinterpret path in the kernel.
+    /// - **ALP with non-F32 dtype** — only F32 ALP is supported.
+    /// - **Dict with nullable codes** — garbage at null positions could OOB
+    ///   the DICT gather in shared memory.
+    /// - **Dict with codes wider than values** — `load_element<T>()` would
+    ///   truncate the code indices.
+    /// - **RunEnd with nullable ends** — garbage values break the binary
+    ///   search / forward-scan.
+    /// - **RunEnd with ends wider than values** — same truncation issue.
+    /// - **Unrecognized encoding** — anything outside the kernel's allow-list
+    ///   (e.g. FSST, Pco, Zstd).
+    fn push_subtree(
+        &mut self,
+        array: ArrayRef,
+        pending_subtrees: &mut Vec<ArrayRef>,
+    ) -> VortexResult<Stage> {
+        let ptype = PType::try_from(array.dtype()).map_err(|_| {
+            vortex_err!(
+                "unfusable subtree has non-primitive dtype {:?}, cannot partially fuse",
+                array.dtype()
+            )
+        })?;
         let buf_idx = self.source_buffers.len();
         self.source_buffers.push(None);
-        pending_subtrees.push(child);
+        pending_subtrees.push(array);
         Ok(Stage::new(
             SourceOp::load(),
             Some(buf_idx),
@@ -621,33 +661,17 @@ impl FusedPlan {
         let codes = dict.codes().clone();
 
         let values_ptype = PType::try_from(values.dtype())?;
-        let values_elem_bytes = values_ptype.byte_width() as u32;
-        let codes_ptype = PType::try_from(codes.dtype())?;
-        let codes_elem_bytes = codes_ptype.byte_width() as u32;
 
-        // If values have a different width than the output type, they
-        // can't be fused into the same kernel instantiation. Primitives
-        // are handled directly (just grab the buffer); other encodings
-        // become pending subtrees executed by a separate kernel.
         let values_len = values.len() as u32;
-        let values_spec = if values_elem_bytes != self.output_elem_bytes {
-            self.walk_mixed_width_child(values, pending_subtrees)?
-        } else {
-            self.walk(values, pending_subtrees)?
-        };
+        let values_spec = self.walk_child(values, pending_subtrees)?;
         let values_smem_byte_offset = self.push_smem_stage(values_spec, values_len);
 
-        // Same for codes.
-        let mut pipeline = if codes_elem_bytes != self.output_elem_bytes {
-            self.walk_mixed_width_child(codes, pending_subtrees)?
-        } else {
-            self.walk(codes, pending_subtrees)?
-        };
+        let mut pipeline = self.walk_child(codes, pending_subtrees)?;
         // DICT scalar op: pass byte offset directly (C ABI uses byte offsets).
         // output_ptype is the values' ptype — DICT transforms codes → values.
-        pipeline.scalar_ops.push(ScalarOp::dict(
-            values_smem_byte_offset,
-            ptype_to_tag(values_ptype),
+        pipeline.scalar_ops.push((
+            ScalarOp::dict(values_smem_byte_offset, ptype_to_tag(values_ptype)),
+            None,
         ));
         Ok(pipeline)
     }
@@ -674,26 +698,10 @@ impl FusedPlan {
         let num_runs = ends.len() as u32;
         let num_values = values.len() as u32;
 
-        let ends_ptype = PType::try_from(ends.dtype())?;
-        let ends_elem_bytes = ends_ptype.byte_width() as u32;
-        let values_ptype = PType::try_from(values.dtype())?;
-        let values_elem_bytes = values_ptype.byte_width() as u32;
-
-        // If ends or values have a different width than the output type,
-        // they can't be fused into the same kernel instantiation.
-        // Primitives are handled directly; others become pending subtrees.
-        let ends_spec = if ends_elem_bytes != self.output_elem_bytes {
-            self.walk_mixed_width_child(ends, pending_subtrees)?
-        } else {
-            self.walk(ends, pending_subtrees)?
-        };
+        let ends_spec = self.walk_child(ends, pending_subtrees)?;
         let ends_smem_byte_offset = self.push_smem_stage(ends_spec, num_runs);
 
-        let values_spec = if values_elem_bytes != self.output_elem_bytes {
-            self.walk_mixed_width_child(values, pending_subtrees)?
-        } else {
-            self.walk(values, pending_subtrees)?
-        };
+        let values_spec = self.walk_child(values, pending_subtrees)?;
         let values_smem_byte_offset = self.push_smem_stage(values_spec, num_values);
 
         // Pass byte offsets and PTypeTags directly — the C ABI now uses
@@ -711,13 +719,10 @@ impl FusedPlan {
     }
 
     /// Add a stage that decodes fully into shared memory before the output
-    /// stage runs. Returns the shared memory byte offset where the data starts.
-    ///
-    /// The smem region is sized at the stage's output ptype width — i.e.
-    /// the ptype after all scalar ops have run. For stages that go through
-    /// type-changing scalar ops (e.g. dict values with FoR→ALP), the final
-    /// smem footprint is `len × final_ptype_byte_width`. If there are no
-    /// scalar ops, the source_ptype determines the width.
+    /// stage runs. Returns the shared memory byte offset where the data
+    /// starts. Allocates `len × max(final_width, output_elem_bytes)` bytes
+    /// so that narrower stages widened to `T` by `bitunpack_typed` never
+    /// overflow.
     fn push_smem_stage(&mut self, spec: Stage, len: u32) -> u32 {
         let smem_byte_offset = self.smem_byte_cursor;
         // The kernel's execute_input_stage<T> always writes T-wide elements
@@ -727,7 +732,7 @@ impl FusedPlan {
         let final_ptype = spec
             .scalar_ops
             .last()
-            .map(|op| op.output_ptype)
+            .map(|(op, _)| op.output_ptype)
             .unwrap_or(spec.source_ptype);
         let final_elem_bytes = tag_to_ptype(final_ptype).byte_width() as u32;
         let elem_bytes = final_elem_bytes.max(self.output_elem_bytes);

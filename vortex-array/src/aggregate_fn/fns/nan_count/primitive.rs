@@ -17,7 +17,7 @@ pub(super) fn accumulate_primitive(
     match_each_float_ptype!(p.ptype(), |F| {
         *count += compute_nan_count_with_validity(
             p.as_slice::<F>(),
-            p.as_ref().validity()?.to_mask(p.as_ref().len(), ctx)?,
+            p.as_ref().validity()?.execute_mask(p.as_ref().len(), ctx)?,
         ) as u64;
     });
     Ok(())

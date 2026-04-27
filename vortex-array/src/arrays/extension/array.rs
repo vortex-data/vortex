@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
-use std::fmt::Formatter;
-
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure_eq;
 
 use crate::ArrayRef;
+use crate::EmptyArrayData;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -22,113 +21,14 @@ pub(super) const STORAGE_SLOT: usize = 0;
 pub(super) const NUM_SLOTS: usize = 1;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["storage"];
 
-/// An extension array that wraps another array with additional type information.
-///
-/// **⚠️ Unstable API**: This is an experimental feature that may change significantly
-/// in future versions. The extension type system is still evolving.
-///
-/// Unlike Apache Arrow's extension arrays, Vortex extension arrays provide a more flexible
-/// mechanism for adding semantic meaning to existing array types without requiring
-/// changes to the core type system.
-///
-/// ## Design Philosophy
-///
-/// Extension arrays serve as a type-safe wrapper that:
-/// - Preserves the underlying storage format and operations
-/// - Adds semantic type information via `ExtDType`
-/// - Enables custom serialization and deserialization logic
-/// - Allows domain-specific interpretations of generic data
-///
-/// ## Storage and Type Relationship
-///
-/// The extension array maintains a strict contract:
-/// - **Storage array**: Contains the actual data in a standard Vortex encoding
-/// - **Extension type**: Defines how to interpret the storage data semantically
-/// - **Type safety**: The storage array's dtype must match the extension type's storage dtype
-///
-/// ## Use Cases
-///
-/// Extension arrays are ideal for:
-/// - **Custom numeric types**: Units of measurement, currencies
-/// - **Temporal types**: Custom date/time formats, time zones, calendars
-/// - **Domain-specific types**: UUIDs, IP addresses, geographic coordinates
-/// - **Encoded types**: Base64 strings, compressed data, encrypted values
-///
-/// ## Validity and Operations
-///
-/// Extension arrays delegate validity and most operations to their storage array:
-/// - Validity is inherited from the underlying storage
-/// - Slicing preserves the extension type
-/// - Scalar access wraps storage scalars with extension metadata
-#[derive(Clone, Debug)]
-pub struct ExtensionData {
-    /// The storage dtype. This **must** be a [`Extension::DType`] variant.
-    pub(super) ext_dtype: ExtDTypeRef,
-}
-
-impl Display for ExtensionData {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ext_dtype: {}", self.ext_dtype)
-    }
-}
-
-impl ExtensionData {
-    /// Constructs a new `ExtensionArray`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the storage array in not compatible with the extension dtype.
-    pub fn new(ext_dtype: ExtDTypeRef, storage_dtype: &DType) -> Self {
-        Self::try_new(ext_dtype, storage_dtype).vortex_expect("Failed to create `ExtensionArray`")
-    }
-
-    /// Tries to construct a new `ExtensionArray`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the storage array in not compatible with the extension dtype.
-    pub fn try_new(ext_dtype: ExtDTypeRef, storage_dtype: &DType) -> VortexResult<Self> {
-        // TODO(connor): Replace these statements once we add `validate_storage_array`.
-        // ext_dtype.validate_storage_array(&storage_array)?;
-        assert_eq!(
-            ext_dtype.storage_dtype(),
-            storage_dtype,
-            "ExtensionArray: storage_dtype must match storage array DType",
-        );
-
-        // SAFETY: we validate that the inputs are valid above.
-        Ok(unsafe { Self::new_unchecked(ext_dtype, storage_dtype) })
-    }
-
-    /// Creates a new `ExtensionArray`.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that the storage array is compatible with the extension dtype. In
-    /// other words, they must know that `ext_dtype.validate_storage_array(&storage_array)` has been
-    /// called successfully on this storage array.
-    pub unsafe fn new_unchecked(ext_dtype: ExtDTypeRef, storage_dtype: &DType) -> Self {
-        // TODO(connor): Replace these statements once we add `validate_storage_array`.
-        // #[cfg(debug_assertions)]
-        // ext_dtype
-        //     .validate_storage_array(&storage_array)
-        //     .vortex_expect("[Debug Assertion]: Invalid storage array for `ExtensionArray`");
-        debug_assert_eq!(
-            ext_dtype.storage_dtype(),
-            storage_dtype,
-            "ExtensionArray: storage_dtype must match storage array DType",
-        );
-
-        Self { ext_dtype }
-    }
-
-    /// The extension dtype of this array.
-    pub fn ext_dtype(&self) -> &ExtDTypeRef {
-        &self.ext_dtype
-    }
-}
-
 pub trait ExtensionArrayExt: TypedArrayRef<Extension> {
+    fn ext_dtype(&self) -> &ExtDTypeRef {
+        self.as_ref()
+            .dtype()
+            .as_extension_opt()
+            .vortex_expect("extension array somehow did not have an extension dtype")
+    }
+
     fn storage_array(&self) -> &ArrayRef {
         self.as_ref().slots()[STORAGE_SLOT]
             .as_ref()
@@ -144,26 +44,24 @@ impl Array<Extension> {
     ///
     /// Panics if the storage array is not compatible with the extension dtype.
     pub fn new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> Self {
-        let dtype = DType::Extension(ext_dtype.clone());
-        let len = storage_array.len();
-        let data = ExtensionData::new(ext_dtype, storage_array.dtype());
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Extension, dtype, len, data).with_slots(vec![Some(storage_array)]),
-            )
-        }
+        Self::try_new(ext_dtype, storage_array).vortex_expect("Unable to create `ExtensionArray`")
     }
 
     /// Tries to construct a new `ExtensionArray`.
     pub fn try_new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> VortexResult<Self> {
-        let dtype = DType::Extension(ext_dtype.clone());
+        vortex_ensure_eq!(
+            ext_dtype.storage_dtype(),
+            storage_array.dtype(),
+            "Tried to create an `ExtensionArray` with an incompatible storage array"
+        );
+
+        let dtype = DType::Extension(ext_dtype);
         let len = storage_array.len();
-        let data = ExtensionData::try_new(ext_dtype, storage_array.dtype())?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Extension, dtype, len, data).with_slots(vec![Some(storage_array)]),
-            )
-        })
+
+        let parts = ArrayParts::new(Extension, dtype, len, EmptyArrayData)
+            .with_slots(vec![Some(storage_array)]);
+
+        Ok(unsafe { Array::from_parts_unchecked(parts) })
     }
 
     /// Creates a new [`ExtensionArray`](crate::arrays::ExtensionArray) from a vtable, metadata, and
@@ -176,6 +74,7 @@ impl Array<Extension> {
         let ext_dtype =
             ExtDType::<V>::try_with_vtable(vtable, metadata, storage_array.dtype().clone())?
                 .erased();
+
         Self::try_new(ext_dtype, storage_array)
     }
 }

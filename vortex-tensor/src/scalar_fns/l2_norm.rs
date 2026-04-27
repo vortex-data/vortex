@@ -14,8 +14,8 @@ use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::ScalarFn as ScalarFnArrayEncoding;
 use vortex_array::arrays::ScalarFnArray;
-use vortex_array::arrays::ScalarFnVTable as ScalarFnArrayEncoding;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
@@ -33,9 +33,9 @@ use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
-use vortex_array::scalar_fn::ScalarFn;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_array::serde::ArrayChildren;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
@@ -65,9 +65,9 @@ use crate::utils::validate_tensor_float_input;
 pub struct L2Norm;
 
 impl L2Norm {
-    /// Creates a new [`ScalarFn`] wrapping the L2 norm operation.
-    pub fn new() -> ScalarFn<L2Norm> {
-        ScalarFn::new(L2Norm, EmptyOptions)
+    /// Creates a new [`TypedScalarFnInstance`] wrapping the L2 norm operation.
+    pub fn new() -> TypedScalarFnInstance<L2Norm> {
+        TypedScalarFnInstance::new(L2Norm, EmptyOptions)
     }
 
     /// Constructs a [`ScalarFnArray`] that lazily computes the L2 norm over `child`.
@@ -286,11 +286,11 @@ mod tests {
 
     use crate::scalar_fns::l2_norm::L2Norm;
     use crate::tests::SESSION;
+    use crate::types::vector::Vector;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::literal_vector_array;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
-    use crate::vector::Vector;
 
     /// Evaluates L2 norm on a tensor/vector array and returns the result as `Vec<f64>`.
     fn eval_l2_norm(input: ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
@@ -418,8 +418,8 @@ mod tests {
     }
 
     #[rstest]
-    #[case::fixed_shape_tensor(tensor_array(&[3], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap(), 2)]
-    #[case::vector(vector_array(3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap(), 2)]
+    #[case::fixed_shape_tensor(l2_norm_tensor_child(), 2)]
+    #[case::vector(l2_norm_vector_child(), 2)]
     fn serde_round_trip(#[case] child: ArrayRef, #[case] len: usize) -> VortexResult<()> {
         let original = L2Norm::try_new_array(child.clone(), len)?.into_array();
 
@@ -442,5 +442,13 @@ mod tests {
         assert_eq!(recovered.len(), original.len());
         assert_eq!(recovered.encoding_id(), original.encoding_id());
         Ok(())
+    }
+
+    fn l2_norm_tensor_child() -> ArrayRef {
+        tensor_array(&[3], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).expect("valid tensor array")
+    }
+
+    fn l2_norm_vector_child() -> ArrayRef {
+        vector_array(3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).expect("valid vector array")
     }
 }

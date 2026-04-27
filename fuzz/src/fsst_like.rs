@@ -113,8 +113,14 @@ pub fn run_fsst_like_fuzz(fuzz: FuzzFsstLike) -> VortexFuzzResult<bool> {
 
     // Train FSST compressor and compress.
     let compressor = fsst_train_compressor(&varbin);
-    let fsst_array: FSSTArray =
-        fsst_compress(varbin.clone(), varbin.len(), varbin.dtype(), &compressor);
+    let mut ctx = SESSION.create_execution_ctx();
+    let fsst_array: FSSTArray = fsst_compress(
+        varbin.clone(),
+        varbin.len(),
+        varbin.dtype(),
+        &compressor,
+        &mut ctx,
+    );
 
     let opts = LikeOptions {
         negated,

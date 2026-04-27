@@ -70,11 +70,24 @@ pub async fn try_gpu_dispatch(
     array: &ArrayRef,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
+    use crate::executor::CudaDispatchMode;
+
     trace!(encoding = %array.encoding_id(), dtype = ?array.dtype(), len = array.len(), "try GPU dispatch");
+
+    // Short-circuit: standalone-only skips the plan builder entirely.
+    if ctx.dispatch_mode() == CudaDispatchMode::StandaloneOnly {
+        trace!(encoding = %array.encoding_id(), "standalone-only dispatch");
+        return ctx
+            .cuda_session()
+            .kernel(&array.encoding_id())
+            .ok_or_else(|| vortex_err!("No CUDA kernel for encoding {:?}", array.encoding_id()))?
+            .execute(array.clone(), ctx)
+            .await;
+    }
 
     match DispatchPlan::new(array)? {
         DispatchPlan::Fused(plan) => {
-            let materialized = plan.materialize(ctx)?;
+            let materialized = plan.materialize(ctx).await?;
             let num_stages = materialized.dispatch_plan.num_stages();
             trace!(encoding = %array.encoding_id(), num_stages, "fully-fused dispatch");
             materialized.execute(array.len(), ctx)
@@ -93,12 +106,20 @@ pub async fn try_gpu_dispatch(
             }
 
             let num_subtrees = subtree_buffers.len();
-            let materialized = plan.materialize_with_subtrees(subtree_buffers, ctx)?;
+            let materialized = plan.materialize_with_subtrees(subtree_buffers, ctx).await?;
             let num_stages = materialized.dispatch_plan.num_stages();
             trace!(encoding = %array.encoding_id(), num_stages, num_subtrees, "partially-fused dispatch");
             materialized.execute(array.len(), ctx)
         }
         DispatchPlan::Unfused => {
+            // In dyn-dispatch-only mode, don't fall back to standalone kernels.
+            if ctx.dispatch_mode() == CudaDispatchMode::DynDispatchOnly {
+                return Err(vortex_err!(
+                    "Array with encoding {:?} is not dyn-dispatch-compatible",
+                    array.encoding_id()
+                ));
+            }
+
             // Unfused kernel dispatch fallback.
             ctx.cuda_session()
                 .kernel(&array.encoding_id())
@@ -124,6 +145,8 @@ mod tests {
     use vortex::error::VortexResult;
     use vortex::mask::Mask;
     use vortex::session::VortexSession;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
 
     use crate::CanonicalCudaExt;
     use crate::executor::CudaArrayExt;
@@ -138,6 +161,7 @@ mod tests {
         let bp = BitPacked::encode(
             &PrimitiveArray::new(Buffer::from(values), NonNullable).into_array(),
             7,
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .vortex_expect("bp");
         let arr = FoR::try_new(bp.into_array(), 1000u32.into()).vortex_expect("for");
@@ -167,6 +191,7 @@ mod tests {
         let bp = BitPacked::encode(
             &PrimitiveArray::new(Buffer::from(encoded), NonNullable).into_array(),
             9,
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .vortex_expect("bp");
         let alp = ALP::try_new(
@@ -253,7 +278,9 @@ mod tests {
         )
         .into_array();
         let vals = FoR::try_new(
-            BitPacked::encode(&vals, 6).vortex_expect("bp").into_array(),
+            BitPacked::encode(&vals, 6, &mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("bp")
+                .into_array(),
             0u32.into(),
         )
         .vortex_expect("for");
@@ -266,7 +293,7 @@ mod tests {
         )
         .into_array();
         let codes = FoR::try_new(
-            BitPacked::encode(&codes, 6)
+            BitPacked::encode(&codes, 6, &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("bp")
                 .into_array(),
             0u32.into(),
@@ -302,6 +329,7 @@ mod tests {
         let bp = BitPacked::encode(
             &PrimitiveArray::new(Buffer::from(data.clone()), NonNullable).into_array(),
             7,
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .vortex_expect("bp");
         let for_arr = FoR::try_new(bp.into_array(), 100u32.into()).vortex_expect("for");

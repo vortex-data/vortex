@@ -10,3 +10,4 @@ pub mod debug_with;
 #[cfg(feature = "dyn-traits")]
 pub mod dyn_traits;
 pub mod iter;
+pub mod parallelism;

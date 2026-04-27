@@ -95,6 +95,7 @@ mod tests {
 
     use vortex_array::ArrayPlugin;
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PatchedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::patched::PatchedArraySlotsExt;
@@ -120,11 +121,12 @@ mod tests {
 
     #[test]
     fn test_decode_bitpacked_patches() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         // Create values where some exceed the bit width, causing patches.
         // With bit_width=9, max value is 511. Values >=512 become patches.
         let values: Buffer<i32> = (0i32..=512).collect();
         let parray = values.into_array();
-        let bitpacked = BitPackedData::encode(&parray, 9)?;
+        let bitpacked = BitPackedData::encode(&parray, 9, &mut ctx)?;
 
         assert!(
             bitpacked.patches().is_some(),
@@ -170,10 +172,11 @@ mod tests {
 
     #[test]
     fn bitpacked_without_patches_stays_bitpacked() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         // With bit_width=16, max value is 65535. All values 0..100 fit.
         let values: Buffer<i32> = (0i32..100).collect();
         let parray = values.into_array();
-        let bitpacked = BitPackedData::encode(&parray, 16)?;
+        let bitpacked = BitPackedData::encode(&parray, 16, &mut ctx)?;
 
         assert!(
             bitpacked.patches().is_none(),

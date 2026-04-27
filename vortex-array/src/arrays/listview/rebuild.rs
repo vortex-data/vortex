@@ -421,12 +421,12 @@ mod tests {
 
         // Verify the data is correct
         assert_arrays_eq!(
-            flattened.list_elements_at(0).unwrap(),
+            flattened.list_elements_at(0)?,
             PrimitiveArray::from_iter([1i32, 2, 3])
         );
 
         assert_arrays_eq!(
-            flattened.list_elements_at(1).unwrap(),
+            flattened.list_elements_at(1)?,
             PrimitiveArray::from_iter([2i32, 3])
         );
         Ok(())
@@ -454,18 +454,18 @@ mod tests {
 
         // Verify nullability is preserved
         assert_eq!(flattened.dtype().nullability(), Nullability::Nullable);
-        assert!(flattened.validity()?.is_valid(0).unwrap());
-        assert!(!flattened.validity()?.is_valid(1).unwrap());
-        assert!(flattened.validity()?.is_valid(2).unwrap());
+        assert!(flattened.validity()?.is_valid(0)?);
+        assert!(!flattened.validity()?.is_valid(1)?);
+        assert!(flattened.validity()?.is_valid(2)?);
 
         // Verify valid lists contain correct data
         assert_arrays_eq!(
-            flattened.list_elements_at(0).unwrap(),
+            flattened.list_elements_at(0)?,
             PrimitiveArray::from_iter([1i32, 2])
         );
 
         assert_arrays_eq!(
-            flattened.list_elements_at(2).unwrap(),
+            flattened.list_elements_at(2)?,
             PrimitiveArray::from_iter([3i32])
         );
         Ok(())
@@ -500,12 +500,12 @@ mod tests {
 
         // Verify the data is correct.
         assert_arrays_eq!(
-            trimmed.list_elements_at(0).unwrap(),
+            trimmed.list_elements_at(0)?,
             PrimitiveArray::from_iter([1i32, 2])
         );
 
         assert_arrays_eq!(
-            trimmed.list_elements_at(1).unwrap(),
+            trimmed.list_elements_at(1)?,
             PrimitiveArray::from_iter([3i32, 4])
         );
 
@@ -513,9 +513,7 @@ mod tests {
         #[expect(deprecated)]
         let all_elements = trimmed.elements().to_primitive();
         assert_eq!(
-            all_elements
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap(),
+            all_elements.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?,
             97i32.into()
         );
         Ok(())
@@ -557,35 +555,19 @@ mod tests {
         let exact = rebuilt.rebuild(ListViewRebuildMode::MakeExact)?;
 
         // Verify the result is still valid
-        assert!(
-            exact
-                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap()
-        );
-        assert!(
-            exact
-                .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap()
-        );
-        assert!(
-            !exact
-                .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap()
-        );
-        assert!(
-            !exact
-                .is_valid(3, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap()
-        );
+        assert!(exact.is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())?);
+        assert!(exact.is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())?);
+        assert!(!exact.is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())?);
+        assert!(!exact.is_valid(3, &mut LEGACY_SESSION.create_execution_ctx())?);
 
         // Verify data is preserved
         assert_arrays_eq!(
-            exact.list_elements_at(0).unwrap(),
+            exact.list_elements_at(0)?,
             PrimitiveArray::from_iter([1i32, 2])
         );
 
         assert_arrays_eq!(
-            exact.list_elements_at(1).unwrap(),
+            exact.list_elements_at(1)?,
             PrimitiveArray::from_iter([3i32, 4])
         );
         Ok(())
@@ -607,7 +589,7 @@ mod tests {
         let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
         let trimmed = listview.rebuild(ListViewRebuildMode::TrimElements)?;
         assert_arrays_eq!(
-            trimmed.list_elements_at(1).unwrap(),
+            trimmed.list_elements_at(1)?,
             PrimitiveArray::from_iter([30i32, 40])
         );
         Ok(())
@@ -627,7 +609,7 @@ mod tests {
         let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
         let trimmed = listview.rebuild(ListViewRebuildMode::TrimElements)?;
         assert_arrays_eq!(
-            trimmed.list_elements_at(1).unwrap(),
+            trimmed.list_elements_at(1)?,
             PrimitiveArray::from_iter([30i32, 40])
         );
         Ok(())

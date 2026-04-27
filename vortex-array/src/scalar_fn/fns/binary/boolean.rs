@@ -10,10 +10,11 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
+use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::FromArrowArray;
-use crate::arrow::IntoArrowArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::executor::ExecutionCtx;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
 
@@ -37,19 +38,31 @@ pub(crate) fn execute_boolean(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
     op: Operator,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     if let Some(result) = constant_boolean(lhs, rhs, op)? {
         return Ok(result);
     }
-    arrow_execute_boolean(lhs.clone(), rhs.clone(), op)
+    arrow_execute_boolean(lhs.clone(), rhs.clone(), op, ctx)
 }
 
 /// Arrow implementation for Kleene boolean operations using [`Operator`].
-fn arrow_execute_boolean(lhs: ArrayRef, rhs: ArrayRef, op: Operator) -> VortexResult<ArrayRef> {
+fn arrow_execute_boolean(
+    lhs: ArrayRef,
+    rhs: ArrayRef,
+    op: Operator,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
 
-    let lhs = lhs.into_arrow(&DataType::Boolean)?.as_boolean().clone();
-    let rhs = rhs.into_arrow(&DataType::Boolean)?.as_boolean().clone();
+    let lhs = lhs
+        .execute_arrow(Some(&DataType::Boolean), ctx)?
+        .as_boolean()
+        .clone();
+    let rhs = rhs
+        .execute_arrow(Some(&DataType::Boolean), ctx)?
+        .as_boolean()
+        .clone();
 
     let array = match op {
         Operator::And => arrow_arith::boolean::and_kleene(&lhs, &rhs)?,

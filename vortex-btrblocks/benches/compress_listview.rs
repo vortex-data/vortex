@@ -6,6 +6,8 @@
 
 #[cfg(not(codspeed))]
 mod benchmarks {
+    use std::sync::LazyLock;
+
     use divan::Bencher;
     use divan::counter::BytesCount;
     use divan::counter::ItemsCount;
@@ -14,16 +16,22 @@ mod benchmarks {
     use rand::prelude::StdRng;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ListViewArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::dtype::FieldNames;
+    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressor;
     use vortex_buffer::buffer_mut;
+    use vortex_session::VortexSession;
 
     const NUM_ROWS: usize = 8192;
     const SEED: u64 = 42;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     const SHORT_STRINGS: &[&str] = &[
         "alpha_one",
@@ -177,10 +185,10 @@ mod benchmarks {
         let nbytes = array.nbytes();
         let compressor = BtrBlocksCompressor::default();
         bencher
-            .with_inputs(|| &array)
+            .with_inputs(|| (&array, SESSION.create_execution_ctx()))
             .input_counter(|_| ItemsCount::new(NUM_ROWS))
             .input_counter(move |_| BytesCount::new(nbytes as usize))
-            .bench_refs(|array| compressor.compress(array).unwrap());
+            .bench_refs(|(array, ctx)| compressor.compress(array, ctx).unwrap());
     }
 }
 

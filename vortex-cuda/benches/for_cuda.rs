@@ -20,6 +20,8 @@ use criterion::Throughput;
 use cudarc::driver::DeviceRepr;
 use futures::executor::block_on;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
@@ -31,6 +33,7 @@ use vortex::encodings::fastlanes::FoRArray;
 use vortex::error::VortexExpect;
 use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
+use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
@@ -56,7 +59,9 @@ where
         PrimitiveArray::new(Buffer::from(data), Validity::NonNullable).into_array();
 
     if bp && T::PTYPE != PType::U8 {
-        let child = BitPackedData::encode(&primitive_array, 8).vortex_expect("failed to bitpack");
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let child =
+            BitPackedData::encode(&primitive_array, 8, &mut ctx).vortex_expect("failed to bitpack");
         FoR::try_new(child.into_array(), reference.into())
             .vortex_expect("failed to create FoR array")
     } else {
@@ -83,10 +88,11 @@ where
             |b, for_array| {
                 b.iter_custom(|iters| {
                     let timed = TimedLaunchStrategy::default();
-                    let timer = Arc::clone(&timed.total_time_ns);
+                    let timer = timed.timer();
 
                     let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
                         .vortex_expect("failed to create execution context")
+                        .with_dispatch_mode(CudaDispatchMode::StandaloneOnly)
                         .with_launch_strategy(Arc::new(timed));
 
                     for _ in 0..iters {
@@ -121,10 +127,11 @@ where
             |b, for_array| {
                 b.iter_custom(|iters| {
                     let timed = TimedLaunchStrategy::default();
-                    let timer = Arc::clone(&timed.total_time_ns);
+                    let timer = timed.timer();
 
                     let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
                         .vortex_expect("failed to create execution context")
+                        .with_dispatch_mode(CudaDispatchMode::StandaloneOnly)
                         .with_launch_strategy(Arc::new(timed));
 
                     for _ in 0..iters {

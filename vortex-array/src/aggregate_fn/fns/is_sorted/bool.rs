@@ -17,7 +17,7 @@ pub(super) fn check_bool_sorted(
     match array
         .as_ref()
         .validity()?
-        .to_mask(array.as_ref().len(), ctx)?
+        .execute_mask(array.as_ref().len(), ctx)?
     {
         Mask::AllFalse(_) => Ok(!strict),
         Mask::AllTrue(_) => {

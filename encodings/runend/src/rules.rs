@@ -4,12 +4,14 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::scalar_fn::AnyScalarFn;
+use vortex_array::arrays::scalar_fn::ScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
-use vortex_array::arrays::scalar_fn::ScalarFnVTable;
 use vortex_array::dtype::DType;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
@@ -41,7 +43,7 @@ impl ArrayParentReduceRule<RunEnd> for RunEndScalarFnRule {
     fn reduce_parent(
         &self,
         run_end: ArrayView<'_, RunEnd>,
-        parent: ArrayView<'_, ScalarFnVTable>,
+        parent: ArrayView<'_, ScalarFn>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         for (idx, child) in parent.iter_children().enumerate() {
@@ -80,6 +82,8 @@ impl ArrayParentReduceRule<RunEnd> for RunEndScalarFnRule {
             ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children, values_len)?
                 .into_array();
 
+        // TODO(ctx): trait fixes - ArrayParentReduceRule::reduce_parent has a fixed signature.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         Ok(Some(
             unsafe {
                 RunEnd::new_unchecked(
@@ -87,6 +91,7 @@ impl ArrayParentReduceRule<RunEnd> for RunEndScalarFnRule {
                     new_values,
                     run_end.offset(),
                     run_end.len(),
+                    &mut ctx,
                 )
             }
             .into_array(),

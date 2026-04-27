@@ -10,7 +10,9 @@ use futures::StreamExt as _;
 use futures::pin_mut;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
@@ -103,12 +105,13 @@ impl LayoutStrategy for RepartitionStrategy {
         // canon_stream = stream.map(async {to_canonical}).map(spawn).buffered(parallelism)
         let dtype = stream.dtype().clone();
         let stream = if self.options.canonicalize {
+            let canonicalize_session = session.clone();
             SequentialStreamAdapter::new(
                 dtype.clone(),
-                stream.map(|chunk| {
+                stream.map(move |chunk| {
                     let (sequence_id, chunk) = chunk?;
-                    #[expect(deprecated)]
-                    let canonical = chunk.to_canonical()?.into_array();
+                    let mut ctx = canonicalize_session.create_execution_ctx();
+                    let canonical = chunk.execute::<Canonical>(&mut ctx)?.into_array();
                     VortexResult::Ok((sequence_id, canonical))
                 }),
             )
@@ -125,11 +128,13 @@ impl LayoutStrategy for RepartitionStrategy {
         // segments.
         let block_len = options.effective_block_len(&dtype);
         let block_size_minimum = options.block_size_minimum;
+        let repartition_session = session.clone();
 
         let repartitioned_stream = try_stream! {
             let canonical_stream = stream.peekable();
             pin_mut!(canonical_stream);
 
+            let mut ctx = repartition_session.create_execution_ctx();
             let mut chunks = ChunksBuffer::new(block_size_minimum, block_len);
             while let Some(chunk) = canonical_stream.as_mut().next().await {
                 let (sequence_id, chunk) = chunk?;
@@ -147,8 +152,7 @@ impl LayoutStrategy for RepartitionStrategy {
                         let chunked =
                             ChunkedArray::try_new(output_chunks, dtype_clone.clone())?;
                         if !chunked.is_empty() {
-                            #[expect(deprecated)]
-                            let canonical = chunked.into_array().to_canonical()?.into_array();
+                            let canonical = chunked.into_array().execute::<Canonical>(&mut ctx)?.into_array();
                             yield (
                                 sequence_pointer.advance(),
                                 canonical,
@@ -162,8 +166,7 @@ impl LayoutStrategy for RepartitionStrategy {
                         dtype_clone.clone(),
                     )?;
                     if !to_flush.is_empty() {
-                        #[expect(deprecated)]
-                        let canonical = to_flush.into_array().to_canonical()?.into_array();
+                        let canonical = to_flush.into_array().execute::<Canonical>(&mut ctx)?.into_array();
                         yield (
                             sequence_pointer.advance(),
                             canonical,
@@ -273,6 +276,7 @@ mod tests {
 
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -485,6 +489,7 @@ mod tests {
     /// `pop_front` subtracted the larger Cached-era values.
     #[test]
     fn chunks_buffer_pop_front_no_panic_after_shared_execution() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let n = 20_000usize;
         let block_len = 10_000usize;
 
@@ -504,8 +509,8 @@ mod tests {
 
         // Transition SharedState from Source to Cached for ALL slices sharing this Arc.
         use vortex_array::arrays::shared::SharedArrayExt;
-        #[expect(deprecated)]
-        let _canonical = shared_handle.get_or_compute(|source| source.to_canonical())?;
+        let _canonical =
+            shared_handle.get_or_compute(|source| source.clone().execute::<Canonical>(&mut ctx))?;
 
         // Before the fix this panicked with "attempt to subtract with overflow".
         let _s2 = buf.pop_front().unwrap();

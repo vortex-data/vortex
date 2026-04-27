@@ -121,7 +121,7 @@
 //! // Normalize and quantize at 2 bits per coordinate in one pass.
 //! let session = VortexSession::empty().with::<ArraySession>();
 //! let mut ctx = session.create_execution_ctx();
-//! let config = TurboQuantConfig { bit_width: 2, seed: Some(42), num_rounds: 3 };
+//! let config = TurboQuantConfig { bit_width: 2, seed: 42, num_rounds: 3 };
 //! let tq = turboquant_encode(vector, &config, &mut ctx).unwrap();
 //!
 //! // Verify compression: 100 vectors x 128 dims x 4 bytes = 51200 bytes input.
@@ -154,8 +154,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
-use crate::vector::AnyVector;
-use crate::vector::VectorMatcherMetadata;
+use crate::types::vector::AnyVector;
+use crate::types::vector::VectorMatcherMetadata;
 
 /// Validates that `dtype` is a [`Vector`](crate::vector::Vector) extension type with
 /// dimension >= [`MIN_DIMENSION`].

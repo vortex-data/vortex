@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 
 use fastlanes::BitPacking;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
@@ -254,12 +255,16 @@ impl BitPackedData {
     ///
     /// If the requested bit-width for packing is larger than the array's native width, an
     /// error will be returned.
-    pub fn encode(array: &ArrayRef, bit_width: u8) -> VortexResult<BitPackedArray> {
+    pub fn encode(
+        array: &ArrayRef,
+        bit_width: u8,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<BitPackedArray> {
         let parray: PrimitiveArray = array
             .clone()
             .try_downcast::<Primitive>()
             .map_err(|a| vortex_err!(InvalidArgument: "Bitpacking can only encode primitive arrays, got {}", a.encoding_id()))?;
-        bitpack_encode(&parray, bit_width, None)
+        bitpack_encode(&parray, bit_width, None, ctx)
     }
 
     /// Calculate the maximum value that **can** be contained by this array, given its bit-width.
@@ -333,8 +338,8 @@ impl<T: TypedArrayRef<crate::BitPacked>> BitPackedArrayExt for T {}
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
-    #[expect(deprecated)]
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_buffer::Buffer;
@@ -344,6 +349,7 @@ mod test {
 
     #[test]
     fn test_encode() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = [
             Some(1u64),
             None,
@@ -354,32 +360,40 @@ mod test {
             Some(u64::MAX),
         ];
         let uncompressed = PrimitiveArray::from_option_iter(values);
-        let packed = BitPackedData::encode(&uncompressed.into_array(), 1).unwrap();
+        let packed = BitPackedData::encode(&uncompressed.into_array(), 1, &mut ctx).unwrap();
         let expected = PrimitiveArray::from_option_iter(values);
-        #[expect(deprecated)]
-        let packed_primitive = packed.as_array().to_primitive();
+        let packed_primitive = packed
+            .as_array()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_arrays_eq!(packed_primitive, expected);
     }
 
     #[test]
     fn test_encode_too_wide() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = [Some(1u8), None, Some(1), None, Some(1), None];
         let uncompressed = PrimitiveArray::from_option_iter(values);
-        let _packed = BitPackedData::encode(&uncompressed.clone().into_array(), 8)
+        let _packed = BitPackedData::encode(&uncompressed.clone().into_array(), 8, &mut ctx)
             .expect_err("Cannot pack value into the same width");
-        let _packed = BitPackedData::encode(&uncompressed.into_array(), 9)
+        let _packed = BitPackedData::encode(&uncompressed.into_array(), 9, &mut ctx)
             .expect_err("Cannot pack value into larger width");
     }
 
     #[test]
     fn signed_with_patches() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values: Buffer<i32> = (0i32..=512).collect();
         let parray = values.clone().into_array();
 
-        let packed_with_patches = BitPackedData::encode(&parray, 9).unwrap();
+        let packed_with_patches = BitPackedData::encode(&parray, 9, &mut ctx).unwrap();
         assert!(packed_with_patches.patches().is_some());
-        #[expect(deprecated)]
-        let packed_primitive = packed_with_patches.as_array().to_primitive();
+        let packed_primitive = packed_with_patches
+            .as_array()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_arrays_eq!(
             packed_primitive,
             PrimitiveArray::new(values, vortex_array::validity::Validity::NonNullable)

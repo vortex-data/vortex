@@ -33,8 +33,10 @@ pub enum ScalarValue {
     Utf8(BufferString),
     /// A binary (byte array) value.
     Binary(ByteBuffer),
-    /// A list of potentially null scalar values.
-    List(Vec<Option<ScalarValue>>),
+    /// A tuple of potentially null scalar values.
+    ///
+    /// Used as the underlying representation for list, fixed-size list, and struct scalars.
+    Tuple(Vec<Option<ScalarValue>>),
     /// A row-specific scalar wrapped by `DType::Variant`.
     Variant(Box<Scalar>),
 }
@@ -49,17 +51,17 @@ impl ScalarValue {
             DType::Decimal(dt, ..) => Self::Decimal(DecimalValue::zero(dt)),
             DType::Utf8(_) => Self::Utf8(BufferString::empty()),
             DType::Binary(_) => Self::Binary(ByteBuffer::empty()),
-            DType::List(..) => Self::List(vec![]),
+            DType::List(..) => Self::Tuple(vec![]),
             DType::FixedSizeList(edt, size, _) => {
                 let elements = (0..*size).map(|_| Some(Self::zero_value(edt))).collect();
-                Self::List(elements)
+                Self::Tuple(elements)
             }
             DType::Struct(fields, _) => {
                 let field_values = fields
                     .fields()
                     .map(|f| Some(Self::zero_value(&f)))
                     .collect();
-                Self::List(field_values)
+                Self::Tuple(field_values)
             }
             DType::Extension(ext_dtype) => {
                 // Since we have no way to define a "zero" extension value (since we have no idea
@@ -89,14 +91,14 @@ impl ScalarValue {
             DType::Decimal(dt, ..) => Self::Decimal(DecimalValue::zero(dt)),
             DType::Utf8(_) => Self::Utf8(BufferString::empty()),
             DType::Binary(_) => Self::Binary(ByteBuffer::empty()),
-            DType::List(..) => Self::List(vec![]),
+            DType::List(..) => Self::Tuple(vec![]),
             DType::FixedSizeList(edt, size, _) => {
                 let elements = (0..*size).map(|_| Self::default_value(edt)).collect();
-                Self::List(elements)
+                Self::Tuple(elements)
             }
             DType::Struct(fields, _) => {
                 let field_values = fields.fields().map(|f| Self::default_value(&f)).collect();
-                Self::List(field_values)
+                Self::Tuple(field_values)
             }
             DType::Extension(ext_dtype) => {
                 // Since we have no way to define a "default" extension value (since we have no idea
@@ -117,7 +119,7 @@ impl PartialOrd for ScalarValue {
             (ScalarValue::Decimal(a), ScalarValue::Decimal(b)) => a.partial_cmp(b),
             (ScalarValue::Utf8(a), ScalarValue::Utf8(b)) => a.partial_cmp(b),
             (ScalarValue::Binary(a), ScalarValue::Binary(b)) => a.partial_cmp(b),
-            (ScalarValue::List(a), ScalarValue::List(b)) => a.partial_cmp(b),
+            (ScalarValue::Tuple(a), ScalarValue::Tuple(b)) => a.partial_cmp(b),
             (ScalarValue::Variant(a), ScalarValue::Variant(b)) => a.partial_cmp(b),
             // (ScalarValue::Extension(a), ScalarValue::Extension(b)) => a.partial_cmp(b),
             _ => None,
@@ -156,7 +158,7 @@ impl Display for ScalarValue {
                     write!(f, "{}", to_hex(b))
                 }
             }
-            ScalarValue::List(elements) => {
+            ScalarValue::Tuple(elements) => {
                 write!(f, "[")?;
                 for (i, element) in elements.iter().enumerate() {
                     if i > 0 {

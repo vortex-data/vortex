@@ -16,6 +16,7 @@ pub use expr::*;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
@@ -218,9 +219,13 @@ impl LayoutReader for RowIdxLayoutReader {
                     Partition::Child => self.child.filter_evaluation(row_range, expr, mask),
                 },
                 |annotation, expr, mask| match annotation {
-                    Partition::RowIdx => {
-                        Ok(row_idx_array_future(self.row_offset, row_range, expr, mask))
-                    }
+                    Partition::RowIdx => Ok(row_idx_array_future(
+                        self.row_offset,
+                        row_range,
+                        expr,
+                        mask,
+                        self.session.clone(),
+                    )),
                     Partition::Child => self.child.projection_evaluation(row_range, expr, mask),
                 },
                 self.session.clone(),
@@ -235,15 +240,23 @@ impl LayoutReader for RowIdxLayoutReader {
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         match &self.partition_expr(expr) {
-            Partitioning::RowIdx(expr) => {
-                Ok(row_idx_array_future(self.row_offset, row_range, expr, mask))
-            }
+            Partitioning::RowIdx(expr) => Ok(row_idx_array_future(
+                self.row_offset,
+                row_range,
+                expr,
+                mask,
+                self.session.clone(),
+            )),
             Partitioning::Child(expr) => self.child.projection_evaluation(row_range, expr, mask),
             Partitioning::Partitioned(p) => {
                 Arc::clone(p).into_array_future(mask, |annotation, expr, mask| match annotation {
-                    Partition::RowIdx => {
-                        Ok(row_idx_array_future(self.row_offset, row_range, expr, mask))
-                    }
+                    Partition::RowIdx => Ok(row_idx_array_future(
+                        self.row_offset,
+                        row_range,
+                        expr,
+                        mask,
+                        self.session.clone(),
+                    )),
                     Partition::Child => self.child.projection_evaluation(row_range, expr, mask),
                 })
             }
@@ -292,14 +305,15 @@ fn row_idx_array_future(
     row_range: &Range<u64>,
     expr: &Expression,
     mask: MaskFuture,
+    session: VortexSession,
 ) -> ArrayFuture {
     let row_range = row_range.clone();
     let expr = expr.clone();
     async move {
         let array = idx_array(row_offset, &row_range).into_array();
         let filtered = array.filter(mask.await?)?;
-        #[expect(deprecated)]
-        let array = filtered.to_canonical()?.into_array();
+        let mut ctx = session.create_execution_ctx();
+        let array = filtered.execute::<Canonical>(&mut ctx)?.into_array();
         array.apply(&expr)
     }
     .boxed()

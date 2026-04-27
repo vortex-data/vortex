@@ -21,6 +21,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_compressor::CascadingCompressor;
 use vortex_compressor::ctx::CompressorContext;
 use vortex_compressor::estimate::CompressionEstimate;
@@ -70,8 +71,9 @@ impl Scheme for TurboQuantScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
+        data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         let len = data.array().len();
         let dtype = data.array().dtype();
@@ -94,12 +96,12 @@ impl Scheme for TurboQuantScheme {
 
     fn compress(
         &self,
-        compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
+        _compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let mut ctx = compressor.execution_ctx();
-        turboquant_encode(data.array().clone(), &TurboQuantConfig::default(), &mut ctx)
+        turboquant_encode(data.array().clone(), &TurboQuantConfig::default(), exec_ctx)
     }
 }
 
@@ -109,21 +111,25 @@ impl Scheme for TurboQuantScheme {
 fn estimate_compression_ratio(element_bit_width: u8, dimensions: u32, num_vectors: usize) -> f64 {
     let config = TurboQuantConfig::default();
     let padded_dim = dimensions.next_power_of_two() as usize;
+    let element_bits = usize::from(element_bit_width);
 
-    // Per-vector: MSE codes per padded coordinate, plus one stored norm in the input element
-    // float width.
-    let compressed_bits_per_vector =
-        usize::from(element_bit_width) + usize::from(config.bit_width) * padded_dim;
+    // Get the size of the fully uncompressed vector data.
+    let uncompressed_size_bits = element_bits * dimensions as usize * num_vectors;
+
+    // Per-vector: MSE codes per padded coordinate, plus one stored norm in the input element float
+    // width.
+    let norm_bits = element_bits;
+    let compressed_bits_per_vector = usize::from(config.bit_width) * padded_dim;
+    let total_bits_per_vector = norm_bits + compressed_bits_per_vector;
 
     // Shared overhead: codebook centroids (2^bit_width f32 values).
-    // Note: rotation signs are no longer stored — rotation is deterministic from seed.
     let num_centroids = 1usize << config.bit_width;
     debug_assert!(num_centroids <= MAX_CENTROIDS);
     let overhead_bits = num_centroids * 32; // centroids are always f32
 
-    let compressed_size_bits = compressed_bits_per_vector * num_vectors + overhead_bits;
+    // This includes the quantized vectors, norms, and centroid codebook.
+    let compressed_size_bits = total_bits_per_vector * num_vectors + overhead_bits;
 
-    let uncompressed_size_bits = usize::from(element_bit_width) * dimensions as usize * num_vectors;
     uncompressed_size_bits as f64 / compressed_size_bits as f64
 }
 

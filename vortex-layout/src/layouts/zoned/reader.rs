@@ -5,62 +5,33 @@ use std::collections::BTreeSet;
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
-use std::sync::LazyLock;
-use std::sync::OnceLock;
 
-use futures::FutureExt;
-use futures::TryFutureExt;
 use futures::future::BoxFuture;
-use futures::future::Shared;
 use itertools::Itertools;
-use parking_lot::RwLock;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
-use vortex_array::dtype::FieldPath;
-use vortex_array::dtype::FieldPathSet;
 use vortex_array::expr::Expression;
-use vortex_array::expr::pruning::checked_pruning_expr;
-use vortex_array::expr::root;
-use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_buffer::BitBufferMut;
-use vortex_error::SharedVortexResult;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
-use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
 use crate::layouts::zoned::ZonedLayout;
-use crate::layouts::zoned::zone_map::ZoneMap;
+use crate::layouts::zoned::pruning::PruningState;
+use crate::layouts::zoned::schema::stats_table_dtype;
 use crate::segments::SegmentSource;
-
-type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
-type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
-type PredicateCache = Arc<OnceLock<Option<Expression>>>;
 
 pub struct ZonedReader {
     layout: ZonedLayout,
     name: Arc<str>,
-    lazy_children: LazyReaderChildren,
-    session: VortexSession,
-
-    /// A cache of expr -> optional pruning result (applying the pruning expr to the zone map)
-    pruning_result: LazyLock<DashMap<Expression, Option<SharedPruningResult>>>,
-
-    /// Shared zone map
-    zone_map: OnceLock<SharedZoneMap>,
-
-    /// A cache of expr -> optional pruning predicate.
-    /// This also uses the present_stats from the `ZonedLayout`
-    pruning_predicates: LazyLock<Arc<DashMap<Expression, PredicateCache>>>,
+    lazy_children: Arc<LazyReaderChildren>,
+    pruning: PruningState,
 }
 
 impl ZonedReader {
@@ -72,25 +43,22 @@ impl ZonedReader {
     ) -> VortexResult<Self> {
         let dtypes = vec![
             layout.dtype.clone(),
-            ZoneMap::dtype_for_stats_table(layout.dtype(), layout.present_stats()),
+            stats_table_dtype(layout.dtype(), layout.present_stats()),
         ];
         let names = vec![Arc::clone(&name), format!("{}.zones", name).into()];
-        let lazy_children = LazyReaderChildren::new(
+        let lazy_children = Arc::new(LazyReaderChildren::new(
             Arc::clone(&layout.children),
             dtypes,
             names,
             Arc::clone(&segment_source),
             session.clone(),
-        );
+        ));
 
         Ok(Self {
+            pruning: PruningState::new(&layout, Arc::clone(&lazy_children), session),
             layout,
             name,
             lazy_children,
-            session,
-            pruning_result: Default::default(),
-            zone_map: Default::default(),
-            pruning_predicates: Default::default(),
         })
     }
 
@@ -98,109 +66,12 @@ impl ZonedReader {
         self.lazy_children.get(0)
     }
 
-    /// Get or create the pruning predicate for a given expression.
-    fn pruning_predicate(&self, expr: Expression) -> Option<Expression> {
-        self.pruning_predicates
-            .entry(expr.clone())
-            .or_default()
-            .get_or_init(move || {
-                let field_path_set = FieldPathSet::from_iter(
-                    self.layout
-                        .present_stats
-                        .iter()
-                        .map(|s| FieldPath::from_name(s.name())),
-                );
-                checked_pruning_expr(&expr, &field_path_set).map(|(expr, _)| expr)
-            })
-            .clone()
-    }
-
-    /// Get or initialize the zone map.
-    ///
-    /// Only the first successful caller will initialize the zone map, all other callers will
-    /// resolve to the same result.
-    fn zone_map(&self) -> SharedZoneMap {
-        self.zone_map
-            .get_or_init(move || {
-                let nzones = self.layout.nzones();
-                let present_stats = Arc::clone(&self.layout.present_stats);
-
-                let zones_eval = self
-                    .lazy_children
-                    .get(1)
-                    .vortex_expect("failed to get zone child")
-                    .projection_evaluation(
-                        &(0..nzones as u64),
-                        &root(),
-                        MaskFuture::new_true(nzones),
-                    )
-                    .vortex_expect("Failed construct zone map evaluation");
-
-                async move {
-                    #[expect(deprecated)]
-                    let zones_array = zones_eval.await?.to_struct();
-                    // SAFETY: This is only fine to call because we perform validation above
-                    Ok(unsafe { ZoneMap::new_unchecked(zones_array, present_stats) })
-                }
-                .map_err(Arc::new)
-                .boxed()
-                .shared()
-            })
-            .clone()
-    }
-
-    /// Returns a pruning mask where `true` means the chunk _can be pruned_.
-    fn pruning_mask_future(&self, expr: Expression) -> Option<SharedPruningResult> {
-        // Check cache first with read-only lock
-        if let Some(result) = self.pruning_result.get(&expr) {
-            return result.value().clone();
-        }
-
-        self.pruning_result
-            .entry(expr.clone())
-            .or_insert_with(|| match self.pruning_predicate(expr.clone()) {
-                None => {
-                    tracing::debug!("No pruning predicate for expr: {expr}");
-                    None
-                }
-                Some(predicate) => {
-                    tracing::debug!(
-                        "Constructed pruning predicate for expr: {expr}: {predicate:?}"
-                    );
-                    let zone_map = self.zone_map();
-                    let dynamic_updates = DynamicExprUpdates::new(&expr);
-                    let session = self.session.clone();
-
-                    Some(
-                        async move {
-                            let zone_map = zone_map.await?;
-                            let initial_mask =
-                                zone_map.prune(&predicate, &session).map_err(|err| {
-                                    err.with_context(format!(
-                                        "While evaluating pruning predicate {} (derived from {})",
-                                        predicate, expr
-                                    ))
-                                })?;
-                            Ok(Arc::new(PruningResult {
-                                zone_map,
-                                predicate,
-                                dynamic_updates,
-                                latest_result: RwLock::new((0, initial_mask)),
-                                session,
-                            }))
-                        }
-                        .boxed()
-                        .shared(),
-                    )
-                }
-            })
-            .clone()
-    }
-
     /// Get the range of zone IDs containing a row range.
     pub(crate) fn zone_range(&self, row_range: &Range<u64>) -> Range<u64> {
-        // Zone length is guaranteed to be > 0 by ZonedLayout::new validation
+        // Caller must ensure zone_len > 0. Legacy files may deserialize with zone_len == 0, but
+        // pruning_evaluation disables zoned pruning for those layouts before calling this helper.
         debug_assert!(self.layout.zone_len > 0, "zone_len must be > 0");
+
         let zone_len_u64 = self.layout.zone_len as u64;
         let zone_start = row_range.start / zone_len_u64;
         let zone_end = row_range.end.div_ceil(zone_len_u64);
@@ -249,7 +120,14 @@ impl LayoutReader for ZonedReader {
             .data_child()?
             .pruning_evaluation(row_range, expr, mask.clone())?;
 
-        let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone()) else {
+        if self.layout.zone_len == 0 {
+            tracing::debug!(
+                "Stats pruning evaluation: skipping zoned pruning for legacy zero-length zones"
+            );
+            return Ok(data_eval);
+        }
+
+        let Some(pruning_mask_future) = self.pruning.pruning_mask_future(expr.clone()) else {
             tracing::debug!("Stats pruning evaluation: not prune-able {expr}");
             return Ok(data_eval);
         };
@@ -336,67 +214,6 @@ impl LayoutReader for ZonedReader {
     }
 }
 
-/// A wrapper for the result of pruning an expression against a zone map such that we can refresh
-/// it each time the dynamic expressions are updated.
-struct PruningResult {
-    zone_map: ZoneMap,
-    predicate: Expression,
-    dynamic_updates: Option<DynamicExprUpdates>,
-    latest_result: RwLock<(u64, Mask)>,
-    session: VortexSession,
-}
-
-impl PruningResult {
-    /// Return the pruning mask, computed for _at least_ the given version.
-    ///
-    /// The version typically comes from the dynamic expression updates, but zero can be passed
-    /// to fetch any version.
-    fn mask(&self) -> VortexResult<Mask> {
-        // If we're not dynamic, then the result is always the latest result.
-        let Some(dynamic_updates) = &self.dynamic_updates else {
-            return Ok(self.latest_result.read().1.clone());
-        };
-
-        // Compute the latest version of the dynamic expression values.
-        let version = dynamic_updates.version();
-
-        {
-            let read_guard = self.latest_result.read();
-            if read_guard.0 >= version {
-                // We're up to date, so we can return the cached result.
-                return Ok(read_guard.1.clone());
-            }
-        }
-
-        // Otherwise, we re-compute the mask for the given version number.
-        let mut guard = self.latest_result.write();
-
-        // Once we've taken the write lock, we check again in case another thread has already
-        // beaten us to it.
-        if guard.0 >= version {
-            return Ok(guard.1.clone());
-        }
-
-        tracing::debug!(
-            "Re-computing pruning mask for version {version} on {}",
-            self.predicate
-        );
-
-        let next_mask = self
-            .zone_map
-            .prune(&self.predicate, &self.session)
-            .map_err(|err| {
-                err.with_context(format!(
-                    "While evaluating pruning predicate {}",
-                    self.predicate
-                ))
-            })?;
-        *guard = (version, next_mask.clone());
-
-        Ok(next_mask)
-    }
-}
-
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
@@ -411,22 +228,44 @@ mod test {
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
+    use vortex_array::scalar_fn::session::ScalarFnSession;
+    use vortex_array::session::ArraySession;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+    use vortex_io::runtime::Handle;
     use vortex_io::runtime::single::block_on;
+    use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
+    use vortex_session::registry::ReadContext;
 
+    use crate::IntoLayout;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
+    use crate::VTable;
+    use crate::children::OwnedLayoutChildren;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::layouts::zoned::Zoned;
+    use crate::layouts::zoned::ZonedLayoutEncoding;
+    use crate::layouts::zoned::ZonedMetadata;
     use crate::layouts::zoned::writer::ZonedLayoutOptions;
     use crate::layouts::zoned::writer::ZonedStrategy;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
-    use crate::test::SESSION;
+    use crate::session::LayoutSession;
+
+    fn session_with_handle(handle: Handle) -> VortexSession {
+        VortexSession::empty()
+            .with::<ArraySession>()
+            .with::<LayoutSession>()
+            .with::<ScalarFnSession>()
+            .with::<RuntimeSession>()
+            .with_handle(handle)
+    }
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
@@ -452,7 +291,7 @@ mod test {
         .sequenced(ptr);
         let segments2 = Arc::<TestSegments>::clone(&segments);
         let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = session_with_handle(handle);
             strategy
                 .write_stream(ctx, segments2, array_stream, eof, &session)
                 .await
@@ -465,9 +304,10 @@ mod test {
     fn test_stats_evaluator(
         #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        block_on(|_| async {
+        block_on(|handle| async {
+            let session = session_with_handle(handle);
             let result = layout
-                .new_reader("".into(), segments, &SESSION)
+                .new_reader("".into(), segments, &session)
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -487,9 +327,10 @@ mod test {
     fn test_stats_pruning_mask(
         #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        block_on(|_| async {
+        block_on(|handle| async {
             let row_count = layout.row_count();
-            let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
+            let session = session_with_handle(handle);
+            let reader = layout.new_reader("".into(), segments, &session).unwrap();
 
             // Choose a prune-able expression
             let expr = gt(root(), lit(7));
@@ -509,5 +350,73 @@ mod test {
                 Mask::from_iter([false, false, false, false, false, false, true, true, true])
             );
         })
+    }
+
+    #[rstest]
+    fn test_legacy_zero_zone_len_skips_zoned_pruning(
+        #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+    ) -> VortexResult<()> {
+        let zoned_layout = layout.as_::<Zoned>();
+        let children =
+            OwnedLayoutChildren::layout_children(vec![layout.child(0)?, layout.child(1)?]);
+        let legacy_layout = <Zoned as VTable>::build(
+            &ZonedLayoutEncoding,
+            layout.dtype(),
+            layout.row_count(),
+            &ZonedMetadata {
+                zone_len: 0,
+                present_stats: Arc::clone(zoned_layout.present_stats()),
+            },
+            vec![],
+            children.as_ref(),
+            &ReadContext::new([]),
+        )?
+        .into_layout();
+
+        block_on(|handle| async {
+            let row_count = legacy_layout.row_count();
+            let session = session_with_handle(handle);
+            let reader = legacy_layout.new_reader("".into(), segments, &session)?;
+
+            let result = reader
+                .pruning_evaluation(
+                    &(0..row_count),
+                    &gt(root(), lit(7)),
+                    Mask::new_true(row_count.try_into().unwrap()),
+                )?
+                .await?;
+
+            assert!(result.all_true());
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn test_writer_rejects_zero_block_size() {
+        let ctx = ArrayContext::empty();
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let strategy = ZonedStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            FlatLayoutStrategy::default(),
+            ZonedLayoutOptions {
+                block_size: 0,
+                ..Default::default()
+            },
+        );
+        let array_stream = ChunkedArray::from_iter([buffer![1, 2, 3].into_array()])
+            .into_array()
+            .to_array_stream()
+            .sequenced(ptr);
+        let segments2 = Arc::<TestSegments>::clone(&segments);
+
+        let result = block_on(|handle| async move {
+            let session = session_with_handle(handle);
+            strategy
+                .write_stream(ctx, segments2, array_stream, eof, &session)
+                .await
+        });
+
+        assert!(result.is_err());
     }
 }

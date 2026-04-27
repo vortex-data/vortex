@@ -34,6 +34,7 @@ pub use encodings::ZstdKernelPrep;
 pub use encodings::zstd_kernel_prepare;
 pub(crate) use encodings::*;
 pub(crate) use filter::FilterExecutor;
+pub(crate) use patches::types::load_patches_to_gpu;
 pub(crate) use slice::SliceExecutor;
 
 use crate::CudaKernelEvents;

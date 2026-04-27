@@ -168,7 +168,7 @@ impl Benchmark for StatPopGenBenchmark {
         vec![TableSpec::new("statpopgen", None)]
     }
 
-    #[expect(clippy::expect_used, clippy::unwrap_in_result)]
+    #[expect(clippy::expect_used)]
     fn pattern(&self, _table_name: &str, format: Format) -> Option<glob::Pattern> {
         Some(
             format!("{}.{}", Self::FILE_NAME, format.ext())

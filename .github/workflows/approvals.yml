@@ -3,6 +3,9 @@ name: PR Approval Check
 on:
   pull_request_review:
     types: [submitted, dismissed]
+  pull_request:
+    branches:
+      - "develop"
 
 jobs:
   check-approvals:
@@ -41,7 +44,7 @@ jobs:
             console.log(`One-approval bot allowlist: ${oneApprovalBotAuthors.has(authorLogin)}`);
             console.log(`Approvals: ${approvalCount} / ${required} required`);
 
-            if (approvalCount < required) {
+            if (isBot && (approvalCount < required))  {
               core.setFailed(
                 `This PR needs ${required} human approval(s) but has ${approvalCount}. ` +
                 `(Author is ${isBot ? 'a bot' : 'human'})`

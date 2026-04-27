@@ -70,8 +70,6 @@
 use std::any::Any;
 use std::fmt;
 use std::fmt::Formatter;
-use std::num::NonZero;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use arrow_schema::DataType;
@@ -103,7 +101,6 @@ use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::dtype::DType;
 use vortex::dtype::FieldPath;
 use vortex::dtype::Nullability;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::expr::Expression;
@@ -117,6 +114,7 @@ use vortex::io::session::RuntimeSessionExt;
 use vortex::scan::DataSourceRef;
 use vortex::scan::ScanRequest;
 use vortex::session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::convert::exprs::DefaultExpressionConvertor;
 use crate::convert::exprs::ExpressionConvertor;
@@ -277,9 +275,7 @@ impl VortexDataSourceBuilder {
             filter: None,
             limit: None,
             ordered: false,
-            num_partitions: std::thread::available_parallelism().unwrap_or_else(|_| {
-                NonZero::new(1).vortex_expect("available parallelism must be non-zero")
-            }),
+            num_partitions: get_available_parallelism().unwrap_or(1),
         })
     }
 }
@@ -360,7 +356,7 @@ pub struct VortexDataSource {
     /// We use this as a hint for how many splits to execute concurrently in `open()`, but we
     /// always declare to DataFusion that we only have a single partition so that we can
     /// internally manage concurrency and fix the problem of partition skew.
-    num_partitions: NonZeroUsize,
+    num_partitions: usize,
 }
 
 impl fmt::Debug for VortexDataSource {
@@ -428,7 +424,7 @@ impl DataSource for VortexDataSource {
 
             let handle = session.handle();
             let stream = scan_streams
-                .try_flatten_unordered(Some(num_partitions.get() * 2))
+                .try_flatten_unordered(Some(num_partitions * 2))
                 .map(move |result| {
                     let session = session.clone();
                     let schema = Arc::clone(&projected_schema);
@@ -437,7 +433,7 @@ impl DataSource for VortexDataSource {
                         result.and_then(|chunk| chunk.execute_record_batch(&schema, &mut ctx))
                     })
                 })
-                .buffered(num_partitions.get())
+                .buffered(num_partitions)
                 .map(|result| result.map_err(|e| DataFusionError::External(Box::new(e))));
 
             // Apply leftover projection (expressions that couldn't be pushed into Vortex).
@@ -488,8 +484,7 @@ impl DataSource for VortexDataSource {
     ) -> DFResult<Option<Arc<dyn DataSource>>> {
         // Vortex handles parallelism internally — always use a single partition.
         let mut this = self.clone();
-        this.num_partitions = NonZero::new(target_partitions)
-            .ok_or_else(|| DataFusionError::Internal("non-zero partitions".to_string()))?;
+        this.num_partitions = target_partitions;
         this.ordered |= output_ordering.is_some();
         Ok(Some(Arc::new(this)))
     }

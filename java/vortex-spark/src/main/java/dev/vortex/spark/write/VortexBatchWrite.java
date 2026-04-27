@@ -3,7 +3,8 @@
 
 package dev.vortex.spark.write;
 
-import dev.vortex.jni.NativeFileMethods;
+import dev.vortex.jni.NativeFiles;
+import dev.vortex.spark.VortexSparkSession;
 import java.io.IOException;
 import java.io.Serializable;
 import java.nio.file.Files;
@@ -83,9 +84,10 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
     public DataWriterFactory createBatchWriterFactory(PhysicalWriteInfo info) {
         // Handle overwrite cleanup BEFORE writing starts
         if (overwrite) {
-            var uris = NativeFileMethods.listVortexFiles(outputPath, options);
+            var session = VortexSparkSession.get(options);
+            var uris = NativeFiles.listFiles(session, outputPath, options);
             log.info("truncating table with {} files", uris.size());
-            NativeFileMethods.delete(uris.toArray(new String[0]), options);
+            NativeFiles.delete(session, uris.toArray(new String[0]), options);
             log.warn("overwrite currently does not do anything for vortex format");
         }
 

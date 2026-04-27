@@ -77,7 +77,7 @@ impl TakeExecute for Sequence {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let mask = indices.validity()?.to_mask(indices.len(), ctx)?;
+        let mask = indices.validity()?.execute_mask(indices.len(), ctx)?;
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
         let result_nullability = array.dtype().nullability() | indices.dtype().nullability();
 

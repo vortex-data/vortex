@@ -3,21 +3,24 @@
 
 package dev.vortex.api;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import dev.vortex.api.expressions.Binary;
-import dev.vortex.api.expressions.GetItem;
-import dev.vortex.api.expressions.Literal;
-import dev.vortex.api.expressions.Root;
+import dev.vortex.arrow.ArrowAllocation;
 import java.math.BigDecimal;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
+import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.vector.FieldVector;
+import org.apache.arrow.vector.VarCharVector;
+import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.ipc.ArrowReader;
+import org.apache.arrow.vector.types.pojo.Field;
 import org.junit.jupiter.api.Test;
 
 public final class TestMinimal {
-    // POJO representing the person data type.
     static final class Person {
         public String name;
         public BigDecimal salary;
@@ -27,12 +30,6 @@ public final class TestMinimal {
             this.name = name;
             this.salary = salary;
             this.state = state;
-        }
-
-        public Person(Map<String, Object> map) {
-            this.name = (String) map.get("Name");
-            this.salary = (BigDecimal) map.get("Salary");
-            this.state = (String) map.get("State");
         }
 
         @Override
@@ -51,28 +48,16 @@ public final class TestMinimal {
 
         @Override
         public String toString() {
-            return "Person{" + "name='" + name + '\'' + ", salary=" + salary + ", state='" + state + '\'' + '}';
+            return "Person{name='" + name + "', salary=" + salary + ", state='" + state + "'}";
         }
     }
 
-    private static final String MINIMAL_PATH =
-            TestMinimal.class.getResource("/minimal.vortex").getPath();
+    private static final String MINIMAL_URI = Paths.get(
+                    Objects.requireNonNull(TestMinimal.class.getResource("/minimal.vortex"))
+                            .getPath())
+            .toUri()
+            .toString();
 
-    // data representing the complete `minimal` test table:
-    /// =======================
-    /// Name | Salary  | State
-    /// =======================
-    /// Alice   1000    CA
-    /// Bob     2000    NY
-    /// Carol   3000    TX
-    /// Dan     4000    CA
-    /// Edward  5000    NY
-    /// Frida   6000    TX
-    /// George  7000    CA
-    /// Henry   8000    NY
-    /// Ida     9000    TX
-    /// John    10000   VA
-    /// =======================
     private static final List<Person> MINIMAL_DATA = List.of(
             new Person("Alice", BigDecimal.valueOf(1000L, 2), "CA"),
             new Person("Bob", BigDecimal.valueOf(2000L, 2), "NY"),
@@ -85,128 +70,102 @@ public final class TestMinimal {
             new Person("Ida", BigDecimal.valueOf(9000L, 2), "TX"),
             new Person("John", BigDecimal.valueOf(10_000L, 2), "VA"));
 
-    private static final List<Person> PROJECTED_DATA = List.of(
-            new Person("Alice", null, "CA"),
-            new Person("Bob", null, "NY"),
-            new Person("Carol", null, "TX"),
-            new Person("Dan", null, "CA"),
-            new Person("Edward", null, "NY"),
-            new Person("Frida", null, "TX"),
-            new Person("George", null, "CA"),
-            new Person("Henry", null, "NY"),
-            new Person("Ida", null, "TX"),
-            new Person("John", null, "VA"));
+    @Test
+    public void testFullScan() throws Exception {
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+        DataSource ds = DataSource.open(session, MINIMAL_URI);
+
+        assertEquals(new DataSource.RowCount.Exact(10L), ds.rowCount());
+
+        var schema = ds.arrowSchema(allocator);
+        assertEquals(
+                List.of("Name", "Salary", "State"),
+                schema.getFields().stream().map(Field::getName).toList());
+
+        List<Person> people = readAll(ds, ScanOptions.of(), allocator, TestMinimal::readFullBatch);
+        assertEquals(MINIMAL_DATA, people);
+    }
 
     @Test
-    public void testFullScan() {
-        try (var file = Files.open(MINIMAL_PATH);
-                var fullScan = file.newScan(ScanOptions.of())) {
-            assertEquals(10, file.rowCount());
+    public void testProjectedScan() throws Exception {
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+        DataSource ds = DataSource.open(session, MINIMAL_URI);
+        Expression projection = Expression.select(new String[] {"Name", "State"}, Expression.root());
 
-            var dtype = fullScan.getDataType();
-            assertEquals(DType.Variant.STRUCT, dtype.getVariant());
-            assertEquals(dtype.getFieldNames(), List.of("Name", "Salary", "State"));
+        ScanOptions options = ScanOptions.builder().projection(projection).build();
 
-            // Perform a full scan, check the result.
-            var people = readToList(fullScan, new TestCase() {
-                @Override
-                public Array[] open(Array batch) {
-                    return new Array[] {
-                        batch.getField(0), batch.getField(1), batch.getField(2),
-                    };
-                }
-
-                @Override
-                public Person readRow(Array[] fields, int idx) {
-                    return new Person(fields[0].getUTF8(idx), fields[1].getBigDecimal(idx), fields[2].getUTF8(idx));
-                }
-            });
-
-            assertEquals(MINIMAL_DATA, people);
+        List<Person> people = readAll(ds, options, allocator, batch -> {
+            List<Person> results = new ArrayList<>();
+            VarCharVector names = (VarCharVector) batch.getVector("Name");
+            VarCharVector states = (VarCharVector) batch.getVector("State");
+            for (int i = 0; i < batch.getRowCount(); i++) {
+                String name = names.isNull(i) ? null : new String(names.get(i), UTF_8);
+                String state = states.isNull(i) ? null : new String(states.get(i), UTF_8);
+                results.add(new Person(name, null, state));
+            }
+            return results;
+        });
+        assertEquals(MINIMAL_DATA.size(), people.size());
+        for (int i = 0; i < MINIMAL_DATA.size(); i++) {
+            assertEquals(MINIMAL_DATA.get(i).name, people.get(i).name);
+            assertEquals(MINIMAL_DATA.get(i).state, people.get(i).state);
         }
     }
 
     @Test
-    public void testProjectedScan() {
-        var projectOptions = ScanOptions.builder().addColumns("Name", "State").build();
+    public void testProjectedScanWithFilter() throws Exception {
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+        DataSource ds = DataSource.open(session, MINIMAL_URI);
+        Expression filter =
+                Expression.binary(Expression.BinaryOp.EQ, Expression.column("State"), Expression.literal("VA"));
 
-        try (var file = Files.open(MINIMAL_PATH);
-                var projectedScan = file.newScan(projectOptions)) {
-            // Do stuff.
-            var dtype = projectedScan.getDataType();
-            assertEquals(DType.Variant.STRUCT, dtype.getVariant());
-            assertEquals(dtype.getFieldNames(), List.of("Name", "State"));
-
-            var people = readToList(projectedScan, new TestCase() {
-                @Override
-                public Array[] open(Array batch) {
-                    return new Array[] {
-                        batch.getField(0), batch.getField(1),
-                    };
-                }
-
-                @Override
-                public Person readRow(Array[] fields, int idx) {
-                    return new Person(fields[0].getUTF8(idx), null, fields[1].getUTF8(idx));
-                }
-            });
-
-            assertEquals(PROJECTED_DATA, people);
-        }
+        ScanOptions options = ScanOptions.builder().filter(filter).build();
+        List<Person> people = readAll(ds, options, allocator, TestMinimal::readFullBatch);
+        assertEquals(List.of(new Person("John", BigDecimal.valueOf(10_000L, 2), "VA")), people);
     }
 
-    @Test
-    public void testProjectedScanWithFilter() {
-        var filterOptions = ScanOptions.builder()
-                .addColumns("State", "Salary", "Name")
-                .predicate(Binary.eq(GetItem.of(Root.INSTANCE, "State"), Literal.string("VA")))
-                .build();
-
-        try (var file = Files.open(MINIMAL_PATH);
-                var filteredScan = file.newScan(filterOptions)) {
-            var dtype = filteredScan.getDataType();
-            assertEquals(DType.Variant.STRUCT, dtype.getVariant());
-            assertEquals(dtype.getFieldNames(), List.of("State", "Salary", "Name"));
-
-            var people = readToList(filteredScan, new TestCase() {
-                @Override
-                public Array[] open(Array batch) {
-                    return new Array[] {
-                        batch.getField(0), // state
-                        batch.getField(1), // salary
-                        batch.getField(2), // name
-                    };
-                }
-
-                @Override
-                public Person readRow(Array[] fields, int idx) {
-                    var state = fields[0].getUTF8(idx);
-                    var salary = fields[1].getBigDecimal(idx);
-                    var name = fields[2].getUTF8(idx);
-                    return new Person(name, salary, state);
-                }
-            });
-
-            assertEquals(List.of(new Person("John", BigDecimal.valueOf(10_000L, 2), "VA")), people);
-        }
+    private interface BatchReader {
+        List<Person> read(VectorSchemaRoot root);
     }
 
-    interface TestCase {
-        Array[] open(Array batch);
-
-        Person readRow(Array[] fields, int idx);
-    }
-
-    private List<Person> readToList(ArrayIterator scan, TestCase testCase) {
-        List<Person> people = new ArrayList<>();
+    private static List<Person> readAll(
+            DataSource ds, ScanOptions options, BufferAllocator allocator, BatchReader reader) throws Exception {
+        List<Person> result = new ArrayList<>();
+        Scan scan = ds.scan(options);
         while (scan.hasNext()) {
-            var batch = scan.next();
-            Array[] fields = testCase.open(batch);
-
-            for (int batchIdx = 0; batchIdx < batch.getLen(); batchIdx++) {
-                people.add(testCase.readRow(fields, batchIdx));
+            Partition partition = scan.next();
+            try (ArrowReader arrowReader = partition.scanArrow(allocator)) {
+                while (arrowReader.loadNextBatch()) {
+                    result.addAll(reader.read(arrowReader.getVectorSchemaRoot()));
+                }
             }
         }
-        return people;
+        return result;
+    }
+
+    private static List<Person> readFullBatch(VectorSchemaRoot root) {
+        List<Person> result = new ArrayList<>();
+        VarCharVector names = (VarCharVector) root.getVector("Name");
+        FieldVector salaries = root.getVector("Salary");
+        VarCharVector states = (VarCharVector) root.getVector("State");
+
+        for (int i = 0; i < root.getRowCount(); i++) {
+            String name = names.isNull(i) ? null : new String(names.get(i), UTF_8);
+            String state = states.isNull(i) ? null : new String(states.get(i), UTF_8);
+            BigDecimal salary = null;
+            if (!salaries.isNull(i)) {
+                Object v = salaries.getObject(i);
+                if (v instanceof BigDecimal) {
+                    salary = (BigDecimal) v;
+                } else {
+                    salary = new BigDecimal(v.toString());
+                }
+            }
+            result.add(new Person(name, salary, state));
+        }
+        return result;
     }
 }

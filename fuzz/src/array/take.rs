@@ -2,11 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
-#[expect(deprecated)]
-use vortex_array::ToCanonical;
-use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
@@ -31,6 +28,7 @@ use vortex_error::VortexResult;
 pub fn take_canonical_array_non_nullable_indices(
     array: &ArrayRef,
     indices: &[usize],
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     take_canonical_array(
         array,
@@ -39,16 +37,21 @@ pub fn take_canonical_array_non_nullable_indices(
             .map(|i| Some(*i))
             .collect::<Vec<_>>()
             .as_slice(),
+        ctx,
     )
 }
 
-pub fn take_canonical_array(array: &ArrayRef, indices: &[Option<usize>]) -> VortexResult<ArrayRef> {
+pub fn take_canonical_array(
+    array: &ArrayRef,
+    indices: &[Option<usize>],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
     let nullable: Nullability = indices.contains(&None).into();
 
     let validity = if array.dtype().is_nullable() || nullable == Nullability::Nullable {
         let validity_idx = array
             .validity()?
-            .to_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())?
+            .execute_mask(array.len(), ctx)?
             .to_bit_buffer();
 
         Validity::from_iter(
@@ -65,8 +68,7 @@ pub fn take_canonical_array(array: &ArrayRef, indices: &[Option<usize>]) -> Vort
 
     match array.dtype() {
         DType::Bool(_) => {
-            #[expect(deprecated)]
-            let bool_array = array.to_bool();
+            let bool_array = array.clone().execute::<BoolArray>(ctx)?;
             let vec_values = bool_array.to_bit_buffer().iter().collect::<Vec<_>>();
             Ok(BoolArray::new(
                 indices_slice_non_opt
@@ -78,8 +80,7 @@ pub fn take_canonical_array(array: &ArrayRef, indices: &[Option<usize>]) -> Vort
             .into_array())
         }
         DType::Primitive(p, _) => {
-            #[expect(deprecated)]
-            let primitive_array = array.to_primitive();
+            let primitive_array = array.clone().execute::<PrimitiveArray>(ctx)?;
             match_each_native_ptype!(p, |P| {
                 Ok(take_primitive::<P>(
                     primitive_array,
@@ -89,8 +90,7 @@ pub fn take_canonical_array(array: &ArrayRef, indices: &[Option<usize>]) -> Vort
             })
         }
         DType::Decimal(d, _) => {
-            #[expect(deprecated)]
-            let decimal_array = array.to_decimal();
+            let decimal_array = array.clone().execute::<DecimalArray>(ctx)?;
 
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 Ok(take_decimal::<D>(
@@ -102,8 +102,7 @@ pub fn take_canonical_array(array: &ArrayRef, indices: &[Option<usize>]) -> Vort
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            #[expect(deprecated)]
-            let utf8 = array.to_varbinview();
+            let utf8 = array.clone().execute::<VarBinViewArray>(ctx)?;
             let values =
                 utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>());
             Ok(VarBinViewArray::from_iter(
@@ -115,11 +114,10 @@ pub fn take_canonical_array(array: &ArrayRef, indices: &[Option<usize>]) -> Vort
             .into_array())
         }
         DType::Struct(..) => {
-            #[expect(deprecated)]
-            let struct_array = array.to_struct();
+            let struct_array = array.clone().execute::<StructArray>(ctx)?;
             let taken_children = struct_array
                 .iter_unmasked_fields()
-                .map(|c| take_canonical_array_non_nullable_indices(c, indices_slice_non_opt))
+                .map(|c| take_canonical_array_non_nullable_indices(c, indices_slice_non_opt, ctx))
                 .collect::<VortexResult<Vec<_>>>()?;
 
             StructArray::try_new(
@@ -135,12 +133,11 @@ pub fn take_canonical_array(array: &ArrayRef, indices: &[Option<usize>]) -> Vort
                 &array.dtype().union_nullability(nullable),
                 indices_slice_non_opt.len(),
             );
-            let mut ctx = LEGACY_SESSION.create_execution_ctx();
             for idx in indices {
                 if let Some(idx) = idx {
                     builder.append_scalar(
                         &array
-                            .execute_scalar(*idx, &mut ctx)?
+                            .execute_scalar(*idx, ctx)?
                             .cast(&array.dtype().union_nullability(nullable))
                             .vortex_expect("cannot cast scalar nullability"),
                     )?;
