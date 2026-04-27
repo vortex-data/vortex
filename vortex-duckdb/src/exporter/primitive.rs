@@ -98,6 +98,78 @@ mod tests {
     }
 
     #[test]
+    fn test_primitive_exporter_with_nulls() {
+        let arr = PrimitiveArray::from_option_iter([Some(10i32), None, Some(30), None, Some(50)]);
+
+        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+        let mut ctx = SESSION.create_execution_ctx();
+
+        new_exporter(arr, &mut ctx)
+            .unwrap()
+            .export(0, 5, chunk.get_vector_mut(0), &mut ctx)
+            .unwrap();
+        chunk.set_len(5);
+
+        assert_eq!(
+            format!("{}", String::try_from(&*chunk).unwrap()),
+            r#"Chunk - [1 Columns]
+- FLAT INTEGER: 5 = [ 10, NULL, 30, NULL, 50]
+"#
+        );
+    }
+
+    /// Export a large nullable primitive array over many chunks to exercise the
+    /// zero-copy validity path. The non-zero-copy fallback currently panics,
+    /// so this test proves every chunk goes through the zero-copy branch.
+    #[test]
+    fn test_primitive_exporter_with_nulls_zero_copy() {
+        let vector_size = duckdb_vector_size();
+        const NUM_CHUNKS: usize = 8;
+        let len = vector_size * NUM_CHUNKS;
+
+        // Every 3rd element is null — guarantees mixed validity in every chunk.
+        #[expect(clippy::cast_possible_truncation, reason = "test data fits in i32")]
+        let arr = PrimitiveArray::from_option_iter(
+            (0..len).map(|i| if i % 3 == 1 { None } else { Some(i as i32) }),
+        );
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let exporter = new_exporter(arr, &mut ctx).unwrap();
+
+        for chunk_idx in 0..NUM_CHUNKS {
+            let mut chunk =
+                DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+
+            // This will panic if the non-zero-copy path is hit.
+            exporter
+                .export(
+                    chunk_idx * vector_size,
+                    vector_size,
+                    chunk.get_vector_mut(0),
+                    &mut ctx,
+                )
+                .unwrap();
+            chunk.set_len(vector_size);
+
+            let vec = chunk.get_vector(0);
+            for i in 0..vector_size {
+                let global_idx = chunk_idx * vector_size + i;
+                if global_idx % 3 == 1 {
+                    assert!(
+                        vec.row_is_null(i as u64),
+                        "expected null at global index {global_idx}"
+                    );
+                } else {
+                    assert!(
+                        !vec.row_is_null(i as u64),
+                        "expected non-null at global index {global_idx}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn test_long_primitive_exporter() {
         let vector_size = duckdb_vector_size();
         const ARRAY_COUNT: usize = 2;

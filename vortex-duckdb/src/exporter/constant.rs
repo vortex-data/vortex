@@ -71,7 +71,6 @@ impl ColumnExporter for ConstantExporter {
     ) -> VortexResult<()> {
         match self.value.as_ref() {
             None => {
-                // TODO(ngates): would be good if DuckDB supported constant null vectors.
                 vector.set_all_false_validity();
             }
             Some(value) => {
