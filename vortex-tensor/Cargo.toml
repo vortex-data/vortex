@@ -39,5 +39,4 @@ mimalloc = { workspace = true }
 rand = { workspace = true }
 rand_distr = { workspace = true }
 rstest = { workspace = true }
-serde_json = { workspace = true }
 vortex-btrblocks = { path = "../vortex-btrblocks" }

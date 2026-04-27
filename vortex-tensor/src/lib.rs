@@ -51,7 +51,6 @@ pub fn initialize(session: &VortexSession) {
     dtypes.register(Vector);
     dtypes.register(FixedShapeTensor);
     dtypes.register_arrow_canonical(*fixed_shape::ID, fixed_shape::ARROW_EXT_NAME);
-    drop(dtypes);
 
     let session_fns = session.scalar_fns();
 
