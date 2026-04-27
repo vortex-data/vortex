@@ -6,7 +6,7 @@
 //!
 //! The v2 dataset is JSONL of bare benchmark records keyed by name string.
 //! v3 uses five typed fact tables with explicit dim columns. This crate
-//! ports v2's `getGroup` classifier (in `benchmarks-website/server.js`)
+//! ports v2's `getGroup` classifier from the v2 Express server
 //! bug-for-bug so that historical rows survive the migration with the
 //! same group / chart / series structure as the live v2 server.
 //!

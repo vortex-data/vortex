@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Bug-for-bug port of v2's `getGroup`, `formatQuery`, and
-//! `normalizeChartName` from `benchmarks-website/server.js`, plus the
+//! `normalizeChartName` from the v2 Express server, plus the
 //! mapping from v2 group + name pattern to a v3 fact-table bin.
 //!
 //! The v2 classifier was the source of truth for what historical
@@ -114,7 +114,7 @@ pub struct QuerySuite {
     pub skip: bool,
 }
 
-/// Group a v2 record falls into. Mirrors `getGroup` in `server.js`,
+/// Group a v2 record falls into. Mirrors v2's `getGroup`,
 /// including the fan-out group naming for TPC-H/TPC-DS.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum V2Group {
@@ -296,7 +296,7 @@ pub fn get_group(record: &V2Record) -> Option<V2Group> {
 }
 
 /// Group + chart + series breakdown for a v2 record, using the same
-/// rules `server.js` applies in `refresh()`. Equivalent to v2's
+/// rules the v2 server applies in `refresh()`. Equivalent to v2's
 /// `(group, chartName, seriesName)` triple after rename / skip rules.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct V2Classification {

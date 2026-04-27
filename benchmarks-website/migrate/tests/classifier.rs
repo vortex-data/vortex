@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Classifier behavior pinned by representative v2 names from each
-//! group in `benchmarks-website/server.js`'s `getGroup`.
+//! group in v2's `getGroup` classifier.
 
 use rstest::rstest;
 use serde_json::json;
