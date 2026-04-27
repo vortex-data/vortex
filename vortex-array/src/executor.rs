@@ -363,7 +363,7 @@ fn execute_loop(
                 "execute_parent rewrote {} -> {}",
                 current.array, rewritten
             ));
-            current.array = rewritten.optimize()?;
+            current.array = rewritten.optimize_ctx(ctx.session())?;
             continue;
         }
 
@@ -394,7 +394,7 @@ fn execute_loop(
                     original_dtype: child.dtype().clone(),
                     original_len: child.len(),
                 });
-                current = Activation::new(child.optimize()?);
+                current = Activation::new(child.optimize_ctx(ctx.session())?);
             }
             ExecutionStep::AppendChild(i) => {
                 if current_builder.is_none() {
@@ -418,7 +418,7 @@ fn execute_loop(
                     original_dtype: child.dtype().clone(),
                     original_len: child.len(),
                 });
-                current = Activation::new(child.optimize()?);
+                current = Activation::new(child.optimize_ctx(ctx.session())?);
             }
             ExecutionStep::Done => {
                 ctx.log(format_args!("Done: {}", array));
@@ -455,8 +455,7 @@ fn pop_frame(frame: StackFrame, current: Activation) -> VortexResult<Activation>
     let mut parent = frame.parent;
     match frame.resume {
         ResumeAction::RestoreSlot { slot_idx, .. } => {
-            parent.array =
-                unsafe { parent.array.put_slot_unchecked(slot_idx, current.array) }?.optimize()?;
+            parent.array = unsafe { parent.array.put_slot_unchecked(slot_idx, current.array) }?;
         }
         ResumeAction::AppendIntoParent => {
             parent
