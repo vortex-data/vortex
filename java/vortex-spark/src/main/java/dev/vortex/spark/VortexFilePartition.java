@@ -3,74 +3,32 @@
 
 package dev.vortex.spark;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import java.io.Serializable;
+import java.util.List;
 import java.util.Map;
-import org.apache.spark.sql.connector.catalog.Column;
 import org.apache.spark.sql.connector.read.InputPartition;
+import org.apache.spark.sql.types.StructType;
 
 /**
- * An {@link InputPartition} for reading a whole Vortex file.
- * <p>
- * This class represents a partition that corresponds to a single Vortex file.
- * It contains the file path and the columns to be read from that file.
- * Each partition can be processed independently by Spark executors.
+ * An {@link InputPartition} describing a group of Vortex files that a single reader
+ * should handle together.
+ *
+ * <p>Each executor opens a single Vortex {@code Session}, {@code DataSource} and
+ * {@code Scan} over the partition's {@link #paths()} and consumes every Vortex partition
+ * produced by that scan before moving on to the next Spark {@code InputPartition}.
+ *
+ * <p>The requested output schema is carried as a {@link StructType} rather than a list of
+ * {@code Column} objects: {@code StructType} is the stable serialization surface in Spark
+ * and survives shipping to executors reliably.
+ *
+ * @param paths the Vortex file paths (or globs) belonging to this input partition
+ * @param readSchema the requested output schema (data columns + partition columns)
+ * @param formatOptions object-store properties used to open the files
+ * @param partitionValues Hive-style partition column values shared by all {@link #paths()}
  */
-public final class VortexFilePartition implements InputPartition, Serializable {
-    private final String path;
-    private final ImmutableList<Column> columns;
-    private final ImmutableMap<String, String> formatOptions;
-    private final ImmutableMap<String, String> partitionValues;
-
-    /**
-     * Creates a new Vortex file partition.
-     *
-     * @param path the file system path to the Vortex file
-     * @param columns the list of columns to read from the file
-     * @param formatOptions options for accessing the file (S3/Azure credentials, etc.)
-     * @param partitionValues Hive-style partition column values extracted from the file path
-     */
-    public VortexFilePartition(
-            String path,
-            ImmutableList<Column> columns,
-            ImmutableMap<String, String> formatOptions,
-            ImmutableMap<String, String> partitionValues) {
-        this.path = path;
-        this.columns = columns;
-        this.formatOptions = formatOptions;
-        this.partitionValues = partitionValues;
-    }
-
-    /**
-     * Returns the file system path to the Vortex file for this partition.
-     *
-     * @return the file path
-     */
-    public String getPath() {
-        return path;
-    }
-
-    /**
-     * Returns the list of columns to be read from this partition.
-     *
-     * @return the immutable list of columns
-     */
-    public ImmutableList<Column> getColumns() {
-        return columns;
-    }
-
-    public Map<String, String> getFormatOptions() {
-        return formatOptions;
-    }
-
-    /**
-     * Returns the partition column values parsed from this file's Hive-style directory path.
-     * Keys are column names, values are the string-encoded partition values.
-     *
-     * @return the partition values, empty if the file is not in a partitioned directory
-     */
-    public ImmutableMap<String, String> getPartitionValues() {
-        return partitionValues;
-    }
-}
+public record VortexFilePartition(
+        List<String> paths,
+        StructType readSchema,
+        Map<String, String> formatOptions,
+        Map<String, String> partitionValues)
+        implements InputPartition, Serializable {}

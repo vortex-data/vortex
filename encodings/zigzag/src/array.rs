@@ -300,13 +300,10 @@ mod test {
             array.statistics().compute_is_constant(&mut ctx)
         );
 
-        let sliced = zigzag.slice(0..2).unwrap();
+        let sliced = zigzag.slice(0..2)?;
         let sliced = sliced.as_::<ZigZag>();
         assert_eq!(
-            sliced
-                .array()
-                .execute_scalar(sliced.len() - 1, &mut ctx,)
-                .unwrap(),
+            sliced.array().execute_scalar(sliced.len() - 1, &mut ctx,)?,
             Scalar::from(-5i32)
         );
 

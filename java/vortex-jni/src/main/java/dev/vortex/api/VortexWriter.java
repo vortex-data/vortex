@@ -3,65 +3,93 @@
 
 package dev.vortex.api;
 
-import dev.vortex.jni.JNIDType;
-import dev.vortex.jni.JNIWriter;
-import dev.vortex.jni.NativeWriterMethods;
+import com.google.common.base.Preconditions;
+import dev.vortex.VortexCleaner;
+import dev.vortex.jni.NativeWriter;
 import java.io.IOException;
 import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.apache.arrow.c.ArrowSchema;
+import org.apache.arrow.c.Data;
+import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.vector.types.pojo.Schema;
 
 /**
- * Writer for creating Vortex files from Arrow data.
- * <p>
- * This class provides methods to write Arrow VectorSchemaRoot batches
- * to Vortex format files.
+ * Writer for Vortex files.
+ *
+ * <p>Batches are accepted via the Arrow C Data Interface: callers export an Arrow record
+ * batch to an {@code ArrowArray} / {@code ArrowSchema} pair and pass the addresses to
+ * {@link #writeBatch(long, long)}. The writer accepts up to four in-flight batches
+ * on the session's runtime thread before back-pressuring the caller.
+ *
+ * <p>Call {@link #close()} to flush remaining batches and finalize the file. If the writer
+ * becomes unreachable without an explicit {@code close()}, {@link VortexCleaner} will flush
+ * and release native resources as a backstop — but callers should always finalize
+ * explicitly so that I/O errors surface through the normal call path.
  */
-public interface VortexWriter extends AutoCloseable {
+public final class VortexWriter implements AutoCloseable {
+    private final long pointer;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
 
-    /**
-     * Creates a new VortexWriter for writing to the specified file path.
-     *
-     * @param uri     The URI for where the file is opened
-     * @param dtype   The Vortex DType for data that gets written
-     * @param options additional writer options
-     * @return a new VortexWriter instance
-     * @throws IOException if the writer cannot be created
-     */
-    static VortexWriter create(String uri, DType dtype, Map<String, String> options) throws IOException {
-        long ptr = NativeWriterMethods.create(uri, ((JNIDType) dtype).getPointer(), options);
-        if (ptr <= 0) {
-            throw new IOException("Failed to create Vortex writer for: " + uri + " (got ptr=" + ptr + ")");
-        }
-        return new JNIWriter(ptr);
+    private VortexWriter(long pointer) {
+        Preconditions.checkArgument(pointer != 0, "invalid writer pointer");
+        this.pointer = pointer;
+        AtomicBoolean closedRef = this.closed;
+        VortexCleaner.register(this, () -> {
+            if (closedRef.compareAndSet(false, true)) {
+                NativeWriter.close(pointer);
+            }
+        });
     }
 
     /**
-     * Writes a batch of Arrow data to the Vortex file.
-     *
-     * @param arrowData the Arrow data in IPC format as byte array
-     * @throws IOException if writing fails
+     * Create a writer that streams records into the file at {@code uri}. The Arrow schema
+     * describes the exact layout of every batch written.
      */
-    void writeBatch(byte[] arrowData) throws IOException;
+    public static VortexWriter create(
+            Session session, String uri, Schema arrowSchema, Map<String, String> options, BufferAllocator allocator)
+            throws IOException {
+        Objects.requireNonNull(session, "session");
+        Objects.requireNonNull(uri, "uri");
+        Objects.requireNonNull(arrowSchema, "arrowSchema");
+        Objects.requireNonNull(allocator, "allocator");
+        ArrowSchema ffi = ArrowSchema.allocateNew(allocator);
+        try {
+            Data.exportSchema(allocator, arrowSchema, null, ffi);
+            long ptr = NativeWriter.create(session.nativePointer(), uri, ffi.memoryAddress(), options);
+            if (ptr <= 0) {
+                throw new IOException("failed to create writer for uri " + uri + " (ptr=" + ptr + ")");
+            }
+            return new VortexWriter(ptr);
+        } finally {
+            ffi.close();
+        }
+    }
 
-    /**
-     * Writes a batch of Arrow data directly from Arrow C Data Interface pointers.
-     * <p>
-     * This avoids the IPC serialization overhead by accepting raw memory addresses
-     * of ArrowArray and ArrowSchema structs.
-     *
-     * @param arrowArrayAddr  memory address of the ArrowArray struct
-     * @param arrowSchemaAddr memory address of the ArrowSchema struct
-     * @throws IOException if writing fails
-     */
-    void writeBatchFfi(long arrowArrayAddr, long arrowSchemaAddr) throws IOException;
+    /** Write a batch directly from Arrow C Data Interface addresses. */
+    public void writeBatch(long arrowArrayAddr, long arrowSchemaAddr) throws IOException {
+        Preconditions.checkState(!closed.get(), "writer already closed");
+        final boolean ok;
+        try {
+            ok = NativeWriter.writeBatch(pointer, arrowArrayAddr, arrowSchemaAddr);
+        } catch (RuntimeException e) {
+            throw new IOException("failed to write batch", e);
+        }
+        if (!ok) {
+            throw new IOException("failed to write batch");
+        }
+    }
 
-    /**
-     * Closes the writer and finalizes the Vortex file.
-     * <p>
-     * This method must be called to ensure the file is properly written
-     * with all necessary metadata and footers.
-     *
-     * @throws IOException if closing fails
-     */
+    /** Flush any pending batches and finalize the file. Idempotent. */
     @Override
-    void close() throws IOException;
+    public void close() throws IOException {
+        if (closed.compareAndSet(false, true)) {
+            try {
+                NativeWriter.close(pointer);
+            } catch (RuntimeException e) {
+                throw new IOException("failed to close writer", e);
+            }
+        }
+    }
 }

@@ -23,7 +23,6 @@ async-trait = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true, features = ["std", "executor"] }
 glob = { workspace = true }
-handle = "1.0.2"
 kanal = { workspace = true }
 object_store = { workspace = true, optional = true, features = ["fs"] }
 oneshot = { workspace = true }
@@ -40,6 +39,7 @@ vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-session = { workspace = true }
+vortex-utils = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 custom-labels = { workspace = true }

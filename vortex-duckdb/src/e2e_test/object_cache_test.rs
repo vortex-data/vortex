@@ -121,6 +121,8 @@ impl TableFunction for TestTableFunction {
     ) -> Option<ColumnStatistics> {
         None
     }
+
+    fn to_string(_bind_data: &Self::BindData, _map: &mut crate::duckdb::DuckdbStringMapRef) {}
 }
 
 use crate::duckdb::Database;

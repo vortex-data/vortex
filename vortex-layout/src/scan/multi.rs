@@ -52,6 +52,7 @@ use vortex_scan::PartitionRef;
 use vortex_scan::PartitionStream;
 use vortex_scan::ScanRequest;
 use vortex_session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutReaderRef;
 use crate::scan::scan_builder::ScanBuilder;
@@ -100,9 +101,7 @@ impl MultiLayoutDataSource {
         session: &VortexSession,
     ) -> Self {
         let dtype = first.dtype().clone();
-        let concurrency = std::thread::available_parallelism()
-            .map(|v| v.get())
-            .unwrap_or(DEFAULT_CONCURRENCY);
+        let concurrency = get_available_parallelism().unwrap_or(DEFAULT_CONCURRENCY);
 
         let mut children = Vec::with_capacity(1 + remaining.len());
         children.push(MultiLayoutChild::Opened(first));
@@ -126,9 +125,7 @@ impl MultiLayoutDataSource {
         factories: Vec<Arc<dyn LayoutReaderFactory>>,
         session: &VortexSession,
     ) -> Self {
-        let concurrency = std::thread::available_parallelism()
-            .map(|v| v.get())
-            .unwrap_or(DEFAULT_CONCURRENCY);
+        let concurrency = get_available_parallelism().unwrap_or(DEFAULT_CONCURRENCY);
 
         Self {
             dtype,

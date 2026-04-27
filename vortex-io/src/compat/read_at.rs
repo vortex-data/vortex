@@ -29,7 +29,7 @@ impl<R: VortexReadAt> VortexReadAt for Compat<R> {
     }
 
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
-        self.inner().size()
+        Compat::new(self.inner().size()).boxed()
     }
 
     fn read_at(

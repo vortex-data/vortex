@@ -10,9 +10,10 @@
 //! 3. **`execute_parent`** -- child-driven fused execution (may read buffers).
 //! 4. **`execute`** -- the encoding's own decode step (most expensive).
 //!
-//! The main entry point is [`DynArray::execute_until`], which uses an explicit work stack
+//! The main entry point is [`ArrayRef::execute_until`], which uses an explicit work stack
 //! to drive execution iteratively without recursion. Between steps, the optimizer runs
-//! reduce/reduce_parent rules to fixpoint.
+//! reduce/reduce_parent rules to fixpoint using the active [`ExecutionCtx`] session, so
+//! session-registered optimizer kernels participate during execution.
 //!
 //! See <https://docs.vortex.dev/developer-guide/internals/execution> for a full description
 //! of the model.
@@ -21,7 +22,6 @@ use std::env::VarError;
 use std::fmt;
 use std::fmt::Display;
 use std::sync::LazyLock;
-use std::sync::atomic::AtomicUsize;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -89,16 +89,20 @@ impl ArrayRef {
     ///
     /// Each iteration proceeds through three steps in order:
     ///
-    /// 1. **Done / canonical check** — if `current` satisfies the active done predicate or is
+    /// 1. **Done / canonical check** - if `current` satisfies the active done predicate or is
     ///    canonical, splice it back into the stacked parent (if any) and continue, or return.
-    /// 2. **`execute_parent` on children** — try each child's `execute_parent` against `current`
+    /// 2. **`execute_parent` on children** - try each child's `execute_parent` against `current`
     ///    as the parent (e.g. `Filter(RunEnd)` → `FilterExecuteAdaptor` fires from RunEnd).
     ///    If there is a stacked parent frame, the rewritten child is spliced back into it so
     ///    that optimize and further `execute_parent` can fire on the reconstructed parent
     ///    (e.g. `Slice(RunEnd)` → `RunEnd` spliced into stacked `Filter` → `Filter(RunEnd)`
     ///    whose `FilterExecuteAdaptor` fires on the next iteration).
-    /// 3. **`execute`** — call the encoding's own execute step, which either returns `Done` or
+    /// 3. **`execute`** - call the encoding's own execute step, which either returns `Done` or
     ///    `ExecuteSlot(i)` to push a child onto the stack for focused execution.
+    ///
+    /// Optimizer calls in this loop use [`ExecutionCtx::session`], so kernels registered on the
+    /// session's [`ArrayKernels`](crate::optimizer::kernels::ArrayKernels) are visible between
+    /// execution steps.
     ///
     /// Note: the returned array may not match `M`. If execution converges to a canonical form
     /// that does not match `M`, the canonical array is returned since no further execution
@@ -107,11 +111,11 @@ impl ArrayRef {
     /// For safety, we will error when the number of execution iterations reaches a configurable
     /// maximum (default 128, override with `VORTEX_MAX_ITERATIONS`).
     pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        let mut current = self.optimize()?;
+        let mut current = self;
         let mut stack: Vec<StackFrame> = Vec::new();
 
         for _ in 0..max_iterations() {
-            // Step 1: done / canonical — splice back into stacked parent or return.
+            // Step 1: done / canonical - splice back into stacked parent or return.
             let is_done = stack
                 .last()
                 .map_or(M::matches as DonePredicate, |frame| frame.done);
@@ -122,7 +126,7 @@ impl ArrayRef {
                         return Ok(current);
                     }
                     Some(frame) => {
-                        current = frame.put_back(current)?.optimize()?;
+                        current = frame.put_back(current)?.optimize_ctx(ctx.session())?;
                         continue;
                     }
                 }
@@ -138,9 +142,9 @@ impl ArrayRef {
                     "execute_parent rewrote {} -> {}",
                     current, rewritten
                 ));
-                current = rewritten.optimize()?;
+                current = rewritten.optimize_ctx(ctx.session())?;
                 if let Some(frame) = stack.pop() {
-                    current = frame.put_back(current)?.optimize()?;
+                    current = frame.put_back(current)?.optimize_ctx(ctx.session())?;
                 }
                 continue;
             }
@@ -159,7 +163,7 @@ impl ArrayRef {
                     ));
                     let frame = StackFrame::new(parent, i, done, &child);
                     stack.push(frame);
-                    current = child.optimize()?;
+                    current = child.optimize_ctx(ctx.session())?;
                 }
                 ExecutionStep::Done => {
                     ctx.log(format_args!("Done: {}", array));
@@ -221,19 +225,25 @@ impl StackFrame {
 /// Execution context for batch CPU compute.
 #[derive(Debug, Clone)]
 pub struct ExecutionCtx {
-    id: usize,
     session: VortexSession,
+    #[cfg(debug_assertions)]
+    id: usize,
+    #[cfg(debug_assertions)]
     ops: Vec<String>,
 }
 
 impl ExecutionCtx {
     /// Create a new execution context with the given session.
     pub fn new(session: VortexSession) -> Self {
-        static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
-        let id = EXEC_CTX_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Self {
             session,
-            id,
+            #[cfg(debug_assertions)]
+            id: {
+                static EXEC_CTX_ID: std::sync::atomic::AtomicUsize =
+                    std::sync::atomic::AtomicUsize::new(0);
+                EXEC_CTX_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            },
+            #[cfg(debug_assertions)]
             ops: Vec::new(),
         }
     }
@@ -255,20 +265,26 @@ impl ExecutionCtx {
     ///
     /// Use the [`format_args!`] macro to create the `msg` argument.
     pub fn log(&mut self, msg: fmt::Arguments<'_>) {
+        #[cfg(debug_assertions)]
         if tracing::enabled!(tracing::Level::DEBUG) {
             let formatted = format!(" - {msg}");
             tracing::trace!("exec[{}]: {formatted}", self.id);
             self.ops.push(formatted);
         }
+        let _ = msg;
     }
 }
 
 impl Display for ExecutionCtx {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "exec[{}]", self.id)
+        #[cfg(debug_assertions)]
+        return write!(f, "exec[{}]", self.id);
+        #[cfg(not(debug_assertions))]
+        write!(f, "exec")
     }
 }
 
+#[cfg(debug_assertions)]
 impl Drop for ExecutionCtx {
     fn drop(&mut self) {
         if !self.ops.is_empty() && tracing::enabled!(tracing::Level::DEBUG) {
@@ -512,7 +528,7 @@ macro_rules! require_child {
 /// execution of child `$idx`.
 ///
 /// Unlike `require_child!`, this is a statement macro (no value produced) and does not clone
-/// `$parent` — it is moved into the early-return path.
+/// `$parent` - it is moved into the early-return path.
 ///
 /// ```ignore
 /// require_opt_child!(array, array.patches().map(|p| p.indices()), 1 => Primitive);

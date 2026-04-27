@@ -33,11 +33,11 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
-use crate::scalar_fns::inner_product::BinaryTensorOpMetadata;
 use crate::scalar_fns::inner_product::InnerProduct;
 use crate::scalar_fns::l2_denorm::DenormOrientation;
 use crate::scalar_fns::l2_denorm::try_build_constant_l2_denorm;
 use crate::scalar_fns::l2_norm::L2Norm;
+use crate::utils::BinaryTensorOpMetadata;
 use crate::utils::extract_l2_denorm_children;
 use crate::utils::validate_binary_tensor_float_inputs;
 
@@ -115,7 +115,7 @@ impl ScalarFnVTable for CosineSimilarity {
         let lhs = &arg_dtypes[0];
         let rhs = &arg_dtypes[1];
 
-        let tensor_match = validate_binary_tensor_float_inputs("CosineSimilarity", lhs, rhs)?;
+        let tensor_match = validate_binary_tensor_float_inputs(lhs, rhs)?;
         let ptype = tensor_match.element_ptype();
         let nullability = Nullability::from(lhs.is_nullable() || rhs.is_nullable());
         Ok(DType::Primitive(ptype, nullability))
@@ -227,13 +227,8 @@ impl ScalarFnArrayVTable for CosineSimilarity {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ScalarFnArrayParts<Self>> {
-        let reconstructed = BinaryTensorOpMetadata::decode_children(
-            metadata,
-            len,
-            children,
-            session,
-            "CosineSimilarity",
-        )?;
+        let reconstructed =
+            BinaryTensorOpMetadata::decode_children(metadata, len, children, session)?;
         Ok(ScalarFnArrayParts {
             options: EmptyOptions,
             children: reconstructed,
@@ -704,16 +699,8 @@ mod tests {
     }
 
     #[rstest]
-    #[case::vector(
-        vector_array(3, &[1.0, 0.0, 0.0, 3.0, 4.0, 0.0]).unwrap(),
-        vector_array(3, &[0.0, 1.0, 0.0, 3.0, 4.0, 0.0]).unwrap(),
-        2,
-    )]
-    #[case::fixed_shape_tensor(
-        tensor_array(&[2], &[1.0, 0.0, 3.0, 4.0]).unwrap(),
-        tensor_array(&[2], &[0.0, 1.0, 3.0, 4.0]).unwrap(),
-        2,
-    )]
+    #[case::vector(cosine_vector_lhs(), cosine_vector_rhs(), 2)]
+    #[case::fixed_shape_tensor(cosine_tensor_lhs(), cosine_tensor_rhs(), 2)]
     fn serde_round_trip(
         #[case] lhs: ArrayRef,
         #[case] rhs: ArrayRef,
@@ -740,5 +727,21 @@ mod tests {
         assert_eq!(recovered.len(), original.len());
         assert_eq!(recovered.encoding_id(), original.encoding_id());
         Ok(())
+    }
+
+    fn cosine_vector_lhs() -> ArrayRef {
+        vector_array(3, &[1.0, 0.0, 0.0, 3.0, 4.0, 0.0]).expect("valid vector array")
+    }
+
+    fn cosine_vector_rhs() -> ArrayRef {
+        vector_array(3, &[0.0, 1.0, 0.0, 3.0, 4.0, 0.0]).expect("valid vector array")
+    }
+
+    fn cosine_tensor_lhs() -> ArrayRef {
+        tensor_array(&[2], &[1.0, 0.0, 3.0, 4.0]).expect("valid tensor array")
+    }
+
+    fn cosine_tensor_rhs() -> ArrayRef {
+        tensor_array(&[2], &[0.0, 1.0, 3.0, 4.0]).expect("valid tensor array")
     }
 }

@@ -17,6 +17,7 @@ use indicatif::MultiProgress;
 use indicatif::ProgressBar;
 use indicatif::ProgressDrawTarget;
 use indicatif::ProgressStyle;
+use sqllogictest::Normalizer;
 use sqllogictest::Record;
 use sqllogictest::Runner;
 use sqllogictest::parse_file;
@@ -27,6 +28,18 @@ use vortex_sqllogictest::args::Args;
 use vortex_sqllogictest::duckdb::DuckDB;
 use vortex_sqllogictest::duckdb::DuckDBTestError;
 use vortex_sqllogictest::utils::list_files;
+
+fn duckdb_validator(normalizer: Normalizer, actual: &[Vec<String>], expected: &[String]) -> bool {
+    let actual = actual.iter().flat_map(|strings| {
+        strings
+            .join(" ")
+            .trim_end()
+            .split('\n')
+            .map(|line| line.trim_end().to_string())
+            .collect::<Vec<_>>()
+    });
+    Iterator::eq(actual, expected.iter().map(normalizer))
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -127,6 +140,7 @@ async fn main() -> anyhow::Result<()> {
                 duckdb_runner.add_label("duckdb");
                 duckdb_runner.with_column_validator(strict_column_validator);
                 duckdb_runner.with_normalizer(value_normalizer);
+                duckdb_runner.with_validator(duckdb_validator);
 
                 for record in records.iter() {
                     if let Record::Halt { .. } = record {

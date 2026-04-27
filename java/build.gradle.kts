@@ -52,6 +52,7 @@ allprojects {
             // ignore protobuf generated files
             options.errorprone.excludedPaths = ".*/build/generated/.*"
             options.release = 17
+            options.compilerArgs.add("-Werror")
 
             options.generatedSourceOutputDirectory = projectDir.resolve("generated_src")
         }

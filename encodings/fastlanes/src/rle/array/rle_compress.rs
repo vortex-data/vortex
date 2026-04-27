@@ -178,8 +178,7 @@ mod tests {
         let encoded_u8 = RLEData::encode(
             PrimitiveArray::new(array_u8, Validity::NonNullable).as_view(),
             &mut ctx,
-        )
-        .unwrap();
+        )?;
         let decoded_u8 = encoded_u8
             .as_array()
             .clone()
@@ -192,8 +191,7 @@ mod tests {
         let encoded_u16 = RLEData::encode(
             PrimitiveArray::new(array_u16, Validity::NonNullable).as_view(),
             &mut ctx,
-        )
-        .unwrap();
+        )?;
         let decoded_u16 = encoded_u16
             .as_array()
             .clone()
@@ -206,8 +204,7 @@ mod tests {
         let encoded_u64 = RLEData::encode(
             PrimitiveArray::new(array_u64, Validity::NonNullable).as_view(),
             &mut ctx,
-        )
-        .unwrap();
+        )?;
         let decoded_u64 = encoded_u64
             .as_array()
             .clone()
@@ -251,8 +248,7 @@ mod tests {
         let encoded = RLEData::encode(
             PrimitiveArray::new(values, Validity::NonNullable).as_view(),
             &mut ctx,
-        )
-        .unwrap();
+        )?;
         assert_eq!(encoded.values().len(), 2); // 2 chunks, each storing value 42
 
         let decoded = encoded
@@ -272,8 +268,7 @@ mod tests {
         let encoded = RLEData::encode(
             PrimitiveArray::new(values, Validity::NonNullable).as_view(),
             &mut ctx,
-        )
-        .unwrap();
+        )?;
         assert_eq!(encoded.values().len(), 256);
 
         let decoded = encoded
@@ -334,17 +329,12 @@ mod tests {
             .clone()
             .into_array()
             .execute::<PrimitiveArray>(&mut ctx)?;
-        let result = RLEData::encode(primitive.as_view(), &mut ctx).unwrap();
+        let result = RLEData::encode(primitive.as_view(), &mut ctx)?;
         let decoded = result
             .as_array()
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)?;
-        let expected = PrimitiveArray::new(
-            values,
-            primitive
-                .validity()
-                .vortex_expect("primitive validity should be derivable"),
-        );
+        let expected = PrimitiveArray::new(values, primitive.validity()?);
         assert_arrays_eq!(decoded, expected);
         Ok(())
     }
@@ -555,7 +545,7 @@ mod tests {
     ) -> VortexResult<()> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let primitive = PrimitiveArray::from_iter(values);
-        let rle = RLEData::encode(primitive.as_view(), &mut ctx).unwrap();
+        let rle = RLEData::encode(primitive.as_view(), &mut ctx)?;
         let decoded = rle.as_array().clone().execute::<PrimitiveArray>(&mut ctx)?;
         assert_arrays_eq!(primitive, decoded);
         Ok(())

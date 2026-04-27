@@ -21,6 +21,7 @@ use super::FloatStats;
 use super::GenerateStatsOptions;
 use super::IntegerStats;
 use super::StringStats;
+use crate::trace;
 
 /// A single cache entry: a concrete [`TypeId`] paired with a type-erased value.
 type StatsEntry = (TypeId, Arc<dyn Any + Send + Sync>);
@@ -58,7 +59,10 @@ impl StatsCache {
                 .ok()
                 .vortex_expect("we just checked the TypeID")
         } else {
-            let new_arc: Arc<T> = Arc::new(f());
+            let new_arc: Arc<T> = {
+                let _span = trace::generate_stats_span(std::any::type_name::<T>()).entered();
+                Arc::new(f())
+            };
             guard.push((type_id, Arc::clone(&new_arc) as Arc<dyn Any + Send + Sync>));
             new_arc
         }

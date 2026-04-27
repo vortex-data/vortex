@@ -14,6 +14,7 @@ use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -67,9 +68,7 @@ impl CompressingStrategy {
             child: Arc::new(child),
             compressor: Arc::new(compressor),
             stats: Stat::all().collect(),
-            concurrency: std::thread::available_parallelism()
-                .map(|v| v.get())
-                .unwrap_or(1),
+            concurrency: get_available_parallelism().unwrap_or(1),
         }
     }
 

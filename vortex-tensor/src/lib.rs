@@ -5,6 +5,11 @@
 //! including unit vectors, spherical coordinates, and similarity measures such as cosine
 //! similarity.
 
+#![cfg_attr(
+    test,
+    allow(clippy::unwrap_used, clippy::expect_used, clippy::unwrap_in_result)
+)]
+
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;

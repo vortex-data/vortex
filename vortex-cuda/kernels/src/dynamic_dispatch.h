@@ -78,6 +78,27 @@ PTYPE_HOST_DEVICE constexpr PTypeTag ptype_to_unsigned(PTypeTag tag) {
         return tag;
     }
 }
+
+PTYPE_HOST_DEVICE constexpr uint8_t ptype_byte_width(PTypeTag tag) {
+    switch (tag) {
+    case PTYPE_U8:
+    case PTYPE_I8:
+        return 1;
+    case PTYPE_U16:
+    case PTYPE_I16:
+        return 2;
+    case PTYPE_U32:
+    case PTYPE_I32:
+    case PTYPE_F32:
+        return 4;
+    case PTYPE_U64:
+    case PTYPE_I64:
+    case PTYPE_F64:
+        return 8;
+    default:
+        return 0;
+    }
+}
 #endif
 
 /// Number of threads per CUDA block.
@@ -103,11 +124,18 @@ extern "C" {
 #endif
 
 /// Parameters for source ops, which decode data into a stage's shared memory region.
+///
+/// patches_ptr lives on the union variant that owns it (BitunpackParams,
+/// AlpParams) — not per-stage — so the pointer is tied to its op.
+/// Adding a u64 can grow the union and every ScalarOp/SourceOp read in the
+/// tile loop; SourceParams was already 24 B (no change), ScalarParams grew
+/// 8→16 B (no measurable impact — tile loop is compute-bound).
 union SourceParams {
     /// Unpack FastLanes bit-packed data.
     struct BitunpackParams {
         uint8_t bit_width;
         uint32_t element_offset; // Sub-byte offset
+        uint64_t patches_ptr;    // device pointer to GPUPatches struct (0 = none)
     } bitunpack;
 
     /// Copy from global to shared memory.
@@ -157,6 +185,7 @@ union ScalarParams {
     struct AlpParams {
         float f;
         float e;
+        uint64_t patches_ptr; // device pointer to GPUPatches struct (0 = none)
     } alp;
 
     /// Dictionary gather: use current value as index into decoded values in smem.
@@ -193,6 +222,7 @@ struct PackedStage {
     uint32_t len;              // number of elements this stage produces
 
     struct SourceOp source;
+
     uint8_t num_scalar_ops;
     enum PTypeTag source_ptype; // PType produced by the source op
 };
@@ -220,11 +250,12 @@ struct __attribute__((aligned(8))) PlanHeader {
 /// change the type; the final output PType is given by the last scalar op's
 /// `output_ptype` (or `source_ptype` if there are no scalar ops).
 struct Stage {
-    uint64_t input_ptr;                // encoded input in global memory
-    uint32_t smem_byte_offset;         // byte offset within dynamic shared memory
-    uint32_t len;                      // elements produced
-    enum PTypeTag source_ptype;        // PType produced by the source op
-    struct SourceOp source;            // source decode op
+    uint64_t input_ptr;         // encoded input in global memory
+    uint32_t smem_byte_offset;  // byte offset within dynamic shared memory
+    uint32_t len;               // elements produced
+    enum PTypeTag source_ptype; // PType produced by the source op
+    struct SourceOp source;     // source decode op
+
     uint8_t num_scalar_ops;            // number of scalar ops
     const struct ScalarOp *scalar_ops; // scalar decode ops
 };
@@ -247,6 +278,7 @@ __device__ inline Stage parse_stage(const uint8_t *&cursor) {
         .len = packed_stage->len,
         .source_ptype = packed_stage->source_ptype,
         .source = packed_stage->source,
+
         .num_scalar_ops = packed_stage->num_scalar_ops,
         .scalar_ops = ops,
     };

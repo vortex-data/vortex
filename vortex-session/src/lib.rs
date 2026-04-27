@@ -72,7 +72,9 @@ impl VortexSession {
 
     /// Returns whether unknown plugins should deserialize as foreign placeholders.
     pub fn allows_unknown(&self) -> bool {
-        <Self as SessionExt>::get::<UnknownPluginPolicy>(self).allow_unknown
+        <Self as SessionExt>::get_opt::<UnknownPluginPolicy>(self)
+            .map(|p| p.allow_unknown)
+            .unwrap_or(false)
     }
 }
 

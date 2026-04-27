@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-#include <iostream>
 #include <mutex>
 #include <nanoarrow/common/inline_types.h>
 #include <nanoarrow/hpp/unique.hpp>
@@ -520,9 +519,14 @@ TEST_CASE("Multithreaded scan", "[datasource]") {
             arrays[i] = array;
         });
     }
+
     for (auto &thread : threads) {
         thread.join();
     }
+
+    vx_partition *const partition = vx_scan_next_partition(scan, &error);
+    require_no_error(error);
+    REQUIRE(partition == nullptr);
 
     for (const vx_array *array : arrays) {
         REQUIRE(array != nullptr);
