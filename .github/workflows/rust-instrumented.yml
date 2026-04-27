@@ -155,7 +155,7 @@ jobs:
       ASAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
       MSAN_OPTIONS: "symbolize=1"
       MSAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
-      TSAN_OPTIONS: "symbolize=1"
+      TSAN_OPTIONS: "symbolize=1:suppressions=${{ github.workspace }}/vortex-ffi/tsan_suppressions.txt"
       TSAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
       VORTEX_SKIP_SLOW_TESTS: "1"
       # -Cunsafe-allow-abi-mismatch=sanitizer: libraries like compiler_builtins
@@ -187,15 +187,28 @@ jobs:
           cargo +$NIGHTLY_TOOLCHAIN build --locked --no-default-features \
             --target x86_64-unknown-linux-gnu -Zbuild-std \
             -p vortex-ffi
-      - name: Build FFI library tests
+      - name: Build FFI library tests and examples
         run: |
           cd vortex-ffi
-          cmake -Bbuild -DBUILD_TESTS=1 -DSANITIZER=${{ matrix.sanitizer }} -DTARGET_TRIPLE="x86_64-unknown-linux-gnu"
+          cmake -Bbuild -DBUILD_TESTS=1 -DBUILD_EXAMPLES=1 -DSANITIZER=${{ matrix.sanitizer }} -DTARGET_TRIPLE="x86_64-unknown-linux-gnu"
           cmake --build build -j
       - name: Run tests
         run: |
           set -o pipefail
-          ./vortex-ffi/build/test/vortex_ffi_test 2>&1 | rustfilt -i-
+          ./vortex-ffi/build/test/vortex_ffi_test 2>&1 | rustfilt
+      - name: Run examples
+        run: |
+          set -o pipefail
+
+          # Failed to create data source: Object store error: Generic LocalFileSystem
+          # error: Unable to walk dir: File system loop found
+          rm -fr vortex-ffi/build/_deps/nanoarrow-src/python
+
+          ./vortex-ffi/build/examples/write_sample file.vortex 2>&1 | rustfilt
+          ./vortex-ffi/build/examples/write_sample file2.vortex 2>&1 | rustfilt
+          ./vortex-ffi/build/examples/dtype '*.vortex' 2>&1 | rustfilt
+          ./vortex-ffi/build/examples/scan '*.vortex' 2>&1 | rustfilt
+          ./vortex-ffi/build/examples/scan_to_arrow '*.vortex' 2>&1 | rustfilt
 
   miri:
     name: "Rust tests (miri)"

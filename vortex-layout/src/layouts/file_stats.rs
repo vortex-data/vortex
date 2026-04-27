@@ -21,7 +21,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::layouts::zoned::zone_map::StatsAccumulator;
+use crate::layouts::zoned::StatsAccumulator;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequenceId;
 use crate::sequence::SequentialStreamAdapter;

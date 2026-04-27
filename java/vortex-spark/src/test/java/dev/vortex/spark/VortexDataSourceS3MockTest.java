@@ -45,7 +45,9 @@ public final class VortexDataSourceS3MockTest {
                 .master("local[2]")
                 .config("spark.sql.shuffle.partitions", "2")
                 .config("spark.sql.adaptive.enabled", "false")
+                .config("spark.driver.host", "127.0.0.1")
                 .config("spark.ui.enabled", "false")
+                .config("spark.driver.host", "127.0.0.1")
                 // S3A configuration for S3Mock.
                 // This should be propagated into our reader
                 .config("spark.hadoop.fs.s3a.endpoint", s3Endpoint)

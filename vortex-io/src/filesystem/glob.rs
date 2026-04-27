@@ -106,6 +106,10 @@ mod tests {
         async fn open_read(&self, _path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
             vortex_panic!("open_read() should not be called")
         }
+
+        async fn delete(&self, _path: &str) -> VortexResult<()> {
+            vortex_panic!("delete() should not be called")
+        }
     }
 
     #[tokio::test]

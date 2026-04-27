@@ -9,6 +9,7 @@ use std::time::Duration;
 use parking_lot::Mutex;
 use smol::block_on;
 use vortex_error::VortexExpect;
+use vortex_utils::parallelism::get_available_parallelism;
 
 #[derive(Clone)]
 pub struct CurrentThreadWorkerPool {
@@ -25,10 +26,10 @@ impl CurrentThreadWorkerPool {
     }
 
     /// Set the number of worker threads to the available system parallelism as reported by
-    /// `std::thread::available_parallelism()` minus 1, to leave a slot open for the calling thread.
+    /// [`get_available_parallelism()`] minus 1, to leave a slot open for the calling thread.
     pub fn set_workers_to_available_parallelism(&self) {
-        let n = std::thread::available_parallelism()
-            .map(|n| n.get().saturating_sub(1).max(1))
+        let n = get_available_parallelism()
+            .map(|n| n.saturating_sub(1).max(1))
             .unwrap_or(1);
         self.set_workers(n);
     }

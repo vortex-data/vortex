@@ -2,6 +2,8 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 cmake_minimum_required(VERSION 3.10)
 
+include(FetchContent)
+
 project(VortexFFI
     VERSION 0.0.1
     LANGUAGES C)
@@ -10,6 +12,7 @@ set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Werror -Wextra -Wpedantic")
 
 option(BUILD_TESTS "Build tests" OFF)
+option(BUILD_EXAMPLES "Build examples" OFF)
 
 set(SANITIZER "" CACHE STRING "Build with sanitizers")
 set(TARGET_TRIPLE "" CACHE STRING "Rust target triple for FFI library")
@@ -76,10 +79,10 @@ Static library path ${LIBRARY_PATH}
 Headers path ${LIBRARY_HEADERS}")
 
 if (NOT EXISTS "${LIBRARY_PATH_SHARED}")
-    message(FATAL_ERROR "Shared library not found")
+    message(FATAL_ERROR "Shared library not found, run `cargo build --release -p vortex-ffi`")
 endif()
 if (NOT EXISTS "${LIBRARY_PATH}")
-    message(FATAL_ERROR "Static library not found")
+    message(FATAL_ERROR "Static library not found, run `cargo build --release -p vortex-ffi`")
 endif()
 
 add_library(vortex_ffi STATIC IMPORTED)
@@ -95,6 +98,15 @@ set_target_properties(vortex_ffi_shared PROPERTIES
     INTERFACE_LINK_OPTIONS "LINKER:-rpath,${LIBRARY_DIR}"
 )
 
+if (BUILD_TESTS OR BUILD_EXAMPLES)
+    FetchContent_Declare(
+      Nanoarrow
+      GIT_REPOSITORY https://github.com/apache/arrow-nanoarrow
+      GIT_TAG        apache-arrow-nanoarrow-0.8.0
+    )
+    FetchContent_MakeAvailable(Nanoarrow)
+endif()
+
 if (BUILD_TESTS)
     enable_language(CXX)
     set(CMAKE_CXX_STANDARD 20)
@@ -102,4 +114,8 @@ if (BUILD_TESTS)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Werror -Wextra -Wpedantic")
     enable_testing()
     add_subdirectory(test)
+endif()
+
+if (BUILD_EXAMPLES)
+    add_subdirectory(examples)
 endif()

@@ -11,6 +11,8 @@
 //! and async-compat only supports the latter.
 
 mod filesystem;
+#[cfg(feature = "object_store")]
+mod obj_store;
 mod read_at;
 mod write;
 

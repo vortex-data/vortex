@@ -10,9 +10,10 @@
 //! 3. **`execute_parent`** -- child-driven fused execution (may read buffers).
 //! 4. **`execute`** -- the encoding's own decode step (most expensive).
 //!
-//! The main entry point is [`DynArray::execute_until`], which uses an explicit work stack
+//! The main entry point is [`ArrayRef::execute_until`], which uses an explicit work stack
 //! to drive execution iteratively without recursion. Between steps, the optimizer runs
-//! reduce/reduce_parent rules to fixpoint.
+//! reduce/reduce_parent rules to fixpoint using the active [`ExecutionCtx`] session, so
+//! session-registered optimizer kernels participate during execution.
 //!
 //! See <https://docs.vortex.dev/developer-guide/internals/execution> for a full description
 //! of the model.
@@ -687,7 +688,7 @@ macro_rules! require_child {
 /// execution of child `$idx`.
 ///
 /// Unlike `require_child!`, this is a statement macro (no value produced) and does not clone
-/// `$parent` — it is moved into the early-return path.
+/// `$parent` - it is moved into the early-return path.
 ///
 /// ```ignore
 /// require_opt_child!(array, array.patches().map(|p| p.indices()), 1 => Primitive);

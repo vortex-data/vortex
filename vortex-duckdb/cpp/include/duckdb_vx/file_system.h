@@ -75,6 +75,9 @@ duckdb_state duckdb_vx_fs_write(duckdb_vx_file_handle handle,
 // Flush pending writes to storage.
 duckdb_state duckdb_vx_fs_sync(duckdb_vx_file_handle handle, duckdb_vx_error *error_out);
 
+// Delete a file using DuckDB's filesystem.
+duckdb_state duckdb_vx_fs_remove(duckdb_client_context ctx, const char *path, duckdb_vx_error *error_out);
+
 #ifdef __cplusplus /* End C ABI */
 }
 #endif

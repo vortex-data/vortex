@@ -3,6 +3,7 @@
 
 package dev.vortex.spark.write;
 
+import dev.vortex.api.Session;
 import dev.vortex.api.VortexWriter;
 import dev.vortex.relocated.org.apache.arrow.c.ArrowArray;
 import dev.vortex.relocated.org.apache.arrow.c.ArrowSchema;
@@ -14,7 +15,7 @@ import dev.vortex.relocated.org.apache.arrow.vector.FieldVector;
 import dev.vortex.relocated.org.apache.arrow.vector.VectorSchemaRoot;
 import dev.vortex.relocated.org.apache.arrow.vector.complex.ListVector;
 import dev.vortex.relocated.org.apache.arrow.vector.complex.StructVector;
-import dev.vortex.spark.SparkTypes;
+import dev.vortex.spark.VortexSparkSession;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -49,6 +50,7 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
     private final CaseInsensitiveStringMap options;
     private final int batchSize;
 
+    private Session session;
     private VortexWriter vortexWriter;
     private BufferAllocator allocator;
     private VectorSchemaRoot vectorSchemaRoot;
@@ -89,17 +91,12 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
         }
 
         try {
-            // Initialize Arrow components
             this.allocator = new RootAllocator();
-
-            // Convert Spark schema to Vortex and Arrow schemas.
-            var writeSchema = SparkTypes.toDType(schema);
             var arrowSchema = SparkToArrowSchema.convert(schema);
 
-            // Create Vortex writer
-            this.vortexWriter = VortexWriter.create(filePath, writeSchema, options.asCaseSensitiveMap());
-
-            // Create VectorSchemaRoot for batching rows
+            this.session = VortexSparkSession.get(options.asCaseSensitiveMap());
+            this.vortexWriter =
+                    VortexWriter.create(session, filePath, arrowSchema, options.asCaseSensitiveMap(), allocator);
             this.vectorSchemaRoot = VectorSchemaRoot.create(arrowSchema, allocator);
 
             logger.debug("Initialized VortexDataWriter for {}", filePath);
@@ -171,7 +168,7 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
         try (ArrowArray arrowArray = ArrowArray.allocateNew(allocator);
                 ArrowSchema arrowSchema = ArrowSchema.allocateNew(allocator)) {
             Data.exportVectorSchemaRoot(allocator, vectorSchemaRoot, null, arrowArray, arrowSchema);
-            vortexWriter.writeBatchFfi(arrowArray.memoryAddress(), arrowSchema.memoryAddress());
+            vortexWriter.writeBatch(arrowArray.memoryAddress(), arrowSchema.memoryAddress());
         }
 
         vectorSchemaRoot.clear();
@@ -298,7 +295,7 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
             }
 
             // The Arrow C Data Interface export (Data.exportVectorSchemaRoot) creates structural
-            // allocations from this allocator. When writeBatchFfi passes the ArrowArray to Rust,
+            // allocations from this allocator. When writeBatch passes the ArrowArray to Rust,
             // FFI_ArrowArray::from_raw() takes ownership and nullifies the release callback on
             // the Java side. The Rust side calls release asynchronously on its own thread, so
             // small structural allocations may still be outstanding when the allocator is closed.
@@ -311,6 +308,10 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
                 }
                 allocator = null;
             }
+
+            // Session is the JVM-wide singleton held by VortexSparkSession; we just
+            // drop our local handle to it here.
+            session = null;
 
             closed = true;
 
@@ -357,6 +358,10 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
                 }
                 allocator = null;
             }
+
+            // Session is the JVM-wide singleton held by VortexSparkSession; we just
+            // drop our local handle to it here.
+            session = null;
 
             // Delete the partial file if it exists
             try {

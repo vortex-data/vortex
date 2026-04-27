@@ -154,20 +154,18 @@ pub fn resolve_data_url(remote_data_dir: Option<&str>, local_subdir: &str) -> Re
 
 /// Convert a URL scheme to a storage type string
 ///
-/// Maps URL schemes (s3, gcs, file) to storage type identifiers
+/// Maps URL schemes (s3, file) to storage type identifiers
 /// for benchmark reporting.
 ///
 /// # Returns
-/// - A storage type string ("s3", "gcs", "nvme")
+/// - A storage type string ("s3", "nvme")
 /// - Or an error if the scheme is unknown
 pub fn url_scheme_to_storage(url: &Url) -> Result<String> {
-    use super::constants::STORAGE_GCS;
     use super::constants::STORAGE_NVME;
     use super::constants::STORAGE_S3;
 
     match url.scheme() {
         STORAGE_S3 => Ok(STORAGE_S3.to_owned()),
-        STORAGE_GCS => Ok(STORAGE_GCS.to_owned()),
         "file" => Ok(STORAGE_NVME.to_owned()),
         otherwise => {
             bail!("unknown URL scheme: {}", otherwise)

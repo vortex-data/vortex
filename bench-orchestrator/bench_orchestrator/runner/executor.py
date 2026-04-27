@@ -39,6 +39,7 @@ class BenchmarkExecutor:
         samply: bool = False,
         sample_rate: int | None = None,
         tracing: bool = False,
+        runner: str | None = None,
     ) -> list[str]:
         """Build the command used to execute a benchmark binary."""
         cmd = [
@@ -64,6 +65,8 @@ class BenchmarkExecutor:
             cmd.append("--track-memory")
         if tracing:
             cmd.append("--tracing")
+        if runner:
+            cmd.extend(["--runner", runner])
         if options:
             for key, value in options.items():
                 cmd.extend(["--opt", f"{key}={value}"])
@@ -94,6 +97,7 @@ class BenchmarkExecutor:
         samply: bool = False,
         sample_rate: int | None = None,
         tracing: bool = False,
+        runner: str | None = None,
         on_result: Callable[[str], None] | None = None,
     ) -> list[str]:
         """
@@ -123,6 +127,7 @@ class BenchmarkExecutor:
             samply=samply,
             sample_rate=sample_rate,
             tracing=tracing,
+            runner=runner,
         )
 
         if self.verbose:

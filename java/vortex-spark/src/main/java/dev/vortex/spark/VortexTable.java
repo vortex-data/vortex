@@ -6,8 +6,10 @@ package dev.vortex.spark;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Maps;
 import dev.vortex.spark.read.VortexScanBuilder;
 import dev.vortex.spark.write.VortexWriteBuilder;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Set;
 import org.apache.spark.sql.connector.catalog.*;
@@ -47,18 +49,19 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
      * Creates a new ScanBuilder for this table.
      * <p>
      * The scan builder is pre-configured with all the file paths and columns
-     * from this table. The options parameter is currently unused but reserved
-     * for future use (e.g., S3 credentials).
+     * from this table.
      *
-     * @param _options scan options (currently unused)
+     * @param options scan options
      * @return a new VortexScanBuilder configured for this table
      */
     @Override
-    public ScanBuilder newScanBuilder(CaseInsensitiveStringMap _options) {
-        ImmutableList<Column> readColumns = ImmutableList.<Column>builder()
-                .add(CatalogV2Util.structTypeToV2Columns(schema))
-                .build();
-        return new VortexScanBuilder(formatOptions).addAllPaths(paths).addAllColumns(readColumns);
+    public ScanBuilder newScanBuilder(CaseInsensitiveStringMap options) {
+        Map<String, String> opts = Maps.newHashMap();
+        opts.putAll(formatOptions);
+        opts.putAll(options);
+        return new VortexScanBuilder(opts)
+                .addAllPaths(paths)
+                .addAllColumns(Arrays.asList(CatalogV2Util.structTypeToV2Columns(schema)));
     }
 
     /**

@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::clone::Clone;
+//! Java Native Interface bindings for Vortex.
+//!
+//! The JNI surface mirrors the C FFI in `vortex-ffi` closely. It exposes a small
+//! session-oriented scan API (session → data source → scan → partition → Arrow
+//! array stream) so that Java callers only see Arrow at the boundary.
+
 use std::sync::LazyLock;
 
-use tokio::runtime::Builder;
-use tokio::runtime::Runtime;
-use vortex::VortexSessionDefault;
-use vortex::error::VortexExpect;
-use vortex::io::runtime::BlockingRuntime;
-use vortex::io::runtime::tokio::TokioRuntime;
-use vortex::io::session::RuntimeSessionExt;
-use vortex::session::VortexSession;
+use vortex::io::runtime::current::CurrentThreadRuntime;
+use vortex::io::runtime::current::CurrentThreadWorkerPool;
 
 macro_rules! throw_runtime {
     ($($tt:tt)*) => {
@@ -19,25 +18,26 @@ macro_rules! throw_runtime {
     };
 }
 
-mod array;
-mod array_iter;
+mod data_source;
 mod dtype;
 mod errors;
+mod expression;
 mod file;
 mod logging;
 mod object_store;
+mod runtime;
+mod scan;
+mod session;
 mod writer;
 
-// Shared Tokio runtime for all the async operations in this package.
-static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
-    // TODO: propagate this error up instead of expecting
-    Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .vortex_expect("Failed to build Tokio runtime")
-});
-static RUNTIME: LazyLock<TokioRuntime> =
-    LazyLock::new(|| TokioRuntime::from(TOKIO_RUNTIME.handle().clone()));
-/// Shared Vortex session for the JNI instance.
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_handle(RUNTIME.handle()));
+/// Shared current-thread runtime backing every JNI call. Using a current-thread
+/// runtime (as opposed to multi-thread Tokio) keeps the Java side responsible for
+/// parallelism decisions — each partition is consumed on the caller's thread, and
+/// writes are bounded by a small in-flight queue on the same thread.
+static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
+
+/// Shared worker pool that can drive [`RUNTIME`]'s executor in the background. Callers
+/// configure its size through the `NativeRuntime.setWorkerThreads` JNI entry point. By
+/// default the pool has zero workers — nothing is driven unless a Java thread calls
+/// the blocking API or workers are added here.
+pub(crate) static POOL: LazyLock<CurrentThreadWorkerPool> = LazyLock::new(|| RUNTIME.new_pool());

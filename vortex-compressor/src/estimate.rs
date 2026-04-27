@@ -228,9 +228,9 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
 
     let score = EstimateScore::from_sample_sizes(before, after);
 
-    // Single DEBUG event per sampled scheme. Downstream tooling can join this with the eventual
-    // `scheme.compress_result` on the same scheme to compute sample-vs-full divergence.
-    trace::sample_result(scheme.id(), before, after, score.finite_ratio());
+    if matches!(score, EstimateScore::ZeroBytes) {
+        trace::zero_byte_sample_result(scheme.id(), before);
+    }
 
     Ok(score)
 }

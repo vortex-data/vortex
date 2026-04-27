@@ -12,6 +12,8 @@ impl<'__pin, T> core::marker::Unpin for vortex_io::compat::Compat<T> where pin_p
 
 impl<F: vortex_io::filesystem::FileSystem> vortex_io::filesystem::FileSystem for vortex_io::compat::Compat<F>
 
+pub fn vortex_io::compat::Compat<F>::delete<'life0, 'life1, 'async_trait>(&'life0 self, path: &'life1 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<()>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
+
 pub fn vortex_io::compat::Compat<F>::list(&self, prefix: &str) -> futures_core::stream::BoxStream<'_, vortex_error::VortexResult<vortex_io::filesystem::FileListing>>
 
 pub fn vortex_io::compat::Compat<F>::open_read<'life0, 'life1, 'async_trait>(&'life0 self, path: &'life1 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_io::VortexReadAt>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
@@ -49,6 +51,40 @@ impl<T: core::future::future::Future> core::future::future::Future for vortex_io
 pub type vortex_io::compat::Compat<T>::Output = <T as core::future::future::Future>::Output
 
 pub fn vortex_io::compat::Compat<T>::poll(self: core::pin::Pin<&mut Self>, cx: &mut core::task::wake::Context<'_>) -> core::task::poll::Poll<Self::Output>
+
+impl<T: object_store::ObjectStore> core::fmt::Display for vortex_io::compat::Compat<T>
+
+pub fn vortex_io::compat::Compat<T>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<T: object_store::ObjectStore> object_store::ObjectStore for vortex_io::compat::Compat<T>
+
+pub fn vortex_io::compat::Compat<T>::copy_opts<'life0, 'life1, 'life2, 'async_trait>(&'life0 self, from: &'life1 object_store::path::Path, to: &'life2 object_store::path::Path, options: object_store::CopyOptions) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = object_store::Result<()>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait, 'life2: 'async_trait
+
+pub fn vortex_io::compat::Compat<T>::delete_stream(&self, locations: futures_core::stream::BoxStream<'static, object_store::Result<object_store::path::Path>>) -> futures_core::stream::BoxStream<'static, object_store::Result<object_store::path::Path>>
+
+pub fn vortex_io::compat::Compat<T>::get_opts<'life0, 'life1, 'async_trait>(&'life0 self, location: &'life1 object_store::path::Path, options: object_store::GetOptions) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = object_store::Result<object_store::GetResult>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
+
+pub fn vortex_io::compat::Compat<T>::get_ranges<'life0, 'life1, 'life2, 'async_trait>(&'life0 self, location: &'life1 object_store::path::Path, ranges: &'life2 [core::ops::range::Range<u64>]) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = object_store::Result<alloc::vec::Vec<bytes::bytes::Bytes>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait, 'life2: 'async_trait
+
+pub fn vortex_io::compat::Compat<T>::list(&self, prefix: core::option::Option<&object_store::path::Path>) -> futures_core::stream::BoxStream<'static, object_store::Result<object_store::ObjectMeta>>
+
+pub fn vortex_io::compat::Compat<T>::list_with_delimiter<'life0, 'life1, 'async_trait>(&'life0 self, prefix: core::option::Option<&'life1 object_store::path::Path>) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = object_store::Result<object_store::ListResult>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
+
+pub fn vortex_io::compat::Compat<T>::list_with_offset(&self, prefix: core::option::Option<&object_store::path::Path>, offset: &object_store::path::Path) -> futures_core::stream::BoxStream<'static, object_store::Result<object_store::ObjectMeta>>
+
+pub fn vortex_io::compat::Compat<T>::put_multipart_opts<'life0, 'life1, 'async_trait>(&'life0 self, location: &'life1 object_store::path::Path, opts: object_store::PutMultipartOptions) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = object_store::Result<alloc::boxed::Box<dyn object_store::upload::MultipartUpload>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
+
+pub fn vortex_io::compat::Compat<T>::put_opts<'life0, 'life1, 'async_trait>(&'life0 self, location: &'life1 object_store::path::Path, payload: object_store::payload::PutPayload, opts: object_store::PutOptions) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = object_store::Result<object_store::PutResult>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
+
+pub fn vortex_io::compat::Compat<T>::rename_opts<'life0, 'life1, 'life2, 'async_trait>(&'life0 self, from: &'life1 object_store::path::Path, to: &'life2 object_store::path::Path, options: object_store::RenameOptions) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = object_store::Result<()>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait, 'life2: 'async_trait
+
+impl<T: object_store::upload::MultipartUpload> object_store::upload::MultipartUpload for vortex_io::compat::Compat<T>
+
+pub fn vortex_io::compat::Compat<T>::abort<'life0, 'async_trait>(&'life0 mut self) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = object_store::Result<()>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+
+pub fn vortex_io::compat::Compat<T>::complete<'life0, 'async_trait>(&'life0 mut self) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = object_store::Result<object_store::PutResult>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+
+pub fn vortex_io::compat::Compat<T>::put_part(&mut self, data: object_store::payload::PutPayload) -> object_store::upload::UploadPart
 
 impl<T> core::ops::drop::Drop for vortex_io::compat::Compat<T>
 
@@ -96,17 +132,23 @@ impl core::marker::StructuralPartialEq for vortex_io::filesystem::FileListing
 
 pub trait vortex_io::filesystem::FileSystem: core::fmt::Debug + core::marker::Send + core::marker::Sync
 
+pub fn vortex_io::filesystem::FileSystem::delete<'life0, 'life1, 'async_trait>(&'life0 self, path: &'life1 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<()>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
+
 pub fn vortex_io::filesystem::FileSystem::list(&self, prefix: &str) -> futures_core::stream::BoxStream<'_, vortex_error::VortexResult<vortex_io::filesystem::FileListing>>
 
 pub fn vortex_io::filesystem::FileSystem::open_read<'life0, 'life1, 'async_trait>(&'life0 self, path: &'life1 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_io::VortexReadAt>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
 
 impl vortex_io::filesystem::FileSystem for vortex_io::object_store::ObjectStoreFileSystem
 
+pub fn vortex_io::object_store::ObjectStoreFileSystem::delete<'life0, 'life1, 'async_trait>(&'life0 self, path: &'life1 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<()>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
+
 pub fn vortex_io::object_store::ObjectStoreFileSystem::list(&self, prefix: &str) -> futures_core::stream::BoxStream<'_, vortex_error::VortexResult<vortex_io::filesystem::FileListing>>
 
 pub fn vortex_io::object_store::ObjectStoreFileSystem::open_read<'life0, 'life1, 'async_trait>(&'life0 self, path: &'life1 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_io::VortexReadAt>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
 
 impl<F: vortex_io::filesystem::FileSystem> vortex_io::filesystem::FileSystem for vortex_io::compat::Compat<F>
+
+pub fn vortex_io::compat::Compat<F>::delete<'life0, 'life1, 'async_trait>(&'life0 self, path: &'life1 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<()>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
 
 pub fn vortex_io::compat::Compat<F>::list(&self, prefix: &str) -> futures_core::stream::BoxStream<'_, vortex_error::VortexResult<vortex_io::filesystem::FileListing>>
 
@@ -139,6 +181,8 @@ impl core::fmt::Debug for vortex_io::object_store::ObjectStoreFileSystem
 pub fn vortex_io::object_store::ObjectStoreFileSystem::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 impl vortex_io::filesystem::FileSystem for vortex_io::object_store::ObjectStoreFileSystem
+
+pub fn vortex_io::object_store::ObjectStoreFileSystem::delete<'life0, 'life1, 'async_trait>(&'life0 self, path: &'life1 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<()>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
 
 pub fn vortex_io::object_store::ObjectStoreFileSystem::list(&self, prefix: &str) -> futures_core::stream::BoxStream<'_, vortex_error::VortexResult<vortex_io::filesystem::FileListing>>
 

@@ -38,6 +38,7 @@ use vortex_io::session::RuntimeSessionExt;
 use vortex_metrics::MetricsRegistry;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
@@ -367,9 +368,7 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                 LazyScanState::Builder(builder) => {
                     let builder = builder.take().vortex_expect("polled after completion");
                     let ordered = builder.ordered;
-                    let num_workers = std::thread::available_parallelism()
-                        .map(|n| n.get())
-                        .unwrap_or(1);
+                    let num_workers = get_available_parallelism().unwrap_or(1);
                     let concurrency = builder.concurrency * num_workers;
                     let handle = builder.session.handle();
                     let task = handle.spawn_blocking(move || {

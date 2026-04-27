@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-#include <iostream>
 #include <mutex>
 #include <nanoarrow/common/inline_types.h>
 #include <nanoarrow/hpp/unique.hpp>
@@ -252,11 +251,11 @@ TEST_CASE("Write file and read dtypes", "[datasource]") {
         vx_data_source_free(ds);
     };
 
-    vx_data_source_row_count row_count = {};
+    vx_estimate row_count;
     vx_data_source_get_row_count(ds, &row_count);
 
-    CHECK(row_count.cardinality == VX_CARD_MAXIMUM);
-    CHECK(row_count.rows == SAMPLE_ROWS);
+    CHECK(row_count.type == VX_ESTIMATE_EXACT);
+    CHECK(row_count.estimate == SAMPLE_ROWS);
 
     const vx_dtype *data_source_dtype = vx_data_source_dtype(ds);
     REQUIRE(vx_dtype_get_variant(data_source_dtype) == DTYPE_STRUCT);
@@ -520,9 +519,14 @@ TEST_CASE("Multithreaded scan", "[datasource]") {
             arrays[i] = array;
         });
     }
+
     for (auto &thread : threads) {
         thread.join();
     }
+
+    vx_partition *const partition = vx_scan_next_partition(scan, &error);
+    require_no_error(error);
+    REQUIRE(partition == nullptr);
 
     for (const vx_array *array : arrays) {
         REQUIRE(array != nullptr);

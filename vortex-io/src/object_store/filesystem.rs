@@ -11,8 +11,10 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use futures::stream::BoxStream;
 use object_store::ObjectStore;
+use object_store::ObjectStoreExt;
 use object_store::path::Path;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::VortexReadAt;
 use crate::filesystem::FileListing;
@@ -80,5 +82,15 @@ impl FileSystem for ObjectStoreFileSystem {
             path.into(),
             self.handle.clone(),
         )))
+    }
+
+    async fn delete(&self, path: &str) -> VortexResult<()> {
+        self.store
+            .delete(
+                &Path::from_url_path(path)
+                    .map_err(|_| vortex_err!("invalid path for url {path}"))?,
+            )
+            .await?;
+        Ok(())
     }
 }
