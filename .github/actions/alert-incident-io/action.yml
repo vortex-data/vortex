@@ -27,7 +27,7 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - uses: incident-io/github-action@7aa5f85e67679cd8fdf2a19aed3d5450335a004b # v1
+    - uses: incident-io/github-action@7aa5f85e67679cd8fdf2a19aed3d5450335a004b  # v1
       with:
         api-key: ${{ inputs.api-key }}
         alert-source-id: 01KH4EYTH3HA4PDZPRAPEV1Q10
