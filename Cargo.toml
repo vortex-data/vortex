@@ -120,7 +120,7 @@ chrono = "0.4.42"
 clap = "4.5"
 criterion = "0.8"
 crossterm = "0.29"
-cudarc = { version = "0.18.2", features = [
+cudarc = { version = "0.19.0", features = [
     # The NSight Compute version available on lambda.ai hosts does not inject a symbol for
     # several functions that cudarc expects to load when this is set to "cuda-12080". We
     # don't use any CUDA 12.8 specific features currently so this is fine.
