@@ -131,6 +131,7 @@ impl State {
         }
     }
 
+    #[allow(clippy::cognitive_complexity)]
     fn on_event(&mut self, event: ReadEvent) {
         tracing::debug!(?event, "Received ReadEvent");
         match event {
