@@ -10244,6 +10244,7 @@ name = "vortex-array"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "arc-swap",
  "arcref",
  "arrow-arith 58.1.0",
  "arrow-array 58.1.0",

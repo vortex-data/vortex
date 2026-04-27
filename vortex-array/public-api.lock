@@ -8806,7 +8806,7 @@ pub struct vortex_array::dtype::session::DTypeSession
 
 impl vortex_array::dtype::session::DTypeSession
 
-pub fn vortex_array::dtype::session::DTypeSession::arrow_canonical_for(&self, vortex_id: &vortex_array::dtype::extension::ExtId) -> core::option::Option<&'static str>
+pub fn vortex_array::dtype::session::DTypeSession::arrow_canonical_for(&self, vortex_id: &vortex_array::dtype::extension::ExtId) -> core::option::Option<vortex_array::dtype::extension::ExtId>
 
 pub fn vortex_array::dtype::session::DTypeSession::register<V: vortex_array::dtype::extension::ExtVTable>(&self, vtable: V)
 

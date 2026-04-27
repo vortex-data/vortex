@@ -493,7 +493,7 @@ fn field_from_dtype(name: &str, dtype: &DType, dtypes: &DTypeSession) -> VortexR
                 let s = String::from_utf8(ext_meta_bytes).map_err(|e| {
                     vortex_err!("canonical extension {canonical} metadata must be valid UTF-8: {e}")
                 })?;
-                (canonical.to_owned(), s)
+                (canonical.as_str().to_owned(), s)
             }
             None => (
                 ext.id().as_str().to_owned(),
