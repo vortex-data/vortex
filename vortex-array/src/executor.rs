@@ -344,7 +344,7 @@ fn execute_loop(
                     return Ok(current.array);
                 }
                 Some(frame) => {
-                    current = pop_frame(frame, current)?;
+                    current = pop_frame(frame, current, ctx)?;
                     continue;
                 }
             }
@@ -441,7 +441,11 @@ fn execute_loop(
 }
 
 /// Pop a stack frame, updating `current` accordingly.
-fn pop_frame(frame: StackFrame, current: Activation) -> VortexResult<Activation> {
+fn pop_frame(
+    frame: StackFrame,
+    current: Activation,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Activation> {
     debug_assert_eq!(
         current.array.dtype(),
         &frame.original_dtype,
@@ -458,11 +462,16 @@ fn pop_frame(frame: StackFrame, current: Activation) -> VortexResult<Activation>
             parent.array = unsafe { parent.array.put_slot_unchecked(slot_idx, current.array) }?;
         }
         ResumeAction::AppendIntoParent => {
-            parent
-                .builder
-                .as_mut()
-                .vortex_expect("AppendIntoParent requires a parent builder")
-                .extend_from_array(&current.array);
+            // TODO(perf): replace with a proper builder kernel registry so encodings
+            // like FSST can append directly without materializing an intermediate array.
+            current.array.append_to_builder(
+                parent
+                    .builder
+                    .as_mut()
+                    .vortex_expect("AppendIntoParent requires a parent builder")
+                    .as_mut(),
+                ctx,
+            )?;
         }
     }
     Ok(parent)
