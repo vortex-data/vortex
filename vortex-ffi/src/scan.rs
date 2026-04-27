@@ -439,7 +439,6 @@ mod tests {
 
     use vortex::VortexSessionDefault;
     use vortex::array::arrays::StructArray;
-    use vortex::expr::lit;
     use vortex::session::VortexSession;
     use vortex_array::ExecutionCtx;
     use vortex_array::arrays::struct_::StructArrayExt;
@@ -451,11 +450,12 @@ mod tests {
     use crate::data_source::vx_data_source_new;
     use crate::data_source::vx_data_source_options;
     use crate::expression::vx_binary_operator;
-    use crate::expression::vx_expression;
     use crate::expression::vx_expression_binary;
     use crate::expression::vx_expression_free;
     use crate::expression::vx_expression_get_item;
+    use crate::expression::vx_expression_literal_primitive;
     use crate::expression::vx_expression_root;
+    use crate::ptype::vx_ptype;
     use crate::scan::vx_data_source_scan;
     use crate::scan::vx_estimate;
     use crate::scan::vx_partition_free;
@@ -596,7 +596,12 @@ mod tests {
         unsafe {
             let root = vx_expression_root();
             let age_expr = vx_expression_get_item(c"age".as_ptr(), root);
-            let lit_100 = vx_expression::new(lit(100u64));
+            let value = 100u64;
+            let lit_100 = vx_expression_literal_primitive(
+                vx_ptype::PTYPE_U64,
+                (&raw const value).cast(),
+                false,
+            );
             let filter =
                 vx_expression_binary(vx_binary_operator::VX_OPERATOR_GTE, age_expr, lit_100);
 
@@ -621,7 +626,12 @@ mod tests {
         unsafe {
             let root = vx_expression_root();
             let age_expr = vx_expression_get_item(c"age".as_ptr(), root);
-            let lit_100 = vx_expression::new(lit(100u64));
+            let value = 100u64;
+            let lit_100 = vx_expression_literal_primitive(
+                vx_ptype::PTYPE_U64,
+                (&raw const value).cast(),
+                false,
+            );
             let filter =
                 vx_expression_binary(vx_binary_operator::VX_OPERATOR_GTE, age_expr, lit_100);
             let projection = vx_expression_get_item(c"age".as_ptr(), root);

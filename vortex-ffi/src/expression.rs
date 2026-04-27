@@ -4,25 +4,36 @@
 
 use std::ffi::CStr;
 use std::ffi::c_char;
+use std::ffi::c_void;
 use std::ptr;
 use std::slice;
 use std::sync::Arc;
 
 use vortex::dtype::FieldName;
+use vortex::dtype::NativePType;
+use vortex::dtype::Nullability;
+use vortex::dtype::half::f16;
 use vortex::error::VortexExpect;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::get_item;
 use vortex::expr::is_null;
 use vortex::expr::list_contains;
+use vortex::expr::lit;
 use vortex::expr::not;
 use vortex::expr::or_collect;
 use vortex::expr::root;
 use vortex::expr::select;
+use vortex::scalar::PValue;
+use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::operators::Operator;
 
+use crate::binary::vx_binary;
+use crate::dtype::vx_dtype;
+use crate::ptype::vx_ptype;
+use crate::string::vx_string;
 use crate::to_field_names;
 
 // Expressions are Arc'ed inside
@@ -60,6 +71,104 @@ crate::box_wrapper!(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_expression_root() -> *mut vx_expression {
     vx_expression::new(root())
+}
+
+/// Create a literal boolean expression.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vx_expression_literal_bool(
+    value: bool,
+    is_nullable: bool,
+) -> *mut vx_expression {
+    vx_expression::new(lit(Scalar::bool(value, Nullability::from(is_nullable))))
+}
+
+/// Create a literal primitive expression.
+///
+/// `value` must point to one value of the C type corresponding to `ptype`.
+/// For `PTYPE_F16`, the value is represented as `uint16_t`.
+/// If `value` is NULL, returns NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vx_expression_literal_primitive(
+    ptype: vx_ptype,
+    value: *const c_void,
+    is_nullable: bool,
+) -> *mut vx_expression {
+    let nullability = Nullability::from(is_nullable);
+    match ptype {
+        vx_ptype::PTYPE_U8 => unsafe { primitive_literal_from_raw::<u8>(value, nullability) },
+        vx_ptype::PTYPE_U16 => unsafe { primitive_literal_from_raw::<u16>(value, nullability) },
+        vx_ptype::PTYPE_U32 => unsafe { primitive_literal_from_raw::<u32>(value, nullability) },
+        vx_ptype::PTYPE_U64 => unsafe { primitive_literal_from_raw::<u64>(value, nullability) },
+        vx_ptype::PTYPE_I8 => unsafe { primitive_literal_from_raw::<i8>(value, nullability) },
+        vx_ptype::PTYPE_I16 => unsafe { primitive_literal_from_raw::<i16>(value, nullability) },
+        vx_ptype::PTYPE_I32 => unsafe { primitive_literal_from_raw::<i32>(value, nullability) },
+        vx_ptype::PTYPE_I64 => unsafe { primitive_literal_from_raw::<i64>(value, nullability) },
+        vx_ptype::PTYPE_F16 => unsafe { primitive_literal_from_raw::<f16>(value, nullability) },
+        vx_ptype::PTYPE_F32 => unsafe { primitive_literal_from_raw::<f32>(value, nullability) },
+        vx_ptype::PTYPE_F64 => unsafe { primitive_literal_from_raw::<f64>(value, nullability) },
+    }
+}
+
+unsafe fn primitive_literal_from_raw<T>(
+    value: *const c_void,
+    nullability: Nullability,
+) -> *mut vx_expression
+where
+    T: NativePType + Into<PValue> + Copy,
+{
+    if value.is_null() {
+        return ptr::null_mut();
+    }
+    let value = unsafe { *value.cast::<T>() };
+    vx_expression::new(lit(Scalar::primitive(value, nullability)))
+}
+
+/// Create a literal UTF-8 expression.
+///
+/// The input string is borrowed and copied into the returned expression.
+/// If `value` is NULL, returns NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vx_expression_literal_utf8(
+    value: *const vx_string,
+    is_nullable: bool,
+) -> *mut vx_expression {
+    if value.is_null() {
+        return ptr::null_mut();
+    }
+    vx_expression::new(lit(Scalar::utf8(
+        vx_string::as_str(value).to_owned(),
+        Nullability::from(is_nullable),
+    )))
+}
+
+/// Create a literal binary expression.
+///
+/// The input bytes are borrowed and copied into the returned expression.
+/// If `value` is NULL, returns NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vx_expression_literal_binary(
+    value: *const vx_binary,
+    is_nullable: bool,
+) -> *mut vx_expression {
+    if value.is_null() {
+        return ptr::null_mut();
+    }
+    vx_expression::new(lit(Scalar::binary(
+        vx_binary::as_slice(value).to_vec(),
+        Nullability::from(is_nullable),
+    )))
+}
+
+/// Create a typed null literal expression.
+///
+/// The null literal uses a nullable version of `dtype`.
+/// If `dtype` is NULL, returns NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vx_expression_literal_null(dtype: *const vx_dtype) -> *mut vx_expression {
+    if dtype.is_null() {
+        return ptr::null_mut();
+    }
+    vx_expression::new(lit(Scalar::null(vx_dtype::as_ref(dtype).as_nullable())))
 }
 
 /// Create an expression that selects (includes) specific fields from a child
@@ -305,11 +414,19 @@ mod tests {
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
-    use vortex::expr::lit;
+    use vortex::dtype::DType;
+    use vortex::dtype::Nullability;
+    use vortex::dtype::PType;
+    use vortex::dtype::half::f16;
+    use vortex::scalar::Scalar;
 
     use crate::array::vx_array;
     use crate::array::vx_array_apply;
     use crate::array::vx_array_free;
+    use crate::binary::vx_binary_free;
+    use crate::binary::vx_binary_new;
+    use crate::dtype::vx_dtype_free;
+    use crate::dtype::vx_dtype_new_primitive;
     use crate::error::vx_error_free;
     use crate::expression::vx_binary_operator;
     use crate::expression::vx_expression;
@@ -318,9 +435,17 @@ mod tests {
     use crate::expression::vx_expression_free;
     use crate::expression::vx_expression_get_item;
     use crate::expression::vx_expression_list_contains;
+    use crate::expression::vx_expression_literal_binary;
+    use crate::expression::vx_expression_literal_bool;
+    use crate::expression::vx_expression_literal_null;
+    use crate::expression::vx_expression_literal_primitive;
+    use crate::expression::vx_expression_literal_utf8;
     use crate::expression::vx_expression_or;
     use crate::expression::vx_expression_root;
     use crate::expression::vx_expression_select;
+    use crate::ptype::vx_ptype;
+    use crate::string::vx_string_free;
+    use crate::string::vx_string_new;
 
     #[test]
     #[cfg_attr(miri, ignore)]
@@ -392,6 +517,150 @@ mod tests {
 
             vx_array_free(array);
             vx_expression_free(root);
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_literal() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let array =
+            PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable).into_array();
+
+        unsafe {
+            let array = vx_array::new(Arc::new(array));
+
+            let mut assert_literal = |expr: *mut vx_expression, expected: Scalar| {
+                assert!(!expr.is_null());
+
+                let mut error = ptr::null_mut();
+                let applied = vx_array_apply(array, expr, &raw mut error);
+                assert!(error.is_null());
+                assert!(!applied.is_null());
+
+                {
+                    let applied = vx_array::as_ref(applied);
+                    assert_eq!(applied.len(), 3);
+                    assert_eq!(applied.execute_scalar(0, &mut ctx).unwrap(), expected);
+                    assert_eq!(applied.execute_scalar(2, &mut ctx).unwrap(), expected);
+                }
+
+                vx_array_free(applied);
+                vx_expression_free(expr);
+            };
+
+            {
+                let bool_expr = vx_expression_literal_bool(true, true);
+                assert_literal(bool_expr, Scalar::bool(true, Nullability::Nullable));
+            }
+
+            {
+                let bool_expr = vx_expression_literal_bool(false, false);
+                assert_literal(bool_expr, Scalar::bool(false, Nullability::NonNullable));
+            }
+
+            {
+                let primitive_value = 2i32;
+                let primitive_expr = vx_expression_literal_primitive(
+                    vx_ptype::PTYPE_I32,
+                    (&raw const primitive_value).cast(),
+                    false,
+                );
+                assert_literal(
+                    primitive_expr,
+                    Scalar::primitive(primitive_value, Nullability::NonNullable),
+                );
+            }
+
+            {
+                let f16_value = f16::from_f32(1.0);
+                let primitive_value = f16_value.to_bits();
+                let primitive_expr = vx_expression_literal_primitive(
+                    vx_ptype::PTYPE_F16,
+                    (&raw const primitive_value).cast(),
+                    false,
+                );
+                assert_literal(
+                    primitive_expr,
+                    Scalar::primitive(f16_value, Nullability::NonNullable),
+                );
+            }
+
+            {
+                let utf8_value = "literal";
+                let utf8 = vx_string_new(utf8_value.as_ptr().cast(), utf8_value.len());
+                let utf8_expr = vx_expression_literal_utf8(utf8, false);
+                vx_string_free(utf8);
+                assert_literal(
+                    utf8_expr,
+                    Scalar::utf8(utf8_value, Nullability::NonNullable),
+                );
+            }
+
+            {
+                let utf8_value = "";
+                let utf8 = vx_string_new(utf8_value.as_ptr().cast(), utf8_value.len());
+                let utf8_expr = vx_expression_literal_utf8(utf8, false);
+                vx_string_free(utf8);
+                assert_literal(
+                    utf8_expr,
+                    Scalar::utf8(utf8_value, Nullability::NonNullable),
+                );
+            }
+
+            {
+                let binary_value = b"\xde\xad\xbe\xef";
+                let binary = vx_binary_new(binary_value.as_ptr().cast(), binary_value.len());
+                let binary_expr = vx_expression_literal_binary(binary, true);
+                vx_binary_free(binary);
+                assert_literal(
+                    binary_expr,
+                    Scalar::binary(binary_value.to_vec(), Nullability::Nullable),
+                );
+            }
+
+            {
+                let binary_value = b"";
+                let binary = vx_binary_new(binary_value.as_ptr().cast(), binary_value.len());
+                let binary_expr = vx_expression_literal_binary(binary, false);
+                vx_binary_free(binary);
+                assert_literal(
+                    binary_expr,
+                    Scalar::binary(binary_value.to_vec(), Nullability::NonNullable),
+                );
+            }
+
+            {
+                let dtype = vx_dtype_new_primitive(vx_ptype::PTYPE_I32, false);
+                let null_expr = vx_expression_literal_null(dtype);
+                vx_dtype_free(dtype);
+                assert_literal(
+                    null_expr,
+                    Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
+                );
+            }
+
+            {
+                let dtype = vx_dtype_new_primitive(vx_ptype::PTYPE_U8, true);
+                let null_expr = vx_expression_literal_null(dtype);
+                vx_dtype_free(dtype);
+                assert_literal(
+                    null_expr,
+                    Scalar::null(DType::Primitive(PType::U8, Nullability::Nullable)),
+                );
+            }
+
+            {
+                assert!(
+                    vx_expression_literal_primitive(vx_ptype::PTYPE_I32, ptr::null(), false)
+                        .is_null()
+                );
+                assert!(vx_expression_literal_utf8(ptr::null(), false).is_null());
+                assert!(vx_expression_literal_binary(ptr::null(), false).is_null());
+                assert!(vx_expression_literal_null(ptr::null()).is_null());
+            }
+
+            vx_array_free(array);
         }
     }
 

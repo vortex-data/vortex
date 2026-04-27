@@ -1106,6 +1106,44 @@ void vx_expression_free(vx_expression *ptr);
 vx_expression *vx_expression_root(void);
 
 /**
+ * Create a literal boolean expression.
+ */
+vx_expression *vx_expression_literal_bool(bool value, bool is_nullable);
+
+/**
+ * Create a literal primitive expression.
+ *
+ * `value` must point to one value of the C type corresponding to `ptype`.
+ * For `PTYPE_F16`, the value is represented as `uint16_t`.
+ * If `value` is NULL, returns NULL.
+ */
+vx_expression *vx_expression_literal_primitive(vx_ptype ptype, const void *value, bool is_nullable);
+
+/**
+ * Create a literal UTF-8 expression.
+ *
+ * The input string is borrowed and copied into the returned expression.
+ * If `value` is NULL, returns NULL.
+ */
+vx_expression *vx_expression_literal_utf8(const vx_string *value, bool is_nullable);
+
+/**
+ * Create a literal binary expression.
+ *
+ * The input bytes are borrowed and copied into the returned expression.
+ * If `value` is NULL, returns NULL.
+ */
+vx_expression *vx_expression_literal_binary(const vx_binary *value, bool is_nullable);
+
+/**
+ * Create a typed null literal expression.
+ *
+ * The null literal uses a nullable version of `dtype`.
+ * If `dtype` is NULL, returns NULL.
+ */
+vx_expression *vx_expression_literal_null(const vx_dtype *dtype);
+
+/**
  * Create an expression that selects (includes) specific fields from a child
  * expression. Child expression must have a DTYPE_STRUCT dtype. Errors in
  * vx_array_apply if the child expression doesn't have a specified field.
