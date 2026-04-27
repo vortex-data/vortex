@@ -87,7 +87,7 @@ pub fn field_path_stat_field_name(field_path: &FieldPath, stat: Stat) -> FieldNa
 /// be pruned.
 ///
 /// Some rewrites, such as `is_not_null(...)`, emit
-/// [`row_count`][crate::expr::row_count] placeholders. The evaluation layer must
+/// [`row_count`][crate::scalar_fn::internal::row_count] placeholders. The evaluation layer must
 /// replace those placeholders with the row count for its current scope before
 /// executing the returned expression.
 ///

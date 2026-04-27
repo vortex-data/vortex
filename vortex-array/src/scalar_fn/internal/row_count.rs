@@ -25,6 +25,7 @@ use vortex_error::vortex_ensure;
 /// Zero-argument placeholder for the row count of the current evaluation scope.
 ///
 /// This expression *MUST* be replaced with a concrete array before evaluation.
+/// Currently, the rewrite only happens in the context of stats pruning.
 ///
 /// `RowCount` is emitted while building pruning predicates that need a
 /// scope-level value which is not stored as a regular stats column, such as the

@@ -87,7 +87,7 @@ impl ZoneMap {
     /// [`checked_pruning_expr`]. The returned mask has one value per zone, where
     /// `true` means the zone cannot contain matching rows and can be skipped.
     ///
-    /// If the predicate contains [`row_count`][vortex_array::expr::row_count]
+    /// If the predicate contains [`row_count`][vortex_array::scalar_fn::internal::row_count]
     /// placeholders, they are replaced after [`ArrayRef::apply`] with per-zone
     /// counts derived from `zone_len` and `row_count`. Uniform zones use a
     /// [`ConstantArray`]; a short final zone uses a run-end encoded array.
