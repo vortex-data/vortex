@@ -14,14 +14,13 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::arrow::FromArrowType;
 use vortex_array::dtype::extension::ExtDType;
+use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 
 use crate::tests::SESSION;
-use crate::types::fixed_shape;
 use crate::types::fixed_shape::FixedShapeTensor;
 use crate::types::fixed_shape::FixedShapeTensorMetadata;
-use crate::types::vector;
 use crate::types::vector::Vector;
 
 fn vector_dtype(len: u32) -> DType {
@@ -56,7 +55,7 @@ fn vector_forward_carries_extension_name() {
             .metadata()
             .get(EXTENSION_TYPE_NAME_KEY)
             .map(String::as_str),
-        Some(vector::ID.as_str()),
+        Some(Vector.id().as_str()),
     );
     // EmptyMetadata → no metadata key.
     assert!(field.metadata().get(EXTENSION_TYPE_METADATA_KEY).is_none());
@@ -121,7 +120,7 @@ fn fixed_shape_tensor_metadata_roundtrip() {
             .metadata()
             .get(EXTENSION_TYPE_NAME_KEY)
             .map(String::as_str),
-        Some(fixed_shape::ARROW_EXT_NAME),
+        Some(FixedShapeTensor::ARROW_EXT_NAME),
     );
 
     // Canonical wire: raw JSON, not base64.

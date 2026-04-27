@@ -21,21 +21,53 @@ use crate::extension::datetime::Timestamp;
 /// Registry for extension dtypes.
 pub type ExtDTypeRegistry = Registry<ExtDTypePluginRef>;
 
-/// Bidirectional alias map between Vortex extension ids and Arrow canonical names.
-type ArrowCanonicalMap = HashMap<ExtId, ExtId>;
+/// Bidirectional alias map between Vortex extension ids and Arrow canonical extension names.
+///
+/// Aliased extensions emit the canonical name on `ARROW:extension:name` and serialize metadata
+/// as raw UTF-8 instead of base64-wrapped bytes. Lookups are lock-free; updates clone-and-swap.
+#[derive(Debug, Default)]
+struct ArrowCanonicalAliases(ArcSwap<HashMap<ExtId, ExtId>>);
+
+impl ArrowCanonicalAliases {
+    /// Alias `vortex_id` to the Arrow canonical `arrow_name`. Re-registering evicts the previous
+    /// mapping for either side, so the bidirectional invariant holds after every call.
+    fn register(&self, vortex_id: ExtId, arrow_name: &'static str) {
+        let arrow_id = ExtId::new(arrow_name);
+        self.0.rcu(|prev| {
+            let mut next = (**prev).clone();
+            if let Some(stale) = next.insert(vortex_id, arrow_id) {
+                next.remove(&stale);
+            }
+            if let Some(stale) = next.insert(arrow_id, vortex_id) {
+                next.remove(&stale);
+            }
+            Arc::new(next)
+        });
+    }
+
+    /// Returns the Arrow canonical extension name aliased to `vortex_id`, if any.
+    fn arrow_canonical_for(&self, vortex_id: &ExtId) -> Option<ExtId> {
+        self.0.load().get(vortex_id).copied()
+    }
+
+    /// Returns the Vortex extension id aliased to `arrow_name`, if any.
+    fn vortex_id_for_arrow_canonical(&self, arrow_name: &str) -> Option<ExtId> {
+        self.0.load().get(&ExtId::new(arrow_name)).copied()
+    }
+}
 
 /// Session for managing extension dtypes.
 #[derive(Debug)]
 pub struct DTypeSession {
     registry: ExtDTypeRegistry,
-    arrow_canonical: ArcSwap<ArrowCanonicalMap>,
+    arrow_canonical: ArrowCanonicalAliases,
 }
 
 impl Default for DTypeSession {
     fn default() -> Self {
         let this = Self {
             registry: Registry::default(),
-            arrow_canonical: ArcSwap::new(Arc::new(ArrowCanonicalMap::default())),
+            arrow_canonical: ArrowCanonicalAliases::default(),
         };
 
         this.register(Date);
@@ -62,30 +94,18 @@ impl DTypeSession {
     /// emit the canonical name on `ARROW:extension:name` and serialize metadata as raw UTF-8
     /// instead of base64-wrapped bytes. Re-registering evicts the previous mapping.
     pub fn register_arrow_canonical(&self, vortex_id: ExtId, arrow_name: &'static str) {
-        let arrow_id = ExtId::new(arrow_name);
-        self.arrow_canonical.rcu(|prev| {
-            let mut next = (**prev).clone();
-            if let Some(stale) = next.insert(vortex_id, arrow_id) {
-                next.remove(&stale);
-            }
-            if let Some(stale) = next.insert(arrow_id, vortex_id) {
-                next.remove(&stale);
-            }
-            Arc::new(next)
-        });
+        self.arrow_canonical.register(vortex_id, arrow_name);
     }
 
     /// Returns the Arrow canonical extension name aliased to the given Vortex id, if any.
     pub fn arrow_canonical_for(&self, vortex_id: &ExtId) -> Option<ExtId> {
-        self.arrow_canonical.load().get(vortex_id).copied()
+        self.arrow_canonical.arrow_canonical_for(vortex_id)
     }
 
     /// Returns the Vortex extension id aliased to the given Arrow canonical name, if any.
     pub fn vortex_id_for_arrow_canonical(&self, arrow_name: &str) -> Option<ExtId> {
         self.arrow_canonical
-            .load()
-            .get(&ExtId::new(arrow_name))
-            .copied()
+            .vortex_id_for_arrow_canonical(arrow_name)
     }
 }
 

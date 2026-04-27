@@ -11,6 +11,7 @@
 )]
 
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
+use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_array::session::ArraySessionExt;
@@ -50,7 +51,11 @@ pub fn initialize(session: &VortexSession) {
     let dtypes = session.dtypes();
     dtypes.register(Vector);
     dtypes.register(FixedShapeTensor);
-    dtypes.register_arrow_canonical(*fixed_shape::ID, fixed_shape::ARROW_EXT_NAME);
+    dtypes.register_arrow_canonical(FixedShapeTensor.id(), FixedShapeTensor::ARROW_EXT_NAME);
+    // Drop the dashmap shard ref before acquiring `scalar_fns` — `or_insert_with` inside
+    // `session.get` takes a write lock, which would deadlock if `dtypes` were still alive
+    // and the two TypeIds happened to hash to the same shard.
+    drop(dtypes);
 
     let session_fns = session.scalar_fns();
 

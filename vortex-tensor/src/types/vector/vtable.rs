@@ -14,7 +14,7 @@ use crate::types::vector::Vector;
 use crate::types::vector::validate_vector_storage_dtype;
 
 /// Vortex extension id for [`Vector`].
-pub(crate) static ID: CachedId = CachedId::new("vortex.tensor.vector");
+static ID: CachedId = CachedId::new("vortex.tensor.vector");
 
 impl ExtVTable for Vector {
     type Metadata = EmptyMetadata;

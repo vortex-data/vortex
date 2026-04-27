@@ -3,12 +3,16 @@
 
 //! Fixed-shape Tensor extension type.
 
-/// Arrow canonical extension name aliased to [`ID`].
-pub(crate) const ARROW_EXT_NAME: &str = "arrow.fixed_shape_tensor";
-
 /// The VTable for the Tensor extension type.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct FixedShapeTensor;
+
+impl FixedShapeTensor {
+    /// Arrow canonical extension name aliased to this type's [`ExtVTable::id`].
+    ///
+    /// [`ExtVTable::id`]: vortex_array::dtype::extension::ExtVTable::id
+    pub(crate) const ARROW_EXT_NAME: &'static str = "arrow.fixed_shape_tensor";
+}
 
 mod matcher;
 pub use matcher::AnyFixedShapeTensor;
@@ -19,4 +23,3 @@ pub use metadata::FixedShapeTensorMetadata;
 
 mod canonical;
 mod vtable;
-pub(crate) use vtable::ID;

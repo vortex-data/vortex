@@ -81,5 +81,3 @@ pub use matcher::AnyVector;
 pub use matcher::VectorMatcherMetadata;
 
 mod vtable;
-#[cfg(test)]
-pub(crate) use vtable::ID;

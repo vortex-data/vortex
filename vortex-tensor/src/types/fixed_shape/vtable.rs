@@ -17,7 +17,7 @@ use crate::types::fixed_shape::FixedShapeTensorMetadata;
 use crate::types::fixed_shape::canonical;
 
 /// Vortex extension id for [`FixedShapeTensor`].
-pub(crate) static ID: CachedId = CachedId::new("vortex.tensor.fixed_shape_tensor");
+static ID: CachedId = CachedId::new("vortex.tensor.fixed_shape_tensor");
 
 impl ExtVTable for FixedShapeTensor {
     type Metadata = FixedShapeTensorMetadata;
