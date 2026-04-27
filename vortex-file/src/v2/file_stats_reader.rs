@@ -246,6 +246,7 @@ mod tests {
     use vortex_layout::LayoutStrategy;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_layout::layouts::table::TableStrategy;
+    use vortex_layout::segments::SegmentSink;
     use vortex_layout::segments::TestSegments;
     use vortex_layout::sequence::SequenceId;
     use vortex_layout::sequence::SequentialArrayStreamExt;
@@ -392,7 +393,7 @@ mod tests {
             let layout = strategy
                 .write_stream(
                     ctx,
-                    Arc::clone(&segments),
+                    Arc::clone(&segments) as Arc<dyn SegmentSink>,
                     struct_array.into_array().to_array_stream().sequenced(ptr),
                     eof,
                     &session,
@@ -441,7 +442,7 @@ mod tests {
             let layout = strategy
                 .write_stream(
                     ctx,
-                    Arc::clone(&segments),
+                    Arc::clone(&segments) as Arc<dyn SegmentSink>,
                     struct_array.into_array().to_array_stream().sequenced(ptr),
                     eof,
                     &session,
