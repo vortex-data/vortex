@@ -52,7 +52,7 @@ jobs:
     steps:
       - name: Check whether this event is allowed to reach Claude
         id: gate
-        uses: actions/github-script@v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
         with:
           github-token: ${{ github.token }}
           script: |
@@ -168,7 +168,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
           ref: ${{ needs.gate.outputs.checkout_ref }}
           fetch-depth: 0
@@ -192,7 +192,7 @@ jobs:
           enable-sccache: "false"
 
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
+        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
         with:
           sync: false
 

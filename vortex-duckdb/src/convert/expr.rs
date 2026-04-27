@@ -48,7 +48,7 @@ pub fn try_from_bound_expression(
     value: &duckdb::ExpressionRef,
 ) -> VortexResult<Option<Expression>> {
     let Some(value) = value.as_class() else {
-        tracing::debug!("no expression class id {:?}", value.as_class_id());
+        debug!("no expression class id {:?}", value.as_class_id());
         return Ok(None);
     };
     Ok(Some(match value {
@@ -164,7 +164,7 @@ pub fn try_from_bound_expression(
                 Like.new_expr(LikeOptions::default(), [value, pattern])
             }
             _ => {
-                tracing::debug!("bound function {}", func.scalar_function.name());
+                debug!("bound function {}", func.scalar_function.name());
                 return Ok(None);
             }
         },

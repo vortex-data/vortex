@@ -19,7 +19,7 @@ use crate::scalar::ScalarValue;
 /// A scalar value representing an extension type.
 ///
 /// Extension types allow wrapping a storage type with custom semantics.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct ExtScalar<'a> {
     /// A reference to the `DType` of the extension type. This **must** be the [`DType::Extension`]
     /// variant.

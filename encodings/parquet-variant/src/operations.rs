@@ -214,7 +214,7 @@ fn scalar_from_shredded_object_scalar(
     let fields = StructFields::new(FieldNames::from(names), dtypes);
     Scalar::try_new(
         DType::Struct(fields, Nullability::NonNullable),
-        Some(ScalarValue::List(field_values)),
+        Some(ScalarValue::Tuple(field_values)),
     )
 }
 
@@ -330,7 +330,7 @@ fn parquet_variant_to_scalar(variant: PqVariant<'_, '_>) -> VortexResult<Scalar>
             let fields = StructFields::new(FieldNames::from(names), dtypes);
             Scalar::try_new(
                 DType::Struct(fields, nn),
-                Some(ScalarValue::List(field_values)),
+                Some(ScalarValue::Tuple(field_values)),
             )?
         }
     })
