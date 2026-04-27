@@ -5,9 +5,9 @@ use vortex::array::ExecutionCtx;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
+use crate::duckdb::ValidityData;
 use crate::duckdb::VectorBuffer;
 use crate::duckdb::VectorRef;
-use crate::duckdb::ValidityData;
 use crate::exporter::ColumnExporter;
 
 struct ValidityExporter {

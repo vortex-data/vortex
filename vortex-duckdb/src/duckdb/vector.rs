@@ -24,8 +24,8 @@ use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::SelectionVectorRef;
 use crate::duckdb::Value;
 use crate::duckdb::ValueRef;
-use crate::duckdb::VectorBufferRef;
 use crate::duckdb::VectorBuffer;
+use crate::duckdb::VectorBufferRef;
 use crate::lifetime_wrapper;
 
 /// External validity data for zero-copy export of validity masks to DuckDB.
