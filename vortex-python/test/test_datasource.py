@@ -22,7 +22,7 @@ def ray_init():
     import ray._private.ray_constants as ray_constants
 
     ray_constants.RAY_ENABLE_UV_RUN_RUNTIME_ENV = False
-    ray.init()  # pyright: ignore[reportUnknownMemberType]
+    _ = ray.init()  # pyright: ignore[reportUnknownMemberType]
     yield None
     ray.shutdown()  # pyright: ignore[reportUnknownMemberType]
 
@@ -55,7 +55,7 @@ def test_vortex_datasource(ray_init, tmpdir_factory):  # pyright: ignore[reportU
     # Without an explicit sort, Ray may reorder rows *even within a single record batch*.
     ds = ds.sort("index")
 
-    tbl = pa.concat_tables(pa.Table.from_pydict(x) for x in ds.iter_batches())  # pyright: ignore[reportArgumentType]
+    tbl = pa.concat_tables(pa.Table.from_pydict(x) for x in ds.iter_batches())  # pyright: ignore[reportArgumentType, reportUnknownMemberType, reportUnknownVariableType]
     expected = pa.Table.from_pylist([record(x) for x in range(0, 10)], schema=tbl.schema)
 
     assert tbl == expected
