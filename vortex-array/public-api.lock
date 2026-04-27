@@ -128,6 +128,8 @@ pub fn vortex_array::aggregate_fn::combined::BinaryCombined::left(&self) -> Self
 
 pub fn vortex_array::aggregate_fn::combined::BinaryCombined::left_name(&self) -> &'static str
 
+pub fn vortex_array::aggregate_fn::combined::BinaryCombined::partial_struct_dtype(&self, left: vortex_array::dtype::DType, right: vortex_array::dtype::DType) -> vortex_array::dtype::DType
+
 pub fn vortex_array::aggregate_fn::combined::BinaryCombined::return_dtype(&self, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::combined::BinaryCombined::right(&self) -> Self::Right
@@ -155,6 +157,8 @@ pub fn vortex_array::aggregate_fn::fns::mean::Mean::id(&self) -> vortex_array::a
 pub fn vortex_array::aggregate_fn::fns::mean::Mean::left(&self) -> vortex_array::aggregate_fn::fns::sum::Sum
 
 pub fn vortex_array::aggregate_fn::fns::mean::Mean::left_name(&self) -> &'static str
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::partial_struct_dtype(&self, left: vortex_array::dtype::DType, right: vortex_array::dtype::DType) -> vortex_array::dtype::DType
 
 pub fn vortex_array::aggregate_fn::fns::mean::Mean::return_dtype(&self, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
@@ -515,6 +519,8 @@ pub fn vortex_array::aggregate_fn::fns::mean::Mean::id(&self) -> vortex_array::a
 pub fn vortex_array::aggregate_fn::fns::mean::Mean::left(&self) -> vortex_array::aggregate_fn::fns::sum::Sum
 
 pub fn vortex_array::aggregate_fn::fns::mean::Mean::left_name(&self) -> &'static str
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::partial_struct_dtype(&self, left: vortex_array::dtype::DType, right: vortex_array::dtype::DType) -> vortex_array::dtype::DType
 
 pub fn vortex_array::aggregate_fn::fns::mean::Mean::return_dtype(&self, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 

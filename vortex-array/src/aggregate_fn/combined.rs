@@ -111,6 +111,20 @@ pub trait BinaryCombined: 'static + Send + Sync + Clone {
         let left_coerced = self.left().coerce_args(&options.0, input_dtype)?;
         self.right().coerce_args(&options.1, &left_coerced)
     }
+
+    /// Build the partial struct dtype that wraps the two child partials.
+    fn partial_struct_dtype(&self, left: DType, right: DType) -> DType {
+        DType::Struct(
+            StructFields::new(
+                FieldNames::from_iter([
+                    FieldName::from(self.left_name()),
+                    FieldName::from(self.right_name()),
+                ]),
+                vec![left, right],
+            ),
+            Nullability::NonNullable,
+        )
+    }
 }
 
 /// Adapter that exposes any [`BinaryCombined`] as an [`AggregateFnVTable`].
@@ -151,7 +165,7 @@ impl<T: BinaryCombined> AggregateFnVTable for Combined<T> {
     fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         let l = self.0.left().partial_dtype(&options.0, input_dtype)?;
         let r = self.0.right().partial_dtype(&options.1, input_dtype)?;
-        Some(struct_dtype(self.0.left_name(), self.0.right_name(), l, r))
+        Some(self.0.partial_struct_dtype(l, r))
     }
 
     fn empty_partial(
@@ -186,12 +200,9 @@ impl<T: BinaryCombined> AggregateFnVTable for Combined<T> {
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
         let l_scalar = self.0.left().to_scalar(&partial.0)?;
         let r_scalar = self.0.right().to_scalar(&partial.1)?;
-        let dtype = struct_dtype(
-            self.0.left_name(),
-            self.0.right_name(),
-            l_scalar.dtype().clone(),
-            r_scalar.dtype().clone(),
-        );
+        let dtype = self
+            .0
+            .partial_struct_dtype(l_scalar.dtype().clone(), r_scalar.dtype().clone());
         Ok(Scalar::struct_(dtype, vec![l_scalar, r_scalar]))
     }
 
@@ -251,14 +262,4 @@ impl<T: BinaryCombined> AggregateFnVTable for Combined<T> {
         let r_scalar = self.0.right().finalize_scalar(&partial.1)?;
         BinaryCombined::finalize_scalar(&self.0, l_scalar, r_scalar)
     }
-}
-
-fn struct_dtype(left_name: &str, right_name: &str, left: DType, right: DType) -> DType {
-    DType::Struct(
-        StructFields::new(
-            FieldNames::from_iter([FieldName::from(left_name), FieldName::from(right_name)]),
-            vec![left, right],
-        ),
-        Nullability::NonNullable,
-    )
 }
