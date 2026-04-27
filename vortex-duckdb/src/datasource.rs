@@ -399,7 +399,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                     return Ok(());
                 };
                 let (array_result, conversion_cache) = result?;
-                let array_result = array_result.optimize_recursive()?;
+                let array_result = array_result.optimize_recursive(ctx.session())?;
 
                 let array_result: StructArray = if let Some(array) = array_result.as_opt::<Struct>()
                 {
