@@ -551,6 +551,19 @@ impl ArrayRef {
         inner.execute(self, ctx)
     }
 
+    /// Execute a single encoding step without applying `Done`-result postconditions.
+    ///
+    /// This is for the iterative executor only. It may operate on suspended executor-private
+    /// arrays whose slots temporarily contain `None`, so the executor itself must interpret
+    /// `Done`, enforce any `len`/`dtype` invariants, and transfer statistics.
+    pub(crate) fn execute_encoding_unchecked(
+        self,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<crate::ExecutionResult> {
+        let inner = Arc::clone(&self.0);
+        inner.execute_unchecked(self, ctx)
+    }
+
     pub fn execute_parent(
         &self,
         parent: &ArrayRef,

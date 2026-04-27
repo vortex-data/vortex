@@ -41,12 +41,10 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::serde::ArrayChildren;
-mod builder_kernel;
 mod canonical;
 mod operations;
 mod validity;
 
-pub(crate) use builder_kernel::ChunkedBuilderKernel;
 /// A [`Chunked`]-encoded Vortex array.
 pub type ChunkedArray = Array<Chunked>;
 
@@ -245,7 +243,7 @@ impl VTable for Chunked {
             DType::Struct(..) | DType::List(..) => {
                 Ok(ExecutionResult::done(_canonicalize(array.as_view(), ctx)?))
             }
-            // For all other types, use the builder-kernel path via AppendChild.
+            // For all other types, use the builder path via AppendChild.
             _ => {
                 let first_chunk = array
                     .as_view()

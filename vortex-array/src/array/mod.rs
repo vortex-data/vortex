@@ -173,7 +173,25 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
     ) -> VortexResult<Option<ArrayRef>>;
 
     /// Execute the array by taking a single encoding-specific execution step.
+    ///
+    /// This is the checked entry point. If the encoding reports
+    /// [`ExecutionStep::Done`](crate::ExecutionStep::Done), implementations must validate that the
+    /// returned array preserves this array's logical `len` and `dtype`, and must transfer this
+    /// array's statistics to the returned array.
     fn execute(&self, this: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
+
+    /// Execute the array by taking a single encoding-specific execution step without applying
+    /// `Done`-result postconditions.
+    ///
+    /// This exists for the iterative executor, which may call into `execute` on suspended
+    /// executor-private arrays whose slots temporarily contain `None`. In that mode the executor
+    /// itself is responsible for deciding when a `Done` result represents a real logical array,
+    /// enforcing any `len`/`dtype` invariants, and transferring statistics.
+    fn execute_unchecked(
+        &self,
+        this: ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ExecutionResult>;
 
     /// Attempt to execute the parent of this array.
     fn execute_parent(
@@ -475,12 +493,8 @@ impl<V: VTable> DynArray for ArrayInner<V> {
     fn execute(&self, this: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let len = this.len();
         let dtype = this.dtype().clone();
-        let stats = this.statistics().to_owned();
-
-        let typed = Array::<V>::try_from_array_ref(this)
-            .map_err(|_| vortex_err!("Failed to downcast array for execute"))
-            .vortex_expect("Failed to downcast array for execute");
-        let result = V::execute(typed, ctx)?;
+        let stats = this.statistics().to_array_stats();
+        let result = self.execute_unchecked(this, ctx)?;
 
         if matches!(result.step(), ExecutionStep::Done) {
             if cfg!(debug_assertions) {
@@ -496,10 +510,24 @@ impl<V: VTable> DynArray for ArrayInner<V> {
                 );
             }
 
-            result.array().statistics().set_iter(stats.into_iter());
+            result
+                .array()
+                .statistics()
+                .set_iter(crate::stats::StatsSet::from(stats).into_iter());
         }
 
         Ok(result)
+    }
+
+    fn execute_unchecked(
+        &self,
+        this: ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ExecutionResult> {
+        let typed = Array::<V>::try_from_array_ref(this)
+            .map_err(|_| vortex_err!("Failed to downcast array for execute"))
+            .vortex_expect("Failed to downcast array for execute");
+        V::execute(typed, ctx)
     }
 
     fn execute_parent(

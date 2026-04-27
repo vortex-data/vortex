@@ -16,7 +16,6 @@ extern crate self as vortex_array;
 use std::sync::LazyLock;
 
 pub use array::*;
-pub use builder_kernel::*;
 pub use canonical::*;
 pub use columnar::*;
 pub use executor::*;
@@ -37,7 +36,6 @@ mod array;
 pub mod arrays;
 pub mod arrow;
 pub mod buffer;
-mod builder_kernel;
 pub mod builders;
 pub mod builtins;
 mod canonical;

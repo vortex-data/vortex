@@ -8,8 +8,6 @@
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
 
 use futures::stream;
 use vortex_buffer::BufferMut;
@@ -36,19 +34,9 @@ use crate::validity::Validity;
 pub(super) const CHUNK_OFFSETS_SLOT: usize = 0;
 pub(super) const CHUNKS_OFFSET: usize = 1;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ChunkedData {
     pub(super) chunk_offsets: Vec<usize>,
-    builder_next_slot: AtomicUsize,
-}
-
-impl Clone for ChunkedData {
-    fn clone(&self) -> Self {
-        Self {
-            chunk_offsets: self.chunk_offsets.clone(),
-            builder_next_slot: AtomicUsize::new(self.builder_next_slot.load(Ordering::Relaxed)),
-        }
-    }
 }
 
 impl Display for ChunkedData {
@@ -127,24 +115,7 @@ impl<T: TypedArrayRef<Chunked>> ChunkedArrayExt for T {}
 
 impl ChunkedData {
     pub(super) fn new(chunk_offsets: Vec<usize>) -> Self {
-        Self {
-            chunk_offsets,
-            builder_next_slot: AtomicUsize::new(CHUNKS_OFFSET),
-        }
-    }
-
-    pub(super) fn next_builder_slot(&self, slots: &[Option<ArrayRef>]) -> Option<usize> {
-        let start = self
-            .builder_next_slot
-            .load(Ordering::Relaxed)
-            .max(CHUNKS_OFFSET)
-            .min(slots.len());
-        let next = slots[start..]
-            .iter()
-            .position(Option::is_some)
-            .map(|idx| start + idx)?;
-        self.builder_next_slot.store(next + 1, Ordering::Relaxed);
-        Some(next)
+        Self { chunk_offsets }
     }
 
     pub(super) fn compute_chunk_offsets(chunks: &[ArrayRef]) -> Vec<usize> {

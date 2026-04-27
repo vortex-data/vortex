@@ -10,10 +10,8 @@ use vortex_session::SessionExt;
 use vortex_session::registry::Registry;
 
 use crate::ArrayRef;
-use crate::BuilderKernelSession;
 use crate::array::ArrayPlugin;
 use crate::array::ArrayPluginRef;
-use crate::array::VTable;
 use crate::arrays::Bool;
 use crate::arrays::Chunked;
 use crate::arrays::Constant;
@@ -30,7 +28,6 @@ use crate::arrays::Struct;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinView;
 use crate::arrays::Variant;
-use crate::arrays::chunked::ChunkedBuilderKernel;
 
 pub type ArrayRegistry = Registry<ArrayPluginRef>;
 
@@ -84,20 +81,6 @@ impl Default for ArraySession {
         this.register(Masked);
         this.register(VarBin);
 
-        this
-    }
-}
-
-/// Default `BuilderKernelSession` — pre-registers builder kernels for the built-in encodings.
-///
-/// This is the session variable produced by `session.get::<BuilderKernelSession>()` when the
-/// variable has not been explicitly inserted. Any session that already has a custom
-/// `BuilderKernelSession` (e.g. to register external encodings) is not overridden.
-impl Default for BuilderKernelSession {
-    fn default() -> Self {
-        let this = Self::empty();
-        this.register::<Chunked, _>(VTable::id(&Chunked), ChunkedBuilderKernel);
-        // Additional built-in kernels (e.g. Dict) can be registered here as they are implemented.
         this
     }
 }

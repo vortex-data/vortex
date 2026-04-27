@@ -25,16 +25,15 @@ use std::sync::LazyLock;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 
 use crate::AnyCanonical;
 use crate::ArrayRef;
-use crate::BuilderKernelSession;
-use crate::BuilderStep;
 use crate::Canonical;
 use crate::IntoArray;
+use crate::array::ArrayId;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
@@ -42,6 +41,8 @@ use crate::matcher::Matcher;
 use crate::memory::HostAllocatorRef;
 use crate::memory::MemorySessionExt;
 use crate::optimizer::ArrayOptimizer;
+use crate::stats::ArrayStats;
+use crate::stats::StatsSet;
 
 /// Returns the maximum number of iterations to attempt when executing an array before giving up and returning
 /// an error, can be by the `VORTEX_MAX_ITERATIONS` env variables, otherwise defaults to 128.
@@ -91,11 +92,6 @@ impl ArrayRef {
     /// Iteratively execute this array until the [`Matcher`] matches, using an explicit work
     /// stack.
     ///
-    /// The unified loop handles both normal execution (`ExecuteSlot`) and builder-driven
-    /// execution (`AppendChild`). Builder state is threaded via `current_builder`; when an
-    /// `ExecuteSlot` is pushed from builder mode, the builder is stashed on the frame and
-    /// restored on pop.
-    ///
     /// Note: the returned array may not match `M`. If execution converges to a canonical form
     /// that does not match `M`, the canonical array is returned since no further execution
     /// progress is possible.
@@ -103,40 +99,41 @@ impl ArrayRef {
     /// For safety, we will error when the number of execution iterations reaches a configurable
     /// maximum (default 128, override with `VORTEX_MAX_ITERATIONS`).
     pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        match execute_loop(self, None, M::matches, ctx)? {
-            ExecuteLoopResult::Array(a) => Ok(a),
-            ExecuteLoopResult::Builder(mut b) => Ok(b.finish()),
+        execute_loop(self, M::matches, ctx)
+    }
+}
+
+/// A stack frame for the iterative executor.
+///
+/// Each frame records a suspended parent activation and how to resume it once the current child
+/// finishes.
+struct Activation {
+    array: ArrayRef,
+    builder: Option<Box<dyn ArrayBuilder>>,
+}
+
+impl Activation {
+    fn new(array: ArrayRef) -> Self {
+        Self {
+            array,
+            builder: None,
         }
     }
 }
 
-/// A stack frame for the unified iterative executor.
-///
-/// Each frame records a parent whose slot was taken. The `builder` field distinguishes the
-/// frame's role:
-///
-/// - **`builder = None`**: the child was taken for either `ExecuteSlot` (normal mode) or
-///   `AppendChild` (builder mode). On pop, the distinction comes from `current_builder`:
-///   if `Some`, the child was appended into the builder and `current` becomes the parent
-///   (slot stays `None`). If `None`, the child is put back via `put_slot_unchecked`.
-///
-/// - **`builder = Some(stashed)`**: an `ExecuteSlot` was pushed while in builder mode. The
-///   builder was stashed here so the child executes in normal mode. On pop, the child is
-///   put back and the stashed builder is restored to `current_builder`.
-struct StackFrame {
-    parent: ArrayRef,
-    slot_idx: usize,
-    done: DonePredicate,
-    /// Stashed builder from an `ExecuteSlot` pushed while in builder mode.
-    builder: Option<Box<dyn ArrayBuilder>>,
-    original_dtype: DType,
-    original_len: usize,
+enum ResumeAction {
+    RestoreSlot {
+        slot_idx: usize,
+        done: DonePredicate,
+    },
+    AppendIntoParent,
 }
 
-/// The result of the unified execution loop.
-enum ExecuteLoopResult {
-    Array(ArrayRef),
-    Builder(Box<dyn ArrayBuilder>),
+struct StackFrame {
+    parent: Activation,
+    resume: ResumeAction,
+    original_dtype: DType,
+    original_len: usize,
 }
 
 /// Execution context for batch CPU compute.
@@ -231,10 +228,10 @@ impl Drop for ExecutionCtx {
 ///
 /// **However**, if `execute_step` returns [`ExecutionStep::AppendChild`], this implementation
 /// drives the *entire* array to completion via [`execute_into_builder`] in a single call.
-/// This can do substantially more work than a normal step because it creates a builder,
-/// iterates over all children via builder kernels, and fully decodes the array to canonical
-/// form before returning. Callers should be aware that a single `.execute::<ArrayRef>(ctx)`
-/// call may perform O(n_children * decode_cost) work when `AppendChild` is returned.
+/// This can do substantially more work than a normal step because it creates a builder and
+/// fully decodes the array into that builder before returning. Callers should be aware that a
+/// single `.execute::<ArrayRef>(ctx)` call may perform O(n_children * decode_cost) work when
+/// `AppendChild` is returned.
 impl Executable for ArrayRef {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         if let Some(canonical) = array.as_opt::<AnyCanonical>() {
@@ -281,7 +278,7 @@ impl Executable for ArrayRef {
         }
 
         ctx.log(format_args!("executing {}", array));
-        let result = execute_step(array, ctx)?;
+        let result = execute_step_checked(array, ctx)?;
         let (array, step) = result.into_parts();
         match step {
             ExecutionStep::Done => {
@@ -294,7 +291,7 @@ impl Executable for ArrayRef {
                 array.with_slot(i, executed_child)
             }
             ExecutionStep::AppendChild(_) => {
-                // Single-step: build the entire parent via the builder-kernel path.
+                // Single-step: build the entire parent via the builder path.
                 let builder = builder_with_capacity_in(ctx.allocator(), array.dtype(), array.len());
                 let mut builder = execute_into_builder(array, builder, ctx)?;
                 Ok(builder.finish())
@@ -303,152 +300,82 @@ impl Executable for ArrayRef {
     }
 }
 
-/// Execute `array` into the given `builder` via the builder-kernel path.
+/// Execute `array` into the given `builder`.
 ///
-/// Drives `array` toward canonical form, using builder kernels when available and falling back
-/// to normal execution otherwise. The builder is threaded through the execution: children
-/// appended via `AppendChild` share the same builder, while `ExecuteSlot` children are executed
-/// normally with the builder stashed on the stack frame.
+/// This uses the encoding's [`crate::array::VTable::append_to_builder`] implementation. Most
+/// encodings use the default path of `execute::<Canonical>` followed by `builder.extend_from_array`,
+/// while encodings like `Chunked` can override that to append child-by-child without materializing
+/// the entire parent.
 ///
 /// The builder must have a [`DType`] that is a nullability-superset of `array.dtype()`.
 pub fn execute_into_builder(
     array: ArrayRef,
-    builder: Box<dyn ArrayBuilder>,
+    mut builder: Box<dyn ArrayBuilder>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ArrayBuilder>> {
-    match execute_loop(array, Some(builder), AnyCanonical::matches, ctx)? {
-        ExecuteLoopResult::Builder(b) => Ok(b),
-        ExecuteLoopResult::Array(_) => {
-            vortex_panic!("execute_into_builder started with a builder but got Array result")
-        }
-    }
+    array.append_to_builder(builder.as_mut(), ctx)?;
+    Ok(builder)
 }
 
-/// Unified execution loop. Handles both normal execution and builder-driven execution in a
-/// single stack.
-///
-/// `initial_builder`:
-/// - `None`: normal execution mode, returns `Array` when done.
-/// - `Some(builder)`: builder mode, returns `Builder` when the array's data has been fully
-///   appended.
-///
-/// The loop dispatches to builder kernels when `current_builder` is `Some`, falling back to
-/// `execute_step` when no kernel is registered. `ExecuteSlot` frames stash the builder so
-/// children execute in normal mode; on pop the builder is restored.
+/// Iterative execution loop for array-to-array execution.
 fn execute_loop(
     array: ArrayRef,
-    initial_builder: Option<Box<dyn ArrayBuilder>>,
     root_done: DonePredicate,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<ExecuteLoopResult> {
-    let mut current = array;
-    let mut current_builder = initial_builder;
+) -> VortexResult<ArrayRef> {
+    let mut current = Activation::new(array);
     let mut stack: Vec<StackFrame> = Vec::new();
 
     for _ in 0..max_iterations() {
-        // ── Step 1: done / canonical check ─────────────────────────────────
-        let is_done = if current_builder.is_some() {
-            AnyCanonical::matches as DonePredicate
-        } else {
-            stack.last().map_or(root_done, |frame| frame.done)
-        };
+        let is_done = stack.last().map_or(root_done, |frame| match frame.resume {
+            ResumeAction::RestoreSlot { done, .. } => done,
+            ResumeAction::AppendIntoParent => AnyCanonical::matches,
+        });
 
-        if is_done(&current) || AnyCanonical::matches(&current) {
-            // In builder mode, extend the builder from the canonical array.
-            if AnyCanonical::matches(&current)
-                && let Some(ref mut b) = current_builder
-            {
-                ctx.log(format_args!("extend builder from canonical {}", current));
-                b.extend_from_array(&current);
-            }
-
+        if is_done(&current.array) || AnyCanonical::matches(&current.array) {
             match stack.pop() {
                 None => {
-                    if let Some(b) = current_builder.take() {
-                        return Ok(ExecuteLoopResult::Builder(b));
-                    }
-                    ctx.log(format_args!("-> {}", current));
-                    return Ok(ExecuteLoopResult::Array(current));
+                    debug_assert!(
+                        current.builder.is_none(),
+                        "root activation should not retain a builder"
+                    );
+                    ctx.log(format_args!("-> {}", current.array));
+                    return Ok(current.array);
                 }
                 Some(frame) => {
-                    current = pop_frame(frame, current, &mut current_builder, ctx)?;
+                    current = pop_frame(frame, current)?;
                     continue;
                 }
             }
         }
 
-        // ── Step 2: builder kernel dispatch (builder mode only) ────────────
-        if current_builder.is_some() {
-            let kernel = {
-                let session = ctx.session().clone();
-                let builder_kernels = session.get::<BuilderKernelSession>();
-                builder_kernels.find(&current.encoding_id())
-            };
-
-            if let Some(kernel) = kernel {
-                let builder = current_builder
-                    .take()
-                    .vortex_expect("current_builder must be Some in builder mode");
-                let result = kernel.append_to_builder(current, builder, ctx)?;
-                let (array_after, builder_after, step) = result.into_parts();
-                current_builder = Some(builder_after);
-
-                match step {
-                    BuilderStep::Done => {
-                        ctx.log(format_args!("builder kernel Done for {}", array_after));
-                        match stack.pop() {
-                            None => {
-                                return Ok(ExecuteLoopResult::Builder(
-                                    current_builder
-                                        .take()
-                                        .vortex_expect("builder must be Some after kernel Done"),
-                                ));
-                            }
-                            Some(frame) => {
-                                current = pop_frame(frame, array_after, &mut current_builder, ctx)?;
-                                continue;
-                            }
-                        }
-                    }
-                    BuilderStep::ExecuteSlot(i, done) => {
-                        ctx.log(format_args!("builder ExecuteSlot({i}) for {}", array_after));
-                        let (parent, child) = unsafe { array_after.take_slot_unchecked(i) }?;
-                        stack.push(StackFrame {
-                            parent,
-                            slot_idx: i,
-                            done,
-                            builder: None,
-                            original_dtype: child.dtype().clone(),
-                            original_len: child.len(),
-                        });
-                        // Don't optimize — parent already has None slots, and the
-                        // child will be checked by the canonical/done check next iteration.
-                        current = child;
-                    }
-                }
-                continue;
-            }
-
-            // No builder kernel — fall through to execute_step below.
-        }
-
-        // ── Step 3: execute_parent (normal mode only) ──────────────────────
-        if current_builder.is_none()
-            && let Some(rewritten) = try_execute_parent(&current, ctx)?
+        // ── Step 2: execute_parent ──────────────────────────────────────────
+        //
+        // Once an activation has an attached builder, its parent array is executor-private
+        // suspended state with some child slots already taken out. We still run execute_parent
+        // while descending through the chosen child subtree, but we do not try to apply
+        // parent-rewrite hooks to the suspended append parent itself.
+        if current.builder.is_none()
+            && let Some(rewritten) = try_execute_parent(&current.array, ctx)?
         {
             ctx.log(format_args!(
                 "execute_parent rewrote {} -> {}",
-                current, rewritten
+                current.array, rewritten
             ));
-            current = rewritten.optimize()?;
-            if let Some(frame) = stack.pop() {
-                current = pop_frame(frame, current, &mut current_builder, ctx)?;
-            }
+            current.array = rewritten.optimize()?;
             continue;
         }
 
-        // ── Step 4: execute step ───────────────────────────────────────────
-        let result = execute_step(current, ctx)?;
+        // ── Step 3: execute step ───────────────────────────────────────────
+        let Activation {
+            array: current_array,
+            builder: mut current_builder,
+        } = current;
+        let expected_len = current_array.len();
+        let expected_dtype = current_array.dtype().clone();
+        let stats = current_array.statistics().to_array_stats();
+        let encoding_id = current_array.encoding_id();
+        let result = execute_step_unchecked(current_array, ctx)?;
         let (array, step) = result.into_parts();
         match step {
             ExecutionStep::ExecuteSlot(i, done) => {
@@ -458,39 +385,50 @@ fn execute_loop(
                     parent, child
                 ));
                 stack.push(StackFrame {
-                    parent,
-                    slot_idx: i,
-                    done,
-                    builder: current_builder.take(), // stash builder if in builder mode
+                    parent: Activation {
+                        array: parent,
+                        builder: current_builder.take(),
+                    },
+                    resume: ResumeAction::RestoreSlot { slot_idx: i, done },
                     original_dtype: child.dtype().clone(),
                     original_len: child.len(),
                 });
-                current = child.optimize()?;
+                current = Activation::new(child.optimize()?);
             }
             ExecutionStep::AppendChild(i) => {
-                let (parent, child) = unsafe { array.take_slot_unchecked(i) }?;
-                ctx.log(format_args!("AppendChild({i}): focusing on {}", child));
-                // Builder is for the parent — all children append into it.
                 if current_builder.is_none() {
                     current_builder = Some(builder_with_capacity_in(
                         ctx.allocator(),
-                        parent.dtype(),
-                        parent.len(),
+                        array.dtype(),
+                        array.len(),
                     ));
                 }
+                let (parent, child) = unsafe { array.take_slot_unchecked(i) }?;
+                ctx.log(format_args!(
+                    "AppendChild({i}): pushing {}, focusing on {}",
+                    parent, child
+                ));
                 stack.push(StackFrame {
-                    parent,
-                    slot_idx: i,
-                    done: AnyCanonical::matches,
-                    builder: None, // builder stays on current_builder
+                    parent: Activation {
+                        array: parent,
+                        builder: current_builder.take(),
+                    },
+                    resume: ResumeAction::AppendIntoParent,
                     original_dtype: child.dtype().clone(),
                     original_len: child.len(),
                 });
-                current = child;
+                current = Activation::new(child.optimize()?);
             }
             ExecutionStep::Done => {
                 ctx.log(format_args!("Done: {}", array));
-                current = array;
+                current = finalize_done_activation(
+                    array,
+                    current_builder,
+                    expected_len,
+                    expected_dtype,
+                    stats,
+                    encoding_id,
+                )?;
             }
         }
     }
@@ -501,55 +439,80 @@ fn execute_loop(
     )
 }
 
-/// Pop a stack frame, updating `current` and `current_builder` accordingly.
-fn pop_frame(
-    frame: StackFrame,
-    current: ArrayRef,
-    current_builder: &mut Option<Box<dyn ArrayBuilder>>,
-    _ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    if let Some(stashed) = frame.builder {
-        // ExecuteSlot with stashed builder: put child back, restore builder.
-        debug_assert_eq!(
-            current.dtype(),
-            &frame.original_dtype,
-            "slot {} dtype changed during execution",
-            frame.slot_idx
-        );
-        debug_assert_eq!(
-            current.len(),
-            frame.original_len,
-            "slot {} len changed during execution",
-            frame.slot_idx
-        );
-        *current_builder = Some(stashed);
-        unsafe { frame.parent.put_slot_unchecked(frame.slot_idx, current) }?.optimize()
-    } else if current_builder.is_some() {
-        // AppendChild: builder already extended from canonical. Return parent (slot stays None).
-        Ok(frame.parent)
-    } else {
-        // Normal ExecuteSlot: put child back.
-        debug_assert_eq!(
-            current.dtype(),
-            &frame.original_dtype,
-            "slot {} dtype changed during execution",
-            frame.slot_idx
-        );
-        debug_assert_eq!(
-            current.len(),
-            frame.original_len,
-            "slot {} len changed during execution",
-            frame.slot_idx
-        );
-        unsafe { frame.parent.put_slot_unchecked(frame.slot_idx, current) }?.optimize()
+/// Pop a stack frame, updating `current` accordingly.
+fn pop_frame(frame: StackFrame, current: Activation) -> VortexResult<Activation> {
+    debug_assert_eq!(
+        current.array.dtype(),
+        &frame.original_dtype,
+        "child dtype changed during execution"
+    );
+    debug_assert_eq!(
+        current.array.len(),
+        frame.original_len,
+        "child len changed during execution"
+    );
+    let mut parent = frame.parent;
+    match frame.resume {
+        ResumeAction::RestoreSlot { slot_idx, .. } => {
+            parent.array =
+                unsafe { parent.array.put_slot_unchecked(slot_idx, current.array) }?.optimize()?;
+        }
+        ResumeAction::AppendIntoParent => {
+            parent
+                .builder
+                .as_mut()
+                .vortex_expect("AppendIntoParent requires a parent builder")
+                .extend_from_array(&current.array);
+        }
     }
+    Ok(parent)
 }
 
 /// Execute a single step on an array, consuming it.
 ///
 /// Extracts the vtable before consuming the array to avoid borrow conflicts.
-fn execute_step(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+fn execute_step_checked(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
     array.execute_encoding(ctx)
+}
+
+fn execute_step_unchecked(
+    array: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ExecutionResult> {
+    array.execute_encoding_unchecked(ctx)
+}
+
+fn finalize_done_activation(
+    result: ArrayRef,
+    mut builder: Option<Box<dyn ArrayBuilder>>,
+    expected_len: usize,
+    expected_dtype: DType,
+    stats: ArrayStats,
+    encoding_id: ArrayId,
+) -> VortexResult<Activation> {
+    let output = if let Some(mut builder) = builder.take() {
+        builder.finish()
+    } else {
+        result
+    };
+
+    if cfg!(debug_assertions) {
+        vortex_ensure!(
+            output.len() == expected_len,
+            "Result length mismatch for {:?}",
+            encoding_id
+        );
+        vortex_ensure!(
+            output.dtype() == &expected_dtype,
+            "Executed canonical dtype mismatch for {:?}",
+            encoding_id
+        );
+    }
+
+    output
+        .statistics()
+        .set_iter(StatsSet::from(stats).into_iter());
+    Ok(Activation::new(output))
 }
 
 /// Try execute_parent on each occupied slot of the array.
@@ -590,16 +553,14 @@ pub type DonePredicate = fn(&ArrayRef) -> bool;
 ///   cross-step optimization (e.g. pushing scalar functions through newly-decoded children).
 ///   This is a cooperative yield — the encoding does a bounded amount of work per step.
 ///
-/// - [`AppendChild`](ExecutionStep::AppendChild): The encoding wants the scheduler to enter
-///   **builder mode**. The scheduler creates an [`ArrayBuilder`](crate::builders::ArrayBuilder)
-///   for the parent's dtype/length (if one does not already exist), then iterates over children
-///   via registered builder kernels, appending each child's data directly into the builder.
-///   **Important:** in the single-step executor ([`Executable`] for [`ArrayRef`]), returning
-///   `AppendChild` causes the executor to drive the *entire* array to completion via
-///   [`execute_into_builder`] in one call — this can do significantly more work than a single
-///   `ExecuteSlot` step. The encoding must have a builder kernel registered in
-///   [`BuilderKernelSession`](crate::BuilderKernelSession) so the scheduler can re-enter it
-///   after each child is consumed.
+/// - [`AppendChild`](ExecutionStep::AppendChild): The encoding needs one child executed to
+///   canonical form and then appended into a builder owned by the current activation. The
+///   scheduler suspends the parent, executes the child, appends the finished child into the
+///   parent's builder, and then resumes the same parent so it can continue with more
+///   `AppendChild` or `ExecuteSlot` steps. **Important:** in the single-step executor
+///   ([`Executable`] for [`ArrayRef`]), returning `AppendChild` still causes the executor to
+///   drive the *entire* array to completion via [`execute_into_builder`] in one call — this can
+///   do significantly more work than a single `ExecuteSlot` step.
 pub enum ExecutionStep {
     /// Request that the scheduler execute the slot at the given index, using the provided
     /// [`DonePredicate`] to determine when the slot is "done", then replace the slot in this
@@ -611,15 +572,12 @@ pub enum ExecutionStep {
     /// Use [`ExecutionResult::execute_slot`] instead of constructing this variant directly.
     ExecuteSlot(usize, DonePredicate),
 
-    /// Enter builder mode for the child at this slot index.
+    /// Execute the slot at the given index to canonical form, then append it into a canonical
+    /// builder owned by the current activation.
     ///
-    /// The scheduler creates a builder (if one does not already exist), takes the child,
-    /// and drives it toward canonical via builder kernels. When the child is canonical the
-    /// scheduler extends the builder and nulls the slot. The encoding must have a builder
-    /// kernel registered so the scheduler can re-enter it after each child is consumed.
-    ///
-    /// When the builder kernel returns [`crate::BuilderStep::Done`], the scheduler finishes
-    /// the builder and uses the resulting canonical array as the execution result.
+    /// The parent activation remains suspended with its builder while the child executes. Once
+    /// the child reaches canonical form, the scheduler appends it into the parent builder and
+    /// resumes the same parent activation.
     ///
     /// **Note:** In the single-step executor ([`Executable`] for [`ArrayRef`]), this variant
     /// drives the entire parent to completion in one call via [`execute_into_builder`], which
@@ -669,7 +627,8 @@ impl ExecutionResult {
         }
     }
 
-    /// Enter builder mode for the child at `slot_idx`.
+    /// Request that the child slot at `slot_idx` be executed and appended into the current
+    /// activation's canonical builder.
     pub fn append_child(array: impl IntoArray, slot_idx: usize) -> Self {
         Self {
             array: array.into_array(),
