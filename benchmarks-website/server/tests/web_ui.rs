@@ -199,7 +199,10 @@ async fn landing_page_snapshot() -> Result<()> {
     seed(&server).await?;
 
     let client = reqwest::Client::new();
-    let resp = client.get(server.url("/")).send().await?;
+    // Pin ?n=100 so the snapshot doesn't change when the landing default
+    // (50) is tweaked. The `landing_page_default_window` test below covers
+    // the default explicitly.
+    let resp = client.get(server.url("/?n=100")).send().await?;
     assert_eq!(resp.status(), 200);
     let content_type = resp
         .headers()
@@ -212,9 +215,49 @@ async fn landing_page_snapshot() -> Result<()> {
     );
     let body = resp.text().await?;
 
+    // Phase 2: every chart is rendered inline on the landing page, so the
+    // page must contain at least one `<canvas>` plus a matching JSON payload.
+    assert!(
+        body.contains("<canvas"),
+        "landing page must render at least one <canvas>"
+    );
+    assert!(
+        body.contains(r#"id="chart-data-0""#),
+        "landing page must inline at least one chart payload"
+    );
+    assert!(
+        body.contains(r#"data-chart-slug="#),
+        "landing page chart cards must carry data-chart-slug for in-place refetch"
+    );
+
     insta_settings().bind(|| {
         insta::assert_snapshot!("landing_page", body);
     });
+    Ok(())
+}
+
+/// Without `?n=` the landing page defaults to last-50 commits (cheap by
+/// default), distinct from the 100-commit default of `/chart` and `/group`.
+#[tokio::test]
+async fn landing_page_default_window() -> Result<()> {
+    let server = Server::start().await?;
+    seed(&server).await?;
+
+    let client = reqwest::Client::new();
+    let resp = client.get(server.url("/")).send().await?;
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await?;
+
+    assert!(
+        body.contains("last 50 commits"),
+        "landing page subtitle should reflect the n=50 default"
+    );
+    // The toolbar should highlight `50` (data-scope) as active.
+    assert!(
+        body.contains(r#"toolbar-btn--active" href="?n=50""#)
+            || body.contains(r#"toolbar-btn--active" href="?n=50&"#),
+        "landing toolbar should mark scope=50 active by default"
+    );
     Ok(())
 }
 
@@ -365,6 +408,104 @@ async fn group_api_returns_charts() -> Result<()> {
         first["series"].as_object().is_some(),
         "embedded chart series"
     );
+    Ok(())
+}
+
+/// `GET /api/chart/{slug}` returns the same JSON shape that the HTML pages
+/// inline as `<script id="chart-data-N">`. Phase 1 wires this endpoint up as
+/// the in-place refetch target for the toolbar.
+#[tokio::test]
+async fn chart_api_returns_payload_shape() -> Result<()> {
+    let server = Server::start().await?;
+    seed(&server).await?;
+
+    let client = reqwest::Client::new();
+    let groups: Value = client
+        .get(server.url("/api/groups"))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let slug = groups["groups"]
+        .as_array()
+        .context("groups is array")?
+        .iter()
+        .find(|g| {
+            g["name"]
+                .as_str()
+                .map(|s| s.starts_with("tpch"))
+                .unwrap_or(false)
+        })
+        .and_then(|g| g["charts"].as_array())
+        .and_then(|c| c.first())
+        .and_then(|c| c["slug"].as_str())
+        .context("tpch chart slug")?
+        .to_string();
+
+    let resp = client
+        .get(server.url(&format!("/api/chart/{slug}")))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let ct = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    assert!(
+        ct.starts_with("application/json"),
+        "expected JSON content-type, got {ct:?}"
+    );
+    let body: Value = resp.json().await?;
+    assert!(body["display_name"].as_str().is_some(), "display_name");
+    assert!(body["unit"].as_str().is_some(), "unit");
+    assert!(body["commits"].as_array().is_some(), "commits");
+    assert!(body["series"].as_object().is_some(), "series");
+
+    // ?n= narrows the commit count returned to exactly N.
+    let one: Value = client
+        .get(server.url(&format!("/api/chart/{slug}?n=1")))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let one_count = one["commits"].as_array().map(|a| a.len()).unwrap_or(0);
+    assert_eq!(one_count, 1, "?n=1 should keep exactly one commit");
+
+    // y= and mode= are accepted but don't change the SQL — payload is
+    // identical to the bare request modulo URL-shaped params.
+    let with_hints: Value = client
+        .get(server.url(&format!("/api/chart/{slug}?n=1&y=log&mode=rel")))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        with_hints["commits"].as_array().map(|a| a.len()),
+        Some(1),
+        "?y/?mode shouldn't affect the returned commit count"
+    );
+    assert_eq!(
+        with_hints["series"], one["series"],
+        "?y/?mode shouldn't change the series payload"
+    );
+
+    // A valid-shape slug for a chart that doesn't exist in the DB returns
+    // 404. (Malformed slugs are 400, covered by the HTML route tests.)
+    let unknown_slug = vortex_bench_server::slug::ChartKey::QueryMeasurement {
+        dataset: "missing-dataset".into(),
+        dataset_variant: None,
+        scale_factor: None,
+        storage: "nvme".into(),
+        query_idx: 99,
+    }
+    .to_slug();
+    let missing = client
+        .get(server.url(&format!("/api/chart/{unknown_slug}")))
+        .send()
+        .await?;
+    assert_eq!(missing.status(), 404);
     Ok(())
 }
 

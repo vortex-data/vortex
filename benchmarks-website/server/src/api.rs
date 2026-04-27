@@ -107,10 +107,19 @@ impl CommitWindow {
 }
 
 /// Query string for `/api/chart/{slug}` and `/chart/{slug}`.
+///
+/// `y` (linear|log) and `mode` (abs|rel) are accepted but ignored by the SQL —
+/// the JSON response is identical regardless. They exist on the API surface so
+/// the client can drive deep links and refetches with a single URL shape; the
+/// rendering hints are applied client-side in `chart-init.js`.
 #[derive(Debug, Default, Deserialize)]
 pub struct ChartQuery {
     /// Commit window: `25`, `50`, `100`, `250`, `all`, etc.
     pub n: Option<String>,
+    /// Y-axis hint (linear|log). Echoed for client-side rendering only.
+    pub y: Option<String>,
+    /// Display mode hint (abs|rel). Echoed for client-side rendering only.
+    pub mode: Option<String>,
 }
 
 impl ChartQuery {
@@ -208,7 +217,7 @@ pub async fn chart(
         .map_err(|e| ApiError::BadRequest(format!("invalid slug: {e}")))?;
     let window = q.window();
     let response =
-        db::run_blocking(&state.db, move |conn| collect_chart(conn, &key, &window)).await?;
+        db::run_blocking(&state.db, move |conn| chart_payload(conn, &key, &window)).await?;
     let response =
         response.ok_or_else(|| ApiError::NotFound(format!("no data for slug {slug:?}")))?;
     Ok(Json(response))
@@ -548,9 +557,14 @@ fn collect_vector_search_groups(conn: &Connection) -> Result<Vec<Group>> {
     Ok(groups)
 }
 
-/// Collect the data for one chart by key. Used by both `GET /api/chart/:slug`
-/// and the HTML chart page. `window` caps the number of recent commits.
-pub(crate) fn collect_chart(
+/// Build the JSON payload for one chart by key. This is the shared
+/// implementation behind `GET /api/chart/{slug}`, the inline `<script>` JSON
+/// rendered into the HTML pages, and `collect_group_charts`.
+///
+/// `window` caps the number of recent commits returned. `y` / `mode` are not
+/// inputs here — they're rendering hints applied client-side, so the SQL is
+/// unaffected and the cached payload is identical across hint values.
+pub(crate) fn chart_payload(
     conn: &Connection,
     key: &ChartKey,
     window: &CommitWindow,
@@ -588,8 +602,22 @@ pub(crate) fn collect_chart(
     }
 }
 
+/// Thin wrapper around [`chart_payload`] kept for callers that prefer the old
+/// name. New code should prefer [`chart_payload`].
+pub(crate) fn collect_chart(
+    conn: &Connection,
+    key: &ChartKey,
+    window: &CommitWindow,
+) -> Result<Option<ChartResponse>> {
+    chart_payload(conn, key, window)
+}
+
 /// Collect every chart inside one group. Returns `None` if the group has no
 /// data at all (callers should render a 404).
+// TODO: this currently re-runs the entire `collect_groups` discovery pass
+// (api.rs) per call before fetching each chart, which makes the landing page
+// O(groups * charts_per_group) DB queries plus the discovery scan. Fine for
+// the current dataset; revisit when chart counts grow.
 pub(crate) fn collect_group_charts(
     conn: &Connection,
     key: &GroupKey,
@@ -604,7 +632,7 @@ pub(crate) fn collect_group_charts(
     for link in group.charts {
         let chart_key = ChartKey::from_slug(&link.slug)
             .with_context(|| format!("invalid chart slug in group: {}", link.slug))?;
-        let Some(chart) = collect_chart(conn, &chart_key, window)? else {
+        let Some(chart) = chart_payload(conn, &chart_key, window)? else {
             continue;
         };
         charts.push(NamedChartResponse {
