@@ -3,27 +3,28 @@
 
 use std::fmt::Formatter;
 
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::ScalarFn;
+use vortex_array::arrays::scalar_fn::ExactScalarFn;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::expr::Expression;
+use vortex_array::scalar_fn::Arity;
+use vortex_array::scalar_fn::ChildName;
+use vortex_array::scalar_fn::EmptyOptions;
+use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ScalarFnId;
+use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
-use crate::ArrayRef;
-use crate::ExecutionCtx;
-use crate::arrays::ScalarFn;
-use crate::arrays::scalar_fn::ExactScalarFn;
-use crate::arrays::scalar_fn::ScalarFnArrayExt;
-use crate::dtype::DType;
-use crate::dtype::Nullability;
-use crate::dtype::PType;
-use crate::expr::Expression;
-use crate::scalar_fn::Arity;
-use crate::scalar_fn::ChildName;
-use crate::scalar_fn::EmptyOptions;
-use crate::scalar_fn::ExecutionArgs;
-use crate::scalar_fn::ScalarFnId;
-use crate::scalar_fn::ScalarFnVTable;
-
 /// Zero-argument placeholder for the row count of the current evaluation scope.
+///
+/// This expression *MUST* be replaced with a concrete array before evaluation.
 ///
 /// `RowCount` is emitted while building pruning predicates that need a
 /// scope-level value which is not stored as a regular stats column, such as the
@@ -31,7 +32,7 @@ use crate::scalar_fn::ScalarFnVTable;
 /// replace each placeholder with a concrete array via [`substitute_row_count`]
 /// before evaluation.
 ///
-/// Calling [`ScalarFnVTable::execute`] directly returns an error, because this
+/// Calling [`ScalarFnVTable::execute`] directly returns an error because this
 /// node is only a marker in a lazy expression tree.
 #[derive(Clone)]
 pub struct RowCount;
@@ -88,7 +89,7 @@ impl ScalarFnVTable for RowCount {
 /// [`ArrayRef::apply`][crate::ArrayRef::apply]. Other arrays are evaluation
 /// leaves and cannot contain unevaluated placeholders.
 ///
-/// [`ScalarFnArray`]: crate::arrays::ScalarFnArray
+/// [`ScalarFnArray`]: vortex_array::arrays::ScalarFnArray
 pub fn contains_row_count(array: &ArrayRef) -> bool {
     if array.is::<ExactScalarFn<RowCount>>() {
         return true;
@@ -106,7 +107,7 @@ pub fn contains_row_count(array: &ArrayRef) -> bool {
 /// unaffected children are preserved, while non-[`ScalarFn`] arrays are returned
 /// unchanged.
 ///
-/// [`ScalarFnArray`]: crate::arrays::ScalarFnArray
+/// [`ScalarFnArray`]: vortex_array::arrays::ScalarFnArray
 pub fn substitute_row_count(array: ArrayRef, replacement: &ArrayRef) -> VortexResult<ArrayRef> {
     if array.is::<ExactScalarFn<RowCount>>() {
         vortex_ensure!(
@@ -144,14 +145,17 @@ pub fn substitute_row_count(array: ArrayRef, replacement: &ArrayRef) -> VortexRe
 
 #[cfg(test)]
 mod tests {
-    use crate::dtype::DType;
-    use crate::dtype::Nullability;
-    use crate::dtype::PType;
-    use crate::expr::row_count;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+
+    use crate::scalar_fn::EmptyOptions;
+    use crate::scalar_fn::internal::row_count::RowCount;
+    use crate::scalar_fn::vtable::ScalarFnVTableExt;
 
     #[test]
     fn row_count_helper_dtype() {
-        let expr = row_count();
+        let expr = RowCount.new_expr(EmptyOptions, []);
         assert_eq!(
             expr.return_dtype(&DType::Primitive(PType::I32, Nullability::Nullable))
                 .unwrap(),

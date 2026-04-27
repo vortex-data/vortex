@@ -44,7 +44,6 @@ use crate::scalar_fn::fns::operators::Operator;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::scalar_fn::fns::pack::PackOptions;
 use crate::scalar_fn::fns::root::Root;
-use crate::scalar_fn::fns::row_count::RowCount;
 use crate::scalar_fn::fns::select::FieldSelection;
 use crate::scalar_fn::fns::select::Select;
 use crate::scalar_fn::fns::zip::Zip;
@@ -701,16 +700,4 @@ pub fn dynamic(
 /// ```
 pub fn list_contains(list: Expression, value: Expression) -> Expression {
     ListContains.new_expr(EmptyOptions, [list, value])
-}
-
-// ---- RowCount ----
-
-/// Creates a placeholder for the current evaluation scope's row count.
-///
-/// This is used by pruning rewrites that need to compare a stored statistic with
-/// the number of rows in the file, zone, or other scope being evaluated. The
-/// caller that owns the evaluation scope must substitute the placeholder before
-/// execution; see [`RowCount`].
-pub fn row_count() -> Expression {
-    RowCount.new_expr(EmptyOptions, [])
 }

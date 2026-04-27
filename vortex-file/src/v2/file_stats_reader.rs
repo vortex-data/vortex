@@ -27,7 +27,7 @@ use vortex_array::expr::lit;
 use vortex_array::expr::stats::Stat;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::literal::Literal;
-use vortex_array::scalar_fn::fns::row_count::substitute_row_count;
+use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
 use vortex_error::VortexResult;
 use vortex_layout::ArrayFuture;
 use vortex_layout::LayoutReader;

@@ -22,7 +22,7 @@ use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::FieldPathSet;
 use vortex_array::expr::Expression;
 use vortex_array::expr::pruning::checked_pruning_expr;
-use vortex_array::scalar_fn::fns::row_count::substitute_row_count;
+use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
