@@ -383,11 +383,11 @@ impl DType {
 
     /// Returns the Arrow [`DataType`] that best corresponds to this Vortex [`DType`].
     pub fn to_arrow_dtype(&self) -> VortexResult<DataType> {
-        to_arrow_dtype_with_dtypes(self, &LEGACY_SESSION.dtypes())
+        arrow_dtype_from_dtype(self, &LEGACY_SESSION.dtypes())
     }
 }
 
-fn to_arrow_dtype_with_dtypes(dtype: &DType, dtypes: &DTypeSession) -> VortexResult<DataType> {
+fn arrow_dtype_from_dtype(dtype: &DType, dtypes: &DTypeSession) -> VortexResult<DataType> {
     Ok(match dtype {
         DType::Null => DataType::Null,
         DType::Bool(_) => DataType::Boolean,
@@ -459,7 +459,7 @@ fn to_arrow_dtype_with_dtypes(dtype: &DType, dtypes: &DTypeSession) -> VortexRes
             }
             // Extension identity lives on the Field (see `field_from_dtype`), not on
             // DataType, so here we only encode the storage type.
-            to_arrow_dtype_with_dtypes(ext_dtype.storage_dtype(), dtypes)?
+            arrow_dtype_from_dtype(ext_dtype.storage_dtype(), dtypes)?
         }
     })
 }
@@ -487,7 +487,7 @@ fn field_from_dtype(name: &str, dtype: &DType, dtypes: &DTypeSession) -> VortexR
             return Ok(Field::new(name, native, dtype.is_nullable()));
         }
 
-        let storage_arrow = to_arrow_dtype_with_dtypes(ext.storage_dtype(), dtypes)?;
+        let storage_arrow = arrow_dtype_from_dtype(ext.storage_dtype(), dtypes)?;
         let ext_meta_bytes = ext.serialize_metadata()?;
         let (ext_name, meta_str) = match dtypes.arrow_canonical_for(&ext.id()) {
             Some(canonical) => {
@@ -513,7 +513,7 @@ fn field_from_dtype(name: &str, dtype: &DType, dtypes: &DTypeSession) -> VortexR
 
     Ok(Field::new(
         name,
-        to_arrow_dtype_with_dtypes(dtype, dtypes)?,
+        arrow_dtype_from_dtype(dtype, dtypes)?,
         dtype.is_nullable(),
     ))
 }
