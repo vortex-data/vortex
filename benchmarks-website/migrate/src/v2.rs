@@ -51,6 +51,28 @@ pub fn dataset_scale_factor(dataset: &serde_json::Value, key: &str) -> Option<St
     }
 }
 
+/// Canonicalize a v2 scale-factor string for use in `dataset_variant`.
+///
+/// v2 emitters wrote scale factors as either `"1"`, `"1.0"`, `"10"`, or
+/// `"10.0"` for the same logical SF, so the data.json.gz path
+/// (`bin_compression_size`) and the file-sizes-*.json.gz path
+/// (`migrate_file_sizes`) would otherwise produce different
+/// `dataset_variant` strings and never collapse onto the same
+/// `measurement_id`. Parse to f64 and format with no trailing zeros so
+/// every shape collapses to one canonical form (`"1"`, `"10"`, `"0.1"`).
+/// SF=1 is the implicit default and folds to `None`.
+pub fn canonical_scale_factor(raw: Option<&str>) -> Option<String> {
+    let s = raw?.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let value: f64 = s.parse().ok()?;
+    if value == 1.0 {
+        return None;
+    }
+    Some(format!("{value}"))
+}
+
 /// Best-effort numeric coercion for the polymorphic `value` field.
 pub fn value_as_f64(value: &serde_json::Value) -> Option<f64> {
     match value {

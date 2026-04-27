@@ -502,7 +502,7 @@ fn collect_query_chart(
         r#"
         SELECT q.commit_sha,
                CAST(c.timestamp AS VARCHAR),
-               c.message, c.url,
+               COALESCE(c.message, '') AS message, c.url,
                q.engine, q.format, q.value_ns
           FROM query_measurements q
           JOIN commits c USING (commit_sha)
@@ -567,7 +567,7 @@ fn collect_compression_time_chart(
         r#"
         SELECT t.commit_sha,
                CAST(c.timestamp AS VARCHAR),
-               c.message, c.url,
+               COALESCE(c.message, '') AS message, c.url,
                t.format, t.op, t.value_ns
           FROM compression_times t
           JOIN commits c USING (commit_sha)
@@ -615,7 +615,7 @@ fn collect_compression_size_chart(
         r#"
         SELECT s.commit_sha,
                CAST(c.timestamp AS VARCHAR),
-               c.message, c.url,
+               COALESCE(c.message, '') AS message, c.url,
                s.format, s.value_bytes
           FROM compression_sizes s
           JOIN commits c USING (commit_sha)
@@ -658,7 +658,7 @@ fn collect_random_access_chart(conn: &Connection, dataset: &str) -> Result<Optio
         r#"
         SELECT r.commit_sha,
                CAST(c.timestamp AS VARCHAR),
-               c.message, c.url,
+               COALESCE(c.message, '') AS message, c.url,
                r.format, r.value_ns
           FROM random_access_times r
           JOIN commits c USING (commit_sha)
@@ -700,7 +700,7 @@ fn collect_vector_search_chart(
         r#"
         SELECT v.commit_sha,
                CAST(c.timestamp AS VARCHAR),
-               c.message, c.url,
+               COALESCE(c.message, '') AS message, c.url,
                v.flavor, v.value_ns
           FROM vector_search_runs v
           JOIN commits c USING (commit_sha)
