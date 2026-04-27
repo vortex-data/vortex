@@ -214,7 +214,7 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
         } else {
             // Set with the fill value.
             builder
-                .append_value(fill_value.clone())
+                .append_value(fill_value)
                 .vortex_expect("Failed to append fill value");
         }
     }
