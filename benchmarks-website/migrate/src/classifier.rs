@@ -537,7 +537,16 @@ pub fn classify_outcome(record: &V2Record) -> Outcome {
         return Outcome::Skip(Skip::DerivedRatio);
     }
     let bin = match &cls.group {
-        V2Group::RandomAccess => bin_random_access(record),
+        V2Group::RandomAccess => match bin_random_access(record) {
+            Some(b) => Some(b),
+            // Legacy 2-part `random-access/<format>-…` records carry
+            // no dataset and are intentionally dropped by
+            // `bin_random_access`. Route them to Skip so the
+            // `Outcome::Unknown` arm below — and the 5%
+            // uncategorized gate in `migrate::run` — don't trip on
+            // them.
+            None => return Outcome::Skip(Skip::UnsupportedShape),
+        },
         V2Group::Compression => bin_compression_time(&cls, record),
         V2Group::CompressionSize => bin_compression_size(&cls, record),
         V2Group::Query { .. } => bin_query(&cls, record),

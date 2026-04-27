@@ -272,6 +272,23 @@ fn unmapped_records_yield_none(#[case] name: &str) {
 }
 
 #[test]
+fn random_access_2_part_legacy_is_skip_not_unknown() {
+    // The 2-part legacy shape `random-access/<format>-tokio-local-disk`
+    // carries no dataset, so `bin_random_access` returns None. That
+    // None must route through `Outcome::Skip` (an intentional drop),
+    // NOT `Outcome::Unknown`, otherwise these records count against
+    // the 5% uncategorized gate in `migrate::run`. Top-level
+    // `classify()` returns None for both Skip and Unknown, so this
+    // assertion has to go through `classify_outcome`.
+    let r = record("random-access/parquet-tokio-local-disk");
+    let outcome = classify_outcome(&r);
+    assert!(
+        matches!(outcome, Outcome::Skip(_)),
+        "2-part legacy random-access must Skip, not Unknown; got {outcome:?}"
+    );
+}
+
+#[test]
 fn parquet_zstd_size_is_deprecated() {
     // `parquet-zstd` is not on the v3 emitter's format allowlist, so
     // historical `parquet-zstd size/...` records bucket under
