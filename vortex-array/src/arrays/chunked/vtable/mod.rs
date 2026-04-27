@@ -245,18 +245,16 @@ impl VTable for Chunked {
             }
             // For all other types, use the builder path via AppendChild.
             _ => {
-                let first_chunk = array
-                    .as_view()
-                    .slots()
-                    .iter()
-                    .enumerate()
-                    .skip(CHUNKS_OFFSET)
-                    .find_map(|(idx, slot)| slot.as_ref().map(|_| idx));
-                match first_chunk {
-                    Some(idx) => Ok(ExecutionResult::append_child(array, idx)),
-                    None => Ok(ExecutionResult::done(
+                let slot_idx = array.next_builder_slot().max(CHUNKS_OFFSET);
+                if slot_idx < array.as_view().slots().len() {
+                    Ok(ExecutionResult::append_child(
+                        array.with_next_builder_slot(slot_idx + 1),
+                        slot_idx,
+                    ))
+                } else {
+                    Ok(ExecutionResult::done(
                         Canonical::empty(array.dtype()).into_array(),
-                    )),
+                    ))
                 }
             }
         }

@@ -364,6 +364,11 @@ impl ArrayRef {
         Some(unsafe { ArrayView::new_unchecked(self, &inner.data) })
     }
 
+    pub(crate) fn as_typed_inner_mut<V: VTable>(&mut self) -> Option<&mut ArrayInner<V>> {
+        let inner = Arc::get_mut(&mut self.0)?;
+        inner.as_any_mut().downcast_mut::<ArrayInner<V>>()
+    }
+
     /// Returns the constant scalar if this is a constant array.
     pub fn as_constant(&self) -> Option<Scalar> {
         self.as_opt::<Constant>().map(|a| a.scalar().clone())
@@ -560,8 +565,11 @@ impl ArrayRef {
         self,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<crate::ExecutionResult> {
-        let inner = Arc::clone(&self.0);
-        inner.execute_unchecked(self, ctx)
+        let inner = Arc::as_ptr(&self.0);
+        // SAFETY: `inner` points at the allocation owned by `self.0`. `self` stays alive for the
+        // duration of the call, so the pointee remains valid. Avoiding an extra `Arc` clone here
+        // preserves uniqueness so execute-time metadata cursors can use `Arc::get_mut`.
+        unsafe { (&*inner).execute_unchecked(self, ctx) }
     }
 
     pub fn execute_parent(

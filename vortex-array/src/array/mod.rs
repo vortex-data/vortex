@@ -56,6 +56,9 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
 
+    /// Returns the array as a mutable reference to a generic [`Any`] trait object.
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+
     /// Converts an owned array allocation into an owned [`Any`] allocation for downcasting.
     fn into_any_arc(self: std::sync::Arc<Self>) -> std::sync::Arc<dyn Any + Send + Sync>;
 
@@ -236,6 +239,10 @@ mod private {
 /// while data-access methods delegate to VTable methods on the inner `V::ArrayData`.
 impl<V: VTable> DynArray for ArrayInner<V> {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 

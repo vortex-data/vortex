@@ -37,6 +37,7 @@ pub(super) const CHUNKS_OFFSET: usize = 1;
 #[derive(Clone, Debug)]
 pub struct ChunkedData {
     pub(super) chunk_offsets: Vec<usize>,
+    pub(super) next_builder_slot: usize,
 }
 
 impl Display for ChunkedData {
@@ -82,6 +83,10 @@ pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {
         &self.chunk_offsets
     }
 
+    fn next_builder_slot(&self) -> usize {
+        self.next_builder_slot
+    }
+
     fn find_chunk_idx(&self, index: usize) -> VortexResult<(usize, usize)> {
         assert!(
             index <= self.as_ref().len(),
@@ -115,7 +120,10 @@ impl<T: TypedArrayRef<Chunked>> ChunkedArrayExt for T {}
 
 impl ChunkedData {
     pub(super) fn new(chunk_offsets: Vec<usize>) -> Self {
-        Self { chunk_offsets }
+        Self {
+            chunk_offsets,
+            next_builder_slot: CHUNKS_OFFSET,
+        }
     }
 
     pub(super) fn compute_chunk_offsets(chunks: &[ArrayRef]) -> Vec<usize> {
@@ -163,6 +171,25 @@ impl ChunkedData {
 }
 
 impl Array<Chunked> {
+    pub(super) fn with_next_builder_slot(mut self, next_builder_slot: usize) -> Self {
+        if let Some(data) = self.data_mut() {
+            data.next_builder_slot = next_builder_slot;
+            self
+        } else {
+            let stats = self.statistics().to_owned();
+            let data = self.data().clone();
+            let mut data = data;
+            data.next_builder_slot = next_builder_slot;
+            unsafe {
+                Array::from_parts_unchecked(
+                    ArrayParts::new(Chunked, self.dtype().clone(), self.len(), data)
+                        .with_slots(self.slots().to_vec()),
+                )
+            }
+            .with_stats_set(stats)
+        }
+    }
+
     /// Constructs a new `ChunkedArray`.
     pub fn try_new(chunks: Vec<ArrayRef>, dtype: DType) -> VortexResult<Self> {
         ChunkedData::validate(&chunks, &dtype)?;

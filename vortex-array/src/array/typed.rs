@@ -280,6 +280,10 @@ impl<V: VTable> Array<V> {
         &self.downcast_inner().data
     }
 
+    pub(crate) fn data_mut(&mut self) -> Option<&mut V::ArrayData> {
+        Some(&mut self.inner.as_typed_inner_mut::<V>()?.data)
+    }
+
     /// Returns the full typed array construction parts if this handle owns the allocation.
     pub fn try_into_parts(self) -> Result<ArrayParts<V>, Self> {
         let Self { inner, _phantom } = self;
