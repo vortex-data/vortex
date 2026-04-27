@@ -249,23 +249,189 @@ async fn chart_page_snapshot() -> Result<()> {
         .to_string();
 
     let resp = client
-        .get(server.url(&format!("/chart/{slug}")))
+        .get(server.url(&format!("/chart/{slug}?n=100")))
         .send()
         .await?;
     assert_eq!(resp.status(), 200);
     let body = resp.text().await?;
     assert!(
-        body.contains(r#"<script id="chart-data" type="application/json">"#),
+        body.contains(r#"<script id="chart-data-0" type="application/json">"#),
         "chart payload must be embedded inline"
     );
     assert!(
         body.contains(r#"<script src="/static/chart.umd.js""#),
         "Chart.js must be referenced from the static asset route"
     );
+    assert!(
+        body.contains("class=\"toolbar\""),
+        "toolbar must be rendered on chart page"
+    );
 
     insta_settings().bind(|| {
         insta::assert_snapshot!("chart_page_query", body);
     });
+    Ok(())
+}
+
+#[tokio::test]
+async fn group_page_snapshot() -> Result<()> {
+    let server = Server::start().await?;
+    seed(&server).await?;
+
+    let client = reqwest::Client::new();
+    let groups: Value = client
+        .get(server.url("/api/groups"))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let slug = groups["groups"]
+        .as_array()
+        .context("groups is array")?
+        .iter()
+        .find(|g| {
+            g["name"]
+                .as_str()
+                .map(|s| s.starts_with("tpch"))
+                .unwrap_or(false)
+        })
+        .and_then(|g| g["slug"].as_str())
+        .context("tpch group slug")?
+        .to_string();
+
+    // Pin ?n=100 so snapshot output is stable as the default changes.
+    let resp = client
+        .get(server.url(&format!("/group/{slug}?n=100")))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await?;
+    assert!(
+        body.contains(r#"id="chart-data-0""#),
+        "group page must embed at least one chart payload inline"
+    );
+    assert!(
+        body.contains("class=\"toolbar\""),
+        "toolbar must be rendered on group page"
+    );
+    insta_settings().bind(|| {
+        insta::assert_snapshot!("group_page_query", body);
+    });
+    Ok(())
+}
+
+#[tokio::test]
+async fn group_api_returns_charts() -> Result<()> {
+    let server = Server::start().await?;
+    seed(&server).await?;
+
+    let client = reqwest::Client::new();
+    let groups: Value = client
+        .get(server.url("/api/groups"))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let slug = groups["groups"]
+        .as_array()
+        .context("groups is array")?
+        .iter()
+        .find(|g| {
+            g["name"]
+                .as_str()
+                .map(|s| s.starts_with("tpch"))
+                .unwrap_or(false)
+        })
+        .and_then(|g| g["slug"].as_str())
+        .context("tpch group slug")?
+        .to_string();
+
+    let resp = client
+        .get(server.url(&format!("/api/group/{slug}")))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await?;
+    let charts = body["charts"].as_array().context("charts is array")?;
+    assert!(!charts.is_empty(), "group must have at least one chart");
+    let first = &charts[0];
+    assert!(first["slug"].as_str().is_some(), "chart slug present");
+    assert!(first["name"].as_str().is_some(), "chart name present");
+    assert!(
+        first["commits"].as_array().is_some(),
+        "embedded chart commits"
+    );
+    assert!(
+        first["series"].as_object().is_some(),
+        "embedded chart series"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn chart_page_window_caps_commits() -> Result<()> {
+    let server = Server::start().await?;
+    seed(&server).await?;
+
+    let client = reqwest::Client::new();
+    let groups: Value = client
+        .get(server.url("/api/groups"))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let slug = groups["groups"]
+        .as_array()
+        .context("groups is array")?
+        .iter()
+        .find(|g| {
+            g["name"]
+                .as_str()
+                .map(|s| s.starts_with("tpch"))
+                .unwrap_or(false)
+        })
+        .and_then(|g| g["charts"].as_array())
+        .and_then(|c| c.first())
+        .and_then(|c| c["slug"].as_str())
+        .context("tpch chart slug")?
+        .to_string();
+
+    // Without ?n, default window is 100 — fixture has 3 commits, so all show.
+    let full: Value = client
+        .get(server.url(&format!("/api/chart/{slug}")))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let full_count = full["commits"].as_array().map(|a| a.len()).unwrap_or(0);
+    assert!(full_count >= 3, "expected ≥ 3 commits, got {full_count}");
+
+    // ?n=1 should cap to one commit.
+    let one: Value = client
+        .get(server.url(&format!("/api/chart/{slug}?n=1")))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let one_count = one["commits"].as_array().map(|a| a.len()).unwrap_or(0);
+    assert_eq!(one_count, 1, "?n=1 should keep exactly one commit");
+
+    // ?n=all bypasses the cap.
+    let all: Value = client
+        .get(server.url(&format!("/api/chart/{slug}?n=all")))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let all_count = all["commits"].as_array().map(|a| a.len()).unwrap_or(0);
+    assert_eq!(all_count, full_count, "?n=all should match unbounded view");
+
+    // Malformed ?n gracefully falls back to default.
+    let bad = client
+        .get(server.url(&format!("/api/chart/{slug}?n=banana")))
+        .send()
+        .await?;
+    assert_eq!(bad.status(), 200);
     Ok(())
 }
 
@@ -302,7 +468,7 @@ async fn chart_page_round_trips_every_slug() -> Result<()> {
         );
         let body = resp.text().await?;
         assert!(
-            body.contains(r#"id="chart-data""#),
+            body.contains(r#"id="chart-data-0""#),
             "missing inline chart data for slug {slug}"
         );
     }
