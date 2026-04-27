@@ -13,6 +13,7 @@
 //! For this reason, it's recommended to do as much computation as possible within Vortex, and then
 //! materialize an Arrow ArrayRef at the very end of the processing chain.
 
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use arrow_schema::DataType;
@@ -293,7 +294,7 @@ fn dtype_from_field(field: &Field, dtypes: &DTypeSession) -> DType {
         }
     };
 
-    match plugin.deserialize(&metadata_bytes, storage_dtype.clone()) {
+    match plugin.deserialize(metadata_bytes.as_ref(), storage_dtype.clone()) {
         Ok(ext_ref) => DType::Extension(ext_ref),
         Err(e) => {
             tracing::warn!(
@@ -310,12 +311,13 @@ fn dtype_from_field(field: &Field, dtypes: &DTypeSession) -> DType {
 
 /// Canonical extensions store UTF-8 bytes directly; non-canonical extensions base64-encode so
 /// arbitrary binary plugin output survives the String-typed metadata channel.
-fn decode_extension_metadata(field: &Field, is_canonical: bool) -> VortexResult<Vec<u8>> {
+fn decode_extension_metadata(field: &Field, is_canonical: bool) -> VortexResult<Cow<'_, [u8]>> {
     match field.extension_type_metadata() {
-        None | Some("") => Ok(Vec::new()),
-        Some(s) if is_canonical => Ok(s.as_bytes().to_vec()),
+        None | Some("") => Ok(Cow::Borrowed(&[])),
+        Some(s) if is_canonical => Ok(Cow::Borrowed(s.as_bytes())),
         Some(s) => BASE64_STANDARD
             .decode(s)
+            .map(Cow::Owned)
             .map_err(|e| vortex_err!("failed to base64-decode {EXTENSION_TYPE_METADATA_KEY}: {e}")),
     }
 }

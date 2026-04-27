@@ -145,69 +145,64 @@ mod tests {
         assert_roundtrip(&metadata?)
     }
 
-    /// Constructs a `FixedShapeTensor` ext dtype wrapped in `DType::Extension`.
-    fn tensor_dtype(
-        metadata: FixedShapeTensorMetadata,
-        element: PType,
-        list_size: u32,
-    ) -> VortexResult<DType> {
+    fn tensor_dtype(metadata: FixedShapeTensorMetadata, element: PType, list_size: u32) -> DType {
         let storage = DType::FixedSizeList(
             Arc::new(DType::Primitive(element, Nullability::NonNullable)),
             list_size,
             Nullability::NonNullable,
         );
-        Ok(DType::Extension(
-            ExtDType::<FixedShapeTensor>::try_new(metadata, storage)?.erased(),
-        ))
+        DType::Extension(
+            ExtDType::<FixedShapeTensor>::try_new(metadata, storage)
+                .unwrap()
+                .erased(),
+        )
     }
 
-    #[test]
-    fn tensor_widens_element_when_metadata_matches() -> VortexResult<()> {
-        let metadata = FixedShapeTensorMetadata::new(vec![2, 3]);
-        let lhs = tensor_dtype(metadata.clone(), PType::F32, 6)?;
-        let rhs = tensor_dtype(metadata.clone(), PType::F64, 6)?;
-        let expected = tensor_dtype(metadata, PType::F64, 6)?;
-        assert_eq!(lhs.least_supertype(&rhs), Some(expected));
-        Ok(())
-    }
-
-    #[test]
-    fn tensor_different_shape_returns_none() -> VortexResult<()> {
-        let lhs = tensor_dtype(FixedShapeTensorMetadata::new(vec![2, 3]), PType::F32, 6)?;
-        let rhs = tensor_dtype(FixedShapeTensorMetadata::new(vec![3, 2]), PType::F32, 6)?;
-        assert_eq!(lhs.least_supertype(&rhs), None);
-        Ok(())
-    }
-
-    #[test]
-    fn tensor_different_permutation_returns_none() -> VortexResult<()> {
-        let lhs_metadata =
-            FixedShapeTensorMetadata::new(vec![2, 3]).with_permutation(vec![0, 1])?;
-        let rhs_metadata =
-            FixedShapeTensorMetadata::new(vec![2, 3]).with_permutation(vec![1, 0])?;
-        let lhs = tensor_dtype(lhs_metadata, PType::F32, 6)?;
-        let rhs = tensor_dtype(rhs_metadata, PType::F32, 6)?;
-        assert_eq!(lhs.least_supertype(&rhs), None);
-        Ok(())
-    }
-
-    #[test]
-    fn tensor_different_dim_names_returns_none() -> VortexResult<()> {
-        let lhs_metadata = FixedShapeTensorMetadata::new(vec![2, 3])
-            .with_dim_names(vec!["x".into(), "y".into()])?;
-        let rhs_metadata = FixedShapeTensorMetadata::new(vec![2, 3])
-            .with_dim_names(vec!["rows".into(), "cols".into()])?;
-        let lhs = tensor_dtype(lhs_metadata, PType::F32, 6)?;
-        let rhs = tensor_dtype(rhs_metadata, PType::F32, 6)?;
-        assert_eq!(lhs.least_supertype(&rhs), None);
-        Ok(())
-    }
-
-    #[test]
-    fn tensor_vs_non_extension_returns_none() -> VortexResult<()> {
-        let lhs = tensor_dtype(FixedShapeTensorMetadata::new(vec![2, 3]), PType::F32, 6)?;
-        let rhs = DType::Primitive(PType::F32, Nullability::NonNullable);
-        assert_eq!(lhs.least_supertype(&rhs), None);
-        Ok(())
+    #[rstest]
+    #[case::widens_element_when_metadata_matches(
+        tensor_dtype(FixedShapeTensorMetadata::new(vec![2, 3]), PType::F32, 6),
+        tensor_dtype(FixedShapeTensorMetadata::new(vec![2, 3]), PType::F64, 6),
+        Some(tensor_dtype(FixedShapeTensorMetadata::new(vec![2, 3]), PType::F64, 6)),
+    )]
+    #[case::different_shape_returns_none(
+        tensor_dtype(FixedShapeTensorMetadata::new(vec![2, 3]), PType::F32, 6),
+        tensor_dtype(FixedShapeTensorMetadata::new(vec![3, 2]), PType::F32, 6),
+        None,
+    )]
+    #[case::different_permutation_returns_none(
+        tensor_dtype(
+            FixedShapeTensorMetadata::new(vec![2, 3]).with_permutation(vec![0, 1]).unwrap(),
+            PType::F32, 6,
+        ),
+        tensor_dtype(
+            FixedShapeTensorMetadata::new(vec![2, 3]).with_permutation(vec![1, 0]).unwrap(),
+            PType::F32, 6,
+        ),
+        None,
+    )]
+    #[case::different_dim_names_returns_none(
+        tensor_dtype(
+            FixedShapeTensorMetadata::new(vec![2, 3])
+                .with_dim_names(vec!["x".into(), "y".into()]).unwrap(),
+            PType::F32, 6,
+        ),
+        tensor_dtype(
+            FixedShapeTensorMetadata::new(vec![2, 3])
+                .with_dim_names(vec!["rows".into(), "cols".into()]).unwrap(),
+            PType::F32, 6,
+        ),
+        None,
+    )]
+    #[case::vs_non_extension_returns_none(
+        tensor_dtype(FixedShapeTensorMetadata::new(vec![2, 3]), PType::F32, 6),
+        DType::Primitive(PType::F32, Nullability::NonNullable),
+        None,
+    )]
+    fn tensor_least_supertype(
+        #[case] lhs: DType,
+        #[case] rhs: DType,
+        #[case] expected: Option<DType>,
+    ) {
+        assert_eq!(lhs.least_supertype(&rhs), expected);
     }
 }
