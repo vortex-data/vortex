@@ -73,7 +73,7 @@ runs:
 
     - name: Rust Compile Cache
       if: inputs.enable-sccache == 'true'
-      uses: mozilla-actions/sccache-action@v0.0.9
+      uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
 
     - name: Pre-start sccache server
       if: inputs.enable-sccache == 'true'

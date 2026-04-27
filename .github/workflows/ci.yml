@@ -30,7 +30,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
-      - uses: spiraldb/actions/.github/actions/lint-toml@0.18.5
+      - uses: spiraldb/actions/.github/actions/lint-toml@a746510eafaa926484c354541cfc49b2ec06cc63 # 0.18.6
 
   validate-workflow-yaml:
     runs-on: ubuntu-latest
