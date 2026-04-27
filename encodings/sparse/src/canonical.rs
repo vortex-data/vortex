@@ -57,67 +57,90 @@ use vortex_error::vortex_bail;
 use crate::ConstantArray;
 use crate::Sparse;
 use crate::SparseArray;
-use crate::SparseExt as _;
+use crate::SparseParts;
+
+/// Build a temporary [`SparseArray`] from resolved patches (for computing validity).
+fn sparse_array_for_validity(patches: &Patches, fill_value: &Scalar, len: usize) -> SparseArray {
+    // Re-wrap resolved patches (offset=0) into a SparseArray so we can call .validity().
+    Sparse::try_new(
+        patches.indices().clone(),
+        patches.values().clone(),
+        len,
+        fill_value.clone(),
+    )
+    .vortex_expect("rebuilding SparseArray for validity")
+}
+
 pub(super) fn execute_sparse(
-    array: &SparseArray,
+    parts: SparseParts,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    if array.patches().num_patches() == 0 {
-        return Ok(ConstantArray::new(array.fill_scalar().clone(), array.len()).into_array());
+    let SparseParts { patches, fill_value, dtype, len } = parts;
+
+    if patches.num_patches() == 0 {
+        return Ok(ConstantArray::new(fill_value, len).into_array());
     }
 
-    Ok(match array.dtype() {
+    // Patches are already resolved (offset subtracted) by SparseParts::resolve_patches().
+    Ok(match &dtype {
         DType::Null => {
-            assert!(array.fill_scalar().is_null());
-            NullArray::new(array.len()).into_array()
+            assert!(fill_value.is_null());
+            NullArray::new(len).into_array()
         }
         DType::Bool(..) => {
-            let resolved_patches = array.resolved_patches()?;
-            execute_sparse_bools(&resolved_patches, array.fill_scalar(), ctx)?
+            execute_sparse_bools(&patches, &fill_value, ctx)?
         }
         DType::Primitive(ptype, ..) => {
-            let resolved_patches = array.resolved_patches()?;
             match_each_native_ptype!(ptype, |P| {
-                execute_sparse_primitives::<P>(&resolved_patches, array.fill_scalar(), ctx)?
+                execute_sparse_primitives::<P>(&patches, &fill_value, ctx)?
             })
         }
         DType::Struct(struct_fields, ..) => execute_sparse_struct(
             struct_fields,
-            array.fill_scalar().as_struct(),
-            array.dtype().nullability(),
-            &array.patches(),
-            array.len(),
+            fill_value.as_struct(),
+            &dtype,
+            &patches,
+            len,
             ctx,
         )?,
         DType::Decimal(decimal_dtype, nullability) => {
             let canonical_decimal_value_type =
                 DecimalType::smallest_decimal_value_type(decimal_dtype);
-            let fill_value = array.fill_scalar().as_decimal();
+            let fill_decimal = fill_value.as_decimal();
             match_each_decimal_value_type!(canonical_decimal_value_type, |D| {
                 execute_sparse_decimal::<D>(
                     *decimal_dtype,
                     *nullability,
-                    fill_value,
-                    &array.patches(),
-                    array.len(),
+                    fill_decimal,
+                    &patches,
+                    len,
                     ctx,
                 )?
             })
         }
         dtype @ DType::Utf8(..) => {
-            let fill_value = array.fill_scalar().as_utf8().value().cloned();
-            let fill_value = fill_value.map(BufferString::into_inner);
-            execute_varbin(array, dtype.clone(), fill_value, ctx)?
+            let fill = fill_value.as_utf8().value().cloned();
+            let fill = fill.map(BufferString::into_inner);
+            let validity_arr = sparse_array_for_validity(&patches, &fill_value, len);
+            execute_varbin(&patches, &validity_arr, dtype.clone(), fill, ctx)?
         }
         dtype @ DType::Binary(..) => {
-            let fill_value = array.fill_scalar().as_binary().value().cloned();
-            execute_varbin(array, dtype.clone(), fill_value, ctx)?
+            let fill = fill_value.as_binary().value().cloned();
+            let validity_arr = sparse_array_for_validity(&patches, &fill_value, len);
+            execute_varbin(&patches, &validity_arr, dtype.clone(), fill, ctx)?
         }
         DType::List(values_dtype, nullability) => {
-            execute_sparse_lists(array, Arc::clone(values_dtype), *nullability, ctx)?
+            let validity_arr = sparse_array_for_validity(&patches, &fill_value, len);
+            execute_sparse_lists(
+                &patches, &validity_arr, &fill_value,
+                Arc::clone(values_dtype), *nullability, ctx,
+            )?
         }
         DType::FixedSizeList(.., nullability) => {
-            execute_sparse_fixed_size_list(array, *nullability, ctx)?
+            let validity_arr = sparse_array_for_validity(&patches, &fill_value, len);
+            execute_sparse_fixed_size_list(
+                &patches, &validity_arr, &fill_value, *nullability, ctx,
+            )?
         }
         DType::Extension(_ext_dtype) => todo!(),
         DType::Variant(_) => vortex_bail!("Sparse canonicalization does not support Variant"),
@@ -129,34 +152,39 @@ pub(super) fn execute_sparse(
     reason = "complexity is from nested match_smallest_offset_type macro"
 )]
 fn execute_sparse_lists(
-    array: &SparseArray,
+    resolved: &Patches,
+    validity_array: &SparseArray,
+    fill_value: &Scalar,
     values_dtype: Arc<DType>,
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let resolved_patches = array.resolved_patches()?;
-
-    let indices = resolved_patches
+    let indices = resolved
         .indices()
         .clone()
         .execute::<PrimitiveArray>(ctx)?;
-    let values = resolved_patches
+    let values = resolved
         .values()
         .clone()
         .execute::<ListViewArray>(ctx)?;
-    let fill_scalar = array.fill_scalar().as_list();
+    let fill_list = fill_value.as_list();
 
-    let n_filled = array.len() - resolved_patches.num_patches();
-    let total_canonical_values = values.elements().len() + fill_scalar.len() * n_filled;
+    let len = validity_array.len();
+    let n_filled = len - resolved.num_patches();
+    let total_canonical_values = values.elements().len() + fill_list.len() * n_filled;
+
+    let arr = validity_array.as_ref();
+    let validity =
+        Validity::from_mask(arr.validity()?.execute_mask(arr.len(), ctx)?, nullability);
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {
         match_smallest_offset_type!(total_canonical_values, |O| {
             execute_sparse_lists_inner::<I, O>(
                 indices.as_slice(),
                 values,
-                fill_scalar,
+                fill_list,
                 values_dtype,
-                array.len(),
+                len,
                 total_canonical_values,
                 nullability,
                 ctx,
@@ -224,28 +252,34 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
 
 /// Canonicalize a sparse [`FixedSizeListArray`] by expanding it into a dense representation.
 fn execute_sparse_fixed_size_list(
-    array: &SparseArray,
+    resolved: &Patches,
+    validity_array: &SparseArray,
+    fill_value: &Scalar,
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let resolved_patches = array.resolved_patches()?;
-    let indices = resolved_patches
+    let indices = resolved
         .indices()
         .clone()
         .execute::<PrimitiveArray>(ctx)?;
-    let values = resolved_patches
+    let values = resolved
         .values()
         .clone()
         .execute::<FixedSizeListArray>(ctx)?;
-    let fill_scalar = array.fill_scalar().as_list();
+    let fill_list = fill_value.as_list();
+    let len = validity_array.len();
+
+    let arr = validity_array.as_ref();
+    let validity =
+        Validity::from_mask(arr.validity()?.execute_mask(arr.len(), ctx)?, nullability);
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {
         execute_sparse_fixed_size_list_inner::<I>(
             indices.as_slice(),
             values,
-            fill_scalar,
-            array.len(),
-            nullability,
+            fill_list,
+            len,
+            validity,
             ctx,
         )
         .into_array()
@@ -500,22 +534,20 @@ fn execute_sparse_decimal<D: NativeDecimalType>(
 }
 
 fn execute_varbin(
-    array: &SparseArray,
+    resolved: &Patches,
+    validity_array: &SparseArray,
     dtype: DType,
     fill_value: Option<ByteBuffer>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let patches = array.resolved_patches()?;
-    let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
-    let values = patches.values().clone().execute::<VarBinViewArray>(ctx)?;
-    let validity = {
-        let arr = array.as_array();
-        Validity::from_mask(
-            arr.validity()?.execute_mask(arr.len(), ctx)?,
-            dtype.nullability(),
-        )
-    };
-    let len = array.len();
+    let indices = resolved.indices().clone().execute::<PrimitiveArray>(ctx)?;
+    let values = resolved.values().clone().execute::<VarBinViewArray>(ctx)?;
+    let arr = validity_array.as_ref();
+    let validity = Validity::from_mask(
+        arr.validity()?.execute_mask(arr.len(), ctx)?,
+        dtype.nullability(),
+    );
+    let len = arr.len();
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {
         let indices = indices.to_buffer::<I>();
