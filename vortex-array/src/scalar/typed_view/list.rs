@@ -29,7 +29,7 @@ use crate::scalar::ScalarValue;
 /// number of `elements` is equal to the `size` field of the [`FixedSizeList`].
 ///
 /// [`FixedSizeList`]: DType::FixedSizeList
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct ListScalar<'a> {
     /// The data type of this scalar.
     dtype: &'a DType,

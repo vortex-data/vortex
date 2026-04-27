@@ -27,7 +27,7 @@ use crate::scalar::ScalarValue;
 ///
 /// This type provides a view into a struct scalar value, which can contain
 /// named fields with different types, or be null.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct StructScalar<'a> {
     /// The data type of this scalar.
     dtype: &'a DType,
