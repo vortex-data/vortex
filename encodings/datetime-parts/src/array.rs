@@ -7,6 +7,7 @@ use std::fmt::Formatter;
 use std::hash::Hasher;
 
 use prost::Message;
+use vortex_array::AnyCanonical;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -19,11 +20,14 @@ use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::TypedArrayRef;
+use vortex_array::arrays::Primitive;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::require_child;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -104,16 +108,8 @@ impl VTable for DateTimeParts {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let days = slots[DAYS_SLOT]
-            .as_ref()
-            .vortex_expect("DateTimePartsArray days slot");
-        let seconds = slots[SECONDS_SLOT]
-            .as_ref()
-            .vortex_expect("DateTimePartsArray seconds slot");
-        let subseconds = slots[SUBSECONDS_SLOT]
-            .as_ref()
-            .vortex_expect("DateTimePartsArray subseconds slot");
-        DateTimePartsData::validate(dtype, days, seconds, subseconds, len)
+        let slots = DateTimePartsSlotsView::from_slots(slots);
+        DateTimePartsData::validate(dtype, slots.days, slots.seconds, slots.subseconds, len)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -181,12 +177,20 @@ impl VTable for DateTimeParts {
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        DateTimePartsSlots::NAMES[idx].to_string()
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.days(), DateTimePartsSlots::DAYS => Primitive);
+        let array =
+            require_child!(array, array.seconds(), DateTimePartsSlots::SECONDS => AnyCanonical);
+        let array = require_child!(array, array.subseconds(), DateTimePartsSlots::SUBSECONDS => AnyCanonical);
+
+        let dtype = array.dtype().clone();
+        let parts = array.into_parts();
+
         Ok(ExecutionResult::done(
-            decode_to_temporal(&array, ctx)?.into_array(),
+            decode_to_temporal(parts, &dtype, ctx)?.into_array(),
         ))
     }
 
@@ -208,45 +212,57 @@ impl VTable for DateTimeParts {
     }
 }
 
-/// The days component of the datetime, stored as an integer array.
-pub(super) const DAYS_SLOT: usize = 0;
-/// The seconds component of the datetime (within the day).
-pub(super) const SECONDS_SLOT: usize = 1;
-/// The sub-second component of the datetime.
-pub(super) const SUBSECONDS_SLOT: usize = 2;
-pub(super) const NUM_SLOTS: usize = 3;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["days", "seconds", "subseconds"];
+#[vortex_array::array_slots(DateTimeParts)]
+pub struct DateTimePartsSlots {
+    /// The days component of the datetime, stored as an integer array.
+    pub days: ArrayRef,
+    /// The seconds component of the datetime (within the day).
+    pub seconds: ArrayRef,
+    /// The sub-second component of the datetime.
+    pub subseconds: ArrayRef,
+}
 
 #[derive(Clone, Debug)]
 pub struct DateTimePartsData {}
+
+pub struct DateTimePartsParts {
+    pub days: ArrayRef,
+    pub seconds: ArrayRef,
+    pub subseconds: ArrayRef,
+}
+
+pub trait DateTimePartsOwnedExt {
+    fn into_parts(self) -> DateTimePartsParts;
+}
+
+impl DateTimePartsOwnedExt for Array<DateTimeParts> {
+    fn into_parts(self) -> DateTimePartsParts {
+        match self.try_into_parts() {
+            Ok(parts) => {
+                let slots = DateTimePartsSlots::from_slots(parts.slots);
+                DateTimePartsParts {
+                    days: slots.days,
+                    seconds: slots.seconds,
+                    subseconds: slots.subseconds,
+                }
+            }
+            Err(array) => {
+                let view = DateTimePartsSlotsView::from_slots(array.as_ref().slots());
+                DateTimePartsParts {
+                    days: view.days.clone(),
+                    seconds: view.seconds.clone(),
+                    subseconds: view.subseconds.clone(),
+                }
+            }
+        }
+    }
+}
 
 impl Display for DateTimePartsData {
     fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
         Ok(())
     }
 }
-
-pub trait DateTimePartsArrayExt: TypedArrayRef<DateTimeParts> {
-    fn days(&self) -> &ArrayRef {
-        self.as_ref().slots()[DAYS_SLOT]
-            .as_ref()
-            .vortex_expect("DateTimePartsArray days slot")
-    }
-
-    fn seconds(&self) -> &ArrayRef {
-        self.as_ref().slots()[SECONDS_SLOT]
-            .as_ref()
-            .vortex_expect("DateTimePartsArray seconds slot")
-    }
-
-    fn subseconds(&self) -> &ArrayRef {
-        self.as_ref().slots()[SUBSECONDS_SLOT]
-            .as_ref()
-            .vortex_expect("DateTimePartsArray subseconds slot")
-    }
-}
-
-impl<T: TypedArrayRef<DateTimeParts>> DateTimePartsArrayExt for T {}
 
 #[derive(Clone, Debug)]
 pub struct DateTimeParts;
