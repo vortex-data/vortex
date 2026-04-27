@@ -398,7 +398,7 @@ pub enum V3Bin {
 pub fn classify(record: &V2Record) -> Option<V3Bin> {
     let cls = classify_v2(record)?;
     match &cls.group {
-        V2Group::RandomAccess => bin_random_access(&cls, record),
+        V2Group::RandomAccess => bin_random_access(record),
         V2Group::Compression => bin_compression_time(&cls, record),
         V2Group::CompressionSize => bin_compression_size(&cls, record),
         V2Group::Query { .. } => bin_query(&cls, record),
@@ -537,7 +537,16 @@ pub fn classify_outcome(record: &V2Record) -> Outcome {
         return Outcome::Skip(Skip::DerivedRatio);
     }
     let bin = match &cls.group {
-        V2Group::RandomAccess => bin_random_access(&cls, record),
+        V2Group::RandomAccess => match bin_random_access(record) {
+            Some(b) => Some(b),
+            // Legacy 2-part `random-access/<format>-…` records carry
+            // no dataset and are intentionally dropped by
+            // `bin_random_access`. Route them to Skip so the
+            // `Outcome::Unknown` arm below — and the 5%
+            // uncategorized gate in `migrate::run` — don't trip on
+            // them.
+            None => return Outcome::Skip(Skip::UnsupportedShape),
+        },
         V2Group::Compression => bin_compression_time(&cls, record),
         V2Group::CompressionSize => bin_compression_size(&cls, record),
         V2Group::Query { .. } => bin_query(&cls, record),
@@ -556,34 +565,34 @@ pub fn classify_outcome(record: &V2Record) -> Outcome {
     Outcome::Bin(bin)
 }
 
-fn bin_random_access(cls: &V2Classification, record: &V2Record) -> Option<V3Bin> {
-    // v2 chart name shape: "RANDOM ACCESS" or "DATASET/PATTERN" (uppercase).
-    // We store it as the v3 dataset value verbatim, lowercased so
-    // `/api/groups` returns canonical lowercase names.
-    let dataset = cls.chart.to_lowercase();
-    if dataset.is_empty() {
-        return None;
-    }
-    // Pull format from the raw, pre-rename v2 name so v3 stores the
-    // canonical `Format::name()` string (matching what the v3 live
-    // emitter writes). Raw shape is
+fn bin_random_access(record: &V2Record) -> Option<V3Bin> {
+    // Pull dataset and format from the raw, pre-rename v2 name so v3
+    // stores meaningful values. Raw shape is
     // `random-access/<dataset>/<pattern>/<format>-tokio-local-disk`
-    // (4-part) or `random-access/<format>-tokio-local-disk` (2-part
-    // legacy). After stripping the `-tokio-local-disk` suffix, map the
-    // v2 random-access ext label (`vortex`, from `Format::ext()`) to
-    // the canonical name (`vortex-file-compressed`, from
-    // `Format::name()`). `parquet` and `lance` match between ext and
-    // name. The `vortex` ext is shared by both `OnDiskVortex` (name
+    // (4-part). 2-part legacy records (`random-access/<format>-…`)
+    // carry no dataset and historically rendered as the placeholder
+    // string "RANDOM ACCESS"; drop them rather than emit a fake
+    // dataset. Deriving from the raw name (rather than `cls.chart`)
+    // also keeps this independent of v2's `normalizeChartName`.
+    //
+    // After stripping the `-tokio-local-disk` suffix, map the v2
+    // random-access ext label (`vortex`, from `Format::ext()`) to the
+    // canonical name (`vortex-file-compressed`, from `Format::name()`).
+    // `parquet` and `lance` match between ext and name. The `vortex`
+    // ext is shared by both `OnDiskVortex` (name
     // `vortex-file-compressed`) and `VortexCompact` (name
     // `vortex-compact`), but v2's random-access bench only emitted
     // `OnDiskVortex`, so mapping to `vortex-file-compressed` is
     // correct for all historical data.
     let parts: Vec<&str> = record.name.split('/').collect();
-    let raw = match parts.len() {
-        4 => parts[3],
-        2 => parts[1],
-        _ => return None,
-    };
+    if parts.len() != 4 {
+        return None;
+    }
+    if parts[1].is_empty() || parts[2].is_empty() {
+        return None;
+    }
+    let dataset = format!("{}/{}", parts[1], parts[2]).to_lowercase();
+    let raw = parts[3];
     if raw.is_empty() || raw == "default" {
         return None;
     }
@@ -668,15 +677,20 @@ fn bin_compression_size(cls: &V2Classification, record: &V2Record) -> Option<V3B
     }
     // Mirror the file-sizes ingest path's dataset_variant derivation
     // (see `migrate::migrate_file_sizes`): pull the SF out of the v2
-    // record's `dataset` object when present, drop empty / "1.0".
-    // Without this both code paths produce the same `mid` only by
-    // accident, so SF=10 file-sizes rows wouldn't merge with the
-    // matching data.json.gz "vortex size/tpch" rows.
-    let dataset_variant = record
-        .dataset
-        .as_ref()
-        .and_then(|d| crate::v2::dataset_scale_factor(d, dataset.as_str()))
-        .filter(|s| !s.is_empty() && s.as_str() != "1.0");
+    // record's `dataset` object when present and run it through
+    // `canonical_scale_factor` so `"1"`, `"1.0"`, `"10"` and `"10.0"`
+    // collapse to one canonical form. Without this both code paths
+    // produce the same `mid` only by accident, so SF=10 file-sizes
+    // rows wouldn't merge with the matching data.json.gz
+    // "vortex size/tpch" rows when one side wrote `"10"` and the
+    // other wrote `"10.0"`.
+    let dataset_variant = crate::v2::canonical_scale_factor(
+        record
+            .dataset
+            .as_ref()
+            .and_then(|d| crate::v2::dataset_scale_factor(d, dataset.as_str()))
+            .as_deref(),
+    );
     Some(V3Bin::CompressionSize {
         dataset,
         dataset_variant,

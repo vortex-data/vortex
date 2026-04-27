@@ -12,11 +12,11 @@ pub const SCHEMA_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS commits (
     commit_sha       TEXT        PRIMARY KEY NOT NULL,
     timestamp        TIMESTAMPTZ NOT NULL,
-    message          TEXT        NOT NULL,
-    author_name      TEXT        NOT NULL,
-    author_email     TEXT        NOT NULL,
-    committer_name   TEXT        NOT NULL,
-    committer_email  TEXT        NOT NULL,
+    message          TEXT,
+    author_name      TEXT,
+    author_email     TEXT,
+    committer_name   TEXT,
+    committer_email  TEXT,
     tree_sha         TEXT        NOT NULL,
     url              TEXT        NOT NULL
 );

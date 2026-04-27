@@ -11,38 +11,20 @@ use duckdb::params;
 
 use crate::v2::V2Commit;
 
-/// Insert a v3 `commits` row for one v2 commit. Missing fields are
-/// filled with the empty string, matching the v3 schema's `NOT NULL`
-/// constraints; the call site logs a warning for each fallback so
-/// the operator can spot bad inputs.
+/// Insert a v3 `commits` row for one v2 commit. `tree_sha` and `url`
+/// remain required and use a warning-bearing empty-string fallback;
+/// the human-input fields (message, author/committer name and email)
+/// are nullable in the v3 schema, so empty / missing values map to
+/// SQL `NULL` instead of an empty string the UI would render as a
+/// blank cell.
 pub fn upsert_commit(tx: &Transaction<'_>, commit: &V2Commit) -> Result<UpsertOutcome> {
     let mut warnings = Vec::new();
     let timestamp = require_field(&commit.timestamp, "timestamp", &commit.id, &mut warnings);
-    let message = require_field(&commit.message, "message", &commit.id, &mut warnings);
-    let author_name = require_field(
-        &commit.author.as_ref().and_then(|p| p.name.clone()),
-        "author.name",
-        &commit.id,
-        &mut warnings,
-    );
-    let author_email = require_field(
-        &commit.author.as_ref().and_then(|p| p.email.clone()),
-        "author.email",
-        &commit.id,
-        &mut warnings,
-    );
-    let committer_name = require_field(
-        &commit.committer.as_ref().and_then(|p| p.name.clone()),
-        "committer.name",
-        &commit.id,
-        &mut warnings,
-    );
-    let committer_email = require_field(
-        &commit.committer.as_ref().and_then(|p| p.email.clone()),
-        "committer.email",
-        &commit.id,
-        &mut warnings,
-    );
+    let message = optional_field(&commit.message);
+    let author_name = optional_field(&commit.author.as_ref().and_then(|p| p.name.clone()));
+    let author_email = optional_field(&commit.author.as_ref().and_then(|p| p.email.clone()));
+    let committer_name = optional_field(&commit.committer.as_ref().and_then(|p| p.name.clone()));
+    let committer_email = optional_field(&commit.committer.as_ref().and_then(|p| p.email.clone()));
     let tree_sha = require_field(&commit.tree_id, "tree_id", &commit.id, &mut warnings);
     let url = require_field(&commit.url, "url", &commit.id, &mut warnings);
 
@@ -91,6 +73,19 @@ fn require_field(
             String::new()
         }
     }
+}
+
+/// Coerce a v2-supplied `Option<String>` into a SQL-bindable
+/// `Option<String>`, treating an empty / whitespace-only value as
+/// missing. v2 sometimes wrote `""` for blank author / committer /
+/// message fields; storing those as actual `NULL` lets the UI
+/// distinguish "missing metadata" from "deliberately blank".
+fn optional_field(field: &Option<String>) -> Option<String> {
+    field
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 /// Per-call warning bag returned to the caller for logging.
