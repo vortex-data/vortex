@@ -58,6 +58,7 @@ pub fn router(state: AppState) -> Router {
     let read_routes = Router::new()
         .route("/api/groups", get(api::groups))
         .route("/api/chart/{slug}", get(api::chart))
+        .route("/api/group/{slug}", get(api::group))
         .route("/health", get(api::health));
 
     Router::new()
