@@ -6,9 +6,14 @@
   --fg: #1a1a1a;
   --muted: #6b6b6b;
   --accent: #2563eb;
+  --accent-fg: #ffffff;
   --border: #e4e4e7;
   --card-bg: #fafafa;
   --code-bg: #f3f4f6;
+  --tooltip-bg: #1a1a1a;
+  --tooltip-fg: #f5f5f5;
+  --good: #16a34a;
+  --bad: #dc2626;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -17,15 +22,18 @@
     --fg: #e6e6e6;
     --muted: #a1a1aa;
     --accent: #60a5fa;
+    --accent-fg: #0f1115;
     --border: #27272a;
     --card-bg: #16181d;
     --code-bg: #1f2229;
+    --tooltip-bg: #1a1c22;
+    --tooltip-fg: #f5f5f5;
+    --good: #4ade80;
+    --bad: #f87171;
   }
 }
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 html, body {
   margin: 0;
@@ -38,30 +46,15 @@ html, body {
   line-height: 1.5;
 }
 
-a {
-  color: var(--accent);
-  text-decoration: none;
-}
-
-a:hover {
-  text-decoration: underline;
-}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
 
 .page-header {
   border-bottom: 1px solid var(--border);
   padding: 1rem 1.5rem;
 }
-
-.page-header h1 {
-  margin: 0;
-  font-size: 1.25rem;
-  font-weight: 600;
-}
-
-.page-header h1 a {
-  color: var(--fg);
-}
-
+.page-header h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
+.page-header h1 a { color: var(--fg); }
 .page-header .subtitle {
   margin: 0.25rem 0 0;
   color: var(--muted);
@@ -69,7 +62,7 @@ a:hover {
 }
 
 main {
-  max-width: 1100px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 1.5rem;
 }
@@ -79,19 +72,41 @@ main {
   font-style: italic;
 }
 
+/* ----------------------------------------------------------------------
+ * Landing page
+ * ---------------------------------------------------------------------- */
+.landing-search {
+  margin-bottom: 1rem;
+}
+.landing-search input {
+  width: 100%;
+  max-width: 32rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+}
+
 .group {
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--card-bg);
   padding: 1rem 1.25rem;
 }
-
 .group h2 {
   margin: 0 0 0.75rem;
   font-size: 1rem;
   font-weight: 600;
   color: var(--fg);
+}
+.group .group-link {
+  color: var(--fg);
+}
+.group .group-link:hover {
+  color: var(--accent);
 }
 
 .charts {
@@ -100,13 +115,9 @@ main {
   padding: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 0.4rem;
 }
-
-.charts li {
-  margin: 0;
-}
-
+.charts li { margin: 0; }
 .charts a {
   display: inline-block;
   padding: 0.25rem 0.6rem;
@@ -116,12 +127,77 @@ main {
   font-size: 0.875rem;
 }
 
+/* ----------------------------------------------------------------------
+ * Toolbar
+ * ---------------------------------------------------------------------- */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card-bg);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  -webkit-backdrop-filter: saturate(140%) blur(6px);
+  backdrop-filter: saturate(140%) blur(6px);
+}
+.toolbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+.toolbar-label {
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 0.25rem;
+}
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+.toolbar-btn:hover { border-color: var(--accent); }
+.toolbar-btn--active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+.toolbar-btn--active:hover { color: var(--accent-fg); }
+.toolbar-slider-label {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+  color: var(--muted);
+  min-width: 2.5rem;
+  text-align: right;
+}
+#scope-slider {
+  width: 9rem;
+}
+
+/* ----------------------------------------------------------------------
+ * Single-chart + group-page chart card
+ * ---------------------------------------------------------------------- */
 .chart-meta {
   color: var(--muted);
   font-size: 0.875rem;
-  margin: 0 0 1rem;
+  margin: 0 0 0.75rem;
 }
-
 .chart-meta code {
   background: var(--code-bg);
   padding: 0.1rem 0.35rem;
@@ -129,18 +205,41 @@ main {
   font-size: 0.85em;
 }
 
-.chart-wrap {
+.chart-card {
   position: relative;
-  height: 480px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--card-bg);
-  padding: 1rem;
+  padding: 0.75rem 1rem 1rem;
+  margin-bottom: 1.25rem;
+}
+.chart-card-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.chart-card-title a { color: var(--fg); }
+.chart-card-title a:hover { color: var(--accent); }
+
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 1rem;
 }
 
+.chart-wrap {
+  position: relative;
+  height: 320px;
+}
+.chart-card .chart-wrap canvas,
 .chart-wrap canvas {
   width: 100% !important;
   height: 100% !important;
+}
+
+/* Single-chart pages get a taller area; group cards keep the compact 320px. */
+main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
+  height: 480px;
 }
 
 .no-script {
@@ -151,4 +250,105 @@ main {
   background: var(--code-bg);
   color: var(--muted);
   font-size: 0.875rem;
+}
+
+/* ----------------------------------------------------------------------
+ * Custom external tooltip
+ * ---------------------------------------------------------------------- */
+.chart-tooltip-host {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 20;
+  background: var(--tooltip-bg);
+  color: var(--tooltip-fg);
+  border-radius: 6px;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  max-width: 22rem;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  transform: translate(-50%, calc(-100% - 12px));
+  transition: opacity 100ms;
+}
+.tt-title {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+  font-variant-numeric: tabular-nums;
+}
+.tt-rows { display: flex; flex-direction: column; gap: 0.15rem; }
+.tt-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+.tt-swatch {
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.tt-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 11rem;
+}
+.tt-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+.tt-delta {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  opacity: 0.85;
+}
+.tt-delta--better { color: var(--good); }
+.tt-delta--worse { color: var(--bad); }
+.tt-footer {
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.tt-msg {
+  color: var(--tooltip-fg);
+  opacity: 0.85;
+  white-space: normal;
+  font-style: italic;
+}
+.tt-link {
+  color: #93c5fd;
+  font-size: 0.78rem;
+}
+.tt-link:hover { color: #c7e0ff; }
+
+/* ----------------------------------------------------------------------
+ * Mobile
+ * ---------------------------------------------------------------------- */
+@media (max-width: 768px) {
+  main { padding: 1rem; }
+  .toolbar {
+    padding: 0.5rem 0.65rem;
+    gap: 0.5rem 0.85rem;
+  }
+  .toolbar-btn {
+    min-height: 40px;
+    padding: 0.4rem 0.85rem;
+    font-size: 0.95rem;
+  }
+  #scope-slider { width: 100%; flex: 1 1 auto; }
+  .chart-grid { grid-template-columns: 1fr; gap: 0.75rem; }
+  .chart-wrap { height: 260px; }
+  main > .chart-card:not(.chart-grid .chart-card) .chart-wrap { height: 360px; }
+  .group {
+    padding: 0.75rem 0.85rem;
+  }
+  .charts a { padding: 0.35rem 0.7rem; min-height: 32px; }
 }

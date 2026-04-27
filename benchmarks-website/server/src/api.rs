@@ -7,14 +7,19 @@
 //! `benchmarks-website/planning/01-schema.md`. Slugs round-trip through
 //! [`crate::slug::ChartKey`].
 
+use std::num::NonZeroU32;
+
 use anyhow::Context as _;
 use anyhow::Result;
 use axum::Json;
 use axum::extract::Path;
+use axum::extract::Query;
 use axum::extract::State;
 use axum::response::IntoResponse;
 use duckdb::Connection;
-use duckdb::params;
+use duckdb::ToSql;
+use duckdb::params_from_iter;
+use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 
@@ -22,6 +27,98 @@ use crate::app::AppState;
 use crate::db;
 use crate::error::ApiError;
 use crate::slug::ChartKey;
+use crate::slug::GroupKey;
+
+/// Default cap on the number of commits returned per chart.
+pub const DEFAULT_COMMIT_WINDOW: u32 = 100;
+/// Hard server-side ceiling on `?n=NNN`.
+pub const MAX_COMMIT_WINDOW: u32 = 1000;
+
+/// Server-side cap on how many of the most recent commits a chart includes.
+///
+/// `Last(n)` keeps the most recent `n` commits by `commits.timestamp`; `All`
+/// returns every commit ever ingested.
+#[derive(Debug, Clone, Copy)]
+pub enum CommitWindow {
+    /// Keep the most recent `n` commits.
+    Last(NonZeroU32),
+    /// No cap.
+    All,
+}
+
+impl Default for CommitWindow {
+    fn default() -> Self {
+        Self::Last(NonZeroU32::new(DEFAULT_COMMIT_WINDOW).expect("non-zero default"))
+    }
+}
+
+impl CommitWindow {
+    /// Parse the `?n=...` query string parameter. `None` and malformed values
+    /// fall back to [`CommitWindow::default`]. `"all"` (any case) means
+    /// unbounded. Numeric values are clamped to `[1, MAX_COMMIT_WINDOW]`.
+    pub fn parse(raw: Option<&str>) -> Self {
+        let Some(s) = raw else {
+            return Self::default();
+        };
+        let trimmed = s.trim();
+        if trimmed.eq_ignore_ascii_case("all") {
+            return Self::All;
+        }
+        trimmed
+            .parse::<u32>()
+            .ok()
+            .map(|v| v.clamp(1, MAX_COMMIT_WINDOW))
+            .and_then(NonZeroU32::new)
+            .map(Self::Last)
+            .unwrap_or_default()
+    }
+
+    /// SQL fragment to splice into chart queries that filters `commits c` to
+    /// just the most recent `n` commits. Empty for `All`. The placeholder is
+    /// satisfied by [`Self::limit_param`] so the LIMIT value travels as a
+    /// bound parameter rather than an interpolated integer.
+    fn sql_filter(&self) -> &'static str {
+        match self {
+            Self::All => "",
+            Self::Last(_) => {
+                " AND c.commit_sha IN \
+                 (SELECT commit_sha FROM commits ORDER BY timestamp DESC LIMIT ?)"
+            }
+        }
+    }
+
+    /// Bound parameter for the `LIMIT ?` placeholder produced by
+    /// [`Self::sql_filter`]. `None` for [`Self::All`] (no extra `?` to bind).
+    fn limit_param(&self) -> Option<i64> {
+        match self {
+            Self::All => None,
+            Self::Last(n) => Some(i64::from(n.get())),
+        }
+    }
+
+    /// Render this window as the value the URL would carry (`"100"` /
+    /// `"all"`). Used by the HTML toolbar to mark the active scope.
+    pub fn url_value(&self) -> String {
+        match self {
+            Self::All => "all".into(),
+            Self::Last(n) => n.get().to_string(),
+        }
+    }
+}
+
+/// Query string for `/api/chart/{slug}` and `/chart/{slug}`.
+#[derive(Debug, Default, Deserialize)]
+pub struct ChartQuery {
+    /// Commit window: `25`, `50`, `100`, `250`, `all`, etc.
+    pub n: Option<String>,
+}
+
+impl ChartQuery {
+    /// Resolved [`CommitWindow`] from the raw `n` parameter.
+    pub fn window(&self) -> CommitWindow {
+        CommitWindow::parse(self.n.as_deref())
+    }
+}
 
 #[derive(Debug, Serialize)]
 pub struct GroupsResponse {
@@ -31,7 +128,27 @@ pub struct GroupsResponse {
 #[derive(Debug, Serialize)]
 pub struct Group {
     pub name: String,
+    /// Slug for `/group/{slug}`. Round-trips through [`crate::slug::GroupKey`].
+    pub slug: String,
     pub charts: Vec<ChartLink>,
+}
+
+/// All charts in one group, returned by `GET /api/group/{slug}`.
+#[derive(Debug, Serialize)]
+pub struct GroupChartsResponse {
+    pub name: String,
+    pub charts: Vec<NamedChartResponse>,
+}
+
+/// A single chart inside a [`GroupChartsResponse`]. `name` is the chart's
+/// short label inside the group (e.g. `Q1`); `slug` round-trips through
+/// `/api/chart/{slug}`.
+#[derive(Debug, Serialize)]
+pub struct NamedChartResponse {
+    pub name: String,
+    pub slug: String,
+    #[serde(flatten)]
+    pub chart: ChartResponse,
 }
 
 #[derive(Debug, Serialize)]
@@ -85,12 +202,33 @@ pub async fn groups(State(state): State<AppState>) -> Result<impl IntoResponse, 
 pub async fn chart(
     State(state): State<AppState>,
     Path(slug): Path<String>,
+    Query(q): Query<ChartQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let key = ChartKey::from_slug(&slug)
         .map_err(|e| ApiError::BadRequest(format!("invalid slug: {e}")))?;
-    let response = db::run_blocking(&state.db, move |conn| collect_chart(conn, &key)).await?;
+    let window = q.window();
+    let response =
+        db::run_blocking(&state.db, move |conn| collect_chart(conn, &key, &window)).await?;
     let response =
         response.ok_or_else(|| ApiError::NotFound(format!("no data for slug {slug:?}")))?;
+    Ok(Json(response))
+}
+
+/// Handler for `GET /api/group/{slug}`.
+pub async fn group(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+    Query(q): Query<ChartQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let key = GroupKey::from_slug(&slug)
+        .map_err(|e| ApiError::BadRequest(format!("invalid group slug: {e}")))?;
+    let window = q.window();
+    let response = db::run_blocking(&state.db, move |conn| {
+        collect_group_charts(conn, &key, &window)
+    })
+    .await?;
+    let response =
+        response.ok_or_else(|| ApiError::NotFound(format!("no data for group slug {slug:?}")))?;
     Ok(Json(response))
 }
 
@@ -186,8 +324,16 @@ fn collect_query_groups(conn: &Connection) -> Result<Vec<Group>> {
         );
         let need_new_group = current.as_ref() != Some(&key);
         if need_new_group {
+            let group_slug = GroupKey::QueryGroup {
+                dataset: dataset.clone(),
+                dataset_variant: dataset_variant.clone(),
+                scale_factor: scale_factor.clone(),
+                storage: storage.clone(),
+            }
+            .to_slug();
             groups.push(Group {
                 name: group_name_query(&dataset, &dataset_variant, &scale_factor, &storage),
+                slug: group_slug,
                 charts: Vec::new(),
             });
             current = Some(key);
@@ -271,6 +417,7 @@ fn collect_compression_time_group(conn: &Connection) -> Result<Option<Group>> {
     } else {
         Ok(Some(Group {
             name: "Compression".into(),
+            slug: GroupKey::CompressionTimeGroup.to_slug(),
             charts,
         }))
     }
@@ -314,6 +461,7 @@ fn collect_compression_size_group(conn: &Connection) -> Result<Option<Group>> {
     } else {
         Ok(Some(Group {
             name: "Compression Size".into(),
+            slug: GroupKey::CompressionSizeGroup.to_slug(),
             charts,
         }))
     }
@@ -341,6 +489,7 @@ fn collect_random_access_group(conn: &Connection) -> Result<Option<Group>> {
     } else {
         Ok(Some(Group {
             name: "Random Access".into(),
+            slug: GroupKey::RandomAccessGroup.to_slug(),
             charts,
         }))
     }
@@ -369,8 +518,14 @@ fn collect_vector_search_groups(conn: &Connection) -> Result<Vec<Group>> {
         let (dataset, layout, threshold) = row?;
         let key = (dataset.clone(), layout.clone());
         if current.as_ref() != Some(&key) {
+            let group_slug = GroupKey::VectorSearchGroup {
+                dataset: dataset.clone(),
+                layout: layout.clone(),
+            }
+            .to_slug();
             groups.push(Group {
                 name: format!("{dataset} / {layout}"),
+                slug: group_slug,
                 charts: Vec::new(),
             });
             current = Some(key);
@@ -394,8 +549,12 @@ fn collect_vector_search_groups(conn: &Connection) -> Result<Vec<Group>> {
 }
 
 /// Collect the data for one chart by key. Used by both `GET /api/chart/:slug`
-/// and the HTML chart page.
-pub(crate) fn collect_chart(conn: &Connection, key: &ChartKey) -> Result<Option<ChartResponse>> {
+/// and the HTML chart page. `window` caps the number of recent commits.
+pub(crate) fn collect_chart(
+    conn: &Connection,
+    key: &ChartKey,
+    window: &CommitWindow,
+) -> Result<Option<ChartResponse>> {
     match key {
         ChartKey::QueryMeasurement {
             dataset,
@@ -410,22 +569,57 @@ pub(crate) fn collect_chart(conn: &Connection, key: &ChartKey) -> Result<Option<
             scale_factor,
             storage,
             *query_idx,
+            window,
         ),
         ChartKey::CompressionTime {
             dataset,
             dataset_variant,
-        } => collect_compression_time_chart(conn, dataset, dataset_variant),
+        } => collect_compression_time_chart(conn, dataset, dataset_variant, window),
         ChartKey::CompressionSize {
             dataset,
             dataset_variant,
-        } => collect_compression_size_chart(conn, dataset, dataset_variant),
-        ChartKey::RandomAccess { dataset } => collect_random_access_chart(conn, dataset),
+        } => collect_compression_size_chart(conn, dataset, dataset_variant, window),
+        ChartKey::RandomAccess { dataset } => collect_random_access_chart(conn, dataset, window),
         ChartKey::VectorSearch {
             dataset,
             layout,
             threshold,
-        } => collect_vector_search_chart(conn, dataset, layout, *threshold),
+        } => collect_vector_search_chart(conn, dataset, layout, *threshold, window),
     }
+}
+
+/// Collect every chart inside one group. Returns `None` if the group has no
+/// data at all (callers should render a 404).
+pub(crate) fn collect_group_charts(
+    conn: &Connection,
+    key: &GroupKey,
+    window: &CommitWindow,
+) -> Result<Option<GroupChartsResponse>> {
+    let groups = collect_groups(conn)?;
+    let group = groups.into_iter().find(|g| g.slug == key.to_slug());
+    let Some(group) = group else {
+        return Ok(None);
+    };
+    let mut charts = Vec::with_capacity(group.charts.len());
+    for link in group.charts {
+        let chart_key = ChartKey::from_slug(&link.slug)
+            .with_context(|| format!("invalid chart slug in group: {}", link.slug))?;
+        let Some(chart) = collect_chart(conn, &chart_key, window)? else {
+            continue;
+        };
+        charts.push(NamedChartResponse {
+            name: link.name,
+            slug: link.slug,
+            chart,
+        });
+    }
+    if charts.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(GroupChartsResponse {
+        name: group.name,
+        charts,
+    }))
 }
 
 /// Time series rows are gathered keyed by `(commit_sha, series_key)` and then
@@ -497,8 +691,9 @@ fn collect_query_chart(
     scale_factor: &Option<String>,
     storage: &str,
     query_idx: i32,
+    window: &CommitWindow,
 ) -> Result<Option<ChartResponse>> {
-    let mut stmt = conn.prepare(
+    let sql = format!(
         r#"
         SELECT q.commit_sha,
                CAST(c.timestamp AS VARCHAR),
@@ -510,31 +705,34 @@ fn collect_query_chart(
            AND q.dataset_variant IS NOT DISTINCT FROM ?
            AND q.scale_factor    IS NOT DISTINCT FROM ?
            AND q.storage = ?
-           AND q.query_idx = ?
+           AND q.query_idx = ?{filter}
          ORDER BY c.timestamp, q.engine, q.format
         "#,
-    )?;
+        filter = window.sql_filter(),
+    );
+    let mut stmt = conn.prepare(&sql)?;
     let mut acc = SeriesAccumulator::new();
-    let rows = stmt.query_map(
-        params![
-            dataset,
-            dataset_variant.as_deref(),
-            scale_factor.as_deref(),
-            storage,
-            query_idx,
-        ],
-        |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, i64>(6)?,
-            ))
-        },
-    )?;
+    let mut binds: Vec<Box<dyn ToSql>> = vec![
+        Box::new(dataset.to_string()),
+        Box::new(dataset_variant.clone()),
+        Box::new(scale_factor.clone()),
+        Box::new(storage.to_string()),
+        Box::new(query_idx),
+    ];
+    if let Some(limit) = window.limit_param() {
+        binds.push(Box::new(limit));
+    }
+    let rows = stmt.query_map(params_from_iter(binds.iter()), |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, String>(4)?,
+            row.get::<_, String>(5)?,
+            row.get::<_, i64>(6)?,
+        ))
+    })?;
     let mut any = false;
     for row in rows {
         any = true;
@@ -562,8 +760,9 @@ fn collect_compression_time_chart(
     conn: &Connection,
     dataset: &str,
     dataset_variant: &Option<String>,
+    window: &CommitWindow,
 ) -> Result<Option<ChartResponse>> {
-    let mut stmt = conn.prepare(
+    let sql = format!(
         r#"
         SELECT t.commit_sha,
                CAST(c.timestamp AS VARCHAR),
@@ -572,12 +771,21 @@ fn collect_compression_time_chart(
           FROM compression_times t
           JOIN commits c USING (commit_sha)
          WHERE t.dataset = ?
-           AND t.dataset_variant IS NOT DISTINCT FROM ?
+           AND t.dataset_variant IS NOT DISTINCT FROM ?{filter}
          ORDER BY c.timestamp, t.format, t.op
         "#,
-    )?;
+        filter = window.sql_filter(),
+    );
+    let mut stmt = conn.prepare(&sql)?;
     let mut acc = SeriesAccumulator::new();
-    let rows = stmt.query_map(params![dataset, dataset_variant.as_deref()], |row| {
+    let mut binds: Vec<Box<dyn ToSql>> = vec![
+        Box::new(dataset.to_string()),
+        Box::new(dataset_variant.clone()),
+    ];
+    if let Some(limit) = window.limit_param() {
+        binds.push(Box::new(limit));
+    }
+    let rows = stmt.query_map(params_from_iter(binds.iter()), |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
@@ -610,8 +818,9 @@ fn collect_compression_size_chart(
     conn: &Connection,
     dataset: &str,
     dataset_variant: &Option<String>,
+    window: &CommitWindow,
 ) -> Result<Option<ChartResponse>> {
-    let mut stmt = conn.prepare(
+    let sql = format!(
         r#"
         SELECT s.commit_sha,
                CAST(c.timestamp AS VARCHAR),
@@ -620,12 +829,21 @@ fn collect_compression_size_chart(
           FROM compression_sizes s
           JOIN commits c USING (commit_sha)
          WHERE s.dataset = ?
-           AND s.dataset_variant IS NOT DISTINCT FROM ?
+           AND s.dataset_variant IS NOT DISTINCT FROM ?{filter}
          ORDER BY c.timestamp, s.format
         "#,
-    )?;
+        filter = window.sql_filter(),
+    );
+    let mut stmt = conn.prepare(&sql)?;
     let mut acc = SeriesAccumulator::new();
-    let rows = stmt.query_map(params![dataset, dataset_variant.as_deref()], |row| {
+    let mut binds: Vec<Box<dyn ToSql>> = vec![
+        Box::new(dataset.to_string()),
+        Box::new(dataset_variant.clone()),
+    ];
+    if let Some(limit) = window.limit_param() {
+        binds.push(Box::new(limit));
+    }
+    let rows = stmt.query_map(params_from_iter(binds.iter()), |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
@@ -653,8 +871,12 @@ fn collect_compression_size_chart(
     Ok(Some(acc.finish(name, "bytes")))
 }
 
-fn collect_random_access_chart(conn: &Connection, dataset: &str) -> Result<Option<ChartResponse>> {
-    let mut stmt = conn.prepare(
+fn collect_random_access_chart(
+    conn: &Connection,
+    dataset: &str,
+    window: &CommitWindow,
+) -> Result<Option<ChartResponse>> {
+    let sql = format!(
         r#"
         SELECT r.commit_sha,
                CAST(c.timestamp AS VARCHAR),
@@ -662,12 +884,18 @@ fn collect_random_access_chart(conn: &Connection, dataset: &str) -> Result<Optio
                r.format, r.value_ns
           FROM random_access_times r
           JOIN commits c USING (commit_sha)
-         WHERE r.dataset = ?
+         WHERE r.dataset = ?{filter}
          ORDER BY c.timestamp, r.format
         "#,
-    )?;
+        filter = window.sql_filter(),
+    );
+    let mut stmt = conn.prepare(&sql)?;
     let mut acc = SeriesAccumulator::new();
-    let rows = stmt.query_map(params![dataset], |row| {
+    let mut binds: Vec<Box<dyn ToSql>> = vec![Box::new(dataset.to_string())];
+    if let Some(limit) = window.limit_param() {
+        binds.push(Box::new(limit));
+    }
+    let rows = stmt.query_map(params_from_iter(binds.iter()), |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
@@ -695,8 +923,9 @@ fn collect_vector_search_chart(
     dataset: &str,
     layout: &str,
     threshold: f64,
+    window: &CommitWindow,
 ) -> Result<Option<ChartResponse>> {
-    let mut stmt = conn.prepare(
+    let sql = format!(
         r#"
         SELECT v.commit_sha,
                CAST(c.timestamp AS VARCHAR),
@@ -706,12 +935,22 @@ fn collect_vector_search_chart(
           JOIN commits c USING (commit_sha)
          WHERE v.dataset = ?
            AND v.layout = ?
-           AND v.threshold = ?
+           AND v.threshold = ?{filter}
          ORDER BY c.timestamp, v.flavor
         "#,
-    )?;
+        filter = window.sql_filter(),
+    );
+    let mut stmt = conn.prepare(&sql)?;
     let mut acc = SeriesAccumulator::new();
-    let rows = stmt.query_map(params![dataset, layout, threshold], |row| {
+    let mut binds: Vec<Box<dyn ToSql>> = vec![
+        Box::new(dataset.to_string()),
+        Box::new(layout.to_string()),
+        Box::new(threshold),
+    ];
+    if let Some(limit) = window.limit_param() {
+        binds.push(Box::new(limit));
+    }
+    let rows = stmt.query_map(params_from_iter(binds.iter()), |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
@@ -735,4 +974,93 @@ fn collect_vector_search_chart(
         format!("{dataset} / {layout} (threshold={threshold})"),
         "ns",
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn commit_window_parse_defaults() {
+        let CommitWindow::Last(n) = CommitWindow::parse(None) else {
+            panic!("default should be Last");
+        };
+        assert_eq!(n.get(), DEFAULT_COMMIT_WINDOW);
+    }
+
+    #[test]
+    fn commit_window_parse_all() {
+        assert!(matches!(
+            CommitWindow::parse(Some("all")),
+            CommitWindow::All
+        ));
+        assert!(matches!(
+            CommitWindow::parse(Some("ALL")),
+            CommitWindow::All
+        ));
+        assert!(matches!(
+            CommitWindow::parse(Some(" all ")),
+            CommitWindow::All
+        ));
+    }
+
+    #[test]
+    fn commit_window_parse_numeric() {
+        let CommitWindow::Last(n) = CommitWindow::parse(Some("50")) else {
+            panic!()
+        };
+        assert_eq!(n.get(), 50);
+    }
+
+    #[test]
+    fn commit_window_parse_clamps() {
+        let CommitWindow::Last(n) = CommitWindow::parse(Some("99999")) else {
+            panic!()
+        };
+        assert_eq!(n.get(), MAX_COMMIT_WINDOW);
+        let CommitWindow::Last(n) = CommitWindow::parse(Some("0")) else {
+            panic!("clamp of 0 should round to 1")
+        };
+        assert_eq!(n.get(), 1);
+    }
+
+    #[test]
+    fn commit_window_parse_malformed_falls_back() {
+        let CommitWindow::Last(n) = CommitWindow::parse(Some("banana")) else {
+            panic!()
+        };
+        assert_eq!(n.get(), DEFAULT_COMMIT_WINDOW);
+        let CommitWindow::Last(n) = CommitWindow::parse(Some("")) else {
+            panic!()
+        };
+        assert_eq!(n.get(), DEFAULT_COMMIT_WINDOW);
+    }
+
+    #[test]
+    fn commit_window_url_value() {
+        assert_eq!(CommitWindow::default().url_value(), "100");
+        assert_eq!(CommitWindow::All.url_value(), "all");
+    }
+
+    #[test]
+    fn commit_window_sql_filter_shape() {
+        let CommitWindow::Last(n) = CommitWindow::parse(Some("42")) else {
+            panic!()
+        };
+        let f = CommitWindow::Last(n).sql_filter();
+        // Bound placeholder, not an interpolated integer.
+        assert!(f.contains("LIMIT ?"));
+        assert!(!f.contains("42"));
+        assert!(CommitWindow::All.sql_filter().is_empty());
+    }
+
+    #[test]
+    fn commit_window_limit_param() {
+        let CommitWindow::Last(n) = CommitWindow::parse(Some("42")) else {
+            panic!()
+        };
+        assert_eq!(CommitWindow::Last(n).limit_param(), Some(42));
+        assert_eq!(CommitWindow::All.limit_param(), None);
+        assert_eq!(CommitWindow::default().limit_param(), Some(100));
+    }
 }
