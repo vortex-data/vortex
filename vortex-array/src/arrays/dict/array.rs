@@ -189,7 +189,7 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
 }
 impl<T: TypedArrayRef<Dict>> DictArrayExt for T {}
 
-/// Concrete parts of a [`DictArray`] after iterative execution.
+/// Concrete parts of a dict array after iterative execution.
 pub struct DictParts {
     pub dtype: DType,
     pub codes: ArrayRef,
