@@ -2098,6 +2098,14 @@ pub fn vortex_array::arrays::dict::DictMetadata::clear(&mut self)
 
 pub fn vortex_array::arrays::dict::DictMetadata::encoded_len(&self) -> usize
 
+pub struct vortex_array::arrays::dict::DictParts
+
+pub vortex_array::arrays::dict::DictParts::codes: vortex_array::ArrayRef
+
+pub vortex_array::arrays::dict::DictParts::dtype: vortex_array::dtype::DType
+
+pub vortex_array::arrays::dict::DictParts::values: vortex_array::ArrayRef
+
 pub struct vortex_array::arrays::dict::DictSlots
 
 pub vortex_array::arrays::dict::DictSlots::codes: vortex_array::ArrayRef
@@ -2204,6 +2212,14 @@ pub fn T::slots_view(&self) -> vortex_array::arrays::dict::DictSlotsView<'_>
 
 pub fn T::values(&self) -> &vortex_array::ArrayRef
 
+pub trait vortex_array::arrays::dict::DictOwnedExt
+
+pub fn vortex_array::arrays::dict::DictOwnedExt::into_parts(self) -> vortex_array::arrays::dict::DictParts
+
+impl vortex_array::arrays::dict::DictOwnedExt for vortex_array::Array<vortex_array::arrays::dict::Dict>
+
+pub fn vortex_array::Array<vortex_array::arrays::dict::Dict>::into_parts(self) -> vortex_array::arrays::dict::DictParts
+
 pub trait vortex_array::arrays::dict::TakeExecute: vortex_array::VTable
 
 pub fn vortex_array::arrays::dict::TakeExecute::take(array: vortex_array::ArrayView<'_, Self>, indices: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -2279,8 +2295,6 @@ pub fn vortex_array::arrays::Struct::take(array: vortex_array::ArrayView<'_, vor
 impl vortex_array::arrays::dict::TakeReduce for vortex_array::arrays::null::Null
 
 pub fn vortex_array::arrays::null::Null::take(array: vortex_array::ArrayView<'_, vortex_array::arrays::null::Null>, indices: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-pub fn vortex_array::arrays::dict::take_canonical(values: vortex_array::Canonical, codes: &vortex_array::arrays::PrimitiveArray, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::Canonical>
 
 pub type vortex_array::arrays::dict::DictArray = vortex_array::Array<vortex_array::arrays::dict::Dict>
 
@@ -21887,6 +21901,10 @@ pub fn vortex_array::Array<vortex_array::arrays::VarBinView>::from_iter<T: core:
 impl core::iter::traits::collect::FromIterator<vortex_array::ArrayRef> for vortex_array::Array<vortex_array::arrays::Chunked>
 
 pub fn vortex_array::Array<vortex_array::arrays::Chunked>::from_iter<T: core::iter::traits::collect::IntoIterator<Item = vortex_array::ArrayRef>>(iter: T) -> Self
+
+impl vortex_array::arrays::dict::DictOwnedExt for vortex_array::Array<vortex_array::arrays::dict::Dict>
+
+pub fn vortex_array::Array<vortex_array::arrays::dict::Dict>::into_parts(self) -> vortex_array::arrays::dict::DictParts
 
 impl<'a> core::iter::traits::collect::FromIterator<core::option::Option<&'a [u8]>> for vortex_array::Array<vortex_array::arrays::VarBin>
 
