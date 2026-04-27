@@ -252,6 +252,31 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   font-size: 0.875rem;
 }
 
+/* Per-card loading + error indicators for in-place toolbar refetches. */
+.chart-loading,
+.chart-error {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.75rem;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 5;
+}
+.chart-loading {
+  background: var(--code-bg);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+.chart-error {
+  background: var(--bad);
+  color: var(--accent-fg);
+  pointer-events: auto;
+  max-width: 18rem;
+  white-space: normal;
+}
+
 /* ----------------------------------------------------------------------
  * Custom external tooltip
  * ---------------------------------------------------------------------- */
