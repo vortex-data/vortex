@@ -95,11 +95,10 @@ impl UiQuery {
         }
     }
 
-    /// `?mode=abs|rel|delta`, default `abs`.
+    /// `?mode=abs|rel`, default `abs`. Unknown values fall through to `abs`.
     fn mode(&self) -> &'static str {
         match self.mode.as_deref() {
             Some("rel") => "rel",
-            Some("delta") => "delta",
             _ => "abs",
         }
     }

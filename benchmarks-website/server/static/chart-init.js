@@ -81,7 +81,7 @@
     return {
       n: p.get("n") || "",
       y: p.get("y") === "log" ? "log" : "linear",
-      mode: p.get("mode") === "rel" ? "rel" : (p.get("mode") === "delta" ? "delta" : "abs"),
+      mode: p.get("mode") === "rel" ? "rel" : "abs",
       hidden: parseHiddenParam(p.get("hidden")),
     };
   }
