@@ -14,7 +14,7 @@ use vortex_session::registry::CachedId;
 
 use crate::types::fixed_shape::FixedShapeTensor;
 use crate::types::fixed_shape::FixedShapeTensorMetadata;
-use crate::types::fixed_shape::canonical;
+use crate::types::fixed_shape::proto;
 
 /// Vortex extension id for [`FixedShapeTensor`].
 static ID: CachedId = CachedId::new("vortex.tensor.fixed_shape_tensor");
@@ -30,11 +30,11 @@ impl ExtVTable for FixedShapeTensor {
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-        canonical::serialize(metadata)
+        Ok(proto::serialize(metadata))
     }
 
     fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        canonical::deserialize(metadata)
+        proto::deserialize(metadata)
     }
 
     fn least_supertype(ext_dtype: &ExtDType<Self>, other: &DType) -> Option<DType> {

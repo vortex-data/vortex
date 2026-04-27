@@ -8,9 +8,6 @@
 pub struct FixedShapeTensor;
 
 impl FixedShapeTensor {
-    /// Arrow canonical extension name aliased to this type's [`ExtVTable::id`].
-    ///
-    /// [`ExtVTable::id`]: vortex_array::dtype::extension::ExtVTable::id
     pub(crate) const ARROW_EXT_NAME: &'static str = "arrow.fixed_shape_tensor";
 }
 
@@ -22,4 +19,6 @@ mod metadata;
 pub use metadata::FixedShapeTensorMetadata;
 
 mod canonical;
+mod proto;
 mod vtable;
+pub(crate) use canonical::{json_to_proto, proto_to_json};

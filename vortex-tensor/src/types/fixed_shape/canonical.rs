@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Arrow canonical [`arrow.fixed_shape_tensor`] JSON metadata serialization.
+//! Arrow canonical [`arrow.fixed_shape_tensor`] JSON wire ⇄ on-disk proto adapters.
 //!
 //! Hand-rolled rather than reusing `arrow_schema::extension::FixedShapeTensor` because arrow-rs
 //! 58 emits `"permutations"` (plural) while the spec and pyarrow use `"permutation"`.
@@ -14,6 +14,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::types::fixed_shape::FixedShapeTensorMetadata;
+use crate::types::fixed_shape::proto;
 
 #[derive(Serialize)]
 struct WireRef<'a> {
@@ -33,20 +34,18 @@ struct Wire {
     permutation: Option<Vec<usize>>,
 }
 
-/// Serialize [`FixedShapeTensorMetadata`] to the Arrow canonical JSON representation.
-pub(crate) fn serialize(metadata: &FixedShapeTensorMetadata) -> VortexResult<Vec<u8>> {
+fn metadata_to_json(metadata: &FixedShapeTensorMetadata) -> VortexResult<String> {
     let wire = WireRef {
         shape: metadata.logical_shape(),
         dim_names: metadata.dim_names(),
         permutation: metadata.permutation(),
     };
-    serde_json::to_vec(&wire)
+    serde_json::to_string(&wire)
         .map_err(|e| vortex_err!("fixed_shape_tensor canonical serialize: {e}"))
 }
 
-/// Deserialize [`FixedShapeTensorMetadata`] from Arrow canonical JSON bytes.
-pub(crate) fn deserialize(bytes: &[u8]) -> VortexResult<FixedShapeTensorMetadata> {
-    let wire: Wire = serde_json::from_slice(bytes)
+fn metadata_from_json(json: &str) -> VortexResult<FixedShapeTensorMetadata> {
+    let wire: Wire = serde_json::from_str(json)
         .map_err(|e| vortex_err!("fixed_shape_tensor canonical deserialize: {e}"))?;
 
     let mut m = FixedShapeTensorMetadata::new(wire.shape);
@@ -57,6 +56,16 @@ pub(crate) fn deserialize(bytes: &[u8]) -> VortexResult<FixedShapeTensorMetadata
         m = m.with_permutation(perm)?;
     }
     Ok(m)
+}
+
+pub(crate) fn proto_to_json(proto_bytes: &[u8]) -> VortexResult<String> {
+    let metadata = proto::deserialize(proto_bytes)?;
+    metadata_to_json(&metadata)
+}
+
+pub(crate) fn json_to_proto(json: &str) -> VortexResult<Vec<u8>> {
+    let metadata = metadata_from_json(json)?;
+    Ok(proto::serialize(&metadata))
 }
 
 #[cfg(test)]
@@ -84,10 +93,28 @@ mod tests {
             .with_dim_names(vec!["x".into(), "y".into(), "z".into()]).unwrap()
             .with_permutation(vec![1, 2, 0]).unwrap()
     )]
-    fn roundtrip(#[case] metadata: FixedShapeTensorMetadata) -> VortexResult<()> {
-        let bytes = serialize(&metadata)?;
-        let decoded = deserialize(&bytes)?;
+    fn json_roundtrip(#[case] metadata: FixedShapeTensorMetadata) -> VortexResult<()> {
+        let json = metadata_to_json(&metadata)?;
+        let decoded = metadata_from_json(&json)?;
         assert_eq!(decoded, metadata);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::shape_only(FixedShapeTensorMetadata::new(vec![2, 3, 4]))]
+    #[case::all_fields(
+        FixedShapeTensorMetadata::new(vec![2, 3, 4])
+            .with_dim_names(vec!["x".into(), "y".into(), "z".into()]).unwrap()
+            .with_permutation(vec![1, 2, 0]).unwrap()
+    )]
+    fn proto_to_json_to_proto_roundtrip(
+        #[case] metadata: FixedShapeTensorMetadata,
+    ) -> VortexResult<()> {
+        let proto_bytes = proto::serialize(&metadata);
+        let json = proto_to_json(&proto_bytes)?;
+        let proto_again = json_to_proto(&json)?;
+        let metadata_again = proto::deserialize(&proto_again)?;
+        assert_eq!(metadata_again, metadata);
         Ok(())
     }
 
@@ -97,9 +124,9 @@ mod tests {
             .with_dim_names(vec!["x".into(), "y".into(), "z".into()])?
             .with_permutation(vec![1, 2, 0])?;
 
-        let bytes = serialize(&metadata)?;
+        let json = metadata_to_json(&metadata)?;
         let v: serde_json::Value =
-            serde_json::from_slice(&bytes).map_err(|e| vortex_err!("parse wire: {e}"))?;
+            serde_json::from_str(&json).map_err(|e| vortex_err!("parse wire: {e}"))?;
 
         assert_eq!(v["shape"], serde_json::json!([2, 3, 4]));
         assert_eq!(v["dim_names"], serde_json::json!(["x", "y", "z"]));
@@ -111,9 +138,9 @@ mod tests {
 
     #[test]
     fn omits_optional_fields_when_unset() -> VortexResult<()> {
-        let bytes = serialize(&FixedShapeTensorMetadata::new(vec![5]))?;
+        let json = metadata_to_json(&FixedShapeTensorMetadata::new(vec![5]))?;
         let v: serde_json::Value =
-            serde_json::from_slice(&bytes).map_err(|e| vortex_err!("parse wire: {e}"))?;
+            serde_json::from_str(&json).map_err(|e| vortex_err!("parse wire: {e}"))?;
         assert!(v.get("dim_names").is_none());
         assert!(v.get("permutation").is_none());
         Ok(())

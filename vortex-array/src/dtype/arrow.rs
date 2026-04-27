@@ -13,7 +13,6 @@
 //! For this reason, it's recommended to do as much computation as possible within Vortex, and then
 //! materialize an Arrow ArrayRef at the very end of the processing chain.
 
-use std::borrow::Cow;
 use std::sync::Arc;
 
 use arrow_schema::DataType;
@@ -45,6 +44,7 @@ use crate::dtype::PType;
 use crate::dtype::StructFields;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtId;
+use crate::dtype::session::ArrowCanonicalCodec;
 use crate::dtype::session::DTypeSession;
 use crate::dtype::session::DTypeSessionExt;
 use crate::extension::datetime::AnyTemporal;
@@ -268,8 +268,10 @@ fn dtype_from_field(field: &Field, dtypes: &DTypeSession) -> DType {
     };
 
     let canonical_alias = dtypes.vortex_id_for_arrow_canonical(ext_name);
-    let is_canonical = canonical_alias.is_some();
-    let ext_id = canonical_alias.unwrap_or_else(|| ExtId::new(ext_name));
+    let (ext_id, codec) = match canonical_alias {
+        Some((vortex_id, codec)) => (vortex_id, Some(codec)),
+        None => (ExtId::new(ext_name), None),
+    };
 
     let Some(plugin) = dtypes.registry().find(&ext_id) else {
         tracing::warn!(
@@ -280,7 +282,7 @@ fn dtype_from_field(field: &Field, dtypes: &DTypeSession) -> DType {
         return storage_dtype;
     };
 
-    let metadata_bytes = match decode_extension_metadata(field, is_canonical) {
+    let metadata_bytes = match decode_extension_metadata(field, codec) {
         Ok(bytes) => bytes,
         Err(e) => {
             tracing::warn!(
@@ -294,7 +296,7 @@ fn dtype_from_field(field: &Field, dtypes: &DTypeSession) -> DType {
         }
     };
 
-    match plugin.deserialize(metadata_bytes.as_ref(), storage_dtype.clone()) {
+    match plugin.deserialize(&metadata_bytes, storage_dtype.clone()) {
         Ok(ext_ref) => DType::Extension(ext_ref),
         Err(e) => {
             tracing::warn!(
@@ -309,16 +311,20 @@ fn dtype_from_field(field: &Field, dtypes: &DTypeSession) -> DType {
     }
 }
 
-/// Canonical extensions store UTF-8 bytes directly; non-canonical extensions base64-encode so
-/// arbitrary binary plugin output survives the String-typed metadata channel.
-fn decode_extension_metadata(field: &Field, is_canonical: bool) -> VortexResult<Cow<'_, [u8]>> {
+/// Non-canonical extensions base64-encode arbitrary binary metadata to survive Arrow's
+/// String-typed metadata channel; canonical extensions go through the registered codec.
+fn decode_extension_metadata(
+    field: &Field,
+    codec: Option<ArrowCanonicalCodec>,
+) -> VortexResult<Vec<u8>> {
     match field.extension_type_metadata() {
-        None | Some("") => Ok(Cow::Borrowed(&[])),
-        Some(s) if is_canonical => Ok(Cow::Borrowed(s.as_bytes())),
-        Some(s) => BASE64_STANDARD
-            .decode(s)
-            .map(Cow::Owned)
-            .map_err(|e| vortex_err!("failed to base64-decode {EXTENSION_TYPE_METADATA_KEY}: {e}")),
+        None | Some("") => Ok(Vec::new()),
+        Some(s) => match codec {
+            Some(codec) => (codec.from_json)(s),
+            None => BASE64_STANDARD.decode(s).map_err(|e| {
+                vortex_err!("failed to base64-decode {EXTENSION_TYPE_METADATA_KEY}: {e}")
+            }),
+        },
     }
 }
 
@@ -490,13 +496,10 @@ fn field_from_dtype(name: &str, dtype: &DType, dtypes: &DTypeSession) -> VortexR
         let storage_arrow = arrow_dtype_from_dtype(ext.storage_dtype(), dtypes)?;
         let ext_meta_bytes = ext.serialize_metadata()?;
         let (ext_name, meta_str) = match dtypes.arrow_canonical_for(&ext.id()) {
-            Some(canonical) => {
-                // Canonical wire: raw UTF-8 (typically JSON), read as-is by arrow-rs / pyarrow.
-                let s = String::from_utf8(ext_meta_bytes).map_err(|e| {
-                    vortex_err!("canonical extension {canonical} metadata must be valid UTF-8: {e}")
-                })?;
-                (canonical.as_str().to_owned(), s)
-            }
+            Some((canonical, codec)) => (
+                canonical.as_str().to_owned(),
+                (codec.to_json)(&ext_meta_bytes)?,
+            ),
             None => (
                 ext.id().as_str().to_owned(),
                 BASE64_STANDARD.encode(&ext_meta_bytes),
