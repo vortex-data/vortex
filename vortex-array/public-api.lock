@@ -8836,15 +8836,15 @@ pub struct vortex_array::dtype::session::DTypeSession
 
 impl vortex_array::dtype::session::DTypeSession
 
-pub fn vortex_array::dtype::session::DTypeSession::arrow_canonical_for(&self, vortex_id: &vortex_array::dtype::extension::ExtId) -> core::option::Option<(vortex_array::dtype::extension::ExtId, vortex_array::dtype::session::ArrowCanonicalCodec)>
+pub fn vortex_array::dtype::session::DTypeSession::arrow_alias_for(&self, vortex_id: &vortex_array::dtype::extension::ExtId) -> core::option::Option<(vortex_array::dtype::extension::ExtId, vortex_array::dtype::session::ArrowCanonicalCodec)>
 
 pub fn vortex_array::dtype::session::DTypeSession::register<V: vortex_array::dtype::extension::ExtVTable>(&self, vtable: V)
 
-pub fn vortex_array::dtype::session::DTypeSession::register_arrow_canonical(&self, vortex_id: vortex_array::dtype::extension::ExtId, arrow_name: &'static str, codec: vortex_array::dtype::session::ArrowCanonicalCodec)
+pub fn vortex_array::dtype::session::DTypeSession::register_arrow_canonical(&self, vortex_id: vortex_array::dtype::extension::ExtId, arrow_id: vortex_array::dtype::extension::ExtId, codec: vortex_array::dtype::session::ArrowCanonicalCodec)
 
 pub fn vortex_array::dtype::session::DTypeSession::registry(&self) -> &vortex_array::dtype::session::ExtDTypeRegistry
 
-pub fn vortex_array::dtype::session::DTypeSession::vortex_id_for_arrow_canonical(&self, arrow_name: &str) -> core::option::Option<(vortex_array::dtype::extension::ExtId, vortex_array::dtype::session::ArrowCanonicalCodec)>
+pub fn vortex_array::dtype::session::DTypeSession::vortex_alias_for(&self, arrow_id: &vortex_array::dtype::extension::ExtId) -> core::option::Option<(vortex_array::dtype::extension::ExtId, vortex_array::dtype::session::ArrowCanonicalCodec)>
 
 impl core::default::Default for vortex_array::dtype::session::DTypeSession
 

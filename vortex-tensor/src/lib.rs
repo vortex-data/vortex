@@ -11,6 +11,7 @@
 )]
 
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
+use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::dtype::session::ArrowCanonicalCodec;
 use vortex_array::dtype::session::DTypeSessionExt;
@@ -54,7 +55,7 @@ pub fn initialize(session: &VortexSession) {
     dtypes.register(FixedShapeTensor);
     dtypes.register_arrow_canonical(
         FixedShapeTensor.id(),
-        FixedShapeTensor::ARROW_EXT_NAME,
+        ExtId::new(FixedShapeTensor::ARROW_EXT_NAME),
         ArrowCanonicalCodec {
             to_json: fixed_shape::proto_to_json,
             from_json: fixed_shape::json_to_proto,

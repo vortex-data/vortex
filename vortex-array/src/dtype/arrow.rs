@@ -267,10 +267,10 @@ fn dtype_from_field(field: &Field, dtypes: &DTypeSession) -> DType {
         return storage_dtype;
     };
 
-    let canonical_alias = dtypes.vortex_id_for_arrow_canonical(ext_name);
-    let (ext_id, codec) = match canonical_alias {
+    let arrow_id = ExtId::new(ext_name);
+    let (ext_id, codec) = match dtypes.vortex_alias_for(&arrow_id) {
         Some((vortex_id, codec)) => (vortex_id, Some(codec)),
-        None => (ExtId::new(ext_name), None),
+        None => (arrow_id, None),
     };
 
     let Some(plugin) = dtypes.registry().find(&ext_id) else {
@@ -495,7 +495,7 @@ fn field_from_dtype(name: &str, dtype: &DType, dtypes: &DTypeSession) -> VortexR
 
         let storage_arrow = arrow_dtype_from_dtype(ext.storage_dtype(), dtypes)?;
         let ext_meta_bytes = ext.serialize_metadata()?;
-        let (ext_name, meta_str) = match dtypes.arrow_canonical_for(&ext.id()) {
+        let (ext_name, meta_str) = match dtypes.arrow_alias_for(&ext.id()) {
             Some((canonical, codec)) => (
                 canonical.as_str().to_owned(),
                 (codec.to_json)(&ext_meta_bytes)?,

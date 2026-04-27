@@ -31,48 +31,53 @@ pub struct ArrowCanonicalCodec {
     pub from_json: fn(&str) -> VortexResult<Vec<u8>>,
 }
 
-#[derive(Copy, Clone, Debug)]
-struct AliasEntry {
-    /// Forward entries point at the Arrow canonical id; reverse entries point at the Vortex id.
-    partner: ExtId,
-    /// Same codec value in both directions of a registration; eviction relies on this.
-    codec: ArrowCanonicalCodec,
+/// Forward map is the canonical source: each Vortex extension owns its codec and points at the
+/// Arrow canonical name it serializes as. Reverse map is a lookup index for the read path,
+/// taking an Arrow name back to the Vortex id whose codec applies.
+#[derive(Default, Clone)]
+struct AliasState {
+    forward: HashMap<ExtId, (ExtId, ArrowCanonicalCodec)>,
+    reverse: HashMap<ExtId, ExtId>,
 }
 
 #[derive(Debug, Default)]
-struct ArrowCanonicalAliases(ArcSwap<HashMap<ExtId, AliasEntry>>);
+struct ArrowCanonicalAliases(ArcSwap<AliasState>);
 
 impl ArrowCanonicalAliases {
-    /// Re-registering evicts the previous mapping for either side so the bidirectional invariant
-    /// holds after every call.
-    fn register(&self, vortex_id: ExtId, arrow_name: &'static str, codec: ArrowCanonicalCodec) {
-        let arrow_id = ExtId::new(arrow_name);
-        let forward = AliasEntry {
-            partner: arrow_id,
-            codec,
-        };
-        let reverse = AliasEntry {
-            partner: vortex_id,
-            codec,
-        };
+    /// Re-registering evicts any prior alias touching either id so both directions agree.
+    fn register(&self, vortex_id: ExtId, arrow_id: ExtId, codec: ArrowCanonicalCodec) {
         self.0.rcu(|prev| {
             let mut next = (**prev).clone();
-            if let Some(stale) = next.insert(vortex_id, forward) {
-                next.remove(&stale.partner);
+            if let Some((stale_arrow, _)) = next.forward.remove(&vortex_id) {
+                next.reverse.remove(&stale_arrow);
             }
-            if let Some(stale) = next.insert(arrow_id, reverse) {
-                next.remove(&stale.partner);
+            if let Some(stale_vortex) = next.reverse.remove(&arrow_id) {
+                next.forward.remove(&stale_vortex);
             }
+            next.forward.insert(vortex_id, (arrow_id, codec));
+            next.reverse.insert(arrow_id, vortex_id);
             Arc::new(next)
         });
     }
 
-    fn arrow_canonical_for(&self, vortex_id: &ExtId) -> Option<AliasEntry> {
-        self.0.load().get(vortex_id).copied()
+    fn arrow_alias_for(&self, vortex_id: &ExtId) -> Option<(ExtId, ArrowCanonicalCodec)> {
+        self.0.load().forward.get(vortex_id).copied()
     }
 
-    fn vortex_id_for_arrow_canonical(&self, arrow_name: &str) -> Option<AliasEntry> {
-        self.0.load().get(&ExtId::new(arrow_name)).copied()
+    fn vortex_alias_for(&self, arrow_id: &ExtId) -> Option<(ExtId, ArrowCanonicalCodec)> {
+        let state = self.0.load();
+        let vortex_id = *state.reverse.get(arrow_id)?;
+        let (_, codec) = *state.forward.get(&vortex_id)?;
+        Some((vortex_id, codec))
+    }
+}
+
+impl std::fmt::Debug for AliasState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AliasState")
+            .field("forward", &self.forward)
+            .field("reverse", &self.reverse)
+            .finish()
     }
 }
 
@@ -110,32 +115,25 @@ impl DTypeSession {
         &self.registry
     }
 
-    /// Alias `arrow_name` to `vortex_id` with the codec used at the Arrow boundary.
+    /// Alias `arrow_id` to `vortex_id` with the codec used at the Arrow boundary.
     /// Re-registering evicts the previous mapping for either side.
     pub fn register_arrow_canonical(
         &self,
         vortex_id: ExtId,
-        arrow_name: &'static str,
+        arrow_id: ExtId,
         codec: ArrowCanonicalCodec,
     ) {
-        self.arrow_canonical.register(vortex_id, arrow_name, codec);
+        self.arrow_canonical.register(vortex_id, arrow_id, codec);
     }
 
-    /// Returns the Arrow canonical name and codec aliased to `vortex_id`, if any.
-    pub fn arrow_canonical_for(&self, vortex_id: &ExtId) -> Option<(ExtId, ArrowCanonicalCodec)> {
-        self.arrow_canonical
-            .arrow_canonical_for(vortex_id)
-            .map(|e| (e.partner, e.codec))
+    /// Returns the Arrow canonical id and codec aliased to `vortex_id`, if any.
+    pub fn arrow_alias_for(&self, vortex_id: &ExtId) -> Option<(ExtId, ArrowCanonicalCodec)> {
+        self.arrow_canonical.arrow_alias_for(vortex_id)
     }
 
-    /// Returns the Vortex id and codec aliased to `arrow_name`, if any.
-    pub fn vortex_id_for_arrow_canonical(
-        &self,
-        arrow_name: &str,
-    ) -> Option<(ExtId, ArrowCanonicalCodec)> {
-        self.arrow_canonical
-            .vortex_id_for_arrow_canonical(arrow_name)
-            .map(|e| (e.partner, e.codec))
+    /// Returns the Vortex id and codec aliased to `arrow_id`, if any.
+    pub fn vortex_alias_for(&self, arrow_id: &ExtId) -> Option<(ExtId, ArrowCanonicalCodec)> {
+        self.arrow_canonical.vortex_alias_for(arrow_id)
     }
 }
 
@@ -168,31 +166,17 @@ mod tests {
     fn arrow_canonical_re_registration_is_clean() {
         let session = DTypeSession::default();
         let v = ExtId::new("vortex.test");
+        let foo = ExtId::new("arrow.foo");
+        let bar = ExtId::new("arrow.bar");
 
-        session.register_arrow_canonical(v, "arrow.foo", TEST_CODEC);
-        assert_eq!(
-            session.arrow_canonical_for(&v).map(|(id, _)| id),
-            Some(ExtId::new("arrow.foo"))
-        );
-        assert_eq!(
-            session
-                .vortex_id_for_arrow_canonical("arrow.foo")
-                .map(|(id, _)| id),
-            Some(v)
-        );
+        session.register_arrow_canonical(v, foo, TEST_CODEC);
+        assert_eq!(session.arrow_alias_for(&v).map(|(id, _)| id), Some(foo));
+        assert_eq!(session.vortex_alias_for(&foo).map(|(id, _)| id), Some(v));
 
-        session.register_arrow_canonical(v, "arrow.bar", TEST_CODEC);
-        assert_eq!(
-            session.arrow_canonical_for(&v).map(|(id, _)| id),
-            Some(ExtId::new("arrow.bar"))
-        );
-        assert_eq!(
-            session
-                .vortex_id_for_arrow_canonical("arrow.bar")
-                .map(|(id, _)| id),
-            Some(v)
-        );
-        assert!(session.vortex_id_for_arrow_canonical("arrow.foo").is_none());
+        session.register_arrow_canonical(v, bar, TEST_CODEC);
+        assert_eq!(session.arrow_alias_for(&v).map(|(id, _)| id), Some(bar));
+        assert_eq!(session.vortex_alias_for(&bar).map(|(id, _)| id), Some(v));
+        assert!(session.vortex_alias_for(&foo).is_none());
     }
 
     /// `(vid → old, old → vid)` then `register(vid, new)` should leave `(vid → new, new → vid)`.
@@ -203,31 +187,15 @@ mod tests {
         let old = ExtId::new("arrow.b");
         let new = ExtId::new("arrow.c");
 
-        session.register_arrow_canonical(vid, "arrow.b", TEST_CODEC);
-        assert_eq!(
-            session.arrow_canonical_for(&vid).map(|(id, _)| id),
-            Some(old)
-        );
-        assert_eq!(
-            session
-                .vortex_id_for_arrow_canonical("arrow.b")
-                .map(|(id, _)| id),
-            Some(vid)
-        );
+        session.register_arrow_canonical(vid, old, TEST_CODEC);
+        assert_eq!(session.arrow_alias_for(&vid).map(|(id, _)| id), Some(old));
+        assert_eq!(session.vortex_alias_for(&old).map(|(id, _)| id), Some(vid));
 
-        session.register_arrow_canonical(vid, "arrow.c", TEST_CODEC);
+        session.register_arrow_canonical(vid, new, TEST_CODEC);
 
-        assert_eq!(
-            session.arrow_canonical_for(&vid).map(|(id, _)| id),
-            Some(new)
-        );
-        assert_eq!(
-            session
-                .vortex_id_for_arrow_canonical("arrow.c")
-                .map(|(id, _)| id),
-            Some(vid)
-        );
-        assert!(session.vortex_id_for_arrow_canonical("arrow.b").is_none());
+        assert_eq!(session.arrow_alias_for(&vid).map(|(id, _)| id), Some(new));
+        assert_eq!(session.vortex_alias_for(&new).map(|(id, _)| id), Some(vid));
+        assert!(session.vortex_alias_for(&old).is_none());
     }
 
     /// `(old → name, name → old)` then `register(new, name)` should leave `(new → name, name → new)`.
@@ -238,35 +206,25 @@ mod tests {
         let name = ExtId::new("arrow.b");
         let new = ExtId::new("vortex.c");
 
-        session.register_arrow_canonical(old, "arrow.b", TEST_CODEC);
-        assert_eq!(
-            session.arrow_canonical_for(&old).map(|(id, _)| id),
-            Some(name)
-        );
+        session.register_arrow_canonical(old, name, TEST_CODEC);
+        assert_eq!(session.arrow_alias_for(&old).map(|(id, _)| id), Some(name));
 
-        session.register_arrow_canonical(new, "arrow.b", TEST_CODEC);
+        session.register_arrow_canonical(new, name, TEST_CODEC);
 
-        assert_eq!(
-            session.arrow_canonical_for(&new).map(|(id, _)| id),
-            Some(name)
-        );
-        assert_eq!(
-            session
-                .vortex_id_for_arrow_canonical("arrow.b")
-                .map(|(id, _)| id),
-            Some(new)
-        );
-        assert!(session.arrow_canonical_for(&old).is_none());
+        assert_eq!(session.arrow_alias_for(&new).map(|(id, _)| id), Some(name));
+        assert_eq!(session.vortex_alias_for(&name).map(|(id, _)| id), Some(new));
+        assert!(session.arrow_alias_for(&old).is_none());
     }
 
     #[test]
     fn codec_round_trips_through_lookup() {
         let session = DTypeSession::default();
         let vid = ExtId::new("vortex.x");
+        let aid = ExtId::new("arrow.x");
 
-        session.register_arrow_canonical(vid, "arrow.x", TEST_CODEC);
+        session.register_arrow_canonical(vid, aid, TEST_CODEC);
 
-        let (_, codec) = session.arrow_canonical_for(&vid).unwrap();
+        let (_, codec) = session.arrow_alias_for(&vid).unwrap();
         let json = (codec.to_json)(b"hello").unwrap();
         assert_eq!(json, "hello");
         let bytes = (codec.from_json)(&json).unwrap();
