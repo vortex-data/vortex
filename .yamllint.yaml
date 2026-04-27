@@ -29,7 +29,7 @@ rules:
   document-end: disable
   document-start: disable
   empty-lines: enable
-  empty-values: disable
+  empty-values: enable
   float-values: disable
   hyphens: enable
   indentation: enable
@@ -38,9 +38,10 @@ rules:
   line-length: disable
   new-line-at-end-of-file: enable
   new-lines: enable
-  octal-values: disable
+  octal-values: enable
   quoted-strings:
     quote-type: double
     required: false
   trailing-spaces: enable
-  truthy: disable
+  truthy:
+    check-keys: false
