@@ -117,7 +117,7 @@ impl LayoutStrategy for ZonedStrategy {
                         chunk
                             .statistics()
                             .compute_all(&stats, &mut session.create_execution_ctx())?;
-                        VortexResult::Ok((sequence_id, chunk))
+                        Ok((sequence_id, chunk))
                     })
                 })
                 .buffered(self.options.concurrency),
@@ -155,7 +155,7 @@ impl LayoutStrategy for ZonedStrategy {
             )
             .await?;
 
-        let Some(stats_table) = stats_accumulator.lock().as_stats_table()? else {
+        let Some((stats_array, stats)) = stats_accumulator.lock().as_array()? else {
             // If we have no stats (e.g. the DType doesn't support them), then we just return the
             // child layout.
             return Ok(data_layout);
@@ -163,9 +163,7 @@ impl LayoutStrategy for ZonedStrategy {
 
         // We must defer creating the stats table LayoutWriter until now, because the DType of
         // the table depends on which stats were successfully computed.
-        let stats_stream = stats_table
-            .array()
-            .clone()
+        let stats_stream = stats_array
             .into_array()
             .to_array_stream()
             .sequenced(eof.split_off());
@@ -174,13 +172,7 @@ impl LayoutStrategy for ZonedStrategy {
             .write_stream(ctx, Arc::clone(&segment_sink), stats_stream, eof, &session)
             .await?;
 
-        Ok(ZonedLayout::new(
-            data_layout,
-            zones_layout,
-            block_size,
-            Arc::clone(stats_table.present_stats()),
-        )
-        .into_layout())
+        Ok(ZonedLayout::new(data_layout, zones_layout, block_size, stats).into_layout())
     }
 
     fn buffered_bytes(&self) -> u64 {
