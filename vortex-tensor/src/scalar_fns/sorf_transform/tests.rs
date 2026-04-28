@@ -7,7 +7,6 @@
 
 use std::sync::Arc;
 
-use prost::Message;
 use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -366,7 +365,7 @@ fn rejects_non_vector_extension_child_at_construction() {
 }
 
 #[test]
-fn accepts_normalized_vector_child_and_returns_plain_vector() -> VortexResult<()> {
+fn accepts_normalized_vector_child_and_mirrors_kind() -> VortexResult<()> {
     let options = default_options(128, 42);
     let mut values = vec![0.0f32; 128];
     values[0] = 1.0;
@@ -375,11 +374,34 @@ fn accepts_normalized_vector_child_and_returns_plain_vector() -> VortexResult<()
     let mut ctx = SESSION.create_execution_ctx();
     let child = NormalizedVector::try_new(fsl.into_array(), &mut ctx)?;
 
+    // The output mirrors the child's wrapper kind: a `NormalizedVector` child produces a
+    // `NormalizedVector` parent. The orthogonal inverse rotation preserves L2 norm and the
+    // truncated coordinates were near-zero pre-rotation, so the output is approximately
+    // unit-norm (lossy contract documented on `NormalizedVector::new_unchecked`).
     let sorf = SorfTransform::try_new_array(&options, child, 1)?.into_array();
-    assert!(sorf.dtype().as_extension().is::<Vector>());
+    assert!(sorf.dtype().as_extension().is::<NormalizedVector>());
 
     let result: ExtensionArray = sorf.execute(&mut ctx)?;
+    assert!(result.dtype().as_extension().is::<NormalizedVector>());
+    Ok(())
+}
+
+/// A plain [`Vector`] child should still produce a plain [`Vector`] parent.
+#[test]
+fn accepts_plain_vector_child_and_mirrors_kind() -> VortexResult<()> {
+    let options = default_options(128, 42);
+    let elements = PrimitiveArray::from_iter([0.0f32; 128]).into_array();
+    let fsl = FixedSizeListArray::try_new(elements, 128, Validity::NonNullable, 1)?;
+    let child = wrap_as_vector(fsl, Validity::NonNullable)?;
+
+    let sorf = SorfTransform::try_new_array(&options, child.into_array(), 1)?.into_array();
+    assert!(sorf.dtype().as_extension().is::<Vector>());
+    assert!(!sorf.dtype().as_extension().is::<NormalizedVector>());
+
+    let mut ctx = SESSION.create_execution_ctx();
+    let result: ExtensionArray = sorf.execute(&mut ctx)?;
     assert!(result.dtype().as_extension().is::<Vector>());
+    assert!(!result.dtype().as_extension().is::<NormalizedVector>());
     Ok(())
 }
 
@@ -491,18 +513,6 @@ fn trivial_padded_normalized_vector(
     NormalizedVector::try_new(fsl.into_array(), &mut ctx)
 }
 
-#[derive(Clone, prost::Message)]
-struct LegacySorfTransformMetadata {
-    #[prost(uint64, tag = "1")]
-    seed: u64,
-    #[prost(uint32, tag = "2")]
-    num_rounds: u32,
-    #[prost(uint32, tag = "3")]
-    dimension: u32,
-    #[prost(enumeration = "PType", tag = "4")]
-    element_ptype: i32,
-}
-
 #[rstest::rstest]
 // Non-power-of-two dimension to exercise `padded_dim = dim.next_power_of_two()`.
 #[case::power_of_two_dim(128, Validity::NonNullable)]
@@ -587,51 +597,6 @@ fn serde_round_trip_preserves_normalized_vector_child_dtype() -> VortexResult<()
             .dtype()
             .as_extension()
             .is::<NormalizedVector>()
-    );
-    Ok(())
-}
-
-#[test]
-fn serde_legacy_metadata_derives_plain_vector_child_dtype() -> VortexResult<()> {
-    let dimension = 128;
-    let num_rows = 4;
-    let options = default_options(dimension, 42);
-    let child = trivial_padded_vector(
-        dimension.next_power_of_two(),
-        num_rows,
-        Validity::NonNullable,
-    );
-    let original = SorfTransform::try_new_array(&options, child.clone(), num_rows)?.into_array();
-
-    let legacy_metadata = LegacySorfTransformMetadata {
-        seed: options.seed,
-        num_rounds: u32::from(options.num_rounds),
-        dimension: options.dimensions,
-        element_ptype: options.element_ptype as i32,
-    }
-    .encode_to_vec();
-
-    let plugin = ScalarFnArrayPlugin::new(SorfTransform);
-    let children = vec![child];
-    let recovered = plugin.deserialize(
-        original.dtype(),
-        original.len(),
-        &legacy_metadata,
-        &[],
-        &children,
-        &SESSION,
-    )?;
-
-    assert_eq!(recovered.dtype(), original.dtype());
-    assert_eq!(recovered.len(), original.len());
-    assert_eq!(recovered.encoding_id(), original.encoding_id());
-    let recovered_scalar_fn = recovered.as_::<ScalarFnArrayEncoding>();
-    assert!(
-        recovered_scalar_fn
-            .child_at(0)
-            .dtype()
-            .as_extension()
-            .is::<Vector>()
     );
     Ok(())
 }

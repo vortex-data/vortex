@@ -140,25 +140,27 @@ impl ScalarFnVTable for CosineSimilarity {
             rhs_ref = sfn.into_array();
         }
 
+        // The combined validity always comes from the original operands. Compute it once up
+        // front so the unit-form helpers below can take it directly without re-deriving from
+        // an `L2Denorm` wrapper they no longer hold.
+        let validity = lhs_ref.validity()?.and(rhs_ref.validity()?)?;
+
         // Classify each operand by its normal form. When both operands carry a known unit-norm
         // representation, cosine similarity collapses to the dot product of the unit vectors.
         let lhs_form = NormalForm::classify(&lhs_ref);
         let rhs_form = NormalForm::classify(&rhs_ref);
         match (lhs_form.normalized_array(), rhs_form.normalized_array()) {
             (Some(unit_lhs), Some(unit_rhs)) => {
-                return self.execute_both_unit(unit_lhs, unit_rhs, &lhs_ref, &rhs_ref, len);
+                return self.execute_both_unit(unit_lhs, unit_rhs, validity, len);
             }
             (Some(unit_lhs), None) => {
-                return self.execute_one_unit(unit_lhs, &rhs_ref, &lhs_ref, len, ctx);
+                return self.execute_one_unit(unit_lhs, &rhs_ref, validity, len, ctx);
             }
             (None, Some(unit_rhs)) => {
-                return self.execute_one_unit(unit_rhs, &lhs_ref, &rhs_ref, len, ctx);
+                return self.execute_one_unit(unit_rhs, &lhs_ref, validity, len, ctx);
             }
             (None, None) => {}
         }
-
-        // Compute combined validity.
-        let validity = lhs_ref.validity()?.and(rhs_ref.validity()?)?;
 
         // Compute inner product and norms as columnar operations, and propagate the options.
         let norm_lhs_arr = L2Norm::try_new_array(lhs_ref.clone(), len)?;
@@ -248,12 +250,9 @@ impl CosineSimilarity {
         &self,
         unit_lhs: &ArrayRef,
         unit_rhs: &ArrayRef,
-        lhs_ref: &ArrayRef,
-        rhs_ref: &ArrayRef,
+        validity: Validity,
         len: usize,
     ) -> VortexResult<ArrayRef> {
-        let validity = lhs_ref.validity()?.and(rhs_ref.validity()?)?;
-
         let dot =
             InnerProduct::try_new_array(unit_lhs.clone(), unit_rhs.clone(), len)?.into_array();
 
@@ -266,23 +265,22 @@ impl CosineSimilarity {
     }
 
     /// Exactly one side carries a unit-norm representation: cosine similarity reduces to
-    /// `dot(unit, other) / ||other||`. The norms of the unit side are implicitly `1.0` (naked
-    /// `NormalizedVector`) or stored separately (the outer `L2Denorm` wrapper, which is not
-    /// needed here since cosine ignores magnitude).
+    /// `dot(unit, plain) / ||plain||`. The norms of the unit side are implicitly `1.0` (naked
+    /// `NormalizedVector`) or stored separately on the outer `L2Denorm` wrapper, which the
+    /// caller has already stripped — cosine ignores magnitude on the unit side, so the wrapper
+    /// is not needed here.
     fn execute_one_unit(
         &self,
         unit: &ArrayRef,
-        plain_ref: &ArrayRef,
-        unit_ref: &ArrayRef,
+        plain: &ArrayRef,
+        validity: Validity,
         len: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let validity = unit_ref.validity()?.and(plain_ref.validity()?)?;
-
-        let dot_arr = InnerProduct::try_new_array(unit.clone(), plain_ref.clone(), len)?;
+        let dot_arr = InnerProduct::try_new_array(unit.clone(), plain.clone(), len)?;
         let dot: PrimitiveArray = dot_arr.into_array().execute(ctx)?;
 
-        let norm_arr = L2Norm::try_new_array(plain_ref.clone(), len)?;
+        let norm_arr = L2Norm::try_new_array(plain.clone(), len)?;
         let plain_norm: PrimitiveArray = norm_arr.into_array().execute(ctx)?;
 
         // TODO(connor): Ideally we would have a `SafeDiv` binary numeric operation.

@@ -70,12 +70,15 @@ impl Matcher for AnyTensor {
             return Some(TensorMatch::FixedShapeTensor(metadata));
         }
 
-        if let Some(metadata) = ext_dtype.metadata_opt::<AnyVector>() {
-            return Some(TensorMatch::Vector(metadata));
-        }
-
+        // Check `AnyNormalizedVector` first because `AnyVector` is inclusive: it would otherwise
+        // match `NormalizedVector` and we'd lose the normalized variant in the returned
+        // `TensorMatch`.
         if let Some(metadata) = ext_dtype.metadata_opt::<AnyNormalizedVector>() {
             return Some(TensorMatch::NormalizedVector(metadata));
+        }
+
+        if let Some(metadata) = ext_dtype.metadata_opt::<AnyVector>() {
+            return Some(TensorMatch::Vector(metadata));
         }
 
         None

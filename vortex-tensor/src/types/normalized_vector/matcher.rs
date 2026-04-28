@@ -111,14 +111,18 @@ mod tests {
     }
 
     #[test]
-    fn any_vector_does_not_match_normalized_vector() -> VortexResult<()> {
+    fn any_vector_matches_normalized_vector() -> VortexResult<()> {
         let ext_dtype =
             ExtDType::<NormalizedVector>::try_new(EmptyMetadata, nv_storage(PType::F32, 128)?)?
                 .erased();
 
-        // `AnyVector` is strict: it only matches plain `Vector`. Use `AnyTensor` to accept
-        // both `Vector` and `NormalizedVector`.
-        assert!(ext_dtype.metadata_opt::<AnyVector>().is_none());
+        // `AnyVector` is the inclusive matcher: it matches both `Vector` and `NormalizedVector`.
+        // Callers that need to distinguish the two should pair it with an
+        // [`AnyNormalizedVector`] check, or use [`AnyTensor`](crate::matcher::AnyTensor) to also
+        // accept `FixedShapeTensor`.
+        let metadata = ext_dtype.metadata::<AnyVector>();
+        assert_eq!(metadata.element_ptype(), PType::F32);
+        assert_eq!(metadata.dimensions(), 128);
         Ok(())
     }
 }

@@ -12,8 +12,10 @@ use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_error::VortexResult;
 
 use super::*;
+use crate::encodings::turboquant::centroids::compute_or_get_centroids;
 
-/// Verify that the centroids stored in the DictArray match what `get_centroids()` computes.
+/// Verify that the centroids stored in the DictArray match what `compute_or_get_centroids()`
+/// computes.
 #[test]
 fn stored_centroids_match_computed() -> VortexResult<()> {
     let fsl = make_fsl(10, 128, 42);
@@ -30,7 +32,7 @@ fn stored_centroids_match_computed() -> VortexResult<()> {
     let stored = centroids.as_slice::<f32>();
 
     // padded_dim for dim=128 is 128.
-    let computed = crate::encodings::turboquant::centroids::compute_or_get_centroids(128, 3)?;
+    let computed = compute_or_get_centroids(128, 3)?;
 
     assert_eq!(stored.len(), computed.len());
     for i in 0..stored.len() {

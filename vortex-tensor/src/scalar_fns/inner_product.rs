@@ -253,9 +253,9 @@ impl ScalarFnArrayVTable for InnerProduct {
 
 impl InnerProduct {
     /// Inner product over operands that may carry a unit-norm representation:
-    /// `inner_product = scale_l * scale_r * dot(unit_l, unit_r)`, where `scale = 1` for naked
-    /// `Normalized` operands, `scale = stored_norms` for `Denormalized` operands, and the
-    /// `unit_*` operands are the input itself for `Plain` operands.
+    /// `inner_product = scale_l * scale_r * dot(unit_l, unit_r)`, where the `(unit, scale)` pair
+    /// for each operand is `(operand, None)` for `Plain`, `(NV, None)` for naked `Normalized`,
+    /// and `(NV, Some(stored_norms))` for `Denormalized`. See [`decompose_for_unit_form`].
     fn execute_unit_form(
         &self,
         lhs_form: &NormalForm<'_>,
@@ -267,23 +267,12 @@ impl InnerProduct {
     ) -> VortexResult<ArrayRef> {
         let validity = lhs_ref.validity()?.and(rhs_ref.validity()?)?;
 
-        // For each operand, take its unit-norm representation if it has one; fall back to the
-        // operand itself (the `Plain` case feeds the regular dot path with no scaling).
-        let unit_lhs = lhs_form
-            .normalized_array()
-            .cloned()
-            .unwrap_or_else(|| lhs_ref.clone());
-        let unit_rhs = rhs_form
-            .normalized_array()
-            .cloned()
-            .unwrap_or_else(|| rhs_ref.clone());
+        let (unit_lhs, lhs_scale) = decompose_for_unit_form(lhs_form, lhs_ref, ctx)?;
+        let (unit_rhs, rhs_scale) = decompose_for_unit_form(rhs_form, rhs_ref, ctx)?;
 
         let dot: PrimitiveArray = InnerProduct::try_new_array(unit_lhs, unit_rhs, len)?
             .into_array()
             .execute(ctx)?;
-
-        let lhs_scale = norms_for_scaling(lhs_form, ctx)?;
-        let rhs_scale = norms_for_scaling(rhs_form, ctx)?;
 
         match_each_float_ptype!(dot.ptype(), |T| {
             let dots = dot.as_slice::<T>();
@@ -500,18 +489,26 @@ impl InnerProduct {
     }
 }
 
-/// Materialize the per-row scaling factor for an operand classified by [`NormalForm`].
+/// Decompose an operand classified by [`NormalForm`] into the `(unit_operand, optional_scale)`
+/// pair consumed by [`InnerProduct::execute_unit_form`]:
 ///
-/// - `Plain`: no scaling needed (the operand itself enters the dot product).
-/// - `Normalized`: implicit scaling of `1.0`, returned as `None` so the caller skips the multiply.
-/// - `Denormalized`: returns the materialized stored norms.
-fn norms_for_scaling(
+/// - `Plain`: `(original, None)`. The unscaled operand IS its own "unit" for dot purposes; no
+///   per-row multiply is needed.
+/// - `Normalized`: `(NV, None)`. Implicit per-row scale of `1.0` — the unit child enters the dot
+///   directly with no multiply.
+/// - `Denormalized`: `(NV, Some(stored_norms))`. The dot is computed over the unit child and the
+///   caller multiplies by the materialized stored norms afterward.
+fn decompose_for_unit_form(
     form: &NormalForm<'_>,
+    original: &ArrayRef,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<PrimitiveArray>> {
+) -> VortexResult<(ArrayRef, Option<PrimitiveArray>)> {
     match form {
-        NormalForm::Plain | NormalForm::Normalized { .. } => Ok(None),
-        NormalForm::Denormalized { norms, .. } => Ok(Some(norms.clone().execute(ctx)?)),
+        NormalForm::Plain => Ok((original.clone(), None)),
+        NormalForm::Normalized { array } => Ok(((*array).clone(), None)),
+        NormalForm::Denormalized { normalized, norms } => {
+            Ok((normalized.clone(), Some(norms.clone().execute(ctx)?)))
+        }
     }
 }
 

@@ -14,6 +14,7 @@ use vortex_compressor::scheme::Scheme;
 use vortex_compressor::stats::ArrayAndStats;
 use vortex_error::VortexResult;
 
+use crate::normalized_vector::AnyNormalizedVector;
 use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 use crate::types::vector::AnyVector;
 
@@ -30,10 +31,10 @@ impl Scheme for L2DenormScheme {
             return false;
         };
 
-        // `AnyVector` is the strict matcher for plain `Vector` only, so a `NormalizedVector`
-        // input is naturally excluded here (it would already carry an authoritative unit-norm
-        // representation and does not need re-normalization).
-        ext.ext_dtype().is::<AnyVector>()
+        // `AnyVector` matches any vector-shaped extension; we explicitly exclude `NormalizedVector`
+        // here because a normalized input already carries an authoritative unit-norm representation
+        // and does not need re-normalization.
+        ext.ext_dtype().is::<AnyVector>() && !ext.ext_dtype().is::<AnyNormalizedVector>()
     }
 
     fn expected_compression_ratio(

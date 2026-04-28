@@ -32,6 +32,8 @@ use vortex_session::VortexSession;
 use crate::matcher::AnyTensor;
 use crate::matcher::TensorMatch;
 use crate::scalar_fns::l2_denorm::L2Denorm;
+use crate::types::vector::VectorMatcherMetadata;
+use crate::vector::AnyVector;
 
 /// Safety factor for unit-norm tolerance. Applied as a constant multiplier on the probabilistic
 /// `√d · ε` bound so that legitimate round-off noise clears the check with headroom.
@@ -115,13 +117,8 @@ pub fn validate_binary_tensor_float_inputs<'a>(
 /// Returns `true` when `lhs` and `rhs` are both within the vector extension family (plain
 /// `Vector` or `NormalizedVector`) and share the same float ptype and dimension.
 fn vector_shapes_match(lhs: &DType, rhs: &DType) -> bool {
-    use crate::types::normalized_vector::AnyNormalizedVector;
-    use crate::types::vector::AnyVector;
-
-    fn vector_family_match(dtype: &DType) -> Option<crate::types::vector::VectorMatcherMetadata> {
-        let ext = dtype.as_extension_opt()?;
-        ext.metadata_opt::<AnyVector>()
-            .or_else(|| ext.metadata_opt::<AnyNormalizedVector>())
+    fn vector_family_match(dtype: &DType) -> Option<VectorMatcherMetadata> {
+        dtype.as_extension_opt()?.metadata_opt::<AnyVector>()
     }
 
     matches!(

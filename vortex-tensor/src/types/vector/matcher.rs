@@ -10,13 +10,16 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
+use crate::types::normalized_vector::NormalizedVector;
 use crate::types::vector::Vector;
 
-/// Matcher that accepts only the [`Vector`] extension type.
+/// Matcher that accepts any vector-shaped extension type — both plain
+/// [`Vector`] and [`NormalizedVector`](crate::normalized_vector::NormalizedVector).
 ///
-/// Use [`AnyTensor`](crate::matcher::AnyTensor) instead when
-/// [`NormalizedVector`](crate::normalized_vector::NormalizedVector) or `FixedShapeTensor`
-/// should also match.
+/// To match a plain [`Vector`] only (excluding [`NormalizedVector`]), pair this matcher with a
+/// negated `is::<AnyNormalizedVector>()` check; to match a `NormalizedVector` only, use
+/// [`AnyNormalizedVector`](crate::normalized_vector::AnyNormalizedVector) directly. Use
+/// [`AnyTensor`](crate::matcher::AnyTensor) when `FixedShapeTensor` should also match.
 pub struct AnyVector;
 
 /// Convenience metadata for vectors.
@@ -44,11 +47,32 @@ impl Matcher for AnyVector {
     type Match<'a> = VectorMatcherMetadata;
 
     fn try_match<'a>(ext_dtype: &'a ExtDTypeRef) -> Option<Self::Match<'a>> {
-        if !ext_dtype.is::<Vector>() {
-            return None;
-        }
+        // Walk to the inner `FixedSizeList` for whichever vector-shaped wrapper this is. Plain
+        // `Vector` stores the FSL directly; `NormalizedVector` wraps a `Vector` extension which
+        // in turn stores the FSL.
+        let fsl_dtype = if ext_dtype.is::<NormalizedVector>() {
+            let DType::Extension(inner) = ext_dtype.storage_dtype() else {
+                vortex_panic!(
+                    "`NormalizedVector` storage must be `DType::Extension(Vector)`, got {}",
+                    ext_dtype.storage_dtype(),
+                )
+            };
 
-        let DType::FixedSizeList(element_dtype, list_size, _) = ext_dtype.storage_dtype() else {
+            if !inner.is::<Vector>() {
+                vortex_panic!(
+                    "`NormalizedVector` inner extension must be `Vector`, got {}",
+                    inner.id(),
+                )
+            }
+
+            inner.storage_dtype()
+        } else if ext_dtype.is::<Vector>() {
+            ext_dtype.storage_dtype()
+        } else {
+            return None;
+        };
+
+        let DType::FixedSizeList(element_dtype, list_size, _) = fsl_dtype else {
             vortex_panic!("`Vector` type somehow did not have a `FixedSizeList` storage type")
         };
 
@@ -117,12 +141,40 @@ mod tests {
         )
     }
 
+    fn normalized_vector_storage_dtype(
+        element_ptype: PType,
+        dimensions: u32,
+    ) -> VortexResult<DType> {
+        let inner = ExtDType::<Vector>::try_new(
+            EmptyMetadata,
+            vector_storage_dtype(element_ptype, dimensions),
+        )?
+        .erased();
+        Ok(DType::Extension(inner))
+    }
+
     #[test]
     fn matches_vector_dtype_metadata() -> VortexResult<()> {
         let ext_dtype =
             ExtDType::<Vector>::try_new(EmptyMetadata, vector_storage_dtype(PType::F32, 256))?
                 .erased();
 
+        let metadata = ext_dtype.metadata::<AnyVector>();
+        assert_eq!(metadata.element_ptype(), PType::F32);
+        assert_eq!(metadata.dimensions(), 256);
+        Ok(())
+    }
+
+    #[test]
+    fn matches_normalized_vector_dtype_metadata() -> VortexResult<()> {
+        let ext_dtype = ExtDType::<NormalizedVector>::try_new(
+            EmptyMetadata,
+            normalized_vector_storage_dtype(PType::F32, 256)?,
+        )?
+        .erased();
+
+        // `AnyVector` is the inclusive matcher: it matches `NormalizedVector` too and surfaces
+        // the inner `Vector`'s element ptype and dimensionality.
         let metadata = ext_dtype.metadata::<AnyVector>();
         assert_eq!(metadata.element_ptype(), PType::F32);
         assert_eq!(metadata.dimensions(), 256);
