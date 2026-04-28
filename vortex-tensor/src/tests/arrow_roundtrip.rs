@@ -120,7 +120,7 @@ fn fixed_shape_tensor_metadata_roundtrip() {
             .metadata()
             .get(EXTENSION_TYPE_NAME_KEY)
             .map(String::as_str),
-        Some(FixedShapeTensor::ARROW_EXT_NAME),
+        Some(FixedShapeTensor::arrow_ext_id().as_str()),
     );
 
     // Canonical wire: raw JSON, not base64.
