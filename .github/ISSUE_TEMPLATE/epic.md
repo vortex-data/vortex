@@ -1,20 +1,16 @@
 ---
 name: Epic
-about: Public roadmap umbrella for a major Vortex initiative.
+about: Umbrella issue for a major initiative tracked via sub-issues.
 title: "Epic: "
 labels: epic
 ---
 
 <!--
-An Epic is a public roadmap umbrella for a major Vortex initiative. It should
-explain the goal, why it matters, what is out of scope, and where concrete work
-is tracked.
+An Epic is the umbrella for work that ships as several tracking issues. Attach
+them with GitHub's "Create sub-issue" or "Add existing sub-issue" button. The
+sub-issue panel tracks progress, so this issue does not need a checklist.
 
-Attach related tracking issues with GitHub's "Create sub-issue" or "Add
-existing sub-issue" button. The sub-issue panel tracks progress, so this issue
-does not need a checklist.
-
-Keep Epic issues readable. Route discussion elsewhere:
+Keep this issue readable. Route discussion elsewhere:
 
 - Open-ended scope or product questions: open a GitHub Discussion and link it
   here.
@@ -28,8 +24,10 @@ Short clarifying comments are fine. Long threads should be redirected.
 This Epic is for ...
 
 <!--
-One or two sentences. State the initiative and link any roadmap, design, or
-external context that helps readers understand the scope.
+One or two sentences explaining this Epic.
+
+Please also link any roadmap, design, or external context that helps readers
+understand the scope.
 -->
 
 ## Status
@@ -38,10 +36,12 @@ external context that helps readers understand the scope.
 Proposed / Active / Blocked / Complete. Briefly explain the current state.
 -->
 
+**Proposed.**
+
 ## Goal
 
 <!--
-One short paragraph covering both:
+Cover both:
 
 - What "done" looks like for a user or downstream consumer. Name the concrete
   API, format, encoding, or benchmark.
