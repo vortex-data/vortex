@@ -14,10 +14,10 @@ import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.ipc.ArrowReader;
 
 /**
- * A unit of scan work that materializes into an Arrow stream. Partitions are single-pass:
- * calling {@link #scanArrow(BufferAllocator)} consumes the partition and transfers
- * ownership of its native memory to the returned {@link ArrowReader}. If the partition
- * is never consumed, its native memory is released automatically via {@link VortexCleaner}.
+ * A unit of scan work that materializes into an Arrow stream. Partitions are single-pass: calling
+ * {@link #scanArrow(BufferAllocator)} consumes the partition and transfers ownership of its native memory to the
+ * returned {@link ArrowReader}. If the partition is never consumed, its native memory is released automatically via
+ * {@link VortexCleaner}.
  */
 public final class Partition {
     private final Session session;
@@ -52,9 +52,8 @@ public final class Partition {
     }
 
     /**
-     * Consume the partition and return an {@link ArrowReader} that yields record batches.
-     * The caller must close the reader when finished; doing so releases the native partition
-     * resources as well.
+     * Consume the partition and return an {@link ArrowReader} that yields record batches. The caller must close the
+     * reader when finished; doing so releases the native partition resources as well.
      */
     public ArrowReader scanArrow(BufferAllocator allocator) {
         if (!consumed.compareAndSet(false, true)) {

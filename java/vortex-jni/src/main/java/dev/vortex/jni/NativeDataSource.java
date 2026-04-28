@@ -29,8 +29,8 @@ public final class NativeDataSource {
     public static native void arrowSchema(long pointer, long schemaAddress);
 
     /**
-     * Populate {@code out} with {@code [rows, cardinality]}. Cardinality is one of
-     * {@code 0=unknown}, {@code 1=estimate}, {@code 2=exact}.
+     * Populate {@code out} with {@code [rows, cardinality]}. Cardinality is one of {@code 0=unknown},
+     * {@code 1=estimate}, {@code 2=exact}.
      */
     public static native void rowCount(long pointer, long[] out);
 }

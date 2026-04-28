@@ -18,15 +18,13 @@ import org.apache.arrow.vector.types.pojo.Schema;
 /**
  * Writer for Vortex files.
  *
- * <p>Batches are accepted via the Arrow C Data Interface: callers export an Arrow record
- * batch to an {@code ArrowArray} / {@code ArrowSchema} pair and pass the addresses to
- * {@link #writeBatch(long, long)}. The writer accepts up to four in-flight batches
- * on the session's runtime thread before back-pressuring the caller.
+ * <p>Batches are accepted via the Arrow C Data Interface: callers export an Arrow record batch to an {@code ArrowArray}
+ * / {@code ArrowSchema} pair and pass the addresses to {@link #writeBatch(long, long)}. The writer accepts up to four
+ * in-flight batches on the session's runtime thread before back-pressuring the caller.
  *
- * <p>Call {@link #close()} to flush remaining batches and finalize the file. If the writer
- * becomes unreachable without an explicit {@code close()}, {@link VortexCleaner} will flush
- * and release native resources as a backstop — but callers should always finalize
- * explicitly so that I/O errors surface through the normal call path.
+ * <p>Call {@link #close()} to flush remaining batches and finalize the file. If the writer becomes unreachable without
+ * an explicit {@code close()}, {@link VortexCleaner} will flush and release native resources as a backstop — but
+ * callers should always finalize explicitly so that I/O errors surface through the normal call path.
  */
 public final class VortexWriter implements AutoCloseable {
     private final long pointer;
@@ -44,8 +42,8 @@ public final class VortexWriter implements AutoCloseable {
     }
 
     /**
-     * Create a writer that streams records into the file at {@code uri}. The Arrow schema
-     * describes the exact layout of every batch written.
+     * Create a writer that streams records into the file at {@code uri}. The Arrow schema describes the exact layout of
+     * every batch written.
      */
     public static VortexWriter create(
             Session session, String uri, Schema arrowSchema, Map<String, String> options, BufferAllocator allocator)

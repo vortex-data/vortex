@@ -13,7 +13,13 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.hadoop.shaded.com.google.common.collect.Streams;
 import org.apache.spark.sql.catalyst.InternalRow;
@@ -25,7 +31,21 @@ import org.apache.spark.sql.connector.expressions.NamedReference;
 import org.apache.spark.sql.connector.expressions.Transform;
 import org.apache.spark.sql.connector.write.DataWriter;
 import org.apache.spark.sql.connector.write.WriterCommitMessage;
-import org.apache.spark.sql.types.*;
+import org.apache.spark.sql.types.BinaryType;
+import org.apache.spark.sql.types.BooleanType;
+import org.apache.spark.sql.types.ByteType;
+import org.apache.spark.sql.types.DataType;
+import org.apache.spark.sql.types.DateType;
+import org.apache.spark.sql.types.DoubleType;
+import org.apache.spark.sql.types.FloatType;
+import org.apache.spark.sql.types.IntegerType;
+import org.apache.spark.sql.types.LongType;
+import org.apache.spark.sql.types.ShortType;
+import org.apache.spark.sql.types.StringType;
+import org.apache.spark.sql.types.StructField;
+import org.apache.spark.sql.types.StructType;
+import org.apache.spark.sql.types.TimestampNTZType;
+import org.apache.spark.sql.types.TimestampType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 import org.apache.spark.unsafe.types.UTF8String;
 import org.slf4j.Logger;
@@ -33,11 +53,10 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Writes Spark InternalRow data to Vortex files organized in Hive-style partition directories.
- * <p>
- * Supports the standard Spark partition transforms: {@code identity}, {@code years},
- * {@code months}, {@code days}, {@code hours}, and {@code bucket}. For each unique combination
- * of evaluated transform values, a separate subdirectory is created and a dedicated
- * {@link VortexDataWriter} writes data within it.
+ *
+ * <p>Supports the standard Spark partition transforms: {@code identity}, {@code years}, {@code months}, {@code days},
+ * {@code hours}, and {@code bucket}. For each unique combination of evaluated transform values, a separate subdirectory
+ * is created and a dedicated {@link VortexDataWriter} writes data within it.
  */
 public final class PartitionedVortexDataWriter implements DataWriter<InternalRow>, AutoCloseable {
     private static final Logger logger = LoggerFactory.getLogger(PartitionedVortexDataWriter.class);
@@ -57,12 +76,12 @@ public final class PartitionedVortexDataWriter implements DataWriter<InternalRow
     /**
      * Creates a new PartitionedVortexDataWriter.
      *
-     * @param baseOutputUri      the base output path
-     * @param schema             the full schema of the data
-     * @param options            write options
+     * @param baseOutputUri the base output path
+     * @param schema the full schema of the data
+     * @param options write options
      * @param resolvedTransforms pre-resolved partition transforms
-     * @param partitionId        the Spark partition ID
-     * @param taskId             the Spark task ID
+     * @param partitionId the Spark partition ID
+     * @param taskId the Spark task ID
      */
     PartitionedVortexDataWriter(
             String baseOutputUri,
@@ -378,9 +397,8 @@ public final class PartitionedVortexDataWriter implements DataWriter<InternalRow
     }
 
     /**
-     * Computes the bucket value matching Spark's {@code InMemoryBaseTable} reference implementation:
-     * per-column values are converted to longs (hashed for strings/binary), summed, then
-     * {@code Math.floorMod(sum, numBuckets)}.
+     * Computes the bucket value matching Spark's {@code InMemoryBaseTable} reference implementation: per-column values
+     * are converted to longs (hashed for strings/binary), summed, then {@code Math.floorMod(sum, numBuckets)}.
      */
     private static String extractBucketValue(InternalRow row, ResolvedTransform rt) {
         long hash = Streams.zip(
@@ -439,9 +457,7 @@ public final class PartitionedVortexDataWriter implements DataWriter<InternalRow
         }
     }
 
-    /**
-     * Commit message that aggregates results from multiple partition writers.
-     */
+    /** Commit message that aggregates results from multiple partition writers. */
     public static final class PartitionedWriterCommitMessage implements WriterCommitMessage, Serializable {
         private final List<VortexWriterCommitMessage> partitionMessages;
 
@@ -449,9 +465,7 @@ public final class PartitionedVortexDataWriter implements DataWriter<InternalRow
             this.partitionMessages = partitionMessages;
         }
 
-        /**
-         * Returns the commit messages from each individual partition writer.
-         */
+        /** Returns the commit messages from each individual partition writer. */
         public List<VortexWriterCommitMessage> getPartitionMessages() {
             return partitionMessages;
         }

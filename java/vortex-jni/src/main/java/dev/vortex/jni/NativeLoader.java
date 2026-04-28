@@ -12,9 +12,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Locale;
 
-/**
- * Loads the native vortex-jni shared library from the classpath.
- */
+/** Loads the native vortex-jni shared library from the classpath. */
 public final class NativeLoader {
     private static boolean loaded = false;
 

@@ -16,16 +16,20 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.spark.sql.connector.expressions.Transform;
-import org.apache.spark.sql.connector.write.*;
+import org.apache.spark.sql.connector.write.BatchWrite;
+import org.apache.spark.sql.connector.write.DataWriterFactory;
+import org.apache.spark.sql.connector.write.PhysicalWriteInfo;
+import org.apache.spark.sql.connector.write.Write;
+import org.apache.spark.sql.connector.write.WriterCommitMessage;
 import org.apache.spark.sql.types.StructType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Manages the batch write operation for creating Vortex files.
- * <p>
- * This class coordinates the distributed write operation across Spark executors,
- * handling the creation of data writers and managing commits/aborts.
+ *
+ * <p>This class coordinates the distributed write operation across Spark executors, handling the creation of data
+ * writers and managing commits/aborts.
  */
 public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
 
@@ -41,10 +45,10 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
     /**
      * Creates a new VortexBatchWrite.
      *
-     * @param outputPath          the base path where Vortex files will be written
-     * @param schema              the schema of the data to write
-     * @param options             additional write options
-     * @param overwrite           whether to overwrite existing files
+     * @param outputPath the base path where Vortex files will be written
+     * @param schema the schema of the data to write
+     * @param options additional write options
+     * @param overwrite whether to overwrite existing files
      * @param partitionTransforms partition transforms (may be empty)
      */
     VortexBatchWrite(
@@ -62,8 +66,8 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
 
     /**
      * Returns this object as a BatchWrite.
-     * <p>
-     * This method is required by the Write interface to support batch writes.
+     *
+     * <p>This method is required by the Write interface to support batch writes.
      *
      * @return this object
      */
@@ -74,9 +78,9 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
 
     /**
      * Creates a DataWriterFactory for producing data writers on executors.
-     * <p>
-     * This method is called once at the start of the write operation,
-     * making it the right place to handle overwrite cleanup.
+     *
+     * <p>This method is called once at the start of the write operation, making it the right place to handle overwrite
+     * cleanup.
      *
      * @return a new VortexDataWriterFactory
      */
@@ -96,9 +100,8 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
 
     /**
      * Called when a single data writer task completes successfully.
-     * <p>
-     * This is called for each successful task but individual file commits
-     * are handled in the data writer itself.
+     *
+     * <p>This is called for each successful task but individual file commits are handled in the data writer itself.
      *
      * @param message commit message from a successful data writer task
      */
@@ -111,9 +114,8 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
 
     /**
      * Commits the entire write job after all tasks complete successfully.
-     * <p>
-     * This finalizes the write operation and ensures all Vortex files
-     * are properly written.
+     *
+     * <p>This finalizes the write operation and ensures all Vortex files are properly written.
      *
      * @param messages commit messages from all successful write tasks
      */
@@ -128,8 +130,8 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
 
     /**
      * Aborts the write job due to failures.
-     * <p>
-     * This method cleans up any partially written files.
+     *
+     * <p>This method cleans up any partially written files.
      *
      * @param messages commit messages from write tasks (may include failures)
      */

@@ -5,12 +5,10 @@ package dev.vortex.jni;
 
 /**
  * Utility class for configuring native logging levels in the Vortex JNI layer.
- * <p>
- * This class provides constants for different logging levels and methods to
- * initialize native logging to the desired verbosity level. The logging levels
- * correspond to standard logging frameworks with ERROR being the least verbose
- * and TRACE being the most verbose.
- * </p>
+ *
+ * <p>This class provides constants for different logging levels and methods to initialize native logging to the desired
+ * verbosity level. The logging levels correspond to standard logging frameworks with ERROR being the least verbose and
+ * TRACE being the most verbose.
  */
 public final class NativeLogging {
     static {
@@ -36,12 +34,13 @@ public final class NativeLogging {
 
     /**
      * Initialize logging to the desired level. Must be one of:
+     *
      * <ul>
-     *  <li>{@link #ERROR}</li>
-     *  <li>{@link #WARN}</li>
-     *  <li>{@link #INFO}</li>
-     *  <li>{@link #DEBUG}</li>
-     *  <li>{@link #TRACE}</li>
+     *   <li>{@link #ERROR}
+     *   <li>{@link #WARN}
+     *   <li>{@link #INFO}
+     *   <li>{@link #DEBUG}
+     *   <li>{@link #TRACE}
      * </ul>
      */
     public static native void initLogging(int level);

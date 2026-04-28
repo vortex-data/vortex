@@ -21,9 +21,7 @@ import org.apache.spark.sql.connector.read.InputPartition;
 import org.apache.spark.sql.connector.read.PartitionReaderFactory;
 import org.apache.spark.sql.types.StructType;
 
-/**
- * Execution source for batch scans of Vortex file tables.
- */
+/** Execution source for batch scans of Vortex file tables. */
 public final class VortexBatchExec implements Batch {
     private final List<String> paths;
     private final StructType readSchema;
@@ -45,10 +43,9 @@ public final class VortexBatchExec implements Batch {
     /**
      * Plans the input partitions for this batch scan.
      *
-     * <p>Directory-like entries are expanded to concrete {@code .vortex} files. Each resolved
-     * file becomes its own {@link VortexFilePartition}; the partition carries the paths the
-     * reader should open, the requested schema, and any Hive-style partition values parsed
-     * out of the path.
+     * <p>Directory-like entries are expanded to concrete {@code .vortex} files. Each resolved file becomes its own
+     * {@link VortexFilePartition}; the partition carries the paths the reader should open, the requested schema, and
+     * any Hive-style partition values parsed out of the path.
      */
     @Override
     public InputPartition[] planInputPartitions() {

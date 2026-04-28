@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.apache.arrow.c.ArrowArray;
 import org.apache.arrow.c.ArrowSchema;
@@ -30,7 +31,6 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -47,9 +47,9 @@ public final class JNIWriterTest {
     }
 
     private static Schema personSchema() {
-        return new Schema(java.util.List.of(
-                new Field("name", FieldType.notNullable(new ArrowType.Utf8()), null),
-                new Field("age", FieldType.notNullable(new ArrowType.Int(32, true)), null)));
+        return new Schema(List.of(
+                Field.notNullable("name", new ArrowType.Utf8()),
+                Field.notNullable("age", new ArrowType.Int(32, true))));
     }
 
     @Test
@@ -114,9 +114,9 @@ public final class JNIWriterTest {
                 VectorSchemaRoot resultRoot = reader.getVectorSchemaRoot();
                 VarCharVector nameOut = (VarCharVector) resultRoot.getVector("name");
                 IntVector ageOut = (IntVector) resultRoot.getVector("age");
-                assertEquals("Alice", new String(nameOut.get(0), UTF_8));
-                assertEquals("Bob", new String(nameOut.get(1), UTF_8));
-                assertEquals("Carol", new String(nameOut.get(2), UTF_8));
+                assertEquals("Alice", nameOut.getObject(0).toString());
+                assertEquals("Bob", nameOut.getObject(1).toString());
+                assertEquals("Carol", nameOut.getObject(2).toString());
                 assertEquals(30, ageOut.get(0));
                 assertEquals(25, ageOut.get(1));
                 assertEquals(40, ageOut.get(2));
