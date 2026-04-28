@@ -34,6 +34,39 @@ pub const DEFAULT_COMMIT_WINDOW: u32 = 100;
 /// Hard server-side ceiling on `?n=NNN`.
 pub const MAX_COMMIT_WINDOW: u32 = 1000;
 
+/// Canonical group ordering, ported from the v2 site's hard-coded list at
+/// `origin/ct/vfvb:benchmarks-website/index.html`. Group names not in this
+/// list sort after every listed name in alphabetical order. The order is
+/// significant for the landing page render — the first group is opened by
+/// default and the rest are collapsed.
+pub const GROUP_ORDER: &[&str] = &[
+    "Random Access",
+    "Compression",
+    "Compression Size",
+    "Clickbench",
+    "TPC-H (NVMe) (SF=1)",
+    "TPC-H (S3) (SF=1)",
+    "TPC-H (NVMe) (SF=10)",
+    "TPC-H (S3) (SF=10)",
+    "TPC-H (NVMe) (SF=100)",
+    "TPC-H (S3) (SF=100)",
+    "TPC-H (NVMe) (SF=1000)",
+    "TPC-H (S3) (SF=1000)",
+    "TPC-DS (NVMe) (SF=1)",
+    "TPC-DS (NVMe) (SF=10)",
+];
+
+/// Sort key for a group name against [`GROUP_ORDER`]. Names in the list sort
+/// by position (0..GROUP_ORDER.len()); names not in the list sort after, by
+/// the same primary index plus an alphabetical tiebreaker.
+pub fn group_sort_key(name: &str) -> (usize, &str) {
+    let pos = GROUP_ORDER
+        .iter()
+        .position(|&n| n == name)
+        .unwrap_or(GROUP_ORDER.len());
+    (pos, name)
+}
+
 /// Server-side cap on how many of the most recent commits a chart includes.
 ///
 /// `Last(n)` keeps the most recent `n` commits by `commits.timestamp`; `All`
@@ -298,6 +331,11 @@ pub(crate) fn collect_groups(conn: &Connection) -> Result<Vec<Group>> {
     let vsr_groups = collect_vector_search_groups(conn)?;
     groups.extend(vsr_groups);
 
+    // Apply canonical ordering. `sort_by_key` is stable, so groups whose
+    // names map to the same key (the `GROUP_ORDER.len()` bucket — i.e. not in
+    // the canonical list) keep the order the discovery passes produced.
+    groups.sort_by(|a, b| group_sort_key(&a.name).cmp(&group_sort_key(&b.name)));
+
     Ok(groups)
 }
 
@@ -367,12 +405,44 @@ fn collect_query_groups(conn: &Connection) -> Result<Vec<Group>> {
     Ok(groups)
 }
 
+/// Render a query group name in the same shape v2 used (per the hard-coded
+/// list in `origin/ct/vfvb:benchmarks-website/index.html`):
+///
+/// - `tpch` + storage + scale_factor → `TPC-H (NVMe) (SF=1)`
+/// - `tpcds` + storage + scale_factor → `TPC-DS (NVMe) (SF=1)`
+/// - `clickbench` → `Clickbench`
+/// - anything else → fall back to the legacy `dataset[/variant] sf=N [storage]`
+///   shape so unknown datasets still get a deterministic name.
+///
+/// Variant disambiguation: for tpch/tpcds, if `dataset_variant` is set we
+/// append ` / variant`, since v2's list flattened variants but v3 ingests
+/// them. Without this, two ingestion variants would collide.
 fn group_name_query(
     dataset: &str,
     dataset_variant: &Option<String>,
     scale_factor: &Option<String>,
     storage: &str,
 ) -> String {
+    let storage_label = match storage {
+        "nvme" => Some("NVMe"),
+        "s3" => Some("S3"),
+        _ => None,
+    };
+    let base = match (dataset, storage_label, scale_factor.as_deref()) {
+        ("tpch", Some(s), Some(sf)) => Some(format!("TPC-H ({s}) (SF={sf})")),
+        ("tpcds", Some(s), Some(sf)) => Some(format!("TPC-DS ({s}) (SF={sf})")),
+        ("clickbench", ..) => Some("Clickbench".to_string()),
+        _ => None,
+    };
+    if let Some(mut name) = base {
+        if let Some(v) = dataset_variant {
+            name.push_str(" / ");
+            name.push_str(v);
+        }
+        return name;
+    }
+    // Legacy fallback for unknown datasets — keeps the page rendering rather
+    // than silently dropping data.
     let mut name = dataset.to_string();
     if let Some(v) = dataset_variant {
         name.push('/');
