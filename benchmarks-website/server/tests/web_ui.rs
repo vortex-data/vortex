@@ -208,7 +208,7 @@ async fn pick_chart_slug(server: &Server, predicate: impl Fn(&str) -> bool) -> R
         .as_array()
         .context("groups is array")?
         .iter()
-        .find(|g| g["name"].as_str().is_some_and(|s| predicate(s)))
+        .find(|g| g["name"].as_str().is_some_and(&predicate))
         .and_then(|g| g["charts"].as_array())
         .and_then(|c| c.first())
         .and_then(|c| c["slug"].as_str())
@@ -228,7 +228,7 @@ async fn pick_group_slug(server: &Server, predicate: impl Fn(&str) -> bool) -> R
         .as_array()
         .context("groups is array")?
         .iter()
-        .find(|g| g["name"].as_str().is_some_and(|s| predicate(s)))
+        .find(|g| g["name"].as_str().is_some_and(&predicate))
         .and_then(|g| g["slug"].as_str())
         .map(str::to_string)
         .context("matching group slug")
