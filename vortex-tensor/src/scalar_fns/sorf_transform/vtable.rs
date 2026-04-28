@@ -48,9 +48,9 @@ use super::SorfTransform;
 use super::rotation::SorfMatrix;
 use super::validate_sorf_options;
 use crate::types::normalized_vector::NormalizedVector;
-use crate::types::normalized_vector::inner_vector_array;
 use crate::types::vector::AnyVector;
 use crate::types::vector::Vector;
+use crate::utils::inner_vector_array;
 
 impl ScalarFnVTable for SorfTransform {
     type Options = SorfOptions;

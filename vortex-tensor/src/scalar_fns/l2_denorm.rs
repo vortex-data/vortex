@@ -62,14 +62,14 @@ use vortex_session::VortexSession;
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_norm::L2Norm;
 use crate::types::normalized_vector::NormalizedVector;
-use crate::types::normalized_vector::inner_vector_array;
-use crate::types::normalized_vector::vector_fsl_storage_dtype;
 use crate::types::vector::AnyVector;
 use crate::types::vector::Vector;
 use crate::utils::extract_constant_flat_row;
 use crate::utils::extract_flat_elements;
 use crate::utils::extract_l2_denorm_children;
+use crate::utils::inner_vector_array;
 use crate::utils::unit_norm_tolerance;
+use crate::utils::vector_fsl_storage_dtype;
 
 /// Re-applies authoritative L2 norms to a normalized vector column.
 ///
@@ -599,6 +599,7 @@ pub fn normalize_as_l2_denorm(
     unsafe { L2Denorm::new_array_unchecked(normalized, norms_array, row_count) }
 }
 
+// TODO(connor): This does not handle `NormalizedVector` correctly!!!
 /// Attempts to build an [`L2Denorm`] whose two children are both [`ConstantArray`]s by eagerly
 /// normalizing `input`'s single stored row.
 ///

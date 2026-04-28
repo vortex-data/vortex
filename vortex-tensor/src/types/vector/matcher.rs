@@ -13,8 +13,8 @@ use vortex_error::vortex_panic;
 use crate::types::normalized_vector::NormalizedVector;
 use crate::types::vector::Vector;
 
-/// Matcher that accepts any vector-shaped extension type — both plain
-/// [`Vector`] and [`NormalizedVector`](crate::normalized_vector::NormalizedVector).
+/// Matcher that accepts any vector-shaped extension type (both plain [`Vector`] and
+/// [`NormalizedVector`]).
 ///
 /// To match a plain [`Vector`] only (excluding [`NormalizedVector`]), pair this matcher with a
 /// negated `is::<AnyNormalizedVector>()` check; to match a `NormalizedVector` only, use

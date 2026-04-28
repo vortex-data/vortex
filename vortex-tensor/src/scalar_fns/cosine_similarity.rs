@@ -269,10 +269,7 @@ impl CosineSimilarity {
     }
 
     /// Exactly one side carries a unit-norm representation: cosine similarity reduces to
-    /// `dot(unit, plain) / ||plain||`. The norms of the unit side are implicitly `1.0` (naked
-    /// `NormalizedVector`) or stored separately on the outer `L2Denorm` wrapper, which the
-    /// caller has already stripped — cosine ignores magnitude on the unit side, so the wrapper
-    /// is not needed here.
+    /// `dot(unit, plain) / ||plain||`.
     fn execute_one_unit(
         &self,
         unit: &ArrayRef,

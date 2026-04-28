@@ -49,11 +49,11 @@ use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_denorm::NormalForm;
 use crate::scalar_fns::sorf_transform::SorfMatrix;
 use crate::scalar_fns::sorf_transform::SorfTransform;
-use crate::types::normalized_vector::inner_vector_array;
 use crate::types::vector::Vector;
 use crate::utils::BinaryTensorOpMetadata;
 use crate::utils::extract_constant_flat_row;
 use crate::utils::extract_flat_elements;
+use crate::utils::inner_vector_array;
 use crate::utils::validate_binary_tensor_float_inputs;
 
 /// Inner product (dot product) between two columns.

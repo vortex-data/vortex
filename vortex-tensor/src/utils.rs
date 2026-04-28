@@ -8,9 +8,11 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFn;
+use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::scalar_fn::ExactScalarFn;
@@ -19,6 +21,7 @@ use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
+use vortex_array::dtype::extension::ExtDTypeRef;
 use vortex_array::dtype::proto::dtype as pb;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_buffer::Buffer;
@@ -31,9 +34,11 @@ use vortex_session::VortexSession;
 
 use crate::matcher::AnyTensor;
 use crate::matcher::TensorMatch;
+use crate::normalized_vector::NormalizedVector;
 use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::types::vector::VectorMatcherMetadata;
 use crate::vector::AnyVector;
+use crate::vector::Vector;
 
 /// Safety factor for unit-norm tolerance. Applied as a constant multiplier on the probabilistic
 /// `√d · ε` bound so that legitimate round-off noise clears the check with headroom.
@@ -126,6 +131,45 @@ fn vector_shapes_match(lhs: &DType, rhs: &DType) -> bool {
         (Some(l), Some(r))
             if l.element_ptype() == r.element_ptype() && l.dimensions() == r.dimensions()
     )
+}
+
+/// Returns the underlying `FixedSizeList` storage dtype for a vector-shaped extension dtype.
+///
+/// For a plain [`Vector`], this is the direct storage dtype. For a [`NormalizedVector`]
+/// it drills through one extra extension layer.
+pub fn vector_fsl_storage_dtype(ext: &ExtDTypeRef) -> Option<DType> {
+    use vortex_array::dtype::DType;
+    if ext.is::<Vector>() {
+        Some(ext.storage_dtype().clone())
+    } else if ext.is::<NormalizedVector>() {
+        let DType::Extension(inner) = ext.storage_dtype() else {
+            return None;
+        };
+        if !inner.is::<Vector>() {
+            return None;
+        }
+        Some(inner.storage_dtype().clone())
+    } else {
+        None
+    }
+}
+
+/// Returns the underlying `Vector` extension array inside a vector-shaped extension array.
+///
+/// For a [`NormalizedVector`] array, this executes the outer extension and returns its
+/// `Vector` storage child. For a plain [`Vector`] array, it returns the array itself (after
+/// canonicalizing to an `ExtensionArray`).
+pub fn inner_vector_array(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    let is_normalized = array
+        .dtype()
+        .as_extension_opt()
+        .is_some_and(|ext| ext.is::<NormalizedVector>());
+    if is_normalized {
+        let ext: ExtensionArray = array.clone().execute(ctx)?;
+        Ok(ext.storage_array().clone())
+    } else {
+        Ok(array.clone())
+    }
 }
 
 /// Cast a float [`PrimitiveArray`] to a `Buffer<f32>`.
