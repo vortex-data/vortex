@@ -430,9 +430,9 @@ impl<O: IntegerPType + OffsetSizeTrait> FromArrowArray<&GenericListArray<O>> for
         nullable: bool,
         session: &VortexSession,
     ) -> VortexResult<Self> {
-        let elements_field = match value.data_type() {
-            DataType::List(field) => field.clone(),
-            DataType::LargeList(field) => field.clone(),
+        let elements_field: &Field = match value.data_type() {
+            DataType::List(field) => field.as_ref(),
+            DataType::LargeList(field) => field.as_ref(),
             dt => vortex_panic!("Invalid data type for ListArray: {dt}"),
         };
 
@@ -441,11 +441,8 @@ impl<O: IntegerPType + OffsetSizeTrait> FromArrowArray<&GenericListArray<O>> for
             elements_field.is_nullable(),
             session,
         )?;
-        let elements = wrap_extension_if_field_has_metadata(
-            elements_storage,
-            elements_field.as_ref(),
-            session,
-        )?;
+        let elements =
+            wrap_extension_if_field_has_metadata(elements_storage, elements_field, session)?;
 
         // `offsets` are always non-nullable.
         let offsets = value.offsets().clone().into_array();

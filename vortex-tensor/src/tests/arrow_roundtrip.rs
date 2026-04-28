@@ -240,7 +240,7 @@ fn fixed_shape_tensor_record_batch_round_trip() {
         .with_dim_names(vec!["row".into(), "col".into()])
         .unwrap();
     let tensor_dtype = fixed_shape_dtype(metadata.clone(), 4);
-    let dtype = DType::struct_([("tensor", tensor_dtype.clone())], Nullability::NonNullable);
+    let dtype = DType::struct_([("tensor", tensor_dtype)], Nullability::NonNullable);
     let schema = dtype.to_arrow_schema_with_session(&SESSION).unwrap();
 
     let tensor_array =
