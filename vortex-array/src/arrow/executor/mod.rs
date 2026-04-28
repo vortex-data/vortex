@@ -30,8 +30,10 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
+use crate::arrays::ExtensionArray;
 use crate::arrays::List;
 use crate::arrays::VarBin;
+use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::list::ListArrayExt;
 use crate::arrays::varbin::VarBinArrayExt;
 use crate::arrow::executor::bool::to_arrow_bool;
@@ -87,6 +89,12 @@ impl ArrowArrayExecutor for ArrayRef {
         data_type: Option<&DataType>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowArrayRef> {
+        // Extension identity lives on Field metadata; dispatch on the storage array.
+        if matches!(self.dtype(), DType::Extension(_)) {
+            let ext = self.execute::<ExtensionArray>(ctx)?;
+            return ext.storage_array().clone().execute_arrow(data_type, ctx);
+        }
+
         let len = self.len();
 
         // Resolve the DataType if it is a leaf type
@@ -183,6 +191,40 @@ impl ArrowArrayExecutor for ArrayRef {
         self.to_array_iterator()
             .map(|a| a?.execute_record_batch(schema, ctx))
             .try_collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow_array::cast::AsArray;
+    use arrow_array::types::UInt64Type;
+    use arrow_schema::DataType;
+
+    use super::*;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
+    use crate::array::IntoArray;
+    use crate::arrays::ExtensionArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::extension::tests::divisible_int::DivisibleInt;
+    use crate::extension::tests::divisible_int::Divisor;
+
+    #[test]
+    fn execute_arrow_unwraps_extension_to_storage() {
+        let storage = PrimitiveArray::from_iter(0u64..6).into_array();
+        let ext = ExtensionArray::try_new_from_vtable(DivisibleInt, Divisor(1), storage)
+            .unwrap()
+            .into_array();
+
+        let arrow = ext
+            .execute_arrow(
+                Some(&DataType::UInt64),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+            .unwrap();
+
+        let primitives = arrow.as_primitive::<UInt64Type>();
+        assert_eq!(primitives.values(), &[0, 1, 2, 3, 4, 5]);
     }
 }
 

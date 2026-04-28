@@ -9,6 +9,7 @@ use arrow_schema::DataType;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
 use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
+use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -146,6 +147,34 @@ fn tensor_inside_nested_struct_roundtrips() {
     let recovered = DType::from_arrow_with_session(&schema, &SESSION);
 
     assert_eq!(recovered, original);
+}
+
+#[test]
+fn vector_record_batch_round_trip_carries_field_metadata() {
+    let vector_array = Vector::constant_array(&[1.0f32, 2.0, 3.0, 4.0], 2).unwrap();
+    let struct_array = StructArray::from_fields(&[("embedding", vector_array)]).unwrap();
+
+    let dtype = DType::struct_([("embedding", vector_dtype(4))], Nullability::NonNullable);
+    let schema = dtype.to_arrow_schema_with_session(&SESSION).unwrap();
+    let rb = struct_array.into_record_batch_with_schema(&schema).unwrap();
+
+    let column = rb.column(0);
+    let DataType::FixedSizeList(_, size) = column.data_type() else {
+        panic!(
+            "expected storage FixedSizeList, got {:?}",
+            column.data_type()
+        );
+    };
+    assert_eq!(*size, 4);
+
+    assert_eq!(
+        rb.schema()
+            .field(0)
+            .metadata()
+            .get(EXTENSION_TYPE_NAME_KEY)
+            .map(String::as_str),
+        Some(Vector.id().as_str()),
+    );
 }
 
 #[test]
