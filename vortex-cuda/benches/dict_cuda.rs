@@ -8,6 +8,7 @@
 
 mod common;
 
+use std::fmt::Debug;
 use std::mem::size_of;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -48,7 +49,7 @@ fn make_dict_array_typed<V, C>(len: usize, dict_size: usize) -> DictArray
 where
     V: NativePType + From<u32>,
     C: NativePType + TryFrom<usize>,
-    <C as TryFrom<usize>>::Error: std::fmt::Debug,
+    <C as TryFrom<usize>>::Error: Debug,
 {
     // Dictionary values
     let values: Vec<V> = (0..dict_size)
@@ -71,7 +72,7 @@ fn benchmark_dict_typed<V, C>(c: &mut Criterion, config: &DictBenchConfig)
 where
     V: NativePType + DeviceRepr + From<u32>,
     C: NativePType + DeviceRepr + TryFrom<usize>,
-    <C as TryFrom<usize>>::Error: std::fmt::Debug,
+    <C as TryFrom<usize>>::Error: Debug,
 {
     let mut group = c.benchmark_group("dict_cuda");
 

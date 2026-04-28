@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
+use vortex_session::SessionVar;
 use vortex_session::registry::Registry;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -40,6 +42,16 @@ pub struct AggregateFnSession {
 
     pub(super) kernels: RwLock<HashMap<KernelKey, &'static dyn DynAggregateKernel>>,
     pub(super) grouped_kernels: RwLock<HashMap<KernelKey, &'static dyn DynGroupedAggregateKernel>>,
+}
+
+impl SessionVar for AggregateFnSession {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
 type KernelKey = (ArrayId, Option<AggregateFnId>);

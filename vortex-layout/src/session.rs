@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
+
 use vortex_session::Ref;
 use vortex_session::SessionExt;
+use vortex_session::SessionVar;
 use vortex_session::registry::Registry;
 
 use crate::LayoutEncodingRef;
@@ -51,6 +54,15 @@ impl Default for LayoutSession {
         layouts.register(DictLayoutEncoding.id(), DictLayoutEncoding.as_ref());
 
         Self { registry: layouts }
+    }
+}
+
+impl SessionVar for LayoutSession {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
     }
 }
 

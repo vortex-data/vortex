@@ -381,7 +381,7 @@ impl CascadingCompressor {
                     CompressionEstimate::Verdict(EstimateVerdict::Ratio(ratio)) => {
                         let score = EstimateScore::FiniteCompression(ratio);
 
-                        if is_better_score(score, &best) {
+                        if is_better_score(score, best.as_ref()) {
                             best = Some((scheme, score));
                         }
                     }
@@ -407,7 +407,7 @@ impl CascadingCompressor {
                         exec_ctx,
                     )?;
 
-                    if is_better_score(score, &best) {
+                    if is_better_score(score, best.as_ref()) {
                         best = Some((scheme, score));
                     }
                 }
@@ -420,7 +420,7 @@ impl CascadingCompressor {
                         EstimateVerdict::Ratio(ratio) => {
                             let score = EstimateScore::FiniteCompression(ratio);
 
-                            if is_better_score(score, &best) {
+                            if is_better_score(score, best.as_ref()) {
                                 best = Some((scheme, score));
                             }
                         }

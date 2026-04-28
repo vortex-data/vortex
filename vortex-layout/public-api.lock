@@ -1414,6 +1414,12 @@ impl core::fmt::Debug for vortex_layout::session::LayoutSession
 
 pub fn vortex_layout::session::LayoutSession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl vortex_session::SessionVar for vortex_layout::session::LayoutSession
+
+pub fn vortex_layout::session::LayoutSession::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_layout::session::LayoutSession::as_any_mut(&mut self) -> &mut dyn core::any::Any
+
 pub trait vortex_layout::session::LayoutSessionExt: vortex_session::SessionExt
 
 pub fn vortex_layout::session::LayoutSessionExt::layouts(&self) -> vortex_session::Ref<'_, vortex_layout::session::LayoutSession>

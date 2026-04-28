@@ -86,16 +86,16 @@ pub(super) fn to_arrow_temporal(
 
             match (unit, arrow_unit) {
                 (TimeUnit::Seconds, ArrowTimeUnit::Second) => {
-                    to_arrow_timestamp::<TimestampSecondType>(array, arrow_tz, ctx)
+                    to_arrow_timestamp::<TimestampSecondType>(array, arrow_tz.as_ref(), ctx)
                 }
                 (TimeUnit::Milliseconds, ArrowTimeUnit::Millisecond) => {
-                    to_arrow_timestamp::<TimestampMillisecondType>(array, arrow_tz, ctx)
+                    to_arrow_timestamp::<TimestampMillisecondType>(array, arrow_tz.as_ref(), ctx)
                 }
                 (TimeUnit::Microseconds, ArrowTimeUnit::Microsecond) => {
-                    to_arrow_timestamp::<TimestampMicrosecondType>(array, arrow_tz, ctx)
+                    to_arrow_timestamp::<TimestampMicrosecondType>(array, arrow_tz.as_ref(), ctx)
                 }
                 (TimeUnit::Nanoseconds, ArrowTimeUnit::Nanosecond) => {
-                    to_arrow_timestamp::<TimestampNanosecondType>(array, arrow_tz, ctx)
+                    to_arrow_timestamp::<TimestampNanosecondType>(array, arrow_tz.as_ref(), ctx)
                 }
                 _ => vortex_bail!(
                     "Cannot convert {} array to Arrow type {}",
@@ -125,14 +125,14 @@ where
 
 fn to_arrow_timestamp<T: ArrowTimestampType>(
     array: ArrayRef,
-    arrow_tz: &Option<Arc<str>>,
+    arrow_tz: Option<&Arc<str>>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef>
 where
     T::Native: NativePType,
 {
     Ok(Arc::new(
-        to_arrow_temporal_primitive::<T>(array, ctx)?.with_timezone_opt(arrow_tz.clone()),
+        to_arrow_temporal_primitive::<T>(array, ctx)?.with_timezone_opt(arrow_tz.cloned()),
     ))
 }
 
