@@ -12,7 +12,6 @@ use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 
@@ -29,6 +28,8 @@ use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::expr::stats::Stat;
+use crate::expr::stats::StatsProviderExt;
 use crate::optimizer::ArrayOptimizer;
 use crate::patches::Patches;
 use crate::scalar::Scalar;
@@ -295,12 +296,11 @@ impl Validity {
             _ => {}
         };
 
-        let own_nullability = if matches!(self, Validity::NonNullable) {
-            Nullability::NonNullable
-        } else {
-            Nullability::Nullable
-        };
+        if matches!(self, Validity::NonNullable) {
+            return Ok(Self::NonNullable);
+        }
 
+        // From here on we know that the validity is nullable
         let source = match self {
             Validity::NonNullable => BoolArray::from(BitBuffer::new_set(len)),
             Validity::AllValid => BoolArray::from(BitBuffer::new_set(len)),
@@ -324,13 +324,10 @@ impl Validity {
             None,
         )?;
 
-        Ok(Self::from_array(
-            source.patch(&patches, ctx)?.into_array(),
-            own_nullability,
-        ))
+        Ok(Self::Array(source.patch(&patches, ctx)?.into_array()))
     }
 
-    /// Convert into a nullable variant
+    /// Convert into a nullable variant.
     #[inline]
     pub fn into_nullable(self) -> Validity {
         match self {
@@ -339,9 +336,17 @@ impl Validity {
         }
     }
 
-    /// Convert into a non-nullable variant
+    /// Convert into a non-nullable variant, computing statistics if necessary.
+    ///
+    /// Returns `None` when the array contains invalid values (so the cast cannot be performed),
+    /// either because it is [`Validity::AllInvalid`] or because the validity array's minimum is
+    /// `false`.
+    ///
+    /// For `Validity::Array(_)`, this calls [`StatsSetRef::compute_min`] which may execute the
+    /// validity array. Use [`Self::try_into_non_nullable`] when execution is not available — for
+    /// example inside reduce rules.
     #[inline]
-    pub fn into_non_nullable(self, len: usize) -> Option<Validity> {
+    pub fn into_non_nullable(self, len: usize, ctx: &mut ExecutionCtx) -> Option<Validity> {
         match self {
             _ if len == 0 => Some(Validity::NonNullable),
             Self::NonNullable => Some(Self::NonNullable),
@@ -350,7 +355,7 @@ impl Validity {
             Self::Array(is_valid) => {
                 is_valid
                     .statistics()
-                    .compute_min::<bool>(&mut LEGACY_SESSION.create_execution_ctx())
+                    .compute_min::<bool>(ctx)
                     .vortex_expect("validity array must support min")
                     .then(|| {
                         // min true => all true
@@ -360,28 +365,101 @@ impl Validity {
         }
     }
 
-    /// Convert into a variant compatible with the given nullability, if possible.
+    /// Convert into a non-nullable variant without running execution.
+    ///
+    /// This is the cheap counterpart to [`Self::into_non_nullable`]: it inspects already-computed
+    /// statistics rather than triggering execution.
+    ///
+    /// Return values:
+    /// - `Ok(Some(NonNullable))` — the cast is provably safe.
+    /// - `Ok(None)` — we cannot determine cheaply whether all values are valid (no cached min
+    ///   statistic). Callers should fall back to [`Self::into_non_nullable`], typically by
+    ///   returning `Ok(None)` from a `CastReduce` rule so the corresponding `CastKernel` runs.
+    /// - `Err(_)` — we know the cast must fail (e.g. [`Validity::AllInvalid`]).
     #[inline]
-    pub fn cast_nullability(self, nullability: Nullability, len: usize) -> VortexResult<Validity> {
+    pub fn try_into_non_nullable(self, len: usize) -> VortexResult<Option<Validity>> {
+        match self {
+            _ if len == 0 => Ok(Some(Validity::NonNullable)),
+            Self::NonNullable => Ok(Some(Self::NonNullable)),
+            Self::AllValid => Ok(Some(Self::NonNullable)),
+            Self::AllInvalid => {
+                Err(vortex_err!(InvalidArgument: "Cannot cast AllInvalid to NonNullable"))
+            }
+            Self::Array(is_valid) => {
+                Ok(is_valid
+                    .statistics()
+                    .get_as::<bool>(Stat::Min)
+                    .and_then(|min| min.as_exact())
+                    // min true => all true
+                    .filter(|min| *min)
+                    .map(|_| Self::NonNullable))
+            }
+        }
+    }
+
+    /// Convert into a variant compatible with the given nullability.
+    ///
+    /// This is the execution-time half of the nullability-cast pair. It is paired with
+    /// [`Self::try_cast_nullability`], which is used by `CastReduce` rules. The pattern is:
+    ///
+    /// - **`CastReduce` rules** (metadata-only rewrites in the optimizer) call
+    ///   [`Self::try_cast_nullability`]. If it returns `Ok(None)`, the rule returns `Ok(None)`
+    ///   and the cast is deferred to execution.
+    /// - **`CastKernel` impls** (executed via [`ExecuteParentKernel`]) call this method, which
+    ///   may run the underlying validity array to compute statistics.
+    ///
+    /// Returns `Err` when nullability cannot be cast (for example, casting to non-nullable while
+    /// invalid values are present).
+    ///
+    /// [`ExecuteParentKernel`]: crate::kernel::ExecuteParentKernel
+    #[inline]
+    pub fn cast_nullability(
+        self,
+        nullability: Nullability,
+        len: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Validity> {
         match nullability {
-            Nullability::NonNullable => self.into_non_nullable(len).ok_or_else(|| {
+            Nullability::NonNullable => self.into_non_nullable(len, ctx).ok_or_else(|| {
                 vortex_err!(InvalidArgument: "Cannot cast array with invalid values to non-nullable type.")
             }),
             Nullability::Nullable => Ok(self.into_nullable()),
         }
     }
 
-    /// Create Validity from boolean array with given nullability of the array.
+    /// Best-effort, non-executing variant of [`Self::cast_nullability`].
     ///
-    /// Note: You want to pass the nullability of parent array and not the nullability of the validity array itself
-    ///     as that is always nonnullable
-    fn from_array(value: ArrayRef, nullability: Nullability) -> Self {
-        if !matches!(value.dtype(), DType::Bool(Nullability::NonNullable)) {
-            vortex_panic!("Expected a non-nullable boolean array")
-        }
+    /// Use this from `CastReduce` rules — they run inside the optimizer where execution is not
+    /// available. The pairing with [`Self::cast_nullability`] is symmetric: every encoding that
+    /// implements `CastReduce` and inspects validity should also implement `CastKernel` so that
+    /// the harder cases (where statistics are not yet cached) can still be handled at execution
+    /// time.
+    ///
+    /// Return values:
+    /// - `Ok(Some(_))` — the cast is provably safe and the new [`Validity`] is returned.
+    /// - `Ok(None)` — the cast cannot be reduced cheaply (the `CastKernel` should be tried via
+    ///   [`Self::cast_nullability`]).
+    /// - `Err(_)` — the cast is provably impossible.
+    ///
+    /// Typical usage inside a `CastReduce`:
+    ///
+    /// ```ignore
+    /// let Some(new_validity) = array
+    ///     .validity()?
+    ///     .try_cast_nullability(dtype.nullability(), array.len())?
+    /// else {
+    ///     return Ok(None);
+    /// };
+    /// ```
+    #[inline]
+    pub fn try_cast_nullability(
+        self,
+        nullability: Nullability,
+        len: usize,
+    ) -> VortexResult<Option<Validity>> {
         match nullability {
-            Nullability::NonNullable => Self::NonNullable,
-            Nullability::Nullable => Self::Array(value),
+            Nullability::NonNullable => self.try_into_non_nullable(len),
+            Nullability::Nullable => Ok(Some(self.into_nullable())),
         }
     }
 
@@ -391,15 +469,6 @@ impl Validity {
         match self {
             Self::NonNullable | Self::AllValid | Self::AllInvalid => None,
             Self::Array(a) => Some(a.len()),
-        }
-    }
-
-    #[inline]
-    pub fn uncompressed_size(&self) -> usize {
-        if let Validity::Array(a) = self {
-            a.len().div_ceil(8)
-        } else {
-            0
         }
     }
 }

@@ -18,41 +18,36 @@ use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::arrays::struct_::StructArrayExt;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::EmptyOptions;
-use crate::scalar_fn::fns::cast::Cast;
+use crate::scalar_fn::fns::cast::CastReduce;
+use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::validity::Validity;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Struct> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&StructCastPushDownRule),
+    ParentRuleSet::lift(&CastReduceAdaptor(Struct)),
     ParentRuleSet::lift(&StructGetItemRule),
     ParentRuleSet::lift(&MaskReduceAdaptor(Struct)),
     ParentRuleSet::lift(&SliceReduceAdaptor(Struct)),
     ParentRuleSet::lift(&TakeReduceAdaptor(Struct)),
 ]);
 
-/// Rule to push down cast into struct fields.
+/// Push the cast into struct fields without execution.
 ///
-/// TODO(joe/rob): should be have this in casts.
+/// Supports schema evolution by allowing new nullable fields to be added during the cast,
+/// filled with null values. For nullability changes, only handles the cheap path
+/// (`try_cast_nullability`); when statistics computation is required to determine whether
+/// the array contains invalid values, returns `Ok(None)` so [`CastKernel`] can run instead.
 ///
-/// This rule supports schema evolution by allowing new nullable fields to be added
-/// at the end of the struct, filled with null values.
-#[derive(Debug)]
-struct StructCastPushDownRule;
-impl ArrayParentReduceRule<Struct> for StructCastPushDownRule {
-    type Parent = ExactScalarFn<Cast>;
-
-    fn reduce_parent(
-        &self,
-        array: ArrayView<'_, Struct>,
-        parent: ScalarFnArrayView<Cast>,
-        _child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        let Some(target_fields) = parent.options.as_struct_fields_opt() else {
+/// [`CastKernel`]: crate::scalar_fn::fns::cast::CastKernel
+impl CastReduce for Struct {
+    fn cast(array: ArrayView<'_, Struct>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+        let Some(target_fields) = dtype.as_struct_fields_opt() else {
             return Ok(None);
         };
         let mut new_fields = Vec::with_capacity(target_fields.nfields());
@@ -78,13 +73,11 @@ impl ArrayParentReduceRule<Struct> for StructCastPushDownRule {
             }
         }
 
-        let validity = if parent.options.is_nullable() {
-            array.validity()?.into_nullable()
-        } else {
-            array
-                .validity()?
-                .into_non_nullable(array.len())
-                .ok_or_else(|| vortex_err!("Failed to cast nullable struct to non-nullable"))?
+        let Some(validity) = array
+            .validity()?
+            .try_cast_nullability(dtype.nullability(), array.len())?
+        else {
+            return Ok(None);
         };
 
         let new_struct = unsafe {

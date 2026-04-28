@@ -52,7 +52,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_panic;
 
 use crate::ConstantArray;
 use crate::Sparse;
@@ -83,7 +82,7 @@ pub(super) fn execute_sparse(
         DType::Struct(struct_fields, ..) => execute_sparse_struct(
             struct_fields,
             array.fill_scalar().as_struct(),
-            array.dtype(),
+            array.dtype().nullability(),
             array.patches(),
             array.len(),
             ctx,
@@ -403,7 +402,7 @@ fn execute_sparse_primitives<T: NativePType + for<'a> TryFrom<&'a Scalar, Error 
 fn execute_sparse_struct(
     struct_fields: &StructFields,
     fill_struct: StructScalar,
-    dtype: &DType,
+    nullability: Nullability,
     // Resolution is unnecessary b/c we're just pushing the patches into the fields.
     unresolved_patches: &Patches,
     len: usize,
@@ -425,28 +424,20 @@ fn execute_sparse_struct(
         .execute::<StructArray>(ctx)?;
     let columns_patch_values = patch_values_as_struct.unmasked_fields();
     let names = patch_values_as_struct.names();
-    let validity = if dtype.is_nullable() {
-        top_level_fill_validity.patch(
-            len,
-            unresolved_patches.offset(),
-            unresolved_patches.indices(),
-            &Validity::from_mask(
-                {
-                    let v = unresolved_patches.values();
-                    v.validity()
-                        .vortex_expect("validity_mask")
-                        .execute_mask(v.len(), ctx)
-                        .vortex_expect("Failed to compute validity mask")
-                },
-                Nullability::Nullable,
-            ),
-            ctx,
-        )?
-    } else {
-        top_level_fill_validity
-            .into_non_nullable(len)
-            .unwrap_or_else(|| vortex_panic!("fill validity should match sparse array nullability"))
-    };
+    let validity = top_level_fill_validity.patch(
+        len,
+        unresolved_patches.offset(),
+        unresolved_patches.indices(),
+        &Validity::from_mask(
+            patch_values_as_struct
+                .validity()
+                .vortex_expect("validity_mask")
+                .execute_mask(patch_values_as_struct.len(), ctx)
+                .vortex_expect("Failed to compute validity mask"),
+            nullability,
+        ),
+        ctx,
+    )?;
 
     Ok(StructArray::try_from_iter_with_validity(
         names.iter().zip_eq(
@@ -1215,35 +1206,35 @@ mod test {
         let elements_slice = elements_array.as_slice::<i32>();
 
         // List 0: [1]
-        let list0_offset = result_listview.offset_at(0) as usize;
+        let list0_offset = result_listview.offset_at(0);
         assert_eq!(elements_slice[list0_offset], 1);
 
         // List 1: [5,6,7,8]
-        let list1_offset = result_listview.offset_at(1) as usize;
-        let list1_size = result_listview.size_at(1) as usize;
+        let list1_offset = result_listview.offset_at(1);
+        let list1_size = result_listview.size_at(1);
         assert_eq!(
             &elements_slice[list1_offset..list1_offset + list1_size],
             &[5, 6, 7, 8]
         );
 
         // List 2: [5,6,7,8]
-        let list2_offset = result_listview.offset_at(2) as usize;
-        let list2_size = result_listview.size_at(2) as usize;
+        let list2_offset = result_listview.offset_at(2);
+        let list2_size = result_listview.size_at(2);
         assert_eq!(
             &elements_slice[list2_offset..list2_offset + list2_size],
             &[5, 6, 7, 8]
         );
 
         // List 3: [2]
-        let list3_offset = result_listview.offset_at(3) as usize;
+        let list3_offset = result_listview.offset_at(3);
         assert_eq!(elements_slice[list3_offset], 2);
 
         // List 4: [1]
-        let list4_offset = result_listview.offset_at(4) as usize;
+        let list4_offset = result_listview.offset_at(4);
         assert_eq!(elements_slice[list4_offset], 1);
 
         // List 5: [2]
-        let list5_offset = result_listview.offset_at(5) as usize;
+        let list5_offset = result_listview.offset_at(5);
         assert_eq!(elements_slice[list5_offset], 2);
         Ok(())
     }

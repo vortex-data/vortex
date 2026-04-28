@@ -70,6 +70,10 @@ impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_fss
 
 pub fn vortex_fsst::FSST::compare(lhs: vortex_array::array::view::ArrayView<'_, Self>, rhs: &vortex_array::array::erased::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
+impl vortex_array::scalar_fn::fns::cast::kernel::CastKernel for vortex_fsst::FSST
+
+pub fn vortex_fsst::FSST::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_fsst::FSST
 
 pub fn vortex_fsst::FSST::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>

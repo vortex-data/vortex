@@ -4,54 +4,49 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
-use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_array::vtable::child_to_validity;
 use vortex_error::VortexResult;
 
 use crate::Pco;
 use crate::PcoData;
+
 impl CastReduce for Pco {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        if !dtype.is_nullable()
-            || !array
-                .array()
-                .all_valid(&mut LEGACY_SESSION.create_execution_ctx())?
-        {
-            // TODO(joe): fixme
-            // We cannot cast to non-nullable since the validity containing nulls is used to decode
-            // the PCO array, this would require rewriting tables.
+        // PCO (Pcodec) stores compressed data and uses validity bits to decode (the validity
+        // tells PCO which logical positions correspond to compressed values). Casting away
+        // nullability would change the validity-to-compressed-value mapping, so we cannot
+        // construct a non-nullable Pco without re-encoding — we only handle nullability changes
+        // toward `Nullable`. Non-nullable targets fall through to canonicalization.
+        //
+        // No `CastKernel` is provided for the same reason: even with execution context, we
+        // cannot cast away nullability on a PCO array in place.
+        //
+        // PCO supports: F16, F32, F64, I16, I32, I64, U16, U32, U64.
+        if !array.dtype().eq_ignore_nullability(dtype) {
             return Ok(None);
         }
-        // PCO (Pcodec) is a compression encoding that stores data in a compressed format.
-        // It can efficiently handle nullability changes without decompression, but type changes
-        // require decompression since the compression algorithm is type-specific.
-        // PCO supports: F16, F32, F64, I16, I32, I64, U16, U32, U64
-        if array.dtype().eq_ignore_nullability(dtype) {
-            // Create a new validity with the target nullability
-            let unsliced_validity =
-                child_to_validity(array.slots()[0].as_ref(), array.dtype().nullability());
-            let new_validity =
-                unsliced_validity.cast_nullability(dtype.nullability(), array.len())?;
-
-            let data = PcoData::new(
-                array.chunk_metas.clone(),
-                array.pages.clone(),
-                dtype.as_ptype(),
-                array.metadata.clone(),
-                array.unsliced_n_rows(),
-            )
-            ._slice(array.slice_start(), array.slice_stop());
-
-            return Ok(Some(
-                Pco::try_new(dtype.clone(), data, new_validity)?.into_array(),
-            ));
+        if dtype.nullability() == Nullability::NonNullable {
+            return Ok(None);
         }
 
-        // For other casts (e.g., numeric type changes), decode to canonical and let PrimitiveArray handle it
-        Ok(None)
+        let unsliced_validity =
+            child_to_validity(&array.slots()[0], array.dtype().nullability()).into_nullable();
+
+        let data = PcoData::new(
+            array.chunk_metas.clone(),
+            array.pages.clone(),
+            dtype.as_ptype(),
+            array.metadata.clone(),
+            array.unsliced_n_rows(),
+        )
+        ._slice(array.slice_start(), array.slice_stop());
+
+        Ok(Some(
+            Pco::try_new(dtype.clone(), data, unsliced_validity)?.into_array(),
+        ))
     }
 }
 

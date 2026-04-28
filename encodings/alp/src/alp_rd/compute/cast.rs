@@ -99,12 +99,17 @@ mod tests {
         let encoder = RDEncoder::new(&values);
         let alprd = encoder.encode(arr.as_view(), &mut ctx);
 
-        // Cast to NonNullable should fail since we have nulls
+        // Cast to NonNullable should fail since we have nulls. The failure surfaces during
+        // execution since the reduce path defers when the validity stat is not cached.
         let result = alprd
             .clone()
             .into_array()
-            .cast(DType::Primitive(PType::F64, Nullability::NonNullable));
-        assert!(result.is_err());
+            .cast(DType::Primitive(PType::F64, Nullability::NonNullable))
+            .and_then(|a| {
+                a.execute::<PrimitiveArray>(&mut ctx)
+                    .map(|p| p.into_array())
+            });
+        assert!(result.is_err(), "Expected error, got: {result:?}");
 
         // Cast to same type with Nullable should succeed
         let casted = alprd

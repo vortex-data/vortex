@@ -64,10 +64,13 @@ Examples:
 cargo nextest run -p vortex-array
 make -C docs doctest
 uv run --all-packages pytest vortex-python/test
+cargo test --doc
 ```
 
 Run docs doctests from the docs directory with `make -C docs doctest` so the correct Sphinx
 Makefile target is used.
+
+If you touch documentation run doc tests via `cargo test --doc`.
 
 ## Linting, Formatting, and Generated Files
 
