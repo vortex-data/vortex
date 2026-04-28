@@ -305,7 +305,7 @@ pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
                         patch_offset,
                         indices.clone(),
                         values.clone(),
-                        self.patch_chunk_offsets().clone(),
+                        self.patch_chunk_offsets().cloned(),
                         self.patch_offset_within_chunk,
                     )
                 })
@@ -316,10 +316,7 @@ pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
 
     #[inline]
     fn validity(&self) -> Validity {
-        child_to_validity(
-            self.validity_child().as_ref(),
-            self.as_ref().dtype().nullability(),
-        )
+        child_to_validity(self.validity_child(), self.as_ref().dtype().nullability())
     }
 
     #[inline]
