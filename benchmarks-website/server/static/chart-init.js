@@ -2,22 +2,32 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 // Hydrate Chart.js charts on /, /chart/:slug, and /group/:slug, plus the
-// landing-page client-side filter.
+// landing-page client-side filter and the lazy-fetch-on-toggle behaviour for
+// closed `<details>` groups.
 //
-// Each chart's initial payload is embedded inline as
-//   <script id="chart-data-N" type="application/json">{ChartResponse}</script>
-// paired with a <canvas data-chart-index="N"> via the index attribute. The
-// chart-card carries `data-chart-slug` so the toolbar can refetch a single
-// card from `/api/chart/{slug}?n=...` without a page reload.
-//
-// URL state (n, y, mode, hidden) is the source of truth and the URL stays in
-// sync via `history.replaceState`. Toolbar clicks are handled in JS:
-//   - `n` → refetch every chart on the page, swap data, chart.update("none").
-//   - `y` → swap `chart.options.scales.y` in place; no fetch.
-//   - `mode` → recompute datasets client-side; no fetch.
-//   - legend toggle → mirror into `?hidden=...` like before.
+// Per-chart UX:
+//   - Each `.chart-card` carries `data-chart-slug`. The card *owns* its own
+//     toolbar (`.toolbar--card`) — there is no page-level toolbar.
+//   - Each chart fetches up to 1000 commits once. The toolbar's "Show" buttons
+//     and slider set `chart.options.scales.x.min/max` to reveal a window of
+//     that fetched slice; we never refetch on a scope change.
+//   - The slider is throttled to ~16ms (one frame at 60fps) per v2's
+//     `CONFIG.ZOOM_THROTTLE_DELAY` so dragging the slider feels continuous.
+//   - Mouse wheel pans horizontally (chartjs-plugin-zoom does not expose
+//     pan-on-wheel, so a manual `wheel` listener calls `chart.pan(...)`).
+//   - Drag-pan + drag-rectangle-zoom are wired through the plugin.
+//   - A custom inline plugin draws a vertical crosshair at the hovered
+//     commit; the external tooltip is offset and `pointer-events: none`
+//     to fix the flicker described in the per-chart UX rebuild brief.
 (function () {
   "use strict";
+
+  // -----------------------------------------------------------------------
+  // Constants — match v2 (`origin/ct/vfvb:benchmarks-website/config.js`).
+  // -----------------------------------------------------------------------
+  var ZOOM_THROTTLE_MS = 16; // one frame at ~60fps for slider drag
+  var FETCH_N = 1000; // matches `PER_CHART_FETCH_N` server-side
+  var DEFAULT_VISIBLE = 100; // initial visible window (last 100 of fetched)
 
   // -----------------------------------------------------------------------
   // Palette + helpers
@@ -27,9 +37,7 @@
     "#0891b2", "#ca8a04", "#db2777", "#65a30d", "#475569",
   ];
 
-  function colorFor(i) {
-    return palette[i % palette.length];
-  }
+  function colorFor(i) { return palette[i % palette.length]; }
 
   function shortSha(sha) {
     return typeof sha === "string" ? sha.slice(0, 7) : String(sha);
@@ -37,7 +45,6 @@
 
   function shortDate(ts) {
     if (typeof ts !== "string") return "";
-    // commits.timestamp arrives as either ISO 8601 or DuckDB's `YYYY-MM-DD HH:MM:SS`.
     return ts.slice(0, 10);
   }
 
@@ -58,7 +65,6 @@
   function formatNumber(v, unit) {
     if (v === null || v === undefined || Number.isNaN(v)) return "—";
     if (unit === "ns") {
-      // Pick a friendlier unit when the magnitude warrants it.
       var abs = Math.abs(v);
       if (abs >= 1e9) return (v / 1e9).toFixed(2) + " s";
       if (abs >= 1e6) return (v / 1e6).toFixed(2) + " ms";
@@ -75,141 +81,91 @@
     return v.toString();
   }
 
-  // -----------------------------------------------------------------------
-  // URL state
-  // -----------------------------------------------------------------------
-  function parseUrl() {
-    var p = new URLSearchParams(window.location.search);
-    return {
-      n: p.get("n") || "",
-      y: p.get("y") === "log" ? "log" : "linear",
-      mode: p.get("mode") === "rel" ? "rel" : "abs",
-      hidden: parseHiddenParam(p.get("hidden")),
+  // Throttle to a max call rate; trailing call is preserved so the final
+  // slider position is honoured. (`requestAnimationFrame` is conceptually
+  // similar but we want a hard ceiling regardless of when the browser
+  // schedules a frame.)
+  function throttle(fn, ms) {
+    var lastRan = 0;
+    var pending = null;
+    var pendingArgs = null;
+    return function () {
+      var now = Date.now();
+      pendingArgs = arguments;
+      if (now - lastRan >= ms) {
+        lastRan = now;
+        fn.apply(null, pendingArgs);
+      } else if (!pending) {
+        var wait = ms - (now - lastRan);
+        pending = setTimeout(function () {
+          lastRan = Date.now();
+          pending = null;
+          fn.apply(null, pendingArgs);
+        }, wait);
+      }
     };
   }
 
-  // `|` cannot appear in our series labels (which are
-  // "engine:format"-shaped today), unlike `,`/`/` which could plausibly
-  // sneak in via dataset variants. URLSearchParams handles `|` as-is.
-  var HIDDEN_DELIM = "|";
-
-  function parseHiddenParam(s) {
-    if (!s) return Object.create(null);
-    var out = Object.create(null);
-    s.split(HIDDEN_DELIM).forEach(function (k) {
-      if (k) out[k] = true;
-    });
-    return out;
-  }
-
-  function serializeHidden(set) {
-    var keys = Object.keys(set).filter(function (k) { return set[k]; });
-    keys.sort();
-    return keys.join(HIDDEN_DELIM);
-  }
-
-  // Default value the server treats as "use the route's default scope". When
-  // the URL has no `n` we want to leave the param off so the server can
-  // re-pick its own default (50 on `/`, 100 on `/chart` and `/group`).
-  function applyUrlState(state) {
-    var p = new URLSearchParams(window.location.search);
-    if (state.n) p.set("n", state.n); else p.delete("n");
-    if (state.y && state.y !== "linear") p.set("y", state.y); else p.delete("y");
-    if (state.mode && state.mode !== "abs") p.set("mode", state.mode); else p.delete("mode");
-    var h = serializeHidden(state.hidden || {});
-    if (h) p.set("hidden", h); else p.delete("hidden");
-    var qs = p.toString();
-    var url = window.location.pathname + (qs ? "?" + qs : "") + window.location.hash;
-    window.history.replaceState(null, "", url);
-  }
-
-  function rewriteHiddenInUrl(set) {
-    var state = parseUrl();
-    state.hidden = set;
-    applyUrlState(state);
-  }
+  // -----------------------------------------------------------------------
+  // Crosshair plugin: draws a vertical line at the chart's active hover
+  // index. Using an inline plugin is cheaper than pulling in
+  // chartjs-plugin-crosshair, which is overkill for this one feature.
+  // -----------------------------------------------------------------------
+  var crosshairPlugin = {
+    id: "benchCrosshair",
+    afterDatasetsDraw: function (chart) {
+      var active = chart.tooltip && chart.tooltip.getActiveElements
+        ? chart.tooltip.getActiveElements()
+        : [];
+      if (!active || !active.length) return;
+      var x = active[0].element.x;
+      var ya = chart.scales && chart.scales.y;
+      if (!ya || !Number.isFinite(x)) return;
+      var ctx = chart.ctx;
+      ctx.save();
+      // `--muted` from the page theme — read it lazily so dark mode picks
+      // up the right colour.
+      var muted = getComputedStyle(document.documentElement)
+        .getPropertyValue("--muted").trim() || "#9ca3af";
+      ctx.strokeStyle = muted;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x, ya.top);
+      ctx.lineTo(x, ya.bottom);
+      ctx.stroke();
+      ctx.restore();
+    },
+  };
 
   // -----------------------------------------------------------------------
-  // Payload + dataset construction
-  // -----------------------------------------------------------------------
-  function readInlinePayload(idx) {
-    var script = document.getElementById("chart-data-" + idx);
-    if (!script) return null;
-    try {
-      return JSON.parse(script.textContent);
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function buildDatasets(payload, urlState) {
-    var raw = payload.series || {};
-    var names = Object.keys(raw).sort();
-    var values = names.map(function (name) {
-      return Array.isArray(raw[name]) ? raw[name].slice() : [];
-    });
-
-    if (urlState.mode === "rel") {
-      values = values.map(function (arr) {
-        var baseline = null;
-        for (var i = 0; i < arr.length; i++) {
-          if (arr[i] !== null && arr[i] !== undefined && !Number.isNaN(arr[i])) {
-            baseline = arr[i];
-            break;
-          }
-        }
-        if (!baseline) return arr.map(function () { return null; });
-        return arr.map(function (v) {
-          if (v === null || v === undefined || Number.isNaN(v)) return null;
-          return (v / baseline) * 100;
-        });
-      });
-    }
-
-    return names.map(function (name, i) {
-      return {
-        label: name,
-        data: values[i],
-        rawData: raw[name],
-        borderColor: colorFor(i),
-        backgroundColor: colorFor(i),
-        spanGaps: true,
-        tension: 0.1,
-        pointRadius: 2,
-        pointHoverRadius: 5,
-        hidden: !!urlState.hidden[name],
-      };
-    });
-  }
-
-  function yAxisTitle(payload, urlState) {
-    return urlState.mode === "rel" ? "% of baseline" : (payload.unit || "");
-  }
-
-  // -----------------------------------------------------------------------
-  // Tooltip
+  // External tooltip with offset + flip-on-overflow.
+  //
+  // Flicker fix: the tooltip host is **always** `pointer-events: none`. The
+  // previous implementation flipped it to `auto` when visible; the cursor
+  // would land on the tooltip, fire mouseout on the canvas, the tooltip
+  // would hide, the cursor would re-enter the canvas, and the cycle would
+  // repeat at event-loop frequency. The cost of `pointer-events: none` is
+  // that the github-link in the tooltip footer is no longer clickable, but
+  // the chart-card title already links to the permalink.
   // -----------------------------------------------------------------------
   function externalTooltipHandler(canvas, host) {
     return function (context) {
-      var tooltipModel = context.tooltip;
+      var tt = context.tooltip;
       if (!host) return;
-      if (tooltipModel.opacity === 0) {
+      if (tt.opacity === 0) {
         host.style.opacity = "0";
-        host.style.pointerEvents = "none";
         return;
       }
 
-      // Always read the current payload from the canvas: a refetch may have
-      // replaced it under us since this handler was installed.
       var payload = canvas.__bench_payload || { commits: [], unit: "" };
-
-      var idx = tooltipModel.dataPoints && tooltipModel.dataPoints[0]
-        ? tooltipModel.dataPoints[0].dataIndex
+      var idx = tt.dataPoints && tt.dataPoints[0]
+        ? tt.dataPoints[0].dataIndex
         : -1;
       var commit = (payload.commits || [])[idx] || {};
       var unit = payload.unit || "";
 
-      var rows = (tooltipModel.dataPoints || []).map(function (dp) {
+      var rows = (tt.dataPoints || []).map(function (dp) {
         var ds = dp.dataset || {};
         var raw = (ds.rawData || [])[idx];
         var prevIdx = idx - 1;
@@ -241,120 +197,322 @@
         + "</div>";
 
       var msg = commit.message ? truncate(commit.message, 120) : "";
-      var footerHtml = "";
-      if (msg || commit.url) {
-        footerHtml = '<div class="tt-footer">'
+      var footerHtml = (msg || commit.url)
+        ? '<div class="tt-footer">'
           + (msg ? '<div class="tt-msg">' + escapeHtml(msg) + "</div>" : "")
-          + (commit.url
-              ? '<a class="tt-link" href="' + escapeHtml(commit.url)
-                + '" target="_blank" rel="noopener">view on github →</a>'
-              : "")
-          + "</div>";
-      }
+          + (commit.url ? '<div class="tt-msg">'
+              + escapeHtml(commit.url.replace(/^https?:\/\//, "")) + "</div>" : "")
+          + "</div>"
+        : "";
 
       host.innerHTML = titleHtml + '<div class="tt-rows">' + rows + "</div>" + footerHtml;
 
+      // Position the tooltip relative to its container, offset 12px from
+      // the cursor. Flip horizontally if it would overflow.
       var canvasRect = context.chart.canvas.getBoundingClientRect();
       var hostRect = host.parentNode.getBoundingClientRect();
-      var x = canvasRect.left - hostRect.left + tooltipModel.caretX;
-      var y = canvasRect.top - hostRect.top + tooltipModel.caretY;
+      var x = canvasRect.left - hostRect.left + tt.caretX;
+      var y = canvasRect.top - hostRect.top + tt.caretY;
       host.style.opacity = "1";
-      host.style.pointerEvents = "auto";
       host.style.left = x + "px";
       host.style.top = y + "px";
+      // Measure after content swap so flipping is correct.
+      var ttWidth = host.offsetWidth || 0;
+      var containerWidth = host.parentNode.clientWidth || 0;
+      var flip = (x + ttWidth + 24) > containerWidth;
+      host.style.transform = flip
+        ? "translate(calc(-100% - 12px), 12px)"
+        : "translate(12px, 12px)";
     };
   }
 
   // -----------------------------------------------------------------------
-  // Single-chart construction + in-place rebuild
+  // Payload + datasets
   // -----------------------------------------------------------------------
-  function constructChart(card, urlState) {
+  function readInlinePayload(idx) {
+    var s = document.getElementById("chart-data-" + idx);
+    if (!s) return null;
+    try { return JSON.parse(s.textContent); } catch (e) { return null; }
+  }
+
+  function buildDatasets(payload, mode) {
+    var raw = payload.series || {};
+    var names = Object.keys(raw).sort();
+    var values = names.map(function (name) {
+      return Array.isArray(raw[name]) ? raw[name].slice() : [];
+    });
+
+    if (mode === "rel") {
+      values = values.map(function (arr) {
+        var baseline = null;
+        for (var i = 0; i < arr.length; i++) {
+          if (arr[i] !== null && arr[i] !== undefined && !Number.isNaN(arr[i])) {
+            baseline = arr[i];
+            break;
+          }
+        }
+        if (!baseline) return arr.map(function () { return null; });
+        return arr.map(function (v) {
+          if (v === null || v === undefined || Number.isNaN(v)) return null;
+          return (v / baseline) * 100;
+        });
+      });
+    }
+
+    return names.map(function (name, i) {
+      return {
+        label: name,
+        data: values[i],
+        rawData: raw[name],
+        borderColor: colorFor(i),
+        backgroundColor: colorFor(i),
+        spanGaps: true,
+        tension: 0.1,
+        pointRadius: 2,
+        pointHoverRadius: 5,
+      };
+    });
+  }
+
+  function yAxisTitle(payload, mode) {
+    return mode === "rel" ? "% of baseline" : (payload.unit || "");
+  }
+
+  // -----------------------------------------------------------------------
+  // Per-card construction. State lives on the canvas:
+  //   canvas.__bench_chart   — Chart.js instance
+  //   canvas.__bench_payload — last-fetched ChartResponse
+  //   canvas.__bench_state   — { y, mode, scope } (per-chart toolbar state)
+  // -----------------------------------------------------------------------
+  function constructChart(card) {
     var idx = card.getAttribute("data-chart-index");
     var canvas = card.querySelector('canvas[data-chart-index="' + idx + '"]');
     if (!canvas || typeof Chart === "undefined") return null;
     if (canvas.__bench_chart) return canvas.__bench_chart;
 
-    // Prefer a payload that arrived via fetch (refetch landed before the
-    // canvas scrolled into view); else fall back to the inline JSON.
     var payload = canvas.__bench_payload || readInlinePayload(idx);
     if (!payload) return null;
     canvas.__bench_payload = payload;
 
-    var labels = (payload.commits || []).map(function (c) { return shortSha(c.sha); });
-    var datasets = buildDatasets(payload, urlState);
-    var host = card.querySelector(".chart-tooltip-host");
+    var state = canvas.__bench_state || { y: "linear", mode: "abs", scope: DEFAULT_VISIBLE };
+    canvas.__bench_state = state;
 
-    // Mobile gets the legend above the chart so the chart doesn't get pushed
-    // off-screen by a tall legend on narrow viewports.
+    var labels = (payload.commits || []).map(function (c) { return shortSha(c.sha); });
+    var datasets = buildDatasets(payload, state.mode);
+    var host = card.querySelector(".chart-tooltip-host");
+    var range = visibleRange(labels.length, state.scope);
     var legendPosition = (window.matchMedia
       && window.matchMedia("(max-width: 768px)").matches) ? "top" : "bottom";
 
-    var yTitle = yAxisTitle(payload, urlState);
     var chart = new Chart(canvas, {
       type: "line",
       data: { labels: labels, datasets: datasets },
+      plugins: [crosshairPlugin],
       options: {
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
-        interaction: { mode: "index", intersect: false },
+        // Snap-to-x-index, no vertical-intersection requirement: a stable
+        // hover anywhere over the chart, with the crosshair plugin painting
+        // the column. Combined with `pointer-events: none` on the tooltip
+        // host, this is the flicker fix.
+        interaction: { mode: "index", intersect: false, axis: "x" },
         scales: {
           y: {
-            type: urlState.y === "log" ? "logarithmic" : "linear",
-            beginAtZero: urlState.y !== "log" && urlState.mode !== "rel",
-            title: { display: !!yTitle, text: yTitle },
+            type: state.y === "log" ? "logarithmic" : "linear",
+            beginAtZero: state.y !== "log" && state.mode !== "rel",
+            title: { display: true, text: yAxisTitle(payload, state.mode) },
           },
-          x: { title: { display: false } },
+          x: {
+            min: range.min,
+            max: range.max,
+            title: { display: false },
+          },
         },
         plugins: {
-          legend: {
-            position: legendPosition,
-            onClick: function (e, item, legend) {
-              // Default toggle behaviour, then mirror into URL.
-              var ci = legend.chart;
-              var meta = ci.getDatasetMeta(item.datasetIndex);
-              meta.hidden = meta.hidden === null ? !ci.data.datasets[item.datasetIndex].hidden : null;
-              ci.update();
-              var hiddenSet = parseHiddenParam(new URLSearchParams(window.location.search).get("hidden"));
-              var label = item.text;
-              if (meta.hidden) hiddenSet[label] = true; else delete hiddenSet[label];
-              rewriteHiddenInUrl(hiddenSet);
-            },
-          },
+          legend: { position: legendPosition },
           tooltip: {
             enabled: false,
             external: externalTooltipHandler(canvas, host),
           },
+          // chartjs-plugin-zoom config — wheel-zoom is disabled because we
+          // want wheel-pan instead (handled by the canvas wheel listener
+          // below). Drag-pan and drag-rectangle-zoom are free.
+          zoom: {
+            zoom: {
+              wheel: { enabled: false },
+              drag: {
+                enabled: true,
+                backgroundColor: "rgba(37, 99, 235, 0.10)",
+              },
+              mode: "x",
+            },
+            pan: {
+              enabled: true,
+              mode: "x",
+              modifierKey: null,
+            },
+            limits: {
+              x: { min: 0, max: Math.max(0, labels.length - 1), minRange: 4 },
+            },
+          },
         },
       },
     });
+
     canvas.__bench_chart = chart;
+    attachWheelPan(canvas, chart);
     return chart;
   }
 
-  // Re-skin a chart from its current payload + url state. No fetch.
-  function rebuildChart(card, urlState) {
-    var idx = card.getAttribute("data-chart-index");
-    var canvas = card.querySelector('canvas[data-chart-index="' + idx + '"]');
-    if (!canvas) return;
-    var chart = canvas.__bench_chart;
-    var payload = canvas.__bench_payload;
-    if (!chart || !payload) return;
-
-    chart.data.labels = (payload.commits || []).map(function (c) { return shortSha(c.sha); });
-    chart.data.datasets = buildDatasets(payload, urlState);
-    chart.options.scales.y.type = urlState.y === "log" ? "logarithmic" : "linear";
-    chart.options.scales.y.beginAtZero = urlState.y !== "log" && urlState.mode !== "rel";
-    var t = yAxisTitle(payload, urlState);
-    chart.options.scales.y.title.display = !!t;
-    chart.options.scales.y.title.text = t;
-    chart.update("none");
+  // Wheel = horizontal pan. Chart.js zoom plugin doesn't support wheel-pan
+  // out of the box (wheel is always zoom in its config), so we attach a
+  // `wheel` listener that translates `deltaY`/`deltaX` into `chart.pan`.
+  function attachWheelPan(canvas, chart) {
+    if (canvas.__bench_wheel_attached) return;
+    canvas.__bench_wheel_attached = true;
+    canvas.addEventListener("wheel", function (e) {
+      // Treat horizontal-wheel-or-shift+wheel as horizontal pan; otherwise
+      // also pan on plain vertical wheel so trackpad scroll-up/down moves
+      // through commit history without needing modifier keys.
+      var dx = (Math.abs(e.deltaX) > Math.abs(e.deltaY)) ? e.deltaX : e.deltaY;
+      if (!dx) return;
+      e.preventDefault();
+      // Pan negative deltaX → forward in time. Multiplier tuned for trackpad
+      // feel; fast wheels still travel quickly because we accumulate deltas
+      // through the plugin's pan handler.
+      chart.pan({ x: -dx * 0.5 }, undefined, "none");
+    }, { passive: false });
   }
 
   // -----------------------------------------------------------------------
-  // Loading + error overlays per card
+  // Recompute helpers driven by the per-chart toolbar.
   // -----------------------------------------------------------------------
-  function setCardLoading(card, on) {
+  function visibleRange(commitCount, scope) {
+    if (commitCount <= 0) return { min: undefined, max: undefined };
+    var maxIdx = commitCount - 1;
+    if (scope === "all" || !Number.isFinite(scope) || scope <= 0 || scope >= commitCount) {
+      return { min: 0, max: maxIdx };
+    }
+    return { min: Math.max(0, maxIdx - (scope - 1)), max: maxIdx };
+  }
+
+  function applyScope(card, scopeValue) {
+    var canvas = card.querySelector("canvas");
+    var chart = canvas && canvas.__bench_chart;
+    if (!chart) return;
+    var commits = chart.data.labels.length;
+    var scope = scopeValue === "all" ? "all" : parseInt(scopeValue, 10);
+    canvas.__bench_state.scope = scope;
+    var range = visibleRange(commits, scope);
+    chart.options.scales.x.min = range.min;
+    chart.options.scales.x.max = range.max;
+    chart.update("none");
+    syncToolbarUi(card, "scope", String(scopeValue));
+  }
+
+  function applyY(card, yValue) {
+    var canvas = card.querySelector("canvas");
+    var chart = canvas && canvas.__bench_chart;
+    if (!chart) return;
+    canvas.__bench_state.y = yValue;
+    chart.options.scales.y.type = yValue === "log" ? "logarithmic" : "linear";
+    chart.options.scales.y.beginAtZero = yValue !== "log"
+      && canvas.__bench_state.mode !== "rel";
+    chart.update("none");
+    syncToolbarUi(card, "y", yValue);
+  }
+
+  function applyMode(card, modeValue) {
+    var canvas = card.querySelector("canvas");
+    var chart = canvas && canvas.__bench_chart;
+    if (!chart) return;
+    canvas.__bench_state.mode = modeValue;
+    var payload = canvas.__bench_payload;
+    chart.data.datasets = buildDatasets(payload, modeValue);
+    chart.options.scales.y.beginAtZero = canvas.__bench_state.y !== "log"
+      && modeValue !== "rel";
+    chart.options.scales.y.title.text = yAxisTitle(payload, modeValue);
+    chart.update("none");
+    syncToolbarUi(card, "mode", modeValue);
+  }
+
+  function syncToolbarUi(card, group, value) {
+    var attr = "data-" + group;
+    card.querySelectorAll(".toolbar-btn[" + attr + "]").forEach(function (b) {
+      b.classList.toggle("toolbar-btn--active", b.getAttribute(attr) === value);
+    });
+    if (group === "scope") {
+      var slider = card.querySelector('[data-role="scope-slider"]');
+      var label = card.querySelector('[data-role="scope-slider-label"]');
+      if (label) label.textContent = value;
+      if (slider && /^\d+$/.test(value)) slider.value = value;
+    }
+  }
+
+  function bindToolbar(card) {
+    var toolbar = card.querySelector(".toolbar--card");
+    if (!toolbar || toolbar.__bench_bound) return;
+    toolbar.__bench_bound = true;
+
+    toolbar.addEventListener("click", function (e) {
+      var btn = e.target.closest(".toolbar-btn");
+      if (!btn || !toolbar.contains(btn)) return;
+      if (btn.hasAttribute("data-scope")) applyScope(card, btn.getAttribute("data-scope"));
+      else if (btn.hasAttribute("data-y")) applyY(card, btn.getAttribute("data-y"));
+      else if (btn.hasAttribute("data-mode")) applyMode(card, btn.getAttribute("data-mode"));
+    });
+
+    var slider = toolbar.querySelector('[data-role="scope-slider"]');
+    var label = toolbar.querySelector('[data-role="scope-slider-label"]');
+    if (slider) {
+      // `input` (continuous), throttled so dragging stays at ~60fps even on
+      // pages with dozens of charts. Last value still lands because
+      // `throttle` preserves the trailing call.
+      var throttled = throttle(function () {
+        if (label) label.textContent = slider.value;
+        applyScope(card, slider.value);
+      }, ZOOM_THROTTLE_MS);
+      slider.addEventListener("input", throttled);
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Lazy fetch on `<details>` toggle for closed-by-default groups.
+  // -----------------------------------------------------------------------
+  function fetchAndConstruct(card) {
+    var canvas = card.querySelector("canvas");
+    if (!canvas) return Promise.resolve();
+    if (canvas.__bench_chart) return Promise.resolve();
+    if (canvas.__bench_payload) {
+      constructChart(card);
+      bindToolbar(card);
+      return Promise.resolve();
+    }
+    var slug = card.getAttribute("data-chart-slug");
+    if (!slug) return Promise.resolve();
+    showCardLoading(card, true);
+    return fetch("/api/chart/" + encodeURIComponent(slug) + "?n=" + FETCH_N, {
+      headers: { "accept": "application/json" },
+    })
+      .then(function (r) {
+        if (r.status === 404) return null; // empty chart, leave the shell
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (payload) {
+        if (!payload) return;
+        canvas.__bench_payload = payload;
+        constructChart(card);
+        bindToolbar(card);
+      })
+      .catch(function (err) {
+        showCardError(card, "failed to load: " + (err && err.message ? err.message : err));
+      })
+      .then(function () { showCardLoading(card, false); });
+  }
+
+  function showCardLoading(card, on) {
     var existing = card.querySelector(".chart-loading");
     if (on) {
       if (existing) return;
@@ -378,186 +536,46 @@
   }
 
   // -----------------------------------------------------------------------
-  // Refetching when the commit window changes
-  // -----------------------------------------------------------------------
-  function refetchAll(urlState) {
-    var cards = document.querySelectorAll(".chart-card[data-chart-slug]");
-    if (!cards.length) return Promise.resolve();
-    var n = urlState.n || "";
-    var qs = n ? "?n=" + encodeURIComponent(n) : "";
-
-    var jobs = [];
-    cards.forEach(function (card) {
-      var slug = card.getAttribute("data-chart-slug");
-      var canvas = card.querySelector("canvas");
-      if (!slug || !canvas) return;
-      var prevPayload = canvas.__bench_payload;
-      setCardLoading(card, true);
-      var p = fetch("/api/chart/" + encodeURIComponent(slug) + qs, {
-        headers: { "accept": "application/json" },
-      })
-        .then(function (r) {
-          if (!r.ok) throw new Error("HTTP " + r.status);
-          return r.json();
-        })
-        .then(function (payload) {
-          canvas.__bench_payload = payload;
-          if (canvas.__bench_chart) {
-            rebuildChart(card, urlState);
-          }
-          // Else: chart not constructed yet; the IntersectionObserver path
-          // will read the new payload when the canvas eventually scrolls in.
-        })
-        .catch(function (err) {
-          if (prevPayload) canvas.__bench_payload = prevPayload;
-          showCardError(card, "failed to load: " + (err && err.message ? err.message : err));
-        })
-        .then(function () { setCardLoading(card, false); });
-      jobs.push(p);
-    });
-    return Promise.all(jobs);
-  }
-
-  // -----------------------------------------------------------------------
-  // Toolbar wiring
-  // -----------------------------------------------------------------------
-  function updateToolbarActive(group, value) {
-    var attr = "data-" + group;
-    var btns = document.querySelectorAll(".toolbar-btn[" + attr + "]");
-    btns.forEach(function (b) {
-      var match = b.getAttribute(attr) === value;
-      b.classList.toggle("toolbar-btn--active", match);
-    });
-  }
-
-  function updateSubtitle(urlState, defaultN) {
-    var sub = document.querySelector(".page-header .subtitle");
-    if (!sub) return;
-    var base = sub.getAttribute("data-base") || sub.textContent.split(" · ")[0];
-    sub.setAttribute("data-base", base);
-    var bits = [base];
-    var n = urlState.n || String(defaultN || "");
-    if (n === "all") bits.push("all commits");
-    else if (n) bits.push("last " + n + " commits");
-    if (urlState.y === "log") bits.push("log");
-    if (urlState.mode === "rel") bits.push("rel");
-    sub.textContent = bits.join(" · ");
-  }
-
-  function updateSliderUi(value) {
-    var slider = document.getElementById("scope-slider");
-    var label = document.getElementById("scope-slider-label");
-    if (slider && /^\d+$/.test(value)) slider.value = value;
-    if (label) label.textContent = value;
-  }
-
-  function applyScope(value, defaultN) {
-    var state = parseUrl();
-    state.n = value;
-    applyUrlState(state);
-    updateToolbarActive("scope", value);
-    updateSliderUi(value);
-    updateSubtitle(state, defaultN);
-    rewriteCardLinks();
-    refetchAll(state);
-  }
-
-  function applyY(value, defaultN) {
-    var state = parseUrl();
-    state.y = value;
-    applyUrlState(state);
-    updateToolbarActive("y", value);
-    updateSubtitle(state, defaultN);
-    rewriteCardLinks();
-    document.querySelectorAll(".chart-card[data-chart-index]").forEach(function (card) {
-      rebuildChart(card, state);
-    });
-  }
-
-  function applyMode(value, defaultN) {
-    var state = parseUrl();
-    state.mode = value;
-    applyUrlState(state);
-    updateToolbarActive("mode", value);
-    updateSubtitle(state, defaultN);
-    rewriteCardLinks();
-    document.querySelectorAll(".chart-card[data-chart-index]").forEach(function (card) {
-      rebuildChart(card, state);
-    });
-  }
-
-  // The chart-card title links carry the toolbar state in their query string
-  // so a click out to a permalink preserves the current view. After every
-  // toolbar change we rewrite them.
-  function rewriteCardLinks() {
-    var p = new URLSearchParams(window.location.search);
-    var qs = p.toString();
-    var suffix = qs ? "?" + qs : "";
-    document.querySelectorAll(".chart-card-title a[data-permalink]").forEach(function (a) {
-      a.setAttribute("href", a.getAttribute("data-permalink") + suffix);
-    });
-  }
-
-  function initToolbar(defaultN) {
-    var toolbar = document.querySelector(".toolbar");
-    if (!toolbar) return;
-
-    toolbar.addEventListener("click", function (e) {
-      var btn = e.target.closest(".toolbar-btn");
-      if (!btn || !toolbar.contains(btn)) return;
-      // Hijack the link; we update state in place.
-      e.preventDefault();
-      if (btn.hasAttribute("data-scope")) {
-        applyScope(btn.getAttribute("data-scope"), defaultN);
-      } else if (btn.hasAttribute("data-y")) {
-        applyY(btn.getAttribute("data-y"), defaultN);
-      } else if (btn.hasAttribute("data-mode")) {
-        applyMode(btn.getAttribute("data-mode"), defaultN);
-      }
-    });
-
-    var slider = document.getElementById("scope-slider");
-    var label = document.getElementById("scope-slider-label");
-    if (slider) {
-      slider.addEventListener("input", function () {
-        if (label) label.textContent = slider.value;
-      });
-      slider.addEventListener("change", function () {
-        applyScope(slider.value, defaultN);
-      });
-    }
-  }
-
-  // -----------------------------------------------------------------------
   // Page wiring
   // -----------------------------------------------------------------------
-  function initCharts() {
-    var urlState = parseUrl();
+  function initOpenCharts() {
+    // Charts that arrive with inline JSON (`<script id="chart-data-N">`):
+    // construct them via IntersectionObserver as before so a long open page
+    // doesn't pay for offscreen Chart.js cost up front.
     var cards = document.querySelectorAll(".chart-card[data-chart-index]");
     if (!cards.length) return;
 
+    var construct = function (card) {
+      // Skip cards inside closed `<details>` — they'll be picked up on
+      // toggle. The details element has `open` set when the user expands.
+      var details = card.closest("details");
+      if (details && !details.open) return;
+      if (constructChart(card)) bindToolbar(card);
+    };
+
     if (typeof IntersectionObserver === "undefined") {
-      cards.forEach(function (card) { constructChart(card, urlState); });
+      cards.forEach(construct);
     } else {
       var io = new IntersectionObserver(function (entries) {
         entries.forEach(function (entry) {
           if (entry.isIntersecting) {
-            constructChart(entry.target, parseUrl());
+            construct(entry.target);
             io.unobserve(entry.target);
           }
         });
       }, { rootMargin: "150px 0px" });
       cards.forEach(function (card) { io.observe(card); });
     }
+  }
 
-    // Tap-elsewhere closes any open external tooltip.
-    document.addEventListener("click", function (e) {
-      var hosts = document.querySelectorAll(".chart-tooltip-host");
-      hosts.forEach(function (host) {
-        if (!host.contains(e.target)) {
-          host.style.opacity = "0";
-          host.style.pointerEvents = "none";
-        }
+  function initDetailsToggle() {
+    var groups = document.querySelectorAll("details.group-details");
+    groups.forEach(function (d) {
+      d.addEventListener("toggle", function () {
+        if (!d.open) return;
+        d.querySelectorAll(".chart-card[data-chart-slug]").forEach(function (card) {
+          fetchAndConstruct(card);
+        });
       });
     });
   }
@@ -565,7 +583,7 @@
   function initLandingFilter() {
     var input = document.getElementById("group-search");
     if (!input) return;
-    var groups = document.querySelectorAll("section.group[data-group-name]");
+    var groups = document.querySelectorAll("details.group-details[data-group-name]");
     input.addEventListener("input", function () {
       var q = input.value.toLowerCase();
       groups.forEach(function (g) {
@@ -576,11 +594,9 @@
   }
 
   function init() {
-    var main = document.querySelector("main");
-    var defaultN = main && main.getAttribute("data-default-n");
     initLandingFilter();
-    initCharts();
-    initToolbar(defaultN);
+    initDetailsToggle();
+    initOpenCharts();
   }
 
   if (document.readyState === "loading") {
