@@ -35,7 +35,7 @@ use vortex_session::VortexSession;
 
 use crate::scalar_fns::inner_product::InnerProduct;
 use crate::scalar_fns::l2_denorm::NormalForm;
-use crate::scalar_fns::l2_denorm::try_build_constant_l2_denorm;
+use crate::scalar_fns::l2_denorm::try_build_constant_l2_denorm_from_constant;
 use crate::scalar_fns::l2_norm::L2Norm;
 use crate::utils::BinaryTensorOpMetadata;
 use crate::utils::validate_binary_tensor_float_inputs;
@@ -133,26 +133,29 @@ impl ScalarFnVTable for CosineSimilarity {
         // If either side is a constant tensor-like extension array, eagerly normalize the single
         // stored row and re-wrap it as an `L2Denorm` whose children are both `ConstantArray`s.
         // The L2Denorm fast path below then picks it up.
-        if let Some(sfn) = try_build_constant_l2_denorm(&lhs_ref, len, ctx)? {
+        if let Some(sfn) = try_build_constant_l2_denorm_from_constant(&lhs_ref, len, ctx)? {
             lhs_ref = sfn.into_array();
         }
-        if let Some(sfn) = try_build_constant_l2_denorm(&rhs_ref, len, ctx)? {
+        if let Some(sfn) = try_build_constant_l2_denorm_from_constant(&rhs_ref, len, ctx)? {
             rhs_ref = sfn.into_array();
         }
 
-        // The combined validity always comes from the original operands. Compute it once up
-        // front so the unit-form helpers below can take it directly without re-deriving from
-        // an `L2Denorm` wrapper they no longer hold.
+        // The combined validity always comes from the original operands. Compute it once up front
+        // so the unit-form helpers below can take it directly without re-deriving from an
+        // `L2Denorm` wrapper they no longer hold.
         let validity = lhs_ref.validity()?.and(rhs_ref.validity()?)?;
 
-        // Classify each operand by its normal form. When both operands carry a known unit-norm
-        // representation, cosine similarity collapses to the dot product of the unit vectors.
+        // Classify each operand by its normal form.
         let lhs_form = NormalForm::classify(&lhs_ref);
         let rhs_form = NormalForm::classify(&rhs_ref);
         match (lhs_form.normalized_array(), rhs_form.normalized_array()) {
             (Some(unit_lhs), Some(unit_rhs)) => {
+                // When both operands carry a known unit-norm representation, cosine similarity
+                // collapses to the dot product of the unit vectors.
                 return self.execute_both_unit(unit_lhs, unit_rhs, validity, len);
             }
+            // When one operand carries a unit-norm representation, then we can skip one of the
+            // division steps.
             (Some(unit_lhs), None) => {
                 return self.execute_one_unit(unit_lhs, &rhs_ref, validity, len, ctx);
             }
@@ -174,7 +177,7 @@ impl ScalarFnVTable for CosineSimilarity {
         let norm_r: PrimitiveArray = norm_rhs_arr.into_array().execute(ctx)?;
 
         // TODO(connor): Ideally we would have a `SafeDiv` binary numeric operation.
-        // TODO(connor): This can be written in a more SIMD-friendly manner.
+        // TODO(connor): This can probably be written in a more SIMD-friendly manner.
         match_each_float_ptype!(dot.ptype(), |T| {
             let dots = dot.as_slice::<T>();
             let norms_l = norm_l.as_slice::<T>();
@@ -236,6 +239,7 @@ impl ScalarFnArrayVTable for CosineSimilarity {
     ) -> VortexResult<ScalarFnArrayParts<Self>> {
         let reconstructed =
             BinaryTensorOpMetadata::decode_children(metadata, len, children, session)?;
+
         Ok(ScalarFnArrayParts {
             options: EmptyOptions,
             children: reconstructed,

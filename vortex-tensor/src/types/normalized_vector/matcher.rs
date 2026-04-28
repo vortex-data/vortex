@@ -52,7 +52,7 @@ impl Matcher for AnyNormalizedVector {
             "element dtype must be non-nullable"
         );
 
-        let metadata = VectorMatcherMetadata::try_new(element_dtype.as_ptype(), *list_size)
+        let metadata = VectorMatcherMetadata::try_new(element_dtype.as_ptype(), *list_size, true)
             .vortex_expect("`NormalizedVector` inner Vector did not have float elements");
 
         Some(metadata)

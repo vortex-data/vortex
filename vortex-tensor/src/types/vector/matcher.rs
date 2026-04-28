@@ -41,6 +41,9 @@ pub struct VectorMatcherMetadata {
 
     /// The number of dimensions of the vector. This is always fixed.
     dimensions: u32,
+
+    ///`true` when the dtype is a [`NormalizedVector`].
+    is_normalized: bool,
 }
 
 impl Matcher for AnyVector {
@@ -50,7 +53,7 @@ impl Matcher for AnyVector {
         // Walk to the inner `FixedSizeList` for whichever vector-shaped wrapper this is. Plain
         // `Vector` stores the FSL directly; `NormalizedVector` wraps a `Vector` extension which
         // in turn stores the FSL.
-        let fsl_dtype = if ext_dtype.is::<NormalizedVector>() {
+        let (fsl_dtype, is_normalized) = if ext_dtype.is::<NormalizedVector>() {
             let DType::Extension(inner) = ext_dtype.storage_dtype() else {
                 vortex_panic!(
                     "`NormalizedVector` storage must be `DType::Extension(Vector)`, got {}",
@@ -65,9 +68,9 @@ impl Matcher for AnyVector {
                 )
             }
 
-            inner.storage_dtype()
+            (inner.storage_dtype(), true)
         } else if ext_dtype.is::<Vector>() {
-            ext_dtype.storage_dtype()
+            (ext_dtype.storage_dtype(), false)
         } else {
             return None;
         };
@@ -85,8 +88,9 @@ impl Matcher for AnyVector {
         );
         let element_ptype = element_dtype.as_ptype();
 
-        let vector_metadata = VectorMatcherMetadata::try_new(element_ptype, dimensions)
-            .vortex_expect("`Vector` type somehow did not have float elements");
+        let vector_metadata =
+            VectorMatcherMetadata::try_new(element_ptype, dimensions, is_normalized)
+                .vortex_expect("`Vector` type somehow did not have float elements");
 
         Some(vector_metadata)
     }
@@ -98,12 +102,17 @@ impl VectorMatcherMetadata {
     /// # Errors
     ///
     /// Returns an error if the element type is not a float.
-    pub fn try_new(element_ptype: PType, dimensions: u32) -> VortexResult<Self> {
+    pub fn try_new(
+        element_ptype: PType,
+        dimensions: u32,
+        is_normalized: bool,
+    ) -> VortexResult<Self> {
         vortex_ensure!(element_ptype.is_float());
 
         Ok(Self {
             element_ptype,
             dimensions,
+            is_normalized,
         })
     }
 
@@ -115,6 +124,12 @@ impl VectorMatcherMetadata {
     /// Returns the number of dimensions of the vector.
     pub fn dimensions(&self) -> u32 {
         self.dimensions
+    }
+
+    /// Returns `true` when the dtype is a
+    /// [`NormalizedVector`](crate::normalized_vector::NormalizedVector).
+    pub fn is_normalized(self) -> bool {
+        self.is_normalized
     }
 }
 

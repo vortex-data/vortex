@@ -3,10 +3,12 @@
 
 //! TurboQuant encoding (quantization) logic.
 //!
-//! The input to [`turboquant_encode`] must be a non-nullable [`Vector`](crate::vector::Vector)
-//! extension array whose rows are already L2-normalized (unit norm). Normalization is handled
-//! externally by [`normalize_as_l2_denorm`](crate::scalar_fns::l2_denorm::normalize_as_l2_denorm),
-//! which the [`TurboQuantScheme`] calls before invoking this function.
+//! The input to [`turboquant_encode`] must be a non-nullable [`Vector`] extension array whose rows
+//! are already L2-normalized (unit norm). Normalization is handled externally by
+//! [`normalize_as_l2_denorm`], which the [`TurboQuantScheme`] calls before invoking this function.
+//!
+//! If you already have a [`NormalizedVector`] array, then use the [`turboquant_encode_normalized`]
+//! function instead.
 //!
 //! [`TurboQuantScheme`]: crate::encodings::turboquant::TurboQuantScheme
 
@@ -23,6 +25,7 @@ use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::dtype::Nullability;
+use vortex_array::match_each_float_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -42,6 +45,8 @@ use crate::scalar_fns::sorf_transform::SorfMatrix;
 use crate::scalar_fns::sorf_transform::SorfOptions;
 use crate::scalar_fns::sorf_transform::SorfTransform;
 use crate::types::normalized_vector::NormalizedVector;
+#[expect(unused, reason = "docs")]
+use crate::types::vector::Vector;
 use crate::utils::cast_to_f32;
 
 /// Configuration for TurboQuant encoding.
@@ -55,6 +60,7 @@ pub struct TurboQuantConfig {
     pub num_rounds: u8,
 }
 
+// TODO(connor): We should be able to modify this more easily from the `TurboQuantScheme`!
 impl Default for TurboQuantConfig {
     fn default() -> Self {
         Self {
@@ -65,10 +71,10 @@ impl Default for TurboQuantConfig {
     }
 }
 
-/// Apply the full TurboQuant compression pipeline to a [`Vector`](crate::vector::Vector)
-/// extension array: normalize the rows via [`normalize_as_l2_denorm`], quantize the normalized
-/// child via [`turboquant_encode_normalized`], and reattach the stored norms as the outer
-/// [`L2Denorm`] wrapper.
+/// Apply the full TurboQuant compression pipeline to a [`Vector`] extension array: normalize the
+/// rows via [`normalize_as_l2_denorm`], quantize the normalized child via
+/// [`turboquant_encode_normalized`], and reattach the stored norms as the outer [`L2Denorm`]
+/// wrapper.
 ///
 /// The returned array has the canonical TurboQuant shape:
 ///
@@ -91,8 +97,7 @@ pub fn turboquant_encode(
     // We must normalize the array before we can encode it with TurboQuant.
     let l2_denorm = normalize_as_l2_denorm(input, ctx)?;
 
-    // This is guaranteed to be a `NormalizedVector` extension type.
-    let normalized = l2_denorm.child_at(0).clone();
+    let normalized = l2_denorm.child_at(0).clone(); // Guaranteed to be a `NormalizedVector`..
     let norms = l2_denorm.child_at(1).clone();
     let num_rows = l2_denorm.len();
 
@@ -107,13 +112,9 @@ pub fn turboquant_encode(
     Ok(unsafe { L2Denorm::new_array_unchecked(tq, norms, num_rows) }?.into_array())
 }
 
-/// Encode a non-nullable [`NormalizedVector`](crate::normalized_vector::NormalizedVector)
-/// extension array into
-/// a `ScalarFnArray(SorfTransform, [FSL(Dict(codes, centroids))])`, without validating the
-/// unit-norm precondition.
-///
-/// Passing non-unit-norm vectors will not cause memory unsafety, but will produce silently
-/// incorrect quantization results.
+/// Encode a non-nullable [`NormalizedVector`] extension array into a
+/// `ScalarFnArray(SorfTransform, [FSL(Dict(codes, centroids))])`, without validating the unit-norm
+/// precondition.
 pub fn turboquant_encode_normalized(
     ext: ArrayView<Extension>,
     config: &TurboQuantConfig,
@@ -125,7 +126,7 @@ pub fn turboquant_encode_normalized(
     let element_ptype = vector_metadata.element_ptype();
     let dimensions = vector_metadata.dimensions();
 
-    // `NormalizedVector` storage is `Extension(Vector(FSL))`; drill past the inner `Vector` to
+    // `NormalizedVector` storage is `Extension(Vector(FSL))`, so drill past the inner `Vector` to
     // reach the underlying `FixedSizeList`.
     let inner_vector: ExtensionArray = ext.storage_array().clone().execute(ctx)?;
     let fsl: FixedSizeListArray = inner_vector.storage_array().clone().execute(ctx)?;
@@ -141,34 +142,34 @@ pub fn turboquant_encode_normalized(
     );
 
     let num_rows = fsl.len();
+
+    // No data to quantize: short-circuit by returning an empty `NormalizedVector` directly at
+    // the final output shape `(dimensions, element_ptype)`. The non-empty path only goes
+    // through `SorfTransform` because the inverse rotation reshapes
+    // `(padded_dim, f32) → (dimensions, element_ptype)`; with zero rows there is no rotation
+    // to apply and we can construct an FSL with the destination dtype straight away.
+    if num_rows == 0 {
+        return match_each_float_ptype!(element_ptype, |T| {
+            let elements = PrimitiveArray::empty::<T>(Nullability::NonNullable);
+            let empty_fsl = FixedSizeListArray::try_new(
+                elements.into_array(),
+                dimensions,
+                Validity::NonNullable,
+                0,
+            )?;
+
+            // SAFETY: An empty FSL contains no rows, so the unit-norm-or-zero invariant holds
+            // vacuously.
+            unsafe { NormalizedVector::new_unchecked(empty_fsl.into_array()) }
+        });
+    }
+
     let sorf_options = SorfOptions {
         seed: config.seed,
         num_rounds: config.num_rounds,
         dimensions,
         element_ptype,
     };
-
-    if fsl.is_empty() {
-        let padded_dim = dimensions.next_power_of_two();
-        let empty_codes = PrimitiveArray::empty::<u8>(Nullability::NonNullable);
-        let empty_centroids = PrimitiveArray::empty::<f32>(Nullability::NonNullable);
-        let empty_dict =
-            DictArray::try_new(empty_codes.into_array(), empty_centroids.into_array())?;
-        let empty_fsl = FixedSizeListArray::try_new(
-            empty_dict.into_array(),
-            padded_dim,
-            Validity::NonNullable,
-            0,
-        )?;
-        // SAFETY: An empty FSL contains no rows, so the unit-norm-or-zero invariant holds
-        // vacuously.
-        let empty_padded_vector =
-            unsafe { NormalizedVector::new_unchecked(empty_fsl.into_array()) }?;
-
-        return Ok(
-            SorfTransform::try_new_array(&sorf_options, empty_padded_vector, 0)?.into_array(),
-        );
-    }
 
     let quantized_fsl = turboquant_quantize_fsl(&fsl, config.bit_width, &sorf_options, ctx)?;
 
@@ -182,7 +183,7 @@ pub fn turboquant_encode_normalized(
     Ok(SorfTransform::try_new_array(&sorf_options, padded_vector, num_rows)?.into_array())
 }
 
-/// Rotate and quantize already-normalized rows into a dict-encoded `FixedSizeList`.
+/// Rotate and quantize already-normalized vector rows into a dict-encoded `FixedSizeList`.
 ///
 /// The input `fsl` must contain non-nullable, unit-norm vectors of float values (already
 /// L2-normalized). Null vectors are not supported and must be zeroed out before reaching this
@@ -208,10 +209,10 @@ fn turboquant_quantize_fsl(
     sorf_options: &SorfOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
+    vortex_ensure!(!fsl.dtype().is_nullable());
+
     let dimensions = fsl.list_size() as usize;
     let num_rows = fsl.len();
-
-    vortex_ensure!(!fsl.dtype().is_nullable());
 
     let rotation = SorfMatrix::try_new(
         sorf_options.seed,

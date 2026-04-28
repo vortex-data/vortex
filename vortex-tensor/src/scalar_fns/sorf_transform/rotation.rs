@@ -61,17 +61,19 @@ pub struct SorfMatrix {
     /// Indexed as `round * padded_dim + i`. `0x00000000` = multiply by +1 (no-op), `0x80000000` =
     /// multiply by -1 (flip sign bit).
     sign_masks: Vec<u32>,
+
     /// The number of sign-diagonal + WHT rounds.
     num_rounds: usize,
     /// The padded dimension (next power of 2 >= dimension).
     padded_dim: usize,
-    /// Normalization factor: `padded_dim^(-num_rounds/2)`, applied once at the end.
+    /// Normalization factor: `padded_dim^(-num_rounds/2)`, applied once at the end. This is stored
+    /// for convenience.
     norm_factor: f32,
 }
 
 impl SorfMatrix {
-    /// Create a new structured Walsh-Hadamard-based orthogonal transform from a deterministic
-    /// seed.
+    // TODO(connor): Should this just only allow power-of-2 dimensions? Require the caller to do it?
+    /// Create a new structured Walsh-Hadamard-based orthogonal transform from a deterministic seed.
     ///
     /// The seed is expanded using Vortex's frozen local SplitMix64 stream. Signs are generated in
     /// round-major, block-major order, with each `u64` contributing 64 sign bits in

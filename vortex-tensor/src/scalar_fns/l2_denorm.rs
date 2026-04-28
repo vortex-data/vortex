@@ -533,6 +533,7 @@ pub fn normalize_as_l2_denorm(
     // by [`L2Denorm::try_new_array`] that a zero-norm row is paired with an all-zero normalized
     // row, because [`L2Norm`]'s `NormalizedVector` short-circuit emits 0.0 exactly when the row
     // is all zero.
+    // This also has the added benefit of correcting any lossy-encoded `NormalizedVector` arrays.
     if tensor_metadata.is_normalized() {
         let norms_sfn = L2Norm::try_new_array(input.clone(), row_count)?;
         let norms_array: ArrayRef = norms_sfn.into_array().execute(ctx)?;
@@ -545,7 +546,7 @@ pub fn normalize_as_l2_denorm(
 
     // Constant fast path: if the input is a constant-backed extension, normalize the single
     // stored row once and return an `L2Denorm` whose children are both `ConstantArray`s.
-    if let Some(wrapped) = try_build_constant_l2_denorm(&input, row_count, ctx)? {
+    if let Some(wrapped) = try_build_constant_l2_denorm_from_constant(&input, row_count, ctx)? {
         return Ok(wrapped);
     }
 
@@ -609,7 +610,7 @@ pub fn normalize_as_l2_denorm(
 ///
 /// This is helpful in some of the reduction steps for cosine similarity execution into inner
 /// product execution.
-pub(crate) fn try_build_constant_l2_denorm(
+pub(crate) fn try_build_constant_l2_denorm_from_constant(
     input: &ArrayRef,
     len: usize,
     ctx: &mut ExecutionCtx,

@@ -49,6 +49,7 @@ use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_denorm::NormalForm;
 use crate::scalar_fns::sorf_transform::SorfMatrix;
 use crate::scalar_fns::sorf_transform::SorfTransform;
+use crate::types::normalized_vector::inner_vector_array;
 use crate::types::vector::Vector;
 use crate::utils::BinaryTensorOpMetadata;
 use crate::utils::extract_constant_flat_row;
@@ -123,7 +124,8 @@ impl ScalarFnVTable for InnerProduct {
         let lhs = &arg_dtypes[0];
         let rhs = &arg_dtypes[1];
 
-        // TODO(connor): relax the float-only gate once integer tensors are supported.
+        // TODO(connor): Relax the float-only gate once integer tensors are supported, since inner
+        // product is defined for integer tensors.
         let tensor_match = validate_binary_tensor_float_inputs(lhs, rhs)?;
         let ptype = tensor_match.element_ptype();
         let nullability = Nullability::from(lhs.is_nullable() || rhs.is_nullable());
@@ -140,16 +142,16 @@ impl ScalarFnVTable for InnerProduct {
         let rhs_ref = args.get(1)?;
         let len = args.row_count();
 
-        // Take the unit-norm fast path only when at least one operand wraps stored norms (the
-        // `Denormalized` form). For naked `NormalizedVector` operands the fall-through dot
-        // product already computes the right thing (and short-circuiting here would recurse
-        // back into `InnerProduct`).
+        // Take the factored fast path only when at least one operand wraps stored norms (the
+        // `Denormalized` form). Routing through this lets us extract the stored norms instead of
+        // canonicalizing the `L2Denorm` ScalarFnArray, which would materialize `unit · norms`
+        // row-by-row before the dotan avoidable `O(N·D)` pass.
         let lhs_form = NormalForm::classify(&lhs_ref);
         let rhs_form = NormalForm::classify(&rhs_ref);
         if matches!(lhs_form, NormalForm::Denormalized { .. })
             || matches!(rhs_form, NormalForm::Denormalized { .. })
         {
-            return self.execute_unit_form(&lhs_form, &rhs_form, &lhs_ref, &rhs_ref, len, ctx);
+            return self.execute_factored_dot(&lhs_form, &rhs_form, &lhs_ref, &rhs_ref, len, ctx);
         }
 
         // Reduction case 1: `InnerProduct(SorfTransform(x), const)` rewrites to
@@ -169,10 +171,10 @@ impl ScalarFnVTable for InnerProduct {
         // Compute combined validity.
         let validity = lhs_ref.validity()?.and(rhs_ref.validity()?)?;
 
-        // Drill past any `NormalizedVector` wrapper so we always work with the underlying
-        // `Vector` extension array.
-        let lhs_inner = crate::types::normalized_vector::inner_vector_array(&lhs_ref, ctx)?;
-        let rhs_inner = crate::types::normalized_vector::inner_vector_array(&rhs_ref, ctx)?;
+        // Drill past any `NormalizedVector` wrapper so we always work with the underlying `Vector`
+        // extension array.
+        let lhs_inner = inner_vector_array(&lhs_ref, ctx)?;
+        let rhs_inner = inner_vector_array(&rhs_ref, ctx)?;
 
         // Canonicalize so we can perform the math directly.
         let lhs: ExtensionArray = lhs_inner.execute(ctx)?;
@@ -244,6 +246,7 @@ impl ScalarFnArrayVTable for InnerProduct {
     ) -> VortexResult<ScalarFnArrayParts<Self>> {
         let reconstructed =
             BinaryTensorOpMetadata::decode_children(metadata, len, children, session)?;
+
         Ok(ScalarFnArrayParts {
             options: EmptyOptions,
             children: reconstructed,
@@ -252,11 +255,15 @@ impl ScalarFnArrayVTable for InnerProduct {
 }
 
 impl InnerProduct {
-    /// Inner product over operands that may carry a unit-norm representation:
-    /// `inner_product = scale_l * scale_r * dot(unit_l, unit_r)`, where the `(unit, scale)` pair
-    /// for each operand is `(operand, None)` for `Plain`, `(NV, None)` for naked `Normalized`,
-    /// and `(NV, Some(stored_norms))` for `Denormalized`. See [`decompose_for_unit_form`].
-    fn execute_unit_form(
+    /// Compute `<lhs, rhs>` after factoring each operand into a `(vector, optional_scale)` pair
+    /// via [`factor_operand`]. The math is `<lhs, rhs> = scale_l · scale_r · <vec_l, vec_r>`, where
+    /// a `None` scale acts as `1.0` (skipping the per-row multiply).
+    ///
+    /// This is **not** restricted to unit-norm operands. `Plain` factors as `(operand, None)` with
+    /// `scale = 1`, and the formula still holds: `<plain_l, scale_r · unit_r>` =
+    /// `scale_r · <plain_l, unit_r>`. The win over the standard path is avoiding canonicalizing the
+    /// `L2Denorm` ScalarFnArray (which would materialize `unit · norms` per row before the dot).
+    fn execute_factored_dot(
         &self,
         lhs_form: &NormalForm<'_>,
         rhs_form: &NormalForm<'_>,
@@ -267,13 +274,16 @@ impl InnerProduct {
     ) -> VortexResult<ArrayRef> {
         let validity = lhs_ref.validity()?.and(rhs_ref.validity()?)?;
 
-        let (unit_lhs, lhs_scale) = decompose_for_unit_form(lhs_form, lhs_ref, ctx)?;
-        let (unit_rhs, rhs_scale) = decompose_for_unit_form(rhs_form, rhs_ref, ctx)?;
+        let (vec_lhs, lhs_scale) = factor_operand(lhs_form, lhs_ref, ctx)?;
+        let (vec_rhs, rhs_scale) = factor_operand(rhs_form, rhs_ref, ctx)?;
 
-        let dot: PrimitiveArray = InnerProduct::try_new_array(unit_lhs, unit_rhs, len)?
+        // NB: The call into `dot(vec_l, vec_r)` here dispatches back through `InnerProduct`, which
+        // lets the SORF and Dict reductions fire on TurboQuant's `SorfTransform` child.
+        let dot: PrimitiveArray = InnerProduct::try_new_array(vec_lhs, vec_rhs, len)?
             .into_array()
             .execute(ctx)?;
 
+        // TODO(connor): This should use the binary `Mul` expressions.
         match_each_float_ptype!(dot.ptype(), |T| {
             let dots = dot.as_slice::<T>();
             let buffer: Buffer<T> = match (lhs_scale.as_ref(), rhs_scale.as_ref()) {
@@ -489,16 +499,23 @@ impl InnerProduct {
     }
 }
 
-/// Decompose an operand classified by [`NormalForm`] into the `(unit_operand, optional_scale)`
-/// pair consumed by [`InnerProduct::execute_unit_form`]:
+/// Factor an operand classified by [`NormalForm`] into the `(vector, optional_scale)` pair consumed
+/// by [`InnerProduct::execute_factored_dot`]. The factorization satisfies
+/// `original = scale · vector` (with `scale = 1` when the returned scale is `None`), so the inner
+/// product distributes as `<l, r> = scale_l · scale_r · <vec_l, vec_r>`.
 ///
-/// - `Plain`: `(original, None)`. The unscaled operand IS its own "unit" for dot purposes; no
-///   per-row multiply is needed.
-/// - `Normalized`: `(NV, None)`. Implicit per-row scale of `1.0` — the unit child enters the dot
-///   directly with no multiply.
-/// - `Denormalized`: `(NV, Some(stored_norms))`. The dot is computed over the unit child and the
-///   caller multiplies by the materialized stored norms afterward.
-fn decompose_for_unit_form(
+/// The "vector" component is **not** required to be unit-norm: for `Plain` operands the entire
+/// operand is returned as the "vector" with an implicit scale of `1`. The point of the
+/// factorization is to surface the stored norms of `Denormalized` operands so they can be applied
+/// after the dot, not to assert anything about the geometry of the vector component.
+///
+/// - `Plain`: `(original, None)`. Implicit `scale = 1`; the operand passes through to the dot
+///   unchanged.
+/// - `Normalized`: `(NV, None)`. Implicit `scale = 1`; the unit-norm child passes through to
+///   the dot unchanged.
+/// - `Denormalized`: `(NV, Some(stored_norms))`. The dot is computed over the unit-norm child
+///   and the caller multiplies row-wise by the materialized stored norms afterward.
+fn factor_operand(
     form: &NormalForm<'_>,
     original: &ArrayRef,
     ctx: &mut ExecutionCtx,

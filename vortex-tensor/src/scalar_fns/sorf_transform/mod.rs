@@ -78,11 +78,14 @@ pub struct SorfTransform;
 pub struct SorfOptions {
     /// Seed used to generate the structured sign diagonals via Vortex's frozen SplitMix64 stream.
     pub seed: u64,
+
     /// Number of sign-diagonal + WHT rounds in the structured orthogonal transform.
     pub num_rounds: u8,
+
     /// Original vector dimension (before power-of-2 padding). The output
     /// [`Vector`](crate::vector::Vector) has this dimension.
     pub dimensions: u32,
+
     /// Element type of the output [`Vector`](crate::vector::Vector). The child input must always
     /// be `f32`, but the output can be any float type (`F16`, `F32`, `F64`); the final
     /// `f32 -> element_ptype` cast happens while building the output.
@@ -90,7 +93,8 @@ pub struct SorfOptions {
 }
 
 impl SorfTransform {
-    /// Creates a new [`TypedScalarFnInstance`] wrapping the SORF inverse transform with the given options.
+    /// Creates a new [`TypedScalarFnInstance`] wrapping the SORF inverse transform with the given
+    /// options.
     pub fn new(options: &SorfOptions) -> TypedScalarFnInstance<SorfTransform> {
         TypedScalarFnInstance::new(SorfTransform, options.clone())
     }
@@ -121,7 +125,7 @@ impl SorfTransform {
 }
 
 /// Checks that the SORF configuration is valid.
-pub(crate) fn validate_sorf_options(options: &SorfOptions) -> VortexResult<()> {
+pub(super) fn validate_sorf_options(options: &SorfOptions) -> VortexResult<()> {
     vortex_ensure!(
         options.num_rounds >= 1,
         "SorfTransform num_rounds must be >= 1, got {}",

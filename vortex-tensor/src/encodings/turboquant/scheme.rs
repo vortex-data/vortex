@@ -22,6 +22,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
+use vortex_array::dtype::DType;
 use vortex_compressor::CascadingCompressor;
 use vortex_compressor::ctx::CompressorContext;
 use vortex_compressor::estimate::CompressionEstimate;
@@ -30,11 +31,15 @@ use vortex_compressor::scheme::Scheme;
 use vortex_compressor::stats::ArrayAndStats;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 
 use crate::encodings::turboquant::MAX_CENTROIDS;
+use crate::encodings::turboquant::MIN_DIMENSION;
 use crate::encodings::turboquant::TurboQuantConfig;
-use crate::encodings::turboquant::tq_validate_vector_dtype;
 use crate::encodings::turboquant::turboquant_encode;
+use crate::vector::AnyVector;
+use crate::vector::VectorMatcherMetadata;
 
 /// TurboQuant compression scheme for [`Vector`] extension types.
 ///
@@ -131,6 +136,27 @@ fn estimate_compression_ratio(element_bit_width: u8, dimensions: u32, num_vector
     let compressed_size_bits = total_bits_per_vector * num_vectors + overhead_bits;
 
     uncompressed_size_bits as f64 / compressed_size_bits as f64
+}
+
+/// Validates that `dtype` is a [`Vector`](crate::vector::Vector) extension type with
+/// dimension >= [`MIN_DIMENSION`].
+///
+/// Returns the validated vector metadata on success.
+pub fn tq_validate_vector_dtype(dtype: &DType) -> VortexResult<VectorMatcherMetadata> {
+    let vector_metadata = dtype
+        .as_extension_opt()
+        .and_then(|ext| ext.metadata_opt::<AnyVector>())
+        .ok_or_else(|| {
+            vortex_err!("TurboQuant dtype must be a Vector extension type, got {dtype}")
+        })?;
+
+    let dimensions = vector_metadata.dimensions();
+    vortex_ensure!(
+        dimensions >= MIN_DIMENSION,
+        "TurboQuant requires dimension >= {MIN_DIMENSION}, got {dimensions}",
+    );
+
+    Ok(vector_metadata)
 }
 
 #[cfg(test)]

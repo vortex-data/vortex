@@ -149,34 +149,5 @@ pub const MAX_BIT_WIDTH: u8 = 8;
 /// Maximum supported number of centroids in the scalar quantizer codebook.
 pub const MAX_CENTROIDS: usize = 1usize << (MAX_BIT_WIDTH as usize);
 
-use vortex_array::dtype::DType;
-use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
-
-use crate::types::vector::AnyVector;
-use crate::types::vector::VectorMatcherMetadata;
-
-/// Validates that `dtype` is a [`Vector`](crate::vector::Vector) extension type with
-/// dimension >= [`MIN_DIMENSION`].
-///
-/// Returns the validated vector metadata on success.
-pub fn tq_validate_vector_dtype(dtype: &DType) -> VortexResult<VectorMatcherMetadata> {
-    let vector_metadata = dtype
-        .as_extension_opt()
-        .and_then(|ext| ext.metadata_opt::<AnyVector>())
-        .ok_or_else(|| {
-            vortex_err!("TurboQuant dtype must be a Vector extension type, got {dtype}")
-        })?;
-
-    let dimensions = vector_metadata.dimensions();
-    vortex_ensure!(
-        dimensions >= MIN_DIMENSION,
-        "TurboQuant requires dimension >= {MIN_DIMENSION}, got {dimensions}",
-    );
-
-    Ok(vector_metadata)
-}
-
 #[cfg(test)]
 mod tests;
