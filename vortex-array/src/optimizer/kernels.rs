@@ -17,6 +17,7 @@
 //! sessions can add it with [`VortexSession::with`](vortex_session::VortexSession::with) or rely
 //! on [`ArrayKernelsExt::kernels`] to insert the default value.
 
+use std::any::Any;
 use std::hash::BuildHasher;
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -25,6 +26,7 @@ use arc_swap::ArcSwap;
 use vortex_error::VortexResult;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
+use vortex_session::SessionVar;
 use vortex_session::registry::Id;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -97,6 +99,16 @@ impl ArrayKernels {
     /// [`FnRegistry`]. All typed helpers use this path so registration and lookup agree.
     fn hash_fn_ids(&self, parent: Id, child: Id) -> u64 {
         FN_HASHER.hash_one((parent, child))
+    }
+}
+
+impl SessionVar for ArrayKernels {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
     }
 }
 
