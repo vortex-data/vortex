@@ -6,7 +6,7 @@ name: v3 commit metadata
 on:
   push:
     branches: [develop]
-  workflow_dispatch:
+  workflow_dispatch: { }
 
 permissions:
   contents: read

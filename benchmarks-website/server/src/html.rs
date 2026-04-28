@@ -92,8 +92,8 @@ pub fn router() -> Router<AppState> {
 /// for runtime state.
 #[derive(Debug, Default, Deserialize)]
 pub struct UiQuery {
-    /// Override for the per-chart fetch size. Defaults to
-    /// [`PER_CHART_FETCH_N`]. Accepts `25|50|100|250|all`.
+    /// Override for the per-chart fetch size. Defaults to `PER_CHART_FETCH_N`.
+    /// Accepts `25|50|100|250|all`.
     pub n: Option<String>,
 }
 
