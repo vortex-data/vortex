@@ -241,7 +241,7 @@ impl VTable for Chunked {
         match array.dtype() {
             // Struct and List need special swizzling logic, use the existing canonicalize path.
             DType::Struct(..) | DType::List(..) => {
-                // TODO(joe)[#7674]: iterative exectuion here too
+                // TODO(joe)[#7674]: iterative execution here too
                 Ok(ExecutionResult::done(_canonicalize(array.as_view(), ctx)?))
             }
             // For all other types, use the builder path via AppendChild.
