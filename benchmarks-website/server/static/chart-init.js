@@ -2,15 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 // Hydrate Chart.js charts on /, /chart/:slug, and /group/:slug, plus the
-// landing-page client-side filter and the lazy-fetch-on-toggle behaviour for
-// closed `<details>` groups.
+// lazy-fetch-on-toggle behaviour for closed `<details>` groups.
 //
 // Per-chart UX:
 //   - Each `.chart-card` carries `data-chart-slug`. The card *owns* its own
 //     toolbar (`.toolbar--card`) — there is no page-level toolbar.
-//   - Each chart fetches up to 1000 commits once. The toolbar's "Show" buttons
-//     and slider set `chart.options.scales.x.min/max` to reveal a window of
-//     that fetched slice; we never refetch on a scope change.
+//   - Each chart fetches up to 1000 commits once. The toolbar's slider sets
+//     `chart.options.scales.x.min/max` to reveal a window of that fetched
+//     slice; we never refetch on a scope change.
 //   - The slider is throttled to ~16ms (one frame at 60fps) per v2's
 //     `CONFIG.ZOOM_THROTTLE_DELAY` so dragging the slider feels continuous.
 //   - Mouse wheel pans horizontally (chartjs-plugin-zoom does not expose
@@ -235,29 +234,12 @@
     try { return JSON.parse(s.textContent); } catch (e) { return null; }
   }
 
-  function buildDatasets(payload, mode) {
+  function buildDatasets(payload) {
     var raw = payload.series || {};
     var names = Object.keys(raw).sort();
     var values = names.map(function (name) {
       return Array.isArray(raw[name]) ? raw[name].slice() : [];
     });
-
-    if (mode === "rel") {
-      values = values.map(function (arr) {
-        var baseline = null;
-        for (var i = 0; i < arr.length; i++) {
-          if (arr[i] !== null && arr[i] !== undefined && !Number.isNaN(arr[i])) {
-            baseline = arr[i];
-            break;
-          }
-        }
-        if (!baseline) return arr.map(function () { return null; });
-        return arr.map(function (v) {
-          if (v === null || v === undefined || Number.isNaN(v)) return null;
-          return (v / baseline) * 100;
-        });
-      });
-    }
 
     return names.map(function (name, i) {
       return {
@@ -265,24 +247,23 @@
         data: values[i],
         rawData: raw[name],
         borderColor: colorFor(i),
-        backgroundColor: colorFor(i),
+        backgroundColor: colorFor(i) + "20",
+        borderWidth: 1.5,
         spanGaps: true,
-        tension: 0.1,
+        tension: 0,
         pointRadius: 2,
         pointHoverRadius: 5,
+        pointHitRadius: 8,
+        pointStyle: "cross",
       };
     });
-  }
-
-  function yAxisTitle(payload, mode) {
-    return mode === "rel" ? "% of baseline" : (payload.unit || "");
   }
 
   // -----------------------------------------------------------------------
   // Per-card construction. State lives on the canvas:
   //   canvas.__bench_chart   — Chart.js instance
   //   canvas.__bench_payload — last-fetched ChartResponse
-  //   canvas.__bench_state   — { y, mode, scope } (per-chart toolbar state)
+  //   canvas.__bench_state   — { y, scope } (per-chart toolbar state)
   // -----------------------------------------------------------------------
   function constructChart(card) {
     var idx = card.getAttribute("data-chart-index");
@@ -294,11 +275,11 @@
     if (!payload) return null;
     canvas.__bench_payload = payload;
 
-    var state = canvas.__bench_state || { y: "linear", mode: "abs", scope: DEFAULT_VISIBLE };
+    var state = canvas.__bench_state || { y: "linear", scope: DEFAULT_VISIBLE };
     canvas.__bench_state = state;
 
     var labels = (payload.commits || []).map(function (c) { return shortSha(c.sha); });
-    var datasets = buildDatasets(payload, state.mode);
+    var datasets = buildDatasets(payload);
     var host = card.querySelector(".chart-tooltip-host");
     var range = visibleRange(labels.length, state.scope);
     var legendPosition = (window.matchMedia
@@ -320,8 +301,8 @@
         scales: {
           y: {
             type: state.y === "log" ? "logarithmic" : "linear",
-            beginAtZero: state.y !== "log" && state.mode !== "rel",
-            title: { display: true, text: yAxisTitle(payload, state.mode) },
+            beginAtZero: state.y !== "log",
+            title: { display: true, text: payload.unit || "" },
           },
           x: {
             min: range.min,
@@ -378,10 +359,10 @@
       var dx = (Math.abs(e.deltaX) > Math.abs(e.deltaY)) ? e.deltaX : e.deltaY;
       if (!dx) return;
       e.preventDefault();
-      // Pan negative deltaX → forward in time. Multiplier tuned for trackpad
-      // feel; fast wheels still travel quickly because we accumulate deltas
-      // through the plugin's pan handler.
-      chart.pan({ x: -dx * 0.5 }, undefined, "none");
+      // Browser wheel-down reports a positive delta. In Chart.js pan space,
+      // positive x moves the visible window toward older commits, while
+      // negative x moves back toward newer commits.
+      chart.pan({ x: dx * 0.5 }, undefined, "none");
     }, { passive: false });
   }
 
@@ -417,24 +398,9 @@
     if (!chart) return;
     canvas.__bench_state.y = yValue;
     chart.options.scales.y.type = yValue === "log" ? "logarithmic" : "linear";
-    chart.options.scales.y.beginAtZero = yValue !== "log"
-      && canvas.__bench_state.mode !== "rel";
+    chart.options.scales.y.beginAtZero = yValue !== "log";
     chart.update("none");
     syncToolbarUi(card, "y", yValue);
-  }
-
-  function applyMode(card, modeValue) {
-    var canvas = card.querySelector("canvas");
-    var chart = canvas && canvas.__bench_chart;
-    if (!chart) return;
-    canvas.__bench_state.mode = modeValue;
-    var payload = canvas.__bench_payload;
-    chart.data.datasets = buildDatasets(payload, modeValue);
-    chart.options.scales.y.beginAtZero = canvas.__bench_state.y !== "log"
-      && modeValue !== "rel";
-    chart.options.scales.y.title.text = yAxisTitle(payload, modeValue);
-    chart.update("none");
-    syncToolbarUi(card, "mode", modeValue);
   }
 
   function syncToolbarUi(card, group, value) {
@@ -444,8 +410,6 @@
     });
     if (group === "scope") {
       var slider = card.querySelector('[data-role="scope-slider"]');
-      var label = card.querySelector('[data-role="scope-slider-label"]');
-      if (label) label.textContent = value;
       if (slider && /^\d+$/.test(value)) slider.value = value;
     }
   }
@@ -458,19 +422,15 @@
     toolbar.addEventListener("click", function (e) {
       var btn = e.target.closest(".toolbar-btn");
       if (!btn || !toolbar.contains(btn)) return;
-      if (btn.hasAttribute("data-scope")) applyScope(card, btn.getAttribute("data-scope"));
-      else if (btn.hasAttribute("data-y")) applyY(card, btn.getAttribute("data-y"));
-      else if (btn.hasAttribute("data-mode")) applyMode(card, btn.getAttribute("data-mode"));
+      if (btn.hasAttribute("data-y")) applyY(card, btn.getAttribute("data-y"));
     });
 
     var slider = toolbar.querySelector('[data-role="scope-slider"]');
-    var label = toolbar.querySelector('[data-role="scope-slider-label"]');
     if (slider) {
       // `input` (continuous), throttled so dragging stays at ~60fps even on
       // pages with dozens of charts. Last value still lands because
       // `throttle` preserves the trailing call.
       var throttled = throttle(function () {
-        if (label) label.textContent = slider.value;
         applyScope(card, slider.value);
       }, ZOOM_THROTTLE_MS);
       slider.addEventListener("input", throttled);
@@ -546,9 +506,11 @@
     if (!cards.length) return;
 
     var construct = function (card) {
-      // Skip cards inside closed `<details>` — they'll be picked up on
-      // toggle. The details element has `open` set when the user expands.
-      var details = card.closest("details");
+      // Skip cards whose group disclosure is closed — they'll be picked up
+      // on toggle. Summaries live outside the disclosure so they remain
+      // visible while the chart grid is collapsed.
+      var group = card.closest(".group-details");
+      var details = group ? group.querySelector("details.group-disclosure") : null;
       if (details && !details.open) return;
       if (constructChart(card)) bindToolbar(card);
     };
@@ -569,32 +531,20 @@
   }
 
   function initDetailsToggle() {
-    var groups = document.querySelectorAll("details.group-details");
+    var groups = document.querySelectorAll("details.group-disclosure");
     groups.forEach(function (d) {
       d.addEventListener("toggle", function () {
         if (!d.open) return;
-        d.querySelectorAll(".chart-card[data-chart-slug]").forEach(function (card) {
+        var group = d.closest(".group-details");
+        if (!group) return;
+        group.querySelectorAll(".chart-card[data-chart-slug]").forEach(function (card) {
           fetchAndConstruct(card);
         });
       });
     });
   }
 
-  function initLandingFilter() {
-    var input = document.getElementById("group-search");
-    if (!input) return;
-    var groups = document.querySelectorAll("details.group-details[data-group-name]");
-    input.addEventListener("input", function () {
-      var q = input.value.toLowerCase();
-      groups.forEach(function (g) {
-        var name = (g.getAttribute("data-group-name") || "").toLowerCase();
-        g.style.display = !q || name.indexOf(q) !== -1 ? "" : "none";
-      });
-    });
-  }
-
   function init() {
-    initLandingFilter();
     initDetailsToggle();
     initOpenCharts();
   }
