@@ -11,9 +11,9 @@
 //! - `GET /chart/{slug}` — single chart page; permalink for sharing.
 //! - `GET /group/{slug}` — every chart in one group on a single page.
 //!
-//! Each chart card owns its own toolbar (scope buttons + slider, Y-axis,
-//! mode). There is no page-level toolbar — every chart is independent. Scope
-//! is **zoom-as-scope**: each chart fetches up to [`api::MAX_COMMIT_WINDOW`]
+//! Each chart card owns its own compact toolbar (scope slider + Y-axis). There
+//! is no page-level toolbar — every chart is independent. Scope is
+//! **zoom-as-scope**: each chart fetches up to [`api::MAX_COMMIT_WINDOW`]
 //! commits once, then the toolbar manipulates `chart.options.scales.x.min`/
 //! `max` to set the visible window. No refetches on scope change.
 //!
@@ -56,13 +56,14 @@ use crate::api::ChartResponse;
 use crate::api::CommitWindow;
 use crate::api::GroupChartsResponse;
 use crate::api::NamedChartResponse;
+use crate::api::Summary;
 use crate::app::AppState;
 use crate::db;
 use crate::slug::ChartKey;
 use crate::slug::GroupKey;
 
-/// How many commits each chart pre-fetches. The toolbar's "scope" buttons
-/// zoom into smaller windows of this slice; we never refetch on scope change.
+/// How many commits each chart pre-fetches. The toolbar's scope slider zooms
+/// into smaller windows of this slice; we never refetch on scope change.
 /// Capped at the API ceiling so a future bigger ceiling is picked up here too.
 const PER_CHART_FETCH_N: u32 = api::MAX_COMMIT_WINDOW;
 
@@ -70,6 +71,7 @@ const CHART_JS: &[u8] = include_bytes!("../static/chart.umd.js");
 const CHART_ZOOM_JS: &[u8] = include_bytes!("../static/chartjs-plugin-zoom.umd.min.js");
 const CHART_INIT_JS: &[u8] = include_bytes!("../static/chart-init.js");
 const STYLE_CSS: &[u8] = include_bytes!("../static/style.css");
+const STATIC_ASSET_VERSION: &str = "bench-v3-ui-4";
 
 /// HTML routes mounted under `/`.
 pub fn router() -> Router<AppState> {
@@ -146,6 +148,7 @@ async fn landing(State(state): State<AppState>, Query(ui): Query<UiQuery>) -> Re
 /// HTML small.
 struct LandingGroup {
     name: String,
+    summary: Option<Summary>,
     /// Chart links for every chart in the group. Always present — we need
     /// the slugs server-side so the chart-card shell can carry
     /// `data-chart-slug` for the lazy fetch.
@@ -188,6 +191,7 @@ fn collect_landing_groups(conn: &Connection, window: &CommitWindow) -> Result<Ve
         };
         out.push(LandingGroup {
             name: group.name,
+            summary: group.summary,
             chart_links: group.charts,
             inlined,
         });
@@ -280,6 +284,10 @@ enum PageScripts {
 }
 
 fn render_page(title: &str, header_subtitle: &str, body: Markup, scripts: PageScripts) -> Markup {
+    let style_href = versioned_asset("/static/style.css");
+    let chart_js_src = versioned_asset("/static/chart.umd.js");
+    let chart_zoom_src = versioned_asset("/static/chartjs-plugin-zoom.umd.min.js");
+    let chart_init_src = versioned_asset("/static/chart-init.js");
     html! {
         (DOCTYPE)
         html lang="en" {
@@ -287,7 +295,7 @@ fn render_page(title: &str, header_subtitle: &str, body: Markup, scripts: PageSc
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1";
                 title { (title) }
-                link rel="stylesheet" href="/static/style.css";
+                link rel="stylesheet" href=(style_href);
             }
             body {
                 header.page-header {
@@ -297,12 +305,12 @@ fn render_page(title: &str, header_subtitle: &str, body: Markup, scripts: PageSc
                 main { (body) }
                 @match scripts {
                     PageScripts::Empty => {
-                        script src="/static/chart-init.js" defer {}
+                        script src=(chart_init_src) defer {}
                     },
                     PageScripts::Chart => {
-                        script src="/static/chart.umd.js" defer {}
-                        script src="/static/chartjs-plugin-zoom.umd.min.js" defer {}
-                        script src="/static/chart-init.js" defer {}
+                        script src=(chart_js_src) defer {}
+                        script src=(chart_zoom_src) defer {}
+                        script src=(chart_init_src) defer {}
                     },
                 }
             }
@@ -321,18 +329,19 @@ fn landing_body(groups: &[LandingGroup]) -> Markup {
     // `<script id="chart-data-N">` agree across groups.
     let mut idx_iter = 0usize..total_charts;
     html! {
-        div.landing-search {
-            input #group-search type="search" placeholder="Filter groups…"
-                autocomplete="off" spellcheck="false";
-        }
         @for (group_idx, group) in groups.iter().enumerate() {
-            details.group-details
-                data-group-name=(group.name)
-                open[group_idx == 0] {
-                summary.group-summary {
-                    span.group-name { (group.name) }
-                    span.group-count { (group.chart_links.len()) }
+            section.group-details data-group-name=(group.name) {
+                details.group-disclosure open[group_idx == 0] {
+                    summary.group-summary {
+                        span.group-summary-row {
+                            span.group-name { (group.name) }
+                            span.group-count {
+                                (group.chart_links.len()) " chart" @if group.chart_links.len() != 1 { "s" }
+                            }
+                        }
+                    }
                 }
+                (summary_markup(group.summary.as_ref()))
                 div.chart-grid {
                     @for (chart_idx, link) in group.chart_links.iter().enumerate() {
                         @let idx = idx_iter.next().expect("indices match charts");
@@ -408,6 +417,7 @@ fn group_body(group: &GroupChartsResponse) -> Markup {
         p.chart-meta {
             (chart_count) " chart" @if chart_count != 1 { "s" }
         }
+        (summary_markup(group.summary.as_ref()))
         div.chart-grid {
             @for (i, item) in group.charts.iter().enumerate() {
                 @let permalink = format!("/chart/{}", item.slug);
@@ -435,6 +445,140 @@ fn group_body(group: &GroupChartsResponse) -> Markup {
     }
 }
 
+fn summary_markup(summary: Option<&Summary>) -> Markup {
+    let Some(summary) = summary else {
+        return html! {};
+    };
+    match summary {
+        Summary::RandomAccess {
+            title,
+            rankings,
+            explanation,
+        } if !rankings.is_empty() => html! {
+            section.benchmark-scores-summary aria-label=(title) {
+                h3.scores-title { (title) }
+                div.scores-list {
+                    @for (idx, item) in rankings.iter().enumerate() {
+                        div.score-item {
+                            span.score-rank { "#" (idx + 1) }
+                            span.score-series title=(item.name) { (item.name) }
+                            span.score-metrics {
+                                span.score-value { (format_time_ns(item.time)) }
+                                span.score-runtime { (format!("{:.2}x", item.ratio)) }
+                            }
+                        }
+                    }
+                }
+                div.scores-explanation { (explanation) }
+            }
+        },
+        Summary::Compression {
+            title,
+            compress_ratio,
+            decompress_ratio,
+            dataset_count: _,
+            explanation,
+        } if compress_ratio.is_some() || decompress_ratio.is_some() => html! {
+            section.benchmark-scores-summary aria-label=(title) {
+                h3.scores-title { (title) }
+                div.scores-list {
+                    @if let Some(v) = compress_ratio {
+                        div.score-item {
+                            span.score-rank { "write" }
+                            span.score-series { "Write Speed (Compression)" }
+                            span.score-metrics {
+                                span.score-value { (format!("{v:.2}x")) }
+                            }
+                        }
+                    }
+                    @if let Some(v) = decompress_ratio {
+                        div.score-item {
+                            span.score-rank { "scan" }
+                            span.score-series { "Scan Speed (Decompression)" }
+                            span.score-metrics {
+                                span.score-value { (format!("{v:.2}x")) }
+                            }
+                        }
+                    }
+                }
+                div.scores-explanation { (explanation) }
+            }
+        },
+        Summary::CompressionSize {
+            title,
+            min_ratio,
+            mean_ratio,
+            max_ratio,
+            dataset_count: _,
+            explanation,
+        } => html! {
+            section.benchmark-scores-summary aria-label=(title) {
+                h3.scores-title { (title) }
+                div.scores-list {
+                    div.score-item {
+                        span.score-rank { "min" }
+                        span.score-series { "Min Size Ratio" }
+                        span.score-metrics {
+                            span.score-value { (format!("{min_ratio:.2}x")) }
+                        }
+                    }
+                    div.score-item {
+                        span.score-rank { "mean" }
+                        span.score-series { "Mean Size Ratio" }
+                        span.score-metrics {
+                            span.score-value { (format!("{mean_ratio:.2}x")) }
+                        }
+                    }
+                    div.score-item {
+                        span.score-rank { "max" }
+                        span.score-series { "Max Size Ratio" }
+                        span.score-metrics {
+                            span.score-value { (format!("{max_ratio:.2}x")) }
+                        }
+                    }
+                }
+                div.scores-explanation { (explanation) }
+            }
+        },
+        Summary::QueryBenchmark {
+            title,
+            rankings,
+            explanation,
+        } if !rankings.is_empty() => html! {
+            section.benchmark-scores-summary aria-label=(title) {
+                h3.scores-title { (title) }
+                div.scores-list {
+                    @for (idx, item) in rankings.iter().enumerate() {
+                        div.score-item {
+                            span.score-rank { "#" (idx + 1) }
+                            span.score-series title=(item.name) { (item.name) }
+                            span.score-metrics {
+                                span.score-value { (format!("{:.2}x", item.score)) }
+                                span.score-runtime { (format_time_ns(item.total_runtime)) }
+                            }
+                        }
+                    }
+                }
+                div.scores-explanation { (explanation) }
+            }
+        },
+        _ => html! {},
+    }
+}
+
+fn format_time_ns(ns: f64) -> String {
+    let abs = ns.abs();
+    if abs >= 1_000_000_000.0 {
+        format!("{:.2} s", ns / 1_000_000_000.0)
+    } else if abs >= 1_000_000.0 {
+        format!("{:.2} ms", ns / 1_000_000.0)
+    } else if abs >= 1_000.0 {
+        format!("{:.2} us", ns / 1_000.0)
+    } else {
+        format!("{ns:.0} ns")
+    }
+}
+
 /// Render the per-chart toolbar. `idx` namespaces input ids so multiple
 /// charts on the same page don't collide on `<input id="...">`.
 ///
@@ -442,31 +586,19 @@ fn group_body(group: &GroupChartsResponse) -> Markup {
 /// not navigate or rewrite the URL, it manipulates Chart.js state in place.
 fn per_chart_toolbar(idx: usize) -> Markup {
     let slider_id = format!("scope-slider-{idx}");
-    let label_id = format!("scope-slider-label-{idx}");
     html! {
         div.toolbar.toolbar--card aria-label="Chart controls" {
             div.toolbar-group role="group" aria-label="Visible commits" {
                 span.toolbar-label { "Show" }
-                @for opt in ["25", "50", "100", "250", "all"] {
-                    button.toolbar-btn.toolbar-btn--active[opt == "100"]
-                        type="button"
-                        data-scope=(opt) { (opt) }
-                }
                 input id=(slider_id).toolbar-slider type="range"
                     min="5" max="1000" step="5" value="100"
                     data-role="scope-slider"
                     aria-label="Custom commit window";
-                span id=(label_id).toolbar-slider-label data-role="scope-slider-label" { "100" }
             }
             div.toolbar-group role="group" aria-label="Y-axis scale" {
                 span.toolbar-label { "Y" }
                 button.toolbar-btn.toolbar-btn--active type="button" data-y="linear" { "linear" }
                 button.toolbar-btn type="button" data-y="log" { "log" }
-            }
-            div.toolbar-group role="group" aria-label="Display mode" {
-                span.toolbar-label { "Mode" }
-                button.toolbar-btn.toolbar-btn--active type="button" data-mode="abs" { "abs" }
-                button.toolbar-btn type="button" data-mode="rel" { "rel" }
             }
         }
     }
@@ -484,13 +616,14 @@ fn escape_json_for_script(s: &str) -> String {
 }
 
 fn error_page(status: StatusCode, message: &str) -> Response {
+    let style_href = versioned_asset("/static/style.css");
     let body = html! {
         (DOCTYPE)
         html lang="en" {
             head {
                 meta charset="utf-8";
                 title { (status.as_u16()) " — bench.vortex.dev" }
-                link rel="stylesheet" href="/static/style.css";
+                link rel="stylesheet" href=(style_href);
             }
             body {
                 header.page-header {
@@ -504,6 +637,10 @@ fn error_page(status: StatusCode, message: &str) -> Response {
         }
     };
     (status, body).into_response()
+}
+
+fn versioned_asset(path: &str) -> String {
+    format!("{path}?v={STATIC_ASSET_VERSION}")
 }
 
 async fn serve_chart_js() -> impl IntoResponse {
@@ -526,7 +663,10 @@ fn static_response(bytes: &'static [u8], content_type: &'static str) -> Response
     (
         [
             (header::CONTENT_TYPE, content_type),
-            (header::CACHE_CONTROL, "public, max-age=3600"),
+            (
+                header::CACHE_CONTROL,
+                "no-cache, max-age=0, must-revalidate",
+            ),
         ],
         bytes,
     )

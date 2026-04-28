@@ -126,6 +126,18 @@ fn envelope_for(sha: &str, ts: &str, msg: &str, value_bias: i64) -> Value {
                 "all_runtimes_ns": [800_000 + value_bias]
             },
             {
+                "kind": "query_measurement",
+                "commit_sha": sha,
+                "dataset": "tpch",
+                "scale_factor": "1",
+                "query_idx": 2,
+                "storage": "nvme",
+                "engine": "datafusion",
+                "format": "vortex-file-compressed",
+                "value_ns": 600_000 + value_bias,
+                "all_runtimes_ns": [600_000 + value_bias]
+            },
+            {
                 "kind": "compression_time",
                 "commit_sha": sha,
                 "dataset": "tpch-lineitem",
@@ -135,11 +147,45 @@ fn envelope_for(sha: &str, ts: &str, msg: &str, value_bias: i64) -> Value {
                 "all_runtimes_ns": [9_000 + value_bias]
             },
             {
+                "kind": "compression_time",
+                "commit_sha": sha,
+                "dataset": "tpch-lineitem",
+                "format": "vortex-file-compressed",
+                "op": "decode",
+                "value_ns": 5_000 + value_bias,
+                "all_runtimes_ns": [5_000 + value_bias]
+            },
+            {
+                "kind": "compression_time",
+                "commit_sha": sha,
+                "dataset": "tpch-lineitem",
+                "format": "parquet",
+                "op": "encode",
+                "value_ns": 18_000 + (2 * value_bias),
+                "all_runtimes_ns": [18_000 + (2 * value_bias)]
+            },
+            {
+                "kind": "compression_time",
+                "commit_sha": sha,
+                "dataset": "tpch-lineitem",
+                "format": "parquet",
+                "op": "decode",
+                "value_ns": 10_000 + (2 * value_bias),
+                "all_runtimes_ns": [10_000 + (2 * value_bias)]
+            },
+            {
                 "kind": "compression_size",
                 "commit_sha": sha,
                 "dataset": "tpch-lineitem",
                 "format": "vortex-file-compressed",
                 "value_bytes": 4_000 + value_bias
+            },
+            {
+                "kind": "compression_size",
+                "commit_sha": sha,
+                "dataset": "tpch-lineitem",
+                "format": "parquet",
+                "value_bytes": 8_000 + (2 * value_bias)
             },
             {
                 "kind": "random_access_time",
@@ -148,6 +194,14 @@ fn envelope_for(sha: &str, ts: &str, msg: &str, value_bias: i64) -> Value {
                 "format": "vortex-file-compressed",
                 "value_ns": 500 + value_bias,
                 "all_runtimes_ns": [500 + value_bias]
+            },
+            {
+                "kind": "random_access_time",
+                "commit_sha": sha,
+                "dataset": "taxi",
+                "format": "parquet",
+                "value_ns": 1_000 + (2 * value_bias),
+                "all_runtimes_ns": [1_000 + (2 * value_bias)]
             },
             {
                 "kind": "vector_search_run",
@@ -234,6 +288,23 @@ async fn pick_group_slug(server: &Server, predicate: impl Fn(&str) -> bool) -> R
         .context("matching group slug")
 }
 
+fn group_by_name<'a>(groups: &'a Value, name: &str) -> Result<&'a Value> {
+    groups["groups"]
+        .as_array()
+        .context("groups is array")?
+        .iter()
+        .find(|g| g["name"].as_str() == Some(name))
+        .with_context(|| format!("group {name:?} exists"))
+}
+
+fn assert_close(actual: f64, expected: f64) {
+    let delta = (actual - expected).abs();
+    assert!(
+        delta < 0.000_001,
+        "expected {actual} to be close to {expected}"
+    );
+}
+
 #[tokio::test]
 async fn landing_page_snapshot() -> Result<()> {
     let server = Server::start().await?;
@@ -266,6 +337,10 @@ async fn landing_page_snapshot() -> Result<()> {
         body.contains(r#"data-chart-slug="#),
         "every chart card carries data-chart-slug for the lazy-fetch path"
     );
+    assert!(
+        !body.contains(r#"id="group-search""#),
+        "landing page should not render the old group search bar"
+    );
 
     insta_settings().bind(|| {
         insta::assert_snapshot!("landing_page", body);
@@ -273,7 +348,7 @@ async fn landing_page_snapshot() -> Result<()> {
     Ok(())
 }
 
-/// The first `<details>` group is rendered with the `open` attribute; every
+/// The first group disclosure is rendered with the `open` attribute; every
 /// other group lacks it, so the user sees only the first group's charts on
 /// first paint.
 #[tokio::test]
@@ -285,7 +360,7 @@ async fn details_first_group_open_others_closed() -> Result<()> {
     let body = client.get(server.url("/")).send().await?.text().await?;
 
     let opens: Vec<_> = body
-        .match_indices("<details")
+        .match_indices(r#"<details class="group-disclosure""#)
         .map(|(i, _)| {
             let tag_end = body[i..].find('>').map(|p| i + p).unwrap_or(i);
             body[i..=tag_end].contains(" open")
@@ -299,8 +374,54 @@ async fn details_first_group_open_others_closed() -> Result<()> {
     Ok(())
 }
 
-/// Every `.chart-card` carries a `.toolbar.toolbar--card` so the user has
-/// per-chart controls. There is no page-level toolbar.
+#[tokio::test]
+async fn collapsed_groups_still_show_summaries() -> Result<()> {
+    let server = Server::start().await?;
+    seed(&server).await?;
+
+    let client = reqwest::Client::new();
+    let body = client.get(server.url("/")).send().await?.text().await?;
+
+    let mut found_visible_summary = false;
+    for (group_start, _) in body.match_indices(r#"<section class="group-details""#) {
+        let details_start = body[group_start..]
+            .find(r#"<details class="group-disclosure""#)
+            .map(|p| group_start + p)
+            .context("group contains disclosure")?;
+        let details_tag_end = body[details_start..]
+            .find('>')
+            .map(|p| details_start + p)
+            .context("details tag closes")?;
+        let is_open = body[details_start..=details_tag_end].contains(" open");
+        if is_open {
+            continue;
+        }
+
+        let summary_end = body[details_start..]
+            .find("</details>")
+            .map(|p| details_start + p)
+            .context("disclosure closes")?;
+        let chart_grid_start = body[summary_end..]
+            .find(r#"<div class="chart-grid">"#)
+            .map(|p| summary_end + p)
+            .context("details contains chart grid")?;
+        let visible_region = &body[summary_end..chart_grid_start];
+        if visible_region.contains(r#"class="benchmark-scores-summary""#) {
+            found_visible_summary = true;
+            break;
+        }
+    }
+
+    assert!(
+        found_visible_summary,
+        "at least one closed group should render its score summary before the hidden chart grid"
+    );
+    Ok(())
+}
+
+/// Every `.chart-card` carries a compact `.toolbar.toolbar--card` so the user
+/// has per-chart controls. There is no page-level toolbar, no preset scope
+/// button row, and no abs/rel mode toggle.
 #[tokio::test]
 async fn chart_card_carries_per_chart_toolbar() -> Result<()> {
     let server = Server::start().await?;
@@ -316,6 +437,22 @@ async fn chart_card_carries_per_chart_toolbar() -> Result<()> {
         toolbar_count, card_count,
         "every chart-card must contain a toolbar--card ({card_count} cards / {toolbar_count} toolbars)"
     );
+    assert!(
+        !body.contains(r#"data-mode="#),
+        "abs/rel mode buttons should not render"
+    );
+    assert!(
+        !body.contains(r#"data-scope="#),
+        "preset scope buttons should not render; use the slider instead"
+    );
+    assert!(
+        body.contains(r#"data-role="scope-slider""#),
+        "scope slider should remain available"
+    );
+    assert!(
+        !body.contains(r#"scope-slider-label"#),
+        "scope value labels should not add repeated numbers to every card"
+    );
 
     // Same invariant on /chart/{slug}.
     let slug = pick_chart_slug(&server, |s| s.starts_with("TPC-H")).await?;
@@ -329,6 +466,10 @@ async fn chart_card_carries_per_chart_toolbar() -> Result<()> {
         body.contains(r#"class="toolbar toolbar--card""#),
         "chart page must carry a per-chart toolbar"
     );
+    assert!(!body.contains(r#"data-mode="#));
+    assert!(!body.contains(r#"data-scope="#));
+    assert!(body.contains(r#"data-role="scope-slider""#));
+    assert!(!body.contains(r#"scope-slider-label"#));
 
     // Same invariant on /group/{slug}.
     let group_slug = pick_group_slug(&server, |s| s.starts_with("TPC-H")).await?;
@@ -342,6 +483,10 @@ async fn chart_card_carries_per_chart_toolbar() -> Result<()> {
         body.contains(r#"class="toolbar toolbar--card""#),
         "group page must carry per-chart toolbars"
     );
+    assert!(!body.contains(r#"data-mode="#));
+    assert!(!body.contains(r#"data-scope="#));
+    assert!(body.contains(r#"data-role="scope-slider""#));
+    assert!(!body.contains(r#"scope-slider-label"#));
     Ok(())
 }
 
@@ -397,11 +542,11 @@ async fn chart_page_snapshot() -> Result<()> {
         "chart payload must be embedded inline"
     );
     assert!(
-        body.contains(r#"<script src="/static/chart.umd.js""#),
+        body.contains(r#"<script src="/static/chart.umd.js"#),
         "Chart.js must be referenced from the static asset route"
     );
     assert!(
-        body.contains(r#"<script src="/static/chartjs-plugin-zoom.umd.min.js""#),
+        body.contains(r#"<script src="/static/chartjs-plugin-zoom.umd.min.js"#),
         "zoom plugin must be loaded for /chart pages"
     );
     assert!(
@@ -470,6 +615,78 @@ async fn group_api_returns_charts() -> Result<()> {
         first["series"].as_object().is_some(),
         "embedded chart series"
     );
+    assert_eq!(
+        body["summary"]["type"].as_str(),
+        Some("queryBenchmark"),
+        "group API should include the server-computed summary"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn group_summaries_match_v2_contract() -> Result<()> {
+    let server = Server::start().await?;
+    seed(&server).await?;
+
+    let client = reqwest::Client::new();
+    let groups: Value = client
+        .get(server.url("/api/groups"))
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    let random_access = &group_by_name(&groups, "Random Access")?["summary"];
+    assert_eq!(random_access["type"].as_str(), Some("randomAccess"));
+    let rankings = random_access["rankings"]
+        .as_array()
+        .context("random access rankings")?;
+    assert_eq!(rankings[0]["name"].as_str(), Some("vortex-file-compressed"));
+    assert_eq!(rankings[1]["name"].as_str(), Some("parquet"));
+    assert_close(rankings[1]["ratio"].as_f64().context("random ratio")?, 2.0);
+
+    let compression = &group_by_name(&groups, "Compression")?["summary"];
+    assert_eq!(compression["type"].as_str(), Some("compression"));
+    assert_close(
+        compression["compressRatio"]
+            .as_f64()
+            .context("compressRatio")?,
+        2.0,
+    );
+    assert_close(
+        compression["decompressRatio"]
+            .as_f64()
+            .context("decompressRatio")?,
+        2.0,
+    );
+    assert_eq!(compression["datasetCount"].as_u64(), Some(1));
+
+    let compression_size = &group_by_name(&groups, "Compression Size")?["summary"];
+    assert_eq!(compression_size["type"].as_str(), Some("compressionSize"));
+    assert_close(
+        compression_size["meanRatio"]
+            .as_f64()
+            .context("meanRatio")?,
+        0.5,
+    );
+    assert_eq!(compression_size["datasetCount"].as_u64(), Some(1));
+
+    let query = &group_by_name(&groups, "TPC-H (NVMe) (SF=1)")?["summary"];
+    assert_eq!(query["type"].as_str(), Some("queryBenchmark"));
+    let rankings = query["rankings"].as_array().context("query rankings")?;
+    assert_eq!(
+        rankings[0]["name"].as_str(),
+        Some("datafusion:vortex-file-compressed"),
+        "query summary should include v2's missing-series penalty"
+    );
+    assert_eq!(rankings[1]["name"].as_str(), Some("duckdb:parquet"));
+    let first_score = rankings[0]["score"].as_f64().context("first score")?;
+    let second_score = rankings[1]["score"].as_f64().context("second score")?;
+    assert!(
+        first_score < second_score,
+        "lower query score should rank first"
+    );
+
     Ok(())
 }
 
@@ -668,6 +885,16 @@ async fn static_assets_are_served() -> Result<()> {
         assert!(
             ct.starts_with(ct_prefix),
             "GET {path}: content-type {ct:?} should start with {ct_prefix:?}"
+        );
+        let cache_control = resp
+            .headers()
+            .get(reqwest::header::CACHE_CONTROL)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+        assert!(
+            cache_control.contains("no-cache"),
+            "GET {path}: static assets should revalidate so UI CSS/JS changes are not stale"
         );
         let bytes = resp.bytes().await?;
         assert!(!bytes.is_empty(), "GET {path}: body must not be empty");
