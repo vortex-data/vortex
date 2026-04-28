@@ -13,6 +13,7 @@ use std::ops::DerefMut;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
+use vortex_session::SessionVar;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -278,6 +279,14 @@ impl<V: VTable> Array<V> {
     /// Returns a reference to the encoding-specific data.
     pub fn data(&self) -> &V::ArrayData {
         &self.downcast_inner().data
+    }
+
+    /// Try to fetch a mut ref to the inner ArrayData.
+    pub fn data_mut(&mut self) -> Option<&mut V::ArrayData> {
+        let m = self.inner.inner_mut();
+        let inner = Arc::get_mut(m)?;
+        let array_inner = inner.as_any_mut().downcast_mut::<ArrayInner<V>>();
+        Some(&mut array_inner?.data)
     }
 
     /// Returns the full typed array construction parts if this handle owns the allocation.
