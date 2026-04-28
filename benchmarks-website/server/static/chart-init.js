@@ -496,6 +496,69 @@
   }
 
   // -----------------------------------------------------------------------
+  // Header controls
+  // -----------------------------------------------------------------------
+  function effectiveTheme() {
+    var forced = document.documentElement.getAttribute("data-theme");
+    if (forced === "light" || forced === "dark") return forced;
+    if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      return "dark";
+    }
+    return "light";
+  }
+
+  function setTheme(theme) {
+    if (theme === "light" || theme === "dark") {
+      document.documentElement.setAttribute("data-theme", theme);
+      try { localStorage.setItem("bench-theme", theme); } catch (e) {}
+    }
+    updateThemeButtons();
+  }
+
+  function updateThemeButtons() {
+    var next = effectiveTheme() === "light" ? "Dark" : "Light";
+    var nextTheme = next.toLowerCase();
+    document.querySelectorAll('[data-role="theme-toggle"]').forEach(function (btn) {
+      var label = btn.querySelector(".theme-toggle-label");
+      if (label) label.textContent = next;
+      btn.setAttribute("data-next-theme", nextTheme);
+      btn.setAttribute("aria-label", "Switch to " + nextTheme + " mode");
+    });
+  }
+
+  function hydrateOpenGroup(disclosure) {
+    if (!disclosure || !disclosure.open) return;
+    var group = disclosure.closest(".group-details");
+    if (!group) return;
+    group.querySelectorAll(".chart-card[data-chart-slug]").forEach(function (card) {
+      fetchAndConstruct(card);
+    });
+  }
+
+  function setAllGroups(open) {
+    document.querySelectorAll("details.group-disclosure").forEach(function (disclosure) {
+      var wasOpen = disclosure.open;
+      disclosure.open = open;
+      if (open && wasOpen) hydrateOpenGroup(disclosure);
+    });
+  }
+
+  function initHeaderControls() {
+    updateThemeButtons();
+    document.querySelectorAll('[data-role="theme-toggle"]').forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        setTheme(effectiveTheme() === "light" ? "dark" : "light");
+      });
+    });
+    document.querySelectorAll('[data-action="expand-all"]').forEach(function (btn) {
+      btn.addEventListener("click", function () { setAllGroups(true); });
+    });
+    document.querySelectorAll('[data-action="collapse-all"]').forEach(function (btn) {
+      btn.addEventListener("click", function () { setAllGroups(false); });
+    });
+  }
+
+  // -----------------------------------------------------------------------
   // Page wiring
   // -----------------------------------------------------------------------
   function initOpenCharts() {
@@ -535,16 +598,13 @@
     groups.forEach(function (d) {
       d.addEventListener("toggle", function () {
         if (!d.open) return;
-        var group = d.closest(".group-details");
-        if (!group) return;
-        group.querySelectorAll(".chart-card[data-chart-slug]").forEach(function (card) {
-          fetchAndConstruct(card);
-        });
+        hydrateOpenGroup(d);
       });
     });
   }
 
   function init() {
+    initHeaderControls();
     initDetailsToggle();
     initOpenCharts();
   }
