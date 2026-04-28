@@ -453,9 +453,10 @@ mod tests {
     use crate::expression::vx_expression_binary;
     use crate::expression::vx_expression_free;
     use crate::expression::vx_expression_get_item;
-    use crate::expression::vx_expression_literal_primitive;
+    use crate::expression::vx_expression_literal;
     use crate::expression::vx_expression_root;
-    use crate::ptype::vx_ptype;
+    use crate::scalar::vx_scalar_free;
+    use crate::scalar::vx_scalar_new_u64;
     use crate::scan::vx_data_source_scan;
     use crate::scan::vx_estimate;
     use crate::scan::vx_partition_free;
@@ -596,12 +597,11 @@ mod tests {
         unsafe {
             let root = vx_expression_root();
             let age_expr = vx_expression_get_item(c"age".as_ptr(), root);
-            let value = 100u64;
-            let lit_100 = vx_expression_literal_primitive(
-                vx_ptype::PTYPE_U64,
-                (&raw const value).cast(),
-                false,
-            );
+            let value = vx_scalar_new_u64(100, false);
+            let mut error = ptr::null_mut();
+            let lit_100 = vx_expression_literal(value, &raw mut error);
+            assert_no_error(error);
+            vx_scalar_free(value);
             let filter =
                 vx_expression_binary(vx_binary_operator::VX_OPERATOR_GTE, age_expr, lit_100);
 
@@ -626,12 +626,11 @@ mod tests {
         unsafe {
             let root = vx_expression_root();
             let age_expr = vx_expression_get_item(c"age".as_ptr(), root);
-            let value = 100u64;
-            let lit_100 = vx_expression_literal_primitive(
-                vx_ptype::PTYPE_U64,
-                (&raw const value).cast(),
-                false,
-            );
+            let value = vx_scalar_new_u64(100, false);
+            let mut error = ptr::null_mut();
+            let lit_100 = vx_expression_literal(value, &raw mut error);
+            assert_no_error(error);
+            vx_scalar_free(value);
             let filter =
                 vx_expression_binary(vx_binary_operator::VX_OPERATOR_GTE, age_expr, lit_100);
             let projection = vx_expression_get_item(c"age".as_ptr(), root);

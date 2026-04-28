@@ -650,7 +650,15 @@ TEST_CASE("Filter with literal expression", "[filter]") {
     };
 
     uint8_t threshold = 50;
-    vx_expression *threshold_expr = vx_expression_literal_primitive(PTYPE_U8, &threshold, false);
+    vx_scalar *threshold_scalar = vx_scalar_new_u8(threshold, false);
+    REQUIRE(threshold_scalar != nullptr);
+    defer {
+        vx_scalar_free(threshold_scalar);
+    };
+
+    vx_error *literal_error = nullptr;
+    vx_expression *threshold_expr = vx_expression_literal(threshold_scalar, &literal_error);
+    require_no_error(literal_error);
     REQUIRE(threshold_expr != nullptr);
     defer {
         vx_expression_free(threshold_expr);
@@ -681,6 +689,44 @@ TEST_CASE("Filter with literal expression", "[filter]") {
 
     for (size_t i = 0; i < vx_array_len(filtered_age); ++i) {
         REQUIRE(vx_array_get_u8(filtered_age, i) == static_cast<uint8_t>(threshold + i));
+    }
+}
+
+TEST_CASE("Project UTF-8 literal expression", "[projection]") {
+    constexpr auto value = "constant"sv;
+    vx_error *scalar_error = nullptr;
+    vx_scalar *literal_scalar =
+        vx_scalar_new_utf8(value.data(), value.size(), false, &scalar_error);
+    require_no_error(scalar_error);
+    REQUIRE(literal_scalar != nullptr);
+    defer {
+        vx_scalar_free(literal_scalar);
+    };
+
+    vx_error *literal_error = nullptr;
+    vx_expression *literal_expr = vx_expression_literal(literal_scalar, &literal_error);
+    require_no_error(literal_error);
+    REQUIRE(literal_expr != nullptr);
+    defer {
+        vx_expression_free(literal_expr);
+    };
+
+    vx_scan_options opts = {};
+    opts.projection = literal_expr;
+    const vx_array *array = scan_with_options(opts);
+    defer {
+        vx_array_free(array);
+    };
+
+    REQUIRE(vx_array_len(array) == SAMPLE_ROWS);
+
+    for (size_t i : {size_t {0}, SAMPLE_ROWS - 1}) {
+        const vx_string *actual = vx_array_get_utf8(array, static_cast<uint32_t>(i));
+        REQUIRE(actual != nullptr);
+        defer {
+            vx_string_free(actual);
+        };
+        REQUIRE(to_string_view(actual) == value);
     }
 }
 

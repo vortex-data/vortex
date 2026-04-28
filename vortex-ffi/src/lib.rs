@@ -16,6 +16,7 @@ mod file;
 mod log;
 mod macros;
 mod ptype;
+mod scalar;
 mod scan;
 mod session;
 mod sink;
