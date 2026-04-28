@@ -37,6 +37,8 @@ pub(super) const CHUNKS_OFFSET: usize = 1;
 #[derive(Clone, Debug)]
 pub struct ChunkedData {
     pub(super) chunk_offsets: Vec<usize>,
+    /// This is used to find the next child to execute when in executing into a builder.
+    pub(super) next_builder_slot: usize,
 }
 
 impl Display for ChunkedData {
@@ -114,6 +116,13 @@ pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {
 impl<T: TypedArrayRef<Chunked>> ChunkedArrayExt for T {}
 
 impl ChunkedData {
+    pub(super) fn new(chunk_offsets: Vec<usize>) -> Self {
+        Self {
+            chunk_offsets,
+            next_builder_slot: CHUNKS_OFFSET,
+        }
+    }
+
     pub(super) fn compute_chunk_offsets(chunks: &[ArrayRef]) -> Vec<usize> {
         let mut chunk_offsets = Vec::with_capacity(chunks.len() + 1);
         chunk_offsets.push(0);
@@ -159,24 +168,31 @@ impl ChunkedData {
 }
 
 impl Array<Chunked> {
+    pub(super) fn with_next_builder_slot(mut self, next_builder_slot: usize) -> Self {
+        if let Some(data) = self.data_mut() {
+            data.next_builder_slot = next_builder_slot;
+            return self;
+        }
+        // This is the slow path that will be hit at most once per execution since the second one
+        // *MUST* have execlusive access due to this copy.
+        let stats = self.statistics().to_owned();
+        let mut data = self.data().clone();
+        data.next_builder_slot = next_builder_slot;
+        // SAFETY: we only modified next_builder_slot which doesn't affect array invariants.
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Chunked, self.dtype().clone(), self.len(), data)
+                    .with_slots(self.slots().to_vec()),
+            )
+        }
+        .with_stats_set(stats)
+    }
+
     /// Constructs a new `ChunkedArray`.
     pub fn try_new(chunks: Vec<ArrayRef>, dtype: DType) -> VortexResult<Self> {
         ChunkedData::validate(&chunks, &dtype)?;
-        let len = chunks.iter().map(|chunk| chunk.len()).sum();
-        let chunk_offsets = ChunkedData::compute_chunk_offsets(&chunks);
-        Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(
-                    Chunked,
-                    dtype,
-                    len,
-                    ChunkedData {
-                        chunk_offsets: chunk_offsets.clone(),
-                    },
-                )
-                .with_slots(ChunkedData::make_slots(&chunk_offsets, &chunks)),
-            )
-        })
+        // SAFETY just validated on previous line.
+        Ok(unsafe { Self::new_unchecked(chunks, dtype) })
     }
 
     pub fn rechunk(&self, target_bytesize: u64, target_rowsize: usize) -> VortexResult<Self> {
@@ -238,15 +254,8 @@ impl Array<Chunked> {
         let chunk_offsets = ChunkedData::compute_chunk_offsets(&chunks);
         unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(
-                    Chunked,
-                    dtype,
-                    len,
-                    ChunkedData {
-                        chunk_offsets: chunk_offsets.clone(),
-                    },
-                )
-                .with_slots(ChunkedData::make_slots(&chunk_offsets, &chunks)),
+                ArrayParts::new(Chunked, dtype, len, ChunkedData::new(chunk_offsets.clone()))
+                    .with_slots(ChunkedData::make_slots(&chunk_offsets, &chunks)),
             )
         }
     }
