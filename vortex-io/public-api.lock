@@ -488,6 +488,12 @@ impl core::fmt::Debug for vortex_io::session::RuntimeSession
 
 pub fn vortex_io::session::RuntimeSession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl vortex_session::SessionVar for vortex_io::session::RuntimeSession
+
+pub fn vortex_io::session::RuntimeSession::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_io::session::RuntimeSession::as_any_mut(&mut self) -> &mut dyn core::any::Any
+
 pub trait vortex_io::session::RuntimeSessionExt: vortex_session::SessionExt
 
 pub fn vortex_io::session::RuntimeSessionExt::handle(&self) -> vortex_io::runtime::Handle
