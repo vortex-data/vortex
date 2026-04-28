@@ -45,7 +45,7 @@ jobs:
         if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - uses: ./.github/actions/setup-prebuild
       - name: Rust Tests
         if: ${{ matrix.suite == 'tests' }}
@@ -63,7 +63,7 @@ jobs:
             --ignore benchmarks/* --ignore 'vortex-test/*' \
             -o ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2  # v6
         with:
           name: run-${{ matrix.suite }}
           files: ${{ env.GRCOV_OUTPUT_FILE }}
@@ -105,7 +105,7 @@ jobs:
         if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - uses: ./.github/actions/setup-prebuild
       - name: Install Rust nightly toolchain
         run: |
@@ -169,7 +169,7 @@ jobs:
         if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - uses: ./.github/actions/setup-prebuild
       - name: Install rustfilt
         run: |
@@ -187,15 +187,28 @@ jobs:
           cargo +$NIGHTLY_TOOLCHAIN build --locked --no-default-features \
             --target x86_64-unknown-linux-gnu -Zbuild-std \
             -p vortex-ffi
-      - name: Build FFI library tests
+      - name: Build FFI library tests and examples
         run: |
           cd vortex-ffi
-          cmake -Bbuild -DBUILD_TESTS=1 -DSANITIZER=${{ matrix.sanitizer }} -DTARGET_TRIPLE="x86_64-unknown-linux-gnu"
+          cmake -Bbuild -DBUILD_TESTS=1 -DBUILD_EXAMPLES=1 -DSANITIZER=${{ matrix.sanitizer }} -DTARGET_TRIPLE="x86_64-unknown-linux-gnu"
           cmake --build build -j
       - name: Run tests
         run: |
           set -o pipefail
-          ./vortex-ffi/build/test/vortex_ffi_test 2>&1 | rustfilt -i-
+          ./vortex-ffi/build/test/vortex_ffi_test 2>&1 | rustfilt
+      - name: Run examples
+        run: |
+          set -o pipefail
+
+          # Failed to create data source: Object store error: Generic LocalFileSystem
+          # error: Unable to walk dir: File system loop found
+          rm -fr vortex-ffi/build/_deps/nanoarrow-src/python
+
+          ./vortex-ffi/build/examples/write_sample file.vortex 2>&1 | rustfilt
+          ./vortex-ffi/build/examples/write_sample file2.vortex 2>&1 | rustfilt
+          ./vortex-ffi/build/examples/dtype '*.vortex' 2>&1 | rustfilt
+          ./vortex-ffi/build/examples/scan '*.vortex' 2>&1 | rustfilt
+          ./vortex-ffi/build/examples/scan_to_arrow '*.vortex' 2>&1 | rustfilt
 
   miri:
     name: "Rust tests (miri)"
@@ -213,7 +226,7 @@ jobs:
         if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - uses: ./.github/actions/setup-prebuild
       - name: Install nightly with miri
         run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rust-src,rustfmt,clippy,miri

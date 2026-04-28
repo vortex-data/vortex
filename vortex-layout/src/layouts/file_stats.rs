@@ -21,7 +21,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::layouts::zoned::zone_map::StatsAccumulator;
+use crate::layouts::zoned::StatsAccumulator;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequenceId;
 use crate::sequence::SequentialStreamAdapter;
@@ -130,14 +130,8 @@ impl FileStatsAccumulator {
             .lock()
             .iter_mut()
             .map(|acc| {
-                acc.as_stats_table()
+                acc.as_stats_set(&self.stats, &mut ctx)
                     .vortex_expect("as_stats_table should not fail")
-                    .map(|table| {
-                        table
-                            .to_stats_set(&self.stats, &mut ctx)
-                            .vortex_expect("shouldn't fail to convert table we just created")
-                    })
-                    .unwrap_or_default()
             })
             .collect()
     }

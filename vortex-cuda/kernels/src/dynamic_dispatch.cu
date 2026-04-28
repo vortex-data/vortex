@@ -140,11 +140,30 @@ scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem, uint64_t 
         break;
     }
     case ScalarOp::ALP: {
-        const float f = op.params.alp.f, e = op.params.alp.e;
+        if constexpr (sizeof(T) == 4) {
+            // The plan builder stores f32 F10/IF10 table entries as f64
+            // in AlpParams. The round-trip f32→f64→f32 is exact per the
+            // C++ standard: [conv.fpprom] guarantees the widening is
+            // value-preserving, and [conv.double] guarantees the narrowing
+            // recovers the original value when it is exactly representable
+            // in the destination type (which it is, having originated as f32).
+            const float f = static_cast<float>(op.params.alp.f);
+            const float e = static_cast<float>(op.params.alp.e);
 #pragma unroll
-        for (uint32_t i = 0; i < N; ++i) {
-            float r = static_cast<float>(static_cast<int32_t>(values[i])) * f * e;
-            values[i] = static_cast<T>(__float_as_uint(r));
+            for (uint32_t i = 0; i < N; ++i) {
+                float r = static_cast<float>(static_cast<int32_t>(values[i])) * f * e;
+                values[i] = static_cast<T>(__float_as_uint(r));
+            }
+        } else if constexpr (sizeof(T) == 8) {
+            const double f = op.params.alp.f, e = op.params.alp.e;
+#pragma unroll
+            for (uint32_t i = 0; i < N; ++i) {
+                double r = static_cast<double>(static_cast<int64_t>(values[i])) * f * e;
+                // __double_as_longlong reinterprets f64 bits as int64, and
+                // static_cast to T (uint64_t) preserves the bit pattern
+                // under C++20's two's complement guarantee.
+                values[i] = static_cast<T>(__double_as_longlong(r));
+            }
         }
         // Apply ALP patches: override positions whose float value couldn't
         // be reconstructed through the ALP encode/decode cycle.

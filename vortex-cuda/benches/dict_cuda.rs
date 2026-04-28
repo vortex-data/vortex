@@ -8,6 +8,7 @@
 
 mod common;
 
+use std::fmt::Debug;
 use std::mem::size_of;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -26,6 +27,7 @@ use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;
 use vortex::error::VortexExpect;
 use vortex::session::VortexSession;
+use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
@@ -47,7 +49,7 @@ fn make_dict_array_typed<V, C>(len: usize, dict_size: usize) -> DictArray
 where
     V: NativePType + From<u32>,
     C: NativePType + TryFrom<usize>,
-    <C as TryFrom<usize>>::Error: std::fmt::Debug,
+    <C as TryFrom<usize>>::Error: Debug,
 {
     // Dictionary values
     let values: Vec<V> = (0..dict_size)
@@ -70,7 +72,7 @@ fn benchmark_dict_typed<V, C>(c: &mut Criterion, config: &DictBenchConfig)
 where
     V: NativePType + DeviceRepr + From<u32>,
     C: NativePType + DeviceRepr + TryFrom<usize>,
-    <C as TryFrom<usize>>::Error: std::fmt::Debug,
+    <C as TryFrom<usize>>::Error: Debug,
 {
     let mut group = c.benchmark_group("dict_cuda");
 
@@ -96,6 +98,7 @@ where
 
                     let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
                         .vortex_expect("failed to create execution context")
+                        .with_dispatch_mode(CudaDispatchMode::StandaloneOnly)
                         .with_launch_strategy(Arc::new(timed));
 
                     for _ in 0..iters {

@@ -18,6 +18,7 @@ use criterion::Criterion;
 use criterion::Throughput;
 use cudarc::driver::DeviceRepr;
 use futures::executor::block_on;
+use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::validity::Validity;
@@ -37,7 +38,7 @@ use crate::common::TimedLaunchStrategy;
 fn make_runend_array_typed<T>(
     output_len: usize,
     avg_run_len: usize,
-    ctx: &mut vortex::array::ExecutionCtx,
+    ctx: &mut ExecutionCtx,
 ) -> RunEndArray
 where
     T: NativePType + From<u8>,
