@@ -538,6 +538,7 @@ mod tests {
     use crate::CudaDeviceBuffer;
     use crate::CudaExecutionCtx;
     use crate::executor::CudaArrayExt;
+    use crate::executor::CudaDispatchMode;
     use crate::hybrid_dispatch::try_gpu_dispatch;
     use crate::session::CudaSession;
 
@@ -559,7 +560,7 @@ mod tests {
         array: &vortex::array::ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<MaterializedPlan> {
-        match DispatchPlan::new(array)? {
+        match DispatchPlan::new(array, CudaDispatchMode::DynDispatchOnly)? {
             DispatchPlan::Fused(plan) => plan.materialize(ctx).await,
             _ => vortex_bail!("array encoding not fusable"),
         }
@@ -1100,7 +1101,7 @@ mod tests {
         // Mixed-width Dict (u8 codes, u32 values): both are Primitive, so
         // walk_mixed_width_child grabs the codes buffer directly as a LOAD
         // source. No pending subtrees → Fused.
-        let plan = DispatchPlan::new(&array)?;
+        let plan = DispatchPlan::new(&array, CudaDispatchMode::Auto)?;
         assert!(
             matches!(plan, DispatchPlan::Fused(..)),
             "expected Fused for mixed-width Dict with primitive codes"
@@ -1132,7 +1133,7 @@ mod tests {
         // Mixed-width Dict (u16 codes, u32 values): both are Primitive, so
         // walk_mixed_width_child grabs the codes buffer directly as a LOAD
         // source. No pending subtrees → Fused.
-        let plan = DispatchPlan::new(&array)?;
+        let plan = DispatchPlan::new(&array, CudaDispatchMode::Auto)?;
         assert!(
             matches!(plan, DispatchPlan::Fused(..)),
             "expected Fused for mixed-width Dict with primitive codes"
@@ -1164,7 +1165,7 @@ mod tests {
 
         // Ends (u64) are wider than values (u32), so the kernel would truncate
         // ends via load_element<T>. The plan builder rejects this as Unfused.
-        let plan = DispatchPlan::new(&array)?;
+        let plan = DispatchPlan::new(&array, CudaDispatchMode::Auto)?;
         assert!(
             matches!(plan, DispatchPlan::Unfused),
             "expected Unfused for RunEnd with wider ends"
@@ -1746,12 +1747,122 @@ mod tests {
         Ok(())
     }
 
+    // ---------------------------------------------------------------
+    // has_standalone_kernel classification tests
+    // ---------------------------------------------------------------
+
+    #[crate::test]
+    fn test_has_standalone_kernel_true_cases() -> VortexResult<()> {
+        // BitPacked — leaf encoding, no children.
+        let bp = bitpacked_array_u32(6, 2048);
+        let bp_arr = bp.into_array();
+        assert!(plan_builder::has_standalone_kernel(&bp_arr));
+
+        // Sequence — leaf encoding, no children.
+        use vortex::dtype::Nullability;
+        use vortex::encodings::sequence::Sequence;
+        let seq = Sequence::try_new_typed(0u32, 1u32, Nullability::NonNullable, 2048)?;
+        assert!(plan_builder::has_standalone_kernel(&seq.into_array()));
+
+        // FoR(BitPacked) — FFOR fusion, single launch.
+        let for_bp = FoR::try_new(bp_arr.clone(), 100u32.into())?;
+        assert!(plan_builder::has_standalone_kernel(&for_bp.into_array()));
+
+        // FoR(Slice(BitPacked)) — FFOR + slice fusion, single launch.
+        let sliced_bp = bp_arr.slice(100..1500)?;
+        let for_sliced_bp = FoR::try_new(sliced_bp, 100u32.into())?;
+        assert!(plan_builder::has_standalone_kernel(
+            &for_sliced_bp.into_array()
+        ));
+
+        Ok(())
+    }
+
+    #[crate::test]
+    fn test_has_standalone_kernel_false_cases() -> VortexResult<()> {
+        // ALP(Primitive) — ALP always calls execute_cuda on its encoded child.
+        let encoded =
+            PrimitiveArray::new(Buffer::from((0i32..2048).collect::<Vec<_>>()), NonNullable);
+        let alp = ALP::try_new(encoded.into_array(), Exponents { e: 2, f: 0 }, None)?;
+        assert!(!plan_builder::has_standalone_kernel(&alp.into_array()));
+
+        // FoR(Primitive) — FoR standalone would recurse for non-BP child.
+        let prim = PrimitiveArray::new(Buffer::from(vec![1u32, 2, 3]), NonNullable);
+        let for_prim = FoR::try_new(prim.into_array(), 100u32.into())?;
+        assert!(!plan_builder::has_standalone_kernel(&for_prim.into_array()));
+
+        // Dict and RunEnd always recurse into children.
+        let codes = PrimitiveArray::new(Buffer::from(vec![0u32, 1, 0, 1]), NonNullable);
+        let values = PrimitiveArray::new(Buffer::from(vec![100u32, 200]), NonNullable);
+        let dict = DictArray::try_new(codes.into_array(), values.into_array())?;
+        assert!(!plan_builder::has_standalone_kernel(&dict.into_array()));
+
+        Ok(())
+    }
+
+    /// Every encoding `has_standalone_kernel` returns `true` for must have
+    /// a kernel registered in the CUDA session.
+    #[crate::test]
+    fn test_has_standalone_kernel_implies_registered_kernel() -> VortexResult<()> {
+        use vortex::dtype::Nullability;
+        use vortex::encodings::sequence::Sequence;
+
+        let session = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let cuda_session = session.cuda_session();
+
+        // Leaf encodings.
+        let bp = bitpacked_array_u32(6, 2048);
+        let bp_arr = bp.into_array();
+        let seq = Sequence::try_new_typed(0u32, 1u32, Nullability::NonNullable, 2048)?;
+        let seq_arr = seq.into_array();
+
+        // FoR fusions.
+        let for_bp = FoR::try_new(bp_arr.clone(), 100u32.into())?;
+        let sliced_bp = bp_arr.slice(100..1500)?;
+        let for_sliced_bp = FoR::try_new(sliced_bp, 100u32.into())?;
+
+        // With patches: some values exceed 2^4-1, creating overflow exceptions.
+        let values: Vec<u32> = (0..2048)
+            .map(|i| if i % 100 == 0 { 1000 } else { (i as u32) % 16 })
+            .collect();
+        let patched_bp = BitPacked::encode(
+            &PrimitiveArray::new(Buffer::from(values), NonNullable).into_array(),
+            4,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
+        assert!(patched_bp.patches().is_some(), "expected patches");
+        let patched_bp_arr = patched_bp.into_array();
+        let for_patched_bp = FoR::try_new(patched_bp_arr.clone(), 100u32.into())?;
+
+        for array in [
+            &bp_arr,
+            &seq_arr,
+            &for_bp.into_array(),
+            &for_sliced_bp.into_array(),
+            &patched_bp_arr,
+            &for_patched_bp.into_array(),
+        ] {
+            assert!(
+                plan_builder::has_standalone_kernel(array),
+                "expected has_standalone_kernel=true for {:?}",
+                array.encoding_id()
+            );
+            assert!(
+                cuda_session.kernel(&array.encoding_id()).is_some(),
+                "has_standalone_kernel=true but no kernel registered for {:?}",
+                array.encoding_id()
+            );
+        }
+
+        Ok(())
+    }
+
     #[crate::test]
     fn test_f64_rejected() {
         // F64 arrays should be rejected by the plan builder, not silently accepted.
         let values: Vec<f64> = vec![1.0, 2.0, 3.0];
         let primitive = PrimitiveArray::new(Buffer::from(values), NonNullable);
-        let plan = DispatchPlan::new(&primitive.into_array())
+        let plan = DispatchPlan::new(&primitive.into_array(), CudaDispatchMode::Auto)
             .expect("DispatchPlan::new should not fail for f64");
         assert!(
             matches!(plan, DispatchPlan::Unfused),
@@ -1775,7 +1886,7 @@ mod tests {
 
         // Ends (u32) are wider than values (u16), so the kernel would truncate
         // ends via load_element<T>. The plan builder rejects this as Unfused.
-        let plan = DispatchPlan::new(&array)?;
+        let plan = DispatchPlan::new(&array, CudaDispatchMode::Auto)?;
         assert!(
             matches!(plan, DispatchPlan::Unfused),
             "expected Unfused for RunEnd with wider ends"
@@ -1824,7 +1935,7 @@ mod tests {
         let dict = DictArray::try_new(codes_bp.into_array(), values_prim.into_array())?;
         let array = dict.into_array();
 
-        let plan = DispatchPlan::new(&array)?;
+        let plan = DispatchPlan::new(&array, CudaDispatchMode::Auto)?;
         assert!(
             matches!(plan, DispatchPlan::Fused(..)),
             "expected Fused for mixed-width Dict with BitPacked codes"
@@ -1868,7 +1979,7 @@ mod tests {
         let dict = DictArray::try_new(codes_bp.into_array(), values_prim.into_array())?;
         let array = dict.into_array();
 
-        let plan = DispatchPlan::new(&array)?;
+        let plan = DispatchPlan::new(&array, CudaDispatchMode::Auto)?;
         assert!(
             matches!(plan, DispatchPlan::Fused(..)),
             "expected Fused for mixed-width Dict with BitPacked codes"
@@ -1912,7 +2023,7 @@ mod tests {
         let dict = DictArray::try_new(codes_for.into_array(), values_prim.into_array())?;
         let array = dict.into_array();
 
-        let plan = DispatchPlan::new(&array)?;
+        let plan = DispatchPlan::new(&array, CudaDispatchMode::Auto)?;
         assert!(
             matches!(plan, DispatchPlan::Fused(..)),
             "expected Fused for mixed-width Dict with FoR(BitPacked) codes"
@@ -1969,7 +2080,7 @@ mod tests {
         let re = RunEnd::new(ends_bp.into_array(), values_prim.into_array(), &mut ctx);
         let array = re.into_array();
 
-        let plan = DispatchPlan::new(&array)?;
+        let plan = DispatchPlan::new(&array, CudaDispatchMode::Auto)?;
         assert!(
             matches!(plan, DispatchPlan::Fused(..)),
             "expected Fused for mixed-width RunEnd with BitPacked ends"
@@ -2015,7 +2126,7 @@ mod tests {
         let re = RunEnd::new(ends_for.into_array(), values_prim.into_array(), &mut ctx);
         let array = re.into_array();
 
-        let plan = DispatchPlan::new(&array)?;
+        let plan = DispatchPlan::new(&array, CudaDispatchMode::Auto)?;
         assert!(
             matches!(plan, DispatchPlan::Fused(..)),
             "expected Fused for mixed-width RunEnd with FoR(BitPacked) ends"
@@ -2207,10 +2318,10 @@ mod tests {
         // Verify the plan actually fuses (not just a LOAD).
         assert!(
             matches!(
-                DispatchPlan::new(&for_arr.clone().into_array())?,
-                DispatchPlan::Fused(_)
+                DispatchPlan::new(&for_arr.clone().into_array(), CudaDispatchMode::Auto)?,
+                DispatchPlan::Standalone | DispatchPlan::Fused(_)
             ),
-            "FoR(BitPacked) with nullable validity should produce a Fused plan"
+            "FoR(BitPacked) with nullable validity should be fusable"
         );
 
         let gpu = try_gpu_dispatch(&for_arr.into_array(), &mut cuda_ctx)
@@ -2269,7 +2380,7 @@ mod tests {
         let values = PrimitiveArray::new(buffer![10u32, 20, 30], NonNullable);
         let dict = DictArray::try_new(codes.into_array(), values.into_array())?;
 
-        let plan = DispatchPlan::new(&dict.into_array())?;
+        let plan = DispatchPlan::new(&dict.into_array(), CudaDispatchMode::Auto)?;
         assert!(
             matches!(plan, DispatchPlan::Unfused),
             "Dict with nullable codes should fall back to Unfused"

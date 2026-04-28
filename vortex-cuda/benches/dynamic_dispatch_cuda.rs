@@ -43,6 +43,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::session::VortexSession;
 use vortex_cuda::CudaDeviceBuffer;
+use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
 use vortex_cuda::dynamic_dispatch::CudaDispatchPlan;
@@ -125,7 +126,9 @@ struct BenchRunner {
 
 impl BenchRunner {
     fn new(array: &vortex::array::ArrayRef, len: usize, cuda_ctx: &mut CudaExecutionCtx) -> Self {
-        let plan = match DispatchPlan::new(array).vortex_expect("build_dyn_dispatch_plan") {
+        let plan = match DispatchPlan::new(array, CudaDispatchMode::DynDispatchOnly)
+            .vortex_expect("build_dyn_dispatch_plan")
+        {
             DispatchPlan::Fused(plan) => plan,
             _ => unreachable!("encoding not fusable"),
         };
