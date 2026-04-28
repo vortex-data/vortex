@@ -762,6 +762,12 @@ impl core::fmt::Debug for vortex_array::aggregate_fn::session::AggregateFnSessio
 
 pub fn vortex_array::aggregate_fn::session::AggregateFnSession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl vortex_session::SessionVar for vortex_array::aggregate_fn::session::AggregateFnSession
+
+pub fn vortex_array::aggregate_fn::session::AggregateFnSession::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_array::aggregate_fn::session::AggregateFnSession::as_any_mut(&mut self) -> &mut dyn core::any::Any
+
 pub trait vortex_array::aggregate_fn::session::AggregateFnSessionExt: vortex_session::SessionExt
 
 pub fn vortex_array::aggregate_fn::session::AggregateFnSessionExt::aggregate_fns(&self) -> vortex_session::Ref<'_, vortex_array::aggregate_fn::session::AggregateFnSession>
@@ -9044,6 +9050,12 @@ impl core::fmt::Debug for vortex_array::dtype::session::DTypeSession
 
 pub fn vortex_array::dtype::session::DTypeSession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl vortex_session::SessionVar for vortex_array::dtype::session::DTypeSession
+
+pub fn vortex_array::dtype::session::DTypeSession::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_array::dtype::session::DTypeSession::as_any_mut(&mut self) -> &mut dyn core::any::Any
+
 pub trait vortex_array::dtype::session::DTypeSessionExt: vortex_session::SessionExt
 
 pub fn vortex_array::dtype::session::DTypeSessionExt::dtypes(&self) -> vortex_session::Ref<'_, vortex_array::dtype::session::DTypeSession>
@@ -13374,6 +13386,12 @@ impl core::fmt::Debug for vortex_array::memory::MemorySession
 
 pub fn vortex_array::memory::MemorySession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl vortex_session::SessionVar for vortex_array::memory::MemorySession
+
+pub fn vortex_array::memory::MemorySession::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_array::memory::MemorySession::as_any_mut(&mut self) -> &mut dyn core::any::Any
+
 pub struct vortex_array::memory::WritableHostBuffer
 
 impl vortex_array::memory::WritableHostBuffer
@@ -13479,6 +13497,12 @@ pub fn vortex_array::optimizer::kernels::ArrayKernels::default() -> vortex_array
 impl core::fmt::Debug for vortex_array::optimizer::kernels::ArrayKernels
 
 pub fn vortex_array::optimizer::kernels::ArrayKernels::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_session::SessionVar for vortex_array::optimizer::kernels::ArrayKernels
+
+pub fn vortex_array::optimizer::kernels::ArrayKernels::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_array::optimizer::kernels::ArrayKernels::as_any_mut(&mut self) -> &mut dyn core::any::Any
 
 pub trait vortex_array::optimizer::kernels::ArrayKernelsExt: vortex_session::SessionExt
 
@@ -17602,6 +17626,12 @@ impl core::fmt::Debug for vortex_array::scalar_fn::session::ScalarFnSession
 
 pub fn vortex_array::scalar_fn::session::ScalarFnSession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl vortex_session::SessionVar for vortex_array::scalar_fn::session::ScalarFnSession
+
+pub fn vortex_array::scalar_fn::session::ScalarFnSession::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_array::scalar_fn::session::ScalarFnSession::as_any_mut(&mut self) -> &mut dyn core::any::Any
+
 pub trait vortex_array::scalar_fn::session::ScalarFnSessionExt: vortex_session::SessionExt
 
 pub fn vortex_array::scalar_fn::session::ScalarFnSessionExt::scalar_fns(&self) -> vortex_session::Ref<'_, vortex_array::scalar_fn::session::ScalarFnSession>
@@ -19055,6 +19085,12 @@ pub fn vortex_array::session::ArraySession::default() -> Self
 impl core::fmt::Debug for vortex_array::session::ArraySession
 
 pub fn vortex_array::session::ArraySession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_session::SessionVar for vortex_array::session::ArraySession
+
+pub fn vortex_array::session::ArraySession::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_array::session::ArraySession::as_any_mut(&mut self) -> &mut dyn core::any::Any
 
 pub trait vortex_array::session::ArraySessionExt: vortex_session::SessionExt
 

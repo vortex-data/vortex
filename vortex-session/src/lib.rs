@@ -218,6 +218,8 @@ impl Hasher for IdHasher {
 }
 
 /// This trait defines variables that can be stored against a Vortex session.
+///
+/// Users should implement this trait for anything that you want to store on a `VortexSession`.
 pub trait SessionVar: Any + Send + Sync + Debug + 'static {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
