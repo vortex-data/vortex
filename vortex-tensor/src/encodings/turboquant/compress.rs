@@ -15,6 +15,7 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Extension;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::DictArray;
@@ -34,13 +35,13 @@ use crate::encodings::turboquant::MIN_DIMENSION;
 use crate::encodings::turboquant::centroids::compute_centroid_boundaries;
 use crate::encodings::turboquant::centroids::compute_or_get_centroids;
 use crate::encodings::turboquant::centroids::find_nearest_centroid;
+use crate::normalized_vector::AnyNormalizedVector;
 use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 use crate::scalar_fns::sorf_transform::SorfMatrix;
 use crate::scalar_fns::sorf_transform::SorfOptions;
 use crate::scalar_fns::sorf_transform::SorfTransform;
-use crate::types::vector::AnyVector;
-use crate::types::vector::Vector;
+use crate::types::normalized_vector::NormalizedVector;
 use crate::utils::cast_to_f32;
 
 /// Configuration for TurboQuant encoding.
@@ -66,7 +67,7 @@ impl Default for TurboQuantConfig {
 
 /// Apply the full TurboQuant compression pipeline to a [`Vector`](crate::vector::Vector)
 /// extension array: normalize the rows via [`normalize_as_l2_denorm`], quantize the normalized
-/// child via [`turboquant_encode_unchecked`], and reattach the stored norms as the outer
+/// child via [`turboquant_encode_normalized`], and reattach the stored norms as the outer
 /// [`L2Denorm`] wrapper.
 ///
 /// The returned array has the canonical TurboQuant shape:
@@ -80,8 +81,8 @@ impl Default for TurboQuantConfig {
 ///
 /// # Errors
 ///
-/// Returns an error if `input` is not a tensor-like extension array, if normalization fails, or
-/// if [`turboquant_encode_unchecked`] rejects the input shape.
+/// Returns an error if `input` is not a tensor-like extension array, if normalization fails, or if
+/// [`turboquant_encode_normalized`] rejects the input shape.
 pub fn turboquant_encode(
     input: ArrayRef,
     config: &TurboQuantConfig,
@@ -89,6 +90,8 @@ pub fn turboquant_encode(
 ) -> VortexResult<ArrayRef> {
     // We must normalize the array before we can encode it with TurboQuant.
     let l2_denorm = normalize_as_l2_denorm(input, ctx)?;
+
+    // This is guaranteed to be a `NormalizedVector` extension type.
     let normalized = l2_denorm.child_at(0).clone();
     let norms = l2_denorm.child_at(1).clone();
     let num_rows = l2_denorm.len();
@@ -97,55 +100,56 @@ pub fn turboquant_encode(
         .as_opt::<Extension>()
         .vortex_expect("normalize_as_l2_denorm always produces an Extension array child");
 
-    // SAFETY: `normalize_as_l2_denorm` guarantees every row is unit-norm (or zero for null rows).
-    let tq = unsafe { turboquant_encode_unchecked(normalized_ext, config, ctx) }?;
+    let tq = turboquant_encode_normalized(normalized_ext, config, ctx)?;
 
     // SAFETY: TurboQuant is a lossy approximation of the normalized child, so we intentionally
-    // bypass the strict normalized-row validation when reattaching the stored norms.
+    // bypass the strict normalized-row and zero-row validation when reattaching the stored norms.
     Ok(unsafe { L2Denorm::new_array_unchecked(tq, norms, num_rows) }?.into_array())
 }
 
-/// Encode a non-nullable, L2-normalized [`Vector`](crate::vector::Vector) extension array into a
-/// `ScalarFnArray(SorfTransform, [FSL(Dict(codes, centroids))])`, without validating the unit-norm
-/// precondition.
-///
-/// # Safety
-///
-/// The caller must ensure:
-///
-/// - The input dtype is non-nullable.
-/// - Every row is L2-normalized (unit norm) or is a zero vector.
+/// Encode a non-nullable [`NormalizedVector`](crate::normalized_vector::NormalizedVector)
+/// extension array into
+/// a `ScalarFnArray(SorfTransform, [FSL(Dict(codes, centroids))])`, without validating the
+/// unit-norm precondition.
 ///
 /// Passing non-unit-norm vectors will not cause memory unsafety, but will produce silently
 /// incorrect quantization results.
-pub unsafe fn turboquant_encode_unchecked(
+pub fn turboquant_encode_normalized(
     ext: ArrayView<Extension>,
     config: &TurboQuantConfig,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let ext_dtype = ext.dtype().clone();
-    let storage = ext.storage_array();
-    let fsl = storage.clone().execute::<FixedSizeListArray>(ctx)?;
+
+    let vector_metadata = ext_dtype.as_extension().metadata::<AnyNormalizedVector>();
+    let element_ptype = vector_metadata.element_ptype();
+    let dimensions = vector_metadata.dimensions();
+
+    // `NormalizedVector` storage is `Extension(Vector(FSL))`; drill past the inner `Vector` to
+    // reach the underlying `FixedSizeList`.
+    let inner_vector: ExtensionArray = ext.storage_array().clone().execute(ctx)?;
+    let fsl: FixedSizeListArray = inner_vector.storage_array().clone().execute(ctx)?;
 
     vortex_ensure!(
         config.bit_width >= 1 && config.bit_width <= MAX_BIT_WIDTH,
         "bit_width must be 1-{MAX_BIT_WIDTH}, got {}",
         config.bit_width
     );
-    let dimension = fsl.list_size();
     vortex_ensure!(
-        dimension >= MIN_DIMENSION,
-        "TurboQuant requires dimension >= {MIN_DIMENSION}, got {dimension}",
+        dimensions >= MIN_DIMENSION,
+        "TurboQuant requires dimension >= {MIN_DIMENSION}, got {dimensions}",
     );
 
-    let vector_metadata = ext_dtype.as_extension().metadata::<AnyVector>();
-    let element_ptype = vector_metadata.element_ptype();
-
-    let seed = config.seed;
     let num_rows = fsl.len();
+    let sorf_options = SorfOptions {
+        seed: config.seed,
+        num_rounds: config.num_rounds,
+        dimensions,
+        element_ptype,
+    };
 
     if fsl.is_empty() {
-        let padded_dim = dimension.next_power_of_two();
+        let padded_dim = dimensions.next_power_of_two();
         let empty_codes = PrimitiveArray::empty::<u8>(Nullability::NonNullable);
         let empty_centroids = PrimitiveArray::empty::<f32>(Nullability::NonNullable);
         let empty_dict =
@@ -156,77 +160,128 @@ pub unsafe fn turboquant_encode_unchecked(
             Validity::NonNullable,
             0,
         )?;
-        let empty_padded_vector = Vector::try_new_vector_array(empty_fsl.into_array())?;
+        // SAFETY: An empty FSL contains no rows, so the unit-norm-or-zero invariant holds
+        // vacuously.
+        let empty_padded_vector =
+            unsafe { NormalizedVector::new_unchecked(empty_fsl.into_array()) }?;
 
-        let sorf_options = SorfOptions {
-            seed,
-            num_rounds: config.num_rounds,
-            dimensions: dimension,
-            element_ptype,
-        };
         return Ok(
             SorfTransform::try_new_array(&sorf_options, empty_padded_vector, 0)?.into_array(),
         );
     }
 
-    let core = turboquant_quantize_core(&fsl, seed, config.bit_width, config.num_rounds, ctx)?;
-    let quantized_fsl =
-        build_quantized_fsl(num_rows, core.all_indices, core.centroids, core.padded_dim)?;
-    let padded_vector = Vector::try_new_vector_array(quantized_fsl)?;
+    let quantized_fsl = turboquant_quantize_fsl(&fsl, config.bit_width, &sorf_options, ctx)?;
 
-    let sorf_options = SorfOptions {
-        seed,
-        num_rounds: config.num_rounds,
-        dimensions: dimension,
-        element_ptype,
-    };
+    // NB: The quantized rows are approximately unit-norm by construction; downstream callers
+    // (notably the enclosing `L2Denorm` wrapper) treat the stored-norm + NormalizedVector claim as
+    // authoritative rather than decode-verified.
+
+    // SAFETY: TurboQuant is a lossy approximation of the already-unit-norm input.
+    let padded_vector = unsafe { NormalizedVector::new_unchecked(quantized_fsl) }?;
+
     Ok(SorfTransform::try_new_array(&sorf_options, padded_vector, num_rows)?.into_array())
 }
 
-/// Shared intermediate results from the quantization loop.
-struct QuantizationResult {
-    centroids: Buffer<f32>,
-    all_indices: Buffer<u8>,
-    padded_dim: usize,
-}
-
-/// Core quantization: rotate and quantize already-normalized rows.
+/// Rotate and quantize already-normalized rows into a dict-encoded `FixedSizeList`.
 ///
-/// The input `fsl` must contain non-nullable, unit-norm vectors (already L2-normalized). Null
-/// vectors are not supported and must be zeroed out before reaching this function. The rotation
-/// and centroid lookup happen in f32.
-fn turboquant_quantize_core(
+/// The input `fsl` must contain non-nullable, unit-norm vectors of float values (already
+/// L2-normalized). Null vectors are not supported and must be zeroed out before reaching this
+/// function. The rotation and centroid lookup happen in f32.
+///
+/// The returned array is `FSL(DictArray(codes, centroids), padded_dim)`. The `FixedSizeList` has
+/// Dict-encoded elements, where each row of `padded_dim` u8 codes indexes into the centroid
+/// codebook.
+///
+/// This allows the FSL (via the Dict-encodede elements) to be independently sliced, taken, or
+/// executed (dequantized) without knowledge of the rotation.
+///
+/// Internally, this function will:
+///
+/// 1. Builds a [`SorfMatrix`] structured rotation from the seed/rounds in `sorf_options`.
+/// 2. For each row, zero-pads to the next power of 2, applies the rotation, and maps each rotated
+///    coordinate to its nearest centroid index via binary search on precomputed boundaries.
+/// 3. Packs the per-row centroid indices and the shared centroid codebook into a `DictArray`-backed
+///    `FixedSizeListArray`.
+fn turboquant_quantize_fsl(
     fsl: &FixedSizeListArray,
-    seed: u64,
     bit_width: u8,
-    num_rounds: u8,
+    sorf_options: &SorfOptions,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<QuantizationResult> {
-    let dimension = fsl.list_size() as usize;
+) -> VortexResult<ArrayRef> {
+    let dimensions = fsl.list_size() as usize;
     let num_rows = fsl.len();
 
-    let rotation = SorfMatrix::try_new(seed, dimension, num_rounds as usize)?;
+    vortex_ensure!(!fsl.dtype().is_nullable());
+
+    let rotation = SorfMatrix::try_new(
+        sorf_options.seed,
+        dimensions,
+        sorf_options.num_rounds as usize,
+    )?;
     let padded_dim = rotation.padded_dim();
     let padded_dim_u32 =
         u32::try_from(padded_dim).vortex_expect("padded_dim stays representable as u32");
 
+    // Compute the centroids for the given (dimension, bit_width) combination (or retrieve it from a
+    // previous computation)
+    let centroids = compute_or_get_centroids(padded_dim_u32, bit_width)?;
+
+    // Extract out the elements of the FSL and cast to f32. In the f64 case, we intentionally lose
+    // information here because we are already going to be quantizing to a smaller set of centroids,
+    // so we are fine with this loss.
     let elements_prim: PrimitiveArray = fsl.elements().clone().execute(ctx)?;
     let f32_elements = cast_to_f32(elements_prim)?;
 
-    let centroids = compute_or_get_centroids(padded_dim_u32, bit_width)?;
-    let boundaries = compute_centroid_boundaries(&centroids);
+    // Take the float values and quantize by finding the closest centroid in the codebook to each
+    // and recording the index of that centroid.
+    let all_indices = rotate_and_quantize(
+        f32_elements.as_slice(),
+        num_rows,
+        dimensions,
+        &rotation,
+        &centroids,
+    );
+
+    // Build the Dict-encoded FSL from the centroid indices and codebook. Everything is non-null
+    // since our input in non-null.
+    let codes = PrimitiveArray::new::<u8>(all_indices, Validity::NonNullable);
+    let values = PrimitiveArray::new::<f32>(centroids, Validity::NonNullable);
+    let dict = DictArray::try_new(codes.into_array(), values.into_array())?;
+
+    Ok(FixedSizeListArray::try_new(
+        dict.into_array(),
+        padded_dim_u32,
+        Validity::NonNullable,
+        num_rows,
+    )?
+    .into_array())
+}
+
+/// Rotate each row via the structured rotation and quantize every rotated coordinate to its nearest
+/// centroid index via binary search on precomputed boundaries.
+///
+/// Returns a flat [`Buffer<u8>`] of length `num_rows * padded_dim` containing the per-coordinate
+/// centroid indices.
+fn rotate_and_quantize(
+    f32_slice: &[f32],
+    num_rows: usize,
+    dimensions: usize,
+    rotation: &SorfMatrix,
+    centroids: &[f32],
+) -> Buffer<u8> {
+    let padded_dim = rotation.padded_dim();
+    let boundaries = compute_centroid_boundaries(centroids);
 
     let mut all_indices = BufferMut::<u8>::with_capacity(num_rows * padded_dim);
     let mut padded = vec![0.0f32; padded_dim];
     let mut rotated = vec![0.0f32; padded_dim];
 
-    let f32_slice = f32_elements.as_slice();
     for row in 0..num_rows {
-        let x = &f32_slice[row * dimension..(row + 1) * dimension];
+        let x = &f32_slice[row * dimensions..][..dimensions];
 
         // Zero-pad to the next power of 2.
-        padded[..dimension].copy_from_slice(x);
-        padded[dimension..].fill(0.0);
+        padded[..dimensions].copy_from_slice(x);
+        padded[dimensions..].fill(0.0);
 
         rotation.rotate(&padded, &mut rotated);
 
@@ -235,36 +290,5 @@ fn turboquant_quantize_core(
         }
     }
 
-    Ok(QuantizationResult {
-        centroids,
-        all_indices: all_indices.freeze(),
-        padded_dim,
-    })
-}
-
-/// Build a quantized representation: `FSL(DictArray(codes, centroids), padded_dim)`.
-///
-/// This is a Dict-encoded FixedSizeList where each row of `padded_dim` u8 codes indexes into the
-/// centroid codebook. The Dict can be independently sliced, taken, or executed (dequantized)
-/// without knowledge of the rotation.
-fn build_quantized_fsl(
-    num_rows: usize,
-    all_indices: Buffer<u8>,
-    centroids: Buffer<f32>,
-    padded_dim: usize,
-) -> VortexResult<ArrayRef> {
-    let codes = PrimitiveArray::new::<u8>(all_indices, Validity::NonNullable);
-    let centroids_array = PrimitiveArray::new::<f32>(centroids, Validity::NonNullable);
-
-    let dict = DictArray::try_new(codes.into_array(), centroids_array.into_array())?;
-
-    let padded_dim_u32 =
-        u32::try_from(padded_dim).vortex_expect("padded_dim stays representable as u32");
-    Ok(FixedSizeListArray::try_new(
-        dict.into_array(),
-        padded_dim_u32,
-        Validity::NonNullable,
-        num_rows,
-    )?
-    .into_array())
+    all_indices.freeze()
 }

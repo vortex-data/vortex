@@ -94,16 +94,41 @@ pub fn validate_tensor_float_input(input_dtype: &DType) -> VortexResult<TensorMa
 }
 
 /// Validates that two arguments of a binary tensor-like operator share the same float tensor
-/// dtype (ignoring top-level nullability), returning the shared [`TensorMatch`].
+/// dtype (ignoring top-level nullability), returning the [`TensorMatch`] of `lhs`.
+///
+/// Plain [`Vector`](crate::vector::Vector) and
+/// [`NormalizedVector`](crate::normalized_vector::NormalizedVector) are treated as
+/// interchangeable when they share element ptype and dimension, since the per-row math ignores
+/// the unit-norm marker.
 pub fn validate_binary_tensor_float_inputs<'a>(
     lhs: &'a DType,
     rhs: &DType,
 ) -> VortexResult<TensorMatch<'a>> {
+    let dtypes_match = lhs.eq_ignore_nullability(rhs) || vector_shapes_match(lhs, rhs);
     vortex_ensure!(
-        lhs.eq_ignore_nullability(rhs),
+        dtypes_match,
         "binary tensor expression expects inputs to have the same dtype, got {lhs} and {rhs}"
     );
     validate_tensor_float_input(lhs)
+}
+
+/// Returns `true` when `lhs` and `rhs` are both within the vector extension family (plain
+/// `Vector` or `NormalizedVector`) and share the same float ptype and dimension.
+fn vector_shapes_match(lhs: &DType, rhs: &DType) -> bool {
+    use crate::types::normalized_vector::AnyNormalizedVector;
+    use crate::types::vector::AnyVector;
+
+    fn vector_family_match(dtype: &DType) -> Option<crate::types::vector::VectorMatcherMetadata> {
+        let ext = dtype.as_extension_opt()?;
+        ext.metadata_opt::<AnyVector>()
+            .or_else(|| ext.metadata_opt::<AnyNormalizedVector>())
+    }
+
+    matches!(
+        (vector_family_match(lhs), vector_family_match(rhs)),
+        (Some(l), Some(r))
+            if l.element_ptype() == r.element_ptype() && l.dimensions() == r.dimensions()
+    )
 }
 
 /// Cast a float [`PrimitiveArray`] to a `Buffer<f32>`.
@@ -334,6 +359,7 @@ pub mod test_helpers {
     use crate::scalar_fns::l2_denorm::L2Denorm;
     use crate::types::fixed_shape::FixedShapeTensor;
     use crate::types::fixed_shape::FixedShapeTensorMetadata;
+    use crate::types::normalized_vector::NormalizedVector;
     use crate::types::vector::Vector;
 
     /// Builds a `FixedSizeList<T, list_size>` storage array from flat `elements`. The row count is
@@ -372,6 +398,16 @@ pub mod test_helpers {
         Vector::try_new_vector_array(flat_fsl(elements, dim))
     }
 
+    /// Builds a [`NormalizedVector`] extension array from pre-normalized `elements` and a vector
+    /// dimension size. The caller must ensure each row is unit-norm or the zero vector.
+    pub fn normalized_vector_array<T: NativePType>(
+        dim: u32,
+        elements: &[T],
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        NormalizedVector::try_new(flat_fsl(elements, dim), ctx)
+    }
+
     /// Builds a [`FixedShapeTensor`] extension array whose storage is a [`ConstantArray`],
     /// representing a single query tensor broadcast to `len` rows.
     pub fn constant_tensor_array<T: NativePType + Into<PValue>>(
@@ -399,17 +435,21 @@ pub mod test_helpers {
         ConstantArray::new(ext_scalar, len).into_array()
     }
 
-    /// Creates an [`L2Denorm`] scalar function array from pre-normalized tensor elements and
+    /// Creates an [`L2Denorm`] scalar function array from pre-normalized vector elements and
     /// matching norms. The caller must ensure every row of `normalized_elements` is unit-norm or
     /// zero.
+    ///
+    /// `dim` is the vector dimension (the inner `FixedSizeList` width). The number of rows is
+    /// inferred from `normalized_elements.len() / dim`.
     pub fn l2_denorm_array<T: NativePType>(
-        shape: &[usize],
+        dim: u32,
         normalized_elements: &[T],
         norms: &[T],
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let len = norms.len();
-        let normalized = tensor_array(shape, normalized_elements)?;
+        let storage = flat_fsl(normalized_elements, dim);
+        let normalized = NormalizedVector::try_new(storage, ctx)?;
         let norms =
             PrimitiveArray::new(Buffer::copy_from(norms), Validity::NonNullable).into_array();
         Ok(L2Denorm::try_new_array(normalized, norms, len, ctx)?.into_array())

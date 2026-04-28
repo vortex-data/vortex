@@ -9,6 +9,7 @@ use vortex_array::dtype::extension::Matcher;
 
 use crate::types::fixed_shape::AnyFixedShapeTensor;
 use crate::types::fixed_shape::FixedShapeTensorMatcherMetadata;
+use crate::types::normalized_vector::AnyNormalizedVector;
 use crate::types::vector::AnyVector;
 use crate::types::vector::VectorMatcherMetadata;
 
@@ -18,6 +19,7 @@ use crate::types::vector::VectorMatcherMetadata;
 ///
 /// - `FixedShapeTensor`
 /// - `Vector`
+/// - `NormalizedVector`
 pub struct AnyTensor;
 
 /// The matched variant of a tensor-like extension type.
@@ -30,6 +32,10 @@ pub enum TensorMatch<'a> {
     ///
     /// Note that we store an owned type here wrapping (copyable) data from the dtype.
     Vector(VectorMatcherMetadata),
+
+    /// A [`NormalizedVector`](crate::normalized_vector::NormalizedVector) extension over
+    /// [`Vector`](crate::vector::Vector) storage.
+    NormalizedVector(VectorMatcherMetadata),
 }
 
 impl TensorMatch<'_> {
@@ -37,7 +43,7 @@ impl TensorMatch<'_> {
     pub fn element_ptype(self) -> PType {
         match self {
             Self::FixedShapeTensor(metadata) => metadata.element_ptype(),
-            Self::Vector(metadata) => metadata.element_ptype(),
+            Self::Vector(metadata) | Self::NormalizedVector(metadata) => metadata.element_ptype(),
         }
     }
 
@@ -45,8 +51,14 @@ impl TensorMatch<'_> {
     pub fn list_size(self) -> u32 {
         match self {
             Self::FixedShapeTensor(metadata) => metadata.flat_list_size(),
-            Self::Vector(metadata) => metadata.dimensions(),
+            Self::Vector(metadata) | Self::NormalizedVector(metadata) => metadata.dimensions(),
         }
+    }
+
+    /// Returns `true` when the dtype is a
+    /// [`NormalizedVector`](crate::normalized_vector::NormalizedVector).
+    pub fn is_normalized(self) -> bool {
+        matches!(self, Self::NormalizedVector(_))
     }
 }
 
@@ -58,9 +70,12 @@ impl Matcher for AnyTensor {
             return Some(TensorMatch::FixedShapeTensor(metadata));
         }
 
-        // Special logic for vectors to get convenience metadata (instead of `EmptyMetadata`).
         if let Some(metadata) = ext_dtype.metadata_opt::<AnyVector>() {
             return Some(TensorMatch::Vector(metadata));
+        }
+
+        if let Some(metadata) = ext_dtype.metadata_opt::<AnyNormalizedVector>() {
+            return Some(TensorMatch::NormalizedVector(metadata));
         }
 
         None

@@ -11,10 +11,9 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 
 use super::*;
-use crate::encodings::turboquant::turboquant_encode_unchecked;
+use crate::encodings::turboquant::turboquant_encode_normalized;
 use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 
 #[rstest]
@@ -185,7 +184,7 @@ fn rejects_invalid_bit_width(#[case] bit_width: u8) {
     let normalized_ext = normalized
         .as_opt::<Extension>()
         .expect("normalized child should be Extension");
-    assert!(unsafe { turboquant_encode_unchecked(normalized_ext, &config, &mut ctx) }.is_err());
+    assert!(turboquant_encode_normalized(normalized_ext, &config, &mut ctx).is_err());
 }
 
 #[test]
@@ -196,7 +195,8 @@ fn all_zero_vectors_roundtrip() -> VortexResult<()> {
     let elements = PrimitiveArray::new::<f32>(buf.freeze(), Validity::NonNullable);
     let fsl = FixedSizeListArray::try_new(
         elements.into_array(),
-        dim.try_into().map_err(|e| vortex_err!("{e}"))?,
+        dim.try_into()
+            .expect("somehow got dimension greater than u32::MAX"),
         Validity::NonNullable,
         num_rows,
     )?;
@@ -245,7 +245,7 @@ fn f64_input_encodes_successfully() -> VortexResult<()> {
     let num_rows = 10;
     let dim = 128;
     let mut rng = StdRng::seed_from_u64(99);
-    let normal = Normal::new(0.0f64, 1.0).map_err(|e| vortex_err!("{e}"))?;
+    let normal = Normal::new(0.0f64, 1.0).unwrap();
 
     let mut buf = BufferMut::<f64>::with_capacity(num_rows * dim);
     for _ in 0..(num_rows * dim) {
@@ -254,7 +254,7 @@ fn f64_input_encodes_successfully() -> VortexResult<()> {
     let elements = PrimitiveArray::new::<f64>(buf.freeze(), Validity::NonNullable);
     let fsl = FixedSizeListArray::try_new(
         elements.into_array(),
-        dim.try_into().map_err(|e| vortex_err!("{e}"))?,
+        dim.try_into().unwrap(),
         Validity::NonNullable,
         num_rows,
     )?;
@@ -278,7 +278,7 @@ fn f16_input_encodes_successfully() -> VortexResult<()> {
     let num_rows = 10;
     let dim = 128;
     let mut rng = StdRng::seed_from_u64(99);
-    let normal = Normal::new(0.0f32, 1.0).map_err(|e| vortex_err!("{e}"))?;
+    let normal = Normal::new(0.0f32, 1.0).unwrap();
 
     let mut buf = BufferMut::<half::f16>::with_capacity(num_rows * dim);
     for _ in 0..(num_rows * dim) {
@@ -287,7 +287,7 @@ fn f16_input_encodes_successfully() -> VortexResult<()> {
     let elements = PrimitiveArray::new::<half::f16>(buf.freeze(), Validity::NonNullable);
     let fsl = FixedSizeListArray::try_new(
         elements.into_array(),
-        dim.try_into().map_err(|e| vortex_err!("{e}"))?,
+        dim.try_into().unwrap(),
         Validity::NonNullable,
         num_rows,
     )?;

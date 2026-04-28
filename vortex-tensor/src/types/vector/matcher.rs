@@ -12,6 +12,11 @@ use vortex_error::vortex_panic;
 
 use crate::types::vector::Vector;
 
+/// Matcher that accepts only the [`Vector`] extension type.
+///
+/// Use [`AnyTensor`](crate::matcher::AnyTensor) instead when
+/// [`NormalizedVector`](crate::normalized_vector::NormalizedVector) or `FixedShapeTensor`
+/// should also match.
 pub struct AnyVector;
 
 /// Convenience metadata for vectors.

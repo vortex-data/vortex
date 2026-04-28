@@ -134,7 +134,7 @@ pub(crate) mod compress;
 mod scheme;
 pub use compress::TurboQuantConfig;
 pub use compress::turboquant_encode;
-pub use compress::turboquant_encode_unchecked;
+pub use compress::turboquant_encode_normalized;
 pub use scheme::TurboQuantScheme;
 
 /// Minimum vector dimension for TurboQuant encoding.

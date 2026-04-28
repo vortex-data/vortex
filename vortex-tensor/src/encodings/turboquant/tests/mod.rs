@@ -91,9 +91,10 @@ fn unwrap_codes_centroids_norms(
         .child_at(0)
         .clone();
 
-    // Vector<padded_dim> wrapping FSL(Dict(codes, centroids))
-    let padded_vector: ExtensionArray = padded_vector_child.execute(ctx)?;
-    let fsl: FixedSizeListArray = padded_vector.storage_array().clone().execute(ctx)?;
+    // NormalizedVector<padded_dim> wrapping Vector wrapping FSL(Dict(codes, centroids)).
+    let normalized_vector: ExtensionArray = padded_vector_child.execute(ctx)?;
+    let inner_vector: ExtensionArray = normalized_vector.storage_array().clone().execute(ctx)?;
+    let fsl: FixedSizeListArray = inner_vector.storage_array().clone().execute(ctx)?;
     let dict = fsl
         .elements()
         .as_opt::<Dict>()
