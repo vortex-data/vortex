@@ -360,6 +360,7 @@ mod tests {
     use super::*;
     use crate::array::vx_array;
     use crate::array::vx_array_dtype;
+    use crate::array::vx_array_free;
     use crate::dtype::vx_dtype;
     use crate::dtype::vx_dtype_free;
     use crate::dtype::vx_dtype_get_variant;
@@ -674,7 +675,7 @@ mod tests {
 
         // Cleanup in reverse order - this is the safest order
         unsafe {
-            crate::array::vx_array_free(vx_arr);
+            vx_array_free(vx_arr);
         }
     }
 
@@ -699,7 +700,7 @@ mod tests {
         // Cleanup in careful order
         unsafe {
             // Field name is now a borrowed reference - do not free it
-            crate::array::vx_array_free(vx_arr);
+            vx_array_free(vx_arr);
         }
     }
 
@@ -732,7 +733,7 @@ mod tests {
 
         // Cleanup
         unsafe {
-            crate::array::vx_array_free(vx_arr);
+            vx_array_free(vx_arr);
         }
     }
 }

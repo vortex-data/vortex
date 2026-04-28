@@ -138,7 +138,7 @@ impl VTable for Pco {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let validity = child_to_validity(&slots[0], dtype.nullability());
+        let validity = child_to_validity(slots[0].as_ref(), dtype.nullability());
         data.validate(dtype, len, &validity)
     }
 
@@ -217,7 +217,7 @@ impl VTable for Pco {
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let unsliced_validity =
-            child_to_validity(&array.as_ref().slots()[0], array.dtype().nullability());
+            child_to_validity(array.as_ref().slots()[0].as_ref(), array.dtype().nullability());
         Ok(ExecutionResult::done(
             array
                 .data()
@@ -641,7 +641,7 @@ impl PcoData {
 
 impl ValidityVTable<Pco> for Pco {
     fn validity(array: ArrayView<'_, Pco>) -> VortexResult<Validity> {
-        let unsliced_validity = child_to_validity(&array.slots()[0], array.dtype().nullability());
+        let unsliced_validity = child_to_validity(array.slots()[0].as_ref(), array.dtype().nullability());
         unsliced_validity.slice(array.slice_start()..array.slice_stop())
     }
 }
@@ -652,7 +652,7 @@ impl OperationsVTable<Pco> for Pco {
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let unsliced_validity = child_to_validity(&array.slots()[0], array.dtype().nullability());
+        let unsliced_validity = child_to_validity(array.slots()[0].as_ref(), array.dtype().nullability());
         array
             ._slice(index, index + 1)
             .decompress(&unsliced_validity, ctx)?

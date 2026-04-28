@@ -30,10 +30,9 @@ use crate::array::VTable;
 use crate::array::validity_to_child;
 use crate::arrays::ConstantArray;
 use crate::arrays::masked::MaskedArrayExt;
+use crate::arrays::masked::MaskedArraySlotsExt;
 use crate::arrays::masked::MaskedData;
-use crate::arrays::masked::array::CHILD_SLOT;
-use crate::arrays::masked::array::SLOT_NAMES;
-use crate::arrays::masked::array::VALIDITY_SLOT;
+use crate::arrays::masked::array::MaskedSlots;
 use crate::arrays::masked::compute::rules::PARENT_RULES;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
@@ -80,10 +79,10 @@ impl VTable for Masked {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         vortex_ensure!(
-            slots[CHILD_SLOT].is_some(),
+            slots[MaskedSlots::CHILD].is_some(),
             "MaskedArray child slot must be present"
         );
-        let child = slots[CHILD_SLOT]
+        let child = slots[MaskedSlots::CHILD]
             .as_ref()
             .vortex_expect("validated child slot");
         vortex_ensure!(child.len() == len, "MaskedArray child length mismatch");
@@ -161,8 +160,8 @@ impl VTable for Masked {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let array = require_child!(array, array.child(), CHILD_SLOT => AnyCanonical);
-        require_validity!(array, VALIDITY_SLOT);
+        let array = require_child!(array, array.child(), MaskedSlots::CHILD => AnyCanonical);
+        require_validity!(array, MaskedSlots::VALIDITY);
 
         let validity_mask = array.masked_validity().execute_mask(array.len(), ctx)?;
 
@@ -194,7 +193,7 @@ impl VTable for Masked {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        MaskedSlots::NAMES[idx].to_string()
     }
 }
 

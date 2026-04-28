@@ -143,7 +143,7 @@ impl VTable for Zstd {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let validity = child_to_validity(&slots[0], dtype.nullability());
+        let validity = child_to_validity(slots[0].as_ref(), dtype.nullability());
         data.validate(dtype, len, &validity)
     }
 
@@ -231,7 +231,7 @@ impl VTable for Zstd {
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let unsliced_validity =
-            child_to_validity(&array.as_ref().slots()[0], array.dtype().nullability());
+            child_to_validity(array.as_ref().slots()[0].as_ref(), array.dtype().nullability());
         array
             .data()
             .decompress(array.dtype(), &unsliced_validity, ctx)?
@@ -308,7 +308,7 @@ impl Zstd {
 
     pub fn decompress(array: &ZstdArray, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let unsliced_validity =
-            child_to_validity(&array.as_ref().slots()[0], array.dtype().nullability());
+            child_to_validity(array.as_ref().slots()[0].as_ref(), array.dtype().nullability());
         array
             .data()
             .decompress(array.dtype(), &unsliced_validity, ctx)
@@ -1042,7 +1042,7 @@ impl ZstdData {
 
 impl ValidityVTable<Zstd> for Zstd {
     fn validity(array: ArrayView<'_, Zstd>) -> VortexResult<Validity> {
-        let unsliced_validity = child_to_validity(&array.slots()[0], array.dtype().nullability());
+        let unsliced_validity = child_to_validity(array.slots()[0].as_ref(), array.dtype().nullability());
         unsliced_validity.slice(array.slice_start()..array.slice_stop())
     }
 }
@@ -1053,7 +1053,7 @@ impl OperationsVTable<Zstd> for Zstd {
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let unsliced_validity = child_to_validity(&array.slots()[0], array.dtype().nullability());
+        let unsliced_validity = child_to_validity(array.slots()[0].as_ref(), array.dtype().nullability());
         let sliced = array.data().with_slice(index, index + 1);
         sliced
             .decompress(array.dtype(), &unsliced_validity, ctx)?

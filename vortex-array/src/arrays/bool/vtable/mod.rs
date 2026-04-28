@@ -17,8 +17,10 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::array::Array;
+use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::array::child_to_validity;
 use crate::arrays::bool::BoolData;
 use crate::arrays::bool::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
@@ -121,7 +123,7 @@ impl VTable for Bool {
             data.bits.len() * 8
         );
 
-        let validity = crate::array::child_to_validity(&slots[0], *nullability);
+        let validity = child_to_validity(slots[0].as_ref(), *nullability);
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
                 validity_len == len,
@@ -139,11 +141,10 @@ impl VTable for Bool {
         dtype: &DType,
         len: usize,
         metadata: &[u8],
-
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<crate::array::ArrayParts<Self>> {
+    ) -> VortexResult<ArrayParts<Self>> {
         let metadata = BoolMetadata::decode(metadata)?;
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
@@ -161,7 +162,7 @@ impl VTable for Bool {
         let buffer = buffers[0].clone();
         let slots = BoolData::make_slots(&validity, len);
         let data = BoolData::try_new_from_handle(buffer, metadata.offset as usize, len, validity)?;
-        Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
