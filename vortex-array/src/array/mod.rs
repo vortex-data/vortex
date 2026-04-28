@@ -505,7 +505,7 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         let len = this.len();
         let dtype = this.dtype().clone();
         let stats = this.statistics().to_array_stats();
-        let result = self.execute_unchecked(this, ctx)?;
+        let result = unsafe { self.execute_unchecked(this, ctx)? };
 
         if matches!(result.step(), ExecutionStep::Done) {
             if cfg!(debug_assertions) {
@@ -530,7 +530,7 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         Ok(result)
     }
 
-    fn execute_unchecked(
+    unsafe fn execute_unchecked(
         &self,
         this: ArrayRef,
         ctx: &mut ExecutionCtx,
