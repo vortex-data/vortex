@@ -17,6 +17,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::dict_test::gen_dict_primitive_chunks;
 use crate::arrays::struct_::StructArrayExt;
 use crate::assert_arrays_eq;
 #[expect(deprecated)]
@@ -37,6 +38,176 @@ fn chunked_array() -> ChunkedArray {
         DType::Primitive(PType::U64, Nullability::NonNullable),
     )
     .unwrap()
+}
+
+#[test]
+fn builder_kernel_path_canonicalizes_primitive_chunks() {
+    use crate::builders::builder_with_capacity;
+    use crate::executor::execute_into_builder;
+
+    let array = chunked_array().into_array();
+    let dtype = array.dtype().clone();
+    let len = array.len();
+
+    let builder = builder_with_capacity(&dtype, len);
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    // Clone the array into the builder path — the test also holds `array` so refcount > 1 on
+    // entry, which previously caused `take_slot_unchecked` to silently keep slots populated.
+    let mut builder = execute_into_builder(array.clone(), builder, &mut ctx).unwrap();
+    let output = builder.finish();
+    drop(array);
+
+    assert_arrays_eq!(
+        output,
+        PrimitiveArray::from_iter([1u64, 2, 3, 4, 5, 6, 7, 8, 9])
+    );
+}
+
+#[test]
+fn builder_kernel_nested_chunked_of_chunked() {
+    use crate::builders::builder_with_capacity;
+    use crate::executor::execute_into_builder;
+
+    let inner_1 = ChunkedArray::try_new(
+        vec![buffer![1u64, 2].into_array(), buffer![3u64].into_array()],
+        DType::Primitive(PType::U64, Nullability::NonNullable),
+    )
+    .unwrap()
+    .into_array();
+    let inner_2 = ChunkedArray::try_new(
+        vec![buffer![4u64, 5, 6].into_array()],
+        DType::Primitive(PType::U64, Nullability::NonNullable),
+    )
+    .unwrap()
+    .into_array();
+    let outer = ChunkedArray::try_new(
+        vec![inner_1, inner_2],
+        DType::Primitive(PType::U64, Nullability::NonNullable),
+    )
+    .unwrap()
+    .into_array();
+
+    let dtype = outer.dtype().clone();
+    let len = outer.len();
+    let builder = builder_with_capacity(&dtype, len);
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut builder = execute_into_builder(outer, builder, &mut ctx).unwrap();
+    let output = builder.finish();
+
+    assert_arrays_eq!(output, PrimitiveArray::from_iter([1u64, 2, 3, 4, 5, 6]));
+}
+
+#[test]
+fn builder_kernel_path_repeated_shared_chunked_dict_execution() {
+    use crate::builders::builder_with_capacity;
+    use crate::executor::execute_into_builder;
+
+    let array = gen_dict_primitive_chunks::<u32, u16>(8, 3, 3);
+    let keep_alive = array.clone();
+    let dtype = array.dtype().clone();
+    let len = array.len();
+
+    let mut expected_ctx = LEGACY_SESSION.create_execution_ctx();
+    let expected = array
+        .clone()
+        .execute::<crate::Canonical>(&mut expected_ctx)
+        .unwrap()
+        .into_array();
+
+    let mut first_ctx = LEGACY_SESSION.create_execution_ctx();
+    let first = {
+        let builder = builder_with_capacity(&dtype, len);
+        let mut builder = execute_into_builder(array.clone(), builder, &mut first_ctx).unwrap();
+        builder.finish()
+    };
+
+    let mut second_ctx = LEGACY_SESSION.create_execution_ctx();
+    let second = {
+        let builder = builder_with_capacity(&dtype, len);
+        let mut builder = execute_into_builder(array, builder, &mut second_ctx).unwrap();
+        builder.finish()
+    };
+
+    drop(keep_alive);
+
+    assert_arrays_eq!(first, expected);
+    assert_arrays_eq!(second, expected);
+}
+
+#[test]
+fn execute_path_repeated_shared_chunked_dict_execution() {
+    let array = gen_dict_primitive_chunks::<u32, u16>(8, 3, 3);
+    let keep_alive = array.clone();
+
+    let expected_source = gen_dict_primitive_chunks::<u32, u16>(8, 3, 3);
+    let mut expected_ctx = LEGACY_SESSION.create_execution_ctx();
+    let expected = expected_source
+        .execute::<crate::Canonical>(&mut expected_ctx)
+        .unwrap()
+        .into_array();
+
+    let mut first_ctx = LEGACY_SESSION.create_execution_ctx();
+    let first = array
+        .clone()
+        .execute::<crate::Canonical>(&mut first_ctx)
+        .unwrap()
+        .into_array();
+
+    let mut second_ctx = LEGACY_SESSION.create_execution_ctx();
+    let second = array
+        .execute::<crate::Canonical>(&mut second_ctx)
+        .unwrap()
+        .into_array();
+
+    drop(keep_alive);
+
+    assert_arrays_eq!(first, expected);
+    assert_arrays_eq!(second, expected);
+}
+
+#[test]
+fn execute_path_nested_chunked_dict_of_dict_into_canonical() {
+    use crate::builders::builder_with_capacity;
+
+    let inner_1 = gen_dict_primitive_chunks::<u32, u16>(8, 3, 2);
+    let inner_2 = gen_dict_primitive_chunks::<u32, u16>(8, 3, 3);
+    let outer = ChunkedArray::try_new(
+        vec![inner_1.clone(), inner_2.clone()],
+        inner_1.dtype().clone(),
+    )
+    .unwrap()
+    .into_array();
+    let keep_alive = outer.clone();
+
+    let expected = {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut builder = builder_with_capacity(outer.dtype(), outer.len());
+        inner_1
+            .append_to_builder(builder.as_mut(), &mut ctx)
+            .unwrap();
+        inner_2
+            .append_to_builder(builder.as_mut(), &mut ctx)
+            .unwrap();
+        builder.finish()
+    };
+
+    let mut first_ctx = LEGACY_SESSION.create_execution_ctx();
+    let first = outer
+        .clone()
+        .execute::<crate::Canonical>(&mut first_ctx)
+        .unwrap()
+        .into_array();
+
+    let mut second_ctx = LEGACY_SESSION.create_execution_ctx();
+    let second = outer
+        .execute::<crate::Canonical>(&mut second_ctx)
+        .unwrap()
+        .into_array();
+
+    drop(keep_alive);
+
+    assert_arrays_eq!(first, expected);
+    assert_arrays_eq!(second, expected);
 }
 
 #[test]
