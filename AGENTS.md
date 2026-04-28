@@ -50,13 +50,18 @@ cargo build --workspace
 Run tests for the crate or binding you touched before broader checks:
 
 ```bash
-cargo test -p <crate-name>
+cargo nextest run -p <crate-name>
+```
+
+if cargo-nextest is not available you can install it with
+```bash
+cargo install --locked cargo-nextest
 ```
 
 Examples:
 
 ```bash
-cargo test -p vortex-array
+cargo nextest run -p vortex-array
 make -C docs doctest
 uv run --all-packages pytest vortex-python/test
 ```
