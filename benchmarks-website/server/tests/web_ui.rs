@@ -5,7 +5,7 @@
 //!
 //! Builds a temp DuckDB via the same `/api/ingest` path real callers use,
 //! seeds it with a multi-commit fixture so chart series have more than one
-//! point, then snapshots the rendered HTML for both routes plus a chart slug
+//! point, then snapshots the rendered HTML for each route plus a chart slug
 //! round-trip.
 
 use std::net::SocketAddr;
@@ -193,16 +193,54 @@ fn insta_settings() -> insta::Settings {
     s
 }
 
+/// Lift a single chart slug from `/api/groups`, picking from a group whose
+/// name matches `predicate`. Used by tests that need a real slug to drive
+/// `/chart/{slug}` and `/api/chart/{slug}` round-trips.
+async fn pick_chart_slug(server: &Server, predicate: impl Fn(&str) -> bool) -> Result<String> {
+    let client = reqwest::Client::new();
+    let groups: Value = client
+        .get(server.url("/api/groups"))
+        .send()
+        .await?
+        .json()
+        .await?;
+    groups["groups"]
+        .as_array()
+        .context("groups is array")?
+        .iter()
+        .find(|g| g["name"].as_str().is_some_and(|s| predicate(s)))
+        .and_then(|g| g["charts"].as_array())
+        .and_then(|c| c.first())
+        .and_then(|c| c["slug"].as_str())
+        .map(str::to_string)
+        .context("matching chart slug")
+}
+
+async fn pick_group_slug(server: &Server, predicate: impl Fn(&str) -> bool) -> Result<String> {
+    let client = reqwest::Client::new();
+    let groups: Value = client
+        .get(server.url("/api/groups"))
+        .send()
+        .await?
+        .json()
+        .await?;
+    groups["groups"]
+        .as_array()
+        .context("groups is array")?
+        .iter()
+        .find(|g| g["name"].as_str().is_some_and(|s| predicate(s)))
+        .and_then(|g| g["slug"].as_str())
+        .map(str::to_string)
+        .context("matching group slug")
+}
+
 #[tokio::test]
 async fn landing_page_snapshot() -> Result<()> {
     let server = Server::start().await?;
     seed(&server).await?;
 
     let client = reqwest::Client::new();
-    // Pin ?n=100 so the snapshot doesn't change when the landing default
-    // (50) is tweaked. The `landing_page_default_window` test below covers
-    // the default explicitly.
-    let resp = client.get(server.url("/?n=100")).send().await?;
+    let resp = client.get(server.url("/")).send().await?;
     assert_eq!(resp.status(), 200);
     let content_type = resp
         .headers()
@@ -215,19 +253,18 @@ async fn landing_page_snapshot() -> Result<()> {
     );
     let body = resp.text().await?;
 
-    // Phase 2: every chart is rendered inline on the landing page, so the
-    // page must contain at least one `<canvas>` plus a matching JSON payload.
+    // Inline canvas + chart-data-0 from the open-by-default first group.
     assert!(
         body.contains("<canvas"),
         "landing page must render at least one <canvas>"
     );
     assert!(
         body.contains(r#"id="chart-data-0""#),
-        "landing page must inline at least one chart payload"
+        "the open-by-default first group must inline its chart payload"
     );
     assert!(
         body.contains(r#"data-chart-slug="#),
-        "landing page chart cards must carry data-chart-slug for in-place refetch"
+        "every chart card carries data-chart-slug for the lazy-fetch path"
     );
 
     insta_settings().bind(|| {
@@ -236,28 +273,106 @@ async fn landing_page_snapshot() -> Result<()> {
     Ok(())
 }
 
-/// Without `?n=` the landing page defaults to last-50 commits (cheap by
-/// default), distinct from the 100-commit default of `/chart` and `/group`.
+/// The first `<details>` group is rendered with the `open` attribute; every
+/// other group lacks it, so the user sees only the first group's charts on
+/// first paint.
 #[tokio::test]
-async fn landing_page_default_window() -> Result<()> {
+async fn details_first_group_open_others_closed() -> Result<()> {
     let server = Server::start().await?;
     seed(&server).await?;
 
     let client = reqwest::Client::new();
-    let resp = client.get(server.url("/")).send().await?;
-    assert_eq!(resp.status(), 200);
-    let body = resp.text().await?;
+    let body = client.get(server.url("/")).send().await?.text().await?;
 
-    assert!(
-        body.contains("last 50 commits"),
-        "landing page subtitle should reflect the n=50 default"
+    let opens: Vec<_> = body
+        .match_indices("<details")
+        .map(|(i, _)| {
+            let tag_end = body[i..].find('>').map(|p| i + p).unwrap_or(i);
+            body[i..=tag_end].contains(" open")
+        })
+        .collect();
+    assert!(!opens.is_empty(), "landing page must render <details>");
+    assert!(opens[0], "first group must be open");
+    for (i, is_open) in opens.iter().enumerate().skip(1) {
+        assert!(!is_open, "group #{i} must be closed by default");
+    }
+    Ok(())
+}
+
+/// Every `.chart-card` carries a `.toolbar.toolbar--card` so the user has
+/// per-chart controls. There is no page-level toolbar.
+#[tokio::test]
+async fn chart_card_carries_per_chart_toolbar() -> Result<()> {
+    let server = Server::start().await?;
+    seed(&server).await?;
+
+    let client = reqwest::Client::new();
+    let body = client.get(server.url("/")).send().await?.text().await?;
+
+    let card_count = body.matches(r#"<section class="chart-card""#).count();
+    let toolbar_count = body.matches(r#"class="toolbar toolbar--card""#).count();
+    assert!(card_count > 0, "landing page must render chart cards");
+    assert_eq!(
+        toolbar_count, card_count,
+        "every chart-card must contain a toolbar--card ({card_count} cards / {toolbar_count} toolbars)"
     );
-    // The toolbar should highlight `50` (data-scope) as active.
+
+    // Same invariant on /chart/{slug}.
+    let slug = pick_chart_slug(&server, |s| s.starts_with("TPC-H")).await?;
+    let body = client
+        .get(server.url(&format!("/chart/{slug}")))
+        .send()
+        .await?
+        .text()
+        .await?;
     assert!(
-        body.contains(r#"toolbar-btn--active" href="?n=50""#)
-            || body.contains(r#"toolbar-btn--active" href="?n=50&"#),
-        "landing toolbar should mark scope=50 active by default"
+        body.contains(r#"class="toolbar toolbar--card""#),
+        "chart page must carry a per-chart toolbar"
     );
+
+    // Same invariant on /group/{slug}.
+    let group_slug = pick_group_slug(&server, |s| s.starts_with("TPC-H")).await?;
+    let body = client
+        .get(server.url(&format!("/group/{group_slug}")))
+        .send()
+        .await?
+        .text()
+        .await?;
+    assert!(
+        body.contains(r#"class="toolbar toolbar--card""#),
+        "group page must carry per-chart toolbars"
+    );
+    Ok(())
+}
+
+/// Landing-page `<details>` summaries appear in the canonical v2 order: the
+/// fixture seeds Random Access, Compression, Compression Size, TPC-H, and a
+/// vector-search group. The first three are in [`api::GROUP_ORDER`] in the
+/// expected positions; TPC-H follows; the unknown vector-search group sorts
+/// last (alphabetical fallback after the listed names).
+#[tokio::test]
+async fn landing_groups_render_in_v2_order() -> Result<()> {
+    let server = Server::start().await?;
+    seed(&server).await?;
+
+    let client = reqwest::Client::new();
+    let body = client.get(server.url("/")).send().await?.text().await?;
+
+    // Extract group names in render order from the `data-group-name=` attrs.
+    let mut names = Vec::new();
+    for window in body.split("data-group-name=\"").skip(1) {
+        if let Some(end) = window.find('"') {
+            names.push(window[..end].to_string());
+        }
+    }
+    let expected = [
+        "Random Access",
+        "Compression",
+        "Compression Size",
+        "TPC-H (NVMe) (SF=1)",
+        "cohere-large-10m / partitioned",
+    ];
+    assert_eq!(names, expected, "v2 ordering");
     Ok(())
 }
 
@@ -267,32 +382,12 @@ async fn chart_page_snapshot() -> Result<()> {
     seed(&server).await?;
 
     let client = reqwest::Client::new();
-    // Pick the query_measurements chart: it has two series (engine:format
-    // combinations) so the snapshot exercises multi-series rendering.
-    let groups: Value = client
-        .get(server.url("/api/groups"))
-        .send()
-        .await?
-        .json()
-        .await?;
-    let slug = groups["groups"]
-        .as_array()
-        .context("groups is array")?
-        .iter()
-        .find(|g| {
-            g["name"]
-                .as_str()
-                .map(|s| s.starts_with("tpch"))
-                .unwrap_or(false)
-        })
-        .and_then(|g| g["charts"].as_array())
-        .and_then(|c| c.first())
-        .and_then(|c| c["slug"].as_str())
-        .context("tpch chart slug")?
-        .to_string();
+    // The query_measurements chart has two series so the snapshot
+    // exercises multi-series rendering.
+    let slug = pick_chart_slug(&server, |s| s.starts_with("TPC-H")).await?;
 
     let resp = client
-        .get(server.url(&format!("/chart/{slug}?n=100")))
+        .get(server.url(&format!("/chart/{slug}")))
         .send()
         .await?;
     assert_eq!(resp.status(), 200);
@@ -306,8 +401,12 @@ async fn chart_page_snapshot() -> Result<()> {
         "Chart.js must be referenced from the static asset route"
     );
     assert!(
-        body.contains("class=\"toolbar\""),
-        "toolbar must be rendered on chart page"
+        body.contains(r#"<script src="/static/chartjs-plugin-zoom.umd.min.js""#),
+        "zoom plugin must be loaded for /chart pages"
+    );
+    assert!(
+        body.contains(r#"class="toolbar toolbar--card""#),
+        "per-chart toolbar must be rendered on chart page"
     );
 
     insta_settings().bind(|| {
@@ -322,29 +421,10 @@ async fn group_page_snapshot() -> Result<()> {
     seed(&server).await?;
 
     let client = reqwest::Client::new();
-    let groups: Value = client
-        .get(server.url("/api/groups"))
-        .send()
-        .await?
-        .json()
-        .await?;
-    let slug = groups["groups"]
-        .as_array()
-        .context("groups is array")?
-        .iter()
-        .find(|g| {
-            g["name"]
-                .as_str()
-                .map(|s| s.starts_with("tpch"))
-                .unwrap_or(false)
-        })
-        .and_then(|g| g["slug"].as_str())
-        .context("tpch group slug")?
-        .to_string();
+    let slug = pick_group_slug(&server, |s| s.starts_with("TPC-H")).await?;
 
-    // Pin ?n=100 so snapshot output is stable as the default changes.
     let resp = client
-        .get(server.url(&format!("/group/{slug}?n=100")))
+        .get(server.url(&format!("/group/{slug}")))
         .send()
         .await?;
     assert_eq!(resp.status(), 200);
@@ -354,8 +434,8 @@ async fn group_page_snapshot() -> Result<()> {
         "group page must embed at least one chart payload inline"
     );
     assert!(
-        body.contains("class=\"toolbar\""),
-        "toolbar must be rendered on group page"
+        body.contains(r#"class="toolbar toolbar--card""#),
+        "per-chart toolbar must be rendered on group page"
     );
     insta_settings().bind(|| {
         insta::assert_snapshot!("group_page_query", body);
@@ -368,27 +448,9 @@ async fn group_api_returns_charts() -> Result<()> {
     let server = Server::start().await?;
     seed(&server).await?;
 
-    let client = reqwest::Client::new();
-    let groups: Value = client
-        .get(server.url("/api/groups"))
-        .send()
-        .await?
-        .json()
-        .await?;
-    let slug = groups["groups"]
-        .as_array()
-        .context("groups is array")?
-        .iter()
-        .find(|g| {
-            g["name"]
-                .as_str()
-                .map(|s| s.starts_with("tpch"))
-                .unwrap_or(false)
-        })
-        .and_then(|g| g["slug"].as_str())
-        .context("tpch group slug")?
-        .to_string();
+    let slug = pick_group_slug(&server, |s| s.starts_with("TPC-H")).await?;
 
+    let client = reqwest::Client::new();
     let resp = client
         .get(server.url(&format!("/api/group/{slug}")))
         .send()
@@ -411,37 +473,16 @@ async fn group_api_returns_charts() -> Result<()> {
     Ok(())
 }
 
-/// `GET /api/chart/{slug}` returns the same JSON shape that the HTML pages
-/// inline as `<script id="chart-data-N">`. Phase 1 wires this endpoint up as
-/// the in-place refetch target for the toolbar.
+/// `GET /api/chart/{slug}` returns the JSON shape the chart-init.js fetches
+/// on lazy-load (closed-by-default `<details>` groups).
 #[tokio::test]
 async fn chart_api_returns_payload_shape() -> Result<()> {
     let server = Server::start().await?;
     seed(&server).await?;
 
-    let client = reqwest::Client::new();
-    let groups: Value = client
-        .get(server.url("/api/groups"))
-        .send()
-        .await?
-        .json()
-        .await?;
-    let slug = groups["groups"]
-        .as_array()
-        .context("groups is array")?
-        .iter()
-        .find(|g| {
-            g["name"]
-                .as_str()
-                .map(|s| s.starts_with("tpch"))
-                .unwrap_or(false)
-        })
-        .and_then(|g| g["charts"].as_array())
-        .and_then(|c| c.first())
-        .and_then(|c| c["slug"].as_str())
-        .context("tpch chart slug")?
-        .to_string();
+    let slug = pick_chart_slug(&server, |s| s.starts_with("TPC-H")).await?;
 
+    let client = reqwest::Client::new();
     let resp = client
         .get(server.url(&format!("/api/chart/{slug}")))
         .send()
@@ -463,7 +504,7 @@ async fn chart_api_returns_payload_shape() -> Result<()> {
     assert!(body["commits"].as_array().is_some(), "commits");
     assert!(body["series"].as_object().is_some(), "series");
 
-    // ?n= narrows the commit count returned to exactly N.
+    // ?n= narrows the commit count.
     let one: Value = client
         .get(server.url(&format!("/api/chart/{slug}?n=1")))
         .send()
@@ -472,24 +513,6 @@ async fn chart_api_returns_payload_shape() -> Result<()> {
         .await?;
     let one_count = one["commits"].as_array().map(|a| a.len()).unwrap_or(0);
     assert_eq!(one_count, 1, "?n=1 should keep exactly one commit");
-
-    // y= and mode= are accepted but don't change the SQL — payload is
-    // identical to the bare request modulo URL-shaped params.
-    let with_hints: Value = client
-        .get(server.url(&format!("/api/chart/{slug}?n=1&y=log&mode=rel")))
-        .send()
-        .await?
-        .json()
-        .await?;
-    assert_eq!(
-        with_hints["commits"].as_array().map(|a| a.len()),
-        Some(1),
-        "?y/?mode shouldn't affect the returned commit count"
-    );
-    assert_eq!(
-        with_hints["series"], one["series"],
-        "?y/?mode shouldn't change the series payload"
-    );
 
     // A valid-shape slug for a chart that doesn't exist in the DB returns
     // 404. (Malformed slugs are 400, covered by the HTML route tests.)
@@ -514,30 +537,10 @@ async fn chart_page_window_caps_commits() -> Result<()> {
     let server = Server::start().await?;
     seed(&server).await?;
 
-    let client = reqwest::Client::new();
-    let groups: Value = client
-        .get(server.url("/api/groups"))
-        .send()
-        .await?
-        .json()
-        .await?;
-    let slug = groups["groups"]
-        .as_array()
-        .context("groups is array")?
-        .iter()
-        .find(|g| {
-            g["name"]
-                .as_str()
-                .map(|s| s.starts_with("tpch"))
-                .unwrap_or(false)
-        })
-        .and_then(|g| g["charts"].as_array())
-        .and_then(|c| c.first())
-        .and_then(|c| c["slug"].as_str())
-        .context("tpch chart slug")?
-        .to_string();
+    let slug = pick_chart_slug(&server, |s| s.starts_with("TPC-H")).await?;
 
-    // Without ?n, default window is 100 — fixture has 3 commits, so all show.
+    let client = reqwest::Client::new();
+    // Without ?n, default is the 1000-commit per-chart cap — fixture has 3.
     let full: Value = client
         .get(server.url(&format!("/api/chart/{slug}")))
         .send()
@@ -647,6 +650,10 @@ async fn static_assets_are_served() -> Result<()> {
 
     for (path, ct_prefix) in [
         ("/static/chart.umd.js", "application/javascript"),
+        (
+            "/static/chartjs-plugin-zoom.umd.min.js",
+            "application/javascript",
+        ),
         ("/static/chart-init.js", "application/javascript"),
         ("/static/style.css", "text/css"),
     ] {

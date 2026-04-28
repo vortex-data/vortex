@@ -73,7 +73,7 @@ main {
 }
 
 /* ----------------------------------------------------------------------
- * Landing page
+ * Landing page — collapsible groups
  * ---------------------------------------------------------------------- */
 .landing-search {
   margin-bottom: 1rem;
@@ -89,87 +89,95 @@ main {
   font: inherit;
 }
 
-.group {
-  margin-bottom: 1.5rem;
+.group-details {
+  margin-bottom: 0.75rem;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--card-bg);
-  padding: 1rem 1.25rem;
+  overflow: clip;
 }
-.group h2 {
-  margin: 0 0 0.75rem;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--fg);
+.group-details[open] {
+  padding-bottom: 0.75rem;
 }
-.group .group-link {
-  color: var(--fg);
-}
-.group .group-link:hover {
-  color: var(--accent);
-}
-
-.charts {
+.group-summary {
   list-style: none;
-  margin: 0;
-  padding: 0;
+  cursor: pointer;
+  padding: 0.65rem 1rem;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
+  align-items: center;
+  gap: 0.5rem;
+  user-select: none;
 }
-.charts li { margin: 0; }
-.charts a {
+.group-summary::-webkit-details-marker { display: none; }
+.group-summary::before {
+  content: "▶";
   display: inline-block;
-  padding: 0.25rem 0.6rem;
+  width: 0.85rem;
+  font-size: 0.7rem;
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+.group-details[open] > .group-summary::before {
+  transform: rotate(90deg);
+}
+.group-summary:hover { background: rgba(127, 127, 127, 0.06); }
+.group-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.group-count {
+  color: var(--muted);
+  font-size: 0.78rem;
   border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg);
-  font-size: 0.875rem;
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+  font-variant-numeric: tabular-nums;
+}
+.group-details > .chart-grid {
+  padding: 0 0.75rem;
 }
 
 /* ----------------------------------------------------------------------
- * Toolbar
+ * Per-chart toolbar (`.toolbar.toolbar--card`)
  * ---------------------------------------------------------------------- */
-.toolbar {
+.toolbar--card {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem 1.25rem;
+  gap: 0.4rem 0.75rem;
   align-items: center;
-  padding: 0.75rem 1rem;
-  margin-bottom: 1rem;
+  padding: 0.4rem 0.5rem;
+  margin-bottom: 0.5rem;
   border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--card-bg);
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  -webkit-backdrop-filter: saturate(140%) blur(6px);
-  backdrop-filter: saturate(140%) blur(6px);
+  border-radius: 4px;
+  background: var(--bg);
+  font-size: 0.78rem;
 }
 .toolbar-group {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.25rem;
 }
 .toolbar-label {
   color: var(--muted);
-  font-size: 0.8rem;
+  font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  margin-right: 0.25rem;
+  margin-right: 0.15rem;
 }
 .toolbar-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 32px;
-  padding: 0.25rem 0.7rem;
+  min-height: 24px;
+  padding: 0.1rem 0.5rem;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 3px;
   background: var(--bg);
   color: var(--fg);
-  font-size: 0.85rem;
+  font-size: 0.78rem;
+  font-family: inherit;
+  cursor: pointer;
   text-decoration: none;
 }
 .toolbar-btn:hover { border-color: var(--accent); }
@@ -179,15 +187,16 @@ main {
   color: var(--accent-fg);
 }
 .toolbar-btn--active:hover { color: var(--accent-fg); }
+.toolbar-slider {
+  width: 6.5rem;
+  accent-color: var(--accent);
+}
 .toolbar-slider-label {
   font-variant-numeric: tabular-nums;
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   color: var(--muted);
-  min-width: 2.5rem;
+  min-width: 2.2rem;
   text-align: right;
-}
-#scope-slider {
-  width: 9rem;
 }
 
 /* ----------------------------------------------------------------------
@@ -211,10 +220,10 @@ main {
   border-radius: 6px;
   background: var(--card-bg);
   padding: 0.75rem 1rem 1rem;
-  margin-bottom: 1.25rem;
+  margin-bottom: 1rem;
 }
 .chart-card-title {
-  margin: 0 0 0.5rem;
+  margin: 0 0 0.4rem;
   font-size: 0.95rem;
   font-weight: 600;
 }
@@ -224,7 +233,7 @@ main {
 .chart-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
-  gap: 1rem;
+  gap: 0.75rem;
 }
 
 .chart-wrap {
@@ -252,7 +261,7 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   font-size: 0.875rem;
 }
 
-/* Per-card loading + error indicators for in-place toolbar refetches. */
+/* Per-card loading + error indicators (lazy-fetch on details toggle). */
 .chart-loading,
 .chart-error {
   position: absolute;
@@ -272,13 +281,19 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
 .chart-error {
   background: var(--bad);
   color: var(--accent-fg);
-  pointer-events: auto;
   max-width: 18rem;
   white-space: normal;
 }
 
 /* ----------------------------------------------------------------------
  * Custom external tooltip
+ *
+ * `pointer-events: none` is intentional and load-bearing: previously this
+ * was flipped to `auto` while visible, which caused a flicker loop where
+ * the cursor would land on the tooltip → mouseout fires on the canvas →
+ * tooltip hides → cursor lands on the canvas → tooltip shows. The cost is
+ * that links inside the tooltip are no longer clickable; the chart-card
+ * title already links to the permalink.
  * ---------------------------------------------------------------------- */
 .chart-tooltip-host {
   position: absolute;
@@ -295,8 +310,9 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   line-height: 1.35;
   max-width: 22rem;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
-  transform: translate(-50%, calc(-100% - 12px));
-  transition: opacity 100ms;
+  /* default offset; chart-init.js flips horizontally near the right edge */
+  transform: translate(12px, 12px);
+  transition: opacity 80ms;
 }
 .tt-title {
   font-weight: 600;
@@ -348,32 +364,23 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   white-space: normal;
   font-style: italic;
 }
-.tt-link {
-  color: #93c5fd;
-  font-size: 0.78rem;
-}
-.tt-link:hover { color: #c7e0ff; }
 
 /* ----------------------------------------------------------------------
  * Mobile
  * ---------------------------------------------------------------------- */
 @media (max-width: 768px) {
   main { padding: 1rem; }
-  .toolbar {
-    padding: 0.5rem 0.65rem;
-    gap: 0.5rem 0.85rem;
+  .toolbar--card {
+    gap: 0.35rem 0.6rem;
+    padding: 0.4rem 0.45rem;
   }
   .toolbar-btn {
-    min-height: 40px;
-    padding: 0.4rem 0.85rem;
-    font-size: 0.95rem;
+    min-height: 32px;
+    padding: 0.25rem 0.6rem;
+    font-size: 0.85rem;
   }
-  #scope-slider { width: 100%; flex: 1 1 auto; }
-  .chart-grid { grid-template-columns: 1fr; gap: 0.75rem; }
+  .toolbar-slider { width: 100%; flex: 1 1 auto; min-width: 6rem; }
+  .chart-grid { grid-template-columns: 1fr; gap: 0.5rem; }
   .chart-wrap { height: 260px; }
   main > .chart-card:not(.chart-grid .chart-card) .chart-wrap { height: 360px; }
-  .group {
-    padding: 0.75rem 0.85rem;
-  }
-  .charts a { padding: 0.35rem 0.7rem; min-height: 32px; }
 }
