@@ -1,34 +1,46 @@
 ---
 name: Tracking Issue
-about: Implementation context for work likely to span multiple PRs.
+about: A tracking issue for a feature or initiative in Vortex.
 title: "Tracking Issue: "
 labels: tracking-issue
 ---
 
 <!--
-Tracking issues are for work that needs shared implementation context and is
-likely to span multiple PRs. Use this template when the issue should track
-planning, implementation, stabilization, and follow-through.
+Thank you for opening a tracking issue. Tracking issues record a feature's
+progress from design to landing and connect related bugs, PRs, and design
+questions. They should stay readable a year from now.
 
 Route discussion elsewhere:
 
-- New ideas, fit questions, or early design feedback: start with a GitHub
-  Discussion.
 - Bug reports surfaced while implementing: file a bug issue and reference this
   tracking issue.
 - A design thread big enough to need its own page: spawn a tracking issue (as
   a sub-issue of this one if it is narrow) and discuss it there.
 
-Tracking issues should be understandable a year from creation. Short clarifying
-comments are fine. Long threads should be redirected.
+Short clarifying comments are fine. Long threads should be redirected.
 -->
 
 This is a tracking issue for ...
 
 <!--
-One or two sentences. State what the feature is and where it lives in the
-codebase (crate, module, file format, encoding). Link the parent Epic, design
-doc, prototype PR, or external reference.
+State what the feature is and where it lives in the codebase (crate, module,
+file format, encoding). Link the parent Epic, design doc, prototype PR, or
+external reference if any.
+-->
+
+## Motivation
+
+<!--
+Optional. Skip if this is a sub-issue of an Epic that already covers the why.
+
+For standalone tracking issues, cover:
+
+- The concrete problem and who hits it. Examples: a downstream integration
+  (DataFusion, DuckDB, Python, Java), a benchmark gap (TPC-H, ClickBench,
+  vortex-bench), a regression against Parquet or Arrow, or a file format or
+  encoding limitation.
+- What is currently blocked, slower, or larger than it should be. Link the
+  benchmark numbers, profile output, or related issues.
 -->
 
 ## Design

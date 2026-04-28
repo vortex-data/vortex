@@ -762,6 +762,12 @@ impl core::fmt::Debug for vortex_array::aggregate_fn::session::AggregateFnSessio
 
 pub fn vortex_array::aggregate_fn::session::AggregateFnSession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl vortex_session::SessionVar for vortex_array::aggregate_fn::session::AggregateFnSession
+
+pub fn vortex_array::aggregate_fn::session::AggregateFnSession::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_array::aggregate_fn::session::AggregateFnSession::as_any_mut(&mut self) -> &mut dyn core::any::Any
+
 pub trait vortex_array::aggregate_fn::session::AggregateFnSessionExt: vortex_session::SessionExt
 
 pub fn vortex_array::aggregate_fn::session::AggregateFnSessionExt::aggregate_fns(&self) -> vortex_session::Ref<'_, vortex_array::aggregate_fn::session::AggregateFnSession>
@@ -3402,23 +3408,51 @@ impl vortex_array::ArrayHash for vortex_array::arrays::masked::MaskedData
 
 pub fn vortex_array::arrays::masked::MaskedData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::Precision)
 
-pub trait vortex_array::arrays::masked::MaskedArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::Masked>
+pub struct vortex_array::arrays::masked::MaskedSlots
 
-pub fn vortex_array::arrays::masked::MaskedArrayExt::child(&self) -> &vortex_array::ArrayRef
+pub vortex_array::arrays::masked::MaskedSlots::child: vortex_array::ArrayRef
+
+pub vortex_array::arrays::masked::MaskedSlots::validity: core::option::Option<vortex_array::ArrayRef>
+
+impl vortex_array::arrays::masked::MaskedSlots
+
+pub const vortex_array::arrays::masked::MaskedSlots::CHILD: usize
+
+pub const vortex_array::arrays::masked::MaskedSlots::COUNT: usize
+
+pub const vortex_array::arrays::masked::MaskedSlots::NAMES: [&'static str; 2]
+
+pub const vortex_array::arrays::masked::MaskedSlots::VALIDITY: usize
+
+pub fn vortex_array::arrays::masked::MaskedSlots::from_slots(slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> Self
+
+pub fn vortex_array::arrays::masked::MaskedSlots::into_slots(self) -> alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>
+
+pub trait vortex_array::arrays::masked::MaskedArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::Masked> + vortex_array::arrays::masked::MaskedArraySlotsExt
 
 pub fn vortex_array::arrays::masked::MaskedArrayExt::masked_validity(&self) -> vortex_array::validity::Validity
 
-pub fn vortex_array::arrays::masked::MaskedArrayExt::validity_child(&self) -> core::option::Option<&vortex_array::ArrayRef>
-
 impl<T: vortex_array::TypedArrayRef<vortex_array::arrays::Masked>> vortex_array::arrays::masked::MaskedArrayExt for T
-
-pub fn T::child(&self) -> &vortex_array::ArrayRef
 
 pub fn T::masked_validity(&self) -> vortex_array::validity::Validity
 
-pub fn T::validity_child(&self) -> core::option::Option<&vortex_array::ArrayRef>
+pub trait vortex_array::arrays::masked::MaskedArraySlotsExt: vortex_array::TypedArrayRef<vortex_array::arrays::Masked>
 
-pub fn vortex_array::arrays::masked::mask_validity_canonical(canonical: vortex_array::Canonical, validity_mask: &vortex_mask::Mask, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::Canonical>
+pub fn vortex_array::arrays::masked::MaskedArraySlotsExt::child(&self) -> &vortex_array::ArrayRef
+
+pub fn vortex_array::arrays::masked::MaskedArraySlotsExt::slots_view(&self) -> vortex_array::arrays::masked::array::MaskedSlotsView<'_>
+
+pub fn vortex_array::arrays::masked::MaskedArraySlotsExt::validity(&self) -> core::option::Option<&vortex_array::ArrayRef>
+
+impl<T: vortex_array::TypedArrayRef<vortex_array::arrays::Masked>> vortex_array::arrays::masked::MaskedArraySlotsExt for T
+
+pub fn T::child(&self) -> &vortex_array::ArrayRef
+
+pub fn T::slots_view(&self) -> vortex_array::arrays::masked::array::MaskedSlotsView<'_>
+
+pub fn T::validity(&self) -> core::option::Option<&vortex_array::ArrayRef>
+
+pub fn vortex_array::arrays::masked::mask_validity_canonical(canonical: vortex_array::Canonical, validity: vortex_array::validity::Validity, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::Canonical>
 
 pub type vortex_array::arrays::masked::MaskedArray = vortex_array::Array<vortex_array::arrays::Masked>
 
@@ -9078,6 +9112,12 @@ impl core::fmt::Debug for vortex_array::dtype::session::DTypeSession
 
 pub fn vortex_array::dtype::session::DTypeSession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl vortex_session::SessionVar for vortex_array::dtype::session::DTypeSession
+
+pub fn vortex_array::dtype::session::DTypeSession::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_array::dtype::session::DTypeSession::as_any_mut(&mut self) -> &mut dyn core::any::Any
+
 pub trait vortex_array::dtype::session::DTypeSessionExt: vortex_session::SessionExt
 
 pub fn vortex_array::dtype::session::DTypeSessionExt::dtypes(&self) -> vortex_session::Ref<'_, vortex_array::dtype::session::DTypeSession>
@@ -13420,6 +13460,12 @@ impl core::fmt::Debug for vortex_array::memory::MemorySession
 
 pub fn vortex_array::memory::MemorySession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl vortex_session::SessionVar for vortex_array::memory::MemorySession
+
+pub fn vortex_array::memory::MemorySession::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_array::memory::MemorySession::as_any_mut(&mut self) -> &mut dyn core::any::Any
+
 pub struct vortex_array::memory::WritableHostBuffer
 
 impl vortex_array::memory::WritableHostBuffer
@@ -13525,6 +13571,12 @@ pub fn vortex_array::optimizer::kernels::ArrayKernels::default() -> vortex_array
 impl core::fmt::Debug for vortex_array::optimizer::kernels::ArrayKernels
 
 pub fn vortex_array::optimizer::kernels::ArrayKernels::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_session::SessionVar for vortex_array::optimizer::kernels::ArrayKernels
+
+pub fn vortex_array::optimizer::kernels::ArrayKernels::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_array::optimizer::kernels::ArrayKernels::as_any_mut(&mut self) -> &mut dyn core::any::Any
 
 pub trait vortex_array::optimizer::kernels::ArrayKernelsExt: vortex_session::SessionExt
 
@@ -17648,6 +17700,12 @@ impl core::fmt::Debug for vortex_array::scalar_fn::session::ScalarFnSession
 
 pub fn vortex_array::scalar_fn::session::ScalarFnSession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl vortex_session::SessionVar for vortex_array::scalar_fn::session::ScalarFnSession
+
+pub fn vortex_array::scalar_fn::session::ScalarFnSession::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_array::scalar_fn::session::ScalarFnSession::as_any_mut(&mut self) -> &mut dyn core::any::Any
+
 pub trait vortex_array::scalar_fn::session::ScalarFnSessionExt: vortex_session::SessionExt
 
 pub fn vortex_array::scalar_fn::session::ScalarFnSessionExt::scalar_fns(&self) -> vortex_session::Ref<'_, vortex_array::scalar_fn::session::ScalarFnSession>
@@ -19101,6 +19159,12 @@ pub fn vortex_array::session::ArraySession::default() -> Self
 impl core::fmt::Debug for vortex_array::session::ArraySession
 
 pub fn vortex_array::session::ArraySession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_session::SessionVar for vortex_array::session::ArraySession
+
+pub fn vortex_array::session::ArraySession::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_array::session::ArraySession::as_any_mut(&mut self) -> &mut dyn core::any::Any
 
 pub trait vortex_array::session::ArraySessionExt: vortex_session::SessionExt
 
