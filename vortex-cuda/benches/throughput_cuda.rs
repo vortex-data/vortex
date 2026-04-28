@@ -8,6 +8,8 @@
 
 #![expect(clippy::unwrap_used)]
 
+mod bench_config;
+
 use std::time::Duration;
 
 use criterion::BenchmarkId;
@@ -122,11 +124,7 @@ fn benchmark_transfer_throughput(c: &mut Criterion) {
 
 criterion::criterion_group! {
     name = benches;
-    config = Criterion::default().without_plots()
-        .sample_size(10)
-        .warm_up_time(Duration::from_nanos(1))
-        .measurement_time(Duration::from_nanos(1))
-        .nresamples(10);
+    config = bench_config::cuda_bench_config();
     targets = benchmark_transfer_throughput
 }
 

@@ -6,7 +6,8 @@
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
 
-mod common;
+mod bench_config;
+mod timed_launch_strategy;
 
 use std::fmt::Debug;
 use std::mem::size_of;
@@ -33,7 +34,7 @@ use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
-use crate::common::TimedLaunchStrategy;
+use crate::timed_launch_strategy::TimedLaunchStrategy;
 
 const BENCH_ARGS: &[(usize, &str)] = &[(10_000_000, "10M")];
 
@@ -160,11 +161,7 @@ fn benchmark_dict(c: &mut Criterion) {
 
 criterion::criterion_group! {
     name = benches;
-    config = Criterion::default().without_plots()
-        .sample_size(10)
-        .warm_up_time(Duration::from_nanos(1))
-        .measurement_time(Duration::from_nanos(1))
-        .nresamples(10);
+    config = bench_config::cuda_bench_config();
     targets = benchmark_dict
 }
 

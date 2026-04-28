@@ -5,6 +5,8 @@
 #![expect(clippy::cast_possible_truncation)]
 #![expect(clippy::expect_used)]
 
+mod bench_config;
+
 use std::marker::PhantomData;
 use std::mem::size_of;
 use std::sync::Arc;
@@ -650,11 +652,7 @@ fn benchmark_dynamic_dispatch(c: &mut Criterion) {
 
 criterion::criterion_group! {
     name = benches;
-    config = Criterion::default().without_plots()
-        .sample_size(10)
-        .warm_up_time(Duration::from_nanos(1))
-        .measurement_time(Duration::from_nanos(1))
-        .nresamples(10);
+    config = bench_config::cuda_bench_config();
     targets = benchmark_dynamic_dispatch
 }
 

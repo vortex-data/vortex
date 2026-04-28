@@ -6,7 +6,8 @@
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
 
-mod common;
+mod bench_config;
+mod timed_launch_strategy;
 
 use std::mem::size_of;
 use std::sync::Arc;
@@ -32,7 +33,7 @@ use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
-use crate::common::TimedLaunchStrategy;
+use crate::timed_launch_strategy::TimedLaunchStrategy;
 
 /// Creates a run-end encoded array with the specified output length and average run length.
 fn make_runend_array_typed<T>(
@@ -117,11 +118,7 @@ fn benchmark_runend(c: &mut Criterion) {
 
 criterion::criterion_group! {
     name = benches;
-    config = Criterion::default().without_plots()
-        .sample_size(10)
-        .warm_up_time(Duration::from_nanos(1))
-        .measurement_time(Duration::from_nanos(1))
-        .nresamples(10);
+    config = bench_config::cuda_bench_config();
     targets = benchmark_runend
 }
 

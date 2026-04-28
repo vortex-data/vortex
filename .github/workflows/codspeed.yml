@@ -65,3 +65,36 @@ jobs:
           run: bash scripts/bench-taskset.sh cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "simulation"
+
+  bench-codspeed-cuda:
+    if: github.repository == 'vortex-data/vortex'
+    name: "Benchmark with Codspeed (CUDA)"
+    timeout-minutes: 30
+    runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=bench-codspeed-cuda
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Display NVIDIA SMI details
+        run: |
+          nvidia-smi
+          nvidia-smi -L
+          nvidia-smi -q -d Memory
+      - name: Install Codspeed
+        uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
+        with:
+          tool: cargo-codspeed
+      - name: Build benchmarks
+        run: cargo codspeed build -m walltime -p vortex-cuda --profile bench
+      - name: Run benchmarks
+        uses: CodSpeedHQ/action@d872884a306dd4853acf0f584f4b706cf0cc72a2
+        env:
+          CARGO_MANIFEST_DIR: ${{ github.workspace }}/vortex-cuda
+        with:
+          run: cargo codspeed run
+          token: ${{ secrets.CODSPEED_TOKEN }}
+          mode: "walltime"
