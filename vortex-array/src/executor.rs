@@ -132,9 +132,7 @@ impl ArrayRef {
             // When executing a child for ExecuteSlot, try execute_parent against
             // the suspended parent on the stack. This lets kernels like RunEnd's
             // FilterKernel fire before the child is forced to canonical.
-            if current_builder.is_none()
-                && let Some(frame) = stack.last()
-            {
+            if let Some(frame) = stack.last() {
                 if let Some(result) =
                     current_array.execute_parent(&frame.parent_array, frame.slot_idx, ctx)?
                 {
@@ -152,7 +150,9 @@ impl ArrayRef {
             // ── Step 2b: execute_parent ─────────────────────────────────────────
             //
             // Skip execute_parent with child.
-            if let Some(rewritten) = try_execute_parent(&current_array, ctx)? {
+            if current_builder.is_none()
+                && let Some(rewritten) = try_execute_parent(&current_array, ctx)?
+            {
                 ctx.log(format_args!(
                     "execute_parent rewrote {} -> {}",
                     current_array, rewritten
