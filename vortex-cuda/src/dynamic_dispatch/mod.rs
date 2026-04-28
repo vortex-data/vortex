@@ -388,11 +388,11 @@ impl ScalarOp {
         }
     }
 
-    /// ALP floating-point decode.
-    pub fn alp(f: f32, e: f32) -> Self {
+    /// ALP floating-point decode (f32 or f64).
+    pub fn alp(f: f64, e: f64, output_ptype: PTypeTag) -> Self {
         Self {
             op_code: ScalarOp_ScalarOpCode_ALP,
-            output_ptype: PTypeTag_PTYPE_F32,
+            output_ptype,
             params: ScalarParams {
                 alp: ScalarParams_AlpParams {
                     f,
@@ -436,7 +436,7 @@ impl MaterializedPlan {
             PType::U8 | PType::I8 => PType::U8,
             PType::U16 | PType::I16 => PType::U16,
             PType::U32 | PType::I32 | PType::F32 => PType::U32,
-            PType::U64 | PType::I64 => PType::U64,
+            PType::U64 | PType::I64 | PType::F64 => PType::U64,
             other => vortex_bail!("dynamic dispatch does not support PType {:?}", other),
         };
         match_each_unsigned_integer_ptype!(unsigned_ptype, |T| {
@@ -708,7 +708,7 @@ mod tests {
                 &[
                     ScalarOp::frame_of_ref(reference as u64, PTypeTag_PTYPE_U32),
                     ScalarOp::zigzag(PTypeTag_PTYPE_U32),
-                    ScalarOp::alp(alp_f, alp_e),
+                    ScalarOp::alp(alp_f as f64, alp_e as f64, PTypeTag_PTYPE_F32),
                 ],
             )],
             PTypeTag_PTYPE_U32,
@@ -1858,16 +1858,117 @@ mod tests {
     }
 
     #[crate::test]
-    fn test_f64_rejected() {
-        // F64 arrays should be rejected by the plan builder, not silently accepted.
+    fn test_f64_primitive_fuses() {
+        // Raw F64 primitives are now accepted — the kernel operates on uint64_t
+        // (same bit width), so LOAD correctly preserves the f64 bit pattern.
         let values: Vec<f64> = vec![1.0, 2.0, 3.0];
         let primitive = PrimitiveArray::new(Buffer::from(values), NonNullable);
         let plan = DispatchPlan::new(&primitive.into_array(), CudaDispatchMode::Auto)
-            .expect("DispatchPlan::new should not fail for f64");
+            .expect("DispatchPlan::new should not fail for f64 primitive");
         assert!(
-            matches!(plan, DispatchPlan::Unfused),
-            "expected F64 to be classified as Unfused"
+            matches!(plan, DispatchPlan::Fused(_)),
+            "expected F64 primitive to be classified as Fused"
         );
+    }
+
+    #[crate::test]
+    async fn test_alp_f64_for_bitpacked() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        // ALP(FoR(BitPacked)) with f64: same structure as the f32 test.
+        let len = 3000;
+        let exponents = Exponents { e: 2, f: 0 };
+        let floats: Vec<f64> = (0..len)
+            .map(|i| <f64 as ALPFloat>::decode_single(10 + (i as i64 % 64), exponents))
+            .collect();
+        let float_prim = PrimitiveArray::new(Buffer::from(floats), NonNullable);
+
+        let alp = alp_encode(float_prim.as_view(), Some(exponents), &mut ctx)?;
+        assert!(alp.patches().is_none());
+        let for_arr = FoR::encode(alp.encoded().clone().execute::<PrimitiveArray>(&mut ctx)?)?;
+        let bp = BitPacked::encode(
+            for_arr.encoded(),
+            6,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
+
+        let tree = ALP::new(
+            FoR::try_new(bp.into_array(), for_arr.reference_scalar().clone())?.into_array(),
+            exponents,
+            None,
+        );
+        let array = tree.into_array();
+
+        // CPU decode as ground truth.
+        let cpu = array
+            .clone()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
+
+        // GPU decode.
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let canonical = try_gpu_dispatch(&array, &mut cuda_ctx).await?;
+        let gpu = CanonicalCudaExt::into_host(canonical).await?.into_array();
+
+        vortex::array::assert_arrays_eq!(cpu, gpu);
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(4096, None)]
+    #[case(4096, Some(100..3000))]
+    #[crate::test]
+    async fn test_alp_f64_with_patches(
+        #[case] len: usize,
+        #[case] slice_range: Option<Range<usize>>,
+    ) -> VortexResult<()> {
+        let mut values: Vec<f64> = (0..len).map(|i| (i as f64) * 1.1).collect();
+        // Insert exception values that ALP can't encode.
+        values[0] = 99.9;
+        values[500] = std::f64::consts::PI;
+        values[1024] = std::f64::consts::E;
+        if len > 2048 {
+            values[2048] = std::f64::consts::LN_2;
+        }
+        if len > 3333 {
+            values[3333] = std::f64::consts::SQRT_2;
+        }
+
+        let float_prim = PrimitiveArray::new(Buffer::from(values), NonNullable);
+        let encoded = alp_encode(
+            float_prim.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?
+        .into_array();
+
+        let (array, base_offset) = if let Some(ref range) = slice_range {
+            (encoded.slice(range.clone())?, range.start)
+        } else {
+            (encoded, 0)
+        };
+
+        // Decode on CPU as ground truth (accounts for ALP precision loss + patches).
+        let cpu_decoded = array
+            .clone()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
+        let expected: Vec<f64> = cpu_decoded.as_slice::<f64>().to_vec();
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let canonical = try_gpu_dispatch(&array, &mut cuda_ctx).await?;
+        let result = CanonicalCudaExt::into_host(canonical).await?;
+        let result_prim = result.as_primitive();
+        let actual: Vec<f64> = result_prim.as_slice::<f64>().to_vec();
+        for (i, (&a, &e)) in actual.iter().zip(expected.iter()).enumerate() {
+            assert!(
+                a.to_bits() == e.to_bits(),
+                "mismatch at index {i} (original index {}): gpu={a} cpu={e} (bits: {:#018x} vs {:#018x})",
+                i + base_offset,
+                a.to_bits(),
+                e.to_bits(),
+            );
+        }
+        Ok(())
     }
 
     #[crate::test]
