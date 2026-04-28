@@ -110,7 +110,7 @@ impl L2Denorm {
     /// normalized row.
     ///
     /// Plain [`Vector`] children are promoted to [`NormalizedVector`] after validation so that
-    /// downstream execution paths can rely on the unit-norm refinement.
+    /// downstream execution paths can rely on the unit-norm marker.
     ///
     /// # Errors
     ///

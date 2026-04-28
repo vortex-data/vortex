@@ -22,10 +22,6 @@ impl ExtVTable for NormalizedVector {
         ExtId::new("vortex.tensor.normalized_vector")
     }
 
-    fn is_refinement(&self) -> bool {
-        true
-    }
-
     fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
         // Storage must be an extension-wrapped `Vector`. The inner `Vector` vtable's
         // `validate_dtype` already ran when the inner `ExtDType` was constructed, so we
@@ -48,7 +44,7 @@ impl ExtVTable for NormalizedVector {
         _ext_dtype: &'a ExtDType<Self>,
         storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>> {
-        // Per-scalar refinement is a no-op: unit-norm is enforced in bulk by
+        // Per-scalar validation is a no-op: unit-norm is enforced in bulk by
         // `validate_unit_norm_rows` at array construction, matching how `L2Denorm`
         // validates up front rather than on each scalar access.
         Ok(storage_value)
@@ -119,11 +115,6 @@ mod tests {
             Nullability::NonNullable,
         );
         assert!(ExtDType::<NormalizedVector>::try_new(EmptyMetadata, storage).is_err());
-    }
-
-    #[test]
-    fn is_refinement_is_true() {
-        assert!(NormalizedVector.is_refinement());
     }
 
     #[test]

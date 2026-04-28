@@ -28,26 +28,6 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     /// Returns the ID for this extension type.
     fn id(&self) -> ExtId;
 
-    /// Returns `true` when this extension type logically refines its storage dtype.
-    ///
-    /// A refinement asserts that every value in this extension's logical domain is also a
-    /// value of the storage dtype's domain, with additional invariants enforced by this
-    /// vtable. The canonical examples are `NormalizedVector` (refines `Vector` by
-    /// requiring unit L2 norm) and a hypothetical `PositiveInt` (refines `Primitive(U64)`
-    /// by excluding zero).
-    ///
-    /// The default is `false`: plain extension types (e.g. `Uuid` over
-    /// `FixedSizeList<u8, 16>`) encode a distinct logical type in their storage that is
-    /// not substitutable with it.
-    ///
-    /// This flag is consumed by `ScalarFnRefinementPeelRule` (in
-    /// `arrays::scalar_fn::rules`) to decide whether to transparently peel a refinement
-    /// input and retry a scalar fn on the source type. See that rule for the full
-    /// semantics; the `TODO(connor)` there also tracks refinement-closure preservation.
-    fn is_refinement(&self) -> bool {
-        false
-    }
-
     // Methods related to the extension `DType`.
 
     /// Serialize the metadata into a byte vector.

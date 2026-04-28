@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Normalized vector extension type: a refinement of [`Vector`](crate::vector::Vector) whose
+//! Normalized vector extension type over [`Vector`](crate::vector::Vector) storage whose
 //! rows are guaranteed (or asserted, for lossy encodings) to have unit L2 norm.
 
 use num_traits::ToPrimitive;
@@ -20,8 +20,8 @@ use crate::types::vector::Vector;
 use crate::utils::extract_flat_elements;
 use crate::utils::unit_norm_tolerance;
 
-/// Refinement of [`Vector`](crate::vector::Vector) that asserts every valid row is L2-normalized
-/// (unit-norm) or the zero vector.
+/// Extension type over [`Vector`](crate::vector::Vector) storage that asserts every valid row is
+/// L2-normalized (unit-norm) or the zero vector.
 ///
 /// The storage dtype is `DType::Extension(Vector(FixedSizeList<float, dim>))`, i.e. a
 /// [`Vector`](crate::vector::Vector) extension array. Downstream operators such as
@@ -29,7 +29,7 @@ use crate::utils::unit_norm_tolerance;
 /// [`L2Norm`](crate::scalar_fns::l2_norm::L2Norm),
 /// [`InnerProduct`](crate::scalar_fns::inner_product::InnerProduct), and
 /// [`CosineSimilarity`](crate::scalar_fns::cosine_similarity::CosineSimilarity) short-circuit
-/// arithmetic when they see this refinement.
+/// arithmetic when they see this type.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct NormalizedVector;
 
@@ -145,7 +145,7 @@ pub(crate) fn validate_unit_norm_rows(
 /// Returns the underlying `FixedSizeList` storage dtype for a vector-shaped extension dtype.
 ///
 /// For a plain [`Vector`], this is the direct storage dtype. For a [`NormalizedVector`]
-/// refinement it drills through one extra extension layer.
+/// it drills through one extra extension layer.
 pub(crate) fn vector_fsl_storage_dtype(
     ext: &vortex_array::dtype::extension::ExtDTypeRef,
 ) -> Option<vortex_array::dtype::DType> {

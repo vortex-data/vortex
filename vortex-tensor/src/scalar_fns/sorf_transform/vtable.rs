@@ -157,7 +157,7 @@ impl ScalarFnVTable for SorfTransform {
         }
 
         // Execute the child to get either a `Vector` extension or a `NormalizedVector`
-        // refinement wrapping an FSL of f32 coordinates. The `return_dtype` check guarantees
+        // wrapping a `Vector` over an FSL of f32 coordinates. The `return_dtype` check guarantees
         // the shape is `Vector<padded_dim, f32>` at the FSL level, so drill past any
         // `NormalizedVector` wrapper before unpacking.
         let child_ref = crate::types::normalized_vector::inner_vector_array(&args.get(0)?, ctx)?;

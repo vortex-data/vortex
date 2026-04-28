@@ -96,10 +96,10 @@ pub fn validate_tensor_float_input(input_dtype: &DType) -> VortexResult<TensorMa
 /// Validates that two arguments of a binary tensor-like operator share the same float tensor
 /// dtype (ignoring top-level nullability), returning the [`TensorMatch`] of `lhs`.
 ///
-/// Plain [`Vector`](crate::vector::Vector) and its
-/// [`NormalizedVector`](crate::normalized_vector::NormalizedVector) refinement are treated as
-/// interchangeable when they share element ptype and dimension, since `NormalizedVector` is a
-/// refinement of `Vector` and the per-row math ignores the unit-norm marker.
+/// Plain [`Vector`](crate::vector::Vector) and
+/// [`NormalizedVector`](crate::normalized_vector::NormalizedVector) are treated as
+/// interchangeable when they share element ptype and dimension, since the per-row math ignores
+/// the unit-norm marker.
 pub fn validate_binary_tensor_float_inputs<'a>(
     lhs: &'a DType,
     rhs: &DType,
@@ -112,7 +112,7 @@ pub fn validate_binary_tensor_float_inputs<'a>(
     validate_tensor_float_input(lhs)
 }
 
-/// Returns `true` when `lhs` and `rhs` are both within the `Vector` refinement family (plain
+/// Returns `true` when `lhs` and `rhs` are both within the vector extension family (plain
 /// `Vector` or `NormalizedVector`) and share the same float ptype and dimension.
 fn vector_shapes_match(lhs: &DType, rhs: &DType) -> bool {
     use crate::types::normalized_vector::AnyNormalizedVector;

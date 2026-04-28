@@ -25,9 +25,8 @@ impl Matcher for AnyNormalizedVector {
             return None;
         }
 
-        // `NormalizedVector` is a refinement of `Vector`, so its storage dtype is
-        // `DType::Extension(Vector(FixedSizeList<float, dim>))`. Drill into the inner `Vector`
-        // to recover the dimension and element dtype.
+        // `NormalizedVector` stores a `Vector(FixedSizeList<float, dim>)`. Drill into the inner
+        // `Vector` to recover the dimension and element dtype.
         let DType::Extension(inner_ext) = ext_dtype.storage_dtype() else {
             vortex_panic!(
                 "`NormalizedVector` storage must be `DType::Extension(Vector)`, \

@@ -33,8 +33,8 @@ pub enum TensorMatch<'a> {
     /// Note that we store an owned type here wrapping (copyable) data from the dtype.
     Vector(VectorMatcherMetadata),
 
-    /// A [`NormalizedVector`](crate::normalized_vector::NormalizedVector) refinement over
-    /// [`Vector`](crate::vector::Vector).
+    /// A [`NormalizedVector`](crate::normalized_vector::NormalizedVector) extension over
+    /// [`Vector`](crate::vector::Vector) storage.
     NormalizedVector(VectorMatcherMetadata),
 }
 
@@ -56,7 +56,7 @@ impl TensorMatch<'_> {
     }
 
     /// Returns `true` when the dtype is a
-    /// [`NormalizedVector`](crate::normalized_vector::NormalizedVector) refinement.
+    /// [`NormalizedVector`](crate::normalized_vector::NormalizedVector).
     pub fn is_normalized(self) -> bool {
         matches!(self, Self::NormalizedVector(_))
     }

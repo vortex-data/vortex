@@ -9,7 +9,7 @@ pub mod datetime;
 pub mod uuid;
 
 #[cfg(test)]
-pub(crate) mod tests;
+mod tests;
 
 /// An empty metadata struct for extension dtypes that do not require any metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

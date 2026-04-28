@@ -2,11 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! A test extension type representing unsigned integers divisible by a given divisor.
-//!
-//! `DivisibleInt` is a refinement of `Primitive(U64)`: every valid value is a `u64`, with the
-//! additional invariant that it is divisible by the metadata-provided [`Divisor`]. Its
-//! `ExtVTable::is_refinement` returns `true` so that generic scalar-fn dispatch can peel it
-//! to its storage dtype automatically.
 
 use std::fmt;
 
@@ -31,7 +26,7 @@ impl fmt::Display for Divisor {
     }
 }
 
-/// Refinement type for unsigned integers that must be divisible by the metadata divisor.
+/// Extension type for unsigned integers that must be divisible by the metadata divisor.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct DivisibleInt;
 
@@ -41,33 +36,6 @@ impl ExtVTable for DivisibleInt {
 
     fn id(&self) -> ExtId {
         ExtId::new("test.divisible_int")
-    }
-
-    fn is_refinement(&self) -> bool {
-        true
-    }
-
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        match ext_dtype.storage_dtype() {
-            DType::Primitive(PType::U64, _) => Ok(()),
-            other => vortex_bail!("`DivisibleInt` requires `U64` storage, got {other}"),
-        }
-    }
-
-    fn unpack_native<'a>(
-        ext_dtype: &'a ExtDType<Self>,
-        storage_value: &'a ScalarValue,
-    ) -> VortexResult<Self::NativeValue<'a>> {
-        let ScalarValue::Primitive(pv) = storage_value else {
-            vortex_bail!("`DivisibleInt` expected a primitive scalar, got {storage_value:?}");
-        };
-        let n = pv.cast::<u64>()?;
-        let divisor = ext_dtype.metadata().0;
-        vortex_ensure!(
-            n.is_multiple_of(divisor),
-            "{n} is not divisible by {divisor}",
-        );
-        Ok(n)
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
@@ -82,6 +50,26 @@ impl ExtVTable for DivisibleInt {
         let n = u64::from_le_bytes(bytes);
         vortex_ensure!(n > 0, "divisor must be greater than 0");
         Ok(Divisor(n))
+    }
+
+    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+        vortex_ensure!(
+            matches!(ext_dtype.storage_dtype(), DType::Primitive(PType::U64, _)),
+            "divisible int storage dtype must be u64"
+        );
+        Ok(())
+    }
+
+    fn unpack_native<'a>(
+        ext_dtype: &'a ExtDType<Self>,
+        storage_value: &'a ScalarValue,
+    ) -> VortexResult<Self::NativeValue<'a>> {
+        let value = storage_value.as_primitive().cast::<u64>()?;
+        let metadata = ext_dtype.metadata();
+        if value % metadata.0 != 0 {
+            vortex_bail!("{} is not divisible by {}", value, metadata.0);
+        }
+        Ok(value)
     }
 }
 
@@ -111,8 +99,9 @@ mod tests {
 
     #[test]
     fn rejects_zero_divisor() {
+        let vtable = DivisibleInt;
         let bytes = 0u64.to_le_bytes();
-        assert!(DivisibleInt.deserialize_metadata(&bytes).is_err());
+        assert!(vtable.deserialize_metadata(&bytes).is_err());
     }
 
     #[test]
@@ -137,10 +126,5 @@ mod tests {
             )
             .is_ok()
         );
-    }
-
-    #[test]
-    fn is_refinement_is_true() {
-        assert!(DivisibleInt.is_refinement());
     }
 }
