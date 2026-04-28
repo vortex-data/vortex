@@ -28,7 +28,7 @@ impl ClickBenchBenchmark {
         queries_file: Option<String>,
         use_remote_data_dir: Option<String>,
     ) -> Result<Self> {
-        let url = Self::create_data_url(&use_remote_data_dir, flavor)?;
+        let url = Self::create_data_url(use_remote_data_dir.as_deref(), flavor)?;
         Ok(Self {
             flavor,
             queries_file,
@@ -36,8 +36,8 @@ impl ClickBenchBenchmark {
         })
     }
 
-    fn create_data_url(remote_data_dir: &Option<String>, flavor: Flavor) -> Result<Url> {
-        resolve_data_url(remote_data_dir.as_deref(), &format!("clickbench_{flavor}"))
+    fn create_data_url(remote_data_dir: Option<&str>, flavor: Flavor) -> Result<Url> {
+        resolve_data_url(remote_data_dir, &format!("clickbench_{flavor}"))
     }
 }
 

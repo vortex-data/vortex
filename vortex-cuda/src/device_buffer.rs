@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::cmp::min;
 use std::fmt::Debug;
+use std::fmt::Formatter;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -11,6 +15,7 @@ use cudarc::driver::CudaView;
 use cudarc::driver::DevicePtr;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::sys;
+use futures::executor::block_on;
 use futures::future::BoxFuture;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBuffer;
@@ -174,7 +179,7 @@ impl CudaBufferExt for BufferHandle {
 }
 
 impl Debug for CudaDeviceBuffer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CudaDeviceBuffer")
             .field("allocation", &self.allocation)
             .field("device_ptr", &self.device_ptr)
@@ -184,8 +189,8 @@ impl Debug for CudaDeviceBuffer {
     }
 }
 
-impl std::hash::Hash for CudaDeviceBuffer {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl Hash for CudaDeviceBuffer {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.device_ptr.hash(state);
         self.len.hash(state);
         self.offset.hash(state);
@@ -224,7 +229,7 @@ impl DeviceBuffer for CudaDeviceBuffer {
     ///
     /// Returns an error if the CUDA memory copy operation fails.
     fn copy_to_host_sync(&self, alignment: Alignment) -> VortexResult<ByteBuffer> {
-        futures::executor::block_on(self.copy_to_host(alignment)?)
+        block_on(self.copy_to_host(alignment)?)
     }
 
     /// Copies a device buffer to host memory asynchronously.
@@ -322,7 +327,7 @@ impl DeviceBuffer for CudaDeviceBuffer {
         })
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
+    fn as_any(&self) -> &dyn Any {
         self
     }
 

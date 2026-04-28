@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use cudarc::driver::CudaContext;
 use cudarc::driver::CudaEvent;
@@ -105,10 +107,10 @@ pub struct PinnedByteBufferPool {
     max_keep_per_size: usize,
     buckets: Mutex<HashMap<usize, Vec<PinnedByteBuffer>>>,
     inflight: Mutex<Vec<InflightPinnedBuffer>>,
-    hits: std::sync::atomic::AtomicU64,
-    misses: std::sync::atomic::AtomicU64,
-    allocs: std::sync::atomic::AtomicU64,
-    puts: std::sync::atomic::AtomicU64,
+    hits: AtomicU64,
+    misses: AtomicU64,
+    allocs: AtomicU64,
+    puts: AtomicU64,
 }
 
 struct InflightPinnedBuffer {
@@ -129,10 +131,10 @@ impl PinnedByteBufferPool {
             max_keep_per_size: max_keep_per_size.max(1),
             buckets: Mutex::new(HashMap::new()),
             inflight: Mutex::new(Vec::new()),
-            hits: std::sync::atomic::AtomicU64::new(0),
-            misses: std::sync::atomic::AtomicU64::new(0),
-            allocs: std::sync::atomic::AtomicU64::new(0),
-            puts: std::sync::atomic::AtomicU64::new(0),
+            hits: AtomicU64::new(0),
+            misses: AtomicU64::new(0),
+            allocs: AtomicU64::new(0),
+            puts: AtomicU64::new(0),
         }
     }
 
@@ -169,10 +171,10 @@ impl PinnedByteBufferPool {
     /// Snapshot pool reuse statistics.
     pub fn stats(&self) -> PinnedPoolStats {
         PinnedPoolStats {
-            hits: self.hits.load(std::sync::atomic::Ordering::Relaxed),
-            misses: self.misses.load(std::sync::atomic::Ordering::Relaxed),
-            allocs: self.allocs.load(std::sync::atomic::Ordering::Relaxed),
-            puts: self.puts.load(std::sync::atomic::Ordering::Relaxed),
+            hits: self.hits.load(Ordering::Relaxed),
+            misses: self.misses.load(Ordering::Relaxed),
+            allocs: self.allocs.load(Ordering::Relaxed),
+            puts: self.puts.load(Ordering::Relaxed),
         }
     }
 
@@ -211,16 +213,14 @@ impl PinnedByteBufferPool {
             if let Some(bucket) = buckets.get_mut(&key_len)
                 && let Some(buf) = bucket.pop()
             {
-                self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                self.hits.fetch_add(1, Ordering::Relaxed);
                 let mut buf = buf;
                 buf.set_logical_len(len);
                 return Ok(buf);
             }
         }
-        self.misses
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.allocs
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.misses.fetch_add(1, Ordering::Relaxed);
+        self.allocs.fetch_add(1, Ordering::Relaxed);
         unsafe { PinnedByteBuffer::uninit_with_capacity(&self.ctx, key_len, len) }
     }
 
@@ -238,7 +238,7 @@ impl PinnedByteBufferPool {
         };
         // If the pool is full, the buffer (cuMemFreeHost) is dropped outside the lock.
         drop(overflow);
-        self.puts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.puts.fetch_add(1, Ordering::Relaxed);
     }
 
     fn try_get_inner(&self, len: usize) -> VortexResult<Option<PinnedByteBuffer>> {
@@ -248,7 +248,7 @@ impl PinnedByteBufferPool {
         if let Some(bucket) = buckets.get_mut(&key_len)
             && let Some(mut buf) = bucket.pop()
         {
-            self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.hits.fetch_add(1, Ordering::Relaxed);
             buf.set_logical_len(len);
             Ok(Some(buf))
         } else {

@@ -40,6 +40,8 @@ use vortex::error::vortex_err;
 use super::CudaDispatchPlan;
 use super::MaterializedStage;
 use super::PTypeTag;
+use super::PTypeTag_PTYPE_F32;
+use super::PTypeTag_PTYPE_F64;
 use super::SMEM_TILE_SIZE;
 use super::ScalarOp;
 use super::SourceOp;
@@ -47,6 +49,7 @@ use super::ptype_to_tag;
 use super::tag_to_ptype;
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
+use crate::executor::CudaDispatchMode;
 use crate::kernel::load_patches_to_gpu;
 
 /// A plan whose source buffers have been copied to the device, ready for kernel launch.
@@ -63,16 +66,15 @@ pub struct MaterializedPlan {
 
 /// Checks whether the encoding of an array can be fused into a dynamic-dispatch plan.
 fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
-    // The dynamic dispatch kernel only supports F32 floats (via ALP).
-    // F16 and F64 have no reinterpret path in the kernel.
-    if matches!(PType::try_from(array.dtype()), Ok(PType::F16 | PType::F64)) {
+    // F16 has no reinterpret path in the kernel.
+    if matches!(PType::try_from(array.dtype()), Ok(PType::F16)) {
         return false;
     }
 
     let id = array.encoding_id();
     if id == ALP.id() {
         let arr = array.as_::<ALP>();
-        return arr.dtype().as_ptype() == PType::F32;
+        return matches!(arr.dtype().as_ptype(), PType::F32 | PType::F64);
     }
     if id == BitPacked.id() {
         return true;
@@ -121,6 +123,33 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
         || id == Sequence.id()
 }
 
+/// Returns `true` if a registered standalone kernel can decode the entire
+/// `array` tree in a single launch without recursing into `execute_cuda`
+/// for child encodings.
+pub fn has_standalone_kernel(array: &ArrayRef) -> bool {
+    let id = array.encoding_id();
+
+    // Leaf encodings: no children to recurse into.
+    if id == BitPacked.id() || id == Sequence.id() {
+        return true;
+    }
+
+    // FoR fuses with BitPacked (FFOR) and Slice(BitPacked) in one launch.
+    if id == FoR.id() {
+        let for_arr = array.as_::<FoR>();
+        let child = for_arr.encoded();
+        if child.encoding_id() == BitPacked.id() {
+            return true;
+        }
+        if let Some(slice) = child.as_opt::<Slice>() {
+            return slice.child().encoding_id() == BitPacked.id();
+        }
+        return false;
+    }
+
+    false
+}
+
 /// An unmaterialized stage: a source op, scalar ops, and optional source buffer reference.
 ///
 /// Patches are tied to their owning ops, mirroring the CUDA side where
@@ -160,6 +189,9 @@ type OutputLen = u32;
 /// Constructed by [`DispatchPlan::new`], which inspects the encoding tree
 /// and determines whether it can be fully fused, partially fused, or not fused at all.
 pub enum DispatchPlan {
+    /// A registered standalone kernel can decode the entire tree in a single
+    /// launch without recursing into child encodings.
+    Standalone,
     /// Entire encoding tree is fusable into a single kernel launch.
     Fused(FusedPlan),
     /// Some subtrees need separate execution before the fused plan can run.
@@ -222,12 +254,21 @@ impl DispatchPlan {
     ///
     /// # Limitations
     ///
-    /// - Validity is propagated from the root array to the output. Nullable
-    ///   arrays are supported, but Dict with nullable codes and RunEnd with
-    ///   nullable ends are rejected to guard against out-of-bounds access.
-    /// - `BitPackedArray` and `ALPArray` with patches are supported.
-    /// - Only f32 ALP is supported (kernel stores multipliers as `float`).
-    pub fn new(array: &ArrayRef) -> VortexResult<Self> {
+    /// - **F16 primitives** are not supported (no reinterpret path in the kernel).
+    /// - **ALP** is supported for f32 and f64 only (including patches).
+    /// - **BitPacked** with patches is supported.
+    /// - **Dict** with nullable codes is rejected (garbage at null positions
+    ///   could OOB the DICT gather). Dict with codes wider than values is
+    ///   also rejected (load would truncate code indices).
+    /// - **RunEnd** with nullable ends is rejected (garbage values break the
+    ///   binary search). RunEnd with ends wider than values is also rejected.
+    /// - Validity is propagated from the root array to the output.
+    /// - Unrecognized encodings fall back to `Unfused`.
+    pub fn new(array: &ArrayRef, mode: CudaDispatchMode) -> VortexResult<Self> {
+        if mode == CudaDispatchMode::Auto && has_standalone_kernel(array) {
+            return Ok(Self::Standalone);
+        }
+
         if PType::try_from(array.dtype()).is_err() || !is_dyn_dispatch_compatible(array) {
             return Ok(Self::Unfused);
         }
@@ -275,9 +316,6 @@ impl FusedPlan {
                 array.dtype()
             )
         })?;
-        if output_ptype_rust == PType::F64 {
-            vortex_bail!("dynamic dispatch does not support f64 output");
-        }
         let output_elem_bytes = output_ptype_rust.byte_width() as u32;
         let output_ptype = ptype_to_tag(output_ptype_rust);
         let validity = array.validity()?;
@@ -587,13 +625,35 @@ impl FusedPlan {
         exponents: Exponents,
         pending_subtrees: &mut Vec<ArrayRef>,
     ) -> VortexResult<Stage> {
-        let alp_f = <f32 as ALPFloat>::F10[exponents.f as usize];
-        let alp_e = <f32 as ALPFloat>::IF10[exponents.e as usize];
+        let encoded_ptype = PType::try_from(encoded.dtype()).map_err(|_| {
+            vortex_err!(
+                "ALP encoded child must have primitive dtype, got {:?}",
+                encoded.dtype()
+            )
+        })?;
+        // ALP encodes f32 as i32 and f64 as i64. Select the correct
+        // exponent tables and output PType based on the encoded integer width.
+        let (alp_f, alp_e, output_ptype) = match encoded_ptype {
+            PType::I32 => (
+                <f32 as ALPFloat>::F10[exponents.f as usize] as f64,
+                <f32 as ALPFloat>::IF10[exponents.e as usize] as f64,
+                PTypeTag_PTYPE_F32,
+            ),
+            PType::I64 => (
+                <f64 as ALPFloat>::F10[exponents.f as usize],
+                <f64 as ALPFloat>::IF10[exponents.e as usize],
+                PTypeTag_PTYPE_F64,
+            ),
+            other => vortex_bail!(
+                "ALP encoded ptype must be I32 (f32) or I64 (f64), got {:?}",
+                other
+            ),
+        };
 
         let mut pipeline = self.walk(encoded, pending_subtrees)?;
         pipeline
             .scalar_ops
-            .push((ScalarOp::alp(alp_f, alp_e), patches));
+            .push((ScalarOp::alp(alp_f, alp_e, output_ptype), patches));
         Ok(pipeline)
     }
 
@@ -619,8 +679,7 @@ impl FusedPlan {
     /// Called from [`walk`] when [`is_dyn_dispatch_compatible`] rejects a child.
     /// Cases that require a separate kernel dispatch:
     ///
-    /// - **F16 / F64 primitives** — no reinterpret path in the kernel.
-    /// - **ALP with non-F32 dtype** — only F32 ALP is supported.
+    /// - **F16 primitives** — no reinterpret path in the kernel.
     /// - **Dict with nullable codes** — garbage at null positions could OOB
     ///   the DICT gather in shared memory.
     /// - **Dict with codes wider than values** — `load_element<T>()` would

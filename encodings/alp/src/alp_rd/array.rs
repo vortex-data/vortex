@@ -221,7 +221,7 @@ impl VTable for ALPRD {
             left_parts_patches,
             &mut LEGACY_SESSION.create_execution_ctx(),
         )?;
-        let slots = ALPRDData::make_slots(&left_parts, &right_parts, &left_parts_patches);
+        let slots = ALPRDData::make_slots(&left_parts, &right_parts, left_parts_patches.as_ref());
         let data = ALPRDData::new(
             left_parts_dictionary,
             u8::try_from(metadata.right_bit_width).map_err(|_| {
@@ -383,7 +383,7 @@ impl ALPRD {
         let len = left_parts.len();
         let left_parts_patches =
             ALPRDData::canonicalize_patches(&left_parts, left_parts_patches, ctx)?;
-        let slots = ALPRDData::make_slots(&left_parts, &right_parts, &left_parts_patches);
+        let slots = ALPRDData::make_slots(&left_parts, &right_parts, left_parts_patches.as_ref());
         let data = ALPRDData::new(left_parts_dictionary, right_bit_width, left_parts_patches);
         Array::try_from_parts(ArrayParts::new(ALPRD, dtype, len, data).with_slots(slots))
     }
@@ -399,7 +399,7 @@ impl ALPRD {
         left_parts_patches: Option<Patches>,
     ) -> ALPRDArray {
         let len = left_parts.len();
-        let slots = ALPRDData::make_slots(&left_parts, &right_parts, &left_parts_patches);
+        let slots = ALPRDData::make_slots(&left_parts, &right_parts, left_parts_patches.as_ref());
         let data = unsafe {
             ALPRDData::new_unchecked(left_parts_dictionary, right_bit_width, left_parts_patches)
         };
@@ -464,7 +464,7 @@ impl ALPRDData {
     fn make_slots(
         left_parts: &ArrayRef,
         right_parts: &ArrayRef,
-        patches: &Option<Patches>,
+        patches: Option<&Patches>,
     ) -> Vec<Option<ArrayRef>> {
         let (pi, pv, pco) = match patches {
             Some(p) => (
