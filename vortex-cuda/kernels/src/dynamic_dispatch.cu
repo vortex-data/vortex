@@ -141,6 +141,12 @@ scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem, uint64_t 
     }
     case ScalarOp::ALP: {
         if constexpr (sizeof(T) == 4) {
+            // The plan builder stores f32 F10/IF10 table entries as f64
+            // in AlpParams. The round-trip f32→f64→f32 is exact per the
+            // C++ standard: [conv.fpprom] guarantees the widening is
+            // value-preserving, and [conv.double] guarantees the narrowing
+            // recovers the original value when it is exactly representable
+            // in the destination type (which it is, having originated as f32).
             const float f = static_cast<float>(op.params.alp.f);
             const float e = static_cast<float>(op.params.alp.e);
 #pragma unroll
