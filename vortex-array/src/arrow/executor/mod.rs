@@ -194,40 +194,6 @@ impl ArrowArrayExecutor for ArrayRef {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use arrow_array::cast::AsArray;
-    use arrow_array::types::UInt64Type;
-    use arrow_schema::DataType;
-
-    use super::*;
-    use crate::LEGACY_SESSION;
-    use crate::VortexSessionExecute;
-    use crate::array::IntoArray;
-    use crate::arrays::ExtensionArray;
-    use crate::arrays::PrimitiveArray;
-    use crate::extension::tests::divisible_int::DivisibleInt;
-    use crate::extension::tests::divisible_int::Divisor;
-
-    #[test]
-    fn execute_arrow_unwraps_extension_to_storage() {
-        let storage = PrimitiveArray::from_iter(0u64..6).into_array();
-        let ext = ExtensionArray::try_new_from_vtable(DivisibleInt, Divisor(1), storage)
-            .unwrap()
-            .into_array();
-
-        let arrow = ext
-            .execute_arrow(
-                Some(&DataType::UInt64),
-                &mut LEGACY_SESSION.create_execution_ctx(),
-            )
-            .unwrap();
-
-        let primitives = arrow.as_primitive::<UInt64Type>();
-        assert_eq!(primitives.values(), &[0, 1, 2, 3, 4, 5]);
-    }
-}
-
 /// Determine the preferred (cheapest) Arrow type for an array.
 ///
 /// For most arrays, this returns the canonical Arrow type from `dtype.to_arrow_dtype()`.
@@ -269,4 +235,38 @@ fn preferred_arrow_type(array: &ArrayRef) -> VortexResult<DataType> {
 
     // Everything else: use canonical dtype conversion
     array.dtype().to_arrow_dtype()
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow_array::cast::AsArray;
+    use arrow_array::types::UInt64Type;
+    use arrow_schema::DataType;
+
+    use super::*;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
+    use crate::array::IntoArray;
+    use crate::arrays::ExtensionArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::extension::tests::divisible_int::DivisibleInt;
+    use crate::extension::tests::divisible_int::Divisor;
+
+    #[test]
+    fn execute_arrow_unwraps_extension_to_storage() {
+        let storage = PrimitiveArray::from_iter(0u64..6).into_array();
+        let ext = ExtensionArray::try_new_from_vtable(DivisibleInt, Divisor(1), storage)
+            .unwrap()
+            .into_array();
+
+        let arrow = ext
+            .execute_arrow(
+                Some(&DataType::UInt64),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+            .unwrap();
+
+        let primitives = arrow.as_primitive::<UInt64Type>();
+        assert_eq!(primitives.values(), &[0, 1, 2, 3, 4, 5]);
+    }
 }
