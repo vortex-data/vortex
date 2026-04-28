@@ -12,7 +12,11 @@ import dev.vortex.spark.write.VortexWriteBuilder;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Set;
-import org.apache.spark.sql.connector.catalog.*;
+import org.apache.spark.sql.connector.catalog.CatalogV2Util;
+import org.apache.spark.sql.connector.catalog.SupportsRead;
+import org.apache.spark.sql.connector.catalog.SupportsWrite;
+import org.apache.spark.sql.connector.catalog.Table;
+import org.apache.spark.sql.connector.catalog.TableCapability;
 import org.apache.spark.sql.connector.expressions.Transform;
 import org.apache.spark.sql.connector.read.ScanBuilder;
 import org.apache.spark.sql.connector.write.LogicalWriteInfo;
@@ -20,9 +24,7 @@ import org.apache.spark.sql.connector.write.WriteBuilder;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 
-/**
- * Spark V2 {@link Table} of Vortex files that supports both reading and writing.
- */
+/** Spark V2 {@link Table} of Vortex files that supports both reading and writing. */
 public final class VortexTable implements Table, SupportsRead, SupportsWrite {
     private static final String SHORT_NAME = "vortex";
 
@@ -31,9 +33,7 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
     private final Map<String, String> formatOptions;
     private final Transform[] partitionTransforms;
 
-    /**
-     * Creates a new VortexTable with read/write support.
-     */
+    /** Creates a new VortexTable with read/write support. */
     public VortexTable(
             ImmutableList<String> paths,
             StructType schema,
@@ -47,9 +47,8 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
 
     /**
      * Creates a new ScanBuilder for this table.
-     * <p>
-     * The scan builder is pre-configured with all the file paths and columns
-     * from this table.
+     *
+     * <p>The scan builder is pre-configured with all the file paths and columns from this table.
      *
      * @param options scan options
      * @return a new VortexScanBuilder configured for this table
@@ -66,9 +65,8 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
 
     /**
      * Returns the name of this table.
-     * <p>
-     * The name includes the "vortex" prefix and a comma-separated list
-     * of all file paths that comprise this table.
+     *
+     * <p>The name includes the "vortex" prefix and a comma-separated list of all file paths that comprise this table.
      *
      * @return the table name in the format: vortex."path1,path2,..."
      */
@@ -79,9 +77,9 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
 
     /**
      * Returns the schema of this table.
-     * <p>
-     * The schema is derived from the columns available for reading, or from
-     * the explicit write schema if this table is being used for writing.
+     *
+     * <p>The schema is derived from the columns available for reading, or from the explicit write schema if this table
+     * is being used for writing.
      *
      * @return the StructType representing the table schema
      */
@@ -92,9 +90,8 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
 
     /**
      * Creates a new WriteBuilder for writing data to this table.
-     * <p>
-     * The WriteBuilder is responsible for configuring and executing write operations
-     * to create new Vortex files.
+     *
+     * <p>The WriteBuilder is responsible for configuring and executing write operations to create new Vortex files.
      *
      * @param info logical information about the write operation
      * @return a new VortexWriteBuilder configured for this table
@@ -118,8 +115,8 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
 
     /**
      * Returns the capabilities supported by this table.
-     * <p>
-     * Vortex tables support batch reading and batch writing.
+     *
+     * <p>Vortex tables support batch reading and batch writing.
      *
      * @return a set containing TableCapability.BATCH_READ and BATCH_WRITE
      */

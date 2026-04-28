@@ -10,16 +10,14 @@ import org.apache.spark.sql.connector.read.InputPartition;
 import org.apache.spark.sql.types.StructType;
 
 /**
- * An {@link InputPartition} describing a group of Vortex files that a single reader
- * should handle together.
+ * An {@link InputPartition} describing a group of Vortex files that a single reader should handle together.
  *
- * <p>Each executor opens a single Vortex {@code Session}, {@code DataSource} and
- * {@code Scan} over the partition's {@link #paths()} and consumes every Vortex partition
- * produced by that scan before moving on to the next Spark {@code InputPartition}.
+ * <p>Each executor opens a single Vortex {@code Session}, {@code DataSource} and {@code Scan} over the partition's
+ * {@link #paths()} and consumes every Vortex partition produced by that scan before moving on to the next Spark
+ * {@code InputPartition}.
  *
- * <p>The requested output schema is carried as a {@link StructType} rather than a list of
- * {@code Column} objects: {@code StructType} is the stable serialization surface in Spark
- * and survives shipping to executors reliably.
+ * <p>The requested output schema is carried as a {@link StructType} rather than a list of {@code Column} objects:
+ * {@code StructType} is the stable serialization surface in Spark and survives shipping to executors reliably.
  *
  * @param paths the Vortex file paths (or globs) belonging to this input partition
  * @param readSchema the requested output schema (data columns + partition columns)

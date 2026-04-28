@@ -11,10 +11,9 @@ import java.util.Arrays;
 /**
  * A Vortex expression node backed by a native pointer.
  *
- * <p>Expressions are composed via the static factories ({@link #root()}, {@link
- * #getItem(String, Expression)}, etc.). Each returned {@code Expression} owns its native
- * pointer; the pointer is released automatically when the {@code Expression} is no longer
- * reachable. Passing an expression as an input to a builder does <em>not</em> transfer
+ * <p>Expressions are composed via the static factories ({@link #root()}, {@link #getItem(String, Expression)}, etc.).
+ * Each returned {@code Expression} owns its native pointer; the pointer is released automatically when the
+ * {@code Expression} is no longer reachable. Passing an expression as an input to a builder does <em>not</em> transfer
  * ownership — the resulting expression is an independent copy on the native side.
  */
 public final class Expression {

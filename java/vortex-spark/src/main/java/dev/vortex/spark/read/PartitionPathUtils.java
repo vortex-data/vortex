@@ -12,12 +12,22 @@ import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.apache.spark.sql.execution.vectorized.ConstantColumnVector;
-import org.apache.spark.sql.types.*;
+import org.apache.spark.sql.types.BooleanType;
+import org.apache.spark.sql.types.ByteType;
+import org.apache.spark.sql.types.DataType;
+import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.DateType;
+import org.apache.spark.sql.types.DoubleType;
+import org.apache.spark.sql.types.FloatType;
+import org.apache.spark.sql.types.IntegerType;
+import org.apache.spark.sql.types.LongType;
+import org.apache.spark.sql.types.ShortType;
+import org.apache.spark.sql.types.StringType;
+import org.apache.spark.sql.types.TimestampNTZType;
+import org.apache.spark.sql.types.TimestampType;
 import org.apache.spark.unsafe.types.UTF8String;
 
-/**
- * Utilities for discovering and materializing Hive-style partition columns from file paths.
- */
+/** Utilities for discovering and materializing Hive-style partition columns from file paths. */
 public final class PartitionPathUtils {
     private static final String HIVE_DEFAULT_PARTITION = "__HIVE_DEFAULT_PARTITION__";
     private static final Splitter PATH_SPLITTER = Splitter.on('/');
@@ -43,8 +53,8 @@ public final class PartitionPathUtils {
     }
 
     /**
-     * Infers a Spark {@link DataType} from a partition value string.
-     * Tries integer, long, double, boolean, and falls back to string.
+     * Infers a Spark {@link DataType} from a partition value string. Tries integer, long, double, boolean, and falls
+     * back to string.
      */
     public static DataType inferPartitionColumnType(String value) {
         if (value == null || HIVE_DEFAULT_PARTITION.equals(value)) {
@@ -66,8 +76,8 @@ public final class PartitionPathUtils {
     }
 
     /**
-     * Creates a Spark {@link ConstantColumnVector} populated with the given partition value,
-     * parsed according to the target {@link DataType}.
+     * Creates a Spark {@link ConstantColumnVector} populated with the given partition value, parsed according to the
+     * target {@link DataType}.
      */
     public static ConstantColumnVector createConstantVector(int numRows, DataType type, String value) {
         ConstantColumnVector vec = new ConstantColumnVector(numRows, type);

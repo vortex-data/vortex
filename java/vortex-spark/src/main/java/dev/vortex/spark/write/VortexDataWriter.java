@@ -10,8 +10,20 @@ import dev.vortex.relocated.org.apache.arrow.c.ArrowSchema;
 import dev.vortex.relocated.org.apache.arrow.c.Data;
 import dev.vortex.relocated.org.apache.arrow.memory.BufferAllocator;
 import dev.vortex.relocated.org.apache.arrow.memory.RootAllocator;
-import dev.vortex.relocated.org.apache.arrow.vector.*;
+import dev.vortex.relocated.org.apache.arrow.vector.BigIntVector;
+import dev.vortex.relocated.org.apache.arrow.vector.BitVector;
+import dev.vortex.relocated.org.apache.arrow.vector.DateDayVector;
+import dev.vortex.relocated.org.apache.arrow.vector.DecimalVector;
 import dev.vortex.relocated.org.apache.arrow.vector.FieldVector;
+import dev.vortex.relocated.org.apache.arrow.vector.Float4Vector;
+import dev.vortex.relocated.org.apache.arrow.vector.Float8Vector;
+import dev.vortex.relocated.org.apache.arrow.vector.IntVector;
+import dev.vortex.relocated.org.apache.arrow.vector.SmallIntVector;
+import dev.vortex.relocated.org.apache.arrow.vector.TimeStampMicroTZVector;
+import dev.vortex.relocated.org.apache.arrow.vector.TimeStampMicroVector;
+import dev.vortex.relocated.org.apache.arrow.vector.TinyIntVector;
+import dev.vortex.relocated.org.apache.arrow.vector.VarBinaryVector;
+import dev.vortex.relocated.org.apache.arrow.vector.VarCharVector;
 import dev.vortex.relocated.org.apache.arrow.vector.VectorSchemaRoot;
 import dev.vortex.relocated.org.apache.arrow.vector.complex.ListVector;
 import dev.vortex.relocated.org.apache.arrow.vector.complex.StructVector;
@@ -26,7 +38,23 @@ import org.apache.spark.sql.catalyst.expressions.SpecializedGetters;
 import org.apache.spark.sql.catalyst.util.ArrayData;
 import org.apache.spark.sql.connector.write.DataWriter;
 import org.apache.spark.sql.connector.write.WriterCommitMessage;
-import org.apache.spark.sql.types.*;
+import org.apache.spark.sql.types.ArrayType;
+import org.apache.spark.sql.types.BinaryType;
+import org.apache.spark.sql.types.BooleanType;
+import org.apache.spark.sql.types.ByteType;
+import org.apache.spark.sql.types.DataType;
+import org.apache.spark.sql.types.DateType;
+import org.apache.spark.sql.types.DecimalType;
+import org.apache.spark.sql.types.DoubleType;
+import org.apache.spark.sql.types.FloatType;
+import org.apache.spark.sql.types.IntegerType;
+import org.apache.spark.sql.types.LongType;
+import org.apache.spark.sql.types.ShortType;
+import org.apache.spark.sql.types.StringType;
+import org.apache.spark.sql.types.StructField;
+import org.apache.spark.sql.types.StructType;
+import org.apache.spark.sql.types.TimestampNTZType;
+import org.apache.spark.sql.types.TimestampType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 import org.apache.spark.unsafe.types.UTF8String;
 import org.slf4j.Logger;
@@ -34,9 +62,9 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Writes Spark InternalRow data to a Vortex file.
- * <p>
- * This writer converts Spark's internal row format to Arrow vectors
- * and writes them to a Vortex file using the Vortex writer API.
+ *
+ * <p>This writer converts Spark's internal row format to Arrow vectors and writes them to a Vortex file using the
+ * Vortex writer API.
  */
 public final class VortexDataWriter implements DataWriter<InternalRow>, AutoCloseable {
     private static final Logger logger = LoggerFactory.getLogger(VortexDataWriter.class);
@@ -63,8 +91,8 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
      * Creates a new VortexDataWriter.
      *
      * @param filePath the path where the Vortex file will be written
-     * @param schema   the schema of the data to write
-     * @param options  additional write options
+     * @param schema the schema of the data to write
+     * @param options additional write options
      */
     VortexDataWriter(String filePath, StructType schema, CaseInsensitiveStringMap options) {
         this.filePath = filePath;
@@ -109,8 +137,8 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
 
     /**
      * Writes a single row to the Vortex file.
-     * <p>
-     * Rows are batched and converted to Arrow format before writing.
+     *
+     * <p>Rows are batched and converted to Arrow format before writing.
      *
      * @param row the row to write
      * @throws IOException if writing fails
@@ -127,9 +155,7 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
         }
     }
 
-    /**
-     * Writes the current batch of rows to the Vortex file.
-     */
+    /** Writes the current batch of rows to the Vortex file. */
     private void writeBatch() throws IOException {
         if (batchRows.isEmpty()) {
             return;
@@ -175,9 +201,7 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
         batchRows.clear();
     }
 
-    /**
-     * Populates an Arrow vector with a value from an InternalRow.
-     */
+    /** Populates an Arrow vector with a value from an InternalRow. */
     private void populateVector(
             FieldVector vector, DataType dataType, SpecializedGetters row, int fieldIndex, int rowIndex) {
         if (dataType instanceof BooleanType) {
@@ -251,8 +275,8 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
 
     /**
      * Commits the write operation and returns a commit message.
-     * <p>
-     * This flushes any remaining rows and closes the Vortex writer.
+     *
+     * <p>This flushes any remaining rows and closes the Vortex writer.
      *
      * @return a commit message with file information
      * @throws IOException if commit fails
@@ -326,8 +350,8 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
 
     /**
      * Aborts the write operation and cleans up resources.
-     * <p>
-     * This deletes any partially written file.
+     *
+     * <p>This deletes any partially written file.
      *
      * @throws IOException if abort fails
      */
@@ -376,9 +400,9 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
 
     /**
      * Closes the writer and releases resources.
-     * <p>
-     * This method ensures resources are cleaned up even if commit() or abort()
-     * were not called, making the class safe for use with try-with-resources.
+     *
+     * <p>This method ensures resources are cleaned up even if commit() or abort() were not called, making the class
+     * safe for use with try-with-resources.
      */
     @Override
     public void close() throws IOException {

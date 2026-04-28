@@ -8,8 +8,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Static utilities for discovering and deleting Vortex files on an object store. The caller
- * supplies a {@link Session}; its runtime handle is forwarded to the underlying object store.
+ * Static utilities for discovering and deleting Vortex files on an object store. The caller supplies a {@link Session};
+ * its runtime handle is forwarded to the underlying object store.
  */
 public final class NativeFiles {
     static {

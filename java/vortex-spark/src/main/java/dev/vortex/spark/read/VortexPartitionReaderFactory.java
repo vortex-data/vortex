@@ -17,10 +17,9 @@ import org.apache.spark.sql.vectorized.ColumnarBatch;
 /**
  * Factory that produces columnar readers for Vortex files.
  *
- * <p>The set of paths belongs to each {@link VortexFilePartition} — the factory itself is
- * stateless across partitions. For every input partition, {@link VortexPartitionReader}
- * opens a single {@code Session}, {@code DataSource} and {@code Scan} spanning that
- * partition's paths and consumes every Vortex partition produced by that scan before
+ * <p>The set of paths belongs to each {@link VortexFilePartition} — the factory itself is stateless across partitions.
+ * For every input partition, {@link VortexPartitionReader} opens a single {@code Session}, {@code DataSource} and
+ * {@code Scan} spanning that partition's paths and consumes every Vortex partition produced by that scan before
  * returning.
  */
 public final class VortexPartitionReaderFactory implements PartitionReaderFactory, Serializable {

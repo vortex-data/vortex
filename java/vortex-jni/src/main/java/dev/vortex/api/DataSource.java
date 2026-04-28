@@ -18,12 +18,10 @@ import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 /**
- * A set of Vortex files opened through a {@link Session}. Data sources are cheap to open
- * (only the first file is read eagerly, to determine the schema) and can be scanned
- * multiple times.
+ * A set of Vortex files opened through a {@link Session}. Data sources are cheap to open (only the first file is read
+ * eagerly, to determine the schema) and can be scanned multiple times.
  *
- * <p>Native resources are released automatically via {@link VortexCleaner} when the
- * data source becomes unreachable.
+ * <p>Native resources are released automatically via {@link VortexCleaner} when the data source becomes unreachable.
  */
 public final class DataSource {
     private final Session session;
@@ -42,8 +40,8 @@ public final class DataSource {
     }
 
     /**
-     * Open one or more URIs or globs. When a glob is used, the first match is opened eagerly;
-     * subsequent matches are opened lazily on scan.
+     * Open one or more URIs or globs. When a glob is used, the first match is opened eagerly; subsequent matches are
+     * opened lazily on scan.
      *
      * @param session open session
      * @param uri single URI or glob
@@ -54,8 +52,8 @@ public final class DataSource {
     }
 
     /**
-     * Open one or more URIs or globs. When a glob is used, the first match is opened eagerly;
-     * subsequent matches are opened lazily on scan.
+     * Open one or more URIs or globs. When a glob is used, the first match is opened eagerly; subsequent matches are
+     * opened lazily on scan.
      *
      * @param session open session
      * @param uris URIs or globs to scan
@@ -82,9 +80,8 @@ public final class DataSource {
     }
 
     /**
-     * Row count along with the precision of that estimate. Mirrors the Rust
-     * {@code Option<Precision<u64>>} returned by {@code DataSource::row_count}:
-     * {@link RowCount.Unknown} when no estimate is available, {@link RowCount.Estimate}
+     * Row count along with the precision of that estimate. Mirrors the Rust {@code Option<Precision<u64>>} returned by
+     * {@code DataSource::row_count}: {@link RowCount.Unknown} when no estimate is available, {@link RowCount.Estimate}
      * for an inexact hint, {@link RowCount.Exact} when the count is authoritative.
      */
     public RowCount rowCount() {
