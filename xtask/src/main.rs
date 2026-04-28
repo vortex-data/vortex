@@ -3,14 +3,12 @@
 
 mod generate_fbs;
 mod generate_proto;
-mod java_test_files;
 mod public_api;
 
 use clap::Parser;
 
 use crate::generate_fbs::generate_fbs;
 use crate::generate_proto::generate_proto;
-use crate::java_test_files::java_test_files;
 use crate::public_api::public_api;
 
 #[derive(clap::Parser)]
