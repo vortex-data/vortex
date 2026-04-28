@@ -26,7 +26,6 @@ use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::struct_::StructArrayExt;
 use crate::arrays::variant::VariantArrayExt;
 use crate::executor::ExecutionCtx;
-use crate::match_each_decimal_value_type;
 use crate::validity::Validity;
 
 /// TODO: replace usage of compute fn.
@@ -77,7 +76,6 @@ fn mask_validity_primitive(
 }
 
 fn mask_validity_decimal(array: DecimalArray, validity: Validity) -> VortexResult<DecimalArray> {
-    let values_type = array.values_type();
     let new_validity = Validity::and(array.validity()?, validity)?;
     // SAFETY: We're only changing validity, not the data structure
     Ok(unsafe {
