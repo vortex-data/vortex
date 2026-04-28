@@ -245,7 +245,7 @@ impl VTable for Chunked {
             }
             // For all other types, use the builder path via AppendChild.
             _ => {
-                let slot_idx = array.next_builder_slot.max(CHUNKS_OFFSET);
+                let slot_idx = array.next_builder_slot().max(CHUNKS_OFFSET);
                 if slot_idx < array.as_view().slots().len() {
                     Ok(ExecutionResult::append_child(
                         array.with_next_builder_slot(slot_idx + 1),

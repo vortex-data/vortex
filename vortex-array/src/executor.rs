@@ -100,134 +100,7 @@ impl ArrayRef {
     /// For safety, we will error when the number of execution iterations reaches a configurable
     /// maximum (default 128, override with `VORTEX_MAX_ITERATIONS`).
     pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        let mut current_array = self;
-        let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
-        let mut stack: Vec<StackFrame> = Vec::new();
-        let max_iterations = max_iterations();
-
-        for _ in 0..max_iterations {
-            let is_done = stack
-                .last()
-                .map_or(M::matches as DonePredicate, |frame| frame.done);
-
-            if is_done(&current_array) || AnyCanonical::matches(&current_array) {
-                match stack.pop() {
-                    None => {
-                        debug_assert!(
-                            current_builder.is_none(),
-                            "root activation should not retain a builder"
-                        );
-                        ctx.log(format_args!("-> {}", current_array));
-                        return Ok(current_array);
-                    }
-                    Some(frame) => {
-                        (current_array, current_builder) = pop_frame(frame, current_array)?;
-                        continue;
-                    }
-                }
-            }
-
-            // ── Step 2a: execute_parent against stack parent ───────────────────
-            //
-            // When executing a child for ExecuteSlot, try execute_parent against
-            // the suspended parent on the stack. This lets kernels like RunEnd's
-            // FilterKernel fire before the child is forced to canonical.
-            if let Some(frame) = stack.last() {
-                if let Some(result) =
-                    current_array.execute_parent(&frame.parent_array, frame.slot_idx, ctx)?
-                {
-                    ctx.log(format_args!(
-                        "execute_parent (stack) rewrote {} -> {}",
-                        current_array, result
-                    ));
-                    let frame = stack.pop().vortex_expect("just peeked");
-                    current_array = result.optimize_ctx(ctx.session())?;
-                    current_builder = frame.parent_builder;
-                    continue;
-                }
-            }
-
-            // ── Step 2b: execute_parent ─────────────────────────────────────────
-            //
-            // Skip execute_parent when we have a builder attached — the parent array is
-            // executor-private suspended state with child slots already taken out.
-            if current_builder.is_none()
-                && let Some(rewritten) = try_execute_parent(&current_array, ctx)?
-            {
-                ctx.log(format_args!(
-                    "execute_parent rewrote {} -> {}",
-                    current_array, rewritten
-                ));
-                current_array = rewritten.optimize_ctx(ctx.session())?;
-                continue;
-            }
-
-            // ── Step 3: execute step ───────────────────────────────────────────
-            let expected_len = current_array.len();
-            let expected_dtype = current_array.dtype().clone();
-            let stats = current_array.statistics().to_array_stats();
-            let encoding_id = current_array.encoding_id();
-            let result = current_array.execute_encoding_unchecked(ctx)?;
-            let (array, step) = result.into_parts();
-            match step {
-                ExecutionStep::ExecuteSlot(i, done) => {
-                    let (parent, child) = unsafe { array.take_slot_unchecked(i) }?;
-                    ctx.log(format_args!(
-                        "ExecuteSlot({i}): pushing {}, focusing on {}",
-                        parent, child
-                    ));
-                    stack.push(StackFrame {
-                        parent_array: parent,
-                        parent_builder: current_builder.take(),
-                        slot_idx: i,
-                        done,
-                        original_dtype: child.dtype().clone(),
-                        original_len: child.len(),
-                    });
-                    current_array = child;
-                    current_builder = None;
-                }
-                ExecutionStep::AppendChild(i) => {
-                    if current_builder.is_none() {
-                        current_builder = Some(builder_with_capacity_in(
-                            ctx.allocator(),
-                            array.dtype(),
-                            array.len(),
-                        ));
-                    }
-                    let (parent, child) = unsafe { array.take_slot_unchecked(i) }?;
-                    ctx.log(format_args!(
-                        "AppendChild({i}): appending {} into builder",
-                        child
-                    ));
-                    // TODO(perf): replace with a builder kernel registry so we don't
-                    // need to go through the VTable append_to_builder indirection.
-                    child.append_to_builder(
-                        current_builder
-                            .as_deref_mut()
-                            .vortex_expect("builder must exist"),
-                        ctx,
-                    )?;
-                    current_array = parent;
-                }
-                ExecutionStep::Done => {
-                    ctx.log(format_args!("Done: {}", array));
-                    (current_array, current_builder) = finalize_done(
-                        array,
-                        current_builder,
-                        expected_len,
-                        expected_dtype,
-                        stats,
-                        encoding_id,
-                    )?;
-                }
-            }
-        }
-
-        vortex_bail!(
-            "Exceeded maximum execution iterations ({}) while executing array",
-            max_iterations,
-        )
+        execute_loop(self, M::matches, ctx)
     }
 }
 
@@ -421,6 +294,140 @@ pub fn execute_into_builder(
     Ok(builder)
 }
 
+/// Iterative execution loop for array-to-array execution.
+fn execute_loop(
+    array: ArrayRef,
+    root_done: DonePredicate,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let mut current_array = array;
+    let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
+    let mut stack: Vec<StackFrame> = Vec::new();
+    let max_iterations = max_iterations();
+
+    for _ in 0..max_iterations {
+        let is_done = stack.last().map_or(root_done, |frame| frame.done);
+
+        if is_done(&current_array) || AnyCanonical::matches(&current_array) {
+            match stack.pop() {
+                None => {
+                    debug_assert!(
+                        current_builder.is_none(),
+                        "root activation should not retain a builder"
+                    );
+                    ctx.log(format_args!("-> {}", current_array));
+                    return Ok(current_array);
+                }
+                Some(frame) => {
+                    (current_array, current_builder) = pop_frame(frame, current_array)?;
+                    continue;
+                }
+            }
+        }
+
+        // ── Step 2a: execute_parent against stack parent ───────────────────
+        //
+        // When executing a child for ExecuteSlot, try execute_parent against
+        // the suspended parent on the stack. This lets kernels like RunEnd's
+        // FilterKernel fire before the child is forced to canonical.
+        if let Some(frame) = stack.last() {
+            if let Some(result) =
+                current_array.execute_parent(&frame.parent_array, frame.slot_idx, ctx)?
+            {
+                ctx.log(format_args!(
+                    "execute_parent (stack) rewrote {} -> {}",
+                    current_array, result
+                ));
+                let frame = stack.pop().vortex_expect("just peeked");
+                current_array = result.optimize_ctx(ctx.session())?;
+                current_builder = frame.parent_builder;
+                continue;
+            }
+        }
+
+        // ── Step 2b: execute_parent ─────────────────────────────────────────
+        //
+        // Skip execute_parent when we have a builder attached — the parent array is
+        // executor-private suspended state with child slots already taken out.
+        if current_builder.is_none()
+            && let Some(rewritten) = try_execute_parent(&current_array, ctx)?
+        {
+            ctx.log(format_args!(
+                "execute_parent rewrote {} -> {}",
+                current_array, rewritten
+            ));
+            current_array = rewritten.optimize_ctx(ctx.session())?;
+            continue;
+        }
+
+        // ── Step 3: execute step ───────────────────────────────────────────
+        let expected_len = current_array.len();
+        let expected_dtype = current_array.dtype().clone();
+        let stats = current_array.statistics().to_array_stats();
+        let encoding_id = current_array.encoding_id();
+        let result = execute_step_unchecked(current_array, ctx)?;
+        let (array, step) = result.into_parts();
+        match step {
+            ExecutionStep::ExecuteSlot(i, done) => {
+                let (parent, child) = unsafe { array.take_slot_unchecked(i) }?;
+                ctx.log(format_args!(
+                    "ExecuteSlot({i}): pushing {}, focusing on {}",
+                    parent, child
+                ));
+                stack.push(StackFrame {
+                    parent_array: parent,
+                    parent_builder: current_builder.take(),
+                    slot_idx: i,
+                    done,
+                    original_dtype: child.dtype().clone(),
+                    original_len: child.len(),
+                });
+                current_array = child;
+                current_builder = None;
+            }
+            ExecutionStep::AppendChild(i) => {
+                if current_builder.is_none() {
+                    current_builder = Some(builder_with_capacity_in(
+                        ctx.allocator(),
+                        array.dtype(),
+                        array.len(),
+                    ));
+                }
+                let (parent, child) = unsafe { array.take_slot_unchecked(i) }?;
+                ctx.log(format_args!(
+                    "AppendChild({i}): appending {} into builder",
+                    child
+                ));
+                // TODO(perf): replace with a builder kernel registry so we don't
+                // need to go through the VTable append_to_builder indirection.
+                child.append_to_builder(
+                    current_builder
+                        .as_deref_mut()
+                        .vortex_expect("builder must exist"),
+                    ctx,
+                )?;
+                current_array = parent;
+            }
+            ExecutionStep::Done => {
+                ctx.log(format_args!("Done: {}", array));
+                (current_array, current_builder) = finalize_done(
+                    array,
+                    current_builder,
+                    expected_len,
+                    expected_dtype,
+                    stats,
+                    encoding_id,
+                )?;
+            }
+        }
+    }
+
+    vortex_bail!(
+        "Exceeded maximum execution iterations ({}) while executing array",
+        max_iterations,
+    )
+}
+
 /// Pop a stack frame, restoring the parent with the finished child in its slot.
 fn pop_frame(
     frame: StackFrame,
@@ -445,6 +452,13 @@ fn pop_frame(
 /// Extracts the vtable before consuming the array to avoid borrow conflicts.
 fn execute_step_checked(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
     array.execute_encoding(ctx)
+}
+
+fn execute_step_unchecked(
+    array: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ExecutionResult> {
+    array.execute_encoding_unchecked(ctx)
 }
 
 fn finalize_done(

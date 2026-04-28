@@ -13,7 +13,6 @@ use std::ops::DerefMut;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
-use vortex_session::SessionVar;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;

@@ -37,7 +37,6 @@ pub(super) const CHUNKS_OFFSET: usize = 1;
 #[derive(Clone, Debug)]
 pub struct ChunkedData {
     pub(super) chunk_offsets: Vec<usize>,
-    /// This is used to find the next child to execute when in executing into a builder.
     pub(super) next_builder_slot: usize,
 }
 
@@ -82,6 +81,10 @@ pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {
 
     fn chunk_offsets(&self) -> &[usize] {
         &self.chunk_offsets
+    }
+
+    fn next_builder_slot(&self) -> usize {
+        self.next_builder_slot
     }
 
     fn find_chunk_idx(&self, index: usize) -> VortexResult<(usize, usize)> {
