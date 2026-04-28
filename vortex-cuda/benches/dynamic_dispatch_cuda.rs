@@ -15,18 +15,22 @@ use criterion::Criterion;
 use criterion::Throughput;
 use cudarc::driver::CudaSlice;
 use cudarc::driver::DevicePtr;
+use cudarc::driver::DeviceRepr;
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::sys::CUevent_flags;
 use futures::executor::block_on;
+use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::buffer;
 use vortex::array::scalar::Scalar;
 use vortex::array::validity::Validity::NonNullable;
 use vortex::buffer::Buffer;
+use vortex::dtype::NativePType;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPArrayExt;
 use vortex::encodings::alp::ALPArraySlotsExt;
@@ -59,7 +63,7 @@ const BENCH_ARGS: &[(usize, &str)] = &[(10_000_000, "10M"), (100_000_000, "100M"
 /// This deliberately does not use `CudaDispatchPlan::execute` because the
 /// benchmark pre-allocates the output buffer and device plan once, then reuses
 /// them across iterations.
-fn run_timed<T: cudarc::driver::DeviceRepr + vortex::dtype::NativePType>(
+fn run_timed<T: DeviceRepr + NativePType>(
     cuda_ctx: &mut CudaExecutionCtx,
     array_len: usize,
     output_buf: &CudaDeviceBuffer,
@@ -124,12 +128,12 @@ struct BenchRunner<T> {
     len: usize,
     device_plan: Arc<CudaSlice<u8>>,
     output_buf: CudaDeviceBuffer,
-    _plan_buffers: Vec<vortex::array::buffer::BufferHandle>,
+    _plan_buffers: Vec<buffer::BufferHandle>,
     _phantom: PhantomData<T>,
 }
 
-impl<T: cudarc::driver::DeviceRepr + vortex::dtype::NativePType> BenchRunner<T> {
-    fn new(array: &vortex::array::ArrayRef, len: usize, cuda_ctx: &mut CudaExecutionCtx) -> Self {
+impl<T: DeviceRepr + NativePType> BenchRunner<T> {
+    fn new(array: &ArrayRef, len: usize, cuda_ctx: &mut CudaExecutionCtx) -> Self {
         let plan = match DispatchPlan::new(array, CudaDispatchMode::DynDispatchOnly)
             .vortex_expect("build_dyn_dispatch_plan")
         {
