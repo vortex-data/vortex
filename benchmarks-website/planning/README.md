@@ -3,143 +3,182 @@ SPDX-License-Identifier: Apache-2.0
 SPDX-FileCopyrightText: Copyright the Vortex contributors
 -->
 
-# AGENTS.md - benchmarks-website v3
+# Benchmarks website v3 - Planning
 
-Brief for coding agents working on the v3 rewrite of `bench.vortex.dev`. Keep this file short.
-Detail belongs in component plans.
+Planning docs for `bench.vortex.dev` v3: a single Rust binary (axum + maud + duckdb-rs) replacing
+the v2 Node/React stack.
 
 ## Status
 
-Alpha is shipped. The v3 server, migrator, and inline-charts UI are all merged to
-`ct/benchmarks-v3`. The current focus is **production readiness**: secrets, CI ingestion wiring,
-smoke-testing on a real host, the DNS flip, and v2 cleanup. See [`README.md`](./README.md) for the
-live punch list.
+- **Alpha shipped** to `ct/benchmarks-v3`. Server, migrator, and inline-charts UI are merged.
+- **In production-readiness phase.** v2 is still serving `bench.vortex.dev`. v3 has not been
+  deployed publicly yet.
+- **UI follow-ups** are owned by the user, not by agents (see "Deferred UI follow-ups" below).
 
-The v2 site (top-level files in `benchmarks-website/`: `server.js`, `src/`, `package.json`,
-`index.html`, `Dockerfile`, `docker-compose.yml`, `ec2-init.txt`, etc.) is still in production on
-`bench.vortex.dev` and **stays running unchanged** until the DNS flip. The v3 server lives alongside
-it as `vortex-bench-server` at `benchmarks-website/server/`.
+A 10-bullet architecture summary lives at the top of [`AGENTS.md`](./AGENTS.md). Use that for
+handoffs and external sharing.
 
-## Architecture in 10 bullets
+## Production readiness checklist
 
-- Single Rust binary: `axum` (HTTP) + `maud` (SSR HTML) + embedded `duckdb-rs`. All static assets
-  (`chart.umd.js`, `chart-init.js`, `style.css`) are `include_bytes!`'d into the binary. No CDN.
-- One DuckDB file on local disk holds five fact tables (compression time, query measurement, vector
-  search, RAG, random access) plus a `commits` dim table. Schema in
-  [`01-schema.md`](./01-schema.md).
-- One ingest endpoint: `POST /api/ingest`, gated by a static bearer token from the
-  `INGEST_BEARER_TOKEN` env var. Wire shapes in [`02-contracts.md`](./02-contracts.md).
-- Three HTML routes — `/`, `/chart/{slug}`, `/group/{slug}` — and one JSON route,
-  `GET /api/chart/{slug}`, all served from the same binary.
-- `ChartKey` and `GroupKey` enums round-trip through URLs as `<prefix>.<base64url(serde_json(...))>`
-  slugs. No DB lookup required to decode a URL.
-- Charts render inline on the landing page. Each `<canvas>` is paired with a
-  `<script id="chart-data-N">` JSON payload that `chart-init.js` hydrates lazily via
-  `IntersectionObserver`.
-- Per-chart toolbar with zoom-as-scope: each chart fetches up to 1000 commits once, then the Show /
-  Y / Mode buttons and slider adjust the visible range via `chart.update("none")`. Mouse wheel pans
-  history. Slider uses `input` events with a 16ms throttle + 150ms debounce.
-- Group ordering is hard-coded to match v2's `origin/ct/vfvb:benchmarks-website/index.html` order.
-  Each group is wrapped in a `<details>`; only the first is open by default.
-- URL state (`?n=&y=&mode=&hidden=`) is honored only on permalink pages (`/chart`, `/group`).
-  Landing page resets to defaults on open; users customize per-chart in place.
-- `vortex-bench-migrate` reads v2 records, runs each through a classifier in
-  `migrate/src/classifier.rs`, and either routes the record into one of the five fact tables or
-  marks it `Skip(reason)` with a typed reason. The run **fails if more than 5% of records come back
-  as `Unknown`** — silent data loss is not allowed.
+In rough order. Each item is a separate task; do not bundle.
 
-## Code map
+### 1. Repo secrets
 
-| Path                                             | What lives here                                                                                                                                                                                                            |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `benchmarks-website/server/src/main.rs`          | Binary entrypoint. Reads `INGEST_BEARER_TOKEN`, `VORTEX_BENCH_BIND` (default `127.0.0.1:3000`), `VORTEX_BENCH_DB` (default `./bench.duckdb`), `VORTEX_BENCH_LOG`.                                                          |
-| `benchmarks-website/server/src/api.rs`           | `chart_payload(conn, &ChartKey, &CommitWindow)` — the shared implementation behind `/api/chart/{slug}`, the inline `<script>` JSON, and `collect_group_charts`. Known N+1 in `collect_group_charts` — flagged with a TODO. |
-| `benchmarks-website/server/src/html.rs`          | Three HTML routes and the `<details>`-per-group landing page. `LANDING_DEFAULT_N: u32 = 50`. `UiQuery` parses `?n=&y=&mode=&hidden=` on permalink routes.                                                                  |
-| `benchmarks-website/server/src/slug.rs`          | `ChartKey` / `GroupKey` enums and `to_slug` / `from_slug` round-trip.                                                                                                                                                      |
-| `benchmarks-website/server/static/chart-init.js` | Hydration, `IntersectionObserver`, custom external tooltip with delta rows, inline `afterDatasetsDraw` plugin for the dashed crosshair.                                                                                    |
-| `benchmarks-website/server/static/style.css`     | `.chart-tooltip-host` is `position: absolute; pointer-events: none;` (do not change — fixes the flicker). `.chart-card` is `position: relative`.                                                                           |
-| `benchmarks-website/server/tests/web_ui.rs`      | `insta` snapshot tests, seeded by POSTing to `/api/ingest`. No external fixtures.                                                                                                                                          |
-| `benchmarks-website/migrate/src/classifier.rs`   | `classify_outcome` routes records into a fact table, `Skip(reason)`, or `Unknown`. >5% Unknown gates the run.                                                                                                              |
+Two GitHub repository secrets on `vortex-data/vortex` (admins only):
 
-## Local dev / smoke test
+- `INGEST_BEARER_TOKEN` — random 32+ byte token. Same value gets set as the `INGEST_BEARER_TOKEN`
+  env var on whatever host runs the v3 server. Generate with `openssl rand -hex 32`.
+- `V3_INGEST_URL` — full URL of the v3 ingest endpoint, e.g. `http://<host>:3000/api/ingest` for
+  the test box, or `https://bench.vortex.dev/api/ingest` for prod.
 
-Build narrow:
+Repo-level secrets are fine for the test phase. Move to an Environment-scoped secret (gated to
+`ct/benchmarks-v3` / protected branches) before prod.
+
+### 2. CI ingestion wiring
+
+Confirm whichever workflow runs the benchmark suites and pushes results uses
+`secrets.INGEST_BEARER_TOKEN` and `secrets.V3_INGEST_URL`, and POSTs the versioned envelope shape
+defined in [`02-contracts.md`](./02-contracts.md). The current workflow targets the v2 endpoint;
+needs to either dual-write or flip.
+
+### 3. Test deployment
+
+Currently a manual EC2 box for smoke-testing. Latest test host:
+
+- DNS: `ec2-18-116-241-0.us-east-2.compute.amazonaws.com`
+- Port: `3000` (open to `0.0.0.0/0` in the security group)
+- Bind: `VORTEX_BENCH_BIND=0.0.0.0:3000` (default `127.0.0.1` does not work for external access)
+- HTTP only, no TLS. Public IP changes on stop/start unless an Elastic IP is associated. Throwaway
+  token only — don't reuse for prod.
+
+Smoke test from a laptop:
 
 ```bash
-cargo build -p vortex-bench-server
+curl -i http://<host>:3000/
 ```
 
-Run:
+Should return HTTP 200 with the landing HTML.
 
-```bash
-INGEST_BEARER_TOKEN="dev" cargo run -p vortex-bench-server
-# server logs: "bench server listening addr=127.0.0.1:3000 db=bench.duckdb"
-```
+### 4. Smoke test with migrated data
 
-Seed test data via the ingest endpoint (the snapshot tests do this in-process — see
-`server/tests/web_ui.rs` for the envelope shapes).
+Run `vortex-bench-migrate` against the v2 source, copy the resulting `bench.duckdb` to the deployed
+host, point `VORTEX_BENCH_DB` at it, and walk every group's charts in a browser.
 
-Run snapshot tests:
+### 5. Operational hygiene (not yet done)
 
-```bash
-cargo test -p vortex-bench-server
-INSTA_UPDATE=auto cargo test -p vortex-bench-server   # to update
-```
+- Health-check endpoint (`GET /health` returning 200).
+- Structured logging review (we already use `tracing`; verify fields are useful for prod
+  debugging).
+- Rate limiting on `/api/ingest` — the bearer token is the only gate today.
+- TLS termination strategy: front with a load balancer / nginx / Caddy, or terminate in-process?
+  Decide before DNS flip.
+- DB schema-version tracking, so future migrations are coordinated rather than ad-hoc.
+- Backup story. Open question: is "copy the file" enough, or do we want a WAL-based /
+  point-in-time approach? Investigate DuckDB options.
 
-For an end-to-end smoke test against migrated data, point `VORTEX_BENCH_DB` at the output of
-`vortex-bench-migrate`.
+### 6. Deployment platform decision
 
-## Repository conventions
+v2 ran on EC2 (see top-level `ec2-init.txt`, `docker-compose.yml`). v3 is a self-contained binary +
+DuckDB file + env var, so the v2 setup isn't reusable verbatim. Decide:
 
-See the root [`CLAUDE.md`](/CLAUDE.md) for Rust style, test layout, and CI norms. Project-specific:
+- Reuse the v2 EC2 host (cutover-style)?
+- Stand up a new EC2 box?
+- Containerize and run somewhere managed?
 
-- The v3 server crate lives at `benchmarks-website/server/` and is registered in the root
-  `Cargo.toml` `members` list.
-- All commits need a `Signed-off-by:` trailer.
-- Run `cargo +nightly fmt --all` and narrow clippy on what you changed.
-- Public-API changes need `./scripts/public-api.sh`.
-- Every new public item needs a doc comment.
-- Tests return `VortexResult<()>` and use `?`. No `unwrap`.
-- Branch from `ct/benchmarks-v3`, not `develop`. PR back to `ct/benchmarks-v3`.
-- **Never auto-merge**. Open the PR, post the URL, stop. The user reviews and merges.
+The simplest first cut is a new EC2 instance with a systemd unit and an Elastic IP.
 
-## Things to avoid
+### 7. DNS flip
 
-- **Don't widen scope past your task.** If a feature feels missing, check
-  [`deferred.md`](./deferred.md) and the "Deferred UI follow-ups" section of
-  [`README.md`](./README.md) first — it is almost certainly already deferred.
-- **Don't write a server-side classifier for live ingest.** The emitter is responsible for v3-shape
-  records. The migrator's classifier exists only to translate v2 records once.
-- **Don't rebuild a global page-level toolbar.** Controls are per-chart. This was a real failure
-  mode the first time around — the page-level toolbar drove every chart together, which is not what
-  users want.
-- **Don't bind a slider's reactive logic to `change` events.** Use `input` events with a small
-  throttle + debounce, otherwise the slider only updates on release and feels broken.
-- **Don't refetch on scope change.** Each chart fetches a generous window once; scope buttons +
-  slider operate on that buffer via `chart.update("none")`.
-- **Don't re-introduce `pointer-events: auto` on the tooltip host.** The tooltip is positioned at
-  the cursor; making it pointer-interactive causes a flicker loop. Keep it `pointer-events: none`
-  and offset via `transform: translate(12px, 12px)`.
-- **Don't drift from contracts.** Wire-shape changes are a coordinated PR across emitter, migrator,
-  and server.
-- **Don't touch the v2 React/Node app.** It stays in production unchanged until the DNS flip. The v2
-  cleanup is its own PR, post- flip.
-- **Don't reach for WASM.**
+Point `bench.vortex.dev` at the v3 host. After this:
+
+- v2 is no longer serving production traffic.
+- The v2 cleanup PR (item 8) becomes safe to merge.
+- Production secrets are now load-bearing — rotate `INGEST_BEARER_TOKEN` if the test value was
+  ever shared.
+
+### 8. v2 cleanup PR
+
+A separate PR, opened post-flip. Deletes everything top-level under `benchmarks-website/` that
+belongs to v2:
+
+- `server.js`, `src/`, `index.html`, `vite.config.js`, `package.json`, `package-lock.json`,
+  `public/`
+- Top-level `Dockerfile`, `docker-compose.yml`, `ec2-init.txt`
+- Any GitHub Actions workflows that only target the v2 deploy
+
+The v3 tree under `benchmarks-website/server/` and `benchmarks-website/migrate/` is untouched.
+
+## Open product decisions
+
+These are user/owner decisions, not agent decisions.
+
+- **What migrated data do we keep vs drop?** The classifier currently silently drops every record
+  routed to a `Skip` variant (e.g. `Skip::HistoricalMemory`, legacy random-access shapes). Some of
+  those `Skip`s are real "we don't want this" cases; some are "we'd want this if we extended a
+  fact table." Once v2 is gone the source records are gone with it, so this needs an explicit
+  pass through `Skip` variants before flip.
+- **Group naming.** Server emits names like `tpch sf=1 [nvme]`; v2's published names are
+  `TPC-H (NVMe) (SF=1)`. Either rename the server-emitted names to v2 form, or add a sort-key +
+  display-name map. Cosmetic but visible.
+- **Deferred UI follow-ups.** The user is handling these directly; agents should not pre-empt
+  them:
+  - `collect_group_charts` N+1 refactor in `api.rs:583-613`.
+  - Mobile legend resize handler.
+  - Zoom-sync within a group.
+  - LTTB downsampling for very long histories.
+  - Swap the inline crosshair plugin for `chartjs-plugin-crosshair`.
+
+## Reading order (alpha-era reference)
+
+Still useful for context on why the schema and contracts look the way they do. Not all of this is
+current.
+
+| File                                             | Read when                                                                                  |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| [`AGENTS.md`](./AGENTS.md)                       | Always. Status, architecture, code map, conventions, common mistakes.                      |
+| [`00-overview.md`](./00-overview.md)             | The original alpha pitch and dependency map.                                               |
+| [`01-schema.md`](./01-schema.md)                 | The five DuckDB fact tables + `commits` dim. Live contract.                                |
+| [`02-contracts.md`](./02-contracts.md)           | Wire shapes (one `kind` per fact table), HTTP error matrix, auth header. Live contract.    |
+| [`benchmark-mapping.md`](./benchmark-mapping.md) | Existing benchmarks → fact tables. Live reference, especially when extending the migrator. |
+| [`decisions.md`](./decisions.md)                 | What was pinned for alpha.                                                                 |
+| [`deferred.md`](./deferred.md)                   | What was punted from alpha. Cross-reference with the "Deferred UI follow-ups" list above.  |
+| `components/<name>.md`                           | Original per-workstream plans. All three are merged; treat these as historical.            |
+
+## Components (merged)
+
+Three workstreams shipped for alpha. All three are merged to `ct/benchmarks-v3`. Plans kept for
+reference.
+
+| Component | Plan                                             | Status                              |
+| --------- | ------------------------------------------------ | ----------------------------------- |
+| Server    | [components/server.md](./components/server.md)   | Merged.                             |
+| Emitter   | [components/emitter.md](./components/emitter.md) | Merged.                             |
+| Web UI    | [components/web-ui.md](./components/web-ui.md)   | Merged (plus per-chart UX rebuild). |
 
 ## Working branches
 
-| Branch                         | Purpose                                                                                             |
-| ------------------------------ | --------------------------------------------------------------------------------------------------- |
-| `develop`                      | Live v2 site. Don't break.                                                                          |
-| `ct/benchmarks-v3`             | Integration branch carrying the planning commit + landed component PRs. All v3 branches start here. |
-| `claude/benchmarks-v3-<topic>` | Per-task feature branches, branched from `ct/benchmarks-v3` and PR'd back to it.                    |
+- `develop` — the v2 site, in production. **Do not touch** until after DNS flip.
+- `ct/benchmarks-v3` — the integration branch. All v3 work lands here. Feature branches branch
+  from it and PR back to it.
+- `claude/benchmarks-v3-<topic>` — per-task feature branches.
 
-## How to update this file
+PRs are reported by URL but **never auto-merged**. The user reviews and merges.
 
-Keep it short. If you've learned something a future agent will need:
+## What this plan is not
 
-- Cross-component contract → [`02-contracts.md`](./02-contracts.md)
-- Local detail → your component plan
-- Decided → [`decisions.md`](./decisions.md)
-- Not designing yet → [`deferred.md`](./deferred.md)
-- Cross-cutting agent norm → here
+- Not a parity-with-v2 plan. v3 ships the existing benchmark groups, not v2's exact UX.
+- Not a phase-2 design doc. Phase 2 is the prod-readiness checklist above; further-out work lives
+  in [`deferred.md`](./deferred.md) and the "Deferred UI follow-ups" list.
+
+## Updating these docs
+
+If you find a gap, prefer to:
+
+1. Update [`02-contracts.md`](./02-contracts.md) when the gap is at a component boundary.
+2. Update [`AGENTS.md`](./AGENTS.md) when the gap is a new agent norm or a new "thing to avoid."
+3. Update this file when the gap is the prod-readiness punch list or an open product decision.
+4. Update [`decisions.md`](./decisions.md) when the gap is "we just haven't decided yet, but we
+   need to."
+5. Update [`deferred.md`](./deferred.md) when the gap is "real work but not now."
+
+Don't add a new top-level numbered doc.
