@@ -341,6 +341,32 @@ async fn landing_page_snapshot() -> Result<()> {
         !body.contains(r#"id="group-search""#),
         "landing page should not render the old group search bar"
     );
+    assert!(
+        body.contains(r#"class="sticky-header""#),
+        "landing page should render the v2-style top navbar"
+    );
+    assert!(
+        body.contains(r#"data-action="expand-all""#)
+            && body.contains(r#"data-action="collapse-all""#),
+        "navbar should expose expand/collapse controls"
+    );
+    assert!(
+        body.contains(r#"data-role="theme-toggle""#),
+        "navbar should expose a theme toggle"
+    );
+    assert!(
+        body.contains(r#"class="btn-icon""#)
+            || body.contains(r#"class="btn-icon theme-icon theme-icon-light""#),
+        "navbar controls should render icons"
+    );
+    assert!(
+        body.contains(r#"vortex_black_nobg.svg"#) && body.contains(r#"vortex_white_nobg.svg"#),
+        "navbar should render the Vortex logo assets"
+    );
+    assert!(
+        body.contains("⚡") && body.contains("📤") && body.contains("⬇️") && body.contains("📊"),
+        "summaries should render the v2 summary icons"
+    );
 
     insta_settings().bind(|| {
         insta::assert_snapshot!("landing_page", body);
@@ -873,6 +899,8 @@ async fn static_assets_are_served() -> Result<()> {
         ),
         ("/static/chart-init.js", "application/javascript"),
         ("/static/style.css", "text/css"),
+        ("/vortex_black_nobg.svg", "image/svg+xml"),
+        ("/vortex_white_nobg.svg", "image/svg+xml"),
     ] {
         let resp = client.get(server.url(path)).send().await?;
         assert_eq!(resp.status(), 200, "GET {path} should be 200");
