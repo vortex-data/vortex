@@ -91,6 +91,10 @@ impl LayoutReader for ZonedReader {
         &self.name
     }
 
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn dtype(&self) -> &DType {
         self.layout.dtype()
     }
@@ -207,10 +211,6 @@ impl LayoutReader for ZonedReader {
         //  short-circuit with statistics.
         self.data_child()?
             .projection_evaluation(row_range, expr, mask)
-    }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
     }
 }
 

@@ -792,37 +792,17 @@ pub fn vortex_layout::layouts::zoned::writer::ZonedStrategy::write_stream<'life0
 
 pub mod vortex_layout::layouts::zoned::zone_map
 
-pub struct vortex_layout::layouts::zoned::zone_map::StatsAccumulator
-
-impl vortex_layout::layouts::zoned::zone_map::StatsAccumulator
-
-pub fn vortex_layout::layouts::zoned::zone_map::StatsAccumulator::as_stats_table(&mut self) -> vortex_error::VortexResult<core::option::Option<vortex_layout::layouts::zoned::zone_map::ZoneMap>>
-
-pub fn vortex_layout::layouts::zoned::zone_map::StatsAccumulator::new(dtype: &vortex_array::dtype::DType, stats: &[vortex_array::expr::stats::Stat], max_variable_length_statistics_size: usize) -> Self
-
-pub fn vortex_layout::layouts::zoned::zone_map::StatsAccumulator::push_chunk(&mut self, array: &vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_layout::layouts::zoned::zone_map::StatsAccumulator::push_chunk_without_compute(&mut self, array: &vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<()>
-
 pub struct vortex_layout::layouts::zoned::zone_map::ZoneMap
 
 impl vortex_layout::layouts::zoned::zone_map::ZoneMap
 
-pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::array(&self) -> &vortex_array::arrays::struct_::vtable::StructArray
-
 pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::dtype_for_stats_table(column_dtype: &vortex_array::dtype::DType, present_stats: &[vortex_array::expr::stats::Stat]) -> vortex_array::dtype::DType
 
-pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::get_stat(&self, stat: vortex_array::expr::stats::Stat) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
-
-pub unsafe fn vortex_layout::layouts::zoned::zone_map::ZoneMap::new_unchecked(array: vortex_array::arrays::struct_::vtable::StructArray, stats: alloc::sync::Arc<[vortex_array::expr::stats::Stat]>) -> Self
-
-pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::present_stats(&self) -> &alloc::sync::Arc<[vortex_array::expr::stats::Stat]>
+pub unsafe fn vortex_layout::layouts::zoned::zone_map::ZoneMap::new_unchecked(array: vortex_array::arrays::struct_::vtable::StructArray, zone_len: u64, row_count: u64) -> Self
 
 pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::prune(&self, predicate: &vortex_array::expr::expression::Expression, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_mask::Mask>
 
-pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::to_stats_set(&self, stats: &[vortex_array::expr::stats::Stat], ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::stats::stats_set::StatsSet>
-
-pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::try_new(column_dtype: vortex_array::dtype::DType, array: vortex_array::arrays::struct_::vtable::StructArray, stats: alloc::sync::Arc<[vortex_array::expr::stats::Stat]>) -> vortex_error::VortexResult<Self>
+pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::try_new(column_dtype: vortex_array::dtype::DType, array: vortex_array::arrays::struct_::vtable::StructArray, stats: alloc::sync::Arc<[vortex_array::expr::stats::Stat]>, zone_len: u64, row_count: u64) -> vortex_error::VortexResult<Self>
 
 impl core::clone::Clone for vortex_layout::layouts::zoned::zone_map::ZoneMap
 
@@ -875,6 +855,8 @@ pub fn vortex_layout::layouts::zoned::ZonedLayout::new(data: vortex_layout::Layo
 pub fn vortex_layout::layouts::zoned::ZonedLayout::nzones(&self) -> usize
 
 pub fn vortex_layout::layouts::zoned::ZonedLayout::present_stats(&self) -> &alloc::sync::Arc<[vortex_array::expr::stats::Stat]>
+
+pub fn vortex_layout::layouts::zoned::ZonedLayout::zone_len(&self) -> usize
 
 impl core::clone::Clone for vortex_layout::layouts::zoned::ZonedLayout
 

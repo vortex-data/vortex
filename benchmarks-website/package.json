@@ -13,20 +13,20 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "chart.js": "^4.4.4",
-    "chartjs-plugin-zoom": "^2.0.1",
+    "chart.js": "^4.5.1",
+    "chartjs-plugin-zoom": "^2.2.0",
     "downsample": "^1.4.0",
     "hammerjs": "^2.0.8",
-    "lucide-react": "^0.577.0",
-    "react": "^18.3.1",
-    "react-chartjs-2": "^5.2.0",
-    "react-dom": "^18.3.1"
+    "lucide-react": "^1.11.0",
+    "react": "^19.2.5",
+    "react-chartjs-2": "^5.3.1",
+    "react-dom": "^19.2.5"
   },
   "devDependencies": {
-    "@types/react": "^18.3.3",
-    "@types/react-dom": "^18.3.0",
-    "@vitejs/plugin-react": "^4.3.1",
-    "concurrently": "^9.0.0",
-    "vite": "^6.0.0"
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "concurrently": "^9.2.1",
+    "vite": "^8.0.10"
   }
 }
