@@ -2,6 +2,8 @@
 /* SPDX-FileCopyrightText: Copyright the Vortex contributors */
 
 :root {
+  color-scheme: light;
+  --header-height: 72px;
   --bg: #ffffff;
   --page-bg: #fafafa;
   --fg: #101010;
@@ -20,6 +22,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
+    color-scheme: dark;
     --bg: #050507;
     --page-bg: #121219;
     --fg: #f5f5f7;
@@ -35,6 +38,42 @@
     --bad: #f87171;
     --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.7);
   }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --page-bg: #fafafa;
+  --fg: #101010;
+  --muted: #666666;
+  --accent: #5971fd;
+  --accent-fg: #ffffff;
+  --border: #ececec;
+  --card-bg: #ffffff;
+  --code-bg: #fafafa;
+  --tooltip-bg: #1a1a1a;
+  --tooltip-fg: #f5f5f5;
+  --good: #16a34a;
+  --bad: #dc2626;
+  --shadow-md: 0 4px 8px rgba(16, 16, 16, 0.08);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #050507;
+  --page-bg: #121219;
+  --fg: #f5f5f7;
+  --muted: #a0a0b0;
+  --accent: #8a9cff;
+  --accent-fg: #050507;
+  --border: #30303a;
+  --card-bg: #050507;
+  --code-bg: #121219;
+  --tooltip-bg: #1a1c22;
+  --tooltip-fg: #f5f5f5;
+  --good: #4ade80;
+  --bad: #f87171;
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.7);
 }
 
 * { box-sizing: border-box; }
@@ -53,8 +92,208 @@ html, body {
   line-height: 1.6;
 }
 
+body {
+  padding-top: var(--header-height);
+}
+
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
+
+.sticky-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  height: var(--header-height);
+  border-bottom: 1px solid var(--border);
+  background: rgba(250, 250, 250, 0.95);
+  box-shadow: 0 1px 3px rgba(16, 16, 16, 0.08);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .sticky-header {
+    background: rgba(18, 18, 25, 0.95);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  }
+}
+
+:root[data-theme="dark"] .sticky-header {
+  background: rgba(18, 18, 25, 0.95);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+:root[data-theme="light"] .sticky-header {
+  background: rgba(250, 250, 250, 0.95);
+  box-shadow: 0 1px 3px rgba(16, 16, 16, 0.08);
+}
+
+.header-content {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  width: 100%;
+  height: 100%;
+  padding: 0 2rem;
+  background: var(--code-bg);
+}
+
+.header-left,
+.header-center,
+.header-right,
+.nav-controls,
+.repo-link,
+.logo-link {
+  display: flex;
+  align-items: center;
+}
+
+.header-left {
+  min-width: 0;
+  gap: 0.75rem;
+}
+
+.header-center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  flex: 0 0 auto;
+  justify-content: center;
+  min-width: 0;
+  transform: translate(-50%, -50%);
+}
+
+.header-right {
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-left: auto;
+}
+
+.nav-controls {
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.logo-link {
+  flex: 0 0 auto;
+  text-decoration: none;
+  transition: opacity 0.2s ease;
+}
+
+.logo-link:hover {
+  opacity: 0.8;
+  text-decoration: none;
+}
+
+.site-logo {
+  display: block;
+  width: auto;
+  height: 48px;
+}
+
+.logo-dark { display: none; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .logo-light { display: none; }
+  :root:not([data-theme="light"]) .logo-dark { display: block; }
+}
+
+:root[data-theme="dark"] .logo-light { display: none; }
+:root[data-theme="dark"] .logo-dark { display: block; }
+:root[data-theme="light"] .logo-light { display: block; }
+:root[data-theme="light"] .logo-dark { display: none; }
+
+.site-title {
+  display: none;
+  margin: 0;
+  color: var(--fg);
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+@media (min-width: 1400px) {
+  .site-title {
+    display: block;
+  }
+}
+
+.control-btn,
+.repo-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background-color 0.2s ease, border-color 0.2s ease,
+    box-shadow 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.control-btn {
+  padding: 0.5rem 1.25rem;
+  cursor: pointer;
+}
+
+.control-btn:hover,
+.repo-link:hover {
+  border-color: var(--accent);
+  background: var(--code-bg);
+  color: var(--accent);
+  box-shadow: 0 1px 3px rgba(16, 16, 16, 0.08);
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+
+.theme-toggle {
+  min-width: 4.25rem;
+}
+
+.btn-icon {
+  flex: 0 0 auto;
+}
+
+.theme-icon-dark {
+  display: none;
+}
+
+.theme-toggle[data-next-theme="dark"] .theme-icon-light {
+  display: none;
+}
+
+.theme-toggle[data-next-theme="dark"] .theme-icon-dark {
+  display: block;
+}
+
+.theme-toggle[data-next-theme="light"] .theme-icon-light {
+  display: block;
+}
+
+.theme-toggle[data-next-theme="light"] .theme-icon-dark {
+  display: none;
+}
+
+.repo-link {
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+}
+
+.github-logo {
+  flex: 0 0 auto;
+}
 
 .page-header {
   border-bottom: 1px solid var(--border);
@@ -490,6 +729,57 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
  * Mobile
  * ---------------------------------------------------------------------- */
 @media (max-width: 768px) {
+  :root {
+    --header-height: 56px;
+  }
+  .header-content {
+    gap: 0.5rem;
+    padding: 0 0.5rem;
+  }
+  .site-logo {
+    height: 32px;
+  }
+  .header-left {
+    gap: 0.5rem;
+  }
+  .header-center {
+    position: static;
+    flex: 1 1 auto;
+    transform: none;
+  }
+  .header-right {
+    gap: 0.35rem;
+    margin-left: 0;
+  }
+  .site-title {
+    display: none;
+  }
+  .nav-controls {
+    gap: 0.35rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .nav-controls::-webkit-scrollbar {
+    display: none;
+  }
+  .control-btn,
+  .repo-link {
+    min-height: 32px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+  }
+  .control-btn {
+    padding: 0.4rem 0.55rem;
+  }
+  .theme-toggle {
+    min-width: 3.25rem;
+  }
+  .repo-link {
+    padding: 0.4rem 0.55rem;
+  }
+  .repo-link span {
+    display: none;
+  }
   main { padding: 1rem; }
   .group-details {
     margin-bottom: 1.5rem;
