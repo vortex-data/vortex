@@ -9,15 +9,23 @@ use arrow_schema::DataType;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
 use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrow::FromArrowArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::arrow::FromArrowType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtVTable;
+use vortex_array::extension::EmptyMetadata;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
+use vortex_array::validity::Validity;
 
 use crate::tests::SESSION;
 use crate::types::fixed_shape::FixedShapeTensor;
@@ -30,7 +38,7 @@ fn vector_dtype(len: u32) -> DType {
         len,
         Nullability::NonNullable,
     );
-    let ext = ExtDType::<Vector>::try_new(vortex_array::extension::EmptyMetadata, storage).unwrap();
+    let ext = ExtDType::<Vector>::try_new(EmptyMetadata, storage).unwrap();
     DType::Extension(ext.erased())
 }
 
@@ -194,4 +202,54 @@ fn temporal_extension_still_uses_native_arrow() {
     ));
     assert!(field.metadata().get(EXTENSION_TYPE_NAME_KEY).is_none());
     assert!(field.metadata().get(EXTENSION_TYPE_METADATA_KEY).is_none());
+}
+
+/// Build a storage FSL<f32> with `num_rows` rows, each of `elements_per_row` elements.
+fn fsl_f32_storage(elements_per_row: u32, num_rows: usize) -> ArrayRef {
+    let total = elements_per_row as usize * num_rows;
+    let elements = PrimitiveArray::from_iter((0..total).map(|i| i as f32));
+    FixedSizeListArray::try_new(
+        elements.into_array(),
+        elements_per_row,
+        Validity::NonNullable,
+        num_rows,
+    )
+    .unwrap()
+    .into_array()
+}
+
+#[test]
+fn vector_record_batch_round_trip() {
+    let vector_array =
+        ExtensionArray::try_new_from_vtable(Vector, EmptyMetadata, fsl_f32_storage(4, 2))
+            .unwrap()
+            .into_array();
+    let original = StructArray::from_fields(&[("embedding", vector_array)]).unwrap();
+
+    let dtype = DType::struct_([("embedding", vector_dtype(4))], Nullability::NonNullable);
+    let schema = dtype.to_arrow_schema_with_session(&SESSION).unwrap();
+    let rb = original.into_record_batch_with_schema(&schema).unwrap();
+
+    let recovered = ArrayRef::from_arrow_with_session(rb, false, &SESSION).unwrap();
+    assert_eq!(recovered.dtype(), &dtype);
+}
+
+#[test]
+fn fixed_shape_tensor_record_batch_round_trip() {
+    let metadata = FixedShapeTensorMetadata::new(vec![2, 2])
+        .with_dim_names(vec!["row".into(), "col".into()])
+        .unwrap();
+    let tensor_dtype = fixed_shape_dtype(metadata.clone(), 4);
+    let dtype = DType::struct_([("tensor", tensor_dtype.clone())], Nullability::NonNullable);
+    let schema = dtype.to_arrow_schema_with_session(&SESSION).unwrap();
+
+    let tensor_array =
+        ExtensionArray::try_new_from_vtable(FixedShapeTensor, metadata, fsl_f32_storage(4, 3))
+            .unwrap()
+            .into_array();
+    let original = StructArray::from_fields(&[("tensor", tensor_array)]).unwrap();
+    let rb = original.into_record_batch_with_schema(&schema).unwrap();
+
+    let recovered = ArrayRef::from_arrow_with_session(rb, false, &SESSION).unwrap();
+    assert_eq!(recovered.dtype(), &dtype);
 }

@@ -254,18 +254,36 @@ impl FromArrowType<&Field> for DType {
 /// Convert an Arrow Field to a [`DType`] with `dtypes` already borrowed from the session,
 /// so the handle is acquired once per schema rather than once per field.
 fn dtype_from_field(field: &Field, dtypes: &DTypeSession) -> DType {
-    let ext_name = field.extension_type_name();
-
-    // Variant maps to its own DType variant, not DType::Extension.
-    if ext_name.is_some_and(|s| s == ARROW_EXT_NAME_VARIANT) {
+    if field
+        .extension_type_name()
+        .is_some_and(|s| s == ARROW_EXT_NAME_VARIANT)
+    {
         return DType::Variant(field.is_nullable().into());
     }
 
     let storage_dtype = storage_dtype_from_field(field, dtypes);
+    match resolve_extension_dtype(field, dtypes, &storage_dtype) {
+        Some(ext_ref) => DType::Extension(ext_ref),
+        None => storage_dtype,
+    }
+}
 
-    let Some(ext_name) = ext_name else {
-        return storage_dtype;
-    };
+/// Resolve the [`ExtDTypeRef`] for an Arrow Field whose `ARROW:extension:name` metadata names
+/// a registered Vortex extension. Returns `None` for unregistered extensions, malformed
+/// metadata, or fields with no extension name; `tracing::warn!` reports the anomaly so callers
+/// can simply fall back to the storage representation.
+///
+/// Used on both the dtype side ([`dtype_from_field`]) and the array side
+/// (`wrap_extension_if_field_has_metadata`); only the final wrap differs.
+pub(crate) fn resolve_extension_dtype(
+    field: &Field,
+    dtypes: &DTypeSession,
+    storage_dtype: &DType,
+) -> Option<ExtDTypeRef> {
+    let ext_name = field.extension_type_name()?;
+    if ext_name == ARROW_EXT_NAME_VARIANT {
+        return None;
+    }
 
     let arrow_id = ExtId::new(ext_name);
     let (ext_id, codec) = match dtypes.vortex_alias_for(&arrow_id) {
@@ -275,38 +293,33 @@ fn dtype_from_field(field: &Field, dtypes: &DTypeSession) -> DType {
 
     let Some(plugin) = dtypes.registry().find(&ext_id) else {
         tracing::warn!(
-            "Arrow field {:?} extension id {:?} not registered; using storage dtype",
+            "Arrow field {:?} extension id {ext_name:?} not registered; using storage dtype",
             field.name(),
-            ext_name,
         );
-        return storage_dtype;
+        return None;
     };
 
     let metadata_bytes = match decode_extension_metadata(field, codec) {
         Ok(bytes) => bytes,
         Err(e) => {
             tracing::warn!(
-                "Arrow field {:?} extension id {:?} has malformed metadata ({}); \
+                "Arrow field {:?} extension id {ext_name:?} has malformed metadata ({e}); \
                  using storage dtype",
                 field.name(),
-                ext_name,
-                e,
             );
-            return storage_dtype;
+            return None;
         }
     };
 
     match plugin.deserialize(&metadata_bytes, storage_dtype.clone()) {
-        Ok(ext_ref) => DType::Extension(ext_ref),
+        Ok(ext_ref) => Some(ext_ref),
         Err(e) => {
             tracing::warn!(
-                "Arrow field {:?} extension id {:?} failed to deserialize ({}); \
+                "Arrow field {:?} extension id {ext_name:?} failed to deserialize ({e}); \
                  using storage dtype",
                 field.name(),
-                ext_name,
-                e,
             );
-            storage_dtype
+            None
         }
     }
 }

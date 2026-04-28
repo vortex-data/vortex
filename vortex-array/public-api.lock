@@ -7038,157 +7038,233 @@ pub fn vortex_array::ArrayRef::execute_record_batch(self, schema: &arrow_schema:
 
 pub fn vortex_array::ArrayRef::execute_record_batches(self, schema: &arrow_schema::schema::Schema, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<alloc::vec::Vec<arrow_array::record_batch::RecordBatch>>
 
-pub trait vortex_array::arrow::FromArrowArray<A>
+pub trait vortex_array::arrow::FromArrowArray<A>: core::marker::Sized
 
-pub fn vortex_array::arrow::FromArrowArray::from_arrow(array: A, nullable: bool) -> vortex_error::VortexResult<Self> where Self: core::marker::Sized
+pub fn vortex_array::arrow::FromArrowArray::from_arrow(array: A, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::arrow::FromArrowArray::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::boolean_array::BooleanArray> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::boolean_array::BooleanArray, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::fixed_size_list_array::FixedSizeListArray> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(array: &arrow_array::array::fixed_size_list_array::FixedSizeListArray, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: &arrow_array::array::fixed_size_list_array::FixedSizeListArray, nullable: bool, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::null_array::NullArray> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::null_array::NullArray, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Date32Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Date32Type>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Date64Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Date64Type>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal128Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(array: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal128Type>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal256Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(array: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal256Type>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal32Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(array: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal32Type>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal64Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(array: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal64Type>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float16Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float16Type>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float32Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float32Type>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float64Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float64Type>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int16Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int16Type>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int32Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int32Type>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int64Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int64Type>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int8Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int8Type>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Time32MillisecondType>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Time32MillisecondType>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Time32SecondType>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Time32SecondType>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Time64MicrosecondType>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Time64MicrosecondType>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Time64NanosecondType>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Time64NanosecondType>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::TimestampMicrosecondType>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::TimestampMicrosecondType>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::TimestampMillisecondType>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::TimestampMillisecondType>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::TimestampNanosecondType>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::TimestampNanosecondType>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::TimestampSecondType>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::TimestampSecondType>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt16Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt16Type>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt32Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt32Type>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt64Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt64Type>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt8Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt8Type>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::struct_array::StructArray> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::struct_array::StructArray, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(value: &arrow_array::array::struct_array::StructArray, nullable: bool, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::record_batch::RecordBatch> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(array: &arrow_array::record_batch::RecordBatch, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: &arrow_array::record_batch::RecordBatch, nullable: bool, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&dyn arrow_array::array::Array> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(array: &dyn arrow_array::array::Array, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: &dyn arrow_array::array::Array, nullable: bool, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<arrow_array::record_batch::RecordBatch> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(array: arrow_array::record_batch::RecordBatch, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: arrow_array::record_batch::RecordBatch, nullable: bool, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl<K: arrow_array::types::ArrowDictionaryKeyType> vortex_array::arrow::FromArrowArray<&arrow_array::array::dictionary_array::DictionaryArray<K>> for vortex_array::arrays::dict::DictArray
 
 pub fn vortex_array::arrays::dict::DictArray::from_arrow(array: &arrow_array::array::dictionary_array::DictionaryArray<K>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::arrays::dict::DictArray::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl<O: arrow_array::array::list_array::OffsetSizeTrait + vortex_array::dtype::NativePType> vortex_array::arrow::FromArrowArray<&arrow_array::array::list_view_array::GenericListViewArray<O>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(array: &arrow_array::array::list_view_array::GenericListViewArray<O>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl<O: vortex_array::dtype::IntegerPType + arrow_array::array::list_array::OffsetSizeTrait> vortex_array::arrow::FromArrowArray<&arrow_array::array::list_array::GenericListArray<O>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::list_array::GenericListArray<O>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(value: &arrow_array::array::list_array::GenericListArray<O>, nullable: bool, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl<T: arrow_array::types::ByteArrayType> vortex_array::arrow::FromArrowArray<&arrow_array::array::byte_array::GenericByteArray<T>> for vortex_array::ArrayRef where <T as arrow_array::types::ByteArrayType>::Offset: vortex_array::dtype::IntegerPType
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::byte_array::GenericByteArray<T>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl<T: arrow_array::types::ByteViewType> vortex_array::arrow::FromArrowArray<&arrow_array::array::byte_view_array::GenericByteViewArray<T>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::byte_view_array::GenericByteViewArray<T>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 pub trait vortex_array::arrow::IntoArrowArray
 
@@ -22594,129 +22670,193 @@ impl vortex_array::arrow::FromArrowArray<&arrow_array::array::boolean_array::Boo
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::boolean_array::BooleanArray, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::fixed_size_list_array::FixedSizeListArray> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(array: &arrow_array::array::fixed_size_list_array::FixedSizeListArray, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: &arrow_array::array::fixed_size_list_array::FixedSizeListArray, nullable: bool, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::null_array::NullArray> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::null_array::NullArray, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Date32Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Date32Type>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Date64Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Date64Type>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal128Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(array: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal128Type>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal256Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(array: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal256Type>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal32Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(array: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal32Type>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal64Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(array: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal64Type>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float16Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float16Type>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float32Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float32Type>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float64Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float64Type>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int16Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int16Type>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int32Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int32Type>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int64Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int64Type>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int8Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int8Type>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Time32MillisecondType>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Time32MillisecondType>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Time32SecondType>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Time32SecondType>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Time64MicrosecondType>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Time64MicrosecondType>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Time64NanosecondType>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Time64NanosecondType>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::TimestampMicrosecondType>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::TimestampMicrosecondType>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::TimestampMillisecondType>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::TimestampMillisecondType>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::TimestampNanosecondType>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::TimestampNanosecondType>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::TimestampSecondType>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::TimestampSecondType>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt16Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt16Type>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt32Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt32Type>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt64Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt64Type>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt8Type>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt8Type>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&arrow_array::array::struct_array::StructArray> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::struct_array::StructArray, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(value: &arrow_array::array::struct_array::StructArray, nullable: bool, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<&arrow_array::record_batch::RecordBatch> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(array: &arrow_array::record_batch::RecordBatch, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: &arrow_array::record_batch::RecordBatch, nullable: bool, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::FromArrowArray<&dyn arrow_array::array::Array> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(array: &dyn arrow_array::array::Array, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: &dyn arrow_array::array::Array, nullable: bool, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::arrow::FromArrowArray<arrow_array::record_batch::RecordBatch> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(array: arrow_array::record_batch::RecordBatch, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: arrow_array::record_batch::RecordBatch, nullable: bool, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrow::IntoArrowArray for vortex_array::ArrayRef
 
@@ -22786,17 +22926,25 @@ impl<O: arrow_array::array::list_array::OffsetSizeTrait + vortex_array::dtype::N
 
 pub fn vortex_array::ArrayRef::from_arrow(array: &arrow_array::array::list_view_array::GenericListViewArray<O>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl<O: vortex_array::dtype::IntegerPType + arrow_array::array::list_array::OffsetSizeTrait> vortex_array::arrow::FromArrowArray<&arrow_array::array::list_array::GenericListArray<O>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::list_array::GenericListArray<O>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(value: &arrow_array::array::list_array::GenericListArray<O>, nullable: bool, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl<T: arrow_array::types::ByteArrayType> vortex_array::arrow::FromArrowArray<&arrow_array::array::byte_array::GenericByteArray<T>> for vortex_array::ArrayRef where <T as arrow_array::types::ByteArrayType>::Offset: vortex_array::dtype::IntegerPType
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::byte_array::GenericByteArray<T>, nullable: bool) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 impl<T: arrow_array::types::ByteViewType> vortex_array::arrow::FromArrowArray<&arrow_array::array::byte_view_array::GenericByteViewArray<T>> for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::from_arrow(value: &arrow_array::array::byte_view_array::GenericByteViewArray<T>, nullable: bool) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl<V: vortex_array::VTable> core::convert::AsRef<vortex_array::ArrayRef> for vortex_array::Array<V>
 
