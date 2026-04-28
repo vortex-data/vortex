@@ -3,6 +3,7 @@
 
 //! Session-scoped memory allocation for host-side buffers.
 
+use std::any::Any;
 use std::fmt::Debug;
 use std::mem::size_of;
 use std::sync::Arc;
@@ -18,6 +19,7 @@ use vortex_error::vortex_err;
 use vortex_session::Ref;
 use vortex_session::RefMut;
 use vortex_session::SessionExt;
+use vortex_session::SessionVar;
 
 /// Mutable host buffer contract used by [`WritableHostBuffer`].
 pub trait HostBufferMut: Send + 'static {
@@ -196,6 +198,16 @@ impl MemorySession {
 impl Default for MemorySession {
     fn default() -> Self {
         Self::new(Arc::new(DefaultHostAllocator))
+    }
+}
+
+impl SessionVar for MemorySession {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
     }
 }
 

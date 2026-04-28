@@ -3,10 +3,12 @@
 
 //! Session extension for multi-file scanning, providing a shared footer cache.
 
+use std::any::Any;
 use std::fmt;
 use std::fmt::Debug;
 
 use vortex_session::SessionExt;
+use vortex_session::SessionVar;
 
 use crate::footer::Footer;
 
@@ -58,6 +60,16 @@ impl MultiFileSession {
     /// Store a footer under the given file path.
     pub fn put_footer(&self, path: &str, footer: Footer) {
         self.footer_cache.insert(path.to_string(), footer);
+    }
+}
+
+impl SessionVar for MultiFileSession {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
     }
 }
 
