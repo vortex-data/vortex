@@ -80,17 +80,14 @@ fn mask_validity_decimal(array: DecimalArray, validity: Validity) -> VortexResul
     let values_type = array.values_type();
     let new_validity = Validity::and(array.validity()?, validity)?;
     // SAFETY: We're only changing validity, not the data structure
-    Ok(match_each_decimal_value_type!(values_type, |T| {
-        let buffer = array.buffer::<T>();
-        unsafe {
-            DecimalArray::new_unchecked_handle(
-                array.buffer_handle().clone(),
-                array.values_type(),
-                array.decimal_dtype(),
-                new_validity,
-            )
-        }
-    }))
+    Ok(unsafe {
+        DecimalArray::new_unchecked_handle(
+            array.buffer_handle().clone(),
+            array.values_type(),
+            array.decimal_dtype(),
+            new_validity,
+        )
+    })
 }
 
 /// Mask validity for VarBinViewArray.
