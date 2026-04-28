@@ -73,6 +73,10 @@ public final class Expression {
         return new Expression(NativeExpression.isNull(child.nativePointer()));
     }
 
+    public static Expression isNotNull(Expression child) {
+        return new Expression(NativeExpression.isNotNull(child.nativePointer()));
+    }
+
     public static Expression literal(boolean value) {
         return new Expression(NativeExpression.literalBool(value, false));
     }

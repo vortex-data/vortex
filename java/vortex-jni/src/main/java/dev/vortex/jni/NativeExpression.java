@@ -27,6 +27,8 @@ public final class NativeExpression {
 
     public static native long isNull(long childPointer);
 
+    public static native long isNotNull(long childPointer);
+
     public static native long literalBool(boolean value, boolean isNull);
 
     public static native long literalI8(byte value, boolean isNull);

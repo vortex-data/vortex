@@ -78,5 +78,10 @@ allprojects {
         }
     }
 
-    tasks.register("format").get().dependsOn("spotlessApply")
+    if (project.name == "vortex-spark_2.12") {
+        // vortex-spark_2.12 and vortex-spark_2.13 share a projectDir; format from the 2.13 variant only.
+        tasks.register("format") { enabled = false }
+    } else {
+        tasks.register("format").get().dependsOn("spotlessApply")
+    }
 }

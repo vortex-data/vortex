@@ -24,7 +24,7 @@ use jni::sys::jint;
 use jni::sys::jlong;
 use jni::sys::jshort;
 use vortex::dtype::FieldName;
-use vortex::expr::Expression;
+use vortex::expr::{is_not_null, Expression};
 use vortex::expr::and_collect;
 use vortex::expr::get_item;
 use vortex::expr::is_null;
@@ -199,6 +199,16 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_isNull(
 ) -> jlong {
     let child = unsafe { expr_ref(child) }.clone();
     into_raw(is_null(child))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_isNotNull(
+    _env: EnvUnowned,
+    _class: JClass,
+    child: jlong,
+) -> jlong {
+    let child = unsafe { expr_ref(child) }.clone();
+    into_raw(is_not_null(child))
 }
 
 #[unsafe(no_mangle)]
