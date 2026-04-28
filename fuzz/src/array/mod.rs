@@ -657,7 +657,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
             Action::MinMax => {
                 let min_max_result = min_max(&current_array, &mut ctx)
                     .vortex_expect("min_max operation should succeed in fuzz test");
-                assert_min_max_eq(&expected.min_max(), &min_max_result, i)?;
+                assert_min_max_eq(expected.min_max().as_ref(), min_max_result.as_ref(), i)?;
             }
             Action::FillNull(fill_value) => {
                 current_array = current_array
@@ -770,14 +770,14 @@ pub fn assert_scalar_eq(lhs: &Scalar, rhs: &Scalar, step: usize) -> VortexFuzzRe
 /// Assert two min/max results are equal.
 #[expect(clippy::result_large_err)]
 pub fn assert_min_max_eq(
-    lhs: &Option<MinMaxResult>,
-    rhs: &Option<MinMaxResult>,
+    lhs: Option<&MinMaxResult>,
+    rhs: Option<&MinMaxResult>,
     step: usize,
 ) -> VortexFuzzResult<()> {
     if lhs != rhs {
         return Err(VortexFuzzError::MinMaxMismatch(
-            lhs.clone(),
-            rhs.clone(),
+            lhs.cloned(),
+            rhs.cloned(),
             step,
             Backtrace::capture(),
         ));

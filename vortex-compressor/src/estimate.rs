@@ -182,9 +182,9 @@ impl WinnerEstimate {
 /// Returns `true` if `score` beats the current best estimate.
 pub(super) fn is_better_score(
     score: EstimateScore,
-    best: &Option<(&'static dyn Scheme, EstimateScore)>,
+    best: Option<&(&'static dyn Scheme, EstimateScore)>,
 ) -> bool {
-    score.is_valid() && best.is_none_or(|(_, best_score)| score.beats(best_score))
+    score.is_valid() && best.is_none_or(|(_, best_score)| score.beats(*best_score))
 }
 
 /// Estimates compression ratio by compressing a ~1% sample of the data.
