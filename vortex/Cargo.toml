@@ -52,15 +52,18 @@ vortex-zstd = { workspace = true, optional = true }
 [dev-dependencies]
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
 divan = { workspace = true }
 fastlanes = { workspace = true }
 futures = { workspace = true }
 mimalloc = { workspace = true }
+ndarray = "0.16"
 parquet = { workspace = true }
 paste = { workspace = true }
 rand = { workspace = true }
 rand_distr = { workspace = true }
 serde_json = { workspace = true }
+tiff = "0.11"
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -88,6 +91,14 @@ unstable_encodings = [
 [[example]]
 name = "turboquant_vector_search"
 required-features = ["files", "tokio", "unstable_encodings"]
+
+[[example]]
+name = "geotiff_to_vortex"
+required-features = ["files", "tokio"]
+
+[[example]]
+name = "raster_bench"
+required-features = ["files", "tokio"]
 
 [[bench]]
 name = "single_encoding_throughput"
