@@ -3,31 +3,34 @@
 
 //! HTML routes for the bench.vortex.dev v3 web UI.
 //!
-//! Three pages:
-//! - `GET /` — landing page listing every group + chart derived from the
-//!   current data. Each group name links to `/group/{slug}` and each chart
-//!   link goes to `/chart/{slug}`.
-//! - `GET /chart/{slug}` — single Chart.js line chart, payload fetched
-//!   server-side and embedded inline as a JSON `<script>` block so there is
-//!   no client-side round-trip after page load.
-//! - `GET /group/{slug}` — every chart in one group on a single page. Each
-//!   chart's payload is embedded inline; chart construction itself is
-//!   deferred until the canvas scrolls into view (mobile-friendly + cheap
-//!   for big groups like the 22 TPC-H queries).
+//! Three pages, all backed by the same per-chart UX:
+//! - `GET /` — landing page. Every group is a collapsible `<details>`. The
+//!   first group is open by default and its charts pre-inline their JSON
+//!   payload for a fast first paint; closed groups carry only the chart-card
+//!   shell and their payloads are fetched on first toggle (`details.open`).
+//! - `GET /chart/{slug}` — single chart page; permalink for sharing.
+//! - `GET /group/{slug}` — every chart in one group on a single page.
 //!
-//! All three pages share the same toolbar: scope (`?n=`), Y-axis (`?y=`),
-//! mode (`?mode=`), and hidden series (`?hidden=`). The URL query string is
-//! the source of truth for state; clicking through the toolbar is just plain
-//! `<a>` navigation, while the JS rewrites the URL via
-//! `history.replaceState` for client-only changes (legend toggles).
+//! Each chart card owns its own toolbar (scope buttons + slider, Y-axis,
+//! mode). There is no page-level toolbar — every chart is independent. Scope
+//! is **zoom-as-scope**: each chart fetches up to [`api::MAX_COMMIT_WINDOW`]
+//! commits once, then the toolbar manipulates `chart.options.scales.x.min`/
+//! `max` to set the visible window. No refetches on scope change.
+//!
+//! URL query params (`?n=`) are accepted as power-user overrides on the
+//! initial fetch but are not written back from the toolbar. Per-chart UI
+//! state is intentionally not persisted in the URL — the user feedback
+//! emphasised that this UX should feel local-and-immediate, not "share a
+//! perfect view via URL". Permalinks (`/chart/{slug}`, `/group/{slug}`) are
+//! the sharing mechanism, not query strings.
 //!
 //! Slugs are opaque strings the server received from `/api/groups`; the
 //! handler echoes them straight into [`crate::slug::ChartKey::from_slug`]
 //! (or [`crate::slug::GroupKey::from_slug`]) without parsing.
 //!
-//! Static assets (Chart.js + CSS + the small hydration script) are served
-//! from `/static/...` via [`include_bytes!`] so the binary is fully
-//! self-contained.
+//! Static assets (Chart.js + zoom plugin + CSS + the small hydration
+//! script) are served from `/static/...` via [`include_bytes!`] so the
+//! binary is fully self-contained.
 
 use std::num::NonZeroU32;
 
@@ -58,13 +61,13 @@ use crate::db;
 use crate::slug::ChartKey;
 use crate::slug::GroupKey;
 
-/// Default commit window for the landing page. Smaller than the default for
-/// `/chart/{slug}` and `/group/{slug}` (100) because the landing page renders
-/// every chart inline — a smaller default keeps the cold payload cheap, and
-/// users can ask for more data via the `?n=` toolbar.
-const LANDING_DEFAULT_N: u32 = 50;
+/// How many commits each chart pre-fetches. The toolbar's "scope" buttons
+/// zoom into smaller windows of this slice; we never refetch on scope change.
+/// Capped at the API ceiling so a future bigger ceiling is picked up here too.
+const PER_CHART_FETCH_N: u32 = api::MAX_COMMIT_WINDOW;
 
 const CHART_JS: &[u8] = include_bytes!("../static/chart.umd.js");
+const CHART_ZOOM_JS: &[u8] = include_bytes!("../static/chartjs-plugin-zoom.umd.min.js");
 const CHART_INIT_JS: &[u8] = include_bytes!("../static/chart-init.js");
 const STYLE_CSS: &[u8] = include_bytes!("../static/style.css");
 
@@ -75,130 +78,41 @@ pub fn router() -> Router<AppState> {
         .route("/chart/{slug}", get(chart_page))
         .route("/group/{slug}", get(group_page))
         .route("/static/chart.umd.js", get(serve_chart_js))
+        .route(
+            "/static/chartjs-plugin-zoom.umd.min.js",
+            get(serve_chart_zoom_js),
+        )
         .route("/static/chart-init.js", get(serve_chart_init_js))
         .route("/static/style.css", get(serve_style_css))
 }
 
-/// Toolbar/UI state parsed from the query string.
-///
-/// Server only consumes `n`; the rest are echoed into the rendered toolbar
-/// and the URL the JS rewrites for legend toggles. Storing them as
-/// strings keeps the round-trip lossless for unknown values.
+/// Query string for HTML routes. Only `?n=` is consumed server-side, as a
+/// power-user override on the per-chart fetch size. Other v2/legacy params
+/// are accepted but ignored — the per-chart toolbar is the source of truth
+/// for runtime state.
 #[derive(Debug, Default, Deserialize)]
 pub struct UiQuery {
+    /// Override for the per-chart fetch size. Defaults to
+    /// [`PER_CHART_FETCH_N`]. Accepts `25|50|100|250|all`.
     pub n: Option<String>,
-    pub y: Option<String>,
-    pub mode: Option<String>,
-    pub hidden: Option<String>,
 }
 
 impl UiQuery {
-    fn window(&self) -> CommitWindow {
-        CommitWindow::parse(self.n.as_deref())
-    }
-
-    /// Like [`Self::window`] but falls back to `default_n` when `?n=` is
-    /// unset rather than to [`CommitWindow::default`]. Used by the landing
-    /// page which has a different default (50) from the per-chart routes.
-    fn window_or_default(&self, default_n: u32) -> CommitWindow {
+    /// Resolve the [`CommitWindow`] for the initial fetch. When `?n=` is
+    /// unset, falls back to [`PER_CHART_FETCH_N`].
+    fn fetch_window(&self) -> CommitWindow {
         match self.n.as_deref() {
-            Some(_) => self.window(),
-            None => CommitWindow::Last(NonZeroU32::new(default_n).expect("non-zero default")),
-        }
-    }
-
-    /// `?y=linear|log`, default `linear`.
-    fn y_axis(&self) -> &'static str {
-        match self.y.as_deref() {
-            Some("log") => "log",
-            _ => "linear",
-        }
-    }
-
-    /// `?mode=abs|rel`, default `abs`. Unknown values fall through to `abs`.
-    fn mode(&self) -> &'static str {
-        match self.mode.as_deref() {
-            Some("rel") => "rel",
-            _ => "abs",
-        }
-    }
-
-    /// Build a query string with the given override applied. Only retains
-    /// non-empty / non-default values so URLs stay short.
-    fn with_override(&self, key: &str, value: &str) -> String {
-        let mut pairs: Vec<(&str, String)> = Vec::new();
-        let mut add = |k: &'static str, v: Option<String>| {
-            if let Some(v) = v
-                && !v.is_empty()
-            {
-                pairs.push((k, v));
+            Some(_) => CommitWindow::parse(self.n.as_deref()),
+            None => {
+                CommitWindow::Last(NonZeroU32::new(PER_CHART_FETCH_N).expect("non-zero default"))
             }
-        };
-        let n = if key == "n" {
-            Some(value.to_string())
-        } else {
-            self.n.clone()
-        };
-        let y = if key == "y" {
-            Some(value.to_string())
-        } else {
-            self.y.clone()
-        };
-        let mode = if key == "mode" {
-            Some(value.to_string())
-        } else {
-            self.mode.clone()
-        };
-        let hidden = if key == "hidden" {
-            Some(value.to_string())
-        } else {
-            self.hidden.clone()
-        };
-        add("n", n);
-        add("y", y);
-        add("mode", mode);
-        add("hidden", hidden);
-        if pairs.is_empty() {
-            String::new()
-        } else {
-            let body: Vec<String> = pairs
-                .into_iter()
-                .map(|(k, v)| format!("{k}={}", urlencode(&v)))
-                .collect();
-            format!("?{}", body.join("&"))
         }
     }
-}
-
-/// Minimal URL-encoder for query string values. Only chars that need escaping
-/// inside an `application/x-www-form-urlencoded` value are touched; the
-/// alphanumeric plus a few path-safe symbols pass through verbatim. We avoid
-/// pulling in a crate for this — values are short (`100`, `log`, `rel`,
-/// `engine:format|engine:format`). `|` is the `?hidden=` series delimiter
-/// (see `chart-init.js`); kept unescaped so URLs stay readable in the bar.
-fn urlencode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b':' | b'|' => {
-                out.push(b as char)
-            }
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
 }
 
 async fn landing(State(state): State<AppState>, Query(ui): Query<UiQuery>) -> Response {
-    // Landing-only default: 50 commits. Cheap by default; users opt into
-    // bigger windows via the toolbar.
-    let window = ui.window_or_default(LANDING_DEFAULT_N);
-    // NOTE: payload size on the landing page is the next thing to watch if
-    // chart counts grow — every chart's series is inlined as a JSON
-    // `<script>` block, so the cold HTML grows linearly in (groups × charts ×
-    // series × commits). If this gets fat, switch to lazy-fetch on
-    // intersection (the `data-chart-slug` plumbing is already in place).
-    let groups_with_charts = match db::run_blocking(&state.db, move |conn| {
+    let window = ui.fetch_window();
+    let groups = match db::run_blocking(&state.db, move |conn| {
         collect_landing_groups(conn, &window)
     })
     .await
@@ -209,61 +123,73 @@ async fn landing(State(state): State<AppState>, Query(ui): Query<UiQuery>) -> Re
             return error_page(StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
         }
     };
-    let subtitle = format!(
-        "Vortex benchmarks (v3 alpha) · {}",
-        toolbar_subtitle_suffix_with_default(&ui, LANDING_DEFAULT_N),
-    );
-    let scripts = if groups_with_charts.is_empty() {
-        PageScripts::LandingEmpty
+    let scripts = if groups.is_empty() {
+        PageScripts::Empty
     } else {
         PageScripts::Chart
     };
     render_page(
         "bench.vortex.dev",
-        &subtitle,
-        landing_body(&groups_with_charts, &ui, LANDING_DEFAULT_N),
+        "Vortex benchmarks (v3 alpha)",
+        landing_body(&groups),
         scripts,
-        LANDING_DEFAULT_N,
     )
     .into_response()
 }
 
-/// Group + every chart inside it, used by the landing-page render.
+/// One group's worth of data for the landing page.
+///
+/// The first group (in canonical order) ships with `charts` populated so the
+/// open-by-default `<details>` paints immediately. Subsequent groups ship
+/// with `charts` empty and only their chart-card shells — payloads are
+/// fetched client-side on first `details.toggle` to keep the cold landing
+/// HTML small.
 struct LandingGroup {
     name: String,
-    /// Slug for the `/group/{slug}` permalink.
-    slug: String,
-    charts: Vec<NamedChartResponse>,
+    /// Chart links for every chart in the group. Always present — we need
+    /// the slugs server-side so the chart-card shell can carry
+    /// `data-chart-slug` for the lazy fetch.
+    chart_links: Vec<api::ChartLink>,
+    /// Pre-fetched payloads. Populated only for the open-by-default group.
+    /// `Vec` indices line up with `chart_links`.
+    inlined: Vec<Option<NamedChartResponse>>,
 }
 
-/// Collect all groups + every chart inside each group for the landing page.
-///
-/// Returns groups in the same order as [`api::collect_groups`]; groups whose
-/// charts all return empty for the current `window` are dropped so the page
-/// doesn't render visually-empty sections.
+/// Build a landing-page view: every group, with the first group's payloads
+/// inlined and the rest left as shells. Groups whose discovery query
+/// returns no data are dropped, but a group whose charts simply have no data
+/// inside the requested window is preserved as a shell so the user can see
+/// it (and the lazy-fetch retry path can populate it on toggle).
 fn collect_landing_groups(conn: &Connection, window: &CommitWindow) -> Result<Vec<LandingGroup>> {
     let groups = api::collect_groups(conn)?;
+    if groups.is_empty() {
+        return Ok(Vec::new());
+    }
     let mut out = Vec::with_capacity(groups.len());
-    for group in groups {
-        let mut charts = Vec::with_capacity(group.charts.len());
-        for link in group.charts {
-            let key = ChartKey::from_slug(&link.slug)?;
-            let Some(chart) = api::chart_payload(conn, &key, window)? else {
-                continue;
-            };
-            charts.push(NamedChartResponse {
-                name: link.name,
-                slug: link.slug,
-                chart,
-            });
-        }
-        if charts.is_empty() {
-            continue;
-        }
+    for (i, group) in groups.into_iter().enumerate() {
+        let inlined = if i == 0 {
+            // First (open-by-default) group: pre-fetch every chart so the
+            // first paint is fast and there is no JS round-trip.
+            let mut v = Vec::with_capacity(group.charts.len());
+            for link in &group.charts {
+                let key = ChartKey::from_slug(&link.slug)?;
+                let payload = api::chart_payload(conn, &key, window)?;
+                v.push(payload.map(|chart| NamedChartResponse {
+                    name: link.name.clone(),
+                    slug: link.slug.clone(),
+                    chart,
+                }));
+            }
+            v
+        } else {
+            // Closed groups: ship only the shells. The client fetches on
+            // first `details.toggle`.
+            (0..group.charts.len()).map(|_| None).collect()
+        };
         out.push(LandingGroup {
             name: group.name,
-            slug: group.slug,
-            charts,
+            chart_links: group.charts,
+            inlined,
         });
     }
     Ok(out)
@@ -282,7 +208,7 @@ async fn chart_page(
         }
     };
 
-    let window = ui.window();
+    let window = ui.fetch_window();
     let result = db::run_blocking(&state.db, move |conn| {
         api::collect_chart(conn, &key, &window)
     })
@@ -305,13 +231,12 @@ async fn chart_page(
     };
 
     let title = format!("{} — bench.vortex.dev", chart.display_name);
-    let subtitle = format!("{} · {}", chart.display_name, toolbar_subtitle_suffix(&ui));
+    let subtitle = chart.display_name.clone();
     render_page(
         &title,
         &subtitle,
-        chart_body(&chart, &slug, &payload_json, &ui),
+        chart_body(&chart, &slug, &payload_json),
         PageScripts::Chart,
-        api::DEFAULT_COMMIT_WINDOW,
     )
     .into_response()
 }
@@ -328,7 +253,7 @@ async fn group_page(
             return error_page(StatusCode::NOT_FOUND, "group not found").into_response();
         }
     };
-    let window = ui.window();
+    let window = ui.fetch_window();
     let result = db::run_blocking(&state.db, move |conn| {
         api::collect_group_charts(conn, &key, &window)
     })
@@ -342,31 +267,19 @@ async fn group_page(
         }
     };
     let title = format!("{} — bench.vortex.dev", group.name);
-    let subtitle = format!("{} · {}", group.name, toolbar_subtitle_suffix(&ui));
-    render_page(
-        &title,
-        &subtitle,
-        group_body(&group, &ui),
-        PageScripts::Chart,
-        api::DEFAULT_COMMIT_WINDOW,
-    )
-    .into_response()
+    let subtitle = group.name.clone();
+    render_page(&title, &subtitle, group_body(&group), PageScripts::Chart).into_response()
 }
 
 /// Which scripts the page wants pulled in.
 enum PageScripts {
-    /// Landing pages without any charts (empty database). Skips Chart.js.
-    LandingEmpty,
+    /// Empty database — skip Chart.js entirely.
+    Empty,
+    /// Any page with at least one chart-card. Pulls Chart.js + zoom plugin.
     Chart,
 }
 
-fn render_page(
-    title: &str,
-    header_subtitle: &str,
-    body: Markup,
-    scripts: PageScripts,
-    default_n: u32,
-) -> Markup {
+fn render_page(title: &str, header_subtitle: &str, body: Markup, scripts: PageScripts) -> Markup {
     html! {
         (DOCTYPE)
         html lang="en" {
@@ -381,13 +294,14 @@ fn render_page(
                     h1 { a href="/" { "bench.vortex.dev" } }
                     p.subtitle { (header_subtitle) }
                 }
-                main data-default-n=(default_n) { (body) }
+                main { (body) }
                 @match scripts {
-                    PageScripts::LandingEmpty => {
+                    PageScripts::Empty => {
                         script src="/static/chart-init.js" defer {}
                     },
                     PageScripts::Chart => {
                         script src="/static/chart.umd.js" defer {}
+                        script src="/static/chartjs-plugin-zoom.umd.min.js" defer {}
                         script src="/static/chart-init.js" defer {}
                     },
                 }
@@ -396,32 +310,34 @@ fn render_page(
     }
 }
 
-fn landing_body(groups: &[LandingGroup], ui: &UiQuery, default_n: u32) -> Markup {
+fn landing_body(groups: &[LandingGroup]) -> Markup {
     if groups.is_empty() {
         return html! {
             p.empty { "No data ingested yet." }
         };
     }
-    let total_charts: usize = groups.iter().map(|g| g.charts.len()).sum();
+    let total_charts: usize = groups.iter().map(|g| g.chart_links.len()).sum();
     // Index every chart globally so `<canvas data-chart-index="N">` and
     // `<script id="chart-data-N">` agree across groups.
     let mut idx_iter = 0usize..total_charts;
     html! {
-        (toolbar(ui, default_n))
         div.landing-search {
             input #group-search type="search" placeholder="Filter groups…"
                 autocomplete="off" spellcheck="false";
         }
-        @for group in groups {
-            section.group data-group-name=(group.name) {
-                h2 {
-                    a.group-link
-                        href={ "/group/" (group.slug) (ui_query_string(ui)) }
-                        { (group.name) }
+        @for (group_idx, group) in groups.iter().enumerate() {
+            details.group-details
+                data-group-name=(group.name)
+                open[group_idx == 0] {
+                summary.group-summary {
+                    span.group-name { (group.name) }
+                    span.group-count { (group.chart_links.len()) }
                 }
                 div.chart-grid {
-                    @for item in &group.charts {
-                        (inline_chart_card(item, idx_iter.next().expect("indices match charts"), ui))
+                    @for (chart_idx, link) in group.chart_links.iter().enumerate() {
+                        @let idx = idx_iter.next().expect("indices match charts");
+                        @let inlined = group.inlined.get(chart_idx).and_then(|o| o.as_ref());
+                        (chart_card(link, idx, inlined))
                     }
                 }
             }
@@ -432,31 +348,37 @@ fn landing_body(groups: &[LandingGroup], ui: &UiQuery, default_n: u32) -> Markup
     }
 }
 
-fn inline_chart_card(item: &NamedChartResponse, idx: usize, ui: &UiQuery) -> Markup {
-    let payload_json = serde_json::to_string(&item.chart).expect("ChartResponse serialises");
-    let permalink = format!("/chart/{}", item.slug);
+/// Render one chart-card. `inlined` carries the JSON payload when the
+/// server pre-fetched it; absent on closed-by-default landing groups, where
+/// the JS fetches on first `details.toggle`.
+fn chart_card(link: &api::ChartLink, idx: usize, inlined: Option<&NamedChartResponse>) -> Markup {
+    let permalink = format!("/chart/{}", link.slug);
     html! {
-        section.chart-card data-chart-index=(idx) data-chart-slug=(item.slug) {
+        section.chart-card data-chart-index=(idx) data-chart-slug=(link.slug) {
             h3.chart-card-title {
-                a href={ (permalink) (ui_query_string(ui)) }
-                    data-permalink=(permalink) { (item.name) }
+                a href=(permalink) { (link.name) }
             }
+            (per_chart_toolbar(idx))
             div.chart-tooltip-host {}
             div.chart-wrap {
                 canvas data-chart-index=(idx) {}
             }
-            script id={ "chart-data-" (idx) } type="application/json" {
-                (PreEscaped(escape_json_for_script(&payload_json)))
+            @if let Some(item) = inlined {
+                script id={ "chart-data-" (idx) } type="application/json" {
+                    (PreEscaped(escape_json_for_script(
+                        &serde_json::to_string(&item.chart)
+                            .expect("ChartResponse serialises"),
+                    )))
+                }
             }
         }
     }
 }
 
-fn chart_body(chart: &ChartResponse, slug: &str, payload_json: &str, ui: &UiQuery) -> Markup {
+fn chart_body(chart: &ChartResponse, slug: &str, payload_json: &str) -> Markup {
     let series_count = chart.series.len();
     let commit_count = chart.commits.len();
     html! {
-        (toolbar(ui, api::DEFAULT_COMMIT_WINDOW))
         p.chart-meta {
             "unit: " code { (chart.unit) }
             " · "
@@ -464,6 +386,7 @@ fn chart_body(chart: &ChartResponse, slug: &str, payload_json: &str, ui: &UiQuer
             (commit_count) " commit" @if commit_count != 1 { "s" }
         }
         section.chart-card data-chart-index="0" data-chart-slug=(slug) {
+            (per_chart_toolbar(0))
             div.chart-tooltip-host {}
             div.chart-wrap {
                 canvas data-chart-index="0" {}
@@ -479,10 +402,9 @@ fn chart_body(chart: &ChartResponse, slug: &str, payload_json: &str, ui: &UiQuer
     }
 }
 
-fn group_body(group: &GroupChartsResponse, ui: &UiQuery) -> Markup {
+fn group_body(group: &GroupChartsResponse) -> Markup {
     let chart_count = group.charts.len();
     html! {
-        (toolbar(ui, api::DEFAULT_COMMIT_WINDOW))
         p.chart-meta {
             (chart_count) " chart" @if chart_count != 1 { "s" }
         }
@@ -491,9 +413,9 @@ fn group_body(group: &GroupChartsResponse, ui: &UiQuery) -> Markup {
                 @let permalink = format!("/chart/{}", item.slug);
                 section.chart-card data-chart-index=(i) data-chart-slug=(item.slug) {
                     h3.chart-card-title {
-                        a href={ (permalink) (ui_query_string(ui)) }
-                            data-permalink=(permalink) { (item.name) }
+                        a href=(permalink) { (item.name) }
                     }
+                    (per_chart_toolbar(i))
                     div.chart-tooltip-host {}
                     div.chart-wrap {
                         canvas data-chart-index=(i) {}
@@ -513,88 +435,41 @@ fn group_body(group: &GroupChartsResponse, ui: &UiQuery) -> Markup {
     }
 }
 
-/// Fragment that captures the current toolbar state as a query string,
-/// preserved when navigating between pages.
-fn ui_query_string(ui: &UiQuery) -> String {
-    ui.with_override("__noop", "")
-}
-
-/// Render the chart-page toolbar.
+/// Render the per-chart toolbar. `idx` namespaces input ids so multiple
+/// charts on the same page don't collide on `<input id="...">`.
 ///
-/// `default_n` is the route's commit-window default: 100 for `/chart` and
-/// `/group`, 50 for `/`. When the URL has no `?n=` it determines which
-/// `Scope` button is highlighted as active.
-fn toolbar(ui: &UiQuery, default_n: u32) -> Markup {
-    let active_scope = ui.window_or_default(default_n).url_value();
-    let active_y = ui.y_axis();
-    let active_mode = ui.mode();
+/// All buttons are `<button type="button">` (not `<a>`): this toolbar does
+/// not navigate or rewrite the URL, it manipulates Chart.js state in place.
+fn per_chart_toolbar(idx: usize) -> Markup {
+    let slider_id = format!("scope-slider-{idx}");
+    let label_id = format!("scope-slider-label-{idx}");
     html! {
-        nav.toolbar aria-label="Chart controls" {
-            div.toolbar-group role="group" aria-label="Commit window" {
-                span.toolbar-label { "Scope" }
+        div.toolbar.toolbar--card aria-label="Chart controls" {
+            div.toolbar-group role="group" aria-label="Visible commits" {
+                span.toolbar-label { "Show" }
                 @for opt in ["25", "50", "100", "250", "all"] {
-                    a.toolbar-btn.toolbar-btn--active[opt == active_scope]
-                        href=(ui.with_override("n", opt))
+                    button.toolbar-btn.toolbar-btn--active[opt == "100"]
+                        type="button"
                         data-scope=(opt) { (opt) }
                 }
-                input #scope-slider type="range" min="5" max="500" step="5"
-                    value=(slider_value(active_scope.as_str()))
+                input id=(slider_id).toolbar-slider type="range"
+                    min="5" max="1000" step="5" value="100"
+                    data-role="scope-slider"
                     aria-label="Custom commit window";
-                span #scope-slider-label.toolbar-slider-label { (active_scope) }
+                span id=(label_id).toolbar-slider-label data-role="scope-slider-label" { "100" }
             }
             div.toolbar-group role="group" aria-label="Y-axis scale" {
                 span.toolbar-label { "Y" }
-                a.toolbar-btn.toolbar-btn--active[active_y == "linear"]
-                    href=(ui.with_override("y", "linear"))
-                    data-y="linear" { "linear" }
-                a.toolbar-btn.toolbar-btn--active[active_y == "log"]
-                    href=(ui.with_override("y", "log"))
-                    data-y="log" { "log" }
+                button.toolbar-btn.toolbar-btn--active type="button" data-y="linear" { "linear" }
+                button.toolbar-btn type="button" data-y="log" { "log" }
             }
             div.toolbar-group role="group" aria-label="Display mode" {
                 span.toolbar-label { "Mode" }
-                a.toolbar-btn.toolbar-btn--active[active_mode == "abs"]
-                    href=(ui.with_override("mode", "abs"))
-                    data-mode="abs" { "absolute" }
-                a.toolbar-btn.toolbar-btn--active[active_mode == "rel"]
-                    href=(ui.with_override("mode", "rel"))
-                    data-mode="rel" { "% of baseline" }
+                button.toolbar-btn.toolbar-btn--active type="button" data-mode="abs" { "abs" }
+                button.toolbar-btn type="button" data-mode="rel" { "rel" }
             }
         }
     }
-}
-
-/// Best-effort default value for the slider when the active scope is
-/// non-numeric (e.g. `all`).
-fn slider_value(scope: &str) -> String {
-    scope
-        .parse::<u32>()
-        .map(|n| n.to_string())
-        .unwrap_or_else(|_| "100".into())
-}
-
-/// Subtitle suffix that mirrors active toolbar state, e.g.
-/// `last 100 commits · log · rel`.
-fn toolbar_subtitle_suffix(ui: &UiQuery) -> String {
-    toolbar_subtitle_suffix_with_default(ui, api::DEFAULT_COMMIT_WINDOW)
-}
-
-/// Like [`toolbar_subtitle_suffix`] but uses `default_n` when the URL has no
-/// `?n=`. The landing page passes its smaller default (50) here so the
-/// subtitle reads "last 50 commits" rather than the global default of 100.
-fn toolbar_subtitle_suffix_with_default(ui: &UiQuery, default_n: u32) -> String {
-    let scope = match ui.window_or_default(default_n) {
-        CommitWindow::All => "all commits".to_string(),
-        CommitWindow::Last(n) => format!("last {} commits", n.get()),
-    };
-    let mut bits = vec![scope];
-    if ui.y_axis() == "log" {
-        bits.push("log".into());
-    }
-    if ui.mode() != "abs" {
-        bits.push(ui.mode().into());
-    }
-    bits.join(" · ")
 }
 
 /// Make a JSON string safe to embed inside a `<script>` element.
@@ -633,6 +508,10 @@ fn error_page(status: StatusCode, message: &str) -> Response {
 
 async fn serve_chart_js() -> impl IntoResponse {
     static_response(CHART_JS, "application/javascript; charset=utf-8")
+}
+
+async fn serve_chart_zoom_js() -> impl IntoResponse {
+    static_response(CHART_ZOOM_JS, "application/javascript; charset=utf-8")
 }
 
 async fn serve_chart_init_js() -> impl IntoResponse {
@@ -674,66 +553,22 @@ mod tests {
     }
 
     #[test]
-    fn url_encode_keeps_safe_chars() {
-        assert_eq!(urlencode("engine:format|parquet"), "engine:format|parquet");
-        // `,` is no longer in the allowlist — it gets percent-encoded.
-        assert_eq!(urlencode("a,b"), "a%2Cb");
-        assert_eq!(urlencode("hello world"), "hello%20world");
-    }
-
-    #[test]
-    fn ui_query_with_override_round_trips() {
-        let ui = UiQuery {
-            n: Some("50".into()),
-            y: Some("log".into()),
-            mode: None,
-            hidden: None,
-        };
-        let qs = ui.with_override("mode", "rel");
-        assert!(qs.contains("n=50"));
-        assert!(qs.contains("y=log"));
-        assert!(qs.contains("mode=rel"));
-    }
-
-    #[test]
-    fn ui_query_with_override_drops_empty() {
+    fn fetch_window_default_is_max() {
         let ui = UiQuery::default();
-        // Default with no override produces empty string.
-        assert_eq!(ui.with_override("__noop", ""), "");
+        match ui.fetch_window() {
+            CommitWindow::Last(n) => assert_eq!(n.get(), PER_CHART_FETCH_N),
+            CommitWindow::All => panic!("default should be Last(N)"),
+        }
     }
 
     #[test]
-    fn toolbar_subtitle_includes_active_state() {
+    fn fetch_window_respects_n_override() {
         let ui = UiQuery {
-            n: Some("50".into()),
-            y: Some("log".into()),
-            mode: Some("rel".into()),
-            hidden: None,
+            n: Some("25".into()),
         };
-        let s = toolbar_subtitle_suffix(&ui);
-        assert!(s.contains("last 50 commits"));
-        assert!(s.contains("log"));
-        assert!(s.contains("rel"));
-    }
-
-    #[test]
-    fn ui_query_with_override_preserves_pipe_delimited_hidden() {
-        // `?hidden=` uses `|` as its delimiter (see chart-init.js). A
-        // permalink that arrives at the server with multiple hidden series
-        // must round-trip through `with_override` without the pipe being
-        // percent-encoded — that pins server and client agreement on the
-        // wire shape.
-        let ui = UiQuery {
-            n: None,
-            y: None,
-            mode: None,
-            hidden: Some("a:b|c:d".into()),
-        };
-        let qs = ui.with_override("__noop", "");
-        assert!(
-            qs.contains("hidden=a:b|c:d"),
-            "expected literal pipe in {qs}",
-        );
-        assert!(!qs.contains("%7C"), "pipe should not be percent-encoded");
+        match ui.fetch_window() {
+            CommitWindow::Last(n) => assert_eq!(n.get(), 25),
+            CommitWindow::All => panic!(),
+        }
     }
 }
