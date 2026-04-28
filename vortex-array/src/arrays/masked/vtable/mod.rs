@@ -33,7 +33,6 @@ use crate::arrays::masked::MaskedArrayExt;
 use crate::arrays::masked::MaskedData;
 use crate::arrays::masked::array::CHILD_SLOT;
 use crate::arrays::masked::array::SLOT_NAMES;
-use crate::arrays::masked::array::VALIDITY_SLOT;
 use crate::arrays::masked::compute::rules::PARENT_RULES;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
@@ -41,7 +40,6 @@ use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 use crate::require_child;
-use crate::require_validity;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -161,10 +159,12 @@ impl VTable for Masked {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let validity_mask = array.masked_validity().execute_mask(array.len(), ctx)?;
+        let array = require_child!(array, array.child(), CHILD_SLOT => AnyCanonical);
+
+        let validity = array.masked_validity();
 
         // Fast path: all masked means result is all nulls.
-        if validity_mask.all_false() {
+        if matches!(validity, Validity::AllInvalid) {
             return Ok(ExecutionResult::done(
                 ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
                     .into_array(),
@@ -177,12 +177,9 @@ impl VTable for Masked {
         // While we could manually convert the dtype, `mask_validity_canonical` is already O(1) for
         // `AllTrue` masks (no data copying), so there's no benefit.
 
-        let array = require_child!(array, array.child(), CHILD_SLOT => AnyCanonical);
-        require_validity!(array, VALIDITY_SLOT);
-
         let child = Canonical::from(array.child().as_::<AnyCanonical>());
         Ok(ExecutionResult::done(
-            mask_validity_canonical(child, &validity_mask, ctx)?.into_array(),
+            mask_validity_canonical(child, validity, ctx)?.into_array(),
         ))
     }
 
