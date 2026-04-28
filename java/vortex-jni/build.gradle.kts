@@ -147,12 +147,6 @@ tasks.register("makeTestFiles") {
             from("${rootProject.projectDir.absoluteFile.parentFile}/target/debug/libvortex_jni.dylib")
             into("$projectDir/src/main/resources/native/darwin-aarch64")
         }
-
-        execOps.exec {
-            workingDir = rootProject.projectDir.absoluteFile.parentFile
-            executable = "cargo"
-            args("xtask", "java-test-files")
-        }
     }
 }
 

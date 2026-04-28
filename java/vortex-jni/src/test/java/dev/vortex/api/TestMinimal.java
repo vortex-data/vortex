@@ -7,18 +7,26 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import dev.vortex.arrow.ArrowAllocation;
+import dev.vortex.jni.NativeLoader;
+import java.io.IOException;
 import java.math.BigDecimal;
-import java.nio.file.Paths;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
+import org.apache.arrow.c.ArrowArray;
+import org.apache.arrow.c.ArrowSchema;
+import org.apache.arrow.c.Data;
 import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.vector.FieldVector;
-import org.apache.arrow.vector.VarCharVector;
-import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.*;
 import org.apache.arrow.vector.ipc.ArrowReader;
+import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.Schema;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 public final class TestMinimal {
     static final class Person {
@@ -34,8 +42,7 @@ public final class TestMinimal {
 
         @Override
         public boolean equals(Object o) {
-            if (!(o instanceof Person)) return false;
-            Person person = (Person) o;
+            if (!(o instanceof Person person)) return false;
             return Objects.equals(name, person.name)
                     && Objects.equals(salary, person.salary)
                     && Objects.equals(state, person.state);
@@ -52,11 +59,53 @@ public final class TestMinimal {
         }
     }
 
-    private static final String MINIMAL_URI = Paths.get(
-                    Objects.requireNonNull(TestMinimal.class.getResource("/minimal.vortex"))
-                            .getPath())
-            .toUri()
-            .toString();
+    @TempDir
+    static Path tempDir;
+
+    static String writePath;
+
+    @BeforeAll
+    public static void loadLibrary() {
+        NativeLoader.loadJni();
+    }
+
+    @BeforeAll
+    static void setup() throws IOException {
+        Path outputPath = tempDir.resolve("minimal.vortex");
+        writePath = outputPath.toAbsolutePath().toUri().toString();
+
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Schema schema = new Schema(List.of(
+                Field.notNullable("Name", ArrowType.Utf8View.INSTANCE),
+                Field.notNullable("Salary", ArrowType.Decimal.createDecimal(9, 2, 128)),
+                Field.nullable("State", ArrowType.Utf8View.INSTANCE)));
+        Session session = Session.create();
+        try (VortexWriter writer = VortexWriter.create(session, writePath, schema, new HashMap<>(), allocator);
+                VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
+            ViewVarCharVector nameVec = (ViewVarCharVector) root.getVector("Name");
+            DecimalVector salaryVec = (DecimalVector) root.getVector("Salary");
+            ViewVarCharVector stateVec = (ViewVarCharVector) root.getVector("State");
+
+            nameVec.allocateNew(10);
+            salaryVec.allocateNew(10);
+            stateVec.allocateNew(10);
+
+            for (int i = 0; i < 10; i++) {
+                var person = MINIMAL_DATA.get(i);
+                nameVec.setSafe(i, person.name.getBytes(UTF_8));
+                salaryVec.setSafe(i, 1_000 * (i + 1));
+                stateVec.setSafe(i, person.state.getBytes(UTF_8));
+            }
+
+            root.setRowCount(10);
+
+            try (ArrowArray arrowArray = ArrowArray.allocateNew(allocator);
+                    ArrowSchema arrowSchemaFfi = ArrowSchema.allocateNew(allocator)) {
+                Data.exportVectorSchemaRoot(allocator, root, null, arrowArray, arrowSchemaFfi);
+                writer.writeBatch(arrowArray.memoryAddress(), arrowSchemaFfi.memoryAddress());
+            }
+        }
+    }
 
     private static final List<Person> MINIMAL_DATA = List.of(
             new Person("Alice", BigDecimal.valueOf(1000L, 2), "CA"),
@@ -74,7 +123,7 @@ public final class TestMinimal {
     public void testFullScan() throws Exception {
         BufferAllocator allocator = ArrowAllocation.rootAllocator();
         Session session = Session.create();
-        DataSource ds = DataSource.open(session, MINIMAL_URI);
+        DataSource ds = DataSource.open(session, writePath);
 
         assertEquals(new DataSource.RowCount.Exact(10L), ds.rowCount());
 
@@ -91,7 +140,7 @@ public final class TestMinimal {
     public void testProjectedScan() throws Exception {
         BufferAllocator allocator = ArrowAllocation.rootAllocator();
         Session session = Session.create();
-        DataSource ds = DataSource.open(session, MINIMAL_URI);
+        DataSource ds = DataSource.open(session, writePath);
         Expression projection = Expression.select(new String[] {"Name", "State"}, Expression.root());
 
         ScanOptions options = ScanOptions.builder().projection(projection).build();
@@ -118,7 +167,7 @@ public final class TestMinimal {
     public void testProjectedScanWithFilter() throws Exception {
         BufferAllocator allocator = ArrowAllocation.rootAllocator();
         Session session = Session.create();
-        DataSource ds = DataSource.open(session, MINIMAL_URI);
+        DataSource ds = DataSource.open(session, writePath);
         Expression filter =
                 Expression.binary(Expression.BinaryOp.EQ, Expression.column("State"), Expression.literal("VA"));
 

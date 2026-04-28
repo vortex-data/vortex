@@ -27,9 +27,6 @@ enum Commands {
     /// Subcommand to regenerate protobuf language bindings for the Rust project.
     #[command(name = "generate-proto")]
     GenerateProto,
-    /// Subcommand to generate files for Java integration tests.
-    #[command(name = "java-test-files")]
-    JavaTestFiles,
     /// Regenerate public-api.lock files for all published crates.
     #[command(name = "public-api")]
     PublicApi,
@@ -40,7 +37,6 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::GenerateFlatbuffers => generate_fbs()?,
         Commands::GenerateProto => generate_proto()?,
-        Commands::JavaTestFiles => java_test_files()?,
         Commands::PublicApi => public_api()?,
     }
     Ok(())
