@@ -381,7 +381,7 @@ impl Executable for ArrayRef {
         }
 
         ctx.log(format_args!("executing {}", array));
-        let result = execute_step_checked(array, ctx)?;
+        let result = array.execute_encoding(ctx)?;
         let (array, step) = result.into_parts();
         match step {
             ExecutionStep::Done => {
@@ -437,13 +437,6 @@ fn pop_frame(
     );
     let parent_array = unsafe { frame.parent_array.put_slot_unchecked(frame.slot_idx, child) }?;
     Ok((parent_array, frame.parent_builder))
-}
-
-/// Execute a single step on an array, consuming it.
-///
-/// Extracts the vtable before consuming the array to avoid borrow conflicts.
-fn execute_step_checked(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-    array.execute_encoding(ctx)
 }
 
 fn finalize_done(
