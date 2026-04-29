@@ -289,6 +289,10 @@ impl Partition for LayoutReaderSplit {
         self
     }
 
+    fn index(&self) -> usize {
+        0
+    }
+
     fn row_count(&self) -> Option<Precision<u64>> {
         let row_count = self.row_range.end - self.row_range.start;
         let row_count = self.selection.row_count(row_count);
@@ -349,6 +353,10 @@ impl DataSourceScan for Empty {
 impl Partition for Empty {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn index(&self) -> usize {
+        0
     }
 
     fn row_count(&self) -> Option<Precision<u64>> {
