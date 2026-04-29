@@ -19,6 +19,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
+use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::buffer::BufferHandle;
@@ -209,7 +210,7 @@ impl VTable for DateTimeParts {
     }
 }
 
-#[vortex_array::array_slots(DateTimeParts)]
+#[array_slots(DateTimeParts)]
 pub struct DateTimePartsSlots {
     /// The days component of the datetime, stored as an integer array.
     pub days: ArrayRef,
