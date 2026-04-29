@@ -461,7 +461,6 @@ impl Array<Struct> {
         T: Borrow<Array<Struct>>,
     {
         let mut it = chunks.into_iter();
-        // .map(|chunk| (chunk.dtype(), chunk, chunk.len(), chunk.validity()));
         let Some(first) = it.next() else {
             vortex_bail!("cannot concat empty iterator of arrays");
         };
