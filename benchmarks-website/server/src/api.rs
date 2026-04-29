@@ -11,17 +11,44 @@ use anyhow::Context as _;
 use anyhow::Result;
 use axum::Json;
 use axum::extract::Path;
+use axum::extract::Query;
 use axum::extract::State;
 use axum::response::IntoResponse;
 use duckdb::Connection;
 use duckdb::params;
+use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 
 use crate::app::AppState;
 use crate::db;
+use crate::downsample::Sample;
+use crate::downsample::lttb;
+use crate::downsample::resolve_max_points;
 use crate::error::ApiError;
 use crate::slug::ChartKey;
+
+/// Query parameters for `GET /api/chart/{slug}`.
+///
+/// `n` is reserved for "number of recent commits" filtering. It accepts
+/// either a positive integer or the literal string `"all"`. The current
+/// server has no commit-window cap, so any positive value is treated as
+/// "no limit"; `"all"` is therefore a no-op too. The parameter is parsed
+/// here so future window logic doesn't need a new public API.
+///
+/// `max_points` is the LTTB target after the full series is fetched. `0`
+/// (or omitting it via `?max_points=`) disables downsampling. Anything
+/// above [`crate::downsample::MAX_POINTS_LIMIT`] is clamped.
+#[derive(Debug, Default, Deserialize)]
+pub struct ChartQuery {
+    /// Optional commit-window selector. Accepts `"all"` or a positive integer.
+    #[serde(default)]
+    pub n: Option<String>,
+    /// Optional LTTB target point count. Defaults to
+    /// [`crate::downsample::DEFAULT_MAX_POINTS`].
+    #[serde(default)]
+    pub max_points: Option<u32>,
+}
 
 #[derive(Debug, Serialize)]
 pub struct GroupsResponse {
@@ -48,7 +75,7 @@ pub struct ChartResponse {
     pub series: serde_json::Map<String, JsonValue>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct CommitPoint {
     pub sha: String,
     pub timestamp: String,
@@ -85,12 +112,24 @@ pub async fn groups(State(state): State<AppState>) -> Result<impl IntoResponse, 
 pub async fn chart(
     State(state): State<AppState>,
     Path(slug): Path<String>,
+    Query(params): Query<ChartQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let key = ChartKey::from_slug(&slug)
         .map_err(|e| ApiError::BadRequest(format!("invalid slug: {e}")))?;
+    if let Some(n) = params.n.as_deref() {
+        if n != "all" && n.parse::<u32>().is_err() {
+            return Err(ApiError::BadRequest(format!(
+                "invalid `n` query parameter: {n:?}; expected `all` or a positive integer"
+            )));
+        }
+    }
+    let max_points = resolve_max_points(params.max_points);
     let response = db::run_blocking(&state.db, move |conn| collect_chart(conn, &key)).await?;
-    let response =
+    let mut response =
         response.ok_or_else(|| ApiError::NotFound(format!("no data for slug {slug:?}")))?;
+    if let Some(target) = max_points {
+        downsample_chart(&mut response, target);
+    }
     Ok(Json(response))
 }
 
@@ -426,6 +465,62 @@ pub(crate) fn collect_chart(conn: &Connection, key: &ChartKey) -> Result<Option<
             threshold,
         } => collect_vector_search_chart(conn, dataset, layout, *threshold),
     }
+}
+
+/// Apply LTTB to every series in `chart` independently, then prune the
+/// `commits` axis to the union of indexes any series kept. Each series'
+/// values vector stays parallel to `commits` after pruning. Skips
+/// downsampling when the chart already has at most `max_points` commits.
+pub(crate) fn downsample_chart(chart: &mut ChartResponse, max_points: u32) {
+    let n = chart.commits.len();
+    if n == 0 || (max_points as usize) >= n {
+        return;
+    }
+
+    // Use the commit index as x. The fetch SQL orders by `c.timestamp`, so
+    // indexes are monotonic in time and LTTB's "preserve x order" gives us
+    // commit-order-preserving picks. Real timestamps would work too but
+    // would need parsing per chart fetch.
+    let mut keep = vec![false; n];
+    let mut downsampled: serde_json::Map<String, JsonValue> =
+        serde_json::Map::with_capacity(chart.series.len());
+    for (name, values) in std::mem::take(&mut chart.series) {
+        let arr = values.as_array().cloned().unwrap_or_default();
+        let samples: Vec<Sample> = (0..n)
+            .map(|i| Sample {
+                x: i as f64,
+                y: arr.get(i).and_then(|v| v.as_f64()),
+            })
+            .collect();
+        let kept = lttb(&samples, max_points);
+        for s in &kept {
+            let idx = s.x as usize;
+            if idx < n {
+                keep[idx] = true;
+            }
+        }
+        // Re-emit the same vector for now; we'll prune to `keep` indexes
+        // below. Storing the original lets us look up each kept commit's
+        // value in O(1) when we rebuild.
+        downsampled.insert(name, JsonValue::Array(arr));
+    }
+
+    let kept_indexes: Vec<usize> = (0..n).filter(|i| keep[*i]).collect();
+    let new_commits: Vec<CommitPoint> = kept_indexes
+        .iter()
+        .map(|&i| chart.commits[i].clone())
+        .collect();
+    let mut new_series = serde_json::Map::with_capacity(downsampled.len());
+    for (name, values) in downsampled {
+        let arr = values.as_array().cloned().unwrap_or_default();
+        let pruned: Vec<JsonValue> = kept_indexes
+            .iter()
+            .map(|&i| arr.get(i).cloned().unwrap_or(JsonValue::Null))
+            .collect();
+        new_series.insert(name, JsonValue::Array(pruned));
+    }
+    chart.commits = new_commits;
+    chart.series = new_series;
 }
 
 /// Time series rows are gathered keyed by `(commit_sha, series_key)` and then

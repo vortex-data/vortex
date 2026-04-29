@@ -309,6 +309,209 @@ async fn chart_page_round_trips_every_slug() -> Result<()> {
     Ok(())
 }
 
+/// Seed `count` synthetic commits with strictly increasing timestamps so we
+/// can exercise the LTTB downsampling path (Task B).
+async fn seed_many(server: &Server, count: usize) -> Result<()> {
+    let client = reqwest::Client::new();
+    for i in 0..count {
+        let day = 10 + i / 30;
+        let hour = i % 24;
+        let ts = format!("2026-01-{day:02}T{hour:02}:00:00Z");
+        let sha_byte = (i % 256) as u8;
+        let sha = format!("{:02x}", sha_byte).repeat(20);
+        let msg = format!("synthetic commit {i}");
+        let envelope = json!({
+            "run_meta": {
+                "benchmark_id": "downsample-fixture",
+                "schema_version": 1,
+                "started_at": ts.clone()
+            },
+            "commit": {
+                "sha": sha,
+                "timestamp": ts,
+                "message": msg,
+                "author_name": "Test Author",
+                "author_email": "author@example.com",
+                "committer_name": "Test Committer",
+                "committer_email": "committer@example.com",
+                "tree_sha": "fedcba9876543210fedcba9876543210fedcba98",
+                "url": format!("https://github.com/vortex-data/vortex/commit/{sha}", sha = sha)
+            },
+            "records": [
+                {
+                    "kind": "compression_size",
+                    "commit_sha": sha,
+                    "dataset": "synthetic",
+                    "format": "vortex-file-compressed",
+                    "value_bytes": 1_000 + (i as i64) * 7
+                }
+            ]
+        });
+        let resp = client
+            .post(server.url("/api/ingest"))
+            .bearer_auth(TOKEN)
+            .json(&envelope)
+            .send()
+            .await?;
+        anyhow::ensure!(
+            resp.status().is_success(),
+            "seed_many ingest #{i} failed: {}",
+            resp.status()
+        );
+    }
+    Ok(())
+}
+
+async fn first_compression_size_slug(server: &Server) -> Result<String> {
+    let client = reqwest::Client::new();
+    let groups: Value = client
+        .get(server.url("/api/groups"))
+        .send()
+        .await?
+        .json()
+        .await?;
+    groups["groups"]
+        .as_array()
+        .context("groups is array")?
+        .iter()
+        .find(|g| g["name"].as_str() == Some("Compression Size"))
+        .and_then(|g| g["charts"].as_array())
+        .and_then(|c| c.first())
+        .and_then(|c| c["slug"].as_str())
+        .map(str::to_string)
+        .context("compression size chart slug")
+}
+
+#[tokio::test]
+async fn full_history_returned_when_under_default_max_points() -> Result<()> {
+    let server = Server::start().await?;
+    let count = 50usize;
+    seed_many(&server, count).await?;
+    let slug = first_compression_size_slug(&server).await?;
+    let client = reqwest::Client::new();
+
+    // Default ?max_points (600) > count, so we must get every commit back.
+    let payload: Value = client
+        .get(server.url(&format!("/api/chart/{slug}")))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let commits = payload["commits"].as_array().context("commits is array")?;
+    assert_eq!(commits.len(), count);
+
+    // ?n=all is accepted and behaves the same.
+    let payload: Value = client
+        .get(server.url(&format!("/api/chart/{slug}?n=all")))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        payload["commits"]
+            .as_array()
+            .context("commits is array")?
+            .len(),
+        count
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn lttb_downsamples_when_max_points_smaller_than_history() -> Result<()> {
+    let server = Server::start().await?;
+    let count = 200usize;
+    seed_many(&server, count).await?;
+    let slug = first_compression_size_slug(&server).await?;
+    let client = reqwest::Client::new();
+
+    let payload: Value = client
+        .get(server.url(&format!("/api/chart/{slug}?max_points=20")))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let commits = payload["commits"].as_array().context("commits is array")?;
+    assert!(
+        commits.len() <= 20,
+        "downsample should cap commits at 20, got {}",
+        commits.len()
+    );
+    assert!(
+        commits.len() >= 2,
+        "downsample should keep at least the endpoints, got {}",
+        commits.len()
+    );
+
+    // Each series stays parallel to commits.
+    let series = payload["series"].as_object().context("series is object")?;
+    for (name, values) in series {
+        let arr = values
+            .as_array()
+            .with_context(|| format!("series {name}"))?;
+        assert_eq!(
+            arr.len(),
+            commits.len(),
+            "series {name} length must match commits"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn lttb_bypassed_when_max_points_zero() -> Result<()> {
+    let server = Server::start().await?;
+    let count = 200usize;
+    seed_many(&server, count).await?;
+    let slug = first_compression_size_slug(&server).await?;
+    let client = reqwest::Client::new();
+
+    let payload: Value = client
+        .get(server.url(&format!("/api/chart/{slug}?max_points=0")))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        payload["commits"]
+            .as_array()
+            .context("commits is array")?
+            .len(),
+        count
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn invalid_n_param_rejected() -> Result<()> {
+    let server = Server::start().await?;
+    seed(&server).await?;
+    let client = reqwest::Client::new();
+    let groups: Value = client
+        .get(server.url("/api/groups"))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let slug = groups["groups"]
+        .as_array()
+        .context("groups is array")?
+        .iter()
+        .find(|g| g["name"].as_str() == Some("Random Access"))
+        .and_then(|g| g["charts"].as_array())
+        .and_then(|c| c.first())
+        .and_then(|c| c["slug"].as_str())
+        .context("random access slug")?
+        .to_string();
+
+    let resp = client
+        .get(server.url(&format!("/api/chart/{slug}?n=banana")))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 400);
+    Ok(())
+}
+
 #[tokio::test]
 async fn unknown_slug_renders_404() -> Result<()> {
     let server = Server::start().await?;

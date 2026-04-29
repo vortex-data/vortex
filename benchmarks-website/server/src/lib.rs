@@ -11,6 +11,7 @@ pub mod api;
 pub mod app;
 pub mod auth;
 pub mod db;
+pub mod downsample;
 pub mod error;
 pub mod html;
 pub mod ingest;

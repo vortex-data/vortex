@@ -152,3 +152,101 @@ main {
   color: var(--muted);
   font-size: 0.875rem;
 }
+
+/* ---- Per-chart range scrubber (Task C) ---- */
+
+.chart-scrubber {
+  position: relative;
+  height: 16px;
+  margin: 0.25rem 0 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--code-bg);
+  pointer-events: auto;
+  user-select: none;
+  touch-action: none;
+}
+
+.chart-scrubber-window {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background: rgba(37, 99, 235, 0.25);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  cursor: grab;
+}
+
+.chart-scrubber-window:active {
+  cursor: grabbing;
+}
+
+.chart-scrubber-handle {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 6px;
+  background: var(--accent);
+  border-radius: 2px;
+  cursor: ew-resize;
+}
+
+.chart-scrubber-handle-left {
+  left: -3px;
+}
+
+.chart-scrubber-handle-right {
+  right: -3px;
+}
+
+/* ---- Filter chips (Task E) ---- */
+
+.filter-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0 0 0.75rem;
+}
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.filter-label {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.filter-chip {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.filter-chip[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.filter-chip[aria-pressed="false"] {
+  opacity: 0.55;
+}
+
+.filter-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

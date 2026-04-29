@@ -20,6 +20,7 @@
 
 use axum::Router;
 use axum::extract::Path;
+use axum::extract::Query;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::http::header;
@@ -32,10 +33,12 @@ use maud::PreEscaped;
 use maud::html;
 
 use crate::api;
+use crate::api::ChartQuery;
 use crate::api::ChartResponse;
 use crate::api::Group;
 use crate::app::AppState;
 use crate::db;
+use crate::downsample::resolve_max_points;
 use crate::slug::ChartKey;
 
 const CHART_JS: &[u8] = include_bytes!("../static/chart.umd.js");
@@ -69,7 +72,11 @@ async fn landing(State(state): State<AppState>) -> Response {
     .into_response()
 }
 
-async fn chart_page(State(state): State<AppState>, Path(slug): Path<String>) -> Response {
+async fn chart_page(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+    Query(params): Query<ChartQuery>,
+) -> Response {
     let key = match ChartKey::from_slug(&slug) {
         Ok(key) => key,
         Err(err) => {
@@ -78,8 +85,18 @@ async fn chart_page(State(state): State<AppState>, Path(slug): Path<String>) -> 
         }
     };
 
+    if let Some(n) = params.n.as_deref() {
+        if n != "all" && n.parse::<u32>().is_err() {
+            return error_page(
+                StatusCode::BAD_REQUEST,
+                "invalid `n` query parameter (expected `all` or a positive integer)",
+            )
+            .into_response();
+        }
+    }
+    let max_points = resolve_max_points(params.max_points);
     let result = db::run_blocking(&state.db, move |conn| api::collect_chart(conn, &key)).await;
-    let chart = match result {
+    let mut chart = match result {
         Ok(Some(c)) => c,
         Ok(None) => return error_page(StatusCode::NOT_FOUND, "chart not found").into_response(),
         Err(err) => {
@@ -87,6 +104,9 @@ async fn chart_page(State(state): State<AppState>, Path(slug): Path<String>) -> 
             return error_page(StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
         }
     };
+    if let Some(target) = max_points {
+        api::downsample_chart(&mut chart, target);
+    }
 
     let payload_json = match serde_json::to_string(&chart) {
         Ok(s) => s,
