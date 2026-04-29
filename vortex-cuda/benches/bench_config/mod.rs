@@ -19,30 +19,20 @@ use criterion::Criterion;
 /// the GPU a chance to reach steady state (clock boost, cache warming).
 /// If a single launch exceeds the warm-up budget, criterion still completes
 /// it before moving on.
-///
-/// On CI (`CI` env var is set), uses 100 samples for statistical confidence.
-/// Locally, keeps the minimal config so `cargo bench` stays fast.
 pub(super) fn cuda_bench_config() -> Criterion {
-    if std::env::var("CI").is_ok() {
-        Criterion::default()
-            .without_plots()
-            // 25 independent kernel launches for statistical confidence.
-            .sample_size(25)
-            // One second is enough to JIT-compile kernels and warm GPU caches.
-            // Criterion always finishes the in-flight iteration even if this
-            // budget is exceeded.
-            .warm_up_time(Duration::from_secs(1))
-            // Forces `iters = 1`: criterion's planner estimates iteration cost
-            // from wall time (which includes GPU context setup), not the
-            // GPU-timed duration returned by `iter_custom`. A real
-            // measurement_time would cause wildly inflated iteration counts.
-            .measurement_time(Duration::from_nanos(1))
-    } else {
-        Criterion::default()
-            .without_plots()
-            .sample_size(10)
-            .warm_up_time(Duration::from_nanos(1))
-            .measurement_time(Duration::from_nanos(1))
-            .nresamples(10)
-    }
+    // Number of independent kernel launches.
+    let sample_size = 10;
+
+    Criterion::default()
+        .without_plots()
+        .sample_size(sample_size)
+        // One ns is enough to JIT-compile kernels and warm GPU caches.
+        // Criterion always finishes the in-flight iteration even if this
+        // budget is exceeded.
+        .warm_up_time(Duration::from_nanos(1))
+        // Forces `iters = 1`: criterion's planner estimates iteration cost
+        // from wall time (which includes GPU context setup), not the
+        // GPU-timed duration returned by `iter_custom`. A real
+        // measurement_time would cause wildly inflated iteration counts.
+        .measurement_time(Duration::from_nanos(1))
 }
