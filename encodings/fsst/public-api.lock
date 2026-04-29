@@ -28,7 +28,7 @@ pub fn vortex_fsst::FSST::buffer(array: vortex_array::array::view::ArrayView<'_,
 
 pub fn vortex_fsst::FSST::buffer_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
 
-pub fn vortex_fsst::FSST::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::typed::ArrayParts<Self>>
+pub fn vortex_fsst::FSST::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::typed::ArrayParts<Self>>
 
 pub fn vortex_fsst::FSST::execute(array: vortex_array::array::typed::Array<Self>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
