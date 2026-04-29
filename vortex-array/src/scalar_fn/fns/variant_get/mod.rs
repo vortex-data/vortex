@@ -64,8 +64,11 @@ impl VariantGetOptions {
     }
 
     /// Returns new options that request direct materialization as `as_dtype`.
+    ///
+    /// Passing a Variant dtype is canonicalized to `None`, because untyped `variant_get`
+    /// already returns a nullable Variant.
     pub fn with_as_dtype(mut self, as_dtype: Option<DType>) -> Self {
-        self.as_dtype = as_dtype;
+        self.as_dtype = as_dtype.filter(|dtype| !matches!(dtype, DType::Variant(_)));
         self
     }
 
@@ -153,7 +156,7 @@ impl ScalarFnVTable for VariantGet {
             .map(|dtype| DType::from_proto(dtype, session))
             .transpose()?;
 
-        Ok(VariantGetOptions { path, as_dtype })
+        Ok(VariantGetOptions::new(path).with_as_dtype(as_dtype))
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
@@ -259,5 +262,19 @@ mod tests {
             decoded.return_dtype(),
             DType::Primitive(PType::I64, Nullability::Nullable)
         );
+    }
+
+    #[test]
+    fn with_as_dtype_normalizes_variant_dtype_to_none() {
+        let options = VariantGetOptions::new(VariantPath::from_name("field"))
+            .with_as_dtype(Some(DType::Variant(Nullability::NonNullable)));
+
+        assert!(options.as_dtype().is_none());
+        assert!(options.effective_as_dtype().is_none());
+        assert_eq!(
+            options.return_dtype(),
+            DType::Variant(Nullability::Nullable)
+        );
+        assert_eq!(options.to_string(), "field");
     }
 }

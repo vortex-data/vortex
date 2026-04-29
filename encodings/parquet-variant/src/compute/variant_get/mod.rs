@@ -108,7 +108,13 @@ fn force_nullable_result(result: ArrayRef) -> VortexResult<ArrayRef> {
     }
 
     let variant = result.as_::<Variant>();
-    let core_storage = variant.core_storage().as_::<ParquetVariant>();
+    let core_storage = variant.core_storage();
+    let core_storage = core_storage.as_opt::<ParquetVariant>().ok_or_else(|| {
+        vortex_err!(
+            "variant_get expected ParquetVariant core_storage, got {}",
+            core_storage.encoding_id()
+        )
+    })?;
     let nullable_core_storage = ParquetVariant::try_new(
         Validity::AllValid,
         core_storage.metadata_array().clone(),

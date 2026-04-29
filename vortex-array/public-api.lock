@@ -2522,6 +2522,10 @@ impl vortex_array::arrays::dict::TakeReduce for vortex_array::arrays::Struct
 
 pub fn vortex_array::arrays::Struct::take(array: vortex_array::ArrayView<'_, vortex_array::arrays::Struct>, indices: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
+impl vortex_array::arrays::dict::TakeReduce for vortex_array::arrays::Variant
+
+pub fn vortex_array::arrays::Variant::take(array: vortex_array::ArrayView<'_, Self>, indices: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 impl vortex_array::arrays::dict::TakeReduce for vortex_array::arrays::null::Null
 
 pub fn vortex_array::arrays::null::Null::take(array: vortex_array::ArrayView<'_, vortex_array::arrays::null::Null>, indices: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -2799,6 +2803,10 @@ pub fn vortex_array::arrays::Extension::filter(array: vortex_array::ArrayView<'_
 impl vortex_array::arrays::filter::FilterReduce for vortex_array::arrays::Masked
 
 pub fn vortex_array::arrays::Masked::filter(array: vortex_array::ArrayView<'_, vortex_array::arrays::Masked>, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::arrays::filter::FilterReduce for vortex_array::arrays::Variant
+
+pub fn vortex_array::arrays::Variant::filter(array: vortex_array::ArrayView<'_, Self>, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::arrays::filter::FilterReduce for vortex_array::arrays::dict::Dict
 
@@ -5388,6 +5396,14 @@ impl vortex_array::ValidityVTable<vortex_array::arrays::Variant> for vortex_arra
 
 pub fn vortex_array::arrays::Variant::validity(array: vortex_array::ArrayView<'_, vortex_array::arrays::Variant>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
+impl vortex_array::arrays::dict::TakeReduce for vortex_array::arrays::Variant
+
+pub fn vortex_array::arrays::Variant::take(array: vortex_array::ArrayView<'_, Self>, indices: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::arrays::filter::FilterReduce for vortex_array::arrays::Variant
+
+pub fn vortex_array::arrays::Variant::filter(array: vortex_array::ArrayView<'_, Self>, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::Variant
 
 pub fn vortex_array::arrays::Variant::slice(array: vortex_array::ArrayView<'_, Self>, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -7025,6 +7041,14 @@ pub fn vortex_array::arrays::Variant::validate(&self, data: &Self::ArrayData, dt
 impl vortex_array::ValidityVTable<vortex_array::arrays::Variant> for vortex_array::arrays::Variant
 
 pub fn vortex_array::arrays::Variant::validity(array: vortex_array::ArrayView<'_, vortex_array::arrays::Variant>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
+impl vortex_array::arrays::dict::TakeReduce for vortex_array::arrays::Variant
+
+pub fn vortex_array::arrays::Variant::take(array: vortex_array::ArrayView<'_, Self>, indices: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::arrays::filter::FilterReduce for vortex_array::arrays::Variant
+
+pub fn vortex_array::arrays::Variant::filter(array: vortex_array::ArrayView<'_, Self>, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::Variant
 

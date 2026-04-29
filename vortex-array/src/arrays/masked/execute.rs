@@ -180,10 +180,12 @@ fn mask_validity_variant(
             .transpose()?
     };
 
-    match core_storage_validity {
+    match &core_storage_validity {
         Validity::NonNullable | Validity::AllValid => {
+            let both_all_valid = matches!(&core_storage_validity, Validity::AllValid)
+                && matches!(&validity, Validity::AllValid);
             let combined = core_storage_validity.and(validity)?;
-            let new_core_storage = if matches!(combined, Validity::NonNullable) {
+            let new_core_storage = if matches!(combined, Validity::NonNullable) || both_all_valid {
                 core_storage
             } else {
                 MaskedArray::try_new(core_storage, combined)?.into_array()

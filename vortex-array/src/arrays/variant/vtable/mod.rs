@@ -333,8 +333,11 @@ mod tests {
     use crate::ValidityChild;
     use crate::ValidityVTableFromChild;
     use crate::arrays::ConstantArray;
+    use crate::arrays::Dict;
     use crate::arrays::DictArray;
+    use crate::arrays::Filter;
     use crate::arrays::FilterArray;
+    use crate::arrays::Masked;
     use crate::arrays::MaskedArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::SliceArray;
@@ -342,18 +345,22 @@ mod tests {
     use crate::arrays::variant::rebuild_variant_array;
     use crate::assert_arrays_eq;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
     use crate::serde::SerializeOptions;
     use crate::serde::SerializedArray;
+    use crate::session::ArraySession;
+    use crate::session::ArraySessionExt;
     use crate::validity::Validity;
 
-    fn roundtrip(array: ArrayRef) -> ArrayRef {
+    fn roundtrip_with_session(array: ArrayRef, session: &VortexSession) -> ArrayRef {
         let dtype = array.dtype().clone();
         let len = array.len();
 
         let ctx = ArrayContext::empty();
         let serialized = array
-            .serialize(&ctx, &LEGACY_SESSION, &SerializeOptions::default())
+            .serialize(&ctx, session, &SerializeOptions::default())
             .unwrap();
 
         let mut concat = ByteBufferMut::empty();
@@ -362,13 +369,12 @@ mod tests {
         }
         let parts = SerializedArray::try_from(concat.freeze()).unwrap();
         parts
-            .decode(
-                &dtype,
-                len,
-                &ReadContext::new(ctx.to_ids()),
-                &LEGACY_SESSION,
-            )
+            .decode(&dtype, len, &ReadContext::new(ctx.to_ids()), session)
             .unwrap()
+    }
+
+    fn roundtrip(array: ArrayRef) -> ArrayRef {
+        roundtrip_with_session(array, &LEGACY_SESSION)
     }
 
     #[derive(Clone, Debug)]
@@ -429,14 +435,20 @@ mod tests {
 
         fn deserialize(
             &self,
-            _dtype: &DType,
-            _len: usize,
+            dtype: &DType,
+            len: usize,
             _metadata: &[u8],
             _buffers: &[BufferHandle],
-            _children: &dyn ArrayChildren,
+            children: &dyn ArrayChildren,
             _session: &VortexSession,
         ) -> VortexResult<ArrayParts<Self>> {
-            unreachable!("test-only vtable is not registered for serde")
+            let delegated = children.get(
+                0,
+                &DType::Primitive(PType::I32, Nullability::NonNullable),
+                len,
+            )?;
+            Ok(ArrayParts::new(Self, dtype.clone(), len, EmptyArrayData)
+                .with_slots(vec![Some(delegated)]))
         }
 
         fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -469,6 +481,14 @@ mod tests {
         )
         .unwrap()
         .into_array()
+    }
+
+    fn make_derived_variant(delegated: ArrayRef) -> VortexResult<ArrayRef> {
+        let core_storage = make_delegating_core_storage(delegated);
+        Ok(
+            VariantArray::try_new_derived(core_storage, DelegatingCoreStorage.id(), "delegated")?
+                .into_array(),
+        )
     }
 
     #[derive(Clone, Debug)]
@@ -674,6 +694,17 @@ mod tests {
     }
 
     #[test]
+    fn test_try_new_derived_rejects_absent_source_encoding_id() {
+        let core_storage =
+            make_delegating_core_storage(PrimitiveArray::from_iter(10i32..13).into_array());
+
+        let error = VariantArray::try_new_derived(core_storage, NamedSlotCoreStorage.id(), "child")
+            .unwrap_err();
+
+        assert!(error.to_string().contains("derived shredded slot"));
+    }
+
+    #[test]
     fn test_validate_rejects_physical_slot_for_derived_shredded() {
         let delegated = ConstantArray::new(Scalar::variant(Scalar::from(7i32)), 3).into_array();
         let core_storage = Array::try_from_parts(
@@ -735,6 +766,34 @@ mod tests {
     }
 
     #[test]
+    fn test_serde_roundtrip_preserves_derived_shredded_delegation_from_source_encoding()
+    -> VortexResult<()> {
+        let session = VortexSession::empty().with::<ArraySession>();
+        session.arrays().register(DelegatingCoreStorage);
+
+        let delegated = PrimitiveArray::from_iter(10i32..13).into_array();
+        let core_storage = make_delegating_core_storage(delegated.clone());
+        let array =
+            VariantArray::try_new_derived(core_storage, DelegatingCoreStorage.id(), "delegated")?
+                .into_array();
+
+        let decoded = roundtrip_with_session(array.clone(), &session);
+
+        assert!(array.array_eq(&decoded, Precision::Value));
+        let decoded = decoded.as_opt::<Variant>().unwrap();
+        assert!(decoded.shredded_is_derived());
+        assert_eq!(
+            decoded.derived_shredded_source(),
+            Some((DelegatingCoreStorage.id(), "delegated"))
+        );
+        assert!(decoded.as_ref().slots()[1].is_none());
+        assert!(decoded.core_storage().is::<DelegatingCoreStorage>());
+        assert_arrays_eq!(decoded.shredded().unwrap(), delegated);
+
+        Ok(())
+    }
+
+    #[test]
     fn test_rebuild_adopts_nested_inline_shredded_source() -> VortexResult<()> {
         let original_core_storage =
             make_delegating_core_storage(PrimitiveArray::from_iter(10i32..13).into_array());
@@ -764,6 +823,30 @@ mod tests {
     }
 
     #[test]
+    fn test_execute_preserves_derived_metadata_identity() -> VortexResult<()> {
+        let shredded = PrimitiveArray::from_iter(10i32..13).into_array();
+        let core_storage = make_delegating_core_storage(shredded.clone());
+        let array =
+            VariantArray::try_new_derived(core_storage, DelegatingCoreStorage.id(), "delegated")?
+                .into_array();
+        let mut ctx = ExecutionCtx::new(VortexSession::empty());
+
+        let executed = array.clone().execute::<ArrayRef>(&mut ctx)?;
+        let executed_variant = executed.as_opt::<Variant>().unwrap();
+
+        assert!(ArrayRef::ptr_eq(&executed, &array));
+        assert!(executed_variant.shredded_is_derived());
+        assert_eq!(
+            executed_variant.derived_shredded_source(),
+            Some((DelegatingCoreStorage.id(), "delegated"))
+        );
+        assert!(executed_variant.as_ref().slots()[1].is_none());
+        assert_arrays_eq!(executed_variant.shredded().unwrap(), shredded);
+
+        Ok(())
+    }
+
+    #[test]
     fn test_derived_shredded_is_reconstructed_through_slice_wrapper() {
         let core_storage =
             make_delegating_core_storage(PrimitiveArray::from_iter(10i32..15).into_array());
@@ -781,6 +864,37 @@ mod tests {
             variant.shredded().unwrap(),
             PrimitiveArray::from_iter(11i32..14)
         );
+    }
+
+    #[test]
+    fn test_derived_shredded_is_reconstructed_through_chained_nested_wrapper() -> VortexResult<()> {
+        let core_storage =
+            make_delegating_core_storage(PrimitiveArray::from_iter(10i32..16).into_array());
+        let filtered_core_storage = FilterArray::try_new(
+            core_storage,
+            Mask::from_iter([true, false, true, true, false, true]),
+        )?
+        .into_array();
+        let nested_variant = VariantArray::try_new_derived(
+            filtered_core_storage,
+            DelegatingCoreStorage.id(),
+            "delegated",
+        )?
+        .into_array();
+        let sliced_nested_variant = SliceArray::new(nested_variant, 1..4).into_array();
+        let array = VariantArray::try_new_derived(
+            sliced_nested_variant,
+            DelegatingCoreStorage.id(),
+            "delegated",
+        )?
+        .into_array();
+
+        let variant = array.as_opt::<Variant>().unwrap();
+        let shredded = variant.shredded().unwrap();
+        assert_eq!(shredded.len(), variant.as_ref().len());
+        assert_arrays_eq!(shredded, PrimitiveArray::from_iter([12i32, 13, 15]));
+
+        Ok(())
     }
 
     #[test]
@@ -851,34 +965,6 @@ mod tests {
     }
 
     #[test]
-    fn test_derived_shredded_is_reconstructed_through_masked_wrapper() {
-        let core_storage =
-            make_delegating_core_storage(PrimitiveArray::from_iter(10i32..14).into_array());
-        let masked_core_storage = MaskedArray::try_new(
-            core_storage,
-            Validity::from_iter([true, false, true, false]),
-        )
-        .unwrap()
-        .into_array();
-        let array = VariantArray::try_new_derived(
-            masked_core_storage,
-            DelegatingCoreStorage.id(),
-            "delegated",
-        )
-        .unwrap()
-        .into_array();
-
-        let variant = array.as_opt::<Variant>().unwrap();
-        let expected = MaskedArray::try_new(
-            PrimitiveArray::from_iter(10i32..14).into_array(),
-            Validity::from_iter([true, false, true, false]),
-        )
-        .unwrap()
-        .into_array();
-        assert_arrays_eq!(variant.shredded().unwrap(), expected);
-    }
-
-    #[test]
     fn test_derived_shredded_through_masked_wrapper_preserves_child_nulls() {
         let core_storage = make_delegating_core_storage(
             PrimitiveArray::from_option_iter([Some(10i32), None, Some(12), Some(13)]).into_array(),
@@ -903,25 +989,33 @@ mod tests {
     }
 
     #[test]
-    fn test_derived_child_slot_is_reconstructed_through_masked_wrapper() {
-        let core_storage = make_named_slot_core_storage(
-            PrimitiveArray::from_option_iter([Some(10i32), None, Some(12), Some(13)]).into_array(),
-            "child",
-        );
-        let masked_core_storage =
-            MaskedArray::try_new(core_storage, Validity::from_iter([true, true, false, true]))
-                .unwrap()
-                .into_array();
-        let array =
-            VariantArray::try_new_derived(masked_core_storage, NamedSlotCoreStorage.id(), "child")
-                .unwrap()
-                .into_array();
+    fn test_masked_execute_all_valid_derived_variant_reuses_all_valid_core_storage()
+    -> VortexResult<()> {
+        let delegated = PrimitiveArray::from_iter(10i32..13).into_array();
+        let core_storage = MaskedArray::try_new(
+            make_delegating_core_storage(delegated.clone()),
+            Validity::AllValid,
+        )?
+        .into_array();
+        let variant = VariantArray::try_new_derived(
+            core_storage.clone(),
+            DelegatingCoreStorage.id(),
+            "delegated",
+        )?
+        .into_array();
+        let masked = MaskedArray::try_new(variant, Validity::AllValid)?.into_array();
+        let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
-        let variant = array.as_opt::<Variant>().unwrap();
+        let result = masked.execute::<ArrayRef>(&mut ctx)?;
+        let result = result.as_opt::<Variant>().unwrap();
+
+        assert!(ArrayRef::ptr_eq(result.core_storage(), &core_storage));
         assert_arrays_eq!(
-            variant.shredded().unwrap(),
-            PrimitiveArray::from_option_iter([Some(10i32), None, None, Some(13)])
+            result.shredded().unwrap(),
+            MaskedArray::try_new(delegated, Validity::AllValid)?.into_array()
         );
+
+        Ok(())
     }
 
     #[test]
@@ -996,5 +1090,66 @@ mod tests {
             variant.shredded().unwrap(),
             PrimitiveArray::from_iter([30i32, 10, 20, 30])
         );
+    }
+
+    #[test]
+    fn test_filter_parent_reduce_preserves_derived_shredded_alignment() -> VortexResult<()> {
+        let variant = make_derived_variant(PrimitiveArray::from_iter(10i32..14).into_array())?;
+        let wrapped =
+            FilterArray::try_new(variant, Mask::from_iter([true, false, true, true]))?.into_array();
+
+        let optimized = wrapped.optimize()?;
+        let optimized = optimized.as_opt::<Variant>().unwrap();
+
+        assert!(optimized.core_storage().is::<Filter>());
+        assert_eq!(optimized.shredded().unwrap().len(), optimized.len());
+        assert_arrays_eq!(
+            optimized.shredded().unwrap(),
+            PrimitiveArray::from_iter([10i32, 12, 13])
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_parent_reduce_preserves_derived_shredded_alignment() -> VortexResult<()> {
+        let variant =
+            make_derived_variant(PrimitiveArray::from_iter([10i32, 20, 30]).into_array())?;
+        let wrapped = DictArray::try_new(
+            PrimitiveArray::from_iter([2u64, 0, 1, 2]).into_array(),
+            variant,
+        )?
+        .into_array();
+
+        let optimized = wrapped.optimize()?;
+        let optimized = optimized.as_opt::<Variant>().unwrap();
+
+        assert!(optimized.core_storage().is::<Dict>());
+        assert_eq!(optimized.shredded().unwrap().len(), optimized.len());
+        assert_arrays_eq!(
+            optimized.shredded().unwrap(),
+            PrimitiveArray::from_iter([30i32, 10, 20, 30])
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_masked_parent_reduce_preserves_derived_shredded_alignment() -> VortexResult<()> {
+        let variant = make_derived_variant(PrimitiveArray::from_iter(10i32..14).into_array())?;
+        let validity = Validity::from_iter([true, false, true, false]);
+        let wrapped = MaskedArray::try_new(variant, validity.clone())?.into_array();
+
+        let optimized = wrapped.optimize()?;
+        let optimized = optimized.as_opt::<Variant>().unwrap();
+        let expected =
+            MaskedArray::try_new(PrimitiveArray::from_iter(10i32..14).into_array(), validity)?
+                .into_array();
+
+        assert!(optimized.core_storage().is::<Masked>());
+        assert_eq!(optimized.shredded().unwrap().len(), optimized.len());
+        assert_arrays_eq!(optimized.shredded().unwrap(), expected);
+
+        Ok(())
     }
 }

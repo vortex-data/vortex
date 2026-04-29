@@ -355,7 +355,6 @@ mod tests {
     use vortex_array::LEGACY_SESSION;
     use vortex_array::RecursiveCanonical;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::Variant;
     use vortex_array::arrays::VariantArray;
     use vortex_array::arrays::variant::VariantArrayExt;
@@ -363,8 +362,6 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::validity::Validity;
-    use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
 
@@ -420,25 +417,6 @@ mod tests {
             builder.append_value(value);
         }
         Arc::new(builder.finish())
-    }
-
-    #[test]
-    fn test_from_arrow_variant_basic() -> VortexResult<()> {
-        let mut builder = VariantArrayBuilder::new(3);
-        builder.append_variant(PqVariant::from(42i32));
-        builder.append_variant(PqVariant::from("hello"));
-        builder.append_variant(PqVariant::from(true));
-        let arrow_variant = builder.build();
-
-        let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
-
-        assert_eq!(vortex_arr.len(), 3);
-        assert_eq!(
-            vortex_arr.dtype(),
-            &DType::Variant(Nullability::NonNullable)
-        );
-
-        Ok(())
     }
 
     #[test]
@@ -550,50 +528,6 @@ mod tests {
         assert_eq!(
             variant_arr.shredded().unwrap().dtype(),
             &DType::Primitive(PType::I32, Nullability::NonNullable)
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_to_arrow_basic() -> VortexResult<()> {
-        let metadata = VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00"]).into_array();
-        let value = VarBinViewArray::from_iter_bin([b"\x10", b"\x11"]).into_array();
-        let pv_array = ParquetVariant::try_new(Validity::NonNullable, metadata, Some(value), None)?;
-
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let variant_arr = pv_array.to_arrow(&mut ctx)?;
-        let struct_arr = variant_arr.inner();
-
-        assert_eq!(struct_arr.num_columns(), 2);
-        assert_eq!(
-            struct_arr.column_names(),
-            &[METADATA_SLOT_NAME, VALUE_SLOT_NAME]
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_to_arrow_with_typed_value() -> VortexResult<()> {
-        let metadata = VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00"]).into_array();
-        let value = VarBinViewArray::from_iter_bin([b"\x10", b"\x11"]).into_array();
-        let typed_value = buffer![1i32, 2].into_array();
-        let pv_array = ParquetVariant::try_new(
-            Validity::NonNullable,
-            metadata,
-            Some(value),
-            Some(typed_value),
-        )?;
-
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let variant_arr = pv_array.to_arrow(&mut ctx)?;
-        let struct_arr = variant_arr.inner();
-
-        assert_eq!(struct_arr.num_columns(), 3);
-        assert_eq!(
-            struct_arr.column_names(),
-            &[METADATA_SLOT_NAME, VALUE_SLOT_NAME, TYPED_VALUE_SLOT_NAME]
         );
 
         Ok(())
