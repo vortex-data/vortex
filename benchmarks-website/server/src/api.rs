@@ -282,6 +282,35 @@ pub struct ChartResponse {
     pub unit: &'static str,
     pub commits: Vec<CommitPoint>,
     pub series: serde_json::Map<String, JsonValue>,
+    /// Per-series engine/format classification, used by the global filter
+    /// bar to hide/show whole engines or formats across every chart at once.
+    /// Keyed by series name; values are populated only for series whose name
+    /// encodes an engine and/or format. Series without a classification (e.g.
+    /// vector-search flavors) are simply absent from this map.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub series_meta: BTreeMap<String, SeriesTag>,
+}
+
+/// Engine/format tag for one series. Both fields are optional because not
+/// every fact table records both dimensions: `query_measurements` carries
+/// engine + format, while `compression_*` and `random_access_times` only
+/// carry format. Vector-search series have neither and are omitted from the
+/// map entirely.
+#[derive(Debug, Default, Serialize)]
+pub struct SeriesTag {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub engine: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
+}
+
+/// Universe of engine + format chips the global filter bar can toggle.
+/// Returned as a separate, cheap-to-compute summary so the landing page can
+/// render the bar without iterating every chart payload.
+#[derive(Debug, Default, Serialize)]
+pub struct FilterUniverse {
+    pub engines: Vec<String>,
+    pub formats: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1067,6 +1096,44 @@ fn geo_mean(values: &[f64]) -> Option<f64> {
     (n > 0).then(|| (sum_ln / n as f64).exp())
 }
 
+/// Collect the set of distinct engines and formats observed across the fact
+/// tables. Used by the landing page to seed the global filter bar's chip
+/// universe, so adding a new engine or format in ingest automatically
+/// surfaces a chip without a code change.
+///
+/// Engines come from `query_measurements` only — the other fact tables don't
+/// record an engine. Formats are unioned across `query_measurements`,
+/// `compression_times`, `compression_sizes`, and `random_access_times`;
+/// `vector_search_runs` is intentionally excluded because its `flavor`
+/// column is not a format in the same sense the chip filter is matching on.
+pub fn collect_filter_universe(conn: &Connection) -> Result<FilterUniverse> {
+    let mut engines: BTreeSet<String> = BTreeSet::new();
+    let mut formats: BTreeSet<String> = BTreeSet::new();
+
+    let mut stmt =
+        conn.prepare("SELECT DISTINCT engine FROM query_measurements WHERE engine IS NOT NULL")?;
+    for row in stmt.query_map([], |r| r.get::<_, String>(0))? {
+        engines.insert(row?);
+    }
+
+    for sql in [
+        "SELECT DISTINCT format FROM query_measurements   WHERE format IS NOT NULL",
+        "SELECT DISTINCT format FROM compression_times    WHERE format IS NOT NULL",
+        "SELECT DISTINCT format FROM compression_sizes    WHERE format IS NOT NULL",
+        "SELECT DISTINCT format FROM random_access_times  WHERE format IS NOT NULL",
+    ] {
+        let mut stmt = conn.prepare(sql)?;
+        for row in stmt.query_map([], |r| r.get::<_, String>(0))? {
+            formats.insert(row?);
+        }
+    }
+
+    Ok(FilterUniverse {
+        engines: engines.into_iter().collect(),
+        formats: formats.into_iter().collect(),
+    })
+}
+
 /// Build the JSON payload for one chart by key. This is the shared
 /// implementation behind `GET /api/chart/{slug}`, the inline `<script>` JSON
 /// rendered into the HTML pages, and `collect_group_charts`.
@@ -1167,6 +1234,7 @@ struct SeriesAccumulator {
     commits: Vec<CommitPoint>,
     commit_index: std::collections::BTreeMap<String, usize>,
     series: std::collections::BTreeMap<String, Vec<Option<f64>>>,
+    tags: BTreeMap<String, SeriesTag>,
 }
 
 impl SeriesAccumulator {
@@ -1175,6 +1243,7 @@ impl SeriesAccumulator {
             commits: Vec::new(),
             commit_index: std::collections::BTreeMap::new(),
             series: std::collections::BTreeMap::new(),
+            tags: BTreeMap::new(),
         }
     }
 
@@ -1205,6 +1274,22 @@ impl SeriesAccumulator {
         entry[commit_idx] = Some(value);
     }
 
+    /// Record an engine/format classification for a series. Repeat calls with
+    /// the same `series_key` are idempotent — every row of a given series
+    /// shares the same engine/format by construction of the SQL.
+    fn tag(&mut self, series_key: &str, engine: Option<&str>, format: Option<&str>) {
+        if engine.is_none() && format.is_none() {
+            return;
+        }
+        let entry = self.tags.entry(series_key.to_string()).or_default();
+        if let Some(e) = engine {
+            entry.engine = Some(e.to_string());
+        }
+        if let Some(f) = format {
+            entry.format = Some(f.to_string());
+        }
+    }
+
     fn finish(self, display_name: String, unit: &'static str) -> ChartResponse {
         let total = self.commits.len();
         let mut series_map = serde_json::Map::new();
@@ -1219,6 +1304,7 @@ impl SeriesAccumulator {
             unit,
             commits: self.commits,
             series: series_map,
+            series_meta: self.tags,
         }
     }
 }
@@ -1277,7 +1363,9 @@ fn collect_query_chart(
         any = true;
         let (sha, ts, msg, url, engine, format, value_ns) = row?;
         let idx = acc.ensure_commit(&sha, &ts, &msg, &url);
-        acc.record(&format!("{engine}:{format}"), idx, value_ns as f64);
+        let series_key = format!("{engine}:{format}");
+        acc.record(&series_key, idx, value_ns as f64);
+        acc.tag(&series_key, Some(&engine), Some(&format));
     }
     if !any {
         return Ok(None);
@@ -1340,7 +1428,9 @@ fn collect_compression_time_chart(
         any = true;
         let (sha, ts, msg, url, format, op, value_ns) = row?;
         let idx = acc.ensure_commit(&sha, &ts, &msg, &url);
-        acc.record(&format!("{format}:{op}"), idx, value_ns as f64);
+        let series_key = format!("{format}:{op}");
+        acc.record(&series_key, idx, value_ns as f64);
+        acc.tag(&series_key, None, Some(&format));
     }
     if !any {
         return Ok(None);
@@ -1398,6 +1488,7 @@ fn collect_compression_size_chart(
         let (sha, ts, msg, url, format, value_bytes) = row?;
         let idx = acc.ensure_commit(&sha, &ts, &msg, &url);
         acc.record(&format, idx, value_bytes as f64);
+        acc.tag(&format, None, Some(&format));
     }
     if !any {
         return Ok(None);
@@ -1450,6 +1541,7 @@ fn collect_random_access_chart(
         let (sha, ts, msg, url, format, value_ns) = row?;
         let idx = acc.ensure_commit(&sha, &ts, &msg, &url);
         acc.record(&format, idx, value_ns as f64);
+        acc.tag(&format, None, Some(&format));
     }
     if !any {
         return Ok(None);
