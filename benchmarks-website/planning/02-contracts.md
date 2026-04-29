@@ -170,10 +170,10 @@ slug format, change it without breaking the web-ui, or make it
 debuggable (e.g. `qm-tpch-q01-nvme-sf1`) - the only contract is
 "`/api/chart/:slug` accepts any slug `/api/groups` returned."
 
-## Read API (alpha)
+## Read API
 
-Two routes - just enough to render one chart page. Field shapes are
-not binding; refine during implementation.
+Four JSON routes today. Field shapes are not binding; refine during
+implementation.
 
 ### `GET /api/groups`
 
@@ -182,7 +182,8 @@ just enough metadata to link to a chart. The server walks each fact
 table to produce the group keys defined in
 [`01-schema.md`](./01-schema.md#group--chart--series-fit). Every
 chart entry includes a `slug` that round-trips through
-`/api/chart/:slug`.
+`/api/chart/:slug`, and every group has its own `slug` that
+round-trips through `/api/group/:slug`.
 
 ### `GET /api/chart/:slug`
 
@@ -190,6 +191,20 @@ Returns the data for one chart: a `display_name`, a `unit`, an
 ordered `commits` list (sha + timestamp + first-line message + url),
 and a `series` map keyed by series name where each value is an
 array aligned to `commits` (with `null` for missing data points).
+Accepts `?n=&y=&mode=&hidden=` to scope the commit window and
+configure the rendered view.
 
-Per-commit page, zoom/pan, range queries, and the rest of the read
-API are deferred. See [`deferred.md`](./deferred.md).
+### `GET /api/group/:slug`
+
+Returns every chart in a group as a single batch payload, in render
+order. Used by the `/group/{slug}` HTML page and (today) by the
+landing page hydration path. Same query parameters as
+`/api/chart/:slug`.
+
+### `GET /health`
+
+Returns `{ status, db_path, schema_version, latest_commit_timestamp,
+row_counts }`. Cheap; suitable for load-balancer health checks.
+
+Per-commit page, range queries, and the rest of the read API are
+deferred. See [`deferred.md`](./deferred.md).
