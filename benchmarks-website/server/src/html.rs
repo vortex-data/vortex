@@ -73,7 +73,7 @@ const CHART_INIT_JS: &[u8] = include_bytes!("../static/chart-init.js");
 const STYLE_CSS: &[u8] = include_bytes!("../static/style.css");
 const VORTEX_BLACK_SVG: &[u8] = include_bytes!("../../public/vortex_black_nobg.svg");
 const VORTEX_WHITE_SVG: &[u8] = include_bytes!("../../public/vortex_white_nobg.svg");
-const STATIC_ASSET_VERSION: &str = "bench-v3-ui-7";
+const STATIC_ASSET_VERSION: &str = "bench-v3-ui-8";
 
 /// HTML routes mounted under `/`.
 pub fn router() -> Router<AppState> {
@@ -469,6 +469,7 @@ fn chart_card(link: &api::ChartLink, idx: usize, inlined: Option<&NamedChartResp
             div.chart-wrap {
                 canvas data-chart-index=(idx) {}
             }
+            (range_strip(idx))
             @if let Some(item) = inlined {
                 script id={ "chart-data-" (idx) } type="application/json" {
                     (PreEscaped(escape_json_for_script(
@@ -497,6 +498,7 @@ fn chart_body(chart: &ChartResponse, slug: &str, payload_json: &str) -> Markup {
             div.chart-wrap {
                 canvas data-chart-index="0" {}
             }
+            (range_strip(0))
             // Embedded JSON; rendered as text content so JSON `<` / `>` are HTML-escaped.
             script id="chart-data-0" type="application/json" {
                 (PreEscaped(escape_json_for_script(payload_json)))
@@ -527,6 +529,7 @@ fn group_body(group: &GroupChartsResponse) -> Markup {
                     div.chart-wrap {
                         canvas data-chart-index=(i) {}
                     }
+                    (range_strip(i))
                     script id={ "chart-data-" (i) } type="application/json" {
                         (PreEscaped(escape_json_for_script(
                             &serde_json::to_string(&item.chart)
@@ -696,6 +699,28 @@ fn per_chart_toolbar(idx: usize) -> Markup {
                 span.toolbar-label { "Y" }
                 button.toolbar-btn.toolbar-btn--active type="button" data-y="linear" { "linear" }
                 button.toolbar-btn type="button" data-y="log" { "log" }
+            }
+        }
+    }
+}
+
+/// Render the per-chart range scrollbar strip. A thin track that spans the
+/// full chart width and shows which slice of the fetched commit history is
+/// currently visible. `chart-init.js` hydrates the strip on chart construction
+/// and wires bidirectional drag/resize to the chart's pan/zoom state.
+fn range_strip(idx: usize) -> Markup {
+    html! {
+        div.chart-range-strip data-chart-index=(idx)
+            data-role="range-strip"
+            aria-label="Visible commit range"
+            role="slider" {
+            div.chart-range-strip-track {
+                div.chart-range-strip-window data-role="range-window" {
+                    span.chart-range-strip-handle.chart-range-strip-handle--left
+                        data-role="range-handle-left" aria-hidden="true" {}
+                    span.chart-range-strip-handle.chart-range-strip-handle--right
+                        data-role="range-handle-right" aria-hidden="true" {}
+                }
             }
         }
     }
