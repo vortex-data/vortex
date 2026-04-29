@@ -340,10 +340,6 @@ impl Validity {
     /// Returns `None` when the array contains invalid values (so the cast cannot be performed),
     /// either because it is [`Validity::AllInvalid`] or because the validity array's minimum is
     /// `false`.
-    ///
-    /// For `Validity::Array(_)`, this calls [`StatsSetRef::compute_min`] which may execute the
-    /// validity array. Use [`Self::can_`] when execution is not available — for
-    /// example inside reduce rules.
     #[inline]
     pub fn into_non_nullable(self, len: usize, ctx: &mut ExecutionCtx) -> Option<Validity> {
         match self {
