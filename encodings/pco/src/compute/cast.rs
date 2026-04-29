@@ -5,7 +5,6 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_array::vtable::child_to_validity;
 use vortex_error::VortexResult;
@@ -28,12 +27,13 @@ impl CastReduce for Pco {
         if !array.dtype().eq_ignore_nullability(dtype) {
             return Ok(None);
         }
-        if dtype.nullability() == Nullability::NonNullable {
-            return Ok(None);
-        }
 
-        let unsliced_validity =
-            child_to_validity(&array.slots()[0], array.dtype().nullability()).into_nullable();
+        let unsliced_validity = child_to_validity(&array.slots()[0], array.dtype().nullability());
+        let Some(new_validity) =
+            unsliced_validity.trivial_cast_nullability(dtype.nullability(), array.len())?
+        else {
+            return Ok(None);
+        };
 
         let data = PcoData::new(
             array.chunk_metas.clone(),
@@ -45,16 +45,17 @@ impl CastReduce for Pco {
         ._slice(array.slice_start(), array.slice_stop());
 
         Ok(Some(
-            Pco::try_new(dtype.clone(), data, unsliced_validity)?.into_array(),
+            Pco::try_new(dtype.clone(), data, new_validity)?.into_array(),
         ))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -63,14 +64,19 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::Pco;
 
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
     #[test]
     fn test_cast_pco_f32_to_f64() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_iter([1.0f32, 2.0, 3.0, 4.0, 5.0]);
         let pco = Pco::from_primitive(values.as_view(), 0, 128, &mut ctx).unwrap();
 
@@ -91,7 +97,7 @@ mod tests {
 
     #[test]
     fn test_cast_pco_nullability_change() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Test casting from NonNullable to Nullable
         let values = PrimitiveArray::from_iter([10u32, 20, 30, 40]);
         let pco = Pco::from_primitive(values.as_view(), 0, 128, &mut ctx).unwrap();
@@ -108,7 +114,7 @@ mod tests {
 
     #[test]
     fn test_cast_sliced_pco_nullable_to_nonnullable() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = PrimitiveArray::new(
             buffer![10u32, 20, 30, 40, 50, 60],
             Validity::from_iter([true, true, true, true, true, true]),
@@ -128,7 +134,7 @@ mod tests {
 
     #[test]
     fn test_cast_sliced_pco_part_valid_to_nonnullable() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_option_iter([
             None,
             Some(20u32),
@@ -171,7 +177,7 @@ mod tests {
         Validity::NonNullable,
     ))]
     fn test_cast_pco_conformance(#[case] values: PrimitiveArray) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let pco = Pco::from_primitive(values.as_view(), 0, 128, &mut ctx).unwrap();
         test_cast_conformance(&pco.into_array());
     }

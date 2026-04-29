@@ -38,7 +38,7 @@ impl CastReduce for VarBin {
         let new_nullability = dtype.nullability();
         let Some(new_validity) = array
             .validity()?
-            .try_cast_nullability(new_nullability, array.len())?
+            .trivial_cast_nullability(new_nullability, array.len())?
         else {
             return Ok(None);
         };

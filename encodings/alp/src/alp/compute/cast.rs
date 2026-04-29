@@ -6,7 +6,6 @@ use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
-use vortex_array::patches::Patches;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
@@ -17,41 +16,29 @@ use crate::alp::ALP;
 impl CastReduce for ALP {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Check if this is just a nullability change
-        if array.dtype().eq_ignore_nullability(dtype) {
-            // For nullability-only changes, we can avoid decoding
-            // Cast the encoded array (integers) to handle nullability
-            let new_encoded = array.encoded().cast(
-                array
-                    .encoded()
-                    .dtype()
-                    .with_nullability(dtype.nullability()),
-            )?;
+        if !array.dtype().eq_ignore_nullability(dtype) {
+            return Ok(None);
+        }
 
-            let new_patches = array
-                .patches()
-                .map(|p| {
-                    if p.values().dtype() == dtype {
-                        Ok(p)
-                    } else {
-                        Patches::new(
-                            p.array_len(),
-                            p.offset(),
-                            p.indices().clone(),
-                            p.values().cast(dtype.clone())?,
-                            p.chunk_offsets().clone(),
-                        )
-                    }
-                })
-                .transpose()?;
+        // For nullability-only changes, we can avoid decoding
+        // Cast the encoded array (integers) to handle nullability
+        let new_encoded = array.encoded().cast(
+            array
+                .encoded()
+                .dtype()
+                .with_nullability(dtype.nullability()),
+        )?;
 
-            // SAFETY: casting nullability doesn't alter the invariants
-            unsafe {
-                Ok(Some(
-                    ALP::new_unchecked(new_encoded, array.exponents(), new_patches).into_array(),
-                ))
-            }
-        } else {
-            Ok(None)
+        let new_patches = array
+            .patches()
+            .map(|p| p.map_values(|v| v.cast(dtype.clone())))
+            .transpose()?;
+
+        // SAFETY: casting nullability doesn't alter the invariants
+        unsafe {
+            Ok(Some(
+                ALP::new_unchecked(new_encoded, array.exponents(), new_patches).into_array(),
+            ))
         }
     }
 }

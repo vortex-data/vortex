@@ -37,13 +37,13 @@ impl CastReduce for FixedSizeList {
             return Ok(None);
         };
 
-        let elements = array.elements().cast((**target_element_type).clone())?;
         let Some(validity) = array
             .validity()?
-            .try_cast_nullability(dtype.nullability(), array.len())?
+            .trivial_cast_nullability(dtype.nullability(), array.len())?
         else {
             return Ok(None);
         };
+        let elements = array.elements().cast((**target_element_type).clone())?;
 
         Ok(Some(build_with_validity(array, elements, validity)))
     }
@@ -59,10 +59,10 @@ impl CastKernel for FixedSizeList {
             return Ok(None);
         };
 
-        let elements = array.elements().cast((**target_element_type).clone())?;
         let validity = array
             .validity()?
             .cast_nullability(dtype.nullability(), array.len(), ctx)?;
+        let elements = array.elements().cast((**target_element_type).clone())?;
 
         Ok(Some(build_with_validity(array, elements, validity)))
     }

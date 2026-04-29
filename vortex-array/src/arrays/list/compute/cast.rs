@@ -23,15 +23,17 @@ impl CastReduce for List {
 
         let Some(validity) = array
             .validity()?
-            .try_cast_nullability(dtype.nullability(), array.len())?
+            .trivial_cast_nullability(dtype.nullability(), array.len())?
         else {
             return Ok(None);
         };
 
         let new_elements = array.elements().cast((**target_element_type).clone())?;
 
-        ListArray::try_new(new_elements, array.offsets().clone(), validity)
-            .map(|a| Some(a.into_array()))
+        Ok(Some(
+            unsafe { ListArray::new_unchecked(new_elements, array.offsets().clone(), validity) }
+                .into_array(),
+        ))
     }
 }
 
@@ -51,18 +53,24 @@ impl CastKernel for List {
 
         let new_elements = array.elements().cast((**target_element_type).clone())?;
 
-        ListArray::try_new(new_elements, array.offsets().clone(), validity)
-            .map(|a| Some(a.into_array()))
+        Ok(Some(
+            unsafe { ListArray::new_unchecked(new_elements, array.offsets().clone(), validity) }
+                .into_array(),
+        ))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_array::session::ArraySession;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::RecursiveCanonical;
@@ -77,6 +85,9 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn test_cast_list_success() {
@@ -113,11 +124,11 @@ mod tests {
         let target_dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
         // can't cast list to u64
 
-        let result = list.into_array().cast(target_dtype).and_then(|a| {
-            #[expect(deprecated)]
-            let canonical = a.to_canonical().map(|c| c.into_array());
-            canonical
-        });
+        let result = list
+            .into_array()
+            .cast(target_dtype)
+            .and_then(|a| a.execute::<Canonical>(&mut SESSION.create_execution_ctx()))
+            .map(|c| c.into_array());
         assert!(result.is_err());
     }
 
@@ -138,11 +149,11 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let result = list.into_array().cast(target_dtype).and_then(|a| {
-            #[expect(deprecated)]
-            let canonical = a.to_canonical().map(|c| c.into_array());
-            canonical
-        });
+        let result = list
+            .into_array()
+            .cast(target_dtype)
+            .and_then(|a| a.execute::<Canonical>(&mut SESSION.create_execution_ctx()))
+            .map(|c| c.into_array());
         assert!(result.is_err());
 
         // Nulls in list element array — the inner cast error is deferred until

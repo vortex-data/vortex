@@ -42,11 +42,11 @@ impl CastReduce for BitPacked {
         }
         let Some(new_validity) = array
             .validity()?
-            .try_cast_nullability(dtype.nullability(), array.len())?
+            .trivial_cast_nullability(dtype.nullability(), array.len())?
         else {
             return Ok(None);
         };
-        Ok(Some(build_with_validity(array, dtype, new_validity)?))
+        build_with_validity(array, dtype, new_validity).map(Some)
     }
 }
 
@@ -63,7 +63,7 @@ impl CastKernel for BitPacked {
             array
                 .validity()?
                 .cast_nullability(dtype.nullability(), array.len(), ctx)?;
-        Ok(Some(build_with_validity(array, dtype, new_validity)?))
+        build_with_validity(array, dtype, new_validity).map(Some)
     }
 }
 

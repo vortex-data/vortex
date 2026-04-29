@@ -256,12 +256,9 @@ impl RunEnd {
         values: ArrayRef,
         offset: usize,
         length: usize,
-        ctx: &mut ExecutionCtx,
     ) -> RunEndArray {
         let dtype = values.dtype().clone();
         let slots = vec![Some(ends.clone()), Some(values.clone())];
-        RunEndData::validate_parts(&ends, &values, offset, length, ctx)
-            .vortex_expect("RunEndArray validation failed");
         let data = unsafe { RunEndData::new_unchecked(offset) };
         unsafe {
             Array::from_parts_unchecked(
@@ -277,6 +274,7 @@ impl RunEnd {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<RunEndArray> {
         let len = RunEndData::logical_len_from_ends(&ends, ctx)?;
+        RunEndData::validate_parts(&ends, &values, 0, len, ctx)?;
         let dtype = values.dtype().clone();
         let slots = vec![Some(ends), Some(values)];
         let data = RunEndData::new(0);
@@ -289,7 +287,9 @@ impl RunEnd {
         values: ArrayRef,
         offset: usize,
         length: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<RunEndArray> {
+        RunEndData::validate_parts(&ends, &values, offset, length, ctx)?;
         let dtype = values.dtype().clone();
         let slots = vec![Some(ends), Some(values)];
         let data = RunEndData::new(offset);
@@ -469,20 +469,15 @@ impl ValidityVTable<RunEnd> for RunEnd {
         Ok(match array.values().validity()? {
             Validity::NonNullable | Validity::AllValid => Validity::AllValid,
             Validity::AllInvalid => Validity::AllInvalid,
-            Validity::Array(values_validity) => {
-                // TODO(ctx): trait fixes - ValidityVTable::validity has a fixed signature.
-                let mut ctx = LEGACY_SESSION.create_execution_ctx();
-                Validity::Array(unsafe {
-                    RunEnd::new_unchecked(
-                        array.ends().clone(),
-                        values_validity,
-                        array.offset(),
-                        array.len(),
-                        &mut ctx,
-                    )
-                    .into_array()
-                })
-            }
+            Validity::Array(values_validity) => Validity::Array(unsafe {
+                RunEnd::new_unchecked(
+                    array.ends().clone(),
+                    values_validity,
+                    array.offset(),
+                    array.len(),
+                )
+                .into_array()
+            }),
         })
     }
 }

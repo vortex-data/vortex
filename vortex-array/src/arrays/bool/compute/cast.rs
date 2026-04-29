@@ -16,14 +16,13 @@ use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for Bool {
     fn cast(array: ArrayView<'_, Bool>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        if !matches!(dtype, DType::Bool(_)) {
+        if !dtype.is_boolean() {
             return Ok(None);
         }
 
-        let new_nullability = dtype.nullability();
         let Some(new_validity) = array
             .validity()?
-            .try_cast_nullability(new_nullability, array.len())?
+            .trivial_cast_nullability(dtype.nullability(), array.len())?
         else {
             return Ok(None);
         };
@@ -39,14 +38,13 @@ impl CastKernel for Bool {
         dtype: &DType,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        if !matches!(dtype, DType::Bool(_)) {
+        if !dtype.is_boolean() {
             return Ok(None);
         }
 
-        let new_nullability = dtype.nullability();
         let new_validity = array
             .validity()?
-            .cast_nullability(new_nullability, array.len(), ctx)?;
+            .cast_nullability(dtype.nullability(), array.len(), ctx)?;
         Ok(Some(
             BoolArray::new(array.to_bit_buffer(), new_validity).into_array(),
         ))

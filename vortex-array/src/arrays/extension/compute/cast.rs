@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexResult;
+
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
@@ -12,10 +14,7 @@ use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for Extension {
-    fn cast(
-        array: ArrayView<'_, Extension>,
-        dtype: &DType,
-    ) -> vortex_error::VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Extension>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !array.dtype().eq_ignore_nullability(dtype) {
             // Target is not the same extension type.
             // Delegate to the storage array's cast.
@@ -45,10 +44,12 @@ impl CastReduce for Extension {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
 
     use rstest::rstest;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::IntoArray;
@@ -59,8 +60,13 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::executor::VortexSessionExecute;
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
+    use crate::session::ArraySession;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn cast_same_ext_dtype() {
@@ -105,16 +111,18 @@ mod tests {
         let storage = buffer![1i64].into_array();
         let arr = ExtensionArray::new(original_dtype, storage);
 
-        #[expect(deprecated)]
         let result = arr
             .into_array()
             .cast(DType::Extension(target_dtype))
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+            .and_then(|a| {
+                a.execute::<ExtensionArray>(&mut SESSION.create_execution_ctx())
+                    .map(|c| c.into_array())
+            });
         assert!(result.is_err());
     }
 
     #[test]
-    fn cast_timestamp_to_i64() -> vortex_error::VortexResult<()> {
+    fn cast_timestamp_to_i64() -> VortexResult<()> {
         let ext_dtype = Timestamp::new_with_tz(
             TimeUnit::Nanoseconds,
             Some("UTC".into()),

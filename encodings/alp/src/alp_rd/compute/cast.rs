@@ -16,38 +16,35 @@ use crate::alp_rd::ALPRD;
 
 impl CastReduce for ALPRD {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // ALPRDArray stores floating-point values, so only cast between float types
-        // or if just changing nullability
-
         // Check if this is just a nullability change
-        if array.dtype().eq_ignore_nullability(dtype) {
-            // For nullability-only changes, we need to cast the left_parts array
-            // since it carries the validity information
-            let new_left_parts = array.left_parts().cast(
-                array
-                    .left_parts()
-                    .dtype()
-                    .with_nullability(dtype.nullability()),
-            )?;
+        if !array.dtype().eq_ignore_nullability(dtype) {
+            return Ok(None);
+        }
 
-            // NOTE: `CastReduce::cast` has a fixed trait signature without `ExecutionCtx`, so we
-            // construct a legacy ctx locally at this trait boundary.
-            return Ok(Some(
-                ALPRD::try_new(
+        // For nullability-only changes, we need to cast the left_parts array
+        // since it carries the validity information
+        let new_left_parts = array.left_parts().cast(
+            array
+                .left_parts()
+                .dtype()
+                .with_nullability(dtype.nullability()),
+        )?;
+
+        // NOTE: `CastReduce::cast` has a fixed trait signature without `ExecutionCtx`, so we
+        // construct a legacy ctx locally at this trait boundary.
+        Ok(Some(
+            unsafe {
+                ALPRD::new_unchecked(
                     dtype.clone(),
                     new_left_parts,
                     array.left_parts_dictionary().clone(),
                     array.right_parts().clone(),
                     array.right_bit_width(),
                     array.left_parts_patches(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )?
-                .into_array(),
-            ));
-        }
-
-        // For other casts (e.g., f32 to f64), decode to canonical and let PrimitiveArray handle it
-        Ok(None)
+                )
+            }
+            .into_array(),
+        ))
     }
 }
 

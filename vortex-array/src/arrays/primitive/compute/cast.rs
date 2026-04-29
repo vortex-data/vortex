@@ -36,7 +36,7 @@ impl CastReduce for Primitive {
 
         let Some(new_validity) = array
             .validity()?
-            .try_cast_nullability(*new_nullability, array.len())?
+            .trivial_cast_nullability(*new_nullability, array.len())?
         else {
             return Ok(None);
         };

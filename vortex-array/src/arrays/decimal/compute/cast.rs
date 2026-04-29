@@ -33,13 +33,14 @@ impl CastReduce for Decimal {
                 array.dtype()
             );
         };
+
         if from_decimal_dtype != to_decimal_dtype {
             return Ok(None);
         }
 
         let Some(new_validity) = array
             .validity()?
-            .try_cast_nullability(*to_nullability, array.len())?
+            .trivial_cast_nullability(*to_nullability, array.len())?
         else {
             return Ok(None);
         };

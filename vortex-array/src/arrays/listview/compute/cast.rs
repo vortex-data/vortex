@@ -42,7 +42,7 @@ impl CastReduce for ListView {
         };
         let Some(validity) = array
             .validity()?
-            .try_cast_nullability(dtype.nullability(), array.len())?
+            .trivial_cast_nullability(dtype.nullability(), array.len())?
         else {
             return Ok(None);
         };
@@ -63,10 +63,10 @@ impl CastKernel for ListView {
             return Ok(None);
         };
 
-        let new_elements = array.elements().cast((**target_element_type).clone())?;
         let validity = array
             .validity()?
             .cast_nullability(dtype.nullability(), array.len(), ctx)?;
+        let new_elements = array.elements().cast((**target_element_type).clone())?;
 
         Ok(Some(build_with_validity(array, new_elements, validity)))
     }

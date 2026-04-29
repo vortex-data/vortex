@@ -12,6 +12,21 @@ use fsst::Compressor;
 use fsst::Decompressor;
 use fsst::Symbol;
 use prost::Message as _;
+use vortex_array::arrays::varbin::VarBinArrayExt;
+use vortex_array::arrays::VarBin;
+use vortex_array::arrays::VarBinArray;
+use vortex_array::buffer::BufferHandle;
+use vortex_array::builders::ArrayBuilder;
+use vortex_array::builders::VarBinViewBuilder;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::serde::ArrayChildren;
+use vortex_array::validity::Validity;
+use vortex_array::vtable::child_to_validity;
+use vortex_array::vtable::validity_to_child;
+use vortex_array::vtable::VTable;
+use vortex_array::vtable::ValidityVTable;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -23,35 +38,20 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
 use vortex_array::TypedArrayRef;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::VarBin;
-use vortex_array::arrays::VarBinArray;
-use vortex_array::arrays::varbin::VarBinArrayExt;
-use vortex_array::buffer::BufferHandle;
-use vortex_array::builders::ArrayBuilder;
-use vortex_array::builders::VarBinViewBuilder;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
-use vortex_array::serde::ArrayChildren;
-use vortex_array::validity::Validity;
-use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValidityVTable;
-use vortex_array::vtable::child_to_validity;
-use vortex_array::vtable::validity_to_child;
+use vortex_array::LEGACY_SESSION;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_session::registry::CachedId;
+use vortex_session::VortexSession;
 
 use crate::canonical::canonicalize_fsst;
 use crate::canonical::fsst_decode_views;
@@ -189,12 +189,13 @@ impl VTable for FSST {
         metadata: &[u8],
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         let metadata = FSSTMetadata::decode(metadata)?;
         let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone().try_to_host_sync()?);
         let symbol_lengths = Buffer::<u8>::from_byte_buffer(buffers[1].clone().try_to_host_sync()?);
 
+        let mut ctx = session.create_execution_ctx();
         if buffers.len() == 2 {
             return Self::deserialize_legacy(
                 self,
@@ -204,6 +205,7 @@ impl VTable for FSST {
                 &symbols,
                 &symbol_lengths,
                 children,
+                &mut ctx,
             );
         }
 
@@ -237,8 +239,6 @@ impl VTable for FSST {
                 vortex_bail!("Expected 2 or 3 children, got {}", children.len());
             };
 
-            // TODO(ctx): trait fixes - VTable::deserialize has a fixed signature.
-            let mut ctx = LEGACY_SESSION.create_execution_ctx();
             FSSTData::validate_parts(
                 &symbols,
                 &symbol_lengths,
@@ -409,7 +409,7 @@ impl FSST {
             Array::from_parts_unchecked(ArrayParts::new(FSST, dtype, len, data).with_slots(slots))
         })
     }
-
+    
     /// Legacy deserialization path (2 buffers): the codes were stored as a full
     /// `VarBinArray` child. We decompose the VarBinArray into its bytes (stored in
     /// FSSTData) and offsets/validity (stored in slots).
@@ -421,6 +421,7 @@ impl FSST {
         symbols: &Buffer<Symbol>,
         symbol_lengths: &Buffer<u8>,
         children: &dyn ArrayChildren,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayParts<Self>> {
         if children.len() != 2 {
             vortex_bail!(InvalidArgument: "Expected 2 children, got {}", children.len());
@@ -444,8 +445,6 @@ impl FSST {
             len,
         )?;
 
-        // TODO(ctx): trait fixes - VTable::deserialize has a fixed signature.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         FSSTData::validate_parts_from_codes(
             symbols,
             symbol_lengths,
@@ -453,7 +452,7 @@ impl FSST {
             &uncompressed_lengths,
             dtype,
             len,
-            &mut ctx,
+            ctx,
         )?;
         let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
         let codes_bytes = codes.bytes_handle().clone();
@@ -756,10 +755,6 @@ mod test {
     use fsst::Compressor;
     use fsst::Symbol;
     use prost::Message;
-    use vortex_array::ArrayPlugin;
-    use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
-    use vortex_array::VortexSessionExecute;
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::buffer::BufferHandle;
@@ -767,13 +762,17 @@ mod test {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::test_harness::check_metadata;
+    use vortex_array::ArrayPlugin;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::LEGACY_SESSION;
     use vortex_buffer::Buffer;
     use vortex_error::VortexError;
 
-    use crate::FSST;
     use crate::array::FSSTArrayExt;
     use crate::array::FSSTMetadata;
     use crate::fsst_compress_iter;
+    use crate::FSST;
 
     #[cfg_attr(miri, ignore)]
     #[test]

@@ -25,23 +25,21 @@ impl CastReduce for ByteBool {
         // ByteBool is essentially a bool array stored as bytes
         // The main difference from BoolArray is the storage format
         // For casting, we can decode to canonical (BoolArray) and let it handle the cast
-
         // If just changing nullability, we can optimize
-        if array.dtype().eq_ignore_nullability(dtype) {
-            let Some(new_validity) = array
-                .validity()?
-                .try_cast_nullability(dtype.nullability(), array.len())?
-            else {
-                return Ok(None);
-            };
-
-            return Ok(Some(
-                ByteBool::new(array.buffer().clone(), new_validity).into_array(),
-            ));
+        if !dtype.is_boolean() {
+            return Ok(None);
         }
 
-        // For other casts, decode to canonical and let BoolArray handle it
-        Ok(None)
+        let Some(new_validity) = array
+            .validity()?
+            .trivial_cast_nullability(dtype.nullability(), array.len())?
+        else {
+            return Ok(None);
+        };
+
+        Ok(Some(
+            ByteBool::new(array.buffer().clone(), new_validity).into_array(),
+        ))
     }
 }
 
@@ -52,7 +50,7 @@ impl CastKernel for ByteBool {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // Only handle nullability changes here; non-bool targets fall through to canonicalization.
-        if !array.dtype().eq_ignore_nullability(dtype) {
+        if !dtype.is_boolean() {
             return Ok(None);
         }
 

@@ -87,9 +87,10 @@ impl CastReduce for Sequence {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -98,9 +99,14 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::session::ArraySession;
+    use vortex_session::VortexSession;
 
     use crate::Sequence;
     use crate::SequenceArray;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn test_cast_sequence_nullability() {
@@ -119,7 +125,7 @@ mod tests {
 
     #[test]
     fn test_cast_sequence_u32_to_i64() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let sequence = Sequence::try_new_typed(100u32, 10u32, Nullability::NonNullable, 4).unwrap();
 
         let casted = sequence
@@ -138,7 +144,7 @@ mod tests {
 
     #[test]
     fn test_cast_sequence_i16_to_i32_nullable() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Test ptype change AND nullability change in one cast
         let sequence = Sequence::try_new_typed(5i16, 3i16, Nullability::NonNullable, 3).unwrap();
 
@@ -161,7 +167,7 @@ mod tests {
 
     #[test]
     fn test_cast_sequence_to_float_delegates_to_canonical() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let sequence = Sequence::try_new_typed(0i32, 1i32, Nullability::NonNullable, 5).unwrap();
 
         // Cast to float should delegate to canonical (SequenceArray doesn't support float)
