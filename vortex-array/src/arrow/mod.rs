@@ -6,6 +6,7 @@
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 mod convert;
 mod datum;
@@ -24,10 +25,19 @@ use crate::ArrayRef;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 
-pub trait FromArrowArray<A> {
-    fn from_arrow(array: A, nullable: bool) -> VortexResult<Self>
-    where
-        Self: Sized;
+pub trait FromArrowArray<A>: Sized {
+    fn from_arrow(array: A, nullable: bool) -> VortexResult<Self>;
+
+    /// Same conversion, with session for resolving `ARROW:extension:name` field metadata to
+    /// registered extension dtypes. The default ignores the session — override on impls that
+    /// see Arrow `Field`s (RecordBatch, Struct, List, FSL).
+    fn from_arrow_with_session(
+        array: A,
+        nullable: bool,
+        _session: &VortexSession,
+    ) -> VortexResult<Self> {
+        Self::from_arrow(array, nullable)
+    }
 }
 
 #[deprecated(note = "Use `execute_arrow(None, ctx)` or `execute_arrow(Some(dt), ctx)` instead")]

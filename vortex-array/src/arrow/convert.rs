@@ -56,6 +56,7 @@ use arrow_buffer::ScalarBuffer;
 use arrow_buffer::buffer::NullBuffer;
 use arrow_buffer::buffer::OffsetBuffer;
 use arrow_schema::DataType;
+use arrow_schema::Field;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
 use itertools::Itertools;
 use vortex_buffer::Alignment;
@@ -66,12 +67,15 @@ use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::arrays::BoolArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::DictArray;
+use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListArray;
 use crate::arrays::ListViewArray;
@@ -87,7 +91,10 @@ use crate::dtype::DecimalDType;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
+use crate::dtype::arrow::resolve_extension_dtype;
 use crate::dtype::i256;
+use crate::dtype::session::DTypeSession;
+use crate::dtype::session::DTypeSessionExt;
 use crate::extension::datetime::TimeUnit;
 use crate::validity::Validity;
 
@@ -380,23 +387,34 @@ fn remove_nulls(data: arrow_data::ArrayData) -> arrow_data::ArrayData {
 
 impl FromArrowArray<&ArrowStructArray> for ArrayRef {
     fn from_arrow(value: &ArrowStructArray, nullable: bool) -> VortexResult<Self> {
+        Self::from_arrow_with_session(value, nullable, &LEGACY_SESSION)
+    }
+
+    fn from_arrow_with_session(
+        value: &ArrowStructArray,
+        nullable: bool,
+        session: &VortexSession,
+    ) -> VortexResult<Self> {
+        let dtypes = session.dtypes();
+        let columns = value
+            .columns()
+            .iter()
+            .zip(value.fields())
+            .map(|(c, field)| {
+                // Arrow pushes down nulls, even into non-nullable fields. So we strip them
+                // out here because Vortex is a little more strict.
+                let storage = if c.null_count() > 0 && !field.is_nullable() {
+                    let stripped = make_array(remove_nulls(c.into_data()));
+                    Self::from_arrow_with_session(stripped.as_ref(), false, session)?
+                } else {
+                    Self::from_arrow_with_session(c.as_ref(), field.is_nullable(), session)?
+                };
+                wrap_extension_if_field_has_metadata(storage, field.as_ref(), &dtypes)
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
         Ok(StructArray::try_new(
             value.column_names().iter().copied().collect(),
-            value
-                .columns()
-                .iter()
-                .zip(value.fields())
-                .map(|(c, field)| {
-                    // Arrow pushes down nulls, even into non-nullable fields. So we strip them
-                    // out here because Vortex is a little more strict.
-                    if c.null_count() > 0 && !field.is_nullable() {
-                        let stripped = make_array(remove_nulls(c.into_data()));
-                        Self::from_arrow(stripped.as_ref(), false)
-                    } else {
-                        Self::from_arrow(c.as_ref(), field.is_nullable())
-                    }
-                })
-                .collect::<VortexResult<Vec<_>>>()?,
+            columns,
             value.len(),
             nulls(value.nulls(), nullable),
         )?
@@ -406,14 +424,28 @@ impl FromArrowArray<&ArrowStructArray> for ArrayRef {
 
 impl<O: IntegerPType + OffsetSizeTrait> FromArrowArray<&GenericListArray<O>> for ArrayRef {
     fn from_arrow(value: &GenericListArray<O>, nullable: bool) -> VortexResult<Self> {
-        // Extract the validity of the underlying element array.
-        let elements_are_nullable = match value.data_type() {
-            DataType::List(field) => field.is_nullable(),
-            DataType::LargeList(field) => field.is_nullable(),
+        Self::from_arrow_with_session(value, nullable, &LEGACY_SESSION)
+    }
+
+    fn from_arrow_with_session(
+        value: &GenericListArray<O>,
+        nullable: bool,
+        session: &VortexSession,
+    ) -> VortexResult<Self> {
+        let elements_field: &Field = match value.data_type() {
+            DataType::List(field) => field.as_ref(),
+            DataType::LargeList(field) => field.as_ref(),
             dt => vortex_panic!("Invalid data type for ListArray: {dt}"),
         };
 
-        let elements = Self::from_arrow(value.values().as_ref(), elements_are_nullable)?;
+        let elements_storage = Self::from_arrow_with_session(
+            value.values().as_ref(),
+            elements_field.is_nullable(),
+            session,
+        )?;
+        let dtypes = session.dtypes();
+        let elements =
+            wrap_extension_if_field_has_metadata(elements_storage, elements_field, &dtypes)?;
 
         // `offsets` are always non-nullable.
         let offsets = value.offsets().clone().into_array();
@@ -445,12 +477,26 @@ impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListViewArray<O>> 
 
 impl FromArrowArray<&ArrowFixedSizeListArray> for ArrayRef {
     fn from_arrow(array: &ArrowFixedSizeListArray, nullable: bool) -> VortexResult<Self> {
+        Self::from_arrow_with_session(array, nullable, &LEGACY_SESSION)
+    }
+
+    fn from_arrow_with_session(
+        array: &ArrowFixedSizeListArray,
+        nullable: bool,
+        session: &VortexSession,
+    ) -> VortexResult<Self> {
         let DataType::FixedSizeList(field, list_size) = array.data_type() else {
             vortex_panic!("Invalid data type for ListArray: {}", array.data_type());
         };
 
+        let elements_storage =
+            Self::from_arrow_with_session(array.values().as_ref(), field.is_nullable(), session)?;
+        let dtypes = session.dtypes();
+        let elements =
+            wrap_extension_if_field_has_metadata(elements_storage, field.as_ref(), &dtypes)?;
+
         Ok(FixedSizeListArray::try_new(
-            Self::from_arrow(array.values().as_ref(), field.is_nullable())?,
+            elements,
             *list_size as u32,
             nulls(array.nulls(), nullable),
             array.len(),
@@ -494,6 +540,30 @@ fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> Validity {
 }
 
 impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
+    fn from_arrow_with_session(
+        array: &dyn ArrowArray,
+        nullable: bool,
+        session: &VortexSession,
+    ) -> VortexResult<Self> {
+        match array.data_type() {
+            DataType::Struct(_) => {
+                Self::from_arrow_with_session(array.as_struct(), nullable, session)
+            }
+            DataType::List(_) => {
+                Self::from_arrow_with_session(array.as_list::<i32>(), nullable, session)
+            }
+            DataType::LargeList(_) => {
+                Self::from_arrow_with_session(array.as_list::<i64>(), nullable, session)
+            }
+            DataType::FixedSizeList(..) => {
+                Self::from_arrow_with_session(array.as_fixed_size_list(), nullable, session)
+            }
+            // Other arrays don't carry child Fields, so session-aware dispatch is identical to
+            // the legacy path; fall through to `from_arrow`.
+            _ => Self::from_arrow(array, nullable),
+        }
+    }
+
     fn from_arrow(array: &dyn ArrowArray, nullable: bool) -> VortexResult<Self> {
         match array.data_type() {
             DataType::Boolean => Self::from_arrow(array.as_boolean(), nullable),
@@ -617,13 +687,42 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
 
 impl FromArrowArray<RecordBatch> for ArrayRef {
     fn from_arrow(array: RecordBatch, nullable: bool) -> VortexResult<Self> {
-        ArrayRef::from_arrow(&arrow_array::StructArray::from(array), nullable)
+        Self::from_arrow_with_session(array, nullable, &LEGACY_SESSION)
+    }
+
+    fn from_arrow_with_session(
+        array: RecordBatch,
+        nullable: bool,
+        session: &VortexSession,
+    ) -> VortexResult<Self> {
+        Self::from_arrow_with_session(&arrow_array::StructArray::from(array), nullable, session)
     }
 }
 
 impl FromArrowArray<&RecordBatch> for ArrayRef {
     fn from_arrow(array: &RecordBatch, nullable: bool) -> VortexResult<Self> {
-        Self::from_arrow(array.clone(), nullable)
+        Self::from_arrow_with_session(array, nullable, &LEGACY_SESSION)
+    }
+
+    fn from_arrow_with_session(
+        array: &RecordBatch,
+        nullable: bool,
+        session: &VortexSession,
+    ) -> VortexResult<Self> {
+        Self::from_arrow_with_session(array.clone(), nullable, session)
+    }
+}
+
+/// Inverse of `field_from_dtype` (in `dtype/arrow.rs`): rewrap `storage` as `ExtensionArray`
+/// when `field` carries `ARROW:extension:name` metadata for a registered extension.
+fn wrap_extension_if_field_has_metadata(
+    storage: ArrayRef,
+    field: &Field,
+    dtypes: &DTypeSession,
+) -> VortexResult<ArrayRef> {
+    match resolve_extension_dtype(field, dtypes, storage.dtype()) {
+        Some(ext_dtype) => Ok(ExtensionArray::try_new(ext_dtype, storage)?.into_array()),
+        None => Ok(storage),
     }
 }
 

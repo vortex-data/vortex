@@ -8,9 +8,12 @@ use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::extension::EmptyMetadata;
 use vortex_array::scalar::ScalarValue;
 use vortex_error::VortexResult;
+use vortex_session::registry::CachedId;
 
 use crate::types::vector::Vector;
 use crate::types::vector::validate_vector_storage_dtype;
+
+static ID: CachedId = CachedId::new("vortex.tensor.vector");
 
 impl ExtVTable for Vector {
     type Metadata = EmptyMetadata;
@@ -19,7 +22,7 @@ impl ExtVTable for Vector {
     type NativeValue<'a> = &'a ScalarValue;
 
     fn id(&self) -> ExtId {
-        ExtId::new("vortex.tensor.vector")
+        *ID
     }
 
     fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
@@ -138,60 +141,46 @@ mod tests {
         Ok(())
     }
 
-    /// Constructs a `Vector` ext dtype wrapped in `DType::Extension`.
-    fn vector_dtype(ptype: PType, dims: u32) -> VortexResult<DType> {
-        vector_dtype_with_outer(ptype, dims, Nullability::NonNullable)
-    }
-
-    /// Constructs a `Vector` ext dtype with the given outer `Nullability`, wrapped in
-    /// `DType::Extension`.
-    fn vector_dtype_with_outer(ptype: PType, dims: u32, outer: Nullability) -> VortexResult<DType> {
+    fn vector_dtype(ptype: PType, dims: u32, outer: Nullability) -> DType {
         let storage = vector_storage_dtype(ptype, dims, outer);
-        Ok(DType::Extension(
-            ExtDType::<Vector>::try_new(EmptyMetadata, storage)?.erased(),
-        ))
+        DType::Extension(
+            ExtDType::<Vector>::try_new(EmptyMetadata, storage)
+                .unwrap()
+                .erased(),
+        )
     }
 
-    #[test]
-    fn vector_widens_float_precision() -> VortexResult<()> {
-        let lhs = vector_dtype(PType::F32, 768)?;
-        let rhs = vector_dtype(PType::F64, 768)?;
-        let expected = vector_dtype(PType::F64, 768)?;
-        assert_eq!(lhs.least_supertype(&rhs), Some(expected));
-        Ok(())
-    }
-
-    #[test]
-    fn vector_dim_mismatch_returns_none() -> VortexResult<()> {
-        let lhs = vector_dtype(PType::F32, 768)?;
-        let rhs = vector_dtype(PType::F32, 1024)?;
-        assert_eq!(lhs.least_supertype(&rhs), None);
-        Ok(())
-    }
-
-    #[test]
-    fn vector_vs_non_extension_returns_none() -> VortexResult<()> {
-        let lhs = vector_dtype(PType::F32, 768)?;
-        let rhs = DType::Primitive(PType::F32, Nullability::NonNullable);
-        assert_eq!(lhs.least_supertype(&rhs), None);
-        Ok(())
-    }
-
-    #[test]
-    fn vector_unions_outer_nullability_with_float_widening() -> VortexResult<()> {
-        let lhs = vector_dtype_with_outer(PType::F32, 4, Nullability::NonNullable)?;
-        let rhs = vector_dtype_with_outer(PType::F64, 4, Nullability::Nullable)?;
-        let expected = vector_dtype_with_outer(PType::F64, 4, Nullability::Nullable)?;
-        assert_eq!(lhs.least_supertype(&rhs), Some(expected));
-        Ok(())
-    }
-
-    #[test]
-    fn vector_same_ptype_unions_outer_nullability() -> VortexResult<()> {
-        let lhs = vector_dtype_with_outer(PType::F32, 4, Nullability::NonNullable)?;
-        let rhs = vector_dtype_with_outer(PType::F32, 4, Nullability::Nullable)?;
-        let expected = vector_dtype_with_outer(PType::F32, 4, Nullability::Nullable)?;
-        assert_eq!(lhs.least_supertype(&rhs), Some(expected));
-        Ok(())
+    #[rstest]
+    #[case::widens_float_precision(
+        vector_dtype(PType::F32, 768, Nullability::NonNullable),
+        vector_dtype(PType::F64, 768, Nullability::NonNullable),
+        Some(vector_dtype(PType::F64, 768, Nullability::NonNullable))
+    )]
+    #[case::dim_mismatch_returns_none(
+        vector_dtype(PType::F32, 768, Nullability::NonNullable),
+        vector_dtype(PType::F32, 1024, Nullability::NonNullable),
+        None
+    )]
+    #[case::vs_non_extension_returns_none(
+        vector_dtype(PType::F32, 768, Nullability::NonNullable),
+        DType::Primitive(PType::F32, Nullability::NonNullable),
+        None
+    )]
+    #[case::unions_outer_nullability_with_float_widening(
+        vector_dtype(PType::F32, 4, Nullability::NonNullable),
+        vector_dtype(PType::F64, 4, Nullability::Nullable),
+        Some(vector_dtype(PType::F64, 4, Nullability::Nullable))
+    )]
+    #[case::same_ptype_unions_outer_nullability(
+        vector_dtype(PType::F32, 4, Nullability::NonNullable),
+        vector_dtype(PType::F32, 4, Nullability::Nullable),
+        Some(vector_dtype(PType::F32, 4, Nullability::Nullable))
+    )]
+    fn vector_least_supertype(
+        #[case] lhs: DType,
+        #[case] rhs: DType,
+        #[case] expected: Option<DType>,
+    ) {
+        assert_eq!(lhs.least_supertype(&rhs), expected);
     }
 }

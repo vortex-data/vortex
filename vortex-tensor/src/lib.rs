@@ -47,8 +47,11 @@ pub const SCALAR_FN_ARRAY_TENSOR_PLUGIN_ENV: &str = "VX_SCALAR_FN_ARRAY_TENSOR_P
 
 /// Initialize the Vortex tensor library with a Vortex session.
 pub fn initialize(session: &VortexSession) {
-    session.dtypes().register(Vector);
-    session.dtypes().register(FixedShapeTensor);
+    let dtypes = session.dtypes();
+    dtypes.register(Vector);
+    dtypes.register(FixedShapeTensor);
+    // Release the shard read before `scalar_fns` may take a write on the same shard.
+    drop(dtypes);
 
     let session_fns = session.scalar_fns();
 
@@ -85,4 +88,6 @@ mod tests {
         crate::initialize(&session);
         session
     });
+
+    mod arrow_roundtrip;
 }
