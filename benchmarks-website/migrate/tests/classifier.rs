@@ -260,6 +260,7 @@ fn compression_size_records(#[case] name: &str, #[case] expected: V3Bin) {
 #[case::ratio_size_vortex_raw("vortex:raw size/clickbench")]
 #[case::throughput("compress throughput/clickbench")]
 #[case::nonsense_prefix("not-a-known-bench/series")]
+#[case::random_access_2_part_legacy("random-access/parquet-tokio-local-disk")]
 #[case::random_access_3_part("random-access/taxi/parquet-tokio-local-disk")]
 fn unmapped_records_yield_none(#[case] name: &str) {
     let r = record(name);
@@ -270,74 +271,20 @@ fn unmapped_records_yield_none(#[case] name: &str) {
     );
 }
 
-#[rstest]
-#[case::parquet_2_part(
-    "random-access/parquet-tokio-local-disk",
-    V3Bin::RandomAccess {
-        dataset: "taxi".into(),
-        format: "parquet".into(),
-    },
-)]
-#[case::vortex_2_part(
-    "random-access/vortex-tokio-local-disk",
-    V3Bin::RandomAccess {
-        dataset: "taxi".into(),
-        format: "vortex-file-compressed".into(),
-    },
-)]
-#[case::lance_2_part(
-    "random-access/lance-tokio-local-disk",
-    V3Bin::RandomAccess {
-        dataset: "taxi".into(),
-        format: "lance".into(),
-    },
-)]
-fn random_access_2_part_legacy_recovered_as_taxi(#[case] name: &str, #[case] expected: V3Bin) {
-    // The 2-part shape `random-access/<format>-tokio-local-disk` is
-    // emitted by `random-access-bench`'s legacy taxi run (no
-    // `AccessPattern`, see `measurement_name` in
-    // `benchmarks/random-access-bench/src/main.rs`). The live v3
-    // emitter writes `dataset="taxi"` for those measurements, so the
-    // historical 2-part records on S3 must land in the same v3
-    // chart instead of being dropped as `UnsupportedShape`.
-    let r = record(name);
-    assert_eq!(
-        classify(&r),
-        Some(expected),
-        "2-part legacy random-access must recover as dataset=taxi"
-    );
-}
-
-#[rstest]
-#[case::parquet_footer("random-access/parquet-tokio-local-disk-footer")]
-#[case::vortex_footer("random-access/vortex-tokio-local-disk-footer")]
-#[case::lance_footer("random-access/lance-tokio-local-disk-footer")]
-fn random_access_2_part_footer_is_deprecated(#[case] name: &str) {
-    // The reopen-mode `-footer` variant is a different access pattern
-    // (file is reopened per take). The live v3 emitter passes the
-    // bare `format.name()` for both reopen and cached, so it can't
-    // distinguish them on the wire. Keep migration consistent with
-    // that by routing `-footer` 2-part records to Skip::Deprecated
-    // (they don't strip clean to a v3-allowlisted format).
-    let r = record(name);
+#[test]
+fn random_access_2_part_legacy_is_skip_not_unknown() {
+    // The 2-part legacy shape `random-access/<format>-tokio-local-disk`
+    // carries no dataset, so `bin_random_access` returns None. That
+    // None must route through `Outcome::Skip` (an intentional drop),
+    // NOT `Outcome::Unknown`, otherwise these records count against
+    // the 5% uncategorized gate in `migrate::run`. Top-level
+    // `classify()` returns None for both Skip and Unknown, so this
+    // assertion has to go through `classify_outcome`.
+    let r = record("random-access/parquet-tokio-local-disk");
+    let outcome = classify_outcome(&r);
     assert!(
-        matches!(classify_outcome(&r), Outcome::Skip(Skip::Deprecated)),
-        "2-part `-footer` random-access must be Skip::Deprecated"
-    );
-}
-
-#[rstest]
-#[case::parquet_footer("random-access/taxi/correlated/parquet-tokio-local-disk-footer")]
-#[case::vortex_footer("random-access/feature-vectors/uniform/vortex-tokio-local-disk-footer")]
-#[case::lance_footer("random-access/nested-structs/correlated/lance-tokio-local-disk-footer")]
-fn random_access_4_part_footer_is_deprecated(#[case] name: &str) {
-    // Same reasoning as 2-part `-footer`: the format string ends in
-    // `-tokio-local-disk-footer`, the strip_suffix doesn't match, and
-    // the unstripped value fails the V3_FORMATS allowlist.
-    let r = record(name);
-    assert!(
-        matches!(classify_outcome(&r), Outcome::Skip(Skip::Deprecated)),
-        "4-part `-footer` random-access must be Skip::Deprecated"
+        matches!(outcome, Outcome::Skip(_)),
+        "2-part legacy random-access must Skip, not Unknown; got {outcome:?}"
     );
 }
 

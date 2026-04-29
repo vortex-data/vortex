@@ -539,11 +539,12 @@ pub fn classify_outcome(record: &V2Record) -> Outcome {
     let bin = match &cls.group {
         V2Group::RandomAccess => match bin_random_access(record) {
             Some(b) => Some(b),
-            // `bin_random_access` only returns None for malformed
-            // shapes (empty dataset/pattern segment, empty/`default`
-            // format). Route them to Skip so the `Outcome::Unknown`
-            // arm below — and the 5% uncategorized gate in
-            // `migrate::run` — don't trip on them.
+            // Legacy 2-part `random-access/<format>-…` records carry
+            // no dataset and are intentionally dropped by
+            // `bin_random_access`. Route them to Skip so the
+            // `Outcome::Unknown` arm below — and the 5%
+            // uncategorized gate in `migrate::run` — don't trip on
+            // them.
             None => return Outcome::Skip(Skip::UnsupportedShape),
         },
         V2Group::Compression => bin_compression_time(&cls, record),
@@ -566,22 +567,13 @@ pub fn classify_outcome(record: &V2Record) -> Outcome {
 
 fn bin_random_access(record: &V2Record) -> Option<V3Bin> {
     // Pull dataset and format from the raw, pre-rename v2 name so v3
-    // stores meaningful values. Two raw shapes are supported:
-    //
-    //   - 4-part `random-access/<dataset>/<pattern>/<format>-tokio-local-disk`
-    //   - 2-part legacy `random-access/<format>-tokio-local-disk`
-    //
-    // The 2-part shape is what `random-access-bench`'s `measurement_name`
-    // emits when called without an `AccessPattern`, and per its source
-    // comment that path is only taken for the legacy taxi run
-    // (`if dataset.name() == "taxi"` in `benchmarks/random-access-bench/
-    // src/main.rs`). The live v3 emitter `random_access_record` writes
-    // `dataset="taxi"` for those same measurements, so the historical
-    // 2-part records are taxi too — assigning `dataset="taxi"` here
-    // recovers the time series instead of letting it disappear under
-    // v2's "RANDOM ACCESS" placeholder. Deriving from the raw name
-    // (rather than `cls.chart`) keeps this independent of v2's
-    // `normalizeChartName`.
+    // stores meaningful values. Raw shape is
+    // `random-access/<dataset>/<pattern>/<format>-tokio-local-disk`
+    // (4-part). 2-part legacy records (`random-access/<format>-…`)
+    // carry no dataset and historically rendered as the placeholder
+    // string "RANDOM ACCESS"; drop them rather than emit a fake
+    // dataset. Deriving from the raw name (rather than `cls.chart`)
+    // also keeps this independent of v2's `normalizeChartName`.
     //
     // After stripping the `-tokio-local-disk` suffix, map the v2
     // random-access ext label (`vortex`, from `Format::ext()`) to the
@@ -592,32 +584,19 @@ fn bin_random_access(record: &V2Record) -> Option<V3Bin> {
     // `vortex-compact`), but v2's random-access bench only emitted
     // `OnDiskVortex`, so mapping to `vortex-file-compressed` is
     // correct for all historical data.
-    //
-    // Records whose `<format>` segment ends in `-footer` (the bench's
-    // reopen-mode variant, e.g. `parquet-tokio-local-disk-footer`)
-    // intentionally do not strip clean to a v3-allowlisted format; the
-    // outer `is_v3_dim` filter then routes them to `Skip::Deprecated`.
-    // The live v3 emitter doesn't distinguish reopen vs cached either
-    // (`random_access_record` uses `format.name()` for both), so
-    // dropping `-footer` here keeps migration consistent with what
-    // v3 ingests live.
     let parts: Vec<&str> = record.name.split('/').collect();
-    let (dataset, raw_format) = match parts.as_slice() {
-        [_, ds, pat, format] => {
-            if ds.is_empty() || pat.is_empty() {
-                return None;
-            }
-            (format!("{ds}/{pat}").to_lowercase(), *format)
-        }
-        [_, format] => ("taxi".to_string(), *format),
-        _ => return None,
-    };
-    if raw_format.is_empty() || raw_format == "default" {
+    if parts.len() != 4 {
         return None;
     }
-    let stripped = raw_format
-        .strip_suffix("-tokio-local-disk")
-        .unwrap_or(raw_format);
+    if parts[1].is_empty() || parts[2].is_empty() {
+        return None;
+    }
+    let dataset = format!("{}/{}", parts[1], parts[2]).to_lowercase();
+    let raw = parts[3];
+    if raw.is_empty() || raw == "default" {
+        return None;
+    }
+    let stripped = raw.strip_suffix("-tokio-local-disk").unwrap_or(raw);
     let format = match stripped {
         "vortex" => "vortex-file-compressed".to_string(),
         other => other.to_lowercase(),
