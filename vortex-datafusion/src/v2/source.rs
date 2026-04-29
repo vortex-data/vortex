@@ -467,7 +467,7 @@ impl DataSource for VortexDataSource {
             "VortexScanSource: projection={}",
             self.projected_projection
         )?;
-        if let Some(ref filter) = self.filter {
+        if let Some(filter) = &self.filter {
             write!(f, ", filter={filter}")?;
         }
         if let Some(limit) = self.limit {

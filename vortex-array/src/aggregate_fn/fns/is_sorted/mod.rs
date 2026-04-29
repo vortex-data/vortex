@@ -304,8 +304,8 @@ impl AggregateFnVTable for IsSorted {
         }
 
         // Check boundary: self.last_value vs other.first_value
-        if let Some(ref self_last) = partial.last_value
-            && let Some(ref other_first_val) = other_first
+        if let Some(self_last) = &partial.last_value
+            && let Some(other_first_val) = &other_first
         {
             if !self_last.is_null() && !other_first_val.is_null() {
                 let boundary_ok = if partial.strict {
@@ -404,7 +404,7 @@ impl AggregateFnVTable for IsSorted {
                 }
 
                 // Check boundary with previous chunk.
-                if let Some(ref self_last) = partial.last_value {
+                if let Some(self_last) = &partial.last_value {
                     if !self_last.is_null() && !value.is_null() {
                         let boundary_ok = if partial.strict {
                             *self_last < value
@@ -436,7 +436,7 @@ impl AggregateFnVTable for IsSorted {
 
                 // Check boundary with previous chunk.
                 let first_value = array_ref.execute_scalar(0, ctx)?.into_nullable();
-                if let Some(ref self_last) = partial.last_value {
+                if let Some(self_last) = &partial.last_value {
                     if !self_last.is_null() && !first_value.is_null() {
                         let boundary_ok = if partial.strict {
                             *self_last < first_value

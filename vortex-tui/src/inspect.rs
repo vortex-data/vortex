@@ -509,13 +509,13 @@ impl SegmentInfo {
 impl PostscriptInfo {
     fn display(&self) {
         println!("\n=== Postscript ===");
-        if let Some(ref dtype) = self.dtype {
+        if let Some(dtype) = &self.dtype {
             dtype.display("DType");
         } else {
             println!("  DType: <not embedded>");
         }
         self.layout.display("Layout");
-        if let Some(ref stats) = self.statistics {
+        if let Some(stats) = &self.statistics {
             stats.display("Statistics");
         } else {
             println!("  Statistics: <not present>");

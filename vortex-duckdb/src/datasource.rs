@@ -494,7 +494,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         if children.len() != 1 {
             return None;
         }
-        let MultiLayoutChild::Opened(ref reader) = children[0] else {
+        let MultiLayoutChild::Opened(reader) = &children[0] else {
             return None;
         };
         let stats_sets = match reader.as_any().downcast_ref::<FileStatsLayoutReader>() {

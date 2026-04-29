@@ -1942,7 +1942,7 @@ mod tests {
         )?
         .into_array();
 
-        let (array, base_offset) = if let Some(ref range) = slice_range {
+        let (array, base_offset) = if let Some(range) = &slice_range {
             (encoded.slice(range.clone())?, range.start)
         } else {
             (encoded, 0)
@@ -2696,7 +2696,7 @@ mod tests {
         )?
         .into_array();
 
-        let (array, base_offset) = if let Some(ref range) = slice_range {
+        let (array, base_offset) = if let Some(range) = &slice_range {
             (encoded.slice(range.clone())?, range.start)
         } else {
             (encoded, 0)

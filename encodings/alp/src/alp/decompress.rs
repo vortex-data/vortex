@@ -31,20 +31,20 @@ pub fn decompress_into_array(
 ) -> VortexResult<PrimitiveArray> {
     let dtype = array.dtype().clone();
     let (encoded, exponents, patches) = ALPArrayOwnedExt::into_parts(array);
-    if let Some(ref patches) = patches
-        && let Some(chunk_offsets) = patches.chunk_offsets()
+    if let Some(p) = &patches
+        && let Some(chunk_offsets) = p.chunk_offsets()
     {
         let prim_encoded = encoded.execute::<PrimitiveArray>(ctx)?;
         let patches_chunk_offsets = chunk_offsets.clone().execute::<PrimitiveArray>(ctx)?;
-        let patches_indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
-        let patches_values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
+        let patches_indices = p.indices().clone().execute::<PrimitiveArray>(ctx)?;
+        let patches_values = p.values().clone().execute::<PrimitiveArray>(ctx)?;
         Ok(decompress_chunked_core(
             prim_encoded,
             exponents,
             &patches_indices,
             &patches_values,
             &patches_chunk_offsets,
-            patches,
+            p,
             dtype,
         ))
     } else {
@@ -64,21 +64,21 @@ pub fn decompress_into_array(
 pub fn execute_decompress(array: ALPArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
     let dtype = array.dtype().clone();
     let (encoded, exponents, patches) = ALPArrayOwnedExt::into_parts(array);
-    if let Some(ref patches) = patches
-        && let Some(chunk_offsets) = patches.chunk_offsets()
+    if let Some(p) = &patches
+        && let Some(chunk_offsets) = p.chunk_offsets()
     {
         // TODO(joe): have into parts.
         let encoded = encoded.execute::<PrimitiveArray>(ctx)?;
         let patches_chunk_offsets = chunk_offsets.clone().execute::<PrimitiveArray>(ctx)?;
-        let patches_indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
-        let patches_values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
+        let patches_indices = p.indices().clone().execute::<PrimitiveArray>(ctx)?;
+        let patches_values = p.values().clone().execute::<PrimitiveArray>(ctx)?;
         Ok(decompress_chunked_core(
             encoded,
             exponents,
             &patches_indices,
             &patches_values,
             &patches_chunk_offsets,
-            patches,
+            p,
             dtype,
         ))
     } else {
