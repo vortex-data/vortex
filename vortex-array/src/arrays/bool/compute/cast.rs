@@ -42,9 +42,10 @@ impl CastKernel for Bool {
             return Ok(None);
         }
 
-        let new_validity = array
-            .validity()?
-            .cast_nullability(dtype.nullability(), array.len(), ctx)?;
+        let new_validity =
+            array
+                .validity()?
+                .cast_nullability(dtype.nullability(), array.len(), ctx)?;
         Ok(Some(
             BoolArray::new(array.to_bit_buffer(), new_validity).into_array(),
         ))
