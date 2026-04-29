@@ -340,41 +340,93 @@
         return;
       }
 
+      var chart = context.chart;
       var payload = canvas.__bench_payload || { commits: [], unit: "" };
-      var idx = tt.dataPoints && tt.dataPoints[0]
-        ? tt.dataPoints[0].dataIndex
-        : -1;
+      var firstDp = tt.dataPoints && tt.dataPoints[0];
+      if (!firstDp) {
+        host.style.opacity = "0";
+        return;
+      }
+      // Snap to a single commit. We use `mode: "nearest"` on the chart
+      // options, so `firstDp.dataIndex` is the single closest data point
+      // to the cursor (skipping nulls in `dataset.data`). If the cursor
+      // falls between two LTTB-kept points, exactly one wins — no more
+      // rendering both columns at once.
+      var idx = firstDp.dataIndex;
       var commit = (payload.commits || [])[idx] || {};
       var unit = payload.unit || "";
+      var rawLen = (chart.data.labels || []).length;
 
-      var rows = (tt.dataPoints || []).map(function (dp) {
-        var ds = dp.dataset || {};
-        // Read from `rawData` (the unmodified payload) so the tooltip
-        // shows raw measurements even when the rendered line is LTTB-
-        // downsampled and `dataset.data[idx]` is null.
+      // Build one row per dataset, reading values from each series'
+      // `rawData` (the unmodified payload) so the tooltip shows raw
+      // measurements even when LTTB has nulled out `dataset.data[idx]`.
+      // Iterating `chart.data.datasets` directly — instead of mapping
+      // `tt.dataPoints` — guarantees one row per series at this single
+      // commit; `tt.dataPoints` could otherwise contain points from
+      // multiple `dataIndex` values when the cursor sits between two
+      // closely-packed LTTB columns.
+      var rowItems = chart.data.datasets.map(function (ds, dsIndex) {
+        // Skip datasets the user (or filter bar) has hidden.
+        var meta = chart.getDatasetMeta && chart.getDatasetMeta(dsIndex);
+        if (meta && meta.hidden) return null;
+        if (ds.hidden) return null;
         var raw = (ds.rawData || [])[idx];
+        if (raw === null || raw === undefined || Number.isNaN(raw)) {
+          return null;
+        }
+        // Per-row delta is `(current - previous) / previous`, where
+        // "previous" is the chronologically preceding commit. The
+        // `commits[]` array is sorted oldest-first by SQL — index 0 is
+        // the oldest commit, the last index is the newest — so the
+        // predecessor lives at `idx - 1`. Walk further back across
+        // null-valued slots so series that didn't run on every commit
+        // still get a meaningful baseline.
         var prevIdx = idx - 1;
         var prevRaw = null;
         while (prevIdx >= 0) {
           var pv = (ds.rawData || [])[prevIdx];
-          if (pv !== null && pv !== undefined && !Number.isNaN(pv)) { prevRaw = pv; break; }
+          if (pv !== null && pv !== undefined && !Number.isNaN(pv)) {
+            prevRaw = pv;
+            break;
+          }
           prevIdx--;
         }
         var deltaHtml = "";
-        if (prevRaw !== null && raw !== null && raw !== undefined && prevRaw !== 0) {
+        if (prevRaw !== null && prevRaw !== 0) {
           var pct = ((raw - prevRaw) / prevRaw) * 100;
           var cls = pct > 0 ? "tt-delta tt-delta--worse"
                   : pct < 0 ? "tt-delta tt-delta--better" : "tt-delta";
           var sign = pct > 0 ? "+" : "";
           deltaHtml = '<span class="' + cls + '">' + sign + pct.toFixed(1) + "%</span>";
         }
-        return '<div class="tt-row">'
-          + '<span class="tt-swatch" style="background:' + ds.borderColor + '"></span>'
-          + '<span class="tt-label">' + escapeHtml(ds.label) + '</span>'
-          + '<span class="tt-value">' + escapeHtml(formatNumber(raw, unit)) + '</span>'
-          + deltaHtml
-          + "</div>";
-      }).join("");
+        return {
+          label: ds.label,
+          color: ds.borderColor,
+          raw: raw,
+          deltaHtml: deltaHtml,
+        };
+      }).filter(Boolean);
+
+      // Top-to-bottom order matches the visual stack of lines at this x.
+      rowItems.sort(function (a, b) { return b.raw - a.raw; });
+
+      var rows = rowItems
+        .map(function (r) {
+          return '<div class="tt-row">'
+            + '<span class="tt-swatch" style="background:' + r.color + '"></span>'
+            + '<span class="tt-label">' + escapeHtml(r.label) + '</span>'
+            + '<span class="tt-value">' + escapeHtml(formatNumber(r.raw, unit)) + '</span>'
+            + r.deltaHtml
+            + "</div>";
+        })
+        .join("");
+
+      // If every series was hidden / had no value at this commit, treat
+      // this as a no-op hover instead of flashing an empty popup.
+      if (!rows) {
+        host.style.opacity = "0";
+        return;
+      }
 
       var titleHtml = '<div class="tt-title">'
         + escapeHtml(shortSha(commit.sha)) + ' · '
@@ -660,17 +712,21 @@
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
-        // Snap to the nearest commit *that has rendered data*, not to
-        // the cursor's exact x-index. After LTTB downsampling most
-        // commit indices are null in `dataset.data` (`spanGaps: true`
-        // draws across them), and `mode: "index"` would happily pick
-        // one of those null indices and produce an empty tooltip.
-        // `mode: "x"` picks the nearest non-null x position across all
-        // datasets so the tooltip always has something to show.
-        // `intersect: false` keeps it active anywhere on the chart and,
-        // combined with `pointer-events: none` on the tooltip host, is
-        // also the flicker fix.
-        interaction: { mode: "x", intersect: false, axis: "x" },
+        // Snap to the single nearest commit *that has rendered data*.
+        // After LTTB downsampling most commit indices are null in
+        // `dataset.data` (`spanGaps: true` draws across them);
+        // `mode: "index"` would happily pick one of those null indices
+        // and produce an empty tooltip, while `mode: "x"` would pick
+        // multiple closely-packed LTTB columns at once and the
+        // tooltip would render duplicate rows for the same series at
+        // different commits. `mode: "nearest"` returns exactly one
+        // closest data point — its `dataIndex` is then used by the
+        // external handler as the single hovered commit, and the
+        // handler iterates `chart.data.datasets` itself to build one
+        // row per series. `intersect: false` keeps it active anywhere
+        // on the chart and, combined with `pointer-events: none` on
+        // the tooltip host, is also the flicker fix.
+        interaction: { mode: "nearest", intersect: false, axis: "x" },
         onClick: function (event, _activeElements, chart) {
           var points = chart.getElementsAtEventForMode(
             event, "nearest", { intersect: false, axis: "x" }, true,
@@ -726,13 +782,10 @@
           tooltip: {
             enabled: false,
             external: externalTooltipHandler(canvas, host),
-            // Order rows top-to-bottom by current y-value descending so the
-            // tooltip matches the visual stack of the lines at the hovered x.
-            itemSort: function (a, b) {
-              var av = a.parsed && Number.isFinite(a.parsed.y) ? a.parsed.y : -Infinity;
-              var bv = b.parsed && Number.isFinite(b.parsed.y) ? b.parsed.y : -Infinity;
-              return bv - av;
-            },
+            // Row ordering is handled inside the external handler now —
+            // we iterate `chart.data.datasets` ourselves rather than the
+            // tooltip's `dataPoints`, so `itemSort` here would be dead
+            // code.
           },
           // chartjs-plugin-zoom config — wheel-zoom is disabled because we
           // want wheel-pan instead (handled by the canvas wheel listener
