@@ -7,14 +7,26 @@
 // Per-chart UX:
 //   - Each `.chart-card` carries `data-chart-slug`. The card *owns* its own
 //     toolbar (`.toolbar--card`) — there is no page-level toolbar.
-//   - Each chart fetches up to 1000 commits once. The toolbar's slider sets
-//     `chart.options.scales.x.min/max` to reveal a window of that fetched
-//     slice; we never refetch on a scope change.
+//   - Each chart fetches the **entire raw history** once (`?n=all`). The
+//     server does no downsampling; we keep the raw payload on the canvas
+//     and re-derive what Chart.js renders on every scope/pan/zoom change.
+//   - `rebuildVisibleAndUpdate` is the single source of truth for the
+//     rendered point count. The cap is one constant: at most
+//     `MAX_VISIBLE_POINTS` *unique commit indices* (x-positions) are
+//     rendered, **shared across every series**. Below the cap we render
+//     every commit that has data; above it we LTTB the per-commit
+//     "max-y across series" to pick that many representatives, then
+//     every series renders at those shared indices. This is what the
+//     cap is *supposed* to mean: visually, the chart never has more
+//     than that many x-axis columns regardless of how many lines are
+//     on it. (Earlier per-series LTTB picked different peaks for each
+//     series and the union of x-positions blew past the cap.)
 //   - The slider is throttled to ~16ms (one frame at 60fps) per v2's
 //     `CONFIG.ZOOM_THROTTLE_DELAY` so dragging the slider feels continuous.
 //   - Mouse wheel pans horizontally (chartjs-plugin-zoom does not expose
 //     pan-on-wheel, so a manual `wheel` listener calls `chart.pan(...)`).
-//   - Drag-pan + drag-rectangle-zoom are wired through the plugin.
+//   - Drag-pan + drag-rectangle-zoom are wired through the plugin and
+//     trigger the same `rebuildVisibleAndUpdate` via `onPan`/`onZoom`.
 //   - A custom inline plugin draws a vertical crosshair at the hovered
 //     commit; the external tooltip is offset and `pointer-events: none`
 //     to fix the flicker described in the per-chart UX rebuild brief.
@@ -22,11 +34,27 @@
   "use strict";
 
   // -----------------------------------------------------------------------
-  // Constants — match v2 (`origin/ct/vfvb:benchmarks-website/config.js`).
+  // Constants
   // -----------------------------------------------------------------------
-  var ZOOM_THROTTLE_MS = 16; // one frame at ~60fps for slider drag
-  var FETCH_N = 1000; // matches `PER_CHART_FETCH_N` server-side
-  var DEFAULT_VISIBLE = 100; // initial visible window (last 100 of fetched)
+  var ZOOM_THROTTLE_MS = 16;     // one frame at ~60fps for slider drag
+  var PAN_THROTTLE_MS = 50;      // pan/zoom throttle — looser than slider
+  var FETCH_N = "all";           // lazy-fetch the entire raw history
+  var DEFAULT_VISIBLE = 100;     // initial visible window (last 100 of fetched)
+  // Hard cap on how many points a single series can render at once. When
+  // the visible commit range has more raw non-null points than this, we
+  // LTTB-downsample to exactly this number; below it we render raw. So
+  // the user always sees at most this many points per series, regardless
+  // of how far they zoom out, and the rule is one sentence:
+  //
+  //   visible <= MAX_VISIBLE_POINTS  → raw
+  //   visible >  MAX_VISIBLE_POINTS  → LTTB to MAX_VISIBLE_POINTS
+  //
+  // Chart cards are ~600–900px on desktop and Chart.js draws ~2px point
+  // markers, so 500 points gives roughly 1.5px of horizontal space per
+  // point — about as dense as the eye can resolve. Bumping higher costs
+  // render time without visible improvement; lowering loses detail on
+  // wide cards.
+  var MAX_VISIBLE_POINTS = 500;
 
   // -----------------------------------------------------------------------
   // Global filter state (engine/format chips inside the navbar dropdown).
@@ -212,6 +240,55 @@
   }
 
   // -----------------------------------------------------------------------
+  // LTTB (Largest-Triangle-Three-Buckets) downsampler.
+  //
+  // Returns the indices into `xs` / `ys` to keep, including index 0 and
+  // `n - 1`. `xs` must be strictly increasing. When `threshold >= n` or
+  // `threshold < 3`, returns `[0, 1, ..., n-1]` unchanged.
+  //
+  // Algorithm: <https://skemman.is/handle/1946/15343>. Per-bucket pick the
+  // point that forms the largest triangle with the previously kept point
+  // and the average of the next bucket.
+  // -----------------------------------------------------------------------
+  function lttbIndices(xs, ys, threshold) {
+    var n = xs.length;
+    if (threshold >= n || threshold < 3) {
+      var all = new Array(n);
+      for (var i = 0; i < n; i++) all[i] = i;
+      return all;
+    }
+    var out = new Array(threshold);
+    out[0] = 0;
+    var bucket = (n - 2) / (threshold - 2);
+    var a = 0;
+    for (var bi = 0; bi < threshold - 2; bi++) {
+      // Average of the *next* bucket — the "C" point in the triangle.
+      var nextStart = Math.floor((bi + 1) * bucket) + 1;
+      var nextEnd = Math.min(n, Math.floor((bi + 2) * bucket) + 1);
+      var count = Math.max(1, nextEnd - nextStart);
+      var ax = 0, ay = 0;
+      for (var j = nextStart; j < nextEnd; j++) { ax += xs[j]; ay += ys[j]; }
+      ax /= count; ay /= count;
+
+      // Search this bucket for the point with the largest triangle area
+      // against (a, avg_next).
+      var rangeStart = Math.floor(bi * bucket) + 1;
+      var rangeEnd = Math.floor((bi + 1) * bucket) + 1;
+      var pax = xs[a], pay = ys[a];
+      var maxArea = -1;
+      var maxIdx = rangeStart;
+      for (var k = rangeStart; k < rangeEnd; k++) {
+        var area = Math.abs((pax - ax) * (ys[k] - pay) - (pax - xs[k]) * (ay - pay)) * 0.5;
+        if (area > maxArea) { maxArea = area; maxIdx = k; }
+      }
+      out[bi + 1] = maxIdx;
+      a = maxIdx;
+    }
+    out[threshold - 1] = n - 1;
+    return out;
+  }
+
+  // -----------------------------------------------------------------------
   // Crosshair plugin: draws a vertical line at the chart's active hover
   // index. Using an inline plugin is cheaper than pulling in
   // chartjs-plugin-crosshair, which is overkill for this one feature.
@@ -272,6 +349,9 @@
 
       var rows = (tt.dataPoints || []).map(function (dp) {
         var ds = dp.dataset || {};
+        // Read from `rawData` (the unmodified payload) so the tooltip
+        // shows raw measurements even when the rendered line is LTTB-
+        // downsampled and `dataset.data[idx]` is null.
         var raw = (ds.rawData || [])[idx];
         var prevIdx = idx - 1;
         var prevRaw = null;
@@ -343,20 +423,27 @@
     try { return JSON.parse(s.textContent); } catch (e) { return null; }
   }
 
+  // Build the per-series dataset shells. `data` starts as a full-length
+  // null-padded array; `rebuildVisibleAndUpdate` fills it in based on the
+  // current visible range. `rawData` holds a reference to the original
+  // payload so the tooltip can show raw values regardless of LTTB.
   function buildDatasets(payload) {
     var raw = payload.series || {};
     var meta = payload.series_meta || {};
+    var n = (payload.commits || []).length;
     var names = Object.keys(raw).sort();
-    var values = names.map(function (name) {
-      return Array.isArray(raw[name]) ? raw[name].slice() : [];
-    });
-
     return names.map(function (name, i) {
       var seriesMeta = meta[name] || {};
+      var rawValues = Array.isArray(raw[name]) ? raw[name] : [];
+      // `data` starts null-padded; `rebuildVisibleAndUpdate` fills the
+      // current visible window with raw or LTTB-kept values. Chart.js's
+      // `spanGaps: true` means nulls render as gaps.
+      var data = new Array(n);
+      for (var j = 0; j < n; j++) data[j] = null;
       return {
         label: name,
-        data: values[i],
-        rawData: raw[name],
+        data: data,
+        rawData: rawValues,
         borderColor: colorFor(i),
         backgroundColor: colorFor(i) + "20",
         borderWidth: 1.5,
@@ -375,9 +462,158 @@
   }
 
   // -----------------------------------------------------------------------
+  // The single source of truth for the rendered point count.
+  //
+  // Walks the visible `[rangeMin, rangeMax]` window of the raw payload and,
+  // for each series, renders raw when the visible count is at or below
+  // `MAX_VISIBLE_POINTS` and LTTB-downsamples to exactly that number when
+  // above. The result is written into `dataset.data` with nulls outside
+  // the kept set so Chart.js renders just the kept points (with
+  // `spanGaps: true`).
+  //
+  // Mutates `dataset.data` in place to avoid GC churn on every pan frame.
+  // Updates the per-card downsample badge as a side effect.
+  // -----------------------------------------------------------------------
+  function rebuildVisibleAndUpdate(card, chart, rangeMin, rangeMax) {
+    var canvas = chart.canvas;
+    var payload = canvas.__bench_payload;
+    if (!payload) return;
+    var datasets = chart.data.datasets;
+    var n = (payload.commits || []).length;
+    if (n === 0) return;
+
+    var min = Math.max(0, Math.floor(rangeMin));
+    var max = Math.min(n - 1, Math.ceil(rangeMax));
+    if (max < min) max = min;
+
+    // Build one "virtual series" for LTTB: walk every commit index in the
+    // visible range and, for each index, take the max non-null value
+    // across all datasets. This is the union of x-positions, with a
+    // representative y per position. Series in a Vortex chart share both
+    // unit and overall scale (they're the same benchmark with different
+    // engines/formats), so max-across-series picks visually salient peaks
+    // without per-series scale skew.
+    //
+    // This becomes our LTTB input: we then pick AT MOST MAX_VISIBLE_POINTS
+    // commit indices and every dataset renders only at those shared
+    // indices. Without this, per-series LTTB picked different peaks for
+    // each series and the union of x-positions grew with the series
+    // count — visually you saw way more than MAX_VISIBLE_POINTS dots
+    // even though each line only had MAX_VISIBLE_POINTS.
+    var unionIdxs = [];
+    var unionVals = [];
+    for (var i = min; i <= max; i++) {
+      var bestY = null;
+      for (var di = 0; di < datasets.length; di++) {
+        var rawValues = datasets[di].rawData;
+        if (!Array.isArray(rawValues)) continue;
+        var v = rawValues[i];
+        if (v !== null && v !== undefined && !Number.isNaN(v)
+            && (bestY === null || v > bestY)) {
+          bestY = v;
+        }
+      }
+      if (bestY !== null) {
+        unionIdxs.push(i);
+        unionVals.push(bestY);
+      }
+    }
+
+    // Decide which commit indices to render — shared across all series.
+    var keptSet = {};
+    var anyDownsampled = false;
+    if (unionIdxs.length <= MAX_VISIBLE_POINTS) {
+      // Below the cap: render every commit that has data anywhere.
+      for (var u = 0; u < unionIdxs.length; u++) keptSet[unionIdxs[u]] = true;
+    } else {
+      // Above the cap: LTTB the union down to MAX_VISIBLE_POINTS exactly.
+      // The selected indices are then *shared* across every dataset; that
+      // is the cap's only correct interpretation of "max points on the
+      // chart at a time".
+      var localIndices = lttbIndices(unionIdxs, unionVals, MAX_VISIBLE_POINTS);
+      for (var li = 0; li < localIndices.length; li++) {
+        keptSet[unionIdxs[localIndices[li]]] = true;
+      }
+      anyDownsampled = true;
+    }
+
+    // Plant the shared kept set into every dataset.data. Series that have
+    // no value at a kept index simply remain null there — `spanGaps: true`
+    // lets the line connect across.
+    for (var dj = 0; dj < datasets.length; dj++) {
+      var ds = datasets[dj];
+      var dsRaw = ds.rawData;
+      if (!Array.isArray(dsRaw)) continue;
+      var data = ds.data;
+      if (!Array.isArray(data) || data.length !== n) {
+        data = new Array(n);
+        ds.data = data;
+      }
+      for (var z = 0; z < n; z++) data[z] = null;
+      for (var idxStr in keptSet) {
+        var idx = +idxStr;
+        var val = dsRaw[idx];
+        if (val !== null && val !== undefined && !Number.isNaN(val)) {
+          data[idx] = val;
+        }
+      }
+    }
+
+    var visibleCommits = max - min + 1;
+    var keptCommits = 0;
+    for (var _u in keptSet) keptCommits++;
+    chart.update("none");
+    syncSliderFromRange(card, visibleCommits);
+    syncDownsampleBadge(card, keptCommits, visibleCommits, anyDownsampled);
+  }
+
+  // Mirror the chart's current visible commit count onto the toolbar
+  // slider. Called from `rebuildVisibleAndUpdate` so every path that
+  // changes the visible range — toolbar slider drag, drag-pan,
+  // drag-rectangle-zoom, wheel-pan, range-strip drag — keeps the
+  // slider in sync. Programmatic value writes do not fire the slider's
+  // `input` event, so this never re-enters `applyScope`.
+  function syncSliderFromRange(card, visibleCommits) {
+    var slider = card.querySelector('[data-role="scope-slider"]');
+    if (!slider) return;
+    var lo = parseInt(slider.min, 10) || 1;
+    var hi = parseInt(slider.max, 10) || visibleCommits;
+    slider.value = String(Math.max(lo, Math.min(hi, visibleCommits)));
+  }
+
+  // Show the badge when at least one series in the visible range was
+  // downsampled. The numbers are commit counts: how many distinct
+  // commits the chart is rendering, and how many are in the visible
+  // range. Both come from the slider's mental model so "300 / 3000" in
+  // the badge matches "showing the last 3000" on the slider.
+  function syncDownsampleBadge(card, keptCommits, visibleCommits, anyDownsampled) {
+    var badge = card.querySelector('[data-role="downsample-badge"]');
+    if (!badge) return;
+    if (!anyDownsampled || keptCommits >= visibleCommits) {
+      badge.setAttribute("hidden", "");
+      badge.textContent = "";
+      return;
+    }
+    badge.removeAttribute("hidden");
+    badge.textContent = "downsampled · " + keptCommits + " / " + visibleCommits;
+    badge.setAttribute(
+      "title",
+      "Showing " + keptCommits + " of " + visibleCommits
+        + " commits in view. Each series renders at most "
+        + MAX_VISIBLE_POINTS + " points at a time; when more are in "
+        + "view, we apply LTTB (Largest Triangle, Three Buckets), an "
+        + "algorithm that picks representative points by maximising "
+        + "the area of triangles formed with neighbouring buckets. "
+        + "Visual peaks and valleys are preserved while the chart "
+        + "stays responsive. Zoom in past " + MAX_VISIBLE_POINTS
+        + " visible commits to see every raw measurement."
+    );
+  }
+
+  // -----------------------------------------------------------------------
   // Per-card construction. State lives on the canvas:
   //   canvas.__bench_chart   — Chart.js instance
-  //   canvas.__bench_payload — last-fetched ChartResponse
+  //   canvas.__bench_payload — last-fetched ChartResponse (raw)
   //   canvas.__bench_state   — { y, scope } (per-chart toolbar state)
   // -----------------------------------------------------------------------
   function constructChart(card) {
@@ -404,6 +640,18 @@
     var legendPosition = (window.matchMedia
       && window.matchMedia("(max-width: 768px)").matches) ? "top" : "bottom";
 
+    // Throttled rebuild for pan/zoom. Both axes mutate scales.x.min/max
+    // continuously during interaction, so we re-derive the rendered
+    // points on every frame (capped to PAN_THROTTLE_MS) and refresh the
+    // range strip to match. Single throttle so LTTB and the strip never
+    // diverge.
+    var throttledRebuild = throttle(function (chart) {
+      var sx = chart.scales && chart.scales.x;
+      if (!sx) return;
+      rebuildVisibleAndUpdate(card, chart, sx.min, sx.max);
+      if (canvas.__bench_strip_render) canvas.__bench_strip_render();
+    }, PAN_THROTTLE_MS);
+
     var chart = new Chart(canvas, {
       type: "line",
       data: { labels: labels, datasets: datasets },
@@ -412,19 +660,25 @@
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
-        // Snap-to-x-index, no vertical-intersection requirement: a stable
-        // hover anywhere over the chart, with the crosshair plugin painting
-        // the column. Combined with `pointer-events: none` on the tooltip
-        // host, this is the flicker fix.
-        interaction: { mode: "index", intersect: false, axis: "x" },
+        // Snap to the nearest commit *that has rendered data*, not to
+        // the cursor's exact x-index. After LTTB downsampling most
+        // commit indices are null in `dataset.data` (`spanGaps: true`
+        // draws across them), and `mode: "index"` would happily pick
+        // one of those null indices and produce an empty tooltip.
+        // `mode: "x"` picks the nearest non-null x position across all
+        // datasets so the tooltip always has something to show.
+        // `intersect: false` keeps it active anywhere on the chart and,
+        // combined with `pointer-events: none` on the tooltip host, is
+        // also the flicker fix.
+        interaction: { mode: "x", intersect: false, axis: "x" },
         onClick: function (event, _activeElements, chart) {
           var points = chart.getElementsAtEventForMode(
             event, "nearest", { intersect: false, axis: "x" }, true,
           );
           if (!points.length) return;
-          var idx = points[0].index;
+          var pIdx = points[0].index;
           var commits = (canvas.__bench_payload || {}).commits || [];
-          var commit = commits[idx];
+          var commit = commits[pIdx];
           if (!commit) return;
           var pr = parsePrNumber(commit.message);
           var url = pr
@@ -442,6 +696,10 @@
             min: range.min,
             max: range.max,
             title: { display: false },
+            // With a 5000-commit history rendering one tick per commit
+            // is unreadable anyway. Cap it; Chart.js will pick a sensible
+            // subset of label indices to draw.
+            ticks: { maxTicksLimit: 12, autoSkip: true },
           },
         },
         plugins: {
@@ -487,11 +745,13 @@
                 backgroundColor: "rgba(37, 99, 235, 0.10)",
               },
               mode: "x",
+              onZoom: function (ctx) { throttledRebuild(ctx.chart); },
             },
             pan: {
               enabled: true,
               mode: "x",
               modifierKey: null,
+              onPan: function (ctx) { throttledRebuild(ctx.chart); },
             },
             limits: {
               x: { min: 0, max: Math.max(0, labels.length - 1), minRange: 4 },
@@ -502,8 +762,15 @@
     });
 
     canvas.__bench_chart = chart;
-    attachWheelPan(canvas, chart);
+    canvas.__bench_rebuild = throttledRebuild;
+    attachWheelPan(canvas, chart, throttledRebuild);
+    syncSliderBounds(card, labels.length);
+    // Initial render: the chart is constructed with empty (null) data;
+    // populate it for the initial visible window. Strip is bound after the
+    // rebuild so its first paint reflects the same range Chart.js shows.
+    rebuildVisibleAndUpdate(card, chart, range.min, range.max);
     bindRangeStrip(card, chart);
+    if (canvas.__bench_strip_render) canvas.__bench_strip_render();
     return chart;
   }
 
@@ -572,16 +839,12 @@
       if (canvas && canvas.__bench_state) {
         canvas.__bench_state.scope = Math.round(newMax - newMin + 1);
       }
-      chart.update("none");
-      // Mirror the new scope onto the slider for visual consistency. The
-      // slider's min/max keep the value clamped.
-      var slider = card.querySelector('[data-role="scope-slider"]');
-      if (slider) {
-        var v = Math.round(newMax - newMin + 1);
-        var lo = parseInt(slider.min, 10) || 1;
-        var hi = parseInt(slider.max, 10) || n;
-        slider.value = Math.max(lo, Math.min(hi, v));
-      }
+      // Re-derive what Chart.js renders against the new visible window.
+      // `rebuildVisibleAndUpdate` calls `chart.update("none")`, applies
+      // LTTB, and mirrors the new scope onto the toolbar slider, so the
+      // strip-driven pan/resize stays in lockstep with both the data
+      // density and the slider readout.
+      rebuildVisibleAndUpdate(card, chart, newMin, newMax);
       render();
     }
 
@@ -656,29 +919,39 @@
     strip.addEventListener("pointerup", onPointerUp);
     strip.addEventListener("pointercancel", onPointerUp);
 
-    // Bidirectional: chart -> strip. The zoom plugin fires `onPan`/`onZoom`
-    // during user gestures (drag-pan, drag-rect-zoom). Hook those to refresh.
-    // Programmatic state changes (toolbar slider, wheel-pan) re-render the
-    // strip explicitly via `canvas.__bench_strip_render`.
-    var zoomOpts = chart.options.plugins && chart.options.plugins.zoom;
-    if (zoomOpts) {
-      if (zoomOpts.zoom) {
-        zoomOpts.zoom.onZoom = function () { render(); };
-        zoomOpts.zoom.onZoomComplete = function () { render(); };
-      }
-      if (zoomOpts.pan) {
-        zoomOpts.pan.onPan = function () { render(); };
-        zoomOpts.pan.onPanComplete = function () { render(); };
-      }
-    }
+    // Expose the strip's render function so other code paths (toolbar
+    // slider, wheel-pan, the throttled LTTB rebuild) can keep the strip
+    // in lockstep without each having to know strip internals. The chart
+    // options' `onPan` / `onZoom` callbacks call this via the throttled
+    // rebuild rather than overriding them here, so LTTB and the strip
+    // refresh as one unit.
     canvas.__bench_strip_render = render;
     render();
   }
 
+  // Cap the toolbar slider's `max` to the loaded commit count. Without this,
+  // a chart with (say) 50 points would still let the user drag the slider to
+  // some larger value, with no visible effect past 50.
+  function syncSliderBounds(card, commitCount) {
+    var slider = card.querySelector('[data-role="scope-slider"]');
+    if (!slider) return;
+    var max = Math.max(5, commitCount);
+    slider.max = String(max);
+    // Pick a step that gives ~200 stops across the slider so dragging
+    // feels continuous regardless of history size.
+    var step = Math.max(1, Math.round(max / 200));
+    slider.step = String(step);
+    var current = parseInt(slider.value, 10);
+    if (!Number.isFinite(current) || current > max) {
+      slider.value = String(Math.min(DEFAULT_VISIBLE, max));
+    }
+  }
+
   // Wheel = horizontal pan. Chart.js zoom plugin doesn't support wheel-pan
   // out of the box (wheel is always zoom in its config), so we attach a
-  // `wheel` listener that translates `deltaY`/`deltaX` into `chart.pan`.
-  function attachWheelPan(canvas, chart) {
+  // `wheel` listener that translates `deltaY`/`deltaX` into `chart.pan` and
+  // re-runs the rebuild after panning.
+  function attachWheelPan(canvas, chart, rebuild) {
     if (canvas.__bench_wheel_attached) return;
     canvas.__bench_wheel_attached = true;
     canvas.addEventListener("wheel", function (e) {
@@ -692,7 +965,9 @@
       // positive x moves the visible window toward older commits, while
       // negative x moves back toward newer commits.
       chart.pan({ x: dx * 0.5 }, undefined, "none");
-      if (canvas.__bench_strip_render) canvas.__bench_strip_render();
+      // `rebuild` recomputes LTTB on the new visible range AND, via the
+      // throttled wrapper, also calls `canvas.__bench_strip_render`.
+      rebuild(chart);
     }, { passive: false });
   }
 
@@ -718,7 +993,7 @@
     var range = visibleRange(commits, scope);
     chart.options.scales.x.min = range.min;
     chart.options.scales.x.max = range.max;
-    chart.update("none");
+    rebuildVisibleAndUpdate(card, chart, range.min, range.max);
     syncToolbarUi(card, "scope", String(scopeValue));
     if (canvas.__bench_strip_render) canvas.__bench_strip_render();
   }
@@ -783,7 +1058,9 @@
     var slug = card.getAttribute("data-chart-slug");
     if (!slug) return Promise.resolve();
     showCardLoading(card, true);
-    return fetch("/api/chart/" + encodeURIComponent(slug) + "?n=" + FETCH_N, {
+    var url = "/api/chart/" + encodeURIComponent(slug)
+      + "?n=" + encodeURIComponent(FETCH_N);
+    return fetch(url, {
       headers: { "accept": "application/json" },
     })
       .then(function (r) {

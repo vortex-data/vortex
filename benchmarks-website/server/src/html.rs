@@ -77,7 +77,7 @@ const CHART_INIT_JS: &[u8] = include_bytes!("../static/chart-init.js");
 const STYLE_CSS: &[u8] = include_bytes!("../static/style.css");
 const VORTEX_BLACK_SVG: &[u8] = include_bytes!("../../public/vortex_black_nobg.svg");
 const VORTEX_WHITE_SVG: &[u8] = include_bytes!("../../public/vortex_white_nobg.svg");
-const STATIC_ASSET_VERSION: &str = "bench-v3-ui-11";
+const STATIC_ASSET_VERSION: &str = "bench-v3-ui-12";
 
 /// HTML routes mounted under `/`.
 pub fn router() -> Router<AppState> {
@@ -551,6 +551,7 @@ fn chart_card(link: &api::ChartLink, idx: usize, inlined: Option<&NamedChartResp
         section.chart-card data-chart-index=(idx) data-chart-slug=(link.slug) {
             h3.chart-card-title {
                 a href=(permalink) { (link.name) }
+                (downsample_badge_slot())
             }
             (per_chart_toolbar(idx))
             div.chart-tooltip-host {}
@@ -570,6 +571,18 @@ fn chart_card(link: &api::ChartLink, idx: usize, inlined: Option<&NamedChartResp
     }
 }
 
+/// Empty hidden slot for the LTTB badge. `chart-init.js` flips it on when
+/// the *currently visible* commit range exceeds the LTTB threshold and the
+/// rendered point count is therefore less than the raw point count in that
+/// range.
+fn downsample_badge_slot() -> Markup {
+    html! {
+        span.chart-badge.chart-badge--downsampled
+            data-role="downsample-badge"
+            hidden {}
+    }
+}
+
 fn chart_body(chart: &ChartResponse, slug: &str, payload_json: &str) -> Markup {
     let series_count = chart.series.len();
     let commit_count = chart.commits.len();
@@ -579,6 +592,7 @@ fn chart_body(chart: &ChartResponse, slug: &str, payload_json: &str) -> Markup {
             " · "
             (series_count) " series · "
             (commit_count) " commit" @if commit_count != 1 { "s" }
+            (downsample_badge_slot())
         }
         section.chart-card data-chart-index="0" data-chart-slug=(slug) {
             (per_chart_toolbar(0))
@@ -611,6 +625,7 @@ fn group_body(group: &GroupChartsResponse) -> Markup {
                 section.chart-card data-chart-index=(i) data-chart-slug=(item.slug) {
                     h3.chart-card-title {
                         a href=(permalink) { (item.name) }
+                        (downsample_badge_slot())
                     }
                     (per_chart_toolbar(i))
                     div.chart-tooltip-host {}
@@ -861,8 +876,11 @@ fn per_chart_toolbar(idx: usize) -> Markup {
         div.toolbar.toolbar--card aria-label="Chart controls" {
             div.toolbar-group role="group" aria-label="Visible commits" {
                 span.toolbar-label { "Show" }
+                // `max` and `step` are placeholders — `chart-init.js` resets
+                // them after constructing the chart so the slider tracks the
+                // actual loaded commit count, not the initial markup.
                 input id=(slider_id).toolbar-slider type="range"
-                    min="5" max="1000" step="5" value="100"
+                    min="5" max="100" step="1" value="100"
                     data-role="scope-slider"
                     aria-label="Custom commit window";
             }
