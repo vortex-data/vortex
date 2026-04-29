@@ -13,16 +13,22 @@
 //!
 //! Each chart card owns its own compact toolbar (scope slider + Y-axis). There
 //! is no page-level toolbar — every chart is independent. Scope is
-//! **zoom-as-scope**: each chart fetches up to [`api::MAX_COMMIT_WINDOW`]
-//! commits once, then the toolbar manipulates `chart.options.scales.x.min`/
-//! `max` to set the visible window. No refetches on scope change.
+//! **zoom-as-scope**: each chart fetches a generous window once, then the
+//! toolbar manipulates `chart.options.scales.x.min`/`max` to set the visible
+//! window. No refetches on scope change.
 //!
-//! URL query params (`?n=`) are accepted as power-user overrides on the
-//! initial fetch but are not written back from the toolbar. Per-chart UI
+//! Every HTML route defaults to the unbounded commit window
+//! ([`CommitWindow::All`]) so users can pan/zoom all the way back to the
+//! very first commit. The previous 1000-commit ceiling is gone; the
+//! payload size is bounded purely by how much benchmark history is in
+//! the database.
+//!
+//! URL query param `?n=` is accepted as a power-user override on the
+//! initial fetch but is not written back from the toolbar. Per-chart UI
 //! state is intentionally not persisted in the URL — the user feedback
 //! emphasised that this UX should feel local-and-immediate, not "share a
-//! perfect view via URL". Permalinks (`/chart/{slug}`, `/group/{slug}`) are
-//! the sharing mechanism, not query strings.
+//! perfect view via URL". Permalinks (`/chart/{slug}`, `/group/{slug}`)
+//! are the sharing mechanism, not query strings.
 //!
 //! Slugs are opaque strings the server received from `/api/groups`; the
 //! handler echoes them straight into [`crate::slug::ChartKey::from_slug`]
@@ -31,8 +37,6 @@
 //! Static assets (Chart.js + zoom plugin + CSS + the small hydration
 //! script) are served from `/static/...` via [`include_bytes!`] so the
 //! binary is fully self-contained.
-
-use std::num::NonZeroU32;
 
 use anyhow::Result;
 use axum::Router;
@@ -62,10 +66,10 @@ use crate::db;
 use crate::slug::ChartKey;
 use crate::slug::GroupKey;
 
-/// How many commits each chart pre-fetches. The toolbar's scope slider zooms
-/// into smaller windows of this slice; we never refetch on scope change.
-/// Capped at the API ceiling so a future bigger ceiling is picked up here too.
-const PER_CHART_FETCH_N: u32 = api::MAX_COMMIT_WINDOW;
+// All HTML routes default to the unbounded commit window. `?n=` remains
+// a power-user override but the per-page default is "everything we have"
+// — the previous landing-page 1000-commit cap was a false economy that
+// hid older history from users.
 
 const CHART_JS: &[u8] = include_bytes!("../static/chart.umd.js");
 const CHART_ZOOM_JS: &[u8] = include_bytes!("../static/chartjs-plugin-zoom.umd.min.js");
@@ -73,7 +77,7 @@ const CHART_INIT_JS: &[u8] = include_bytes!("../static/chart-init.js");
 const STYLE_CSS: &[u8] = include_bytes!("../static/style.css");
 const VORTEX_BLACK_SVG: &[u8] = include_bytes!("../../public/vortex_black_nobg.svg");
 const VORTEX_WHITE_SVG: &[u8] = include_bytes!("../../public/vortex_white_nobg.svg");
-const STATIC_ASSET_VERSION: &str = "bench-v3-ui-10";
+const STATIC_ASSET_VERSION: &str = "bench-v3-ui-11";
 
 /// HTML routes mounted under `/`.
 pub fn router() -> Router<AppState> {
@@ -92,15 +96,14 @@ pub fn router() -> Router<AppState> {
         .route("/vortex_white_nobg.svg", get(serve_vortex_white_svg))
 }
 
-/// Query string for HTML routes. `?n=` overrides the per-chart fetch size;
+/// Query string for HTML routes. `?n=` overrides the commit window;
 /// `?engine=` and `?format=` carry the global filter bar's selection so a
 /// shared link or refresh preserves which engines/formats are visible. The
 /// per-chart toolbar (Y axis, scope slider) remains local-only — its state
 /// is intentionally not in the URL.
 #[derive(Debug, Default, Deserialize)]
 pub struct UiQuery {
-    /// Override for the per-chart fetch size. Defaults to `PER_CHART_FETCH_N`.
-    /// Accepts `25|50|100|250|all`.
+    /// Override for the per-chart fetch size. Accepts `25|50|100|250|all`.
     pub n: Option<String>,
     /// Comma-separated list of engines to keep visible across every chart.
     /// Empty / unset means no engine filter is active. Unknown engines are
@@ -113,14 +116,13 @@ pub struct UiQuery {
 }
 
 impl UiQuery {
-    /// Resolve the [`CommitWindow`] for the initial fetch. When `?n=` is
-    /// unset, falls back to [`PER_CHART_FETCH_N`].
+    /// Resolve the [`CommitWindow`] for HTML routes. Defaults to
+    /// [`CommitWindow::All`] so users can pan/zoom all the way back to
+    /// the very first commit on every chart.
     fn fetch_window(&self) -> CommitWindow {
         match self.n.as_deref() {
             Some(_) => CommitWindow::parse(self.n.as_deref()),
-            None => {
-                CommitWindow::Last(NonZeroU32::new(PER_CHART_FETCH_N).expect("non-zero default"))
-            }
+            None => CommitWindow::All,
         }
     }
 
@@ -991,12 +993,9 @@ mod tests {
     }
 
     #[test]
-    fn fetch_window_default_is_max() {
+    fn fetch_window_default_is_all() {
         let ui = UiQuery::default();
-        match ui.fetch_window() {
-            CommitWindow::Last(n) => assert_eq!(n.get(), PER_CHART_FETCH_N),
-            CommitWindow::All => panic!("default should be Last(N)"),
-        }
+        assert!(matches!(ui.fetch_window(), CommitWindow::All));
     }
 
     #[test]
@@ -1009,6 +1008,11 @@ mod tests {
             CommitWindow::Last(n) => assert_eq!(n.get(), 25),
             CommitWindow::All => panic!(),
         }
+        let ui = UiQuery {
+            n: Some("all".into()),
+            ..Default::default()
+        };
+        assert!(matches!(ui.fetch_window(), CommitWindow::All));
     }
 
     #[test]

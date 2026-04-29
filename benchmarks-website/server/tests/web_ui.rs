@@ -240,6 +240,90 @@ async fn seed(server: &Server) -> Result<()> {
     Ok(())
 }
 
+/// Slim ingest envelope carrying just a `random_access_time` pair so we can
+/// drive a long-history fixture cheaply (the full envelope is ~12 records;
+/// this is two). Used by the downsample tests.
+fn ra_envelope_for(sha: &str, ts: &str, msg: &str, bias: i64) -> Value {
+    json!({
+        "run_meta": {
+            "benchmark_id": "downsample-fixture",
+            "schema_version": 1,
+            "started_at": ts
+        },
+        "commit": {
+            "sha": sha,
+            "timestamp": ts,
+            "message": msg,
+            "author_name": "Test Author",
+            "author_email": "author@example.com",
+            "committer_name": "Test Committer",
+            "committer_email": "committer@example.com",
+            "tree_sha": "fedcba9876543210fedcba9876543210fedcba98",
+            "url": format!("https://github.com/vortex-data/vortex/commit/{sha}")
+        },
+        "records": [
+            {
+                "kind": "random_access_time",
+                "commit_sha": sha,
+                "dataset": "taxi",
+                "format": "vortex-file-compressed",
+                "value_ns": 500 + bias,
+                "all_runtimes_ns": [500 + bias]
+            },
+            {
+                "kind": "random_access_time",
+                "commit_sha": sha,
+                "dataset": "taxi",
+                "format": "parquet",
+                "value_ns": 1_000 + (2 * bias),
+                "all_runtimes_ns": [1_000 + (2 * bias)]
+            }
+        ]
+    })
+}
+
+/// Seed a `Random Access` chart with `n` synthetic commits so the
+/// downsampler has something to chew on. SHAs are deterministic
+/// `{i:040x}`; timestamps are 1 minute apart starting 2025-01-01 so the
+/// commits sort stably.
+async fn seed_long_history(server: &Server, n: usize) -> Result<()> {
+    let client = reqwest::Client::new();
+    for i in 0..n {
+        let sha = format!("{i:040x}");
+        let minutes = i;
+        let ts = format!(
+            "2025-01-01T{:02}:{:02}:00Z",
+            (minutes / 60) % 24,
+            minutes % 60
+        );
+        // Sinusoidal bias so the series has interior peaks LTTB will retain.
+        let bias = ((i as f64).sin() * 1_000.0) as i64 + i as i64 * 10;
+        let resp = client
+            .post(server.url("/api/ingest"))
+            .bearer_auth(TOKEN)
+            .json(&ra_envelope_for(&sha, &ts, "synthetic", bias))
+            .send()
+            .await?;
+        anyhow::ensure!(
+            resp.status().is_success(),
+            "long-history ingest #{i} failed: {}",
+            resp.status()
+        );
+    }
+    Ok(())
+}
+
+/// Pull the inline `<script id="chart-data-N">…</script>` JSON out of an
+/// HTML body. Returns `None` if the script tag isn't present.
+fn extract_chart_data(body: &str, idx: usize) -> Option<Value> {
+    let needle = format!(r#"<script id="chart-data-{idx}" type="application/json">"#);
+    let start = body.find(&needle)? + needle.len();
+    let end = body[start..].find("</script>")? + start;
+    // Reverse the `</` neutralisation done by `escape_json_for_script`.
+    let json = body[start..end].replace(r"<\/", "</");
+    serde_json::from_str(&json).ok()
+}
+
 fn insta_settings() -> insta::Settings {
     let mut s = insta::Settings::clone_current();
     s.set_snapshot_path("snapshots");
@@ -795,7 +879,8 @@ async fn chart_page_window_caps_commits() -> Result<()> {
     let slug = pick_chart_slug(&server, |s| s.starts_with("TPC-H")).await?;
 
     let client = reqwest::Client::new();
-    // Without ?n, default is the 1000-commit per-chart cap — fixture has 3.
+    // Without `?n`, the API default is `Last(DEFAULT_COMMIT_WINDOW)`. The
+    // fixture has 3 commits which fits comfortably.
     let full: Value = client
         .get(server.url(&format!("/api/chart/{slug}")))
         .send()
@@ -815,7 +900,7 @@ async fn chart_page_window_caps_commits() -> Result<()> {
     let one_count = one["commits"].as_array().map(|a| a.len()).unwrap_or(0);
     assert_eq!(one_count, 1, "?n=1 should keep exactly one commit");
 
-    // ?n=all bypasses the cap.
+    // ?n=all returns the unbounded view (the per-chart hard cap is gone).
     let all: Value = client
         .get(server.url(&format!("/api/chart/{slug}?n=all")))
         .send()
@@ -825,12 +910,98 @@ async fn chart_page_window_caps_commits() -> Result<()> {
     let all_count = all["commits"].as_array().map(|a| a.len()).unwrap_or(0);
     assert_eq!(all_count, full_count, "?n=all should match unbounded view");
 
+    // Even very large `?n` survives without being clamped.
+    let huge: Value = client
+        .get(server.url(&format!("/api/chart/{slug}?n=99999")))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let huge_count = huge["commits"].as_array().map(|a| a.len()).unwrap_or(0);
+    assert_eq!(
+        huge_count, full_count,
+        "?n=99999 should no longer be clamped to 1000"
+    );
+
     // Malformed ?n gracefully falls back to default.
     let bad = client
         .get(server.url(&format!("/api/chart/{slug}?n=banana")))
         .send()
         .await?;
     assert_eq!(bad.status(), 200);
+    Ok(())
+}
+
+/// `/chart/{slug}` and `/group/{slug}` permalinks default to the unbounded
+/// commit window, and the inlined JSON payload contains the full raw
+/// history (no server-side downsampling). Visual downsampling now lives in
+/// `chart-init.js` and runs on the *visible* commit range only.
+#[tokio::test]
+async fn permalink_pages_inline_full_raw_history() -> Result<()> {
+    let server = Server::start().await?;
+    seed_long_history(&server, 200).await?;
+
+    let chart_slug = pick_chart_slug(&server, |s| s == "Random Access").await?;
+    let group_slug = pick_group_slug(&server, |s| s == "Random Access").await?;
+    let client = reqwest::Client::new();
+
+    let chart_body = client
+        .get(server.url(&format!("/chart/{chart_slug}")))
+        .send()
+        .await?
+        .text()
+        .await?;
+    let chart_payload =
+        extract_chart_data(&chart_body, 0).context("chart inline payload present")?;
+    assert_eq!(
+        chart_payload["commits"]
+            .as_array()
+            .context("commits is array")?
+            .len(),
+        200,
+        "/chart permalink should inline the full raw history",
+    );
+
+    let group_body = client
+        .get(server.url(&format!("/group/{group_slug}")))
+        .send()
+        .await?
+        .text()
+        .await?;
+    let group_payload =
+        extract_chart_data(&group_body, 0).context("group inline payload present")?;
+    assert_eq!(
+        group_payload["commits"]
+            .as_array()
+            .context("commits is array")?
+            .len(),
+        200,
+        "/group permalink should inline the full raw history",
+    );
+
+    Ok(())
+}
+
+/// The wire payload no longer carries a `raw_commit_count` field — visual
+/// downsampling moved to the client, so the server has no opinion on
+/// rendered point count.
+#[tokio::test]
+async fn chart_payload_does_not_carry_raw_commit_count() -> Result<()> {
+    let server = Server::start().await?;
+    seed_long_history(&server, 50).await?;
+
+    let slug = pick_chart_slug(&server, |s| s == "Random Access").await?;
+    let client = reqwest::Client::new();
+    let body: Value = client
+        .get(server.url(&format!("/api/chart/{slug}")))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert!(
+        body.get("raw_commit_count").is_none(),
+        "raw_commit_count should not appear on the wire; got {body:?}"
+    );
     Ok(())
 }
 
