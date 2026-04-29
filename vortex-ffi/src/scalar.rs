@@ -27,13 +27,12 @@ use crate::error::try_or;
 use crate::error::vx_error;
 
 crate::box_wrapper!(
-    /// A `vx_scalar` stores a logical `DType` with an optional `ScalarValue`.
-    /// The `ScalarValue` is absent for a null scalar. Otherwise, the `DType`
-    /// gives the `ScalarValue` its meaning; for example, a tuple value can
-    /// represent a list, fixed-size list, or struct scalar depending on the
-    /// `DType`.
+    /// A typed scalar value.
     ///
-    /// The C API exposes only the complete pair as `vx_scalar`.
+    /// A `vx_scalar` represents a single value with an associated `DType`.
+    /// Its value is either null or a `ScalarValue`. Null values are allowed only
+    /// when the associated `DType` allows nulls. Non-null values are represented
+    /// by `ScalarValue` and interpreted using the `DType`.
     Scalar,
     vx_scalar
 );
