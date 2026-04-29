@@ -77,11 +77,11 @@ DuckDB types, indexes, and constraint syntax.
 |---|---|---|---|
 | `commit_sha` | string | yes (PK) | 40-hex lowercase |
 | `timestamp` | timestamptz | yes | |
-| `message` | string | yes | first line only |
-| `author_name` | string | yes | |
-| `author_email` | string | yes | |
-| `committer_name` | string | yes | |
-| `committer_email` | string | yes | |
+| `message` | string | optional | first line only |
+| `author_name` | string | optional | |
+| `author_email` | string | optional | |
+| `committer_name` | string | optional | |
+| `committer_email` | string | optional | |
 | `tree_sha` | string | yes | |
 | `url` | string | yes | |
 

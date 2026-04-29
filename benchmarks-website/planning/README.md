@@ -66,13 +66,14 @@ host, point `VORTEX_BENCH_DB` at it, and walk every group's charts in a browser.
 
 ### 5. Operational hygiene (not yet done)
 
-- Health-check endpoint (`GET /health` returning 200).
 - Structured logging review (we already use `tracing`; verify fields are useful for prod
   debugging).
 - Rate limiting on `/api/ingest` — the bearer token is the only gate today.
 - TLS termination strategy: front with a load balancer / nginx / Caddy, or terminate in-process?
   Decide before DNS flip.
-- DB schema-version tracking, so future migrations are coordinated rather than ad-hoc.
+- DB schema-version tracking, so future migrations are coordinated rather than ad-hoc. The server
+  already exposes the constant via `/health`; what's missing is on-disk persistence and a check on
+  boot.
 - Backup story. Open question: is "copy the file" enough, or do we want a WAL-based /
   point-in-time approach? Investigate DuckDB options.
 
@@ -122,7 +123,7 @@ These are user/owner decisions, not agent decisions.
   display-name map. Cosmetic but visible.
 - **Deferred UI follow-ups.** The user is handling these directly; agents should not pre-empt
   them:
-  - `collect_group_charts` N+1 refactor in `api.rs:583-613`.
+  - `collect_group_charts` N+1 refactor in `api.rs:1131-1162`.
   - Mobile legend resize handler.
   - Zoom-sync within a group.
   - LTTB downsampling for very long histories.
