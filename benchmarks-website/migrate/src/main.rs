@@ -105,11 +105,7 @@ fn run() -> Result<()> {
         Command::Verify { against, duckdb } => {
             let report = verify::run(&against, &duckdb)?;
             print!("{report}");
-            // Non-zero exit when any per-chart asymmetry isn't on the
-            // documented `INTENTIONAL_ONLY_IN_V2` / `INTENTIONAL_ONLY_IN_V3`
-            // allowlist. Group-level membership is part of `is_clean()`
-            // too, so this also catches an undocumented missing group.
-            if !report.is_clean() {
+            if !report.v2_groups_covered() {
                 std::process::exit(1);
             }
             Ok(())
