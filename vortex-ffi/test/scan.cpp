@@ -695,8 +695,7 @@ TEST_CASE("Filter with literal expression", "[filter]") {
 TEST_CASE("Project UTF-8 literal expression", "[projection]") {
     constexpr auto value = "constant"sv;
     vx_error *scalar_error = nullptr;
-    vx_scalar *literal_scalar =
-        vx_scalar_new_utf8(value.data(), value.size(), false, &scalar_error);
+    vx_scalar *literal_scalar = vx_scalar_new_utf8(value.data(), value.size(), false, &scalar_error);
     require_no_error(scalar_error);
     REQUIRE(literal_scalar != nullptr);
     defer {
