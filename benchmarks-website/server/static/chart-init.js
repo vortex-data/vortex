@@ -1050,8 +1050,12 @@
     var canvas = card.querySelector("canvas");
     if (!canvas) return Promise.resolve();
     if (canvas.__bench_chart) return Promise.resolve();
-    if (canvas.__bench_payload) {
-      constructChart(card);
+    // `constructChart` reads inline JSON (`<script id="chart-data-N">`)
+    // when there's no payload on the canvas yet. The first group's
+    // payloads are inlined server-side regardless of whether the
+    // group is open by default, so try a synchronous construct before
+    // hitting the network.
+    if (constructChart(card)) {
       bindToolbar(card);
       return Promise.resolve();
     }

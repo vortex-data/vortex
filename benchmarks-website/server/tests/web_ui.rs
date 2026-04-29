@@ -458,11 +458,12 @@ async fn landing_page_snapshot() -> Result<()> {
     Ok(())
 }
 
-/// The first group disclosure is rendered with the `open` attribute; every
-/// other group lacks it, so the user sees only the first group's charts on
-/// first paint.
+/// All group disclosures render closed by default — the user picks which
+/// to expand. The first group's chart payloads are still inlined in the
+/// HTML (so opening it skips the JS fetch), but the disclosure itself
+/// stays collapsed until clicked.
 #[tokio::test]
-async fn details_first_group_open_others_closed() -> Result<()> {
+async fn details_all_groups_closed_by_default() -> Result<()> {
     let server = Server::start().await?;
     seed(&server).await?;
 
@@ -477,10 +478,15 @@ async fn details_first_group_open_others_closed() -> Result<()> {
         })
         .collect();
     assert!(!opens.is_empty(), "landing page must render <details>");
-    assert!(opens[0], "first group must be open");
-    for (i, is_open) in opens.iter().enumerate().skip(1) {
+    for (i, is_open) in opens.iter().enumerate() {
         assert!(!is_open, "group #{i} must be closed by default");
     }
+    // The first group's chart payload should still be inlined — fast
+    // hydration on toggle without a network round-trip.
+    assert!(
+        body.contains(r#"id="chart-data-0""#),
+        "first group's chart payload should be inlined for fast on-toggle hydration",
+    );
     Ok(())
 }
 

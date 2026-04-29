@@ -4,10 +4,11 @@
 //! HTML routes for the bench.vortex.dev v3 web UI.
 //!
 //! Three pages, all backed by the same per-chart UX:
-//! - `GET /` — landing page. Every group is a collapsible `<details>`. The
-//!   first group is open by default and its charts pre-inline their JSON
-//!   payload for a fast first paint; closed groups carry only the chart-card
-//!   shell and their payloads are fetched on first toggle (`details.open`).
+//! - `GET /` — landing page. Every group is a collapsible `<details>`,
+//!   all collapsed by default; the user picks which to expand. The
+//!   *first* group's chart payloads are still pre-inlined in the HTML
+//!   so opening it skips the JS fetch round-trip; every other group
+//!   ships only chart-card shells and is fetched on first toggle.
 //! - `GET /chart/{slug}` — single chart page; permalink for sharing.
 //! - `GET /group/{slug}` — every chart in one group on a single page.
 //!
@@ -19,9 +20,10 @@
 //!
 //! Every HTML route defaults to the unbounded commit window
 //! ([`CommitWindow::All`]) so users can pan/zoom all the way back to the
-//! very first commit. The previous 1000-commit ceiling is gone; the
-//! payload size is bounded purely by how much benchmark history is in
-//! the database.
+//! very first commit. The chart payload is sent **raw** — any visual
+//! downsampling happens client-side in `chart-init.js`, applied only to
+//! the currently visible commit range. The common case (a chart zoomed in
+//! to the last ~100 commits) renders raw with no LTTB at all.
 //!
 //! URL query param `?n=` is accepted as a power-user override on the
 //! initial fetch but is not written back from the toolbar. Per-chart UI
@@ -66,10 +68,11 @@ use crate::db;
 use crate::slug::ChartKey;
 use crate::slug::GroupKey;
 
-// All HTML routes default to the unbounded commit window. `?n=` remains
-// a power-user override but the per-page default is "everything we have"
-// — the previous landing-page 1000-commit cap was a false economy that
-// hid older history from users.
+// All HTML routes default to the unbounded commit window. The wire payload
+// is the raw `(commits, series)` data; visual downsampling (LTTB on the
+// currently visible commit range) happens client-side in
+// `static/chart-init.js`. `?n=` remains a power-user override on the
+// commit window itself (not on the rendered point count).
 
 const CHART_JS: &[u8] = include_bytes!("../static/chart.umd.js");
 const CHART_ZOOM_JS: &[u8] = include_bytes!("../static/chartjs-plugin-zoom.umd.min.js");
@@ -77,7 +80,7 @@ const CHART_INIT_JS: &[u8] = include_bytes!("../static/chart-init.js");
 const STYLE_CSS: &[u8] = include_bytes!("../static/style.css");
 const VORTEX_BLACK_SVG: &[u8] = include_bytes!("../../public/vortex_black_nobg.svg");
 const VORTEX_WHITE_SVG: &[u8] = include_bytes!("../../public/vortex_white_nobg.svg");
-const STATIC_ASSET_VERSION: &str = "bench-v3-ui-12";
+const STATIC_ASSET_VERSION: &str = "bench-v3-ui-13";
 
 /// HTML routes mounted under `/`.
 pub fn router() -> Router<AppState> {
@@ -118,7 +121,9 @@ pub struct UiQuery {
 impl UiQuery {
     /// Resolve the [`CommitWindow`] for HTML routes. Defaults to
     /// [`CommitWindow::All`] so users can pan/zoom all the way back to
-    /// the very first commit on every chart.
+    /// the very first commit on every chart, including the first
+    /// (open-by-default) group on the landing page. Visual downsampling
+    /// happens client-side on the visible commit range only.
     fn fetch_window(&self) -> CommitWindow {
         match self.n.as_deref() {
             Some(_) => CommitWindow::parse(self.n.as_deref()),
@@ -192,8 +197,9 @@ async fn landing(State(state): State<AppState>, Query(ui): Query<UiQuery>) -> Re
 
 /// One group's worth of data for the landing page.
 ///
-/// The first group (in canonical order) ships with `charts` populated so the
-/// open-by-default `<details>` paints immediately. Subsequent groups ship
+/// The first group (in canonical order) ships with `charts` populated so
+/// the moment the user expands it the chart hydrates from the inline
+/// JSON without a network round-trip. Every other group ships
 /// with `charts` empty and only their chart-card shells — payloads are
 /// fetched client-side on first `details.toggle` to keep the cold landing
 /// HTML small.
@@ -222,8 +228,9 @@ fn collect_landing_groups(conn: &Connection, window: &CommitWindow) -> Result<Ve
     let mut out = Vec::with_capacity(groups.len());
     for (i, group) in groups.into_iter().enumerate() {
         let inlined = if i == 0 {
-            // First (open-by-default) group: pre-fetch every chart so the
-            // first paint is fast and there is no JS round-trip.
+            // First group in canonical order: pre-fetch every chart so
+            // the moment the user expands it the chart hydrates from
+            // the inline JSON without a JS round-trip.
             let mut v = Vec::with_capacity(group.charts.len());
             for link in &group.charts {
                 let key = ChartKey::from_slug(&link.slug)?;
@@ -514,9 +521,9 @@ fn landing_body(groups: &[LandingGroup]) -> Markup {
     // `<script id="chart-data-N">` agree across groups.
     let mut idx_iter = 0usize..total_charts;
     html! {
-        @for (group_idx, group) in groups.iter().enumerate() {
+        @for group in groups.iter() {
             section.group-details data-group-name=(group.name) {
-                details.group-disclosure open[group_idx == 0] {
+                details.group-disclosure {
                     summary.group-summary {
                         span.group-summary-row {
                             span.group-name { (group.name) }
