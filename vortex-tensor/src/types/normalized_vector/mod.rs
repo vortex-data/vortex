@@ -142,6 +142,42 @@ pub(crate) fn validate_unit_norm_rows(
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use half::f16;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::FixedSizeListArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::dtype::PType;
+    use vortex_array::validity::Validity;
+    use vortex_error::VortexResult;
+
+    use super::NormalizedVector;
+    use crate::tests::SESSION;
+    use crate::utils::unit_norm_tolerance;
+
+    #[test]
+    fn f16_unit_norm_tolerance_is_capped() {
+        assert!(unit_norm_tolerance(PType::F16, 768) <= 1e-3);
+    }
+
+    #[test]
+    fn try_new_rejects_f16_row_outside_capped_tolerance() -> VortexResult<()> {
+        let dim = 768u32;
+        let dim_usize = usize::try_from(dim).expect("dim fits usize");
+        let mut values = vec![f16::from_f32(0.0); dim_usize];
+        values[0] = f16::from_f32(0.99);
+
+        let elements = PrimitiveArray::from_iter(values).into_array();
+        let fsl = FixedSizeListArray::try_new(elements, dim, Validity::NonNullable, 1)?;
+        let mut ctx = SESSION.create_execution_ctx();
+
+        assert!(NormalizedVector::try_new(fsl.into_array(), &mut ctx).is_err());
+        Ok(())
+    }
+}
+
 mod matcher;
 mod vtable;
 

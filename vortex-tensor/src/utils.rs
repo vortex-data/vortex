@@ -44,6 +44,12 @@ use crate::vector::Vector;
 /// `√d · ε` bound so that legitimate round-off noise clears the check with headroom.
 pub(crate) const SAFETY_FACTOR: usize = 10;
 
+/// Upper bound for unit-norm validation drift.
+///
+/// This keeps low-precision element types (especially f16) from accepting vectors whose norms are
+/// materially different from 1.0 at common embedding dimensions.
+pub(crate) const MAX_UNIT_NORM_TOLERANCE: f64 = 1e-3;
+
 /// Returns the acceptable unit-norm drift for the given element precision and dimension count.
 ///
 /// Uses the `c · √d · ε` bound where ε is machine epsilon and d is the vector dimension. Under
@@ -64,7 +70,7 @@ pub fn unit_norm_tolerance(element_ptype: PType, dimensions: usize) -> f64 {
 
     let dimensions_root = (dimensions as f64).sqrt();
 
-    SAFETY_FACTOR as f64 * machine_epsilon * dimensions_root
+    (SAFETY_FACTOR as f64 * machine_epsilon * dimensions_root).min(MAX_UNIT_NORM_TOLERANCE)
 }
 
 /// Extracts the `(normalized, norms)` children from an [`L2Denorm`] scalar function array.

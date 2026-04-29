@@ -145,7 +145,7 @@ impl ScalarFnVTable for InnerProduct {
         // Take the factored fast path only when at least one operand wraps stored norms (the
         // `Denormalized` form). Routing through this lets us extract the stored norms instead of
         // canonicalizing the `L2Denorm` ScalarFnArray, which would materialize `unit · norms`
-        // row-by-row before the dotan avoidable `O(N·D)` pass.
+        // row-by-row before the dot, an avoidable `O(N·D)` pass.
         let lhs_form = NormalForm::classify(&lhs_ref);
         let rhs_form = NormalForm::classify(&rhs_ref);
         if matches!(lhs_form, NormalForm::Denormalized { .. })
@@ -154,27 +154,28 @@ impl ScalarFnVTable for InnerProduct {
             return self.execute_factored_dot(&lhs_form, &rhs_form, &lhs_ref, &rhs_ref, len, ctx);
         }
 
+        // Peel any `NormalizedVector` wrapper before checking reduction cases. TurboQuant marks
+        // the decoded SORF output as normalized, but the optimization patterns still live on the
+        // inner vector-shaped storage.
+        let lhs_inner = inner_vector_array(&lhs_ref, ctx)?;
+        let rhs_inner = inner_vector_array(&rhs_ref, ctx)?;
+
         // Reduction case 1: `InnerProduct(SorfTransform(x), const)` rewrites to
         // `InnerProduct(x, forward_rotate(zero_pad(const)))`. Re-executes recursively so
         // case 2 can fire on the rewritten tree.
-        if let Some(rewritten) = self.try_execute_sorf_constant(&lhs_ref, &rhs_ref, len, ctx)? {
+        if let Some(rewritten) = self.try_execute_sorf_constant(&lhs_inner, &rhs_inner, len, ctx)? {
             return Ok(rewritten);
         }
 
         // Reduction case 2: `InnerProduct(Vector[FSL(Dict(u8, f32))], const)` is computed by
         // gather-summing `q[j] * values[codes[j] as usize]` per row, reading the codebook
         // directly instead of decoding the column into dense vectors.
-        if let Some(result) = self.try_execute_dict_constant(&lhs_ref, &rhs_ref, len, ctx)? {
+        if let Some(result) = self.try_execute_dict_constant(&lhs_inner, &rhs_inner, len, ctx)? {
             return Ok(result);
         }
 
         // Compute combined validity.
         let validity = lhs_ref.validity()?.and(rhs_ref.validity()?)?;
-
-        // Drill past any `NormalizedVector` wrapper so we always work with the underlying `Vector`
-        // extension array.
-        let lhs_inner = inner_vector_array(&lhs_ref, ctx)?;
-        let rhs_inner = inner_vector_array(&rhs_ref, ctx)?;
 
         // Canonicalize so we can perform the math directly.
         let lhs: ExtensionArray = lhs_inner.execute(ctx)?;
@@ -511,10 +512,10 @@ impl InnerProduct {
 ///
 /// - `Plain`: `(original, None)`. Implicit `scale = 1`; the operand passes through to the dot
 ///   unchanged.
-/// - `Normalized`: `(NV, None)`. Implicit `scale = 1`; the unit-norm child passes through to
-///   the dot unchanged.
-/// - `Denormalized`: `(NV, Some(stored_norms))`. The dot is computed over the unit-norm child
-///   and the caller multiplies row-wise by the materialized stored norms afterward.
+/// - `Normalized`: `(inner_vector, None)`. Implicit `scale = 1`; the unit-norm child passes
+///   through to the dot unchanged, with the wrapper peeled so SORF/dict reductions can still fire.
+/// - `Denormalized`: `(inner_vector, Some(stored_norms))`. The dot is computed over the unit
+///   child and the caller multiplies row-wise by the materialized stored norms afterward.
 fn factor_operand(
     form: &NormalForm<'_>,
     original: &ArrayRef,
@@ -522,10 +523,11 @@ fn factor_operand(
 ) -> VortexResult<(ArrayRef, Option<PrimitiveArray>)> {
     match form {
         NormalForm::Plain => Ok((original.clone(), None)),
-        NormalForm::Normalized { array } => Ok(((*array).clone(), None)),
-        NormalForm::Denormalized { normalized, norms } => {
-            Ok((normalized.clone(), Some(norms.clone().execute(ctx)?)))
-        }
+        NormalForm::Normalized { array } => Ok((inner_vector_array(array, ctx)?, None)),
+        NormalForm::Denormalized { normalized, norms } => Ok((
+            inner_vector_array(normalized, ctx)?,
+            Some(norms.clone().execute(ctx)?),
+        )),
     }
 }
 

@@ -130,7 +130,7 @@ impl ScalarFnVTable for CosineSimilarity {
         let mut rhs_ref = args.get(1)?;
         let len = args.row_count();
 
-        // If either side is a constant tensor-like extension array, eagerly normalize the single
+        // If either side is a constant vector extension array, eagerly normalize the single
         // stored row and re-wrap it as an `L2Denorm` whose children are both `ConstantArray`s.
         // The L2Denorm fast path below then picks it up.
         if let Some(sfn) = try_build_constant_l2_denorm_from_constant(&lhs_ref, len, ctx)? {

@@ -16,6 +16,7 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Dict;
+use vortex_array::arrays::Extension;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -71,7 +72,7 @@ fn make_vector_ext(fsl: &FixedSizeListArray) -> ArrayRef {
         .vortex_expect("test FSL satisfies Vector storage constraints")
 }
 
-/// Unwrap an L2Denorm ScalarFnArray into (sorf_child, norms_child).
+/// Unwrap an L2Denorm ScalarFnArray into (normalized_sorf_child, norms_child).
 fn unwrap_l2denorm(encoded: &ArrayRef) -> (ArrayRef, ArrayRef) {
     let sfn = encoded
         .as_opt::<ScalarFn>()
@@ -84,7 +85,11 @@ fn unwrap_codes_centroids_norms(
     encoded: &ArrayRef,
     ctx: &mut vortex_array::ExecutionCtx,
 ) -> VortexResult<(PrimitiveArray, PrimitiveArray, PrimitiveArray)> {
-    let (sorf_child, norms_child) = unwrap_l2denorm(encoded);
+    let (normalized_sorf_child, norms_child) = unwrap_l2denorm(encoded);
+    let normalized_sorf = normalized_sorf_child
+        .as_opt::<Extension>()
+        .expect("expected NormalizedVector wrapping SorfTransform");
+    let sorf_child = normalized_sorf.storage_array();
     let padded_vector_child = sorf_child
         .as_opt::<ScalarFn>()
         .expect("expected SorfTransform ScalarFnArray")

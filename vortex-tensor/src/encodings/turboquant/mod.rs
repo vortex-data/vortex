@@ -29,13 +29,15 @@
 //!
 //! ```text
 //! ScalarFnArray(L2Denorm, [
-//!     ScalarFnArray(SorfTransform, [FSL(Dict(codes, centroids))]),
+//!     NormalizedVector(ScalarFnArray(SorfTransform, [NormalizedVector(Vector(FSL(Dict)))])),
 //!     norms
 //! ])
 //! ```
 //!
 //! When executed, the tree automatically decompresses: Dict dequantizes codes → SorfTransform
-//! inverse-rotates → L2Denorm re-applies norms → original vectors (approximately).
+//! inverse-rotates → L2Denorm re-applies norms → original vectors (approximately). The
+//! `NormalizedVector` wrappers mark the unit-vector contract that the lossy encoding treats as
+//! authoritative.
 //!
 //! [`L2Denorm`]: crate::scalar_fns::l2_denorm::L2Denorm
 //! [`SorfTransform`]: crate::scalar_fns::sorf_transform::SorfTransform

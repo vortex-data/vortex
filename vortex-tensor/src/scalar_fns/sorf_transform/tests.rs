@@ -365,7 +365,7 @@ fn rejects_non_vector_extension_child_at_construction() {
 }
 
 #[test]
-fn accepts_normalized_vector_child_and_mirrors_kind() -> VortexResult<()> {
+fn accepts_normalized_vector_child_but_returns_plain_vector() -> VortexResult<()> {
     let options = default_options(128, 42);
     let mut values = vec![0.0f32; 128];
     values[0] = 1.0;
@@ -374,21 +374,20 @@ fn accepts_normalized_vector_child_and_mirrors_kind() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let child = NormalizedVector::try_new(fsl.into_array(), &mut ctx)?;
 
-    // The output mirrors the child's wrapper kind: a `NormalizedVector` child produces a
-    // `NormalizedVector` parent. The orthogonal inverse rotation preserves L2 norm and the
-    // truncated coordinates were near-zero pre-rotation, so the output is approximately
-    // unit-norm (lossy contract documented on `NormalizedVector::new_unchecked`).
+    // A `NormalizedVector` child is accepted, but the output is a plain `Vector`: inverse SORF is
+    // followed by truncation, which cannot generally preserve the unit-norm invariant.
     let sorf = SorfTransform::try_new_array(&options, child, 1)?.into_array();
-    assert!(sorf.dtype().as_extension().is::<NormalizedVector>());
+    assert!(sorf.dtype().as_extension().is::<Vector>());
+    assert!(!sorf.dtype().as_extension().is::<NormalizedVector>());
 
     let result: ExtensionArray = sorf.execute(&mut ctx)?;
-    assert!(result.dtype().as_extension().is::<NormalizedVector>());
+    assert!(result.dtype().as_extension().is::<Vector>());
+    assert!(!result.dtype().as_extension().is::<NormalizedVector>());
     Ok(())
 }
 
-/// A plain [`Vector`] child should still produce a plain [`Vector`] parent.
 #[test]
-fn accepts_plain_vector_child_and_mirrors_kind() -> VortexResult<()> {
+fn accepts_plain_vector_child_and_returns_plain_vector() -> VortexResult<()> {
     let options = default_options(128, 42);
     let elements = PrimitiveArray::from_iter([0.0f32; 128]).into_array();
     let fsl = FixedSizeListArray::try_new(elements, 128, Validity::NonNullable, 1)?;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! L2 denormalization expression for tensor-like types.
+//! L2 denormalization expression for normalized vectors.
 
 use std::fmt::Formatter;
 
@@ -59,8 +59,8 @@ use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
-use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_norm::L2Norm;
+use crate::types::normalized_vector::AnyNormalizedVector;
 use crate::types::normalized_vector::NormalizedVector;
 use crate::types::vector::AnyVector;
 use crate::types::vector::Vector;
@@ -73,12 +73,11 @@ use crate::utils::vector_fsl_storage_dtype;
 
 /// Re-applies authoritative L2 norms to a normalized vector column.
 ///
-/// Computes `normalized * norm` on each row over the flat backing buffer of the vector-shaped
-/// child.
+/// Computes `normalized * norm` on each row over the flat backing buffer of the vector child.
 ///
-/// The first child must be vector-shaped and semantically suitable for L2 denormalization. Exact
-/// callers should use [`try_new_array`](Self::try_new_array), which verifies that plain
-/// [`Vector`] inputs are row-wise unit-norm (or zero). Lossy encodings may use
+/// The first child must be a [`NormalizedVector`]. Exact callers should use
+/// [`try_new_array`](Self::try_new_array), which verifies that stored norms are non-negative and
+/// that a zero stored norm is paired with an all-zero normalized row. Lossy encodings may use
 /// [`new_array_unchecked`](Self::new_array_unchecked) when the decoded child is only an
 /// approximation but the stored norms are still authoritative.
 ///
@@ -105,12 +104,8 @@ impl L2Denorm {
     /// Constructs a validated [`ScalarFnArray`] that lazily re-applies `norms` to `normalized`.
     ///
     /// In addition to the structural checks performed by [`ScalarFnArray::try_new`], this
-    /// constructor verifies that plain [`Vector`] children are row-wise unit-norm (or zero), that
-    /// stored norms are non-negative, and that any row with stored norm `0.0` has an all-zero
-    /// normalized row.
-    ///
-    /// Plain [`Vector`] children are promoted to [`NormalizedVector`] after validation so that
-    /// downstream execution paths can rely on the unit-norm marker.
+    /// constructor verifies that the first child is a [`NormalizedVector`], that stored norms are
+    /// non-negative, and that any row with stored norm `0.0` has an all-zero normalized row.
     ///
     /// # Errors
     ///
@@ -125,38 +120,22 @@ impl L2Denorm {
     ) -> VortexResult<ScalarFnArray> {
         validate_norms_against_normalized(&normalized, &norms, ctx)?;
 
-        // Promote plain `Vector` children to `NormalizedVector`. The unit-norm invariant is
-        // verified by `validate_norms_against_normalized`, so the `wrap_vector_unchecked` wrap is
-        // safe by construction.
-        let normalized = if normalized
-            .dtype()
-            .as_extension_opt()
-            .is_some_and(|ext| ext.is::<NormalizedVector>())
-        {
-            normalized
-        } else {
-            // SAFETY: row-wise unit-norm (or zero) was just verified for the plain `Vector` input
-            // above. Wrap the `Vector` extension array as a `NormalizedVector` without unpacking
-            // to FSL storage.
-            unsafe { NormalizedVector::wrap_vector_unchecked(normalized) }?
-        };
-
         // SAFETY: The validation above established the exact L2Denorm invariants.
         unsafe { Self::new_array_unchecked(normalized, norms, len) }
     }
 
-    /// Constructs an [`L2Denorm`] array without validating the normalized-child invariant.
+    /// Constructs an [`L2Denorm`] array without validating row values against `norms`.
     ///
-    /// Structural validation still runs via [`ScalarFnArray::try_new`]. Use this when the
-    /// normalized child is a lossy approximation whose rows may not be exactly unit-norm or may not
-    /// preserve exact zero-ness.
+    /// Structural validation still runs via [`ScalarFnArray::try_new`], so the first child must be
+    /// a [`NormalizedVector`]. Use this when the normalized child is a lossy approximation whose
+    /// rows may not be exactly unit-norm or may not preserve exact zero-ness.
     ///
     /// # Safety
     ///
-    /// The caller must ensure the first child is semantically suitable for L2 denormalization.
-    /// For exact wrappers, every valid row must be unit-norm or zero and stored norms must be
-    /// non-negative. Lossy encodings may deliberately relax the exact row invariant while still
-    /// treating the stored norms as authoritative.
+    /// The caller must ensure the first child is semantically suitable for L2 denormalization and
+    /// is wrapped as a [`NormalizedVector`]. For exact wrappers, every valid row must be unit-norm
+    /// or zero and stored norms must be non-negative. Lossy encodings may deliberately relax the
+    /// exact row invariant while still treating the stored norms as authoritative.
     ///
     /// # Errors
     ///
@@ -207,41 +186,7 @@ impl ScalarFnVTable for L2Denorm {
         let normalized = &arg_dtypes[0];
         let norms = &arg_dtypes[1];
 
-        let ext = normalized.as_extension_opt().ok_or_else(|| {
-            vortex_err!(
-                "L2Denorm normalized child must be a Vector or NormalizedVector, got \
-                 {normalized}",
-            )
-        })?;
-        let normalized_metadata = ext.metadata_opt::<AnyTensor>().ok_or_else(|| {
-            vortex_err!(
-                "L2Denorm normalized child must be a Vector or NormalizedVector, got \
-                 {normalized}",
-            )
-        })?;
-        let element_ptype = normalized_metadata.element_ptype();
-
-        let DType::Primitive(norms_ptype, _) = norms else {
-            vortex_bail!("L2Denorm norms must be a primitive float array, got {norms}");
-        };
-        vortex_ensure_eq!(
-            *norms_ptype,
-            element_ptype,
-            "L2Denorm norms dtype must match normalized element dtype ({element_ptype}), \
-                got {norms_ptype}",
-        );
-
-        // The denormalized output has the same FSL storage shape as the normalized child but is
-        // no longer guaranteed unit-norm, so it surfaces as a plain `Vector` extension type.
-        let fsl_dtype = vector_fsl_storage_dtype(ext).ok_or_else(|| {
-            vortex_err!(
-                "L2Denorm normalized child must be a Vector or NormalizedVector, got \
-                 {normalized}",
-            )
-        })?;
-        let plain_vector =
-            DType::Extension(ExtDType::<Vector>::try_new(EmptyMetadata, fsl_dtype)?.erased());
-        Ok(plain_vector.union_nullability(norms.nullability()))
+        l2_denorm_output_dtype(normalized, norms)
     }
 
     fn execute(
@@ -252,19 +197,7 @@ impl ScalarFnVTable for L2Denorm {
     ) -> VortexResult<ArrayRef> {
         let normalized_ref = args.get(0)?;
         let norms_ref = args.get(1)?;
-        // Output is a plain `Vector` (not `NormalizedVector`) because denormalized values are no
-        // longer guaranteed unit-norm. Drill through any `NormalizedVector` wrapper to get the
-        // underlying FSL.
-        let fsl_dtype = vector_fsl_storage_dtype(normalized_ref.dtype().as_extension())
-            .ok_or_else(|| {
-                vortex_err!(
-                    "L2Denorm normalized child must be a Vector or NormalizedVector, got {}",
-                    normalized_ref.dtype(),
-                )
-            })?;
-        let output_dtype =
-            DType::Extension(ExtDType::<Vector>::try_new(EmptyMetadata, fsl_dtype)?.erased())
-                .union_nullability(norms_ref.dtype().nullability());
+        let output_dtype = l2_denorm_output_dtype(normalized_ref.dtype(), norms_ref.dtype())?;
         let validity = normalized_ref.validity()?.and(norms_ref.validity()?)?;
 
         if let Some(const_norms) = norms_ref.as_opt::<Constant>() {
@@ -294,12 +227,12 @@ impl ScalarFnVTable for L2Denorm {
         let norms: PrimitiveArray = norms_ref.execute(ctx)?;
         let row_count = args.row_count();
 
-        let tensor_match = normalized
+        let vector_metadata = normalized
             .dtype()
             .as_extension()
-            .metadata_opt::<AnyTensor>()
+            .metadata_opt::<AnyVector>()
             .vortex_expect("we already validated this in `return_dtype`");
-        let tensor_flat_size = tensor_match.list_size() as usize;
+        let tensor_flat_size = vector_metadata.dimensions() as usize;
 
         let flat = extract_flat_elements(normalized.storage_array(), tensor_flat_size, ctx)?;
 
@@ -342,6 +275,40 @@ impl ScalarFnVTable for L2Denorm {
     fn is_fallible(&self, _options: &Self::Options) -> bool {
         false
     }
+}
+
+/// Returns the denormalized output dtype for a normalized vector child and matching norms.
+fn l2_denorm_output_dtype(normalized: &DType, norms: &DType) -> VortexResult<DType> {
+    let normalized_ext = normalized.as_extension_opt().ok_or_else(|| {
+        vortex_err!("L2Denorm normalized child must be a NormalizedVector, got {normalized}")
+    })?;
+    let normalized_metadata = normalized_ext
+        .metadata_opt::<AnyNormalizedVector>()
+        .ok_or_else(|| {
+            vortex_err!("L2Denorm normalized child must be a NormalizedVector, got {normalized}")
+        })?;
+    let element_ptype = normalized_metadata.element_ptype();
+
+    let DType::Primitive(norms_ptype, _) = norms else {
+        vortex_bail!("L2Denorm norms must be a primitive float array, got {norms}");
+    };
+    vortex_ensure!(
+        norms_ptype.is_float(),
+        "L2Denorm norms must be a primitive float array, got {norms}",
+    );
+    vortex_ensure_eq!(
+        *norms_ptype,
+        element_ptype,
+        "L2Denorm norms dtype must match normalized element dtype ({element_ptype}), \
+            got {norms_ptype}",
+    );
+
+    let fsl_dtype = vector_fsl_storage_dtype(normalized_ext).ok_or_else(|| {
+        vortex_err!("L2Denorm normalized child must be a NormalizedVector, got {normalized}")
+    })?;
+    let output = DType::Extension(ExtDType::<Vector>::try_new(EmptyMetadata, fsl_dtype)?.erased());
+
+    Ok(output.union_nullability(norms.nullability()))
 }
 
 /// Metadata for a serialized [`L2Denorm`] array: both children's full [`DType`]s. The parent's
@@ -418,20 +385,20 @@ fn execute_l2_denorm_constant_norms(
         .vortex_expect("we know that this is a float, so it must fit in f64")
         - 1.0f64;
 
-    let tensor_match = normalized_ref
+    let normalized_metadata = normalized_ref
         .dtype()
         .as_extension_opt()
-        .and_then(|ext| ext.metadata_opt::<AnyTensor>())
+        .and_then(|ext| ext.metadata_opt::<AnyNormalizedVector>())
         .ok_or_else(|| {
             vortex_err!(
-                "L2Denorm normalized child must be a Vector or NormalizedVector, got {}",
+                "L2Denorm normalized child must be a NormalizedVector, got {}",
                 normalized_ref.dtype(),
             )
         })?;
 
     let tolerance = unit_norm_tolerance(
         norm_scalar.dtype().as_ptype(),
-        tensor_match.list_size() as usize,
+        normalized_metadata.dimensions() as usize,
     );
 
     // Drill past any outer `NormalizedVector` wrapper so we always work with the inner plain
@@ -477,19 +444,19 @@ fn execute_l2_denorm_constant_norms(
     Ok(ExtensionArray::new(output_dtype.as_extension().clone(), new_fsl.into_array()).into_array())
 }
 
-/// Builds an unexecuted [`L2Denorm`] expression by normalizing `input` and reattaching the exact
-/// norms as the `norms` child.
+/// Builds an unexecuted [`L2Denorm`] expression by normalizing a vector input and reattaching the
+/// exact norms as the `norms` child.
 ///
 /// The returned array is a lazy `L2Denorm(normalized, norms)` scalar function array.
 ///
 /// # Normalized child
 ///
-/// For plain [`Vector`] (and [`FixedShapeTensor`]) input, every non-null row with a positive L2
-/// norm is divided by its norm to produce a unit-norm vector. The normalized child is forced
-/// **non-nullable** with [`Validity::NonNullable`] so optimized kernels over normalized vectors
-/// only have to reason about unit-norm vs. zero rows, not nulls. Rows that are null in the
-/// original input are **zeroed out** in the normalized output to avoid leaking undefined
-/// physical storage values into downstream encodings (like TurboQuant).
+/// For plain [`Vector`] input, every non-null row with a positive L2 norm is divided by its norm
+/// to produce a unit-norm vector, and the normalized child is promoted to [`NormalizedVector`].
+/// The normalized child is forced **non-nullable** with [`Validity::NonNullable`] so optimized
+/// kernels only have to reason about unit-norm vs. zero rows, not nulls. Rows that are null in the
+/// original input are **zeroed out** in the normalized output to avoid leaking undefined physical
+/// storage values into downstream encodings.
 ///
 /// For [`NormalizedVector`] input, the function takes a fast path that returns the input
 /// unchanged as the normalized child and asks [`L2Norm`] for the per-row norms. The fast path
@@ -507,24 +474,23 @@ fn execute_l2_denorm_constant_norms(
 /// Because this helper computes exact `norms` and (on the slow path) divides by them, the
 /// returned `normalized` child satisfies the unit-norm invariant required by [`L2Denorm`].
 ///
-/// [`FixedShapeTensor`]: crate::fixed_shape::FixedShapeTensor
 /// [`NormalizedVector`]: crate::normalized_vector::NormalizedVector
 pub fn normalize_as_l2_denorm(
     input: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ScalarFnArray> {
     let row_count = input.len();
-    let tensor_metadata = input
-        .dtype()
+    let input_dtype = input.dtype().clone();
+    let vector_metadata = input_dtype
         .as_extension_opt()
-        .and_then(|ext| ext.metadata_opt::<AnyTensor>())
+        .and_then(|ext| ext.metadata_opt::<AnyVector>())
         .ok_or_else(|| {
             vortex_err!(
-                "normalize_as_l2_denorm requires a tensor-like extension input, got {}",
-                input.dtype(),
+                "normalize_as_l2_denorm requires a Vector or NormalizedVector extension input, \
+                 got {input_dtype}",
             )
         })?;
-    let tensor_flat_size = tensor_metadata.list_size() as usize;
+    let tensor_flat_size = vector_metadata.dimensions() as usize;
 
     // Fast path: input is already a `NormalizedVector`. The slow path below would compute exact
     // norms and divide every row by its norm, but for a `NormalizedVector` the divisor is always
@@ -534,7 +500,7 @@ pub fn normalize_as_l2_denorm(
     // row, because [`L2Norm`]'s `NormalizedVector` short-circuit emits 0.0 exactly when the row
     // is all zero.
     // This also has the added benefit of correcting any lossy-encoded `NormalizedVector` arrays.
-    if tensor_metadata.is_normalized() {
+    if vector_metadata.is_normalized() {
         let norms_sfn = L2Norm::try_new_array(input.clone(), row_count)?;
         let norms_array: ArrayRef = norms_sfn.into_array().execute(ctx)?;
 
@@ -599,12 +565,12 @@ pub fn normalize_as_l2_denorm(
     unsafe { L2Denorm::new_array_unchecked(normalized, norms_array, row_count) }
 }
 
-// TODO(connor): This does not handle `NormalizedVector` correctly!!!
 /// Attempts to build an [`L2Denorm`] whose two children are both [`ConstantArray`]s by eagerly
 /// normalizing `input`'s single stored row.
 ///
-/// Returns `Ok(None)` when `input` is not a tensor-like extension array whose storage is a
-/// [`ConstantArray`] with a non-null fixed-size-list scalar.
+/// Returns `Ok(None)` when `input` is not a plain vector extension array whose storage is a
+/// [`ConstantArray`] with a non-null fixed-size-list scalar, or when it is already a
+/// [`NormalizedVector`].
 ///
 /// When `input` matches, the returned [`ScalarFnArray`] is equivalent to [`normalize_as_l2_denorm`]
 /// but runs in `O(list_size)` time instead of `O(row_count * list_size)`.
@@ -627,9 +593,6 @@ pub(crate) fn try_build_constant_l2_denorm_from_constant(
         return Ok(None);
     }
 
-    // Only promote vector-family inputs: wrapping FST rows as `NormalizedVector` would be a
-    // family change, so `FixedShapeTensor` constants fall back to the generic fast path with
-    // per-row division.
     let Some(vector_metadata) = input
         .dtype()
         .as_extension_opt()
@@ -637,6 +600,10 @@ pub(crate) fn try_build_constant_l2_denorm_from_constant(
     else {
         return Ok(None);
     };
+    if vector_metadata.is_normalized() {
+        return Ok(None);
+    }
+
     let list_size = vector_metadata.dimensions() as usize;
     let original_nullability = input.dtype().nullability();
     let storage_fsl_nullability = storage.dtype().nullability();
@@ -674,8 +641,7 @@ pub(crate) fn try_build_constant_l2_denorm_from_constant(
 
     let normalized_storage = ConstantArray::new(normalized_fsl_scalar, len).into_array();
     // SAFETY: The single stored row is either `v / ||v||` (unit norm within floating-point
-    // tolerance) or all zeros when `||v|| == 0`. This is the invariant required by
-    // `NormalizedVector::new_unchecked`.
+    // tolerance) or all zeros when `||v|| == 0`.
     let normalized = unsafe { NormalizedVector::new_unchecked(normalized_storage) }?;
     let norms_array = ConstantArray::new(norms_scalar, len).into_array();
 
@@ -686,7 +652,7 @@ pub(crate) fn try_build_constant_l2_denorm_from_constant(
     }))
 }
 
-/// Rebuilds a tensor-like extension array from flat primitive elements.
+/// Rebuilds a vector extension array from flat primitive elements.
 ///
 /// # Errors
 ///
@@ -725,41 +691,32 @@ fn build_fsl_storage<T: NativePType>(
 ) -> VortexResult<FixedSizeListArray> {
     let list_size =
         u32::try_from(tensor_flat_size).vortex_expect("tensor flat size must fit into `u32`");
-    // SAFETY: Validity has no length (because tensor elements are always non-nullable).
+    // SAFETY: Validity has no length (because vector elements are always non-nullable).
     let elements = unsafe { PrimitiveArray::new_unchecked(elements, Validity::NonNullable) };
     FixedSizeListArray::try_new(elements.into_array(), list_size, validity, row_count)
 }
 
-// TODO(connor): Need better logic here to check against `NormalizedVector` vs `Vector`.
 /// Cross-check that `normalized` and `norms` agree on per-row zero-ness, and that stored norms
 /// are non-negative. Unit-norm enforcement on the rows lives on the
 /// [`NormalizedVector`](crate::normalized_vector::NormalizedVector) dtype itself.
-///
-/// We match against [`AnyTensor`] for symmetry with the rest of the tensor pipeline, but
-/// downstream construction in [`L2Denorm::return_dtype`] only succeeds for `Vector` and
-/// `NormalizedVector` storage (see [`vector_fsl_storage_dtype`]). A `FixedShapeTensor` operand
-/// will pass this validator and then be rejected later, which is why the user-visible error
-/// message names only the two supported shapes.
 fn validate_norms_against_normalized(
     normalized: &ArrayRef,
     norms: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    let tensor_match = normalized
+    let vector_metadata = normalized
         .dtype()
         .as_extension_opt()
-        .and_then(|ext| ext.metadata_opt::<AnyTensor>())
+        .and_then(|ext| ext.metadata_opt::<AnyNormalizedVector>())
         .ok_or_else(|| {
             vortex_err!(
-                "L2Denorm normalized child must be a Vector or NormalizedVector, got {}",
+                "L2Denorm normalized child must be a NormalizedVector, got {}",
                 normalized.dtype(),
             )
         })?;
     let row_count = normalized.len();
-    let element_ptype = tensor_match.element_ptype();
-    let tolerance = unit_norm_tolerance(element_ptype, tensor_match.list_size() as usize);
-    let tensor_flat_size = tensor_match.list_size() as usize;
-    let skip_unit_norm_check = tensor_match.is_normalized();
+    let element_ptype = vector_metadata.element_ptype();
+    let tensor_flat_size = vector_metadata.dimensions() as usize;
 
     vortex_ensure_eq!(
         norms.len(),
@@ -783,11 +740,11 @@ fn validate_norms_against_normalized(
         return Ok(());
     }
 
-    // Drill past any outer `NormalizedVector` wrapper so we always iterate the FSL of the
-    // inner plain `Vector`.
+    // Drill past the outer `NormalizedVector` wrapper so we always iterate the FSL of the inner
+    // plain `Vector`.
     let vector_ref = inner_vector_array(normalized, ctx)?;
     let vector_ext: ExtensionArray = vector_ref.execute(ctx)?;
-    let normalized_validity = vector_ext.as_ref().validity()?;
+    let normalized_validity = normalized.validity()?;
 
     let flat = extract_flat_elements(vector_ext.storage_array(), tensor_flat_size, ctx)?;
     let norms_prim: PrimitiveArray = norms.clone().execute(ctx)?;
@@ -807,22 +764,10 @@ fn validate_norms_against_normalized(
                 "L2Denorm norms must be non-negative, but row {i} has {stored_norm_f64:.6}",
             );
 
-            let (row_norm_sq, is_zero_row) =
-                flat.row::<T>(i)
-                    .iter()
-                    .fold((0.0f64, true), |(sum_sq, all_zero), x| {
-                        let value = ToPrimitive::to_f64(x).unwrap_or(f64::NAN);
-                        (sum_sq + value * value, all_zero && value.abs() <= tolerance)
-                    });
-
-            if !skip_unit_norm_check {
-                let row_norm = row_norm_sq.sqrt();
-                vortex_ensure!(
-                    row_norm == 0.0 || (row_norm - 1.0).abs() <= tolerance,
-                    "L2Denorm normalized child row {i} has L2 norm {row_norm:.6}, \
-                     expected 1.0 or 0.0",
-                );
-            }
+            let is_zero_row = flat.row::<T>(i).iter().all(|x| {
+                let value = ToPrimitive::to_f64(x).unwrap_or(f64::NAN);
+                value == 0.0
+            });
 
             if stored_norm_f64 == 0.0 {
                 vortex_ensure!(
@@ -853,9 +798,11 @@ pub(crate) enum NormalForm<'a> {
     /// An already-normalized `NormalizedVector`, which has implicit norms of `1.0`.
     Normalized { array: &'a ArrayRef },
 
-    /// Decomposed `L2Denorm(normalized: NormalizedVector, norms)`.
+    /// Decomposed `L2Denorm(normalized, norms)`.
     ///
-    /// Note that `normalized` is _always_ non-null, and the validity is stored in `norms`.
+    /// The normalized child is a `NormalizedVector` by structural contract. It is usually
+    /// non-null, with validity stored in `norms`, except when callers use
+    /// [`L2Denorm::new_array_unchecked`] directly.
     Denormalized {
         normalized: ArrayRef,
         norms: ArrayRef,
@@ -928,6 +875,7 @@ mod tests {
     use crate::types::vector::Vector;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::normalized_vector_array;
+    use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
 
     /// Evaluates L2 denorm on a [`Vector`] (rewrapped as a [`NormalizedVector`]) and the matching
@@ -1029,13 +977,13 @@ mod tests {
     }
 
     #[test]
-    fn l2_denorm_accepts_plain_unit_vector_lhs() -> VortexResult<()> {
+    fn l2_denorm_rejects_plain_unit_vector_lhs() -> VortexResult<()> {
         let lhs = vector_array(2, &[1.0, 0.0, 0.0, 1.0])?;
         let rhs = PrimitiveArray::from_iter([1.0f64, 1.0]).into_array();
 
         let mut ctx = SESSION.create_execution_ctx();
         let result = L2Denorm::try_new_array(lhs, rhs, 2, &mut ctx);
-        assert!(result.is_ok());
+        assert!(result.is_err());
         Ok(())
     }
 
@@ -1139,6 +1087,18 @@ mod tests {
     }
 
     #[test]
+    fn l2_denorm_new_array_unchecked_rejects_plain_vector_lhs() -> VortexResult<()> {
+        let vector = vector_array(2, &[1.0, 0.0, 0.0, 1.0])?;
+        let norms = PrimitiveArray::from_iter([1.0f64, 1.0]).into_array();
+
+        // SAFETY: This deliberately checks that structural validation still rejects a plain
+        // `Vector` child.
+        let result = unsafe { L2Denorm::new_array_unchecked(vector, norms, 2) };
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
     fn normalize_as_l2_denorm_roundtrips_vectors() -> VortexResult<()> {
         let input = vector_array(3, &[3.0, 4.0, 0.0, 0.0, 0.0, 0.0])?;
         let mut ctx = SESSION.create_execution_ctx();
@@ -1146,6 +1106,15 @@ mod tests {
         let actual = roundtrip.into_array().execute(&mut ctx)?;
 
         assert_tensor_arrays_eq(actual, input)?;
+        Ok(())
+    }
+
+    #[test]
+    fn normalize_as_l2_denorm_rejects_fixed_shape_tensor() -> VortexResult<()> {
+        let input = tensor_array(&[2, 2], &[3.0, 4.0, 0.0, 0.0])?;
+        let mut ctx = SESSION.create_execution_ctx();
+
+        assert!(normalize_as_l2_denorm(input, &mut ctx).is_err());
         Ok(())
     }
 

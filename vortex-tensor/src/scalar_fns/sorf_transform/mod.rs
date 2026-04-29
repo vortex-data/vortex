@@ -34,9 +34,10 @@
 //!
 //! The output [`Vector`]'s element type is whatever [`SorfOptions::element_ptype`] is set to. It
 //! does **not** have to match the child's `f32` storage: we apply an explicit `f32 -> T` cast
-//! while materializing the output. This lets SorfTransform hand its result directly to a
-//! downstream consumer (e.g. [`L2Denorm`](crate::scalar_fns::l2_denorm::L2Denorm)) whose
-//! element-type expectation may differ from the `f32` the transform operated on internally.
+//! while materializing the output. Callers that intentionally treat the decoded output as
+//! normalized (for example TurboQuant) must wrap the result as a
+//! [`NormalizedVector`](crate::normalized_vector::NormalizedVector) before handing it to consumers
+//! such as [`L2Denorm`](crate::scalar_fns::l2_denorm::L2Denorm).
 //!
 //! [sorf-paper]: https://proceedings.neurips.cc/paper_files/paper/2016/file/53adaf494dc89ef7196d73636eb2451b-Paper.pdf
 //! [`Vector`]: crate::vector::Vector

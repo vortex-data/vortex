@@ -7,10 +7,9 @@
 //!
 //! ```text
 //! ScalarFnArray(L2Denorm, [
-//!     ScalarFnArray(
-//!         SorfTransform,
-//!         FSL(Dict(codes, centroids))
-//!     ),
+//!     NormalizedVector(ScalarFnArray(SorfTransform, [
+//!         NormalizedVector(Vector(FSL(Dict(codes, centroids))))
+//!     ])),
 //!     norms
 //! ])
 //! ```

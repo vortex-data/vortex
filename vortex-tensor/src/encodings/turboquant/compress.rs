@@ -80,14 +80,14 @@ impl Default for TurboQuantConfig {
 ///
 /// ```text
 /// ScalarFnArray(L2Denorm, [
-///     ScalarFnArray(SorfTransform, [FSL(Dict(codes, centroids))]),
+///     NormalizedVector(ScalarFnArray(SorfTransform, [NormalizedVector(Vector(FSL(Dict)))])),
 ///     norms,
 /// ])
 /// ```
 ///
 /// # Errors
 ///
-/// Returns an error if `input` is not a tensor-like extension array, if normalization fails, or if
+/// Returns an error if `input` is not a vector-family extension array, if normalization fails, or if
 /// [`turboquant_encode_normalized`] rejects the input shape.
 pub fn turboquant_encode(
     input: ArrayRef,
@@ -97,7 +97,15 @@ pub fn turboquant_encode(
     // We must normalize the array before we can encode it with TurboQuant.
     let l2_denorm = normalize_as_l2_denorm(input, ctx)?;
 
-    let normalized = l2_denorm.child_at(0).clone(); // Guaranteed to be a `NormalizedVector`..
+    let normalized = l2_denorm.child_at(0).clone();
+    vortex_ensure!(
+        normalized
+            .dtype()
+            .as_extension_opt()
+            .is_some_and(|ext| ext.is::<AnyNormalizedVector>()),
+        "TurboQuant requires a Vector or NormalizedVector input, got normalized child {}",
+        normalized.dtype(),
+    );
     let norms = l2_denorm.child_at(1).clone();
     let num_rows = l2_denorm.len();
 
@@ -112,9 +120,9 @@ pub fn turboquant_encode(
     Ok(unsafe { L2Denorm::new_array_unchecked(tq, norms, num_rows) }?.into_array())
 }
 
-/// Encode a non-nullable [`NormalizedVector`] extension array into a
-/// `ScalarFnArray(SorfTransform, [FSL(Dict(codes, centroids))])`, without validating the unit-norm
-/// precondition.
+/// Encode a non-nullable [`NormalizedVector`] extension array into a lossy
+/// `NormalizedVector(ScalarFnArray(SorfTransform, [NormalizedVector(Vector(FSL(Dict)))]))`,
+/// without validating the decoded unit-norm precondition.
 pub fn turboquant_encode_normalized(
     ext: ArrayView<Extension>,
     config: &TurboQuantConfig,
@@ -173,14 +181,14 @@ pub fn turboquant_encode_normalized(
 
     let quantized_fsl = turboquant_quantize_fsl(&fsl, config.bit_width, &sorf_options, ctx)?;
 
-    // NB: The quantized rows are approximately unit-norm by construction; downstream callers
-    // (notably the enclosing `L2Denorm` wrapper) treat the stored-norm + NormalizedVector claim as
-    // authoritative rather than decode-verified.
-
     // SAFETY: TurboQuant is a lossy approximation of the already-unit-norm input.
     let padded_vector = unsafe { NormalizedVector::new_unchecked(quantized_fsl) }?;
 
-    Ok(SorfTransform::try_new_array(&sorf_options, padded_vector, num_rows)?.into_array())
+    let sorf = SorfTransform::try_new_array(&sorf_options, padded_vector, num_rows)?.into_array();
+    // SAFETY: Inverse SORF followed by truncation can lose energy, and quantization is already
+    // lossy, so this is a semantic assertion made by TurboQuant rather than an exact validation.
+    // Downstream vector operators treat the compressed unit-vector claim as authoritative.
+    unsafe { NormalizedVector::wrap_vector_unchecked(sorf) }
 }
 
 /// Rotate and quantize already-normalized vector rows into a dict-encoded `FixedSizeList`.

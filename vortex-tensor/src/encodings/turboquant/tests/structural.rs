@@ -4,15 +4,18 @@
 //! Tests that verify the internal structure of the encoded tree.
 
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::Extension;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::ScalarFn;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_error::VortexResult;
 
 use super::*;
 use crate::encodings::turboquant::centroids::compute_or_get_centroids;
+use crate::types::normalized_vector::NormalizedVector;
 
 /// Verify that the centroids stored in the DictArray match what `compute_or_get_centroids()`
 /// computes.
@@ -106,6 +109,42 @@ fn encoded_dtype_is_vector_extension() -> VortexResult<()> {
     assert!(
         encoded.dtype().as_extension().is::<Vector>(),
         "TurboQuant dtype should be a Vector extension type"
+    );
+    Ok(())
+}
+
+/// Verify the L2Denorm child keeps the normalized-vector marker even though SorfTransform itself
+/// returns a plain Vector.
+#[test]
+fn encoded_l2_denorm_child_is_normalized_sorf_transform() -> VortexResult<()> {
+    let fsl = make_fsl(10, 128, 42);
+    let ext = make_vector_ext(&fsl);
+    let config = TurboQuantConfig {
+        bit_width: 3,
+        seed: 123,
+        num_rounds: 2,
+    };
+    let mut ctx = SESSION.create_execution_ctx();
+    let encoded = turboquant_encode(ext, &config, &mut ctx)?;
+
+    let (normalized_child, _norms) = unwrap_l2denorm(&encoded);
+    assert!(
+        normalized_child
+            .dtype()
+            .as_extension()
+            .is::<NormalizedVector>(),
+        "L2Denorm child should carry NormalizedVector dtype"
+    );
+
+    let normalized_ext = normalized_child
+        .as_opt::<Extension>()
+        .expect("normalized child should be an Extension array");
+    assert!(
+        normalized_ext
+            .storage_array()
+            .as_opt::<ScalarFn>()
+            .is_some(),
+        "NormalizedVector storage should be the SorfTransform ScalarFnArray"
     );
     Ok(())
 }
