@@ -19480,6 +19480,10 @@ pub fn vortex_array::validity::Validity::union_nullability(self, nullability: vo
 
 impl vortex_array::validity::Validity
 
+pub fn vortex_array::validity::Validity::concat(validities: alloc::vec::Vec<(vortex_array::validity::Validity, usize)>) -> core::option::Option<Self>
+
+impl vortex_array::validity::Validity
+
 pub fn vortex_array::validity::Validity::execute(self, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
 impl vortex_array::validity::Validity
@@ -22066,6 +22070,10 @@ pub fn vortex_array::Array<vortex_array::arrays::Struct>::project(&self, project
 
 pub fn vortex_array::Array<vortex_array::arrays::Struct>::remove_column(&self, name: impl core::convert::Into<vortex_array::dtype::FieldName>) -> core::option::Option<(Self, vortex_array::ArrayRef)>
 
+pub fn vortex_array::Array<vortex_array::arrays::Struct>::remove_column_owned(&self, name: impl core::convert::Into<vortex_array::dtype::FieldName>) -> core::option::Option<(Self, vortex_array::ArrayRef)>
+
+pub fn vortex_array::Array<vortex_array::arrays::Struct>::try_concat<T>(chunks: impl core::iter::traits::collect::IntoIterator<Item = T>) -> vortex_error::VortexResult<Self> where T: core::borrow::Borrow<vortex_array::Array<vortex_array::arrays::Struct>>
+
 pub fn vortex_array::Array<vortex_array::arrays::Struct>::try_from_iter<N: core::convert::AsRef<str>, A: vortex_array::IntoArray, T: core::iter::traits::collect::IntoIterator<Item = (N, A)>>(iter: T) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::Array<vortex_array::arrays::Struct>::try_from_iter_with_validity<N: core::convert::AsRef<str>, A: vortex_array::IntoArray, T: core::iter::traits::collect::IntoIterator<Item = (N, A)>>(iter: T, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
@@ -22074,15 +22082,11 @@ pub fn vortex_array::Array<vortex_array::arrays::Struct>::try_new(names: vortex_
 
 pub fn vortex_array::Array<vortex_array::arrays::Struct>::try_new_with_dtype(fields: impl core::convert::Into<alloc::sync::Arc<[vortex_array::ArrayRef]>>, dtype: vortex_array::dtype::StructFields, length: usize, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::Array<vortex_array::arrays::Struct>::with_column(&self, name: impl core::convert::Into<vortex_array::dtype::FieldName>, array: vortex_array::ArrayRef) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::Array<vortex_array::arrays::Struct>
 
 pub fn vortex_array::Array<vortex_array::arrays::Struct>::into_record_batch_with_schema(self, schema: impl core::convert::AsRef<arrow_schema::schema::Schema>) -> vortex_error::VortexResult<arrow_array::record_batch::RecordBatch>
-
-impl vortex_array::Array<vortex_array::arrays::Struct>
-
-pub fn vortex_array::Array<vortex_array::arrays::Struct>::remove_column_owned(&self, name: impl core::convert::Into<vortex_array::dtype::FieldName>) -> core::option::Option<(Self, vortex_array::ArrayRef)>
-
-pub fn vortex_array::Array<vortex_array::arrays::Struct>::with_column(&self, name: impl core::convert::Into<vortex_array::dtype::FieldName>, array: vortex_array::ArrayRef) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::Array<vortex_array::arrays::VarBin>
 

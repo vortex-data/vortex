@@ -6,6 +6,7 @@
 use std::fmt::Debug;
 use std::ops::Range;
 
+use itertools::Itertools as _;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
@@ -22,6 +23,7 @@ use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
+use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::builtins::ArrayBuiltins;
@@ -444,6 +446,45 @@ impl From<&Nullability> for Validity {
             Nullability::NonNullable => Validity::NonNullable,
             Nullability::Nullable => Validity::AllValid,
         }
+    }
+}
+
+impl Validity {
+    /// Concatenate one or more validities together.
+    ///
+    /// Returns None if the vector is empty.
+    pub fn concat(validities: Vec<(Validity, usize)>) -> Option<Self> {
+        let mut validity_kinds = validities
+            .iter()
+            .map(|(v, _)| std::mem::discriminant(v))
+            .unique();
+        let validity_kind = validity_kinds.next()?;
+        if validity_kinds.next().is_none() {
+            // If there is only one kind of validity and its not Validity::Array, avoid constructing
+            // a Validity::Array.
+            if validity_kind == std::mem::discriminant(&Validity::AllValid) {
+                return Some(Validity::AllValid);
+            }
+            if validity_kind == std::mem::discriminant(&Validity::AllInvalid) {
+                return Some(Validity::AllInvalid);
+            }
+            if validity_kind == std::mem::discriminant(&Validity::NonNullable) {
+                return Some(Validity::NonNullable);
+            }
+        }
+
+        Some(Validity::Array(
+            unsafe {
+                ChunkedArray::new_unchecked(
+                    validities
+                        .into_iter()
+                        .map(|(v, len)| v.to_array(len))
+                        .collect(),
+                    DType::Bool(Nullability::NonNullable),
+                )
+            }
+            .into_array(),
+        ))
     }
 }
 

@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::borrow::Borrow;
 use std::iter::once;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
@@ -16,6 +19,7 @@ use crate::array::EmptyArrayData;
 use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
+use crate::arrays::ChunkedArray;
 use crate::arrays::Struct;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
@@ -430,9 +434,7 @@ impl Array<Struct> {
         };
         Some((new_array, field))
     }
-}
 
-impl Array<Struct> {
     pub fn with_column(&self, name: impl Into<FieldName>, array: ArrayRef) -> VortexResult<Self> {
         let name = name.into();
         let struct_dtype = self.struct_fields();
@@ -452,5 +454,71 @@ impl Array<Struct> {
 
     pub fn remove_column_owned(&self, name: impl Into<FieldName>) -> Option<(Self, ArrayRef)> {
         self.remove_column(name)
+    }
+
+    pub fn try_concat<T>(chunks: impl IntoIterator<Item = T>) -> VortexResult<Self>
+    where
+        T: Borrow<Array<Struct>>,
+    {
+        let mut it = chunks.into_iter();
+        let Some(first) = it.next() else {
+            vortex_bail!("cannot concat empty iterator of arrays");
+        };
+        let first_dtype = first.borrow().dtype().clone();
+        let struct_fields = first_dtype.as_struct_fields().clone();
+        let names = struct_fields.names();
+
+        let it = [first].into_iter().chain(it);
+        let (field_arrays_per_chunk, validities) = it
+            .map(|chunk| {
+                let chunk = chunk.borrow();
+                if &first_dtype != chunk.dtype() {
+                    vortex_bail!(
+                        "cannot concatenate struct arrays with differing dtypes: {}, {}",
+                        first_dtype,
+                        chunk.dtype(),
+                    );
+                }
+
+                let fields = names
+                    .iter()
+                    .map(|name| {
+                        chunk
+                            .unmasked_field_by_name(name)
+                            .vortex_expect("field exists because it is in dtype")
+                            .clone()
+                    })
+                    .collect::<Vec<_>>();
+                let validity = chunk.validity()?;
+
+                Ok((fields, (validity, chunk.len())))
+            })
+            .process_results(|iter| iter.unzip::<_, _, Vec<_>, Vec<_>>())?;
+
+        let field_arrays = struct_fields
+            .fields()
+            .enumerate()
+            .map(|(i, dtype)| {
+                // SAFETY: We establish above that every array has the same type.
+                let chunks = field_arrays_per_chunk
+                    .iter()
+                    .map(|x| x[i].clone())
+                    .collect();
+                unsafe { ChunkedArray::new_unchecked(chunks, dtype) }.into_array()
+            })
+            .collect::<Vec<_>>();
+        let len = validities.iter().map(|(_v, len)| len).sum();
+        let validity = Validity::concat(validities).vortex_expect("verified non-empty above");
+
+        // SAFETY:
+        //
+        // 1. The field arrays, by construction, have the type specified in fields.
+        //
+        // 2. Each Array<Struct> has a valid len, therefore the sum of those lens should be valid
+        // for the concatenation of each field.
+        //
+        // 3. Each Array<Struct> has a valid validity, so the concatenation of those validities has
+        // the correct length and dtype harmony.
+        Ok(unsafe { Array::<Struct>::new_unchecked(field_arrays, struct_fields, len, validity) })
     }
 }
