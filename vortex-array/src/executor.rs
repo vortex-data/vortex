@@ -99,6 +99,62 @@ impl ArrayRef {
     ///
     /// For safety, we will error when the number of execution iterations reaches a configurable
     /// maximum (default 128, override with `VORTEX_MAX_ITERATIONS`).
+    ///
+    /// # Execution model
+    ///
+    /// The executor maintains two pieces of mutable state: `current_array` (the array
+    /// being worked on) and `stack` (suspended parent frames from `ExecuteSlot`).
+    /// When an `AppendChild` step is active, a `current_builder` accumulates results.
+    ///
+    /// Consider a tree where `ExecuteSlot` has pushed a parent onto the stack:
+    ///
+    /// ```text
+    ///   stack[0].parent_array:
+    ///     RunEnd                          <-- PARENT (suspended on stack)
+    ///     +-- slot 0: ends
+    ///     +-- slot 1: _  (detached)
+    ///
+    ///   current_array:
+    ///     DictEncoding                    <-- CHILD (executor focus)
+    ///     +-- slot 0: codes
+    ///     +-- slot 1: dictionary
+    /// ```
+    ///
+    /// Each iteration tries these steps in order on `current_array`:
+    ///
+    /// **Step 1 — done check**: if `current_array` satisfies the matcher (or is
+    /// canonical), pop the stack frame and reassemble the parent with the resolved
+    /// child via `put_slot_unchecked`.
+    ///
+    /// **Step 2a — `execute_parent` (stack)**: ask `current_array` (the child) whether
+    /// it can rewrite the suspended parent on the stack. For example, a child that has
+    /// been filtered can tell a RunEnd parent to fuse the filter, replacing both parent
+    /// and child with a single new array. Skipped when a builder is active (the current
+    /// array has been partially consumed by `AppendChild`).
+    ///
+    /// ```text
+    ///   current_array.execute_parent(&stack_parent, slot_idx)
+    ///       child looks UP at suspended parent
+    ///       DictEncoding ---> "can I rewrite RunEnd?"
+    /// ```
+    ///
+    /// **Step 2b — `execute_parent` (self)**: iterate `current_array`'s own children
+    /// and ask each whether it can rewrite `current_array` (their parent). Skipped
+    /// when a builder is active for the same reason as 2a.
+    ///
+    /// ```text
+    ///   for child in current_array.children():
+    ///       child.execute_parent(&current_array, slot_idx)
+    ///           children look UP at current_array
+    ///           codes -------> "can I rewrite DictEncoding?"
+    ///           dictionary --> "can I rewrite DictEncoding?"
+    /// ```
+    ///
+    /// **Step 3 — `execute`**: call the encoding's own decode step. Returns one of:
+    ///   - `ExecuteSlot(i)`: push `current_array` onto the stack, focus on child `i`.
+    ///   - `AppendChild(i)`: detach child `i`, append it into the builder, keep
+    ///     `current_array` as the parent for the next iteration.
+    ///   - `Done`: finalize (builder if present, otherwise the returned array).
     pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let mut current_array = self;
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
@@ -127,7 +183,7 @@ impl ArrayRef {
                 }
             }
 
-            // ── Step 2a: execute_parent against stack parent ───────────────────
+            // execute_parent against stack parent
             //
             // When executing a child for ExecuteSlot, try execute_parent against
             // the suspended parent on the stack. This lets kernels like RunEnd's
@@ -137,22 +193,22 @@ impl ArrayRef {
             // consumed by AppendChild (some slots are already in the builder), so
             // a parent rewrite would see inconsistent state and the builder data
             // would be lost when we restore frame.parent_builder.
-            if current_builder.is_none() && let Some(frame) = stack.last() {
-                if let Some(result) =
+            if current_builder.is_none()
+                && let Some(frame) = stack.last()
+                && let Some(result) =
                     current_array.execute_parent(&frame.parent_array, frame.slot_idx, ctx)?
-                {
-                    ctx.log(format_args!(
-                        "execute_parent (stack) rewrote {} -> {}",
-                        current_array, result
-                    ));
-                    let frame = stack.pop().vortex_expect("just peeked");
-                    current_array = result.optimize_ctx(ctx.session())?;
-                    current_builder = frame.parent_builder;
-                    continue;
-                }
+            {
+                ctx.log(format_args!(
+                    "execute_parent (stack) rewrote {} -> {}",
+                    current_array, result
+                ));
+                let frame = stack.pop().vortex_expect("just peeked");
+                current_array = result.optimize_ctx(ctx.session())?;
+                current_builder = frame.parent_builder;
+                continue;
             }
 
-            // ── Step 2b: execute_parent ─────────────────────────────────────────
+            // execute_parent
             //
             // Skip execute_parent with child.
             if current_builder.is_none()
@@ -166,7 +222,7 @@ impl ArrayRef {
                 continue;
             }
 
-            // ── Step 3: execute step ───────────────────────────────────────────
+            // execute step
             let expected_len = current_array.len();
             let expected_dtype = current_array.dtype().clone();
             let stats = current_array.statistics().to_array_stats();

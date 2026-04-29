@@ -21836,6 +21836,8 @@ pub fn vortex_array::Array<V>::as_view(&self) -> vortex_array::ArrayView<'_, V>
 
 pub fn vortex_array::Array<V>::data(&self) -> &<V as vortex_array::VTable>::ArrayData
 
+pub fn vortex_array::Array<V>::data_mut(&mut self) -> core::option::Option<&mut <V as vortex_array::VTable>::ArrayData>
+
 pub fn vortex_array::Array<V>::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_array::Array<V>::encoding_id(&self) -> vortex_array::ArrayId
