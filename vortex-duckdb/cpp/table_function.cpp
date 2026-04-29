@@ -10,7 +10,6 @@ DUCKDB_INCLUDES_BEGIN
 #include "duckdb.h"
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/common/insertion_order_preserving_map.hpp"
-#include "duckdb/common/multi_file/multi_file_reader.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/main/connection.hpp"
@@ -20,8 +19,6 @@ DUCKDB_INCLUDES_END
 using namespace duckdb;
 using vortex::CData;
 using vortex::IntoErrString;
-constexpr column_t COLUMN_IDENTIFIER_FILE_INDEX = MultiFileReader::COLUMN_IDENTIFIER_FILE_INDEX;
-constexpr column_t COLUMN_IDENTIFIER_FILE_ROW_NUMBER = MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER;
 
 struct CTableFunctionInfo final : TableFunctionInfo {
     explicit CTableFunctionInfo(const duckdb_vx_tfunc_vtab_t &vtab) : vtab(vtab) {
@@ -337,50 +334,21 @@ extern "C" void duckdb_vx_tfunc_bind_result_add_column(duckdb_vx_tfunc_bind_resu
     result.return_types.emplace_back(logical_type);
 }
 
-/**
- * Called at planning time to determine whether data is partitioned by a
- * given set of columns. Requested columns are GROUP BY parameters i.e. columns
- * over which the query aggregates.
- */
-TablePartitionInfo get_partition_info(ClientContext &, TableFunctionPartitionInput &input) {
-    const vector<column_t> &ids = input.partition_ids;
-    // Our data is partitioned by array exporters. Each exporter processes a
-    // single Array which belongs to a single file. If data is partitioned only
-    // by file_index, there is one unique value for an Array. Otherwise there
-    // may be multiple values.
-    return (ids.size() == 1 && ids[0] == COLUMN_IDENTIFIER_FILE_INDEX)
-               ? TablePartitionInfo::SINGLE_VALUE_PARTITIONS
-               : TablePartitionInfo::NOT_PARTITIONED;
-}
-
-/**
- * Duckdb requests this function after exporting the chunk. We answer with
- * partition_index we have exported as well as information about constant
- * columns in this partition. As data is partitioned by array exporters, in
- * each partition ~ exported array file_index is constant.
- */
-OperatorPartitionData get_partition_data(ClientContext &, TableFunctionGetPartitionInput &input) {
+OperatorPartitionData c_get_partition_data(ClientContext &, TableFunctionGetPartitionInput &input) {
+    if (input.partition_info.RequiresPartitionColumns()) {
+        throw InternalException("TableScan::GetPartitionData: partition columns not supported");
+    }
     auto &bind = input.bind_data->Cast<CTableBindData>();
     void *const ffi_bind = bind.ffi_data->DataPtr();
     void *const ffi_global = input.global_state->Cast<CTableGlobalData>().ffi_data->DataPtr();
     void *const ffi_local = input.local_state->Cast<CTableLocalData>().ffi_data->DataPtr();
-    duckdb_vx_partition_data partition_data;
-    bind.info.vtab.get_partition_data(ffi_bind, ffi_global, ffi_local, &partition_data);
 
-    OperatorPartitionData out(partition_data.partition_index);
-
-    // file_index_column_pos may be INVALID_IDX, but column_index will never
-    // be INVALID_IDX, so we can compare directly
-    for (const column_t column_index : input.partition_info.partition_columns) {
-        if (column_index == partition_data.file_index_column_pos) {
-            out.partition_data.emplace_back(Value::UBIGINT(partition_data.file_index));
-        } else {
-            throw InternalException(StringUtil::Format(
-                "get_partition_data: requested column_index %d is not constant for given partition",
-                column_index));
-        }
+    duckdb_vx_error error_out = nullptr;
+    const idx_t batch_index = bind.info.vtab.get_partition_data(ffi_bind, ffi_global, ffi_local, &error_out);
+    if (error_out) {
+        throw InvalidInputException(IntoErrString(error_out));
     }
-    return out;
+    return OperatorPartitionData(batch_index);
 }
 
 extern "C" void duckdb_vx_string_map_insert(duckdb_vx_string_map map, const char *key, const char *value) {
@@ -409,30 +377,21 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_database ffi_db, const d
 
     tf.projection_pushdown = true;
     tf.filter_pushdown = true;
+    // We can prune out filter columns that are unused in the remainder of the query plan.
+    // e.g. in "SELECT i FROM tbl WHERE j = 42" j does not leave Vortex table function.
     tf.filter_prune = true;
     tf.sampling_pushdown = false;
+    tf.late_materialization = false;
 
     tf.pushdown_complex_filter = c_pushdown_complex_filter;
     tf.cardinality = c_cardinality;
-    tf.get_partition_info = get_partition_info;
-    tf.get_partition_data = get_partition_data;
+    tf.get_partition_data = c_get_partition_data;
     tf.to_string = c_to_string;
     tf.table_scan_progress = c_table_scan_progress;
     tf.statistics = c_statistics;
 
-    tf.late_materialization = true;
-    // Columns that uniquely identify a row for deferred re-fetch in a multi
-    // file scan: (file index, row number in file).
-    tf.get_row_id_columns = [](auto &, auto) -> vector<column_t> {
-        return {COLUMN_IDENTIFIER_FILE_INDEX, COLUMN_IDENTIFIER_FILE_ROW_NUMBER};
-    };
-
     tf.get_virtual_columns = [](auto &, auto) -> virtual_column_map_t {
-        return {
-            {COLUMN_IDENTIFIER_EMPTY, {"", LogicalTypeId::BOOLEAN}},
-            {COLUMN_IDENTIFIER_FILE_INDEX, {"file_index", LogicalType::UBIGINT}},
-            {COLUMN_IDENTIFIER_FILE_ROW_NUMBER, {"file_row_number", LogicalType::BIGINT}},
-        };
+        return {{COLUMN_IDENTIFIER_EMPTY, TableColumn("", LogicalTypeId::BOOLEAN)}};
     };
 
     tf.arguments.resize(vtab->parameter_count);

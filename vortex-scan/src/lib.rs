@@ -125,10 +125,6 @@ pub struct ScanRequest {
     /// A row selection to apply to the scan. The selection identifies rows within the specified
     /// row range.
     pub selection: Selection,
-    /// If we're operating on files, what files to read
-    pub file_selection: Selection,
-    /// If we're operating on files, what files to read
-    pub file_range: Option<Range<u64>>,
     /// Whether the scan should preserve row order. If false, the scan may produce rows in any
     /// order, for example to enable parallel execution across partitions.
     pub ordered: bool,
@@ -144,10 +140,8 @@ impl Default for ScanRequest {
             filter: None,
             row_range: None,
             selection: Selection::default(),
-            file_selection: Selection::default(),
             ordered: false,
             limit: None,
-            file_range: None,
         }
     }
 }
@@ -174,11 +168,6 @@ pub type PartitionRef = Box<dyn Partition>;
 pub trait Partition: 'static + Send {
     /// Downcast the partition to a concrete type.
     fn as_any(&self) -> &dyn Any;
-
-    /// Some unique identifier for partition if it's present.
-    /// Used mainly to filter out unused partitions with Duckdb's
-    /// late materialization support
-    fn index(&self) -> usize;
 
     /// Returns an estimate of the row count for this partition.
     fn row_count(&self) -> Option<Precision<u64>>;

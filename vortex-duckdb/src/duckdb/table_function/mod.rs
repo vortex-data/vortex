@@ -36,12 +36,6 @@ use crate::duckdb::table_function::statistics::statistics;
 use crate::duckdb::table_function::table_scan_progress::table_scan_progress_callback;
 use crate::duckdb_try;
 
-pub struct PartitionData {
-    pub partition_index: u64,
-    pub file_index_column_pos: Option<usize>,
-    pub file_index: usize,
-}
-
 #[derive(Debug, Default)]
 pub struct ColumnStatistics {
     pub min: Option<Value>,
@@ -143,10 +137,10 @@ pub trait TableFunction: Sized + Debug {
     /// Returns the idx of the current partition being processed by a local threa.
     /// This *must* be globally unique.
     fn partition_data(
-        bind_data: &Self::BindData,
-        global_init_data: &Self::GlobalState,
-        local_init_data: &mut Self::LocalState,
-    ) -> PartitionData;
+        _bind_data: &Self::BindData,
+        _global_init_data: &Self::GlobalState,
+        _local_init_data: &mut Self::LocalState,
+    ) -> VortexResult<u64>;
 
     /// Returns a vector of key-value pairs for EXPLAIN output
     fn to_string(bind_data: &Self::BindData, map: &mut DuckdbStringMapRef);

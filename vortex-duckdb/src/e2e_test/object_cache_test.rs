@@ -15,7 +15,6 @@ use crate::duckdb::ClientContextRef;
 use crate::duckdb::ColumnStatistics;
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::LogicalType;
-use crate::duckdb::PartitionData;
 use crate::duckdb::TableFunction;
 use crate::duckdb::TableInitInput;
 
@@ -111,12 +110,8 @@ impl TableFunction for TestTableFunction {
         _bind_data: &Self::BindData,
         _global_init_data: &Self::GlobalState,
         _local_init_data: &mut Self::LocalState,
-    ) -> PartitionData {
-        PartitionData {
-            partition_index: 0,
-            file_index_column_pos: None,
-            file_index: 0,
-        }
+    ) -> VortexResult<u64> {
+        Ok(0)
     }
 
     fn statistics(

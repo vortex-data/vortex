@@ -189,8 +189,6 @@ fn scan_request(opts: *const vx_scan_options) -> VortexResult<ScanRequest> {
         selection,
         ordered,
         limit,
-        file_selection: Selection::All,
-        file_range: None,
     })
 }
 

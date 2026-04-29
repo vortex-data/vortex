@@ -8,7 +8,6 @@
 //! pushdown, cardinality, and partitioning.
 
 use std::fmt::Debug;
-use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
@@ -29,16 +28,12 @@ use vortex::array::optimizer::ArrayOptimizer;
 use vortex::array::stats::StatsSet;
 use vortex::dtype::DType;
 use vortex::dtype::FieldNames;
-use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
-use vortex::expr::cast;
 use vortex::expr::col;
-use vortex::expr::merge;
-use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::expr::stats::Precision;
@@ -47,7 +42,6 @@ use vortex::file::v2::FileStatsLayoutReader;
 use vortex::io::kanal_ext::KanalExt;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::ThreadSafeIterator;
-use vortex::layout::layouts::row_idx::row_idx;
 use vortex::layout::scan::multi::MultiLayoutChild;
 use vortex::layout::scan::multi::MultiLayoutDataSource;
 use vortex::metrics::tracing::get_global_labels;
@@ -56,7 +50,6 @@ use vortex::scalar::ScalarValue;
 use vortex::scalar_fn::fns::pack::Pack;
 use vortex::scan::DataSource;
 use vortex::scan::ScanRequest;
-use vortex::scan::selection::Selection;
 use vortex_utils::aliases::hash_set::HashSet;
 use vortex_utils::parallelism::get_available_parallelism;
 
@@ -65,7 +58,6 @@ use crate::SESSION;
 use crate::convert::ToDuckDBScalar;
 use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_table_filter;
-use crate::convert::try_from_virtual_column_filter;
 use crate::duckdb::BindInputRef;
 use crate::duckdb::BindResultRef;
 use crate::duckdb::Cardinality;
@@ -75,25 +67,25 @@ use crate::duckdb::DataChunkRef;
 use crate::duckdb::DuckdbStringMapRef;
 use crate::duckdb::ExpressionRef;
 use crate::duckdb::LogicalType;
-use crate::duckdb::PartitionData;
 use crate::duckdb::TableFilterSetRef;
 use crate::duckdb::TableFunction;
 use crate::duckdb::TableInitInput;
-use crate::duckdb::Value;
 use crate::exporter::ArrayExporter;
 use crate::exporter::ConversionCache;
 
-// See MultiFileReader for constants
-
-/// "file_index" virtual column
-static FILE_INDEX_COLUMN_IDX: u64 = 9223372036854775810;
-/// "file_row_number" virtual column
-static FILE_ROW_NUMBER_COLUMN_IDX: u64 = 9223372036854775809;
-
-/// See duckdb/src/common/constants.cpp
-fn is_virtual_column(id: u64) -> bool {
-    id >= 9223372036854775808u64
-}
+/// Taken from
+/// https://github.com/duckdb/duckdb/blob/dc11eadd8f0a7c600f0034810706605ebe10d5b9/src/include/duckdb/common/constants.hpp#L44
+///
+/// If DuckDB requests a zero-column projection from read_vortex like count(*),
+/// its planner tries to get any column:
+/// https://github.com/duckdb/duckdb/blob/dc11eadd8f0a7c600f0034810706605ebe10d5b9/src/planner/operator/logical_get.cpp#L149
+///
+/// If you define COLUMN_IDENTIFIER_EMPTY, planner takes it, otherwise the
+/// first column. As we don't want to fill the output chunk and we can leave
+/// it uninitialized in this case, we define COLUMN_IDENTIFIER_EMPTY as a
+/// virtual column.
+/// See virtual_columns in vortex-duckdb/cpp/table_function.cpp
+static EMPTY_COLUMN_IDX: u64 = 18446744073709551614;
 
 /// A trait for table functions that resolve to a [`DataSourceRef`].
 ///
@@ -157,16 +149,14 @@ pub struct DataSourceGlobal {
     batch_id: AtomicU64,
     bytes_total: Arc<AtomicU64>,
     bytes_read: AtomicU64,
-    file_index_column_pos: Option<usize>,
-    file_row_number_column_pos: Option<usize>,
 }
 
 /// Per-thread local scan state.
 pub struct DataSourceLocal {
     iterator: DataSourceIterator,
     exporter: Option<ArrayExporter>,
-    partition_index: u64,
-    file_index: usize,
+    /// The unique batch id of the last chunk exported via scan().
+    batch_id: Option<u64>,
 }
 
 /// Returns scan progress as a percentage (0.0–100.0).
@@ -291,19 +281,9 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         let column_ids = init_input.column_ids();
         let projection_ids = init_input.projection_ids();
 
-        let ProjectionWithVirtualColumns {
-            projection,
-            file_index_column_pos,
-            file_row_number_column_pos,
-        } = extract_projection_expr(projection_ids, column_ids, &bind_data.column_fields);
-
-        let FilterWithVirtualColumns {
-            filter,
-            row_selection,
-            row_range,
-            file_selection,
-            file_range,
-        } = extract_table_filter_expr(
+        let projection_expr =
+            extract_projection_expr(projection_ids, column_ids, &bind_data.column_fields);
+        let filter_expr = extract_table_filter_expr(
             init_input.table_filter_set(),
             column_ids,
             &bind_data.column_fields,
@@ -311,24 +291,16 @@ impl<T: DataSourceTableFunction> TableFunction for T {
             bind_data.data_source.dtype(),
         )?;
 
-        let filter_expr_str = filter
+        let filter_expr_str = filter_expr
             .as_ref()
             .map_or_else(|| "true".to_string(), |f| f.to_string());
-        debug!(
-            "Global init Vortex scan SELECT {projection} WHERE {filter_expr_str}\n
-                 row selection: {row_selection:?}, row range: {row_range:?},
-                 file selection: {file_selection:?}, file range: {file_range:?}"
-        );
+        debug!("Global init Vortex scan SELECT {projection_expr} WHERE {filter_expr_str}");
 
         let request = ScanRequest {
-            projection,
-            filter,
-            ordered: file_row_number_column_pos.is_some(),
-            selection: row_selection,
-            row_range,
-            file_selection,
-            file_range,
-            limit: None,
+            projection: projection_expr,
+            filter: filter_expr,
+            ordered: false,
+            ..Default::default()
         };
 
         let scan = RUNTIME.block_on(bind_data.data_source.scan(request))?;
@@ -346,22 +318,13 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         let stream = scan
             .partitions()
             .map(move |partition| {
+                // We create a new conversion cache scoped to the partition, since there's no point
+                // caching anything across partitions.
+                let cache = Arc::new(ConversionCache::default());
                 let tx = tx.clone();
+
                 RUNTIME.handle().spawn(async move {
-                    let partition = match partition {
-                        Ok(partition) => partition,
-                        Err(e) => {
-                            let _ = tx.send(Err(e)).await;
-                            return;
-                        }
-                    };
-
-                    let cache = Arc::new(ConversionCache {
-                        file_index: partition.index(),
-                        ..Default::default()
-                    });
-
-                    let mut stream = match partition.execute() {
+                    let mut stream = match partition.and_then(|p| p.execute()) {
                         Ok(s) => s,
                         Err(e) => {
                             let _ = tx.send(Err(e)).await;
@@ -393,8 +356,6 @@ impl<T: DataSourceTableFunction> TableFunction for T {
             batch_id: AtomicU64::new(0),
             bytes_total: Arc::new(AtomicU64::new(0)),
             bytes_read: AtomicU64::new(0),
-            file_index_column_pos,
-            file_row_number_column_pos,
         })
     }
 
@@ -420,8 +381,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         Ok(DataSourceLocal {
             iterator: global.iterator.clone(),
             exporter: None,
-            partition_index: 0,
-            file_index: 0,
+            batch_id: None,
         })
     }
 
@@ -440,7 +400,6 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                 };
                 let (array_result, conversion_cache) = result?;
                 let array_result = array_result.optimize_recursive(ctx.session())?;
-                local_state.file_index = conversion_cache.file_index;
 
                 let array_result: StructArray = if let Some(array) = array_result.as_opt::<Struct>()
                 {
@@ -464,19 +423,15 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                     ctx,
                 )?);
                 // Relaxed since there is no intra-instruction ordering required.
-                local_state.partition_index = global_state.batch_id.fetch_add(1, Ordering::Relaxed);
+                local_state.batch_id = Some(global_state.batch_id.fetch_add(1, Ordering::Relaxed));
             }
 
             let exporter = local_state
                 .exporter
                 .as_mut()
                 .vortex_expect("error: exporter missing");
-            let has_more_data = exporter.export(
-                chunk,
-                global_state.file_index_column_pos,
-                global_state.file_row_number_column_pos,
-            )?;
 
+            let has_more_data = exporter.export(chunk)?;
             global_state
                 .bytes_read
                 .fetch_add(chunk.len(), Ordering::Relaxed);
@@ -484,19 +439,13 @@ impl<T: DataSourceTableFunction> TableFunction for T {
             if !has_more_data {
                 // This exporter is fully consumed.
                 local_state.exporter = None;
-                local_state.partition_index = 0;
+                local_state.batch_id = None;
             } else {
                 break;
             }
         }
 
         assert!(!chunk.is_empty());
-
-        if let Some(pos) = global_state.file_index_column_pos {
-            chunk
-                .get_vector_mut(pos)
-                .reference_value(&Value::from(local_state.file_index as u64));
-        }
 
         Ok(())
     }
@@ -567,14 +516,12 @@ impl<T: DataSourceTableFunction> TableFunction for T {
 
     fn partition_data(
         _bind_data: &Self::BindData,
-        global_init_data: &Self::GlobalState,
+        _global_init_data: &Self::GlobalState,
         local_init_data: &mut Self::LocalState,
-    ) -> PartitionData {
-        PartitionData {
-            partition_index: local_init_data.partition_index,
-            file_index_column_pos: global_init_data.file_index_column_pos,
-            file_index: local_init_data.file_index,
-        }
+    ) -> VortexResult<u64> {
+        local_init_data
+            .batch_id
+            .ok_or_else(|| vortex_err!("batch id missing, no batches exported"))
     }
 
     fn to_string(bind_data: &Self::BindData, map: &mut DuckdbStringMapRef) {
@@ -610,96 +557,53 @@ fn extract_schema_from_dtype(dtype: &DType) -> VortexResult<Vec<DuckdbField>> {
     Ok(fields)
 }
 
-struct ProjectionWithVirtualColumns {
-    projection: Expression,
-    file_index_column_pos: Option<usize>,
-    file_row_number_column_pos: Option<usize>,
-}
-
-/// Creates a projection expression from raw projection/column ID slices and
-/// column names.
+/// Creates a projection expression from raw projection/column ID slices and column names.
 fn extract_projection_expr(
     projection_ids: Option<&[u64]>,
     column_ids: &[u64],
     column_fields: &[DuckdbField],
-) -> ProjectionWithVirtualColumns {
-    // If projection ids are empty, use column_ids.
+) -> Expression {
+    // Projection ids may be empty, in which case you need to use projection_ids
     // See duckdb/src/planner/operator/logical_get.cpp#L168
-    let (ids, has_projection_ids) = match projection_ids {
+    let (projection_ids, has_projection_ids) = match projection_ids {
         Some(ids) => (ids, true),
         None => (column_ids, false),
     };
 
-    let mut file_index_column_pos = None;
-    let mut file_row_number_column_pos = None;
-
+    // duckdb index is u64 (size_t) but in Rust u64 and usize are different things.
     #[expect(clippy::cast_possible_truncation)]
-    let names = ids
+    let names = projection_ids
         .iter()
-        .enumerate()
-        .map(|(column_pos, &column_id)| {
-            let column_id = if has_projection_ids {
-                column_ids[column_id as usize]
-            } else {
-                column_id
-            };
-
-            if column_id == FILE_INDEX_COLUMN_IDX {
-                file_index_column_pos = Some(column_pos);
-            }
-            if column_id == FILE_ROW_NUMBER_COLUMN_IDX {
-                file_row_number_column_pos = Some(column_pos);
+        .filter(|p| **p != EMPTY_COLUMN_IDX)
+        .map(|mut idx| {
+            if has_projection_ids {
+                idx = &column_ids[*idx as usize];
             }
 
-            column_id
+            #[expect(clippy::cast_possible_truncation)]
+            &column_fields
+                .get(*idx as usize)
+                .vortex_expect("prune idx in column names")
+                .name
         })
-        .filter(|&col_id| !is_virtual_column(col_id))
-        .map(|col_id| Arc::from(column_fields[col_id as usize].name.as_str()))
+        .map(|s| Arc::from(s.as_str()))
         .collect::<FieldNames>();
 
-    // file_index column will be filled later when exporting the chunk.
-    let select = select(names, root());
-    let projection = if file_row_number_column_pos.is_some() {
-        // row_idx will be rearranged to correct position in scan(), prepend
-        // here
-        let row_idx = cast(row_idx(), DType::Primitive(PType::I64, false.into()));
-        let row_idx_struct = pack([("file_row_number", row_idx)], false.into());
-        merge([row_idx_struct, select])
-    } else {
-        select
-    };
-
-    ProjectionWithVirtualColumns {
-        projection,
-        file_index_column_pos,
-        file_row_number_column_pos,
-    }
+    select(names, root())
 }
 
-struct FilterWithVirtualColumns {
-    filter: Option<Expression>,
-    row_selection: Selection,
-    row_range: Option<Range<u64>>,
-    file_selection: Selection,
-    file_range: Option<Range<u64>>,
-}
-
-/// Creates a table filter expression, row selection, and row range from the table filter set,
-/// column metadata, additional filter expressions, and the top-level DType.
+/// Creates a table filter expression from the table filter set, column metadata, additional
+/// filter expressions, and the top-level DType.
 fn extract_table_filter_expr(
     table_filter_set: Option<&TableFilterSetRef>,
     column_ids: &[u64],
     column_fields: &[DuckdbField],
     additional_filters: &[Expression],
     dtype: &DType,
-) -> VortexResult<FilterWithVirtualColumns> {
+) -> VortexResult<Option<Expression>> {
     let mut table_filter_exprs: HashSet<Expression> = if let Some(filter) = table_filter_set {
         filter
             .into_iter()
-            .filter(|(idx, _)| {
-                let idx_u: usize = idx.as_();
-                !is_virtual_column(column_ids[idx_u])
-            })
             .map(|(idx, ex)| {
                 let idx_u: usize = idx.as_();
                 let col_idx: usize = column_ids[idx_u].as_();
@@ -713,31 +617,7 @@ fn extract_table_filter_expr(
     };
 
     table_filter_exprs.extend(additional_filters.iter().cloned());
-
-    let mut file_selection = Selection::All;
-    let mut row_selection = Selection::All;
-    let mut row_range = None;
-    let mut file_range = None;
-    if let Some(filter) = table_filter_set {
-        for (idx, expression) in filter.into_iter() {
-            let idx: usize = idx.as_();
-            if column_ids[idx] == FILE_ROW_NUMBER_COLUMN_IDX {
-                (row_selection, row_range) = try_from_virtual_column_filter(expression)?;
-            }
-            if column_ids[idx] == FILE_INDEX_COLUMN_IDX {
-                (file_selection, file_range) = try_from_virtual_column_filter(expression)?;
-            }
-        }
-    };
-
-    let out = FilterWithVirtualColumns {
-        filter: and_collect(table_filter_exprs),
-        row_selection,
-        row_range,
-        file_selection,
-        file_range,
-    };
-    Ok(out)
+    Ok(and_collect(table_filter_exprs))
 }
 
 #[cfg(test)]

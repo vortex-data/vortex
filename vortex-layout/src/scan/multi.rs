@@ -51,7 +51,6 @@ use vortex_scan::Partition;
 use vortex_scan::PartitionRef;
 use vortex_scan::PartitionStream;
 use vortex_scan::ScanRequest;
-use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
@@ -310,9 +309,8 @@ impl DataSourceScan for MultiLayoutScan {
         // `flat_map` is appropriate here. The real I/O work happens when `execute()` is called.
         ready_stream
             .chain(deferred_stream)
-            .enumerate()
-            .flat_map(move |(i, reader_result)| match reader_result {
-                Ok(reader) => reader_partition(i, reader, session.clone(), request.clone()),
+            .flat_map(move |reader_result| match reader_result {
+                Ok(reader) => reader_partition(reader, session.clone(), request.clone()),
                 Err(e) => stream::once(async move { Err(e) }).boxed(),
             })
             .boxed()
@@ -325,33 +323,12 @@ impl DataSourceScan for MultiLayoutScan {
 /// can match, returns an empty stream. Otherwise, yields a single partition covering the
 /// reader's full row range.
 fn reader_partition(
-    partition_idx: usize,
     reader: LayoutReaderRef,
     session: VortexSession,
     request: ScanRequest,
 ) -> PartitionStream {
     let row_count = reader.row_count();
     let row_range = request.row_range.clone().unwrap_or(0..row_count);
-
-    let partition_idx_u64: u64 = partition_idx as u64;
-    if let Some(range) = &request.file_range
-        && !range.contains(&partition_idx_u64)
-    {
-        return stream::empty().boxed();
-    };
-    match &request.file_selection {
-        Selection::IncludeByIndex(buffer) => {
-            if buffer.as_slice().binary_search(&partition_idx_u64).is_err() {
-                return stream::empty().boxed();
-            }
-        }
-        Selection::ExcludeByIndex(buffer) => {
-            if buffer.as_slice().binary_search(&partition_idx_u64).is_ok() {
-                return stream::empty().boxed();
-            }
-        }
-        _ => {}
-    };
 
     // Check file-level pruning: if the filter can be proven false for the entire row range
     // using file-level statistics, skip this reader entirely.
@@ -374,7 +351,6 @@ fn reader_partition(
                 row_range: Some(row_range),
                 ..request
             },
-            index: partition_idx,
         }) as PartitionRef)
     })
     .boxed()
@@ -388,16 +364,11 @@ struct MultiLayoutPartition {
     reader: LayoutReaderRef,
     session: VortexSession,
     request: ScanRequest,
-    index: usize,
 }
 
 impl Partition for MultiLayoutPartition {
     fn as_any(&self) -> &dyn Any {
         self
-    }
-
-    fn index(&self) -> usize {
-        self.index
     }
 
     fn row_count(&self) -> Option<Precision<u64>> {

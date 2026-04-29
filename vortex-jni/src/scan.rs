@@ -111,8 +111,6 @@ fn build_scan_request(
         selection,
         ordered,
         limit,
-        file_selection: Selection::All,
-        file_range: None,
     })
 }
 

@@ -1,13 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-include ../setup.slt
+include ./setup.slt
 
+onlyif duckdb
 query I
 COPY (SELECT * FROM (VALUES ('Hello'), ('Hi'), ('Hey')) AS t(str)) TO '$__TEST_DIR__/explain.vortex';
 ----
 3
 
+onlyif duckdb
 query TT
 EXPLAIN (FORMAT json) SELECT * FROM '$__TEST_DIR__/explain.vortex';
 ----

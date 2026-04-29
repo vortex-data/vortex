@@ -12,11 +12,6 @@
 #include "error.h"
 #include "table_filter.h"
 #include "duckdb_vx/data.h"
-#include <stdint.h>
-
-#ifdef __cplusplus
-static_assert(sizeof(idx_t) == 8);
-#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -88,16 +83,6 @@ typedef struct {
     bool has_null;
 } duckdb_column_statistics;
 
-const idx_t INVALID_IDX = UINT64_MAX;
-
-typedef struct {
-    idx_t partition_index;
-    // Either INVALID_IDX or position of column in output for file_index column
-    size_t file_index_column_pos;
-    // File index for the exported partition.
-    size_t file_index;
-} duckdb_vx_partition_data;
-
 // vtable mimicking subset of TableFunction.
 // See duckdb/include/function/tfunc.hpp
 typedef struct {
@@ -138,10 +123,10 @@ typedef struct {
 
     double (*table_scan_progress)(duckdb_client_context ctx, void *bind_data, void *global_state);
 
-    void (*get_partition_data)(const void *bind_data,
-                               void *init_global_data,
-                               void *init_local_data,
-                               duckdb_vx_partition_data *partition_data_out);
+    idx_t (*get_partition_data)(const void *bind_data,
+                                void *init_global_data,
+                                void *init_local_data,
+                                duckdb_vx_error *error_out);
 } duckdb_vx_tfunc_vtab_t;
 
 // A single function for configuring the DuckDB table function vtable.
