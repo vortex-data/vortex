@@ -490,12 +490,13 @@ typedef struct vx_file vx_file;
 typedef struct vx_partition vx_partition;
 
 /**
- * Opaque handle to a `Scalar` struct: a pair of a logical `DType` and an optional
- * `ScalarValue` payload.
+ * A `vx_scalar` stores a logical `DType` with an optional `ScalarValue`.
+ * The `ScalarValue` is absent for a null scalar. Otherwise, the `DType`
+ * gives the `ScalarValue` its meaning; for example, a tuple value can
+ * represent a list, fixed-size list, or struct scalar depending on the
+ * `DType`.
  *
- * The C API exposes only the complete pair as `vx_scalar`, so
- * callers do not need to know enum layouts or maintain the `DType`/`ScalarValue`
- * invariants themselves.
+ * The C API exposes only the complete pair as `vx_scalar`.
  */
 typedef struct vx_scalar vx_scalar;
 
@@ -1312,8 +1313,9 @@ vx_scalar *vx_scalar_clone(const vx_scalar *scalar);
 /**
  * Return the data type of a scalar.
  *
- * The returned data type handle borrows storage from the scalar handle and must
- * not be freed separately. Returns NULL when given a NULL scalar handle.
+ * The returned data type handle borrows storage from the scalar handle, so its
+ * lifetime is bound to the scalar handle. It MUST NOT be freed separately.
+ * Returns NULL when given a NULL scalar handle.
  */
 const vx_dtype *vx_scalar_dtype(const vx_scalar *scalar);
 
