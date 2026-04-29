@@ -73,7 +73,7 @@ const CHART_INIT_JS: &[u8] = include_bytes!("../static/chart-init.js");
 const STYLE_CSS: &[u8] = include_bytes!("../static/style.css");
 const VORTEX_BLACK_SVG: &[u8] = include_bytes!("../../public/vortex_black_nobg.svg");
 const VORTEX_WHITE_SVG: &[u8] = include_bytes!("../../public/vortex_white_nobg.svg");
-const STATIC_ASSET_VERSION: &str = "bench-v3-ui-9";
+const STATIC_ASSET_VERSION: &str = "bench-v3-ui-10";
 
 /// HTML routes mounted under `/`.
 pub fn router() -> Router<AppState> {
@@ -180,8 +180,10 @@ async fn landing(State(state): State<AppState>, Query(ui): Query<UiQuery>) -> Re
     render_page(
         "bench.vortex.dev",
         "Vortex benchmarks (v3 alpha)",
-        landing_body(&groups, &universe, &filter),
+        landing_body(&groups),
         scripts,
+        Some(&universe),
+        &filter,
     )
     .into_response()
 }
@@ -284,14 +286,16 @@ async fn chart_page(
     let title = format!("{} — bench.vortex.dev", chart.display_name);
     let subtitle = chart.display_name.clone();
     let filter = ui.filter_state();
+    let universe_result =
+        db::run_blocking(&state.db, |conn| api::collect_filter_universe(conn)).await;
+    let universe = universe_result.ok();
     render_page(
         &title,
         &subtitle,
-        html! {
-            (filter_state_script(&filter))
-            (chart_body(&chart, &slug, &payload_json))
-        },
+        chart_body(&chart, &slug, &payload_json),
         PageScripts::Chart,
+        universe.as_ref(),
+        &filter,
     )
     .into_response()
 }
@@ -324,14 +328,16 @@ async fn group_page(
     let title = format!("{} — bench.vortex.dev", group.name);
     let subtitle = group.name.clone();
     let filter = ui.filter_state();
+    let universe_result =
+        db::run_blocking(&state.db, |conn| api::collect_filter_universe(conn)).await;
+    let universe = universe_result.ok();
     render_page(
         &title,
         &subtitle,
-        html! {
-            (filter_state_script(&filter))
-            (group_body(&group))
-        },
+        group_body(&group),
         PageScripts::Chart,
+        universe.as_ref(),
+        &filter,
     )
     .into_response()
 }
@@ -344,7 +350,14 @@ enum PageScripts {
     Chart,
 }
 
-fn render_page(title: &str, _header_subtitle: &str, body: Markup, scripts: PageScripts) -> Markup {
+fn render_page(
+    title: &str,
+    _header_subtitle: &str,
+    body: Markup,
+    scripts: PageScripts,
+    universe: Option<&api::FilterUniverse>,
+    filter: &FilterState,
+) -> Markup {
     let style_href = versioned_asset("/static/style.css");
     let chart_js_src = versioned_asset("/static/chart.umd.js");
     let chart_zoom_src = versioned_asset("/static/chartjs-plugin-zoom.umd.min.js");
@@ -360,7 +373,8 @@ fn render_page(title: &str, _header_subtitle: &str, body: Markup, scripts: PageS
                 link rel="stylesheet" href=(style_href);
             }
             body {
-                (site_header())
+                (filter_state_script(filter))
+                (site_header(universe, filter))
                 main { (body) }
                 @match scripts {
                     PageScripts::Empty => {
@@ -387,9 +401,13 @@ fn theme_bootstrap_script() -> Markup {
     }
 }
 
-fn site_header() -> Markup {
+fn site_header(universe: Option<&api::FilterUniverse>, filter: &FilterState) -> Markup {
     let black_logo = versioned_asset("/vortex_black_nobg.svg");
     let white_logo = versioned_asset("/vortex_white_nobg.svg");
+    let show_filters = universe
+        .map(|u| !u.engines.is_empty() || !u.formats.is_empty())
+        .unwrap_or(false);
+    let active_count = filter.engines.len() + filter.formats.len();
     html! {
         header.sticky-header {
             div.header-content {
@@ -410,6 +428,9 @@ fn site_header() -> Markup {
                             (chevrons_up_icon())
                             span { "Collapse All" }
                         }
+                        @if show_filters {
+                            (filter_dropdown(universe.expect("show_filters guard"), filter, active_count))
+                        }
                     }
                 }
                 div.header-right {
@@ -426,6 +447,14 @@ fn site_header() -> Markup {
                     }
                 }
             }
+        }
+    }
+}
+
+fn filter_icon() -> Markup {
+    html! {
+        svg.btn-icon viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" {
+            polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" {}
         }
     }
 }
@@ -472,14 +501,9 @@ fn moon_icon() -> Markup {
     }
 }
 
-fn landing_body(
-    groups: &[LandingGroup],
-    universe: &api::FilterUniverse,
-    filter: &FilterState,
-) -> Markup {
+fn landing_body(groups: &[LandingGroup]) -> Markup {
     if groups.is_empty() {
         return html! {
-            (filter_state_script(filter))
             p.empty { "No data ingested yet." }
         };
     }
@@ -488,8 +512,6 @@ fn landing_body(
     // `<script id="chart-data-N">` agree across groups.
     let mut idx_iter = 0usize..total_charts;
     html! {
-        (filter_state_script(filter))
-        (filter_bar(universe, filter))
         @for (group_idx, group) in groups.iter().enumerate() {
             section.group-details data-group-name=(group.name) {
                 details.group-disclosure open[group_idx == 0] {
@@ -743,61 +765,71 @@ fn format_time_ns(ns: f64) -> String {
     }
 }
 
-/// Sticky page-level filter bar: two rows of toggle chips that hide/show
-/// series across every chart on the page by `engine` or `format`. Per-chart
-/// legend toggles still work and override this baseline for that card —
-/// driven from `chart-init.js`.
+/// Filter dropdown rendered inside the sticky header. The trigger button
+/// shows an icon + active-count badge; clicking it opens a panel with two
+/// rows of toggle chips that hide/show series by `engine` or `format`
+/// across every chart on the page.
+///
+/// Chip toggle semantics (driven by `chart-init.js`):
+/// - The chip's active state mirrors the visibility of that engine/format.
+///   With every chip in a row active, no filter is applied for that
+///   dimension. Click any chip to toggle it independently.
+/// - The "all" chip is a one-shot reset: clicking it forces every chip in
+///   that row back to active.
 ///
 /// Chip universes are sourced from [`api::collect_filter_universe`] so a new
-/// engine or format showing up in ingest automatically grows the bar; nothing
-/// is hard-coded.
-fn filter_bar(universe: &api::FilterUniverse, filter: &FilterState) -> Markup {
-    let engines_active = !filter.engines.is_empty();
-    let formats_active = !filter.formats.is_empty();
+/// engine or format showing up in ingest automatically grows the panel;
+/// nothing is hard-coded.
+fn filter_dropdown(
+    universe: &api::FilterUniverse,
+    filter: &FilterState,
+    active_count: usize,
+) -> Markup {
     html! {
-        section.global-filter-bar aria-label="Global filters" data-role="global-filter-bar" {
-            div.global-filter-row {
-                span.global-filter-label { "Engine" }
-                button.filter-chip.filter-chip--all
-                    type="button"
-                    data-filter="engine"
-                    data-value="*"
-                    .filter-chip--active[!engines_active]
-                    aria-pressed=(!engines_active) {
-                    "all"
-                }
-                @for engine in &universe.engines {
-                    @let active = !engines_active || filter.engines.iter().any(|e| e == engine);
-                    button.filter-chip
-                        type="button"
-                        data-filter="engine"
-                        data-value=(engine)
-                        .filter-chip--active[active]
-                        aria-pressed=(active) {
-                        (engine)
-                    }
+        div.filter-dropdown data-role="global-filter-bar" {
+            button.control-btn.filter-trigger
+                type="button"
+                data-role="filter-trigger"
+                aria-haspopup="true"
+                aria-expanded="false" {
+                (filter_icon())
+                span { "Filters" }
+                @if active_count > 0 {
+                    span.filter-badge data-role="filter-badge" { (active_count) }
                 }
             }
-            div.global-filter-row {
-                span.global-filter-label { "Format" }
-                button.filter-chip.filter-chip--all
+            div.filter-panel data-role="filter-panel" hidden {
+                (filter_row("Engine", "engine", &universe.engines, &filter.engines))
+                (filter_row("Format", "format", &universe.formats, &filter.formats))
+            }
+        }
+    }
+}
+
+/// Render one row of chips inside the filter panel. `active_list` is empty
+/// when no filter is applied for this dimension — every chip renders active.
+/// When non-empty, only chips whose value is in the list render active.
+fn filter_row(label: &str, dim: &str, universe: &[String], active_list: &[String]) -> Markup {
+    let dim_filtered = !active_list.is_empty();
+    html! {
+        div.global-filter-row {
+            span.global-filter-label { (label) }
+            button.filter-chip.filter-chip--all
+                type="button"
+                data-filter=(dim)
+                data-value="*"
+                aria-pressed="false" {
+                "all"
+            }
+            @for value in universe {
+                @let active = !dim_filtered || active_list.iter().any(|v| v == value);
+                button.filter-chip
                     type="button"
-                    data-filter="format"
-                    data-value="*"
-                    .filter-chip--active[!formats_active]
-                    aria-pressed=(!formats_active) {
-                    "all"
-                }
-                @for format in &universe.formats {
-                    @let active = !formats_active || filter.formats.iter().any(|f| f == format);
-                    button.filter-chip
-                        type="button"
-                        data-filter="format"
-                        data-value=(format)
-                        .filter-chip--active[active]
-                        aria-pressed=(active) {
-                        (format)
-                    }
+                    data-filter=(dim)
+                    data-value=(value)
+                    .filter-chip--active[active]
+                    aria-pressed=(active) {
+                    (value)
                 }
             }
         }
@@ -887,7 +919,7 @@ fn error_page(status: StatusCode, message: &str) -> Response {
                 link rel="stylesheet" href=(style_href);
             }
             body {
-                (site_header())
+                (site_header(None, &FilterState::default()))
                 main {
                     p.empty { (message) }
                 }

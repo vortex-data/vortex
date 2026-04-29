@@ -898,8 +898,9 @@ async fn empty_landing_page_renders() -> Result<()> {
     Ok(())
 }
 
-/// Landing page renders the global filter bar with chip rows for engine and
-/// format, sourced from the seeded data — no hard-coding.
+/// Landing page renders the global filter dropdown inside the sticky
+/// header, with chip rows for engine and format sourced from the seeded
+/// data — no hard-coding.
 #[tokio::test]
 async fn landing_page_renders_global_filter_bar() -> Result<()> {
     let server = Server::start().await?;
@@ -908,18 +909,21 @@ async fn landing_page_renders_global_filter_bar() -> Result<()> {
     let client = reqwest::Client::new();
     let body = client.get(server.url("/")).send().await?.text().await?;
 
+    // The dropdown lives inside the sticky header so it stays on-screen
+    // while the user scrolls.
+    let header_chunk = body
+        .split(r#"class="sticky-header""#)
+        .nth(1)
+        .and_then(|s| s.split("</header>").next())
+        .context("sticky header chunk")?;
     assert!(
-        body.contains(r#"data-role="global-filter-bar""#),
-        "filter bar must be rendered on /"
+        header_chunk.contains(r#"data-role="global-filter-bar""#),
+        "filter dropdown must live inside the sticky header"
     );
-    assert!(
-        body.contains(r#"data-filter="engine""#),
-        "engine row must be rendered"
-    );
-    assert!(
-        body.contains(r#"data-filter="format""#),
-        "format row must be rendered"
-    );
+    assert!(header_chunk.contains(r#"data-role="filter-trigger""#));
+    assert!(header_chunk.contains(r#"data-role="filter-panel""#));
+    assert!(header_chunk.contains(r#"data-filter="engine""#));
+    assert!(header_chunk.contains(r#"data-filter="format""#));
     // Engines + formats from the seed fixture must appear as chips.
     assert!(body.contains(r#"data-value="datafusion""#));
     assert!(body.contains(r#"data-value="duckdb""#));
@@ -927,8 +931,25 @@ async fn landing_page_renders_global_filter_bar() -> Result<()> {
     assert!(body.contains(r#"data-value="parquet""#));
     // Both rows have an "all" reset chip.
     assert!(body.matches(r#"data-value="*""#).count() >= 2);
-    // No filter active by default → both "all" chips are active.
-    assert!(body.contains(r#"class="filter-chip filter-chip--all filter-chip--active""#));
+    // The "all" chip is now a one-shot reset and is never rendered active —
+    // active chips reflect the visible engine/format set.
+    assert!(
+        !body.contains(r#"class="filter-chip filter-chip--all filter-chip--active""#),
+        "the 'all' chip should never start active"
+    );
+    // No filter applied by default → every specific chip is active.
+    let engine_section = filter_section(&body, "engine");
+    for engine in ["datafusion", "duckdb"] {
+        assert!(
+            extract_chip(&engine_section, engine).contains("filter-chip--active"),
+            "engine chip {engine} should be active when no filter is applied"
+        );
+    }
+    // No badge on the trigger when nothing is hidden.
+    assert!(
+        !body.contains(r#"data-role="filter-badge""#),
+        "filter badge should be absent when no chips are off"
+    );
     // Embedded filter state JSON for the client to pick up.
     assert!(body.contains(r#"id="bench-filter-state""#));
 
@@ -957,9 +978,6 @@ async fn landing_page_honours_filter_query_params() -> Result<()> {
         body.contains(r#"{"engines":["duckdb"],"formats":["vortex-file-compressed"]}"#),
         "filter state JSON should reflect query params"
     );
-    // The "all" chip for engine should NOT be active when an engine filter
-    // is applied. The duckdb chip MUST be active; the datafusion chip must
-    // NOT be.
     let engine_section = filter_section(&body, "engine");
     assert!(
         engine_section.contains(r#"data-value="duckdb""#)
@@ -972,13 +990,19 @@ async fn landing_page_honours_filter_query_params() -> Result<()> {
     );
     assert!(
         !extract_chip(&engine_section, "*").contains("filter-chip--active"),
-        "engine 'all' chip should NOT be active when engine=duckdb"
+        "the 'all' chip is a reset, never active"
+    );
+    // Trigger should show a badge counting the off chips (1 engine + 1 format).
+    assert!(
+        body.contains(r#"data-role="filter-badge""#),
+        "trigger should render a badge when chips are filtered off"
     );
     Ok(())
 }
 
-/// Permalink pages don't render the filter bar but still embed the
-/// filter-state JSON so chart-init.js applies the filter on hydration.
+/// Permalink pages render the same filter dropdown in the navbar (so the
+/// user can adjust visibility from any page) and embed the filter-state
+/// JSON so chart-init.js applies the filter on hydration.
 #[tokio::test]
 async fn permalink_pages_embed_filter_state() -> Result<()> {
     let server = Server::start().await?;
@@ -1060,20 +1084,41 @@ async fn chart_payload_includes_series_meta() -> Result<()> {
     Ok(())
 }
 
-/// Pull just the `<section class="global-filter-bar">…</section>` substring
-/// for snapshotting. Keeps the snapshot focused on the chip markup and stable
-/// against changes elsewhere on the page.
+/// Pull just the `<div class="filter-dropdown" …>…</div>` substring of the
+/// filter dropdown — its trigger button and the chip panel. Keeps the
+/// snapshot focused on the chip markup and stable against changes elsewhere
+/// on the page.
 fn filter_bar_section(body: &str) -> String {
-    let needle = r#"<section class="global-filter-bar""#;
+    let needle = r#"<div class="filter-dropdown" data-role="global-filter-bar""#;
     let Some(start) = body.find(needle) else {
         return "<missing filter bar>".to_string();
     };
     let tail = &body[start..];
-    let Some(end) = tail.find("</section>") else {
-        return tail.to_string();
-    };
-    let end = end + "</section>".len();
-    tail[..end].to_string()
+    // The dropdown is `<div ...><button>...</button><div class="filter-panel">...</div></div>`.
+    // We need to find the matching `</div>` for the outer wrapper. The
+    // simplest robust approach is to scan and balance.
+    let bytes = tail.as_bytes();
+    let mut depth = 0usize;
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'<' {
+            if tail[i..].starts_with("<div") {
+                depth += 1;
+                i += 4;
+                continue;
+            }
+            if tail[i..].starts_with("</div>") {
+                depth -= 1;
+                if depth == 0 {
+                    return tail[..i + "</div>".len()].to_string();
+                }
+                i += "</div>".len();
+                continue;
+            }
+        }
+        i += 1;
+    }
+    tail.to_string()
 }
 
 /// Pull the `<div class="global-filter-row">` containing chips for one
