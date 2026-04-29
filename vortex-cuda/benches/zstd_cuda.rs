@@ -149,7 +149,7 @@ fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
                             frames, metadata, ..
                         } = {
                             let validity = child_to_validity(
-                                &zstd_array.as_ref().slots()[0],
+                                zstd_array.as_ref().slots()[0].as_ref(),
                                 zstd_array.dtype().nullability(),
                             );
                             zstd_array.clone().into_data().into_parts(validity)

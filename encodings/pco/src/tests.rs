@@ -50,7 +50,7 @@ fn test_compress_decompress() {
 
     // check full decompression works
     let unsliced_validity = child_to_validity(
-        &compressed.as_ref().slots()[0],
+        compressed.as_ref().slots()[0].as_ref(),
         compressed.dtype().nullability(),
     );
     let decompressed = compressed.decompress(&unsliced_validity, &mut ctx).unwrap();
@@ -77,7 +77,7 @@ fn test_compress_decompress_small() {
     assert_arrays_eq!(compressed, expected);
 
     let unsliced_validity = child_to_validity(
-        &compressed.as_ref().slots()[0],
+        compressed.as_ref().slots()[0].as_ref(),
         compressed.dtype().nullability(),
     );
     let decompressed = compressed.decompress(&unsliced_validity, &mut ctx).unwrap();
@@ -91,7 +91,7 @@ fn test_empty() {
     let array = PrimitiveArray::from_iter(data.clone());
     let compressed = Pco::from_primitive(array.as_view(), 3, 100, &mut ctx).unwrap();
     let unsliced_validity = child_to_validity(
-        &compressed.as_ref().slots()[0],
+        compressed.as_ref().slots()[0].as_ref(),
         compressed.dtype().nullability(),
     );
     let primitive = compressed.decompress(&unsliced_validity, &mut ctx).unwrap();
