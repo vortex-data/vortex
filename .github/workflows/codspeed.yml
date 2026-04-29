@@ -70,7 +70,7 @@ jobs:
     if: github.repository == 'vortex-data/vortex'
     name: "Benchmark with Codspeed (CUDA)"
     timeout-minutes: 30
-    runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=bench-codspeed-cuda
+    runs-on: runs-on=${{ github.run_id }}/family=g5/image=ubuntu24-gpu-x64/tag=bench-codspeed-cuda
     steps:
       - uses: runs-on/action@v2
         with:
