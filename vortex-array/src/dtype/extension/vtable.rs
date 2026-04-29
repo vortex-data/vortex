@@ -12,6 +12,30 @@ use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
 use crate::scalar::ScalarValue;
 
+/// Converters between an extension's on-disk metadata bytes and the canonical Arrow JSON wire.
+///
+/// Each Vortex extension that maps to a canonical Arrow extension owns the codec used at the
+/// Arrow boundary so [`ExtVTable`] stays Arrow-unaware in the storage path.
+#[derive(Copy, Clone, Debug)]
+pub struct ArrowCanonicalCodec {
+    /// Convert raw extension metadata bytes into the JSON string Arrow consumers expect.
+    pub to_json: fn(&[u8]) -> VortexResult<String>,
+    /// Parse the JSON string Arrow consumers produce back into raw extension metadata bytes.
+    pub from_json: fn(&str) -> VortexResult<Vec<u8>>,
+}
+
+/// Identifies the canonical Arrow extension this Vortex extension serializes as.
+///
+/// Returned by [`ExtVTable::arrow_canonical`]. The `arrow_id` is the name written into
+/// `ARROW:extension:name`; the `codec` round-trips metadata bytes through Arrow's JSON wire.
+#[derive(Copy, Clone, Debug)]
+pub struct ArrowCanonicalAlias {
+    /// The canonical Arrow extension id (e.g. `arrow.fixed_shape_tensor`).
+    pub arrow_id: ExtId,
+    /// Converters between Vortex on-disk metadata bytes and Arrow's JSON wire.
+    pub codec: ArrowCanonicalCodec,
+}
+
 /// The public API for defining new extension types.
 ///
 /// This is the non-object-safe trait that plugin authors implement to define a new extension type.
@@ -27,6 +51,15 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
 
     /// Returns the ID for this extension type.
     fn id(&self) -> ExtId;
+
+    /// Optional canonical Arrow extension this type serializes as at the Arrow boundary.
+    ///
+    /// Override to map this Vortex extension to a registered canonical Arrow extension
+    /// (e.g. `arrow.fixed_shape_tensor`). The default `None` means the type round-trips
+    /// through base64-encoded metadata under its own [`ExtId`].
+    fn arrow_canonical(&self) -> Option<ArrowCanonicalAlias> {
+        None
+    }
 
     // Methods related to the extension `DType`.
 

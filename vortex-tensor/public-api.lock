@@ -126,6 +126,8 @@ pub type vortex_tensor::fixed_shape::FixedShapeTensor::Metadata = vortex_tensor:
 
 pub type vortex_tensor::fixed_shape::FixedShapeTensor::NativeValue<'a> = &'a vortex_array::scalar::scalar_value::ScalarValue
 
+pub fn vortex_tensor::fixed_shape::FixedShapeTensor::arrow_canonical(&self) -> core::option::Option<vortex_array::dtype::extension::vtable::ArrowCanonicalAlias>
+
 pub fn vortex_tensor::fixed_shape::FixedShapeTensor::deserialize_metadata(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_tensor::fixed_shape::FixedShapeTensor::id(&self) -> vortex_array::dtype::extension::ExtId

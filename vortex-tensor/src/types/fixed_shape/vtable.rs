@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::dtype::DType;
+use vortex_array::dtype::extension::ArrowCanonicalAlias;
+use vortex_array::dtype::extension::ArrowCanonicalCodec;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
@@ -14,6 +16,8 @@ use vortex_session::registry::CachedId;
 
 use crate::types::fixed_shape::FixedShapeTensor;
 use crate::types::fixed_shape::FixedShapeTensorMetadata;
+use crate::types::fixed_shape::canonical::json_to_proto;
+use crate::types::fixed_shape::canonical::proto_to_json;
 use crate::types::fixed_shape::proto;
 
 /// Vortex extension id for [`FixedShapeTensor`].
@@ -27,6 +31,16 @@ impl ExtVTable for FixedShapeTensor {
 
     fn id(&self) -> ExtId {
         *ID
+    }
+
+    fn arrow_canonical(&self) -> Option<ArrowCanonicalAlias> {
+        Some(ArrowCanonicalAlias {
+            arrow_id: Self::arrow_ext_id(),
+            codec: ArrowCanonicalCodec {
+                to_json: proto_to_json,
+                from_json: json_to_proto,
+            },
+        })
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {

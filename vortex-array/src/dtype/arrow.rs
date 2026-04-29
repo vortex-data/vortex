@@ -42,9 +42,9 @@ use crate::dtype::FieldName;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
+use crate::dtype::extension::ArrowCanonicalCodec;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtId;
-use crate::dtype::session::ArrowCanonicalCodec;
 use crate::dtype::session::DTypeSession;
 use crate::dtype::session::DTypeSessionExt;
 use crate::extension::datetime::AnyTemporal;
@@ -287,7 +287,7 @@ pub(crate) fn resolve_extension_dtype(
 
     let arrow_id = ExtId::new(ext_name);
     let (ext_id, codec) = match dtypes.vortex_alias_for(&arrow_id) {
-        Some((vortex_id, codec)) => (vortex_id, Some(codec)),
+        Some((vortex_id, alias)) => (vortex_id, Some(alias.codec)),
         None => (arrow_id, None),
     };
 
@@ -376,8 +376,10 @@ impl DType {
         self.to_arrow_schema_with_session(&LEGACY_SESSION)
     }
 
-    /// Convert a Vortex [`DType`] into an Arrow [`Schema`], consulting `session` for Arrow
-    /// canonical extension aliases registered via [`DTypeSession::register_arrow_canonical`].
+    /// Convert a Vortex [`DType`] into an Arrow [`Schema`], consulting `session` for canonical
+    /// Arrow extension aliases declared by registered vtables via [`ExtVTable::arrow_canonical`].
+    ///
+    /// [`ExtVTable::arrow_canonical`]: crate::dtype::extension::ExtVTable::arrow_canonical
     pub fn to_arrow_schema_with_session(&self, session: &VortexSession) -> VortexResult<Schema> {
         let DType::Struct(struct_dtype, nullable) = self else {
             vortex_bail!("only DType::Struct can be converted to arrow schema");
@@ -509,9 +511,9 @@ fn field_from_dtype(name: &str, dtype: &DType, dtypes: &DTypeSession) -> VortexR
         let storage_arrow = arrow_dtype_from_dtype(ext.storage_dtype(), dtypes)?;
         let ext_meta_bytes = ext.serialize_metadata()?;
         let (ext_name, meta_str) = match dtypes.arrow_alias_for(&ext.id()) {
-            Some((canonical, codec)) => (
-                canonical.as_str().to_owned(),
-                (codec.to_json)(&ext_meta_bytes)?,
+            Some(alias) => (
+                alias.arrow_id.as_str().to_owned(),
+                (alias.codec.to_json)(&ext_meta_bytes)?,
             ),
             None => (
                 ext.id().as_str().to_owned(),

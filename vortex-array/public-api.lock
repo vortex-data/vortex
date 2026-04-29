@@ -8866,6 +8866,38 @@ pub fn vortex_array::dtype::PType::try_from_arrow(value: &arrow_schema::datatype
 
 pub mod vortex_array::dtype::extension
 
+pub struct vortex_array::dtype::extension::ArrowCanonicalAlias
+
+pub vortex_array::dtype::extension::ArrowCanonicalAlias::arrow_id: vortex_array::dtype::extension::ExtId
+
+pub vortex_array::dtype::extension::ArrowCanonicalAlias::codec: vortex_array::dtype::extension::ArrowCanonicalCodec
+
+impl core::clone::Clone for vortex_array::dtype::extension::ArrowCanonicalAlias
+
+pub fn vortex_array::dtype::extension::ArrowCanonicalAlias::clone(&self) -> vortex_array::dtype::extension::ArrowCanonicalAlias
+
+impl core::fmt::Debug for vortex_array::dtype::extension::ArrowCanonicalAlias
+
+pub fn vortex_array::dtype::extension::ArrowCanonicalAlias::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_array::dtype::extension::ArrowCanonicalAlias
+
+pub struct vortex_array::dtype::extension::ArrowCanonicalCodec
+
+pub vortex_array::dtype::extension::ArrowCanonicalCodec::from_json: fn(&str) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+
+pub vortex_array::dtype::extension::ArrowCanonicalCodec::to_json: fn(&[u8]) -> vortex_error::VortexResult<alloc::string::String>
+
+impl core::clone::Clone for vortex_array::dtype::extension::ArrowCanonicalCodec
+
+pub fn vortex_array::dtype::extension::ArrowCanonicalCodec::clone(&self) -> vortex_array::dtype::extension::ArrowCanonicalCodec
+
+impl core::fmt::Debug for vortex_array::dtype::extension::ArrowCanonicalCodec
+
+pub fn vortex_array::dtype::extension::ArrowCanonicalCodec::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_array::dtype::extension::ArrowCanonicalCodec
+
 pub struct vortex_array::dtype::extension::ExtDType<V: vortex_array::dtype::extension::ExtVTable>
 
 impl<V: vortex_array::dtype::extension::ExtVTable + core::default::Default> vortex_array::dtype::extension::ExtDType<V>
@@ -8980,11 +9012,15 @@ pub fn vortex_array::dtype::extension::ExtDTypeRef::hash<H: core::hash::Hasher>(
 
 pub trait vortex_array::dtype::extension::ExtDTypePlugin: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
 
+pub fn vortex_array::dtype::extension::ExtDTypePlugin::arrow_canonical(&self) -> core::option::Option<vortex_array::dtype::extension::ArrowCanonicalAlias>
+
 pub fn vortex_array::dtype::extension::ExtDTypePlugin::deserialize(&self, data: &[u8], storage_dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::extension::ExtDTypeRef>
 
 pub fn vortex_array::dtype::extension::ExtDTypePlugin::id(&self) -> vortex_array::dtype::extension::ExtId
 
 impl<V: vortex_array::dtype::extension::ExtVTable> vortex_array::dtype::extension::ExtDTypePlugin for V
+
+pub fn V::arrow_canonical(&self) -> core::option::Option<vortex_array::dtype::extension::ArrowCanonicalAlias>
 
 pub fn V::deserialize(&self, data: &[u8], storage_dtype: vortex_array::dtype::DType) -> core::result::Result<vortex_array::dtype::extension::ExtDTypeRef, vortex_error::VortexError>
 
@@ -8995,6 +9031,8 @@ pub trait vortex_array::dtype::extension::ExtVTable: 'static + core::marker::Siz
 pub type vortex_array::dtype::extension::ExtVTable::Metadata: 'static + core::marker::Send + core::marker::Sync + core::clone::Clone + core::fmt::Debug + core::fmt::Display + core::cmp::Eq + core::hash::Hash
 
 pub type vortex_array::dtype::extension::ExtVTable::NativeValue<'a>: core::fmt::Display
+
+pub fn vortex_array::dtype::extension::ExtVTable::arrow_canonical(&self) -> core::option::Option<vortex_array::dtype::extension::ArrowCanonicalAlias>
 
 pub fn vortex_array::dtype::extension::ExtVTable::can_coerce_from(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
 
@@ -9020,6 +9058,8 @@ pub type vortex_array::extension::datetime::Date::Metadata = vortex_array::exten
 
 pub type vortex_array::extension::datetime::Date::NativeValue<'a> = vortex_array::extension::datetime::DateValue
 
+pub fn vortex_array::extension::datetime::Date::arrow_canonical(&self) -> core::option::Option<vortex_array::dtype::extension::ArrowCanonicalAlias>
+
 pub fn vortex_array::extension::datetime::Date::can_coerce_from(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
 
 pub fn vortex_array::extension::datetime::Date::can_coerce_to(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
@@ -9043,6 +9083,8 @@ impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::date
 pub type vortex_array::extension::datetime::Time::Metadata = vortex_array::extension::datetime::TimeUnit
 
 pub type vortex_array::extension::datetime::Time::NativeValue<'a> = vortex_array::extension::datetime::TimeValue
+
+pub fn vortex_array::extension::datetime::Time::arrow_canonical(&self) -> core::option::Option<vortex_array::dtype::extension::ArrowCanonicalAlias>
 
 pub fn vortex_array::extension::datetime::Time::can_coerce_from(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
 
@@ -9068,6 +9110,8 @@ pub type vortex_array::extension::datetime::Timestamp::Metadata = vortex_array::
 
 pub type vortex_array::extension::datetime::Timestamp::NativeValue<'a> = vortex_array::extension::datetime::TimestampValue<'a>
 
+pub fn vortex_array::extension::datetime::Timestamp::arrow_canonical(&self) -> core::option::Option<vortex_array::dtype::extension::ArrowCanonicalAlias>
+
 pub fn vortex_array::extension::datetime::Timestamp::can_coerce_from(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
 
 pub fn vortex_array::extension::datetime::Timestamp::can_coerce_to(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
@@ -9091,6 +9135,8 @@ impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::uuid
 pub type vortex_array::extension::uuid::Uuid::Metadata = vortex_array::extension::uuid::UuidMetadata
 
 pub type vortex_array::extension::uuid::Uuid::NativeValue<'a> = uuid::Uuid
+
+pub fn vortex_array::extension::uuid::Uuid::arrow_canonical(&self) -> core::option::Option<vortex_array::dtype::extension::ArrowCanonicalAlias>
 
 pub fn vortex_array::extension::uuid::Uuid::can_coerce_from(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
 
@@ -9150,35 +9196,17 @@ pub mod vortex_array::dtype::serde
 
 pub mod vortex_array::dtype::session
 
-pub struct vortex_array::dtype::session::ArrowCanonicalCodec
-
-pub vortex_array::dtype::session::ArrowCanonicalCodec::from_json: fn(&str) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
-
-pub vortex_array::dtype::session::ArrowCanonicalCodec::to_json: fn(&[u8]) -> vortex_error::VortexResult<alloc::string::String>
-
-impl core::clone::Clone for vortex_array::dtype::session::ArrowCanonicalCodec
-
-pub fn vortex_array::dtype::session::ArrowCanonicalCodec::clone(&self) -> vortex_array::dtype::session::ArrowCanonicalCodec
-
-impl core::fmt::Debug for vortex_array::dtype::session::ArrowCanonicalCodec
-
-pub fn vortex_array::dtype::session::ArrowCanonicalCodec::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::marker::Copy for vortex_array::dtype::session::ArrowCanonicalCodec
-
 pub struct vortex_array::dtype::session::DTypeSession
 
 impl vortex_array::dtype::session::DTypeSession
 
-pub fn vortex_array::dtype::session::DTypeSession::arrow_alias_for(&self, vortex_id: &vortex_array::dtype::extension::ExtId) -> core::option::Option<(vortex_array::dtype::extension::ExtId, vortex_array::dtype::session::ArrowCanonicalCodec)>
+pub fn vortex_array::dtype::session::DTypeSession::arrow_alias_for(&self, vortex_id: &vortex_array::dtype::extension::ExtId) -> core::option::Option<vortex_array::dtype::extension::ArrowCanonicalAlias>
 
 pub fn vortex_array::dtype::session::DTypeSession::register<V: vortex_array::dtype::extension::ExtVTable>(&self, vtable: V)
 
-pub fn vortex_array::dtype::session::DTypeSession::register_arrow_canonical(&self, vortex_id: vortex_array::dtype::extension::ExtId, arrow_id: vortex_array::dtype::extension::ExtId, codec: vortex_array::dtype::session::ArrowCanonicalCodec)
-
 pub fn vortex_array::dtype::session::DTypeSession::registry(&self) -> &vortex_array::dtype::session::ExtDTypeRegistry
 
-pub fn vortex_array::dtype::session::DTypeSession::vortex_alias_for(&self, arrow_id: &vortex_array::dtype::extension::ExtId) -> core::option::Option<(vortex_array::dtype::extension::ExtId, vortex_array::dtype::session::ArrowCanonicalCodec)>
+pub fn vortex_array::dtype::session::DTypeSession::vortex_alias_for(&self, arrow_id: &vortex_array::dtype::extension::ExtId) -> core::option::Option<(vortex_array::dtype::extension::ExtId, vortex_array::dtype::extension::ArrowCanonicalAlias)>
 
 impl core::default::Default for vortex_array::dtype::session::DTypeSession
 
@@ -12994,6 +13022,8 @@ pub type vortex_array::extension::datetime::Date::Metadata = vortex_array::exten
 
 pub type vortex_array::extension::datetime::Date::NativeValue<'a> = vortex_array::extension::datetime::DateValue
 
+pub fn vortex_array::extension::datetime::Date::arrow_canonical(&self) -> core::option::Option<vortex_array::dtype::extension::ArrowCanonicalAlias>
+
 pub fn vortex_array::extension::datetime::Date::can_coerce_from(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
 
 pub fn vortex_array::extension::datetime::Date::can_coerce_to(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
@@ -13049,6 +13079,8 @@ impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::date
 pub type vortex_array::extension::datetime::Time::Metadata = vortex_array::extension::datetime::TimeUnit
 
 pub type vortex_array::extension::datetime::Time::NativeValue<'a> = vortex_array::extension::datetime::TimeValue
+
+pub fn vortex_array::extension::datetime::Time::arrow_canonical(&self) -> core::option::Option<vortex_array::dtype::extension::ArrowCanonicalAlias>
 
 pub fn vortex_array::extension::datetime::Time::can_coerce_from(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
 
@@ -13107,6 +13139,8 @@ impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::date
 pub type vortex_array::extension::datetime::Timestamp::Metadata = vortex_array::extension::datetime::TimestampOptions
 
 pub type vortex_array::extension::datetime::Timestamp::NativeValue<'a> = vortex_array::extension::datetime::TimestampValue<'a>
+
+pub fn vortex_array::extension::datetime::Timestamp::arrow_canonical(&self) -> core::option::Option<vortex_array::dtype::extension::ArrowCanonicalAlias>
 
 pub fn vortex_array::extension::datetime::Timestamp::can_coerce_from(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
 
@@ -13189,6 +13223,8 @@ impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::uuid
 pub type vortex_array::extension::uuid::Uuid::Metadata = vortex_array::extension::uuid::UuidMetadata
 
 pub type vortex_array::extension::uuid::Uuid::NativeValue<'a> = uuid::Uuid
+
+pub fn vortex_array::extension::uuid::Uuid::arrow_canonical(&self) -> core::option::Option<vortex_array::dtype::extension::ArrowCanonicalAlias>
 
 pub fn vortex_array::extension::uuid::Uuid::can_coerce_from(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, other: &vortex_array::dtype::DType) -> bool
 
@@ -22199,6 +22235,8 @@ pub fn vortex_array::Array<vortex_array::arrays::Struct>::try_new_with_dtype(fie
 impl vortex_array::Array<vortex_array::arrays::Struct>
 
 pub fn vortex_array::Array<vortex_array::arrays::Struct>::into_record_batch_with_schema(self, schema: impl core::convert::AsRef<arrow_schema::schema::Schema>) -> vortex_error::VortexResult<arrow_array::record_batch::RecordBatch>
+
+pub fn vortex_array::Array<vortex_array::arrays::Struct>::into_record_batch_with_schema_with_session(self, schema: impl core::convert::AsRef<arrow_schema::schema::Schema>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<arrow_array::record_batch::RecordBatch>
 
 impl vortex_array::Array<vortex_array::arrays::Struct>
 

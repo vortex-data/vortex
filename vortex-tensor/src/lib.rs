@@ -11,8 +11,6 @@
 )]
 
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
-use vortex_array::dtype::extension::ExtVTable;
-use vortex_array::dtype::session::ArrowCanonicalCodec;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_array::session::ArraySessionExt;
@@ -52,14 +50,6 @@ pub fn initialize(session: &VortexSession) {
     let dtypes = session.dtypes();
     dtypes.register(Vector);
     dtypes.register(FixedShapeTensor);
-    dtypes.register_arrow_canonical(
-        FixedShapeTensor.id(),
-        FixedShapeTensor::arrow_ext_id(),
-        ArrowCanonicalCodec {
-            to_json: fixed_shape::proto_to_json,
-            from_json: fixed_shape::json_to_proto,
-        },
-    );
     // Release the shard read before `scalar_fns` may take a write on the same shard.
     drop(dtypes);
 

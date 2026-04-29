@@ -7,6 +7,7 @@ use std::sync::Arc;
 use vortex_error::VortexResult;
 
 use crate::dtype::DType;
+use crate::dtype::extension::ArrowCanonicalAlias;
 use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtId;
@@ -26,6 +27,9 @@ pub trait ExtDTypePlugin: 'static + Send + Sync + Debug {
     /// Returns the ID for this extension type.
     fn id(&self) -> ExtId;
 
+    /// See [`ExtVTable::arrow_canonical`].
+    fn arrow_canonical(&self) -> Option<ArrowCanonicalAlias>;
+
     /// Deserialize an extension type from serialized metadata.
     fn deserialize(&self, data: &[u8], storage_dtype: DType) -> VortexResult<ExtDTypeRef>;
 }
@@ -33,6 +37,10 @@ pub trait ExtDTypePlugin: 'static + Send + Sync + Debug {
 impl<V: ExtVTable> ExtDTypePlugin for V {
     fn id(&self) -> ExtId {
         ExtVTable::id(self)
+    }
+
+    fn arrow_canonical(&self) -> Option<ArrowCanonicalAlias> {
+        ExtVTable::arrow_canonical(self)
     }
 
     fn deserialize(&self, data: &[u8], storage_dtype: DType) -> VortexResult<ExtDTypeRef> {

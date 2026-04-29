@@ -164,7 +164,9 @@ fn vector_record_batch_round_trip_carries_field_metadata() {
 
     let dtype = DType::struct_([("embedding", vector_dtype(4))], Nullability::NonNullable);
     let schema = dtype.to_arrow_schema_with_session(&SESSION).unwrap();
-    let rb = struct_array.into_record_batch_with_schema(&schema).unwrap();
+    let rb = struct_array
+        .into_record_batch_with_schema_with_session(&schema, &SESSION)
+        .unwrap();
 
     let column = rb.column(0);
     let DataType::FixedSizeList(_, size) = column.data_type() else {
@@ -228,7 +230,9 @@ fn vector_record_batch_round_trip() {
 
     let dtype = DType::struct_([("embedding", vector_dtype(4))], Nullability::NonNullable);
     let schema = dtype.to_arrow_schema_with_session(&SESSION).unwrap();
-    let rb = original.into_record_batch_with_schema(&schema).unwrap();
+    let rb = original
+        .into_record_batch_with_schema_with_session(&schema, &SESSION)
+        .unwrap();
 
     let recovered = ArrayRef::from_arrow_with_session(rb, false, &SESSION).unwrap();
     assert_eq!(recovered.dtype(), &dtype);
@@ -248,7 +252,9 @@ fn fixed_shape_tensor_record_batch_round_trip() {
             .unwrap()
             .into_array();
     let original = StructArray::from_fields(&[("tensor", tensor_array)]).unwrap();
-    let rb = original.into_record_batch_with_schema(&schema).unwrap();
+    let rb = original
+        .into_record_batch_with_schema_with_session(&schema, &SESSION)
+        .unwrap();
 
     let recovered = ArrayRef::from_arrow_with_session(rb, false, &SESSION).unwrap();
     assert_eq!(recovered.dtype(), &dtype);

@@ -6,6 +6,7 @@ use arrow_array::cast::AsArray;
 use arrow_schema::DataType;
 use arrow_schema::Schema;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
@@ -18,10 +19,21 @@ impl StructArray {
         self,
         schema: impl AsRef<Schema>,
     ) -> VortexResult<RecordBatch> {
+        self.into_record_batch_with_schema_with_session(schema, &LEGACY_SESSION)
+    }
+
+    /// Same as [`Self::into_record_batch_with_schema`], but routes execution through `session`
+    /// so canonical Arrow extension aliases declared on registered vtables apply uniformly to
+    /// both schema construction and array conversion.
+    pub fn into_record_batch_with_schema_with_session(
+        self,
+        schema: impl AsRef<Schema>,
+        session: &VortexSession,
+    ) -> VortexResult<RecordBatch> {
         let data_type = DataType::Struct(schema.as_ref().fields.clone());
         let array_ref = self
             .into_array()
-            .execute_arrow(Some(&data_type), &mut LEGACY_SESSION.create_execution_ctx())?;
+            .execute_arrow(Some(&data_type), &mut session.create_execution_ctx())?;
         Ok(RecordBatch::from(array_ref.as_struct()))
     }
 }
