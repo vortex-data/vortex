@@ -611,6 +611,63 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   height: 680px;
 }
 
+/* ----------------------------------------------------------------------
+ * Range scrollbar strip (`.chart-range-strip`)
+ *
+ * Thin track below each canvas. Spans the full commit history; the inset
+ * `.chart-range-strip-window` highlights the currently visible slice and
+ * carries two edge handles for resize. Pointer events are intentionally
+ * `auto` (unlike the tooltip host) because users grab and drag this widget.
+ * ---------------------------------------------------------------------- */
+.chart-range-strip {
+  position: relative;
+  width: 100%;
+  height: 14px;
+  margin-top: 0.4rem;
+  pointer-events: auto;
+  user-select: none;
+  touch-action: none;
+}
+.chart-range-strip-track {
+  position: absolute;
+  inset: 0;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.chart-range-strip-window {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  border-left: 1px solid var(--accent);
+  border-right: 1px solid var(--accent);
+  cursor: grab;
+  box-sizing: border-box;
+}
+.chart-range-strip--dragging .chart-range-strip-window { cursor: grabbing; }
+.chart-range-strip-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  background: var(--accent);
+  cursor: ew-resize;
+}
+.chart-range-strip-handle--left { left: -3px; border-radius: 2px 0 0 2px; }
+.chart-range-strip-handle--right { right: -3px; border-radius: 0 2px 2px 0; }
+.chart-range-strip-handle:hover { filter: brightness(1.1); }
+
+@media (max-width: 768px) {
+  .chart-range-strip { height: 18px; }
+  .chart-range-strip-handle { width: 10px; }
+  .chart-range-strip-handle--left { left: -5px; }
+  .chart-range-strip-handle--right { right: -5px; }
+}
+
 .no-script {
   margin-top: 1rem;
   padding: 0.75rem 1rem;
