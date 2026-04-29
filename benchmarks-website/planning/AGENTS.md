@@ -29,8 +29,9 @@ it as `vortex-bench-server` at `benchmarks-website/server/`.
   [`01-schema.md`](./01-schema.md).
 - One ingest endpoint: `POST /api/ingest`, gated by a static bearer token from the
   `INGEST_BEARER_TOKEN` env var. Wire shapes in [`02-contracts.md`](./02-contracts.md).
-- Three HTML routes — `/`, `/chart/{slug}`, `/group/{slug}` — and one JSON route,
-  `GET /api/chart/{slug}`, all served from the same binary.
+- Three HTML routes — `/`, `/chart/{slug}`, `/group/{slug}` — and four JSON routes —
+  `GET /api/groups`, `GET /api/chart/{slug}`, `GET /api/group/{slug}`, `GET /health` — all served
+  from the same binary.
 - `ChartKey` and `GroupKey` enums round-trip through URLs as `<prefix>.<base64url(serde_json(...))>`
   slugs. No DB lookup required to decode a URL.
 - Charts render inline on the landing page. Each `<canvas>` is paired with a
