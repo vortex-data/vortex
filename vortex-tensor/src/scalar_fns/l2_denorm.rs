@@ -406,12 +406,21 @@ fn execute_l2_denorm_constant_norms(
     let vector_ref = inner_vector_array(&normalized_ref, ctx)?;
 
     if err.abs() < tolerance {
-        // The output dtype is the sibling plain `Vector`. Rewrap the vector storage so the
-        // executed array's dtype matches `output_dtype`.
+        // The output dtype is the sibling plain `Vector`. Rebuild the FSL wrapper with the
+        // combined validity so the executed array's storage nullability matches `output_dtype`.
         let normalized: ExtensionArray = vector_ref.execute(ctx)?;
+
+        let storage_fsl: FixedSizeListArray = normalized.storage_array().clone().execute(ctx)?;
+        let new_fsl = FixedSizeListArray::try_new(
+            storage_fsl.elements().clone(),
+            storage_fsl.list_size(),
+            new_validity,
+            storage_fsl.len(),
+        )?;
+
         return Ok(ExtensionArray::try_new(
             output_dtype.as_extension().clone(),
-            normalized.storage_array().clone(),
+            new_fsl.into_array(),
         )?
         .into_array());
     }
@@ -1280,13 +1289,10 @@ mod tests {
     }
 
     /// Regression: a non-nullable [`NormalizedVector`] child paired with a nullable-dtype
-    /// constant norms array (whose value happens to be non-null `1.0`) used to panic in the
+    /// constant norms array (whose value happens to be non-null `1.0`) used to fail in the
     /// constant-unit fast path because the extension's declared storage nullability no longer
-    /// matched the storage array's own nullability. The fix is on the [`ExtensionArray`] side,
-    /// where storage-dtype matching will ignore outer nullability. That relaxation is not yet on
-    /// this branch, so the test is ignored until the `ExtensionArray::try_new` change lands.
+    /// matched the storage array's own nullability.
     #[test]
-    #[ignore = "depends on ExtensionArray::try_new ignoring outer storage nullability"]
     fn l2_denorm_constant_unit_norms_nullable_scalar_nonnullable_normalized() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let normalized = normalized_vector_array(3, &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0], &mut ctx)?;

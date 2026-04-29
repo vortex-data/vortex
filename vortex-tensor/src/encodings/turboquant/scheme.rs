@@ -3,7 +3,8 @@
 
 //! TurboQuant compression scheme.
 //!
-//! The scheme is a thin [`Scheme`] adapter over [`turboquant_encode`], which produces:
+//! Plain [`Vector`](crate::vector::Vector) inputs are normalized and encoded via
+//! [`turboquant_encode`], which produces:
 //!
 //! ```text
 //! ScalarFnArray(L2Denorm, [
@@ -14,13 +15,19 @@
 //! ])
 //! ```
 //!
+//! Non-nullable [`NormalizedVector`](crate::normalized_vector::NormalizedVector) inputs skip the
+//! outer [`L2Denorm`](crate::scalar_fns::l2_denorm::L2Denorm) wrapper and are encoded directly via
+//! [`turboquant_encode_normalized`].
+//!
 //! Decompression is automatic: executing the outer array walks the ScalarFn tree.
 //!
 //! [`turboquant_encode`]: crate::encodings::turboquant::turboquant_encode
+//! [`turboquant_encode_normalized`]: crate::encodings::turboquant::turboquant_encode_normalized
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
+use vortex_array::arrays::Extension;
 use vortex_array::dtype::DType;
 use vortex_compressor::CascadingCompressor;
 use vortex_compressor::ctx::CompressorContext;
@@ -37,6 +44,7 @@ use crate::encodings::turboquant::MAX_CENTROIDS;
 use crate::encodings::turboquant::MIN_DIMENSION;
 use crate::encodings::turboquant::TurboQuantConfig;
 use crate::encodings::turboquant::turboquant_encode;
+use crate::encodings::turboquant::turboquant_encode_normalized;
 use crate::vector::AnyVector;
 use crate::vector::VectorMatcherMetadata;
 
@@ -105,7 +113,29 @@ impl Scheme for TurboQuantScheme {
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        turboquant_encode(data.array().clone(), &TurboQuantConfig::default(), exec_ctx)
+        // TODO(connor): If we ever add scheme vtables with metadata, we would need to pass in the
+        // config as a parameter here.
+        let config = TurboQuantConfig::default();
+        turboquant_encode_for_scheme(data.array().clone(), &config, exec_ctx)
+    }
+}
+
+fn turboquant_encode_for_scheme(
+    input: ArrayRef,
+    config: &TurboQuantConfig,
+    exec_ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let vector_metadata = tq_validate_vector_dtype(input.dtype())?;
+    if vector_metadata.is_normalized() {
+        let ext = input.as_opt::<Extension>().ok_or_else(|| {
+            vortex_err!(
+                "TurboQuant normalized input must be an Extension array, got {}",
+                input.encoding_id()
+            )
+        })?;
+        turboquant_encode_normalized(ext, config, exec_ctx)
+    } else {
+        turboquant_encode(input, config, exec_ctx)
     }
 }
 
@@ -137,8 +167,9 @@ fn estimate_compression_ratio(element_bit_width: u8, dimensions: u32, num_vector
     uncompressed_size_bits as f64 / compressed_size_bits as f64
 }
 
-/// Validates that `dtype` is a [`Vector`](crate::vector::Vector) extension type with
-/// dimension >= [`MIN_DIMENSION`].
+/// Validates that `dtype` is a plain [`Vector`](crate::vector::Vector) or non-nullable
+/// [`NormalizedVector`](crate::normalized_vector::NormalizedVector) extension type with dimension
+/// >= [`MIN_DIMENSION`].
 ///
 /// Returns the validated vector metadata on success.
 pub fn tq_validate_vector_dtype(dtype: &DType) -> VortexResult<VectorMatcherMetadata> {
@@ -154,6 +185,11 @@ pub fn tq_validate_vector_dtype(dtype: &DType) -> VortexResult<VectorMatcherMeta
         dimensions >= MIN_DIMENSION,
         "TurboQuant requires dimension >= {MIN_DIMENSION}, got {dimensions}",
     );
+    vortex_ensure!(
+        !vector_metadata.is_normalized() || !dtype.is_nullable(),
+        "TurboQuant cannot encode nullable NormalizedVector inputs because normalized encode has \
+         no norms child to carry validity",
+    );
 
     Ok(vector_metadata)
 }
@@ -161,8 +197,19 @@ pub fn tq_validate_vector_dtype(dtype: &DType) -> VortexResult<VectorMatcherMeta
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::FixedSizeListArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::ScalarFn;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::BufferMut;
 
     use super::*;
+    use crate::tests::SESSION;
+    use crate::types::normalized_vector::NormalizedVector;
+    use crate::utils::test_helpers::normalized_vector_array;
 
     /// Verify compression ratio for typical embedding dimensions.
     ///
@@ -230,6 +277,48 @@ mod tests {
             estimate_compression_ratio(element_bit_width, dim, num_vectors),
             expected
         );
+    }
+
+    #[test]
+    fn scheme_routes_normalized_vector_without_l2_denorm_wrapper() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut values = vec![0.0f32; 2 * 128];
+        values[0] = 1.0;
+        values[128 + 1] = 1.0;
+        let input = normalized_vector_array(128, &values, &mut ctx)?;
+
+        let encoded = turboquant_encode_for_scheme(input, &TurboQuantConfig::default(), &mut ctx)?;
+
+        assert!(encoded.dtype().as_extension().is::<NormalizedVector>());
+        assert!(
+            encoded.as_opt::<ScalarFn>().is_none(),
+            "NormalizedVector scheme path should not add an outer L2Denorm ScalarFnArray",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn validate_rejects_nullable_normalized_vector() -> VortexResult<()> {
+        let dim = 128u32;
+        let mut values = BufferMut::<f32>::with_capacity(2 * dim as usize);
+        for row in 0..2 {
+            for col in 0..dim {
+                values.push(if col == row { 1.0 } else { 0.0 });
+            }
+        }
+        let elements = PrimitiveArray::new::<f32>(values.freeze(), Validity::NonNullable);
+        let fsl = FixedSizeListArray::try_new(
+            elements.into_array(),
+            dim,
+            Validity::from_iter([true, false]),
+            2,
+        )?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let normalized = NormalizedVector::try_new(fsl.into_array(), &mut ctx)?;
+
+        assert_eq!(normalized.dtype().nullability(), Nullability::Nullable);
+        assert!(tq_validate_vector_dtype(normalized.dtype()).is_err());
+        Ok(())
     }
 
     /// Power-of-2 dimensions should have better ratios than their non-power-of-2
