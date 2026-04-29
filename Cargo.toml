@@ -60,6 +60,7 @@ members = [
     "benchmarks/duckdb-bench",
     "benchmarks/random-access-bench",
     "benchmarks/vector-search-bench",
+    "vortex-geo",
 ]
 exclude = ["java/testfiles", "wasm-test"]
 resolver = "2"
@@ -151,6 +152,9 @@ flatbuffers = "25.2.10"
 fsst-rs = "0.5.5"
 futures = { version = "0.3.31", default-features = false }
 fuzzy-matcher = "0.3"
+geoarrow = "0.8.0"
+geo-traits = "0.3.0"
+geo-types = "0.7.19"
 get_dir = "0.5.0"
 glob = "0.3.2"
 goldenfile = "1"
@@ -256,6 +260,7 @@ tracing-subscriber = "0.3"
 url = "2.5.7"
 uuid = { version = "1.21", features = ["js"] }
 wasm-bindgen-futures = "0.4.54"
+wkb = "0.9.2"
 xshell = "0.2.6"
 zigzag = "0.1.0"
 zip = "8.0.0"
@@ -279,6 +284,7 @@ vortex-fastlanes = { version = "0.1.0", path = "./encodings/fastlanes", default-
 vortex-file = { version = "0.1.0", path = "./vortex-file", default-features = false }
 vortex-flatbuffers = { version = "0.1.0", path = "./vortex-flatbuffers", default-features = false }
 vortex-fsst = { version = "0.1.0", path = "./encodings/fsst", default-features = false }
+vortex-geo = { version = "0.1.0", path = "./vortex-geo", default-features = false }
 vortex-io = { version = "0.1.0", path = "./vortex-io", default-features = false }
 vortex-ipc = { version = "0.1.0", path = "./vortex-ipc", default-features = false }
 vortex-layout = { version = "0.1.0", path = "./vortex-layout", default-features = false }
